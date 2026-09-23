@@ -54,6 +54,8 @@ func NewTensor[T TensorNumberType](data [][]T) (Tensor[T], error) {
 	// Create DLManagedTensor
 	dlm := (*C.DLManagedTensor)(C.malloc(C.size_t(unsafe.Sizeof(C.DLManagedTensor{}))))
 	if dlm == nil {
+		C.free(dataPtr)
+		C.free(shapePtr)
 		return Tensor[T]{}, errors.New("tensor allocation failed")
 	}
 
@@ -105,6 +107,8 @@ func NewVector[T TensorNumberType](data []T) (Tensor[T], error) {
 	// Create DLManagedTensor
 	dlm := (*C.DLManagedTensor)(C.malloc(C.size_t(unsafe.Sizeof(C.DLManagedTensor{}))))
 	if dlm == nil {
+		C.free(dataPtr)
+		C.free(shapePtr)
 		return Tensor[T]{}, errors.New("tensor allocation failed")
 	}
 
@@ -145,6 +149,7 @@ func NewTensorOnDevice[T TensorNumberType](res *Resource, shape []int64) (Tensor
 
 	dlm := (*C.DLManagedTensor)(C.malloc(C.size_t(unsafe.Sizeof(C.DLManagedTensor{}))))
 	if dlm == nil {
+		C.free(shapePtr)
 		return Tensor[T]{}, errors.New("tensor allocation failed")
 	}
 	dtype := getDLDataType[T]()
@@ -181,39 +186,45 @@ func NewTensorOnDevice[T TensorNumberType](res *Resource, shape []int64) (Tensor
 }
 
 // Destroys Tensor, freeing the memory it was allocated on.
+// Calling Close on an already closed Tensor is a no-op.
 func (t *Tensor[T]) Close() error {
-	if t.C_tensor.dl_tensor.device.device_type == C.kDLCUDA {
-		bytes := t.sizeInBytes()
-		res, err := NewResource(nil)
-		if err != nil {
+	if t.C_tensor == nil {
+		return nil
+	}
+
+	switch t.C_tensor.dl_tensor.device.device_type {
+	case C.kDLCUDA:
+		if err := t.freeDeviceData(); err != nil {
 			return err
 		}
-		err = CheckCuvs(CuvsError(C.cuvsRMMFree(res.Resource, t.C_tensor.dl_tensor.data, C.size_t(bytes))))
-
-		return err
-	} else if t.C_tensor.dl_tensor.device.device_type == C.kDLCPU {
-		if t.C_tensor.dl_tensor.data != nil {
-			C.free(t.C_tensor.dl_tensor.data)
-			t.C_tensor.dl_tensor.data = nil
-		}
+	case C.kDLCPU:
+		C.free(t.C_tensor.dl_tensor.data)
 	}
 
-	if t.C_tensor.dl_tensor.shape != nil {
-		C.free(unsafe.Pointer(t.C_tensor.dl_tensor.shape))
-		t.C_tensor.dl_tensor.shape = nil
-	}
-
-	if t.C_tensor != nil {
-		C.free(unsafe.Pointer(t.C_tensor))
-		t.C_tensor = nil
-	}
-
+	C.free(unsafe.Pointer(t.C_tensor.dl_tensor.shape))
+	C.free(unsafe.Pointer(t.C_tensor))
 	t.C_tensor = nil
 	return nil
 }
 
-// Transfers the data in the Tensor to the device.
+// The Resource used to allocate the device buffer is not retained, so a temporary one is used.
+func (t *Tensor[T]) freeDeviceData() error {
+	res, err := NewResource(nil)
+	if err != nil {
+		return err
+	}
+	defer res.Close()
+
+	return CheckCuvs(CuvsError(C.cuvsRMMFree(res.Resource, t.C_tensor.dl_tensor.data, C.size_t(t.sizeInBytes()))))
+}
+
+// Transfers the data in the Tensor to the device, releasing the host copy.
+// Does nothing if the Tensor is already on the device.
 func (t *Tensor[T]) ToDevice(res *Resource) (*Tensor[T], error) {
+	if t.C_tensor.dl_tensor.device.device_type == C.kDLCUDA {
+		return t, nil
+	}
+
 	bytes := t.sizeInBytes()
 
 	var DeviceDataPointer unsafe.Pointer
@@ -234,6 +245,7 @@ func (t *Tensor[T]) ToDevice(res *Resource) (*Tensor[T], error) {
 		C.cuvsRMMFree(res.Resource, DeviceDataPointer, C.size_t(bytes))
 		return nil, err
 	}
+	C.free(t.C_tensor.dl_tensor.data)
 	t.C_tensor.dl_tensor.device.device_type = C.kDLCUDA
 	t.C_tensor.dl_tensor.data = DeviceDataPointer
 
@@ -308,21 +320,21 @@ func (t *Tensor[T]) Expand(res *Resource, newData [][]T) (*Tensor[T], error) {
 		return nil, err
 	}
 
-	shape := make([]int64, 2)
-	shape[0] = int64(*t.C_tensor.dl_tensor.shape) + int64(len(newData))
-
-	shape[1] = newShape[1]
-
-	t.shape = shape
+	old_shape[0] += newShape[0]
+	t.shape = []int64{old_shape[0], old_shape[1]}
 
 	t.C_tensor.dl_tensor.data = NewDeviceDataPointer
-	t.C_tensor.dl_tensor.shape = (*C.int64_t)(unsafe.Pointer(&shape[0]))
 
 	return t, nil
 }
 
-// Transfers the data in the Tensor to the host.
+// Transfers the data in the Tensor to the host, releasing the device copy.
+// Does nothing if the Tensor is already on the host.
 func (t *Tensor[T]) ToHost(res *Resource) (*Tensor[T], error) {
+	if t.C_tensor.dl_tensor.device.device_type == C.kDLCPU {
+		return t, nil
+	}
+
 	bytes := t.sizeInBytes()
 
 	addr := (C.malloc(C.size_t(bytes)))
@@ -338,12 +350,14 @@ func (t *Tensor[T]) ToHost(res *Resource) (*Tensor[T], error) {
 			C.cudaMemcpyDeviceToHost,
 		))
 	if err != nil {
+		C.free(addr)
 		return nil, err
 	}
 
 	err = CheckCuvs(CuvsError(
 		C.cuvsRMMFree(res.Resource, t.C_tensor.dl_tensor.data, C.size_t(bytes))))
 	if err != nil {
+		C.free(addr)
 		return nil, err
 	}
 

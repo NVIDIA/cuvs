@@ -188,3 +188,113 @@ func TestDifferentDataTypes(t *testing.T) {
 		}
 	})
 }
+
+func TestRedundantTransfersAreNoOps(t *testing.T) {
+	resource, err := cuvs.NewResource(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close()
+
+	data := [][]float32{{1, 2, 3}, {4, 5, 6}}
+	tensor, err := cuvs.NewTensor(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tensor.Close()
+
+	if _, err := tensor.ToHost(&resource); err != nil {
+		t.Fatalf("ToHost on a host tensor: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := tensor.ToDevice(&resource); err != nil {
+			t.Fatalf("ToDevice call %d: %v", i, err)
+		}
+	}
+	if _, err := tensor.ToHost(&resource); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := tensor.Slice()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result, data) {
+		t.Errorf("data changed across redundant transfers: got %v, want %v", result, data)
+	}
+}
+
+func TestCloseIsIdempotent(t *testing.T) {
+	resource, err := cuvs.NewResource(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close()
+
+	t.Run("host", func(t *testing.T) {
+		tensor, err := cuvs.NewTensor([][]float32{{1, 2}, {3, 4}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2; i++ {
+			if err := tensor.Close(); err != nil {
+				t.Fatalf("Close call %d: %v", i, err)
+			}
+		}
+	})
+
+	t.Run("device", func(t *testing.T) {
+		tensor, err := cuvs.NewTensorOnDevice[float32](&resource, []int64{2, 2})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2; i++ {
+			if err := tensor.Close(); err != nil {
+				t.Fatalf("Close call %d: %v", i, err)
+			}
+		}
+	})
+}
+
+// Expand must keep the DLPack shape in C memory; run with GOEXPERIMENT=cgocheck2 to catch regressions.
+func TestExpandRepeatedly(t *testing.T) {
+	resource, err := cuvs.NewResource(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resource.Close()
+
+	rows := make([][]float32, 6)
+	for i := range rows {
+		rows[i] = []float32{float32(i), float32(-i)}
+	}
+
+	tensor, err := cuvs.NewTensor(rows[:2])
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tensor.Close()
+
+	if _, err := tensor.ToDevice(&resource); err != nil {
+		t.Fatal(err)
+	}
+	for _, chunk := range [][][]float32{rows[2:3], rows[3:6]} {
+		if _, err := tensor.Expand(&resource, chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got, want := tensor.Shape(), []int64{6, 2}; !reflect.DeepEqual(got, want) {
+		t.Errorf("shape after Expand: got %v, want %v", got, want)
+	}
+	if _, err := tensor.ToHost(&resource); err != nil {
+		t.Fatal(err)
+	}
+	result, err := tensor.Slice()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(result, rows) {
+		t.Errorf("data after Expand: got %v, want %v", result, rows)
+	}
+}
