@@ -33,6 +33,18 @@
 
 namespace cuvs::neighbors::hnsw {
 
+enum class LayeredSource {
+  disk_ace,
+  regular,
+  inmem_ace,
+  device_standard_attached,
+  device_standard_explicit,
+  device_padded_attached,
+  device_padded_explicit,
+  host_standard,
+  host_padded
+};
+
 struct AnnHnswAceInputs {
   int n_queries;
   int n_rows;
@@ -444,7 +456,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     std::filesystem::remove_all(temp_dir);
   }
 
-  void testHnswAceLayeredBuildDeserializeSearch()
+  void testHnswAceLayeredBuildDeserializeSearch(LayeredSource source = LayeredSource::disk_ace)
   {
     size_t queries_size = ps.n_queries * ps.k;
     std::vector<IdxT> indexes_naive(queries_size);
@@ -503,13 +515,13 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     hnsw_params.M               = 32;
     hnsw_params.ef_construction = ps.ef_construction;
 
-    auto ace_params                = graph_build_params::ace_params();
-    ace_params.npartitions         = ps.npartitions;
-    ace_params.build_dir           = temp_dir;
-    ace_params.use_disk            = true;
-    ace_params.max_host_memory_gb  = ps.max_host_memory_gb;
-    ace_params.max_gpu_memory_gb   = ps.max_gpu_memory_gb;
-    hnsw_params.graph_build_params = ace_params;
+    if (source == LayeredSource::disk_ace || source == LayeredSource::inmem_ace) {
+      auto ace_params        = graph_build_params::ace_params();
+      ace_params.npartitions = ps.npartitions;
+      ace_params.use_disk    = source == LayeredSource::disk_ace;
+      if (ace_params.use_disk) { ace_params.build_dir = temp_dir; }
+      hnsw_params.graph_build_params = ace_params;
+    }
 
     auto invalid_params      = hnsw_params;
     invalid_params.hierarchy = hnsw::HnswHierarchy::CPU;
@@ -517,8 +529,57 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       hnsw::build(handle_, invalid_params, raft::make_const_mdspan(database_host.view())),
       std::exception);
 
-    auto hnsw_index =
-      hnsw::build(handle_, hnsw_params, raft::make_const_mdspan(database_host.view()));
+    std::unique_ptr<hnsw::index<DataT>> hnsw_index;
+    auto host_vectors = raft::make_const_mdspan(database_host.view());
+    if (source == LayeredSource::disk_ace || source == LayeredSource::inmem_ace ||
+        source == LayeredSource::regular) {
+      hnsw_index = hnsw::build(handle_, hnsw_params, host_vectors);
+    } else {
+      cagra::index_params cagra_params;
+      cagra_params.metric                    = ps.metric;
+      cagra_params.graph_degree              = 64;
+      cagra_params.intermediate_graph_degree = 128;
+      // Explicit-vector cases also cover CAGRA indexes without an attached dataset.
+      cagra_params.attach_dataset_on_build = source != LayeredSource::device_standard_explicit &&
+                                             source != LayeredSource::device_padded_explicit;
+      auto device_vectors =
+        raft::make_device_matrix_view<const DataT, int64_t>(database_dev.data(), ps.n_rows, ps.dim);
+      // Each CAGRA source goes out of scope before the artifact is read.
+      if (source == LayeredSource::device_standard_attached ||
+          source == LayeredSource::device_standard_explicit) {
+        auto cagra_index =
+          cagra::build(handle_, cagra_params, make_device_standard_dataset_view(device_vectors));
+        hnsw_index = source == LayeredSource::device_standard_attached
+                       ? hnsw::from_cagra(handle_, hnsw_params, cagra_index)
+                       : hnsw::from_cagra(handle_, hnsw_params, cagra_index, host_vectors);
+      } else if (source == LayeredSource::device_padded_attached ||
+                 source == LayeredSource::device_padded_explicit) {
+        cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> padded(handle_,
+                                                                            device_vectors);
+        auto cagra_index = cagra::build(handle_, cagra_params, padded.view);
+        hnsw_index       = source == LayeredSource::device_padded_attached
+                             ? hnsw::from_cagra(handle_, hnsw_params, cagra_index)
+                             : hnsw::from_cagra(handle_, hnsw_params, cagra_index, host_vectors);
+      } else if (source == LayeredSource::host_standard) {
+        auto cagra_index =
+          cagra::build(handle_, cagra_params, make_host_standard_dataset_view(host_vectors));
+        EXPECT_THROW(hnsw::from_cagra(handle_, hnsw_params, cagra_index), std::exception);
+        auto wrong_rows = raft::make_host_matrix_view<const DataT, int64_t>(
+          database_host.data_handle(), ps.n_rows - 1, ps.dim);
+        auto wrong_columns = raft::make_host_matrix_view<const DataT, int64_t>(
+          database_host.data_handle(), ps.n_rows, ps.dim - 1);
+        EXPECT_THROW(hnsw::from_cagra(handle_, hnsw_params, cagra_index, wrong_rows),
+                     std::exception);
+        EXPECT_THROW(hnsw::from_cagra(handle_, hnsw_params, cagra_index, wrong_columns),
+                     std::exception);
+        hnsw_index = hnsw::from_cagra(handle_, hnsw_params, cagra_index, host_vectors);
+      } else {
+        auto padded      = make_host_padded_dataset(handle_, database_host.view());
+        auto cagra_index = cagra::build(handle_, cagra_params, padded->as_dataset_view());
+        EXPECT_THROW(hnsw::from_cagra(handle_, hnsw_params, cagra_index), std::exception);
+        hnsw_index = hnsw::from_cagra(handle_, hnsw_params, cagra_index, host_vectors);
+      }
+    }
     ASSERT_NE(hnsw_index, nullptr);
     EXPECT_EQ(hnsw_index->hierarchy(), hnsw::HnswHierarchy::GPU);
     EXPECT_EQ(hnsw_index->output_format(), hnsw::HnswOutputFormat::GRAPH_ONLY);
@@ -531,7 +592,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     for (const auto& entry : std::filesystem::directory_iterator(temp_dir)) {
       if (entry.path().extension() == ".cuvs") { ++cuvs_artifact_count; }
     }
-    EXPECT_EQ(cuvs_artifact_count, 1);
+    EXPECT_EQ(cuvs_artifact_count, source == LayeredSource::disk_ace ? 1 : 0);
     EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(temp_dir) / "layered_hnsw"));
 
     auto indexes_hnsw_host   = raft::make_host_matrix<uint64_t, int64_t>(ps.n_queries, ps.k);
@@ -605,6 +666,17 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       hnsw::deserialize(handle_, artifact_path, float_dataset_file, &mixed_precision_index);
       ASSERT_NE(mixed_precision_index, nullptr);
       std::unique_ptr<hnsw::index<float>> mixed_precision_guard(mixed_precision_index);
+      const auto mixed_artifact = (std::filesystem::path(temp_dir) / "mixed_resaved.cuvs").string();
+      hnsw::serialize(handle_, mixed_artifact, *mixed_precision_guard);
+      std::ifstream mixed_file(mixed_artifact, std::ios::binary);
+      cuvs::neighbors::hnsw::detail::layered_hnsw_file_header mixed_header{};
+      mixed_file.read(reinterpret_cast<char*>(&mixed_header), sizeof(mixed_header));
+      ASSERT_TRUE(mixed_file.good());
+      EXPECT_EQ(mixed_header.construction_dtype,
+                static_cast<uint32_t>(cuvs::neighbors::hnsw::detail::layered_hnsw_dtype::int8));
+      hnsw::index<float>* mixed_roundtrip = nullptr;
+      hnsw::deserialize(handle_, mixed_artifact, float_dataset_file, &mixed_roundtrip);
+      mixed_precision_guard.reset(mixed_roundtrip);
 
       hnsw::search(handle_,
                    search_params,
@@ -639,10 +711,34 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
     }
     EXPECT_EQ(copied_file_count, 1);
 
+    const auto original_artifact_size = std::filesystem::file_size(copied_artifact);
+    hnsw_index.reset();
+    if (source == LayeredSource::disk_ace) {
+      // The caller owns persistent disk ACE artifacts.
+      EXPECT_TRUE(std::filesystem::exists(artifact_path));
+      std::filesystem::remove(artifact_path);
+      std::filesystem::remove(std::filesystem::path(temp_dir) / "cagra_graph.npy");
+      std::filesystem::remove(std::filesystem::path(temp_dir) / "reordered_dataset.npy");
+    } else {
+      EXPECT_FALSE(std::filesystem::exists(artifact_path));
+      EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(artifact_path).parent_path()));
+    }
+
+    // A loaded graph remains serializable after its source artifact has been removed.
+    // Reuse the destination to exercise serialize's overwrite behavior as well.
+    hnsw::serialize(handle_, copied_artifact, *deserialized_guard);
+    EXPECT_EQ(std::filesystem::file_size(copied_artifact), original_artifact_size);
+    deserialized_guard.reset();
+
     hnsw::index<DataT>* copied_index = nullptr;
     hnsw::deserialize(handle_, copied_artifact, dataset_file, &copied_index);
     ASSERT_NE(copied_index, nullptr);
     std::unique_ptr<hnsw::index<DataT>> copied_guard(copied_index);
+    hnsw::serialize(handle_, copied_artifact, *copied_guard);
+    hnsw::index<DataT>* roundtrip_index = nullptr;
+    hnsw::deserialize(handle_, copied_artifact, dataset_file, &roundtrip_index);
+    copied_guard.reset(roundtrip_index);
+    EXPECT_EQ(copied_guard->output_format(), hnsw::HnswOutputFormat::GRAPH_ONLY);
 
     hnsw::search(handle_,
                  search_params,

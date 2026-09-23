@@ -64,4 +64,52 @@ INSTANTIATE_TEST_CASE_P(AnnHnswInmemSpillTest,
                         AnnHnswInmemSpillTest_half,
                         ::testing::ValuesIn(hnsw_inmem_spill_inputs));
 
+// One nonaligned shape per scalar; avoid crossing the full ACE parameter matrix.
+typedef AnnHnswAceTest<float, half, uint32_t> AnnHnswLayeredSourcesTest_half;
+TEST_P(AnnHnswLayeredSourcesTest_half, RegularBuild)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::regular);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_half, InMemoryAceBuild)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::inmem_ace);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_half, DeviceStandardAttached)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::device_standard_attached);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_half, DeviceStandardExplicit)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::device_standard_explicit);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_half, DevicePaddedAttached)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::device_padded_attached);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_half, DevicePaddedExplicit)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::device_padded_explicit);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_half, HostStandard)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::host_standard);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_half, HostPadded)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::host_padded);
+}
+
+INSTANTIATE_TEST_CASE_P(
+  AnnHnswLayeredSourcesTest,
+  AnnHnswLayeredSourcesTest_half,
+  ::testing::Values(AnnHnswAceInputs{
+    10, 2000, 17, 10, 2, 100, false, cuvs::distance::DistanceType::L2Expanded, 0.9}));
+
 }  // namespace cuvs::neighbors::hnsw
