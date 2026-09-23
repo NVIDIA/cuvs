@@ -231,7 +231,9 @@ Both `AcceleratedHNSWParams` and `GPUSearchParams` default to a `HEURISTIC` stra
 - For the accelerated HNSW codecs, set `maxConn` and `beamWidth`, the HNSW parameters you would tune on the CPU. cuVS derives graph degrees and the build algorithm from them. These two values also configure the CPU fallback writer, so one setting covers both paths.
 - For the GPU search codec, set `buildQuality`. Higher values spend more build time for a higher-quality graph. This codec also passes `graphDegree` into the heuristic, so leave it at its default unless you intend to cap the graph.
 
-Increasing `writerThreads` raises index build concurrency. The accelerated HNSW codecs default to a single writer thread, while the GPU search codec defaults to 32.
+`writerThreads` controls native cuVS writer concurrency for both parameter types. For the accelerated HNSW codecs, it also sets the maximum number of CPU threads used to materialize and serialize the finished graph; the default of one keeps this post-build processing serial. The GPU search codec continues to use the setting only for native writer concurrency and defaults to 32.
+
+With more than one writer thread, parallel adjacency materialization is eligible for layers with at least 65,536 nodes. A device adjacency is copied once to native host memory when that copy is at most 4 GiB; larger device adjacencies retain serial row access. Level-zero serialization is independently eligible at 65,536 nodes and runs in fixed waves of at most 1,048,576 nodes; upper levels remain serial.
 
 Switching either class to the `CUSTOM` strategy exposes the underlying CAGRA parameters directly, including `graphDegree`, `intermediateGraphDegree`, the graph build algorithm, and its parameters. Use `CUSTOM` only when you have measurements that justify specific values; the defaults derived by cuVS are a better starting point. For background on the parameters themselves, see the [CAGRA indexing guide](/user-guide/api-guides/indexing-guide/cagra) and the [tuning guide](/getting-started/introduction/tuning-indexes).
 

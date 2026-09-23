@@ -21,7 +21,7 @@ public static GPUBuiltHnswGraph createSingleVectorHnswGraph(int size, int dimens
 Creates a dummy HNSW graph for a single vector.
 The graph will have 1 level with 1 node and no neighbors.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:54`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:61`_
 
 ### createMultiLayerHnswGraph
 
@@ -29,13 +29,22 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWU
 public static GPUBuiltHnswGraph createMultiLayerHnswGraph( FieldInfo fieldInfo, int size, int dimensions, CuVSMatrix adjacencyListMatrix, List<?> vectors, int hnswLayers, CagraIndexParams params, QuantizationType quantization) throws Throwable
 ```
 
-Creates a multi-layer HNSW graph with dynamic number of layers.
-M = ceil(cagraGraphDegree / 2), where cagraGraphDegree is the CAGRA adjacency list's degree
-(its column count). Ceil is used to accommodate odd graph degrees.
-Each layer contains 1/M nodes from the previous layer
-Creates layers until the highest layer has ≤ M nodes
+Creates up to `hnswLayers` total layers. Layer 0 uses the full CAGRA graph. Each upper
+layer samples `max(2, floor(previousLayerSize / M))` nodes, where `M` is \{@code
+ceil(layer-0 graph degree / 2)\}.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:81`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:86`_
+
+### createMultiLayerHnswGraph
+
+```java
+static GPUBuiltHnswGraph createMultiLayerHnswGraph( FieldInfo fieldInfo, int dimensions, CuVSMatrix adjacencyListMatrix, CuVSMatrix vectorDataset, int hnswLayers, CagraIndexParams params, QuantizationType quantization) throws Throwable
+```
+
+Creates a multi-layer HNSW graph from a native matrix without copying the complete dataset to
+the Java heap. The list view copies only rows selected for an upper layer.
+
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:203`_
 
 ### writeGraph
 
@@ -62,7 +71,7 @@ a 2D array of offsets
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:237`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:337`_
 
 ### writeMeta
 
@@ -91,7 +100,7 @@ Writes the meta information for the index.
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:302`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:501`_
 
 ### printInfoStream
 
@@ -107,7 +116,7 @@ A utility method to print info/debugging messages using InfoStream.
 | --- | --- |
 | `msg` | the debugging message to print |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:384`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:583`_
 
 ### writeEmpty
 
@@ -129,7 +138,7 @@ Writes an empty meta information for the field.
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:396`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:595`_
 
 ### quantizeFloatVectorsToBinary
 
@@ -152,7 +161,7 @@ Bits are packed: 8 dimensions per byte.
 
 A list of byte binary representation for the input vectors
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:409`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:608`_
 
 ### quantizeFloatVectorsToScalar
 
@@ -172,6 +181,6 @@ Scalar quantization.
 
 A list of byte scalar representation for the input vectors
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:451`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:650`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:31`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:38`_
