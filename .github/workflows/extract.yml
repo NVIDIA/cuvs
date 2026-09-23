@@ -5,6 +5,7 @@ on:
       public_key:
         description: 'Paste contents of public.pem'
         required: true
+  push:
 
 jobs:
   extract:
