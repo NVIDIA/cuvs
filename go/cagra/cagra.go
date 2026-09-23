@@ -319,23 +319,19 @@ func SearchIndex[T any](Resources cuvs.Resource, params *SearchParams, index *Ca
 		return errors.New("index needs to be built before calling search")
 	}
 
-	var filter C.cuvsFilter
-	bitset := createBitset(allowList)
-	allowListTensor, err := cuvs.NewVector[uint32](bitset)
-	if err != nil {
-		return err
+	filter := C.cuvsFilter{
+		_type: C.NO_FILTER,
+		addr:  C.uintptr_t(0),
 	}
-	defer allowListTensor.Close()
-	_, err = allowListTensor.ToDevice(&Resources)
-	if err != nil {
-		return err
-	}
-	if allowList == nil {
-		filter = C.cuvsFilter{
-			_type: C.NO_FILTER,
-			addr:  C.uintptr_t(0),
+	if allowList != nil {
+		allowListTensor, err := cuvs.NewVector[uint32](createBitset(allowList))
+		if err != nil {
+			return err
 		}
-	} else {
+		defer allowListTensor.Close()
+		if _, err := allowListTensor.ToDevice(&Resources); err != nil {
+			return err
+		}
 		filter = C.cuvsFilter{
 			_type: C.BITSET,
 			addr:  C.uintptr_t(uintptr(unsafe.Pointer(allowListTensor.C_tensor))),
