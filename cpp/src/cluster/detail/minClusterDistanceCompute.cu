@@ -58,6 +58,7 @@ void minClusterAndDistanceCompute(
       workspace.resize((sizeof(int)) * n_samples, stream);
 
       cuvs::distance::fusedDistanceNNMinReduce<DataT, raft::KeyValuePair<IndexT, DataT>, IndexT>(
+        handle,
         minClusterAndDistance.data_handle(),
         X.data_handle(),
         centroids.data_handle(),
@@ -71,8 +72,7 @@ void minClusterAndDistanceCompute(
         false,
         true,
         metric,
-        0.0f,
-        stream);
+        0.0f);
     } else {
       auto dataBatchSize      = getDataBatchSize(batch_samples, n_samples);
       auto centroidsBatchSize = getCentroidsBatchSize(batch_centroids, n_clusters);
@@ -101,8 +101,9 @@ void minClusterAndDistanceCompute(
           cuvs::distance::unfusedDistanceNNMinReduce<DataT, DataT, KeyValueT, IndexT>(
             handle,
             batchMin,
-            X.data_handle() + dIdx * n_features,
-            centroids.data_handle() + cIdx * n_features,
+            X.data_handle() + static_cast<std::size_t>(dIdx) * static_cast<std::size_t>(n_features),
+            centroids.data_handle() +
+              static_cast<std::size_t>(cIdx) * static_cast<std::size_t>(n_features),
             L2NormX.data_handle() + dIdx,
             centroidsNorm.data_handle() + cIdx,
             ns,
@@ -113,8 +114,7 @@ void minClusterAndDistanceCompute(
             tileCentroids,
             true,
             metric,
-            0.0f,
-            stream);
+            0.0f);
 
           if (tileCentroids) {
             // Convert tile-local centroid indices and merge the tile minima.
@@ -159,7 +159,9 @@ void minClusterAndDistanceCompute(
       // datasetView [ns x n_features] - view representing the current batch of
       // input dataset
       auto datasetView = raft::make_device_matrix_view<const DataT, IndexT>(
-        X.data_handle() + (dIdx * n_features), ns, n_features);
+        X.data_handle() + static_cast<std::size_t>(dIdx) * static_cast<std::size_t>(n_features),
+        ns,
+        n_features);
 
       // minClusterAndDistanceView [ns x n_clusters]
       auto minClusterAndDistanceView =
@@ -174,7 +176,10 @@ void minClusterAndDistanceCompute(
         // centroidsView [nc x n_features] - view representing the current batch
         // of centroids
         auto centroidsView = raft::make_device_matrix_view<const DataT, IndexT>(
-          centroids.data_handle() + (cIdx * n_features), nc, n_features);
+          centroids.data_handle() +
+            static_cast<std::size_t>(cIdx) * static_cast<std::size_t>(n_features),
+          nc,
+          n_features);
 
         // pairwiseDistanceView [ns x nc] - view representing the pairwise
         // distance for current batch
@@ -276,6 +281,7 @@ void minClusterDistanceCompute(raft::resources const& handle,
     workspace.resize(sizeof(int) * n_samples, stream);
 
     cuvs::distance::fusedDistanceNNMinReduce<DataT, DataT, IndexT>(
+      handle,
       minClusterDistance.data_handle(),
       X.data_handle(),
       centroids.data_handle(),
@@ -289,8 +295,7 @@ void minClusterDistanceCompute(raft::resources const& handle,
       false,
       true,
       metric,
-      0.0f,
-      stream);
+      0.0f);
   } else {
     auto dataBatchSize      = getDataBatchSize(batch_samples, n_samples);
     auto centroidsBatchSize = getCentroidsBatchSize(batch_centroids, n_clusters);
@@ -306,7 +311,9 @@ void minClusterDistanceCompute(raft::resources const& handle,
       auto ns = std::min((IndexT)dataBatchSize, n_samples - dIdx);
 
       auto datasetView = raft::make_device_matrix_view<const DataT, IndexT>(
-        X.data_handle() + dIdx * n_features, ns, n_features);
+        X.data_handle() + static_cast<std::size_t>(dIdx) * static_cast<std::size_t>(n_features),
+        ns,
+        n_features);
 
       auto minClusterDistanceView =
         raft::make_device_vector_view<DataT, IndexT>(minClusterDistance.data_handle() + dIdx, ns);
@@ -316,7 +323,10 @@ void minClusterDistanceCompute(raft::resources const& handle,
         auto nc = std::min((IndexT)centroidsBatchSize, n_clusters - cIdx);
 
         auto centroidsView = raft::make_device_matrix_view<DataT, IndexT>(
-          centroids.data_handle() + cIdx * n_features, nc, n_features);
+          centroids.data_handle() +
+            static_cast<std::size_t>(cIdx) * static_cast<std::size_t>(n_features),
+          nc,
+          n_features);
 
         auto pairwiseDistanceView =
           raft::make_device_matrix_view<DataT, IndexT>(pairwiseDistance.data_handle(), ns, nc);

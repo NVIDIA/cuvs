@@ -16,7 +16,9 @@ Generic dataset layout kind for C API dataset handles.
 ```c
 typedef enum {
   CUVS_DATASET_LAYOUT_STANDARD = 0,
-  CUVS_DATASET_LAYOUT_PADDED = 1
+  CUVS_DATASET_LAYOUT_PADDED = 1,
+  CUVS_DATASET_LAYOUT_PQ = 2,
+  CUVS_DATASET_LAYOUT_BBQ = 3
 } cuvsDatasetLayout_t;
 ```
 
@@ -26,6 +28,8 @@ typedef enum {
 | --- | --- |
 | `CUVS_DATASET_LAYOUT_STANDARD` | `0` |
 | `CUVS_DATASET_LAYOUT_PADDED` | `1` |
+| `CUVS_DATASET_LAYOUT_PQ` | `2` |
+| `CUVS_DATASET_LAYOUT_BBQ` | `3` |
 
 <a id="cuvsdatasetmemtype-t"></a>
 ### cuvsDatasetMemType_t
@@ -72,3 +76,12 @@ typedef struct {
 | `mem_type` | [`cuvsDatasetMemType_t`](/api-reference/c-api-core-dataset#cuvsdatasetmemtype-t) |  |
 | `layout` | [`cuvsDatasetLayout_t`](/api-reference/c-api-core-dataset#cuvsdatasetlayout-t) |  |
 | `is_owning` | `bool` |  |
+
+<a id="cuvscagracompressionparams-t"></a>
+### cuvsCagraCompressionParams_t
+
+Compatibility name for PQ dataset parameters; planned for removal in the 27.02 ABI-breaking release.
+
+```c
+typedef struct cuvsCagraCompressionParams* cuvsCagraCompressionParams_t;
+```

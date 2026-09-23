@@ -20,6 +20,7 @@ using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_vie
 using inst_host_padded_view_t     = cuvs::neighbors::host_padded_dataset_view<data_t, int64_t>;
 using inst_host_standard_view_t   = cuvs::neighbors::host_standard_dataset_view<data_t, int64_t>;
 using inst_vpq_view_t             = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+using inst_bbq_view_t             = cuvs::neighbors::device_bbq_dataset_view<data_t, int64_t>;
 }  // namespace
 
 namespace cuvs::neighbors::cagra {
@@ -31,6 +32,8 @@ extern template void index<data_t, uint32_t, inst_device_standard_view_t>::compu
 extern template void index<data_t, uint32_t, inst_host_padded_view_t>::compute_dataset_norms_(
   raft::resources const&);
 extern template void index<data_t, uint32_t, inst_host_standard_view_t>::compute_dataset_norms_(
+  raft::resources const&);
+extern template void index<data_t, uint32_t, inst_bbq_view_t>::compute_dataset_norms_(
   raft::resources const&);
 void build_knn_graph(raft::resources const& handle,
                      raft::host_matrix_view<const data_t, int64_t, raft::row_major> dataset,
@@ -56,6 +59,14 @@ CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_padded_view_t,
                                  cuvs::neighbors::cagra::host_padded_index<data_t, uint32_t>);
 CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_standard_view_t,
                                  cuvs::neighbors::cagra::host_standard_index<data_t, uint32_t>);
+
+#if @emit_vpq_build@
+CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_vpq_view_t,
+                                 cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>);
+#endif
+
+CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_bbq_view_t,
+                                 cuvs::neighbors::cagra::device_bbq_index<data_t, uint32_t>);
 
 #undef CUVS_DEFINE_CAGRA_BUILD_OVERLOAD
 
@@ -89,7 +100,14 @@ CUVS_INST_CAGRA_UPDATE_DATASET(data_t,
                                index_t,
                                inst_device_padded_view_t,
                                inst_device_padded_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_host_standard_view_t, inst_vpq_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_host_padded_view_t, inst_vpq_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_device_standard_view_t, inst_vpq_view_t);
 CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_device_padded_view_t, inst_vpq_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_vpq_view_t, inst_device_padded_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_vpq_view_t, inst_vpq_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_bbq_view_t, inst_device_padded_view_t);
+CUVS_INST_CAGRA_UPDATE_DATASET(data_t, index_t, inst_bbq_view_t, inst_vpq_view_t);
 
 #undef CUVS_INST_CAGRA_UPDATE_DATASET
 

@@ -77,6 +77,19 @@ constexpr bool is_valid_serialized_dataset_kind(std::uint32_t raw)
   return raw <= static_cast<std::uint32_t>(kind::host_standard);
 }
 
+/**
+ * Quantized datasets (PQ, BBQ) are owned outside the index and carry codebooks the index file has
+ * no representation for, so such indexes serialize the graph alone.
+ */
+template <typename DatasetViewT>
+inline constexpr bool is_graph_only_dataset_view_v =
+  cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT> ||
+  cuvs::neighbors::is_bbq_dataset_view_v<DatasetViewT>;
+
+inline constexpr char const* kGraphOnlyDatasetMessage =
+  "CAGRA indexes with a quantized dataset store only the graph; serialize the quantized dataset "
+  "separately and reattach it with update_dataset()";
+
 template <typename MdspanT>
 void serialize_index_mdspan(raft::resources const& res, std::ostream& os, MdspanT const& mdspan)
 {
@@ -110,10 +123,14 @@ void serialize(raft::resources const& res,
     "Saving CAGRA index, size %zu, dim %u", static_cast<size_t>(index_.size()), index_.dim());
 
   include_dataset &= (index_.dataset().n_rows() > 0);
-  auto const dataset_kind = include_dataset ? serialized_dataset_kind_for_view<DatasetViewT>()
-                                            : cuvs::neighbors::cagra::serialized_dataset_kind::none;
+  auto dataset_kind = cuvs::neighbors::cagra::serialized_dataset_kind::none;
+  if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+    RAFT_EXPECTS(!include_dataset, kGraphOnlyDatasetMessage);
+  } else {
+    if (include_dataset) { dataset_kind = serialized_dataset_kind_for_view<DatasetViewT>(); }
+  }
 
-  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = cuvs::util::detail::numpy_dtype_string<T>();
   dtype_string.resize(4);
   os << dtype_string;
 
@@ -134,9 +151,11 @@ void serialize(raft::resources const& res,
     RAFT_LOG_DEBUG("Saving CAGRA index with dataset");
     if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>) {
       neighbors::detail::serialize_cagra_dense_dataset<T, int64_t>(res, os, index_.dataset());
+    } else if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+      RAFT_FAIL(kGraphOnlyDatasetMessage);
     } else {
-      // Future dataset types (e.g. VPQ) require a new branch here and a corresponding
-      // deserialize overload. Use static_assert to catch unsupported types at compile time.
+      // A further dataset type requires a new branch here and a corresponding deserialize branch.
+      // Use static_assert to catch unsupported types at compile time.
       static_assert(
         sizeof(DatasetViewT) == 0,
         "serialize: dataset serialization is not yet implemented for this DatasetViewT");
@@ -580,29 +599,37 @@ void deserialize_impl(
     std::unique_ptr<owner_t> dataset_owner{};
     if (has_dataset) {
       if (out_dataset == nullptr) {
-        cuvs::neighbors::detail::skip_dense_dataset<T, int64_t>(res, is);
-      } else {
-        auto const expected_kind = serialized_dataset_kind_for_view<DatasetViewT>();
-        RAFT_EXPECTS(
-          dataset_kind == expected_kind,
-          "cagra::deserialize: serialized dataset kind %u does not match requested kind %u",
-          dataset_kind_raw,
-          static_cast<std::uint32_t>(expected_kind));
-        if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
-          dataset_owner =
-            cuvs::neighbors::detail::deserialize_padded_dataset<T, int64_t>(res, input);
-        } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
-          dataset_owner =
-            cuvs::neighbors::detail::deserialize_standard_dataset<T, int64_t>(res, input);
-        } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<DatasetViewT>) {
-          dataset_owner =
-            cuvs::neighbors::detail::deserialize_host_padded_dataset<T, int64_t>(res, input);
-        } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
-          dataset_owner =
-            cuvs::neighbors::detail::deserialize_host_standard_dataset<T, int64_t>(res, input);
+        if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+          RAFT_FAIL("cagra::deserialize: quantized index files must contain only the graph");
         } else {
-          static_assert(sizeof(DatasetViewT) == 0,
-                        "deserialize: dataset deserialization is not implemented for this view");
+          cuvs::neighbors::detail::skip_dense_dataset<T, int64_t>(res, is);
+        }
+      } else {
+        if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+          RAFT_FAIL("cagra::deserialize: quantized index files must contain only the graph");
+        } else {
+          auto const expected_kind = serialized_dataset_kind_for_view<DatasetViewT>();
+          RAFT_EXPECTS(
+            dataset_kind == expected_kind,
+            "cagra::deserialize: serialized dataset kind %u does not match requested kind %u",
+            dataset_kind_raw,
+            static_cast<std::uint32_t>(expected_kind));
+          if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
+            dataset_owner =
+              cuvs::neighbors::detail::deserialize_padded_dataset<T, int64_t>(res, input);
+          } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
+            dataset_owner =
+              cuvs::neighbors::detail::deserialize_standard_dataset<T, int64_t>(res, input);
+          } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<DatasetViewT>) {
+            dataset_owner =
+              cuvs::neighbors::detail::deserialize_host_padded_dataset<T, int64_t>(res, input);
+          } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
+            dataset_owner =
+              cuvs::neighbors::detail::deserialize_host_standard_dataset<T, int64_t>(res, input);
+          } else {
+            static_assert(sizeof(DatasetViewT) == 0,
+                          "deserialize: dataset deserialization is not implemented for this view");
+          }
         }
       }
     }

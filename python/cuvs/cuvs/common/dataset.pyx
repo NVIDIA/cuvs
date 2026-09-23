@@ -46,6 +46,8 @@ cdef class Dataset:
         if self.dataset == NULL:
             return None
         check_cuvs(cuvsDatasetGetLayout(self.dataset, &layout))
+        if layout == CUVS_DATASET_LAYOUT_PQ:
+            return "pq"
         if layout == CUVS_DATASET_LAYOUT_PADDED:
             return "padded"
         return "standard"
@@ -146,3 +148,44 @@ def make_device_padded_dataset(dataset, resources=None):
     if not padded.is_owning:
         padded._source = dataset
     return padded
+
+
+@auto_sync_resources
+def make_device_pq_dataset(params, dataset, resources=None):
+    """Create an owning device PQ dataset."""
+    cdef Dataset dense
+    cdef Dataset pq = Dataset()
+    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
+    cdef cydlpack.DLManagedTensor* dataset_dlpack = NULL
+    cdef cuvsPqParams_t c_params = NULL
+
+    if isinstance(dataset, Dataset):
+        dense = dataset
+    else:
+        dataset_ai = wrap_array(dataset)
+        _check_dataset_array(dataset_ai)
+        dataset_dlpack = cydlpack.dlpack_c(dataset_ai)
+        dense = Dataset()
+        check_cuvs(cuvsDatasetMakeStandardView(
+            res, dataset_dlpack, &dense.dataset))
+
+    check_cuvs(cuvsPqParamsCreate(&c_params))
+    try:
+        c_params.pq_bits = params.pq_bits
+        c_params.pq_dim = params.pq_dim
+        c_params.vq_n_centers = params.vq_n_centers
+        c_params.kmeans_n_iters = params.kmeans_n_iters
+        c_params.vq_kmeans_trainset_fraction = \
+            params.vq_kmeans_trainset_fraction
+        c_params.pq_kmeans_trainset_fraction = \
+            params.pq_kmeans_trainset_fraction
+
+        check_cuvs(cuvsDatasetMakePQ(
+            res,
+            c_params,
+            dense.dataset,
+            CUVS_DATASET_MEM_TYPE_DEVICE,
+            &pq.dataset))
+    finally:
+        check_cuvs(cuvsPqParamsDestroy(c_params))
+    return pq

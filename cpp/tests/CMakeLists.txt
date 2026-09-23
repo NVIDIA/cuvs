@@ -41,6 +41,7 @@ function(ConfigureTest)
     ${TEST_NAME}
     PRIVATE cuvs
             cuvs::cuvs
+            cuvs_internal
             raft::raft
             rtcx::rtcx
             GTest::gtest
@@ -114,6 +115,7 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
+target_compile_definitions(NEIGHBORS_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
 
 ConfigureTest(
   NAME NEIGHBORS_TIERED_INDEX_TEST
@@ -142,6 +144,7 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
+target_compile_definitions(CUTILE_SMOKE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
 if(CUVS_CUTILE_ENABLED)
   # These are intentionally library-private implementation symbols. Build the smoke executable with
   # the generated fragment registrations and planner implementation so it can exercise them without
@@ -205,6 +208,14 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME CORE_ROARING_ALLOWLIST_TEST
+  PATH neighbors/roaring_allowlist.cu
+  ADDITIONAL_DEP cuco::cuco
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_TEST_BUGS
   PATH neighbors/ann_cagra/bug_extreme_inputs_oob.cu
        neighbors/ann_cagra/bug_multi_cta_crash.cu
@@ -217,7 +228,7 @@ ConfigureTest(
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_TEST
-  PATH neighbors/ann_cagra/test_float_uint32_t.cu
+  PATH neighbors/ann_cagra/test_float_uint32_t.cu neighbors/ann_cagra/test_iterative_cagra_q.cu
   GPUS 1
   PERCENT 100
 )
@@ -265,10 +276,18 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_BBQ_UINT32_TEST
+  PATH neighbors/ann_cagra/test_bbq_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_NN_DESCENT_TEST
   PATH neighbors/ann_nn_descent/test_float_uint32_t.cu
        neighbors/ann_nn_descent/test_int8_t_uint32_t.cu
        neighbors/ann_nn_descent/test_uint8_t_uint32_t.cu
+       neighbors/ann_nn_descent/test_bbq_uint32_t.cu
   GPUS 1
   PERCENT 100
 )

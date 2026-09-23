@@ -22,6 +22,7 @@ import com.nvidia.cuvs.HnswIndex;
 import com.nvidia.cuvs.HnswIndexParams;
 import com.nvidia.cuvs.MultiPartitionSearchResults;
 import com.nvidia.cuvs.TieredIndex;
+import com.nvidia.cuvs.VamanaIndex;
 import com.nvidia.cuvs.spi.CuVSProvider;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
@@ -57,6 +58,12 @@ class FilterCuVSProvider implements CuVSProvider {
   public CagraIndex.Builder newCagraIndexBuilder(CuVSResources cuVSResources)
       throws UnsupportedOperationException {
     return delegate.newCagraIndexBuilder(cuVSResources);
+  }
+
+  @Override
+  public VamanaIndex.Builder newVamanaIndexBuilder(CuVSResources cuVSResources)
+      throws UnsupportedOperationException {
+    return delegate.newVamanaIndexBuilder(cuVSResources);
   }
 
   @Override
