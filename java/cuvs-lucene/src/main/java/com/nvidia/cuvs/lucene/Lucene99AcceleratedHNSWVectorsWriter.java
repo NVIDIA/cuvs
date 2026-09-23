@@ -166,7 +166,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    * @throws IOException
    */
   private void writeNonTrivialField(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
-    try {
+    try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(dataset)) {
       int size = (int) dataset.size();
       CagraIndexParams params =
           CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
@@ -175,11 +175,11 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
               .withDataset(dataset)
               .withIndexParams(params)
               .build();
+      ownedIndex.transferTo(cagraIndex);
       CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
       int dimensions = fieldInfo.getVectorDimension();
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
-              fieldInfo,
               dimensions,
               adjacencyListMatrix,
               dataset,
@@ -198,9 +198,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           size,
           hnswGraph,
           graphLevelNodeOffsets);
-      cagraIndex.close();
     } catch (Throwable t) {
-      Utils.handleThrowable(t);
+      throw Utils.handleThrowable(t);
     }
   }
 

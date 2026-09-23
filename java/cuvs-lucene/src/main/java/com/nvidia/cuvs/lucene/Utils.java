@@ -10,6 +10,7 @@ import com.nvidia.cuvs.CuVSResources;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Objects;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.util.InfoStream;
@@ -118,6 +119,71 @@ public class Utils {
       }
       return builder.build();
     }
+  }
+
+  // Starts an ownership scope for a dataset that may later be transferred to an index.
+  static <I extends AutoCloseable> OwnedIndex<I> ownDataset(AutoCloseable dataset) {
+    return new OwnedIndex<>(dataset);
+  }
+
+  /**
+   * Owns a dataset until {@link #transferTo} records a successful index build. Closing the scope
+   * then closes either the original dataset or the index that owns it.
+   */
+  static final class OwnedIndex<I extends AutoCloseable> implements AutoCloseable {
+    private AutoCloseable dataset;
+    private I index;
+    private boolean closed;
+
+    private OwnedIndex(AutoCloseable dataset) {
+      this.dataset = Objects.requireNonNull(dataset, "dataset");
+    }
+
+    void transferTo(I index) {
+      if (closed || this.index != null) {
+        throw new IllegalStateException("Dataset ownership has already been transferred");
+      }
+      this.index = Objects.requireNonNull(index, "index");
+    }
+
+    @Override
+    public void close() throws Exception {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      AutoCloseable ownedDataset = dataset;
+      I ownedIndex = index;
+      dataset = null;
+      index = null;
+      if (ownedIndex == null) {
+        ownedDataset.close();
+        return;
+      }
+
+      try {
+        ownedIndex.close();
+      } catch (Throwable indexCloseFailure) {
+        try {
+          ownedDataset.close();
+        } catch (Throwable datasetCloseFailure) {
+          if (indexCloseFailure != datasetCloseFailure) {
+            indexCloseFailure.addSuppressed(datasetCloseFailure);
+          }
+        }
+        rethrowCloseFailure(indexCloseFailure);
+      }
+    }
+  }
+
+  private static void rethrowCloseFailure(Throwable failure) throws Exception {
+    if (failure instanceof Exception exception) {
+      throw exception;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    throw new AssertionError("Unexpected throwable from AutoCloseable.close()", failure);
   }
 
   /**

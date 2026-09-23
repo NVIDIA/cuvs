@@ -455,6 +455,11 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
         assertEquals(liveVectors, graph.size());
         assertEquals(liveVectors == 0 ? 0 : 1, graph.numLevels());
         assertEquals(liveVectors, graph.getNodesOnLevel(0).size());
+        if (liveVectors == 1) {
+          assertEquals(0, graph.maxConn());
+          graph.seek(0, 0);
+          assertEquals(NO_MORE_DOCS, graph.nextNeighbor());
+        }
 
         ((CodecReader) leaf).getVectorReader().checkIntegrity();
         IndexSearcher searcher = new IndexSearcher(reader);
