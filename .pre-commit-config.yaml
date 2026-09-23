@@ -173,7 +173,6 @@ repos:
             ^[.]pre-commit-config[.]yaml$
         exclude: |
           (?x)^(
-            docs/source/sphinxext/github_link[.]py$|
             cpp/cmake/modules/FindAVX[.]cmake$|
             cpp/src/neighbors/detail/faiss_distance_utils[.]h$|
             cpp/src/distance/detail/fused_distance_nn/gemm[.]h$|
@@ -184,13 +183,6 @@ repos:
             cpp/src/distance/detail/fused_distance_nn/predicated_tile_iterator_reduced_vec[.]h$|
             cpp/src/distance/detail/fused_distance_nn/custom_epilogue_with_broadcast[.]h$|
             rust/cuvs-sys/src/bindings[.]rs$
-          )
-      - id: verify-copyright
-        name: verify-copyright-scikit-learn
-        args: [--fix, --spdx, "--spdx-license-identifier=Apache-2.0 AND BSD-3-Clause"]
-        files: |
-          (?x)^(
-            docs/source/sphinxext/github_link[.]py$
           )
       - id: verify-copyright
         name: verify-copyright-cutlass
