@@ -528,25 +528,25 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
             CuVSMatrix.deviceBuilder(
                 getCuVSResourcesInstance(), 1, target.length, CuVSMatrix.DataType.FLOAT);
         builder.addVector(target);
-        CuVSMatrix queryVector = builder.build();
-
-        if (acceptDocs != null) {
-          query =
-              new CagraQuery.Builder(getCuVSResourcesInstance())
-                  .withTopK(topK)
-                  .withSearchParams(searchParams)
-                  .withQueryVectors(queryVector)
-                  .withPrefilter(mask[0], maskLength)
-                  .build();
-        } else {
-          query =
-              new CagraQuery.Builder(getCuVSResourcesInstance())
-                  .withTopK(topK)
-                  .withSearchParams(searchParams)
-                  .withQueryVectors(queryVector)
-                  .build();
+        try (CuVSMatrix queryVector = builder.build()) {
+          if (acceptDocs != null) {
+            query =
+                new CagraQuery.Builder(getCuVSResourcesInstance())
+                    .withTopK(topK)
+                    .withSearchParams(searchParams)
+                    .withQueryVectors(queryVector)
+                    .withPrefilter(mask[0], maskLength)
+                    .build();
+          } else {
+            query =
+                new CagraQuery.Builder(getCuVSResourcesInstance())
+                    .withTopK(topK)
+                    .withSearchParams(searchParams)
+                    .withQueryVectors(queryVector)
+                    .build();
+          }
+          searchResult = cagraIndex.search(query).getResults();
         }
-        searchResult = cagraIndex.search(query).getResults();
       } else {
         BruteForceIndex bruteforceIndex = cuvsIndex.getBruteforceIndex();
         assert bruteforceIndex != null;
