@@ -1,0 +1,130 @@
+SKU	Hardware Type	GPU	CPU	dtype	cuVS Algo	Mode	Recall Range	Total Vectors	Dimensions	Index Build Time (s)	Search Batch Size	TopK	Mean Search Throughput (QPS)	Mean Search Latency (ms)	Mean Recall	N Points in Bucket
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	[90-95%)	1000000	1024	107	1	10	41744	7.184	0.93	7
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	[95-99%)	1000000	1024	110	1	10	20724	15.658	0.9694	8
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	>=99%	1000000	1024	169	1	10	3507	51.33	0.9954	15
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	[90-95%)	1000000	1024	107	1	1000	2890	39.745	0.9226	7
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	[95-99%)	1000000	1024	195	1	1000	1366	50.766	0.9569	5
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	[90-95%)	1000000	1024	106	10	10	44388	66.702	0.9278	7
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	[95-99%)	1000000	1024	99.87	10	10	17214	198.402	0.9761	10
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	>=99%	1000000	1024	169.81	10	10	3360	395.769	0.9955	14
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	[90-95%)	1000000	1024	99.2	10	1000	2720	401.52	0.9283	9
+8480_plus	CPU	NA	2x Intel 8480+, 224 Threads, HT=On, Sapphire Rapids	FP32	hnswlib	throughput	[95-99%)	1000000	1024	194.66	10	1000	1543	498.517	0.9572	3
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	14.11	1	10	34073	7.821	0.9289	4
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	14.63	1	10	29745	9.03	0.9806	10
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	16.66	1	10	11589	10.219	0.997	43
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	16.43	10	10	189221	9.328	0.9291	2
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	16.93	10	10	98065	9.474	0.9805	20
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	16.94	10	10	39666	102.733	0.997	21
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	22.97	1	10	1418	5.262	0.9129	7
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	24.9	1	10	624	7.651	0.9776	9
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	23.83	1	10	269	973.856	0.9981	4
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	39.24	10	10	4324	2.818	0.9283	9
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	26.28	10	10	2334	1368.22	0.9762	20
+A100-SXM4-80GB	GPU	A100-SXM4-80GB	2x AMD EPYC 7742, 256 Threads, HT=On, Zen2 Rome	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	27.24	10	10	954	1878.792	0.997	21
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	19.25	1	10	27700	5.851	0.9306	4
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	18.94	1	10	21962	6.799	0.9816	12
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	21.85	1	10	7613	9.201	0.9967	31
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	18.67	10	10	103569	6.504	0.9284	7
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	20.23	10	10	59180	9.946	0.9835	7
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	21.01	10	10	14266	71.157	0.9967	24
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	45.33	1	10	1313	3.499	0.9297	7
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	26.85	1	10	960	3.308	0.9646	2
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	27.54	1	10	320	356.949	0.996	7
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	29.83	10	10	5633	6.365	0.9123	7
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	27.55	10	10	2540	362.402	0.9744	17
+A10G	GPU	A10G	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	29.89	10	10	841	1737.822	0.9982	10
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	[90-95%)	1000000	1024	89.29	1	10	27348	13.872	0.9302	9
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	[95-99%)	1000000	1024	129.23	1	10	11269	42.858	0.9719	13
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	>=99%	1000000	1024	185.3	1	10	2403	94.376	0.9954	21
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	[90-95%)	1000000	1024	114.22	1	1000	2436	176.568	0.9413	3
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	[95-99%)	1000000	1024	224.1	1	1000	1572	203.731	0.9563	4
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	[90-95%)	1000000	1024	76.06	10	10	35837	123.799	0.9209	5
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	[95-99%)	1000000	1024	98.4	10	10	10703	481.908	0.9795	11
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	>=99%	1000000	1024	195.09	10	10	2410	751.321	0.9963	16
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	[90-95%)	1000000	1024	135.66	10	1000	2352	1284.847	0.9424	3
+Genoa_9654	CPU	NA	2x AMD EPYC 9654, 384 Threads, HT=On, Zen4 Genoa	FP32	hnswlib	throughput	[95-99%)	1000000	1024	223.32	10	1000	1233	1324.779	0.9561	6
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	10.86	1	10	38983	2.844	0.9131	1
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	10.17	1	10	35843	7.846	0.9709	4
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	10.74	1	10	15645	12.862	0.9974	42
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	8.96	10	10	298758	13.914	0.9284	7
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	10.15	10	10	189566	13.806	0.9774	10
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	10.25	10	10	62458	114.422	0.9958	19
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	15.16	1	10	1144	0.902	0.9311	9
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	14.14	1	10	578	2.247	0.9747	19
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	14.57	1	10	188	259.522	0.9966	7
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	15.2	10	10	7895	1.332	0.9236	8
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	14.26	10	10	3856	2.898	0.9708	16
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	14.88	10	10	978	1493.781	0.997	31
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_vamana	throughput	[90-95%)	1000000	1024	64.97	1	10	1312	18.573	0.923	19
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_vamana	throughput	[95-99%)	1000000	1024	76.69	1	10	711	158.355	0.9724	16
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_vamana	throughput	>=99%	1000000	1024	101.42	1	10	316	648.719	0.9955	5
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_vamana	throughput	[90-95%)	1000000	1024	64.92	10	10	1310	165.032	0.9273	12
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_vamana	throughput	[95-99%)	1000000	1024	70.42	10	10	657	484.856	0.9762	16
+H100-SXM-80GB	GPU	H100-SXM-80GB	2x Intel 8480CL, 224 Threads, HT=On, Sapphire Rapids	FP32	cuvs_vamana	throughput	>=99%	1000000	1024	102.77	10	10	294	898.319	0.9958	6
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	23.73	1	10	30133	2.684	0.9317	4
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	25.09	1	10	19020	6.492	0.9788	18
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	26.56	1	10	5911	8.01	0.9964	40
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	21.82	10	10	74020	13.567	0.9272	2
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	25.78	10	10	35277	21.027	0.984	11
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	26.88	10	10	6923	139.686	0.9969	25
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	44.67	1	10	1301	2.316	0.9309	4
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	36.47	1	10	629	7.378	0.9784	8
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	34.82	1	10	280	318.926	0.9953	6
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	38.16	10	10	5517	2.349	0.9253	7
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	34.19	10	10	2523	269.387	0.9768	16
+L4	GPU	L4	2x AMD EPYC 7763, 128 Threads, HT=Off, Zen3 Milan	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	37.04	10	10	923	1632.779	0.9971	23
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	10.05	1	10	38249	6.546	0.9804	9
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	10.95	1	10	11870	25.83	0.9971	44
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	9.43	10	10	178441	18.652	0.9274	4
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	10.34	10	10	72111	22.845	0.9798	16
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	11.39	10	10	22046	753.079	0.9978	16
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	13.67	1	10	1853	1.218	0.9268	3
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	13.63	1	10	671	2.822	0.973	17
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	13.7	1	10	226	412.092	0.9974	8
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	13.45	10	10	8547	1.346	0.9306	8
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	14.3	10	10	3444	3.507	0.9791	19
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	15.92	10	10	1139	1455.341	0.9972	18
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[90-95%)	1000000	1024	114.07	1	10	1464	25.114	0.9267	12
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[95-99%)	1000000	1024	179.91	1	10	759	136.958	0.9756	17
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	>=99%	1000000	1024	219.95	1	10	352	462.686	0.9947	10
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[90-95%)	1000000	1024	157.68	10	10	1496	45.385	0.9265	13
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[95-99%)	1000000	1024	154.35	10	10	770	454.886	0.9757	13
+L40S	GPU	L40S	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	>=99%	1000000	1024	258.2	10	10	323	1069.649	0.9956	6
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	13.28	1	10	34776	6.423	0.9855	8
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	13.96	1	10	11716	12.764	0.9972	37
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	12.88	10	10	176395	10.523	0.93	5
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	13.88	10	10	84601	15.826	0.9747	15
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	14.46	10	10	26068	897.21	0.9977	16
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	16.97	1	10	1277	0.941	0.9311	5
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	16.43	1	10	567	2.094	0.9757	18
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	17.75	1	10	211	277.42	0.9957	8
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	16.47	10	10	8630	1.192	0.9216	6
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	17.1	10	10	4009	2.832	0.9721	19
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	18.16	10	10	1114	562.567	0.9966	23
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[90-95%)	1000000	1024	159.31	1	10	1502	23.332	0.9233	14
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[95-99%)	1000000	1024	205.73	1	10	758	91.43	0.9767	11
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	>=99%	1000000	1024	302.47	1	10	323	566.174	0.9972	6
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[90-95%)	1000000	1024	151.36	10	10	1537	41.827	0.923	11
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[95-99%)	1000000	1024	196.79	10	10	832	432.442	0.9729	15
+RTX_PRO_4500_BSE	GPU	RTX PRO 4500 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	>=99%	1000000	1024	235.94	10	10	347	756.032	0.9942	9
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	7.35	1	10	40788	7.513	0.9323	1
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	7.35	1	10	39554	5.816	0.9823	3
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	8.6	1	10	15196	13.229	0.9976	32
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	9.15	1	1000	19355	5.054	0.906	7
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	8.79	1	1000	9418	24.15	0.9823	10
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	9.32	1	1000	3980	17.687	0.9936	6
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[90-95%)	1000000	1024	8.04	10	10	313550	14.533	0.9291	4
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	[95-99%)	1000000	1024	8.28	10	10	129726	14.584	0.9807	18
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra	throughput	>=99%	1000000	1024	8.57	10	10	52490	127.814	0.9949	12
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	10.49	1	10	1958	1.035	0.9321	1
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	11.56	1	10	936	2.506	0.9696	8
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	11.78	1	10	226	153.373	0.997	9
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[90-95%)	1000000	1024	11.84	10	10	8911	1.152	0.9205	5
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	[95-99%)	1000000	1024	12.82	10	10	3508	3.423	0.9774	17
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_cagra_hnswlib	throughput	>=99%	1000000	1024	12.9	10	10	1178	1561.954	0.9971	28
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[90-95%)	1000000	1024	90.79	1	10	1496	17.152	0.9239	10
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[95-99%)	1000000	1024	102.79	1	10	793	109.882	0.9752	15
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	>=99%	1000000	1024	101.19	1	10	359	269.405	0.9938	9
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[90-95%)	1000000	1024	96.62	10	10	1554	103.732	0.9244	9
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	[95-99%)	1000000	1024	84.54	10	10	841	254.994	0.9728	13
+RTX_PRO_6000_BSE	GPU	RTX PRO 6000 Blackwell	2x Intel 8570, 224 Threads, HT=On, Emerald Rapids	FP32	cuvs_vamana	throughput	>=99%	1000000	1024	119.69	10	10	343	782.166	0.995	8
