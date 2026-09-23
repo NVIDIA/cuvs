@@ -16,6 +16,7 @@ import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -34,11 +35,21 @@ public class CagraAceBuildAndSearchIT extends CuVSTestCase {
 
   private static final Logger log = LoggerFactory.getLogger(CagraAceBuildAndSearchIT.class);
 
+  private Path buildDir;
+
   @Before
   public void setup() {
     assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
     initializeRandom();
     log.trace("Random context initialized for test.");
+  }
+
+  @After
+  public void cleanupBuildDir() {
+    if (buildDir != null) {
+      deleteRecursively(buildDir);
+      buildDir = null;
+    }
   }
 
   private static List<Map<Integer, Float>> getExpectedResults() {
@@ -145,7 +156,7 @@ public class CagraAceBuildAndSearchIT extends CuVSTestCase {
 
     try (CuVSResources resources = CheckedCuVSResources.create()) {
       // Configure ACE parameters for disk-based mode
-      Path buildDir = Path.of("/tmp/java_ace_test");
+      buildDir = Files.createTempDirectory("java_ace_test");
       CuVSAceParams aceParams =
           new CuVSAceParams.Builder()
               .withNpartitions(2)
@@ -226,9 +237,6 @@ public class CagraAceBuildAndSearchIT extends CuVSTestCase {
             hnswIndex.close();
           }
         }
-
-        // Clean up the default build directory
-        deleteRecursively(buildDir);
       }
     }
   }
