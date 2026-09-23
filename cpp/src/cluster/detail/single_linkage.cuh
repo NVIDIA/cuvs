@@ -256,13 +256,15 @@ void build_dist_linkage(raft::resources const& handle,
  control of k. The algorithm will set `k = log(n) + c`
  */
 template <typename value_t, typename value_idx, Linkage dist_type>
-void single_linkage(raft::resources const& handle,
-                    raft::device_matrix_view<const value_t, value_idx, raft::row_major> X,
-                    raft::device_matrix_view<value_idx, value_idx, raft::row_major> dendrogram,
-                    raft::device_vector_view<value_idx, value_idx> labels,
-                    cuvs::distance::DistanceType metric,
-                    size_t n_clusters,
-                    std::optional<int> c)
+void single_linkage(
+  raft::resources const& handle,
+  raft::device_matrix_view<const value_t, value_idx, raft::row_major> X,
+  raft::device_matrix_view<value_idx, value_idx, raft::row_major> dendrogram,
+  raft::device_vector_view<value_idx, value_idx> labels,
+  cuvs::distance::DistanceType metric,
+  size_t n_clusters,
+  std::optional<int> c,
+  std::optional<raft::device_vector_view<value_t, value_idx>> distances = std::nullopt)
 {
   size_t m = X.extent(0);
   size_t n = X.extent(1);
@@ -278,8 +280,17 @@ void single_linkage(raft::resources const& handle,
   auto mst_view = raft::make_device_coo_matrix_view<value_t, value_idx, value_idx, value_idx>(
     mst_weights.data_handle(), structure_view);
 
-  auto out_delta = raft::make_device_vector<value_t, value_idx>(handle, n_edges);
-  auto out_sizes = raft::make_device_vector<value_idx, value_idx>(handle, n_edges);
+  auto sizes = raft::make_device_vector<value_idx, value_idx>(handle, n_edges);
+
+  /* Allocate distances if it wasn't passed in */
+  raft::device_vector_view<value_t, value_idx> distances_view;
+  auto distances_temp =
+    raft::make_device_vector<value_t, value_idx>(handle, distances.has_value() ? 0 : n_edges);
+  if (distances.has_value()) {
+    distances_view = distances.value();
+  } else {
+    distances_view = distances_temp.view();
+  }
 
   build_dist_linkage<value_t, value_idx, value_idx, dist_type>(
     handle,
@@ -288,8 +299,8 @@ void single_linkage(raft::resources const& handle,
     metric,
     mst_view,
     dendrogram,
-    out_delta.view(),
-    out_sizes.view());
+    distances_view,
+    sizes.view());
 
   detail::extract_flattened_clusters(
     handle, labels.data_handle(), dendrogram.data_handle(), n_clusters, m);

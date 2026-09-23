@@ -71,6 +71,7 @@ enum Linkage {
  parameter c) at the expense of potentially additional minimum spanning tree iterations.
  * @param[in] c a constant used when constructing linkage from knn graph. Allows the indirect
  control of k. The algorithm will set `k = log(n) + c`
+ * @param[out] distances optional output vector of distances between nodes (size [n_rows - 1])
  */
 void single_linkage(
   raft::resources const& handle,
@@ -80,7 +81,8 @@ void single_linkage(
   cuvs::distance::DistanceType metric,
   size_t n_clusters,
   cuvs::cluster::agglomerative::Linkage linkage = cuvs::cluster::agglomerative::Linkage::KNN_GRAPH,
-  std::optional<int> c                          = std::make_optional<int>(DEFAULT_CONST_C));
+  std::optional<int> c                          = std::make_optional<int>(DEFAULT_CONST_C),
+  std::optional<raft::device_vector_view<float, int>> distances = std::nullopt);
 
 namespace helpers {
 

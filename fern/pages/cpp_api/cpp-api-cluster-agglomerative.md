@@ -43,7 +43,8 @@ raft::device_vector_view<int, int> labels,
 cuvs::distance::DistanceType metric,
 size_t n_clusters,
 cuvs::cluster::agglomerative::Linkage linkage = cuvs::cluster::agglomerative::Linkage::KNN_GRAPH,
-std::optional<int> c                          = std::make_optional<int>(DEFAULT_CONST_C));
+std::optional<int> c                          = std::make_optional<int>(DEFAULT_CONST_C),
+std::optional<raft::device_vector_view<float, int>> distances = std::nullopt);
 ```
 
 scale the algorithm beyond the n^2 memory consumption of implementations that use the fully-connected graph of pairwise distances by connecting a knn graph when k is not large enough to connect it.
@@ -60,6 +61,7 @@ scale the algorithm beyond the n^2 memory consumption of implementations that us
 | `n_clusters` | in | `size_t` | number of clusters to assign data samples |
 | `linkage` | in | [`cuvs::cluster::agglomerative::Linkage`](/api-reference/cpp-api-cluster-agglomerative#cluster-agglomerative-linkage) | strategy for constructing the linkage. PAIRWISE uses more memory but can be faster for smaller datasets. KNN_GRAPH allows the memory usage to be controlled (using parameter c) at the expense of potentially additional minimum spanning tree iterations.<br />Default: `cuvs::cluster::agglomerative::Linkage::KNN_GRAPH`. |
 | `c` | in | `std::optional<int>` | a constant used when constructing linkage from knn graph. Allows the indirect control of k. The algorithm will set `k = log(n) + c`<br />Default: `std::make_optional&lt;int&gt;(DEFAULT_CONST_C)`. |
+| `distances` | out | `std::optional<raft::device_vector_view<float, int>>` | optional output vector of distances between nodes (size [n_rows - 1])<br />Default: `std::nullopt`. |
 
 **Returns**
 
