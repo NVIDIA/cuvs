@@ -4,6 +4,31 @@
 #
 """Pytest configuration for cuvs_bench tests."""
 
+import pytest
+
+
+def pytest_addoption(parser):
+    """Add the explicit opt-in for live Lucene integration tests."""
+    parser.addoption(
+        "--run-lucene-e2e",
+        action="store_true",
+        default=False,
+        help=(
+            "run live Lucene tests; all cases require PyLucene/Java, and "
+            "GPU-intended cases additionally require cuVS/CUDA/GPU"
+        ),
+    )
+
+
+def pytest_collection_modifyitems(config, items):
+    """Skip live Lucene cases unless the suite was selected explicitly."""
+    if config.getoption("--run-lucene-e2e"):
+        return
+    skip = pytest.mark.skip(reason="requires --run-lucene-e2e")
+    for item in items:
+        if "lucene_e2e" in item.keywords:
+            item.add_marker(skip)
+
 
 def pytest_configure(config):
     """Register elastic plugin when elasticsearch is available.

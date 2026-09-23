@@ -441,7 +441,7 @@ class BenchmarkBackend(ABC):
         batch_size : int, optional
             Number of queries to process at once (default: 10000)
         mode : str, optional
-            "latency" (measure individual query latency with percentiles) or
+            "latency" (measure batch latency with percentiles) or
             "throughput" (measure overall QPS) (default: "latency")
         force : bool, optional
             Whether to force the execution regardless of existing results (default: False)
