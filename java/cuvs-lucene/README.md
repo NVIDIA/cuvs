@@ -71,6 +71,60 @@ resources in a long-lived application. Class-level documentation is in the
 Runnable examples of CAGRA-accelerated HNSW indexing, and of indexing and searching entirely on the GPU with
 `CuVS2510GPUSearchCodec`, are in the [`examples/`](../../examples/java/cuvs-lucene) directory.
 
+### Parameter bounds
+
+The public Lucene API rejects out-of-range CAGRA parameters in Java before they reach native CAGRA.
+Build parameters are checked by `build()`, and search parameters when the query is constructed.
+Optional filter over-fetch is capped for `SINGLE_CTA` at search time (see below).
+The table below lists what is enforced in Java; it is
+**not** a claim that every value in these ranges is supported by native CAGRA — see the caveats
+that follow.
+
+| Parameter | Java-level range enforced |
+| --- | --- |
+| GPU writer threads | 1–512 |
+| Intermediate graph degree | 2–512 |
+| Graph degree | 1–512 |
+| `GPUKnnFloatVectorQuery` `iTopK` | minimum 1; at most 512 with `SINGLE_CTA` |
+| `GPUKnnFloatVectorQuery` `searchWidth` | minimum 1; 4,194,303 numeric-safety ceiling |
+| `GPUKnnFloatVectorQuery` `maxIterations` | nonnegative; 0 selects automatically |
+| `GPUKnnFloatVectorQuery` `threadBlockSize` | 0 (auto), 64, 128, 256, 512, or 1024 |
+
+Under `CUSTOM`, native CAGRA reduces `graphDegree` to `intermediateGraphDegree` when needed,
+and may reduce both for a small dataset. Java preserves this behavior rather than rejecting the pair. Under
+`HEURISTIC`, the configured `graphDegree`/`intermediateGraphDegree` pair is not what CAGRA
+actually builds with, so this relationship is not enforced on the configured pair: for
+`AcceleratedHNSWParams`, both degrees are derived from `maxConn`/`beamWidth` and the configured
+pair is ignored entirely; for `GPUSearchParams`, the configured `graphDegree` is passed into the
+dataset-size heuristic as an input (it is not ignored), while `intermediateGraphDegree` is ignored
+and the rest of the build parameters are derived from the heuristic's output.
+
+For `iTopK`, the lower bound of 1 and the `SINGLE_CTA` maximum of 512 are native limits.
+`MAX_ITOPK` (`Integer.MAX_VALUE`) is simply the largest value representable by the
+public Java API, and `MAX_SEARCH_WIDTH` (4,194,303) only keeps CAGRA's result buffer within its
+unsigned 32-bit indexing limit. Neither is a promise that native CAGRA supports every value up
+to that ceiling, and in practice values anywhere near `MAX_ITOPK` are not usable. The true upper
+limit for a given search depends on the resolved CAGRA algorithm, `max_iterations`, graph degree,
+filtering, and available GPU memory. In particular, `MULTI_CTA` (which `AUTO` typically selects
+for a single query unless there are enough partitions to use `SINGLE_CTA`) sizes an internal
+traversal hash table from `search_width`, `iTopK`,
+`max_iterations`, and the graph degree. This API does not replicate that calculation, since
+`max_iterations` is itself auto-derived from the graph degree and dataset size, values not known
+at query-construction time, so out-of-range combinations are caught by native CAGRA at search
+time rather than here.
+
+Note that native CAGRA only reports some of those combinations cleanly. Moderately oversized
+values raise a clear exception, but above roughly `iTopK` 1e9 the native hash-table sizing loop
+fails to terminate and the search hangs instead of returning an error
+([#2523](https://github.com/NVIDIA/cuvs/issues/2523)). Treat these constants as representational
+ceilings only, and size `iTopK`/`searchWidth` to what the workload actually needs.
+
+The query uses an effective `iTopK` equal to the greater of the configured value and the requested
+Lucene `k`; for `SINGLE_CTA`, that value must be at most 512 at query construction.
+The filtered per-segment path can request up to `k + 10` candidates internally, but caps that
+optional over-fetch at 512 for `SINGLE_CTA`. A change in filter cardinality therefore does not
+turn a valid query into a parameter error.
+
 ## Contributing
 
 If you are interested in contributing to cuvs-lucene, please read the cuVS [Contributing guide](https://docs.nvidia.com/cuvs/developer-guide/contributing).

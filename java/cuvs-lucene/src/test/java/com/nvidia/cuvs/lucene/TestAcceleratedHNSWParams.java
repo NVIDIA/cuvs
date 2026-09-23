@@ -67,6 +67,74 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
   }
 
   @Test
+  public void testAcceleratedHNSWParamsBuildParameterBoundaries() {
+    for (int v : new int[] {MIN_WRITER_THREADS, MAX_WRITER_THREADS}) {
+      assertEquals(
+          v, new AcceleratedHNSWParams.Builder().withWriterThreads(v).build().getWriterThreads());
+    }
+    for (int v : new int[] {MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG}) {
+      assertEquals(
+          v,
+          new AcceleratedHNSWParams.Builder()
+              .withGraphDegree(MIN_GRAPH_DEG)
+              .withIntermediateGraphDegree(v)
+              .build()
+              .getIntermediateGraphDegree());
+    }
+    for (int v : new int[] {MIN_GRAPH_DEG, MAX_GRAPH_DEG}) {
+      assertEquals(
+          v,
+          new AcceleratedHNSWParams.Builder()
+              .withIntermediateGraphDegree(MAX_INT_GRAPH_DEG)
+              .withGraphDegree(v)
+              .build()
+              .getGraphdegree());
+    }
+  }
+
+  @Test
+  public void testCustomGraphDegreeAllowsNativeClamping() {
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .build();
+    assertEquals(params.getGraphdegree(), params.getIntermediateGraphDegree());
+
+    params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .build();
+    assertEquals(DEFAULT_GRAPH_DEGREE + 1, params.getGraphdegree());
+    assertEquals(DEFAULT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
+    params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+            .build();
+    assertEquals(DEFAULT_GRAPH_DEGREE + 1, params.getGraphdegree());
+    assertEquals(DEFAULT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
+  }
+
+  @Test
+  public void testGraphDegreeRelationshipNotEnforcedUnderHeuristicStrategy() {
+    // Under HEURISTIC, both degrees are derived from maxConn/beamWidth and the configured values
+    // are ignored, so a configured graphDegree > intermediateGraphDegree must not fail to build.
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
+            .withGraphDegree(DEFAULT_GRAPH_DEGREE + 1)
+            .withIntermediateGraphDegree(DEFAULT_GRAPH_DEGREE)
+            .build();
+    assertEquals(DEFAULT_GRAPH_DEGREE + 1, params.getGraphdegree());
+    assertEquals(DEFAULT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
+  }
+
+  @Test
   public void testAcceleratedHNSWParamsInvalidBeamWidth() {
     for (int v :
         new int[] {
