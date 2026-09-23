@@ -132,7 +132,8 @@ public interface CagraIndex extends AutoCloseable {
   }
 
   /**
-   * Invokes the native destroy_cagra_index to de-allocate the CAGRA index
+   * Invokes the native destroy_cagra_index to de-allocate the CAGRA index. Also attempts to close
+   * any dataset whose ownership transferred to this index during construction.
    */
   @Override
   void close() throws Exception;
@@ -427,6 +428,11 @@ public interface CagraIndex extends AutoCloseable {
 
     /**
      * Sets the dataset for building the {@link CagraIndex}.
+     *
+     * <p>The caller retains ownership until a build that uses this dataset returns successfully.
+     * The returned index then owns the dataset, and the caller must leave it open until the index
+     * is closed. If the build fails or uses another configured input source, ownership remains
+     * with the caller.
      *
      * @param dataset a {@link CuVSMatrix} object containing the vectors
      * @return an instance of this Builder
