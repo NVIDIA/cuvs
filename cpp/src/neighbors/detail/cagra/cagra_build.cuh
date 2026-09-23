@@ -2212,6 +2212,36 @@ void build_knn_graph(
     res, build_params.metric, dataset, knn_graph_internal);
 }
 
+template <typename DataT, typename IdxT>
+void build_knn_graph(raft::resources const& res,
+                     cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
+                     raft::host_matrix_view<IdxT, int64_t, raft::row_major> knn_graph,
+                     cuvs::neighbors::nn_descent::index_params build_params)
+{
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
+    "cagra::build_knn_graph<NN-DESCENT,BBQ>(%zu, %zu, %u)",
+    size_t(dataset.n_rows()),
+    size_t(dataset.dim()),
+    size_t(knn_graph.extent(1)));
+
+  std::optional<raft::host_matrix_view<IdxT, int64_t, row_major>> graph_view = knn_graph;
+  auto nn_descent_idx = cuvs::neighbors::nn_descent::build(res, build_params, dataset, graph_view);
+
+  using internal_IdxT = typename std::make_unsigned<IdxT>::type;
+  using g_accessor    = typename decltype(nn_descent_idx.graph())::accessor_type;
+  using g_accessor_internal =
+    raft::host_device_accessor<cuda::std::default_accessor<internal_IdxT>, g_accessor::mem_type>;
+
+  auto knn_graph_internal =
+    raft::mdspan<internal_IdxT, raft::matrix_extent<int64_t>, raft::row_major, g_accessor_internal>(
+      reinterpret_cast<internal_IdxT*>(nn_descent_idx.graph().data_handle()),
+      nn_descent_idx.graph().extent(0),
+      nn_descent_idx.graph().extent(1));
+
+  cuvs::neighbors::cagra::detail::graph::sort_knn_graph_bbq(
+    res, build_params.metric, dataset, knn_graph_internal);
+}
+
 template <typename IdxT = uint32_t,
           typename g_accessor =
             raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>,
@@ -2869,6 +2899,96 @@ auto build_from_device_matrix(raft::resources const& res,
   }
 
   RAFT_LOG_TRACE("Graph optimized, creating index");
+  return idx;
+}
+
+[[nodiscard]] inline auto resolve_bbq_knn_graph_build_params(index_params const& params,
+                                                             size_t intermediate_degree)
+  -> cuvs::neighbors::nn_descent::index_params
+{
+  if (std::holds_alternative<std::monostate>(params.graph_build_params)) {
+    return cagra::graph_build_params::nn_descent_params(intermediate_degree, params.metric);
+  }
+
+  auto nn_descent_params =
+    std::get<cagra::graph_build_params::nn_descent_params>(params.graph_build_params);
+  if (nn_descent_params.metric != params.metric) {
+    RAFT_LOG_WARN(
+      "Metric (%lu) for nn-descent needs to match cagra metric (%lu), "
+      "aligning nn-descent metric.",
+      nn_descent_params.metric,
+      params.metric);
+    nn_descent_params.metric = params.metric;
+  }
+  if (nn_descent_params.graph_degree != intermediate_degree) {
+    RAFT_LOG_WARN(
+      "Graph degree (%lu) for nn-descent needs to match cagra intermediate graph degree (%lu), "
+      "aligning nn-descent graph_degree.",
+      nn_descent_params.graph_degree,
+      intermediate_degree);
+    nn_descent_params =
+      cagra::graph_build_params::nn_descent_params(intermediate_degree, params.metric);
+  }
+  return nn_descent_params;
+}
+
+/**
+ * Build from a device-resident BBQ-quantized dataset: the whole graph construction runs on the
+ * compressed codes.
+ *
+ * The returned index cannot be searched, because CAGRA has no BBQ search kernels. Pass an
+ * uncompressed device-padded dataset to `cagra::update_dataset` to obtain a searchable index over
+ * the same graph.
+ */
+template <typename T, typename IdxT, typename DatasetViewT>
+  requires cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>
+auto build_from_bbq_dataset(raft::resources const& res,
+                            const index_params& params,
+                            DatasetViewT const& dataset)
+  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
+{
+  RAFT_EXPECTS(!dataset.quantizers.empty(), "cagra::build: the BBQ dataset is empty.");
+  RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded ||
+                 params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                 params.metric == cuvs::distance::DistanceType::CosineExpanded ||
+                 params.metric == cuvs::distance::DistanceType::InnerProduct,
+               "cagra::build: a BBQ-quantized dataset supports L2Expanded, L2SqrtExpanded, "
+               "CosineExpanded, and InnerProduct.");
+  RAFT_EXPECTS(std::holds_alternative<std::monostate>(params.graph_build_params) ||
+                 std::holds_alternative<cagra::graph_build_params::nn_descent_params>(
+                   params.graph_build_params),
+               "cagra::build: a BBQ-quantized dataset requires nn-descent graph construction.");
+
+  size_t intermediate_degree = params.intermediate_graph_degree;
+  size_t graph_degree        = params.graph_degree;
+  common::nvtx::range<common::nvtx::domain::cuvs> function_scope(
+    "cagra::detail::build_from_bbq_dataset(%zu, %zu)", intermediate_degree, graph_degree);
+  auto const n_rows = static_cast<int64_t>(dataset.n_rows());
+  check_graph_degree<T, IdxT>(intermediate_degree, graph_degree, static_cast<size_t>(n_rows));
+
+  auto nn_descent_params = resolve_bbq_knn_graph_build_params(params, intermediate_degree);
+  nn_descent_params.return_distances = false;
+
+  auto cagra_graph = [&]() -> raft::host_matrix<IdxT, int64_t> {
+    std::optional<raft::host_matrix<IdxT, int64_t>> knn_graph(
+      raft::make_host_matrix<IdxT, int64_t>(n_rows, intermediate_degree));
+    build_knn_graph<T, IdxT>(res, dataset, knn_graph->view(), nn_descent_params);
+
+    auto optimized = raft::make_host_matrix<IdxT, int64_t>(n_rows, graph_degree);
+    RAFT_LOG_TRACE("optimizing graph");
+    optimize<IdxT>(res, knn_graph->view(), optimized.view(), params.guarantee_connectivity);
+    knn_graph.reset();
+    return optimized;
+  }();
+
+  RAFT_LOG_TRACE("Graph optimized, creating index");
+
+  if (params.attach_dataset_on_build) {
+    return cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>(
+      res, params.metric, dataset, raft::make_const_mdspan(cagra_graph.view()));
+  }
+  cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> idx(res, params.metric);
+  idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
   return idx;
 }
 }  // namespace cuvs::neighbors::cagra::detail

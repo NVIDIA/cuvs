@@ -45,7 +45,8 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
   if constexpr (nb::is_padded_dataset_view_v<DatasetViewT> ||
                 nb::is_standard_dataset_view_v<DatasetViewT>) {
     rm_dataset = dataset_.view();
-  } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT>) {
+  } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT> ||
+                       nb::is_bbq_dataset_view_v<DatasetViewT>) {
     skip_norms = true;
   }
 
@@ -304,7 +305,10 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
   // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
-  if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
+  if constexpr (cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>) {
+    return cuvs::neighbors::cagra::detail::build_from_bbq_dataset<T, IdxT, DatasetViewT>(
+      res, params, dataset);
+  } else if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
     auto effective_params = params;
     if (std::holds_alternative<std::monostate>(effective_params.graph_build_params)) {
       effective_params.graph_build_params = graph_build_params::iterative_search_params{};

@@ -1533,6 +1533,7 @@ if(NOT BUILD_CPU_ONLY)
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu
+    src/preprocessing/quantize/bbq.cu
     src/preprocessing/spectral/spectral_embedding.cu
     src/preprocessing/pca/pca.cu
     ${select_k_inst_files}
@@ -1838,9 +1839,10 @@ endif()
 # ##################################################################################################
 # * build test executable ----------------------------------------------------
 
+add_subdirectory(internal)
+
 if(BUILD_TESTS)
   enable_testing()
-  add_subdirectory(internal)
   add_subdirectory(tests)
 endif()
 
