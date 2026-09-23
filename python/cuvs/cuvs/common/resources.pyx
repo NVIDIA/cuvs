@@ -14,6 +14,8 @@ from cuvs.common.c_api cimport (
     cuvsResourcesCreate,
     cuvsResourcesCreateWithMemoryTracking,
     cuvsResourcesDestroy,
+    cuvsResourcesSetMemoryPool,
+    cuvsResourcesSetStreamPool,
     cuvsStreamSet,
     cuvsStreamSync,
 )
@@ -88,6 +90,31 @@ cdef class Resources:
 
     def sync(self):
         check_cuvs(cuvsStreamSync(self.c_obj))
+
+    def set_memory_pool(self, percent_of_free_memory):
+        """
+        Set a memory pool on the device used by these resources.
+
+        Parameters
+        ----------
+        percent_of_free_memory : int
+            Percentage of free device memory to allocate for the pool.
+        """
+        check_cuvs(cuvsResourcesSetMemoryPool(
+            self.c_obj, percent_of_free_memory))
+
+    def set_stream_pool(self, num_streams=1):
+        """
+        Set a CUDA stream pool on these resources.
+
+        Parameters
+        ----------
+        num_streams : int, default=1
+            Number of non-blocking CUDA streams in the pool.
+        """
+        if num_streams <= 0:
+            raise ValueError("num_streams must be greater than zero")
+        check_cuvs(cuvsResourcesSetStreamPool(self.c_obj, num_streams))
 
     def get_c_obj(self):
         """
