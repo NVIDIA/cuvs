@@ -18,6 +18,8 @@
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/composite/index.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
+#include <raft/core/bitset.cuh>
+#include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
@@ -30,6 +32,7 @@
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/normalize.cuh>
 #include <raft/linalg/reduce.cuh>
+#include <raft/matrix/copy.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/itertools.hpp>
 
@@ -1327,14 +1330,17 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         indices.push_back(&index0);
         indices.push_back(&index1);
 
-        auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
-          handle_,
-          ps.n_rows - static_cast<int64_t>(test_cagra_sample_filter::offset),
-          static_cast<int64_t>(index0.dataset().stride()));
-        auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
-          std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
-        auto merge_idx = cuvs::neighbors::cagra::merge(
-          handle_, index_params, indices, merged_dataset.as_dataset_view(), bitset_filter_obj);
+        auto offsets =
+          cuvs::neighbors::cagra::merged_dataset_offsets(handle_, indices, bitset_filter_obj);
+
+        // Exercise the real concatenate_and_filter_datasets() helper -- it gathers directly from
+        // index0's/index1's own device dataset storage (not from `database`), so this also
+        // validates the helper against the `merged_dataset_offsets()` boundaries computed above.
+        auto merged_dataset = cuvs::neighbors::cagra::concatenate_and_filter_datasets(
+          handle_, indices, bitset_filter_obj);
+        auto merged_view = merged_dataset->as_dataset_view();
+        auto merge_idx   = cuvs::neighbors::cagra::merge(
+          handle_, index_params, indices, merged_view, offsets, bitset_filter_obj);
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
           search_queries.data(), ps.n_queries, ps.dim);
@@ -1573,21 +1579,23 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
         if (ps.merge_strategy == cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL) {
           // The merged index holds only a view, so merged_dataset must outlive it.
-          auto const merged_rows =
-            static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size());
-          auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
-            handle_, merged_rows, static_cast<int64_t>(index0.dataset().stride()));
-          auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
-            std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
+          std::vector<int64_t> offsets{
+            0,
+            static_cast<int64_t>(index0.size()),
+            static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size())};
+          // Exercise the real concatenate_datasets() helper -- it gathers directly from index0's
+          // and index1's own device dataset storage, in indices_to_merge order.
+          auto merged_dataset = cagra::concatenate_datasets(handle_, indices_to_merge);
+          auto merged_view    = merged_dataset->as_dataset_view();
           auto merged_idx =
             ps.physical_merge_params.has_value()
               ? cagra::merge(handle_,
                              index_params,
                              indices_to_merge,
-                             merged_dataset.as_dataset_view(),
+                             merged_view,
+                             offsets,
                              *ps.physical_merge_params)
-              : cagra::merge(
-                  handle_, index_params, indices_to_merge, merged_dataset.as_dataset_view());
+              : cagra::merge(handle_, index_params, indices_to_merge, merged_view, offsets);
           cagra::search(handle_,
                         search_params,
                         merged_idx,

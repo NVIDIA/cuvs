@@ -38,18 +38,18 @@ pub use crate::neighbors::filters::{Bitset, Filter};
 
 _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:24`_
 
-## index::\{DeserializedIndex, Index\}
+## index::\{DeserializedIndex, Index, merged_dataset_offsets\}
 
 ```rust
-pub use index::{DeserializedIndex, Index};
+pub use index::{DeserializedIndex, Index, merged_dataset_offsets};
 ```
 
 _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:25`_
 
-## params::\{IndexParams, SearchParams\}
+## params::\{IndexParams, MergeParams, SearchParams\}
 
 ```rust
-pub use params::{IndexParams, SearchParams};
+pub use params::{IndexParams, MergeParams, SearchParams};
 ```
 
 _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:26`_
@@ -82,6 +82,20 @@ Search kernel implementation.
 
 _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:74`_
 
+## MergeAlgo
+
+```rust
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MergeAlgo {
+    /* variants omitted */
+}
+```
+
+Algorithm used to merge multiple CAGRA indices into one.
+
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:110`_
+
 ## HashMode
 
 ```rust
@@ -94,7 +108,7 @@ pub enum HashMode {
 
 Hash-table mode used during search.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:110`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:142`_
 
 ## CagraError
 
@@ -108,4 +122,4 @@ pub enum CagraError {
 
 Error type for CAGRA operations.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:142`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:174`_

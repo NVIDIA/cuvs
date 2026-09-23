@@ -38,18 +38,21 @@ CUVS_EXPORT void merge_instantiation_keepalive()
   using padded_index_t = cuvs::neighbors::cagra::index<data_t, index_t, inst_device_padded_view_t>;
   using standard_index_t =
     cuvs::neighbors::cagra::index<data_t, index_t, inst_device_standard_view_t>;
-  using filter_t = cuvs::neighbors::filtering::base_filter const&;
+  using filter_t  = cuvs::neighbors::filtering::base_filter const&;
+  using offsets_t = std::vector<int64_t> const&;
 
   (void)static_cast<padded_index_t (*)(raft::resources const&,
                                        cuvs::neighbors::cagra::index_params const&,
                                        std::vector<padded_index_t*>&,
                                        inst_device_padded_view_t,
+                                       offsets_t,
                                        filter_t)>(
     &cuvs::neighbors::cagra::merge<data_t, index_t, inst_device_padded_view_t>);
   (void)static_cast<padded_index_t (*)(raft::resources const&,
                                        cuvs::neighbors::cagra::index_params const&,
                                        std::vector<padded_index_t*>&,
                                        inst_device_padded_view_t,
+                                       offsets_t,
                                        cuvs::neighbors::cagra::merge_params const&,
                                        filter_t)>(
     &cuvs::neighbors::cagra::merge<data_t, index_t, inst_device_padded_view_t>);
@@ -57,15 +60,23 @@ CUVS_EXPORT void merge_instantiation_keepalive()
                                          cuvs::neighbors::cagra::index_params const&,
                                          std::vector<standard_index_t*>&,
                                          inst_device_standard_view_t,
+                                         offsets_t,
                                          filter_t)>(
     &cuvs::neighbors::cagra::merge<data_t, index_t, inst_device_standard_view_t>);
   (void)static_cast<standard_index_t (*)(raft::resources const&,
                                          cuvs::neighbors::cagra::index_params const&,
                                          std::vector<standard_index_t*>&,
                                          inst_device_standard_view_t,
+                                         offsets_t,
                                          cuvs::neighbors::cagra::merge_params const&,
                                          filter_t)>(
     &cuvs::neighbors::cagra::merge<data_t, index_t, inst_device_standard_view_t>);
+  (void)static_cast<std::vector<int64_t> (*)(
+    raft::resources const&, std::vector<padded_index_t*> const&, filter_t)>(
+    &cuvs::neighbors::cagra::merged_dataset_offsets<data_t, index_t, inst_device_padded_view_t>);
+  (void)static_cast<std::vector<int64_t> (*)(
+    raft::resources const&, std::vector<standard_index_t*> const&, filter_t)>(
+    &cuvs::neighbors::cagra::merged_dataset_offsets<data_t, index_t, inst_device_standard_view_t>);
 }
 template CUVS_EXPORT void merge_instantiation_keepalive<data_t>();
 

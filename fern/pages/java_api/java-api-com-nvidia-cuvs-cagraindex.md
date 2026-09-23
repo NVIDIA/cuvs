@@ -29,7 +29,7 @@ public final void setDelegate(AutoCloseable delegate, long handleAddress)
 
 Internal wiring hook used by the Java wrapper implementation.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:34`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:33`_
 
 ### isPresent
 
@@ -39,7 +39,7 @@ public final boolean isPresent()
 
 Returns true when this view has a native handle.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:42`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:41`_
 
 ### nativeHandleAddress
 
@@ -49,7 +49,7 @@ public final long nativeHandleAddress()
 
 Internal accessor for native handle address.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:49`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:48`_
 
 ### setDelegate
 
@@ -59,7 +59,7 @@ public final void setDelegate(AutoCloseable delegate)
 
 Internal wiring hook used by the Java wrapper implementation.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:84`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:83`_
 
 ### setDelegate
 
@@ -69,7 +69,7 @@ public final void setDelegate(AutoCloseable delegate, long handleAddress)
 
 Internal wiring hook used by the Java wrapper implementation.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:91`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:90`_
 
 ### isPresent
 
@@ -79,7 +79,7 @@ public final boolean isPresent()
 
 Returns true when this handle owns native dataset storage.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:99`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:98`_
 
 ### nativeHandleAddress
 
@@ -89,7 +89,7 @@ public final long nativeHandleAddress()
 
 Internal accessor for native handle address.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:106`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:105`_
 
 ### close
 
@@ -99,7 +99,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:106`_
 
 Invokes the native destroy_cagra_index to de-allocate the CAGRA index
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:136`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:135`_
 
 ### search
 
@@ -120,7 +120,7 @@ CAGRA index.
 
 an instance of `SearchResults` containing the results
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:147`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:146`_
 
 ### makePaddedDataset
 
@@ -132,7 +132,7 @@ Create an owning padded dataset by allocating padded storage and copying
 `dataset`. Prefer this when the source matrix is not already padded to CAGRA's
 required row stride (e.g. unaligned dimensions).
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:154`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:153`_
 
 ### makePaddedDatasetView
 
@@ -144,7 +144,7 @@ Create a caller-owned padded dataset view handle from a matrix that is already
 padded to CAGRA's required row stride. For unpadded matrices use
 `#makePaddedDataset(CuVSMatrix)`.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:161`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:160`_
 
 ### makeStandardDatasetView
 
@@ -154,7 +154,7 @@ StandardDatasetView makeStandardDatasetView(CuVSMatrix dataset) throws Throwable
 
 Create a caller-owned standard dataset view handle from a matrix.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:164`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:163`_
 
 ### updateDataset
 
@@ -166,7 +166,7 @@ Update this index with a caller-provided padded device dataset view and leave it
 search-ready in padded-device layout. The caller retains ownership of the underlying
 padded storage and must keep it alive while this index uses it.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:171`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:170`_
 
 ### updateDataset
 
@@ -177,7 +177,7 @@ void updateDataset(PaddedDataset dataset) throws Throwable
 Update this index with a caller-owned padded device dataset. The dataset must remain alive
 while this index uses it.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:177`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:176`_
 
 ### getGraph
 
@@ -191,7 +191,7 @@ Returns the CAGRA graph
 
 a `CuVSDeviceMatrix` encapsulating the native int (uint32_t) array used to represent the cagra graph
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:184`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:183`_
 
 ### getGraphDegree
 
@@ -207,7 +207,7 @@ build truncated it.
 
 the built graph degree (`graph().extent(1)`)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:193`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:192`_
 
 ### size
 
@@ -221,7 +221,7 @@ Returns the number of vectors in this index.
 
 the number of rows of the indexed dataset
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:200`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:199`_
 
 ### serialize
 
@@ -238,7 +238,7 @@ for writing index bytes.
 | --- | --- |
 | `outputStream` | an instance of `OutputStream` to write the index bytes into |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:209`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:208`_
 
 ### serialize
 
@@ -256,7 +256,7 @@ for writing index bytes.
 | `outputStream` | an instance of `OutputStream` to write the index bytes into |
 | `bufferLength` | the length of buffer to use for writing bytes. Default value is 1024 |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:220`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:219`_
 
 ### serialize
 
@@ -274,7 +274,7 @@ for writing index bytes.
 | `outputStream` | an instance of `OutputStream` to write the index bytes into |
 | `tempFile` | an intermediate `Path` where CAGRA index is written temporarily |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:231`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:230`_
 
 ### serialize
 
@@ -293,7 +293,7 @@ and path to the intermediate temporary file.
 | `tempFile` | an intermediate `Path` where CAGRA index is written temporarily |
 | `bufferLength` | the length of buffer to use for writing bytes. Default value is 1024 |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:246`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:245`_
 
 ### serializeToHNSW
 
@@ -310,7 +310,7 @@ of `OutputStream` and path to the intermediate temporary file.
 | --- | --- |
 | `outputStream` | an instance of `OutputStream` to write the index bytes to |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:255`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:254`_
 
 ### serializeToHNSW
 
@@ -328,7 +328,7 @@ of `OutputStream` and path to the intermediate temporary file.
 | `outputStream` | an instance of `OutputStream` to write the index bytes to |
 | `bufferLength` | the length of buffer to use for writing bytes. Default value is 1024 |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:266`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:265`_
 
 ### serializeToHNSW
 
@@ -346,7 +346,7 @@ of `OutputStream` and path to the intermediate temporary file.
 | `outputStream` | an instance of `OutputStream` to write the index bytes to |
 | `tempFile` | an intermediate `Path` where CAGRA index is written temporarily |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:277`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:276`_
 
 ### serializeToHNSW
 
@@ -365,7 +365,7 @@ of `OutputStream` and path to the intermediate temporary file.
 | `tempFile` | an intermediate `Path` where CAGRA index is written temporarily |
 | `bufferLength` | the length of buffer to use for writing bytes. Default value is 1024 |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:292`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:291`_
 
 ### getCuVSResources
 
@@ -379,7 +379,7 @@ Gets an instance of `CuVSResources`
 
 an instance of `CuVSResources`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:299`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:298`_
 
 ### newBuilder
 
@@ -401,21 +401,32 @@ Creates a new Builder with an instance of `CuVSResources`.
 | --- | --- |
 | `UnsupportedOperationException` | if the provider does not cuvs |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:307`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:306`_
 
 ### merge
 
 ```java
-static CagraIndex merge(CagraIndex[] indexes) throws Throwable
+static CagraIndex merge(CagraIndex[] indexes, PaddedDataset mergedDataset, long[] offsets) throws Throwable
 ```
 
 Merges multiple CAGRA indexes into a single index using default merge parameters.
 
+The caller is responsible for concatenating every input index's dataset (in \{@code
+indexes\} order) into a single caller-owned padded dataset before calling this, and for
+providing `offsets`: entry `i` is the row at which `indexes[i]`'s rows
+start in `mergedDataset`, and the last entry (`offsets[indexes.length]`) must
+equal `mergedDataset`'s total row count. For example, with no filtering, \{@code
+offsets\} is simply the cumulative row counts of `indexes` in order. This mirrors the
+caller-owned-buffer contract used by `#updateDataset(PaddedDataset)`. Keep \{@code
+mergedDataset\} alive for as long as the returned index remains in use.
+
 **Parameters**
 
 | Name | Description |
 | --- | --- |
 | `indexes` | Array of CAGRA indexes to merge |
+| `mergedDataset` | Caller-owned padded dataset holding the concatenation of every input index's rows, in `indexes` order |
+| `offsets` | Per-index starting row within `mergedDataset`. Array of \{@code indexes.length + 1\} entries; the last entry must equal `mergedDataset`'s row count |
 
 **Returns**
 
@@ -427,21 +438,26 @@ A new merged CAGRA index
 | --- | --- |
 | `Throwable` | if an error occurs during the merge operation |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:319`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:332`_
 
 ### merge
 
 ```java
-static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams) throws Throwable
+static CagraIndex merge( CagraIndex[] indexes, PaddedDataset mergedDataset, long[] offsets, CagraIndexParams mergeParams) throws Throwable
 ```
 
 Merges multiple CAGRA indexes into a single index with the specified merge parameters.
 
+See PaddedDataset, long[]) for the `mergedDataset`/
+`offsets` contract.
+
 **Parameters**
 
 | Name | Description |
 | --- | --- |
 | `indexes` | Array of CAGRA indexes to merge |
+| `mergedDataset` | Caller-owned padded dataset holding the concatenation of every input index's rows, in `indexes` order |
+| `offsets` | Per-index starting row within `mergedDataset`. Array of \{@code indexes.length + 1\} entries; the last entry must equal `mergedDataset`'s row count |
 | `mergeParams` | Parameters to control the merge operation, or null to use defaults |
 
 **Returns**
@@ -454,30 +470,28 @@ A new merged CAGRA index
 | --- | --- |
 | `Throwable` | if an error occurs during the merge operation |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:331`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:353`_
 
 ### merge
 
 ```java
-static CagraIndex merge(CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter) throws Throwable
+static CagraIndex merge(CagraIndex[] indexes, PaddedDatasetView mergedDataset, long[] offsets) throws Throwable
 ```
 
-Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
-`rowFilter`.
+Merges multiple CAGRA indexes into a single index using default merge parameters, from a
+caller-owned padded dataset view over a buffer that is already padded to CAGRA's required
+row stride.
 
-The merge concatenates the input datasets in the order the indexes are given, so bit
-`i` of the filter refers to row `i` of that concatenation: bits `0` to
-`indexes[0].size() - 1` address the first index, the bits that follow address the second,
-and so on. A set bit keeps the row; a clear bit drops it. The rows that survive keep
-their relative order and are packed together, so the merged index has one row per set bit.
+See PaddedDataset, long[]) for the `mergedDataset`/
+`offsets` contract.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
 | `indexes` | Array of CAGRA indexes to merge |
-| `mergeParams` | Parameters to control the merge operation, or null to use defaults |
-| `rowFilter` | The rows to keep, or null to keep all of them. A BitSet shorter than the total row count is valid: the rows beyond its logical length are treated as clear (dropped). A bit set at a position at or beyond the total row count throws `IllegalArgumentException`. |
+| `mergedDataset` | Caller-owned padded dataset view holding the concatenation of every input index's rows, in `indexes` order |
+| `offsets` | Per-index starting row within `mergedDataset`. Array of \{@code indexes.length + 1\} entries; the last entry must equal `mergedDataset`'s row count |
 
 **Returns**
 
@@ -487,10 +501,43 @@ A new merged CAGRA index
 
 | Type | Description |
 | --- | --- |
-| `IllegalArgumentException` | if `rowFilter` has a bit set beyond the last row, or if it is non-null but keeps no rows at all |
 | `Throwable` | if an error occurs during the merge operation |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:355`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:385`_
+
+### merge
+
+```java
+static CagraIndex merge( CagraIndex[] indexes, PaddedDatasetView mergedDataset, long[] offsets, CagraIndexParams mergeParams) throws Throwable
+```
+
+Merges multiple CAGRA indexes into a single index with the specified merge parameters, from a
+caller-owned padded dataset view over a buffer that is already padded to CAGRA's required
+row stride.
+
+See PaddedDataset, long[]) for the `mergedDataset`/
+`offsets` contract.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `indexes` | Array of CAGRA indexes to merge |
+| `mergedDataset` | Caller-owned padded dataset view holding the concatenation of every input index's rows, in `indexes` order |
+| `offsets` | Per-index starting row within `mergedDataset`. Array of \{@code indexes.length + 1\} entries; the last entry must equal `mergedDataset`'s row count |
+| `mergeParams` | Parameters to control the merge operation, or null to use defaults |
+
+**Returns**
+
+A new merged CAGRA index
+
+**Throws**
+
+| Type | Description |
+| --- | --- |
+| `Throwable` | if an error occurs during the merge operation |
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:408`_
 
 ### isPaddedDataset
 
@@ -516,7 +563,7 @@ copy it into padded storage it already occupies, and one that is not has to go t
 
 true when the rows are already padded the way CAGRA requires
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:383`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:453`_
 
 ### from
 
@@ -537,7 +584,7 @@ needed.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:400`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:470`_
 
 ### from
 
@@ -560,7 +607,7 @@ serialized index. Keep `outDataset` alive while the built index is in use.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:411`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:481`_
 
 ### from
 
@@ -571,7 +618,7 @@ Builder from(CuVSMatrix graph)
 Sets a CAGRA graph instance to re-create an index from a
 previously built graph.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:417`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:487`_
 
 ### withDataset
 
@@ -591,7 +638,7 @@ Sets the dataset vectors for building the `CagraIndex`.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:425`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:495`_
 
 ### withDataset
 
@@ -611,7 +658,7 @@ Sets the dataset for building the `CagraIndex`.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:433`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:503`_
 
 ### withBbqDataset
 
@@ -629,7 +676,7 @@ stay open for as long as the index is in use. A dense dataset passed to
 `#withDataset(CuVSMatrix)` is owned by the index, as it is for a non-BBQ build, and is
 closed with it.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:446`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:516`_
 
 ### withIndexParams
 
@@ -650,7 +697,7 @@ Builder.
 
 An instance of this Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:455`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:525`_
 
 ### build
 
@@ -664,6 +711,6 @@ Builds and returns an instance of CagraIndex.
 
 an instance of CagraIndex
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:462`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:532`_
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:26`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:25`_
