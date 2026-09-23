@@ -133,6 +133,7 @@ ConfigureTest(
        cluster/kmeans_predict_batching.cu
        cluster/linkage.cu
        cluster/connect_knn.cu
+       cluster/soar.cu
        cluster/spectral.cu
   GPUS 1
   PERCENT 100
