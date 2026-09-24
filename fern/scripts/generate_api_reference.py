@@ -13,12 +13,13 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+import argparse
 import ast
 import re
 import shutil
 import textwrap
 from pathlib import Path
-from typing import Iterable
+from typing import Callable, Iterable
 
 
 REPO_DIR = Path(__file__).resolve().parents[2]
@@ -30,6 +31,9 @@ NATIVE_HEADER_DIRS = [REPO_DIR / "c" / "include", REPO_DIR / "cpp" / "include"]
 JAVA_SOURCE_DIRS = [
     REPO_DIR / "java" / "cuvs-java" / "src" / "main" / "java",
     REPO_DIR / "java" / "cuvs-java" / "src" / "main" / "java22",
+]
+LUCENE_SOURCE_DIRS = [
+    REPO_DIR / "java" / "cuvs-lucene" / "src" / "main" / "java",
 ]
 API_NAV_SECTIONS = [
     ("C API Documentation", "c_api", "c-api-documentation", "C API", "c-api"),
@@ -53,6 +57,13 @@ API_NAV_SECTIONS = [
         "java-api-documentation",
         "Java API",
         "java-api",
+    ),
+    (
+        "Lucene API Documentation",
+        "lucene_api",
+        "lucene-api-documentation",
+        "Lucene API",
+        "lucene-api",
     ),
     (
         "Rust API Documentation",
@@ -86,6 +97,7 @@ API_REFERENCE_DIRS = [
     "cpp_api",
     "python_api",
     "java_api",
+    "lucene_api",
     "rust_api",
     "go_api",
 ]
@@ -118,6 +130,21 @@ SQUASHED_MARKDOWN_LIST_PATTERNS = [
     ),
 ]
 API_DECORATOR_LEAK_RE = re.compile(r"\bCUVS_EXPORT\b")
+# ``cuvs-lucene`` classes all live in one package, so the Lucene type each
+# one extends is the only structural signal available for grouping. These are
+# Lucene API names, which are stable across cuVS releases.
+LUCENE_EXTENSION_POINTS = frozenset(
+    {
+        "FilterCodec",
+        "HnswGraph",
+        "KnnFieldVectorsWriter",
+        "KnnFloatVectorQuery",
+        "KnnVectorsFormat",
+        "KnnVectorsReader",
+        "KnnVectorsWriter",
+    }
+)
+JAVA_SUPERTYPE_RE = re.compile(r"\b(?:extends|implements)\s+(?P<name>\w+)")
 PUBLIC_JAVA_TYPE_RE = re.compile(
     r"\bpublic\s+(?:abstract\s+|final\s+|sealed\s+|non-sealed\s+)?"
     r"(?P<kind>class|interface|enum|record)\s+(?P<name>[A-Za-z_]\w*)"
@@ -130,6 +157,15 @@ CPP_COMPOUND_RE = re.compile(
     r"^\s*(?:typedef\s+)?(?:struct|class|enum(?:\s+class)?)\b"
 )
 API_DECORATOR_RE = re.compile(r"\bCUVS_EXPORT\b\s*")
+
+# Suppressed by ``--quiet`` so the pre-commit hook reports only its verdict.
+VERBOSE = True
+
+# Populated while generating pages, consumed by ``update_api_navigation``.
+# A slug cannot round-trip a Java type name (the package prefix and the
+# internal capitalization are both lost), so record the real name instead of
+# letting ``api_route_title`` title-case the slug.
+API_NAV_TITLE_OVERRIDES: dict[tuple[str, str], str] = {}
 
 
 @dataclass
@@ -413,7 +449,17 @@ class DoxygenHeaderIndex:
             entry.name = "::".join([*qualifiers, entry.name])
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    global VERBOSE
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help="only report errors; do not list every generated page",
+    )
+    VERBOSE = not parser.parse_args(argv).quiet
+
     remove_old_api_pages()
     native_index = DoxygenHeaderIndex.build(NATIVE_HEADER_DIRS)
     native_pages_by_api = {
@@ -429,6 +475,7 @@ def main() -> int:
     )
     generate_python_api_pages()
     generate_java_api_pages()
+    generate_lucene_api_pages()
     generate_rust_api_pages()
     generate_go_api_pages()
     update_api_navigation()
@@ -442,6 +489,7 @@ def remove_old_api_pages() -> None:
         FERN_PAGES / "cpp_api",
         FERN_PAGES / "python_api",
         FERN_PAGES / "java_api",
+        FERN_PAGES / "lucene_api",
         FERN_PAGES / "rust_api",
         FERN_PAGES / "go_api",
     ]:
@@ -800,9 +848,9 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft-resource-get-cuda-stream",
         "raft::resource::get_cuda_stream",
         "Returns the CUDA stream associated with a resources object.",
-        "rmm::cuda_stream_view get_cuda_stream(raft::resources const& res);",
+        "cuda::stream_ref get_cuda_stream(raft::resources const& res);",
         [("res", "raft::resources const&", "Resources object to query.")],
-        "rmm::cuda_stream_view",
+        "cuda::stream_ref",
         nested=True,
     )
     add_symbol(
@@ -812,7 +860,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "Synchronizes the CUDA stream associated with a resources object.",
         (
             "void sync_stream(raft::resources const& res);\n"
-            "void sync_stream(raft::resources const& res, rmm::cuda_stream_view stream);"
+            "void sync_stream(raft::resources const& res, cuda::stream_ref stream);"
         ),
         [
             (
@@ -822,7 +870,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             ),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "Optional stream to synchronize instead of the main stream.",
             ),
         ],
@@ -861,9 +909,9 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft-resource-get-stream-from-stream-pool",
         "raft::resource::get_stream_from_stream_pool",
         "Returns a stream from the configured stream pool.",
-        "rmm::cuda_stream_view get_stream_from_stream_pool(raft::resources const& res);",
+        "cuda::stream_ref get_stream_from_stream_pool(raft::resources const& res);",
         [("res", "raft::resources const&", "Resources object to query.")],
-        "rmm::cuda_stream_view",
+        "cuda::stream_ref",
         nested=True,
     )
     add_symbol(
@@ -947,7 +995,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "Constructs a single-GPU resources object.",
         (
             "device_resources(\n"
-            "  rmm::cuda_stream_view stream_view = rmm::cuda_stream_per_thread,\n"
+            "  cuda::stream_ref stream_view = cuda::stream_ref{cudaStreamPerThread},\n"
             "  std::shared_ptr<rmm::cuda_stream_pool> stream_pool = nullptr,\n"
             "  std::shared_ptr<rmm::mr::device_memory_resource> workspace_resource = nullptr,\n"
             "  std::optional<std::size_t> allocation_limit = std::nullopt);"
@@ -955,7 +1003,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         [
             (
                 "stream_view",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "Default CUDA stream used by algorithms.",
             ),
             (
@@ -982,12 +1030,12 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "Synchronizes either the main stream or a specific CUDA stream.",
         (
             "void sync_stream() const;\n"
-            "void sync_stream(rmm::cuda_stream_view stream) const;"
+            "void sync_stream(cuda::stream_ref stream) const;"
         ),
         [
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "Stream to synchronize. Omit to synchronize the main stream.",
             )
         ],
@@ -998,8 +1046,8 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft-device-resources-get-stream",
         "raft::device_resources::get_stream",
         "Returns the main CUDA stream associated with the resources object.",
-        "rmm::cuda_stream_view get_stream() const;",
-        returns="rmm::cuda_stream_view",
+        "cuda::stream_ref get_stream() const;",
+        returns="cuda::stream_ref",
     )
     add_symbol(
         lines,
@@ -1023,8 +1071,8 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft::device_resources::get_stream_from_stream_pool",
         "Returns a stream from the configured CUDA stream pool.",
         (
-            "rmm::cuda_stream_view get_stream_from_stream_pool() const;\n"
-            "rmm::cuda_stream_view get_stream_from_stream_pool(std::size_t stream_idx) const;"
+            "cuda::stream_ref get_stream_from_stream_pool() const;\n"
+            "cuda::stream_ref get_stream_from_stream_pool(std::size_t stream_idx) const;"
         ),
         [
             (
@@ -1033,7 +1081,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
                 "Optional index of the stream in the stream pool.",
             )
         ],
-        "rmm::cuda_stream_view",
+        "cuda::stream_ref",
     )
     add_symbol(
         lines,
@@ -1044,8 +1092,8 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             "the main stream."
         ),
         (
-            "rmm::cuda_stream_view get_next_usable_stream() const;\n"
-            "rmm::cuda_stream_view get_next_usable_stream(std::size_t stream_idx) const;"
+            "cuda::stream_ref get_next_usable_stream() const;\n"
+            "cuda::stream_ref get_next_usable_stream(std::size_t stream_idx) const;"
         ),
         [
             (
@@ -1054,7 +1102,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
                 "Optional stream pool index to use when a stream pool is configured.",
             )
         ],
-        "rmm::cuda_stream_view",
+        "cuda::stream_ref",
     )
     add_symbol(
         lines,
@@ -2085,7 +2133,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         (
             "template <typename OutputIterator, typename InputIterator, typename SizeType>\n"
             "void copy(OutputIterator dst, InputIterator src, SizeType n,\n"
-            "          rmm::cuda_stream_view stream);"
+            "          cuda::stream_ref stream);"
         ),
         [
             ("dst", "OutputIterator", "Destination pointer or iterator."),
@@ -2093,7 +2141,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             ("n", "SizeType", "Number of elements to copy."),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "CUDA stream used for the copy.",
             ),
         ],
@@ -2104,13 +2152,13 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         "raft-copy-matrix",
         "raft::copy_matrix",
         "Copies a dense matrix between compatible matrix views.",
-        "template <typename OutputView, typename InputView>\nvoid copy_matrix(OutputView dst, InputView src, rmm::cuda_stream_view stream);",
+        "template <typename OutputView, typename InputView>\nvoid copy_matrix(OutputView dst, InputView src, cuda::stream_ref stream);",
         [
             ("dst", "OutputView", "Destination matrix view."),
             ("src", "InputView", "Source matrix view."),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "CUDA stream used for the copy.",
             ),
         ],
@@ -2124,7 +2172,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         (
             "template <typename DevicePointer, typename HostPointer, typename SizeType>\n"
             "void update_device(DevicePointer dst, HostPointer src, SizeType n,\n"
-            "                   rmm::cuda_stream_view stream);"
+            "                   cuda::stream_ref stream);"
         ),
         [
             ("dst", "DevicePointer", "Destination device pointer."),
@@ -2132,7 +2180,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             ("n", "SizeType", "Number of elements to copy."),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "CUDA stream used for the copy.",
             ),
         ],
@@ -2146,7 +2194,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
         (
             "template <typename HostPointer, typename DevicePointer, typename SizeType>\n"
             "void update_host(HostPointer dst, DevicePointer src, SizeType n,\n"
-            "                 rmm::cuda_stream_view stream);"
+            "                 cuda::stream_ref stream);"
         ),
         [
             ("dst", "HostPointer", "Destination host pointer."),
@@ -2154,7 +2202,7 @@ def write_cpp_common_types_page(out_dir: Path) -> None:
             ("n", "SizeType", "Number of elements to copy."),
             (
                 "stream",
-                "rmm::cuda_stream_view",
+                "cuda::stream_ref",
                 "CUDA stream used for the copy.",
             ),
         ],
@@ -2945,27 +2993,66 @@ def render_python_symbol(symbol: PythonSymbol) -> list[str]:
 
 
 def generate_java_api_pages() -> None:
-    out_dir = FERN_PAGES / "java_api"
+    generate_jvm_api_pages(
+        directory="java_api",
+        title="Java API Documentation",
+        intro=(
+            "These pages are generated from the Java source files in "
+            "`java/cuvs-java/src/main`.\n\n"
+            "For the Apache Lucene codecs built on this API, see the "
+            "[Lucene API Documentation](/api-reference/lucene-api-documentation) and the "
+            "[Lucene Integration](/user-guide/lucene) guide."
+        ),
+        source_dirs=JAVA_SOURCE_DIRS,
+        group_of=java_api_group,
+    )
+
+
+def generate_lucene_api_pages() -> None:
+    generate_jvm_api_pages(
+        directory="lucene_api",
+        title="Lucene API Documentation",
+        intro=(
+            "These pages are generated from the Java source files in "
+            "`java/cuvs-lucene/src/main`.\n\n"
+            "For an introduction to the codecs, configuration, and tuning, see the "
+            "[Lucene Integration](/user-guide/lucene) guide."
+        ),
+        source_dirs=LUCENE_SOURCE_DIRS,
+        group_of=lucene_api_group,
+    )
+
+
+def generate_jvm_api_pages(
+    *,
+    directory: str,
+    title: str,
+    intro: str,
+    source_dirs: list[Path],
+    group_of: Callable[[JavaClass], str],
+) -> None:
+    out_dir = FERN_PAGES / directory
     out_dir.mkdir(parents=True, exist_ok=True)
-    classes = collect_java_classes()
+    classes = collect_java_classes(source_dirs)
 
     index_lines = [
-        "# Java API Documentation",
+        f"# {title}",
         "",
-        "These pages are generated from the Java source files in `java/cuvs-java/src/main`.",
+        intro,
         "",
     ]
     grouped: dict[str, list[tuple[str, str]]] = defaultdict(list)
     for klass in classes:
-        grouped[java_api_group(klass)].append(
-            (klass.name, api_doc_url("java_api", java_slug(klass)))
+        grouped[group_of(klass)].append(
+            (klass.name, api_doc_url(directory, java_slug(klass)))
         )
     append_api_index_groups(index_lines, grouped)
     write_page(out_dir / "index.md", index_lines)
 
     for klass in classes:
+        API_NAV_TITLE_OVERRIDES[(directory, java_slug(klass))] = klass.name
         lines = [
-            *api_frontmatter(api_page_route("java_api", java_slug(klass))),
+            *api_frontmatter(api_page_route(directory, java_slug(klass))),
             f"# {klass.name}",
             "",
             f"_Java package: `{klass.package}`_",
@@ -3001,7 +3088,7 @@ def generate_java_api_pages() -> None:
                 lines.extend([f"_Source: `{klass.source}:{member.line}`_", ""])
         lines.extend([f"_Source: `{klass.source}:{klass.line}`_", ""])
         write_page(
-            out_dir / f"{api_page_route('java_api', java_slug(klass))}.md",
+            out_dir / f"{api_page_route(directory, java_slug(klass))}.md",
             lines,
         )
 
@@ -3016,6 +3103,7 @@ def java_api_group(klass: JavaClass) -> str:
             "hnsw",
             "ivf",
             "tiered",
+            "vamana",
             "searchresults",
             "aceparams",
         )
@@ -3024,9 +3112,21 @@ def java_api_group(klass: JavaClass) -> str:
     return "Common"
 
 
-def collect_java_classes() -> list[JavaClass]:
+def lucene_api_group(klass: JavaClass) -> str:
+    """Group a Lucene class by whether it implements a Lucene vector API.
+
+    The supertype is already part of ``klass.signature``, so a new codec
+    generation classifies itself without touching this function.
+    """
+    match = JAVA_SUPERTYPE_RE.search(klass.signature)
+    if match is not None and match.group("name") in LUCENE_EXTENSION_POINTS:
+        return "Codecs and Formats"
+    return "Common"
+
+
+def collect_java_classes(roots: list[Path]) -> list[JavaClass]:
     classes: list[JavaClass] = []
-    for root in JAVA_SOURCE_DIRS:
+    for root in roots:
         for path in sorted(root.rglob("*.java")):
             if (
                 "internal" in path.relative_to(root).parts
@@ -3071,6 +3171,11 @@ def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
         if re.search(r"\b(class|interface|enum|record)\b", signature):
             continue
         if re.search(r"\b(if|for|while|switch|catch)\s*\(", signature):
+            continue
+        # The pages advertise "Public Members"; drop explicitly private ones.
+        # Package-private and interface members are left alone because an
+        # interface method with no modifier is implicitly public.
+        if re.match(r"\s*private\b", signature):
             continue
         name_match = re.search(r"([A-Za-z_]\w*)\s*\(", signature)
         if not name_match:
@@ -5652,6 +5757,7 @@ def update_api_navigation() -> None:
 
     lines = [
         '  - section: "API Reference"',
+        '    path: "./pages/api_reference.md"',
         "    contents:",
     ]
     for title, directory, _, _, _ in API_NAV_SECTIONS:
@@ -5694,7 +5800,8 @@ def update_api_navigation() -> None:
     docs_yml.write_text(
         text[:start] + replacement + text[end:], encoding="utf-8"
     )
-    print("Updated fern/docs.yml API Reference navigation")
+    if VERBOSE:
+        print("Updated fern/docs.yml API Reference navigation")
 
 
 def read_api_index_slugs(index_path: Path) -> list[str]:
@@ -5723,6 +5830,9 @@ def api_frontmatter(route: str) -> list[str]:
 
 
 def api_nav_page_title(directory: str, slug: str) -> str:
+    override = API_NAV_TITLE_OVERRIDES.get((directory, slug))
+    if override is not None:
+        return override
     return api_route_title(slug)
 
 
@@ -5760,6 +5870,7 @@ def api_route_title(slug: str) -> str:
         "nn": "NN",
         "pca": "PCA",
         "pq": "PQ",
+        "rabitq": "RaBitQ",
         "sq": "SQ",
         "vq": "VQ",
     }
@@ -5978,7 +6089,8 @@ def write_page(path: Path, lines: list[str]) -> None:
     path.write_text(
         "\n".join(trim_blank_lines(lines)).rstrip() + "\n", encoding="utf-8"
     )
-    print(f"Wrote {path.relative_to(REPO_DIR)}")
+    if VERBOSE:
+        print(f"Wrote {path.relative_to(REPO_DIR)}")
 
 
 def validate_generated_api_markdown() -> None:

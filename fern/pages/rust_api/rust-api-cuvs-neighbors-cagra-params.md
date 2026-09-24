@@ -17,42 +17,6 @@ unset values retain the library defaults from the underlying C
 `*ParamsCreate` functions. Out-of-range values are rejected by `build()` with
 [`CagraError::Validation`].
 
-## CompressionParams
-
-```rust
-pub struct CompressionParams {
-    /* private fields */
-}
-```
-
-VPQ (Vector-Product Quantization) compression parameters.
-
-Attach to [`IndexParams`] to enable compressed dataset storage.
-
-**Methods**
-
-| Name | Source |
-| --- | --- |
-| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:39` |
-
-### new
-
-```rust
-#[builder]
-pub fn new(
-pq_bits: Option<u32>,
-pq_dim: Option<u32>,
-vq_n_centers: Option<u32>,
-kmeans_n_iters: Option<u32>,
-vq_kmeans_trainset_fraction: Option<f64>,
-pq_kmeans_trainset_fraction: Option<f64>,
-) -> Result<Self, CagraError>
-```
-
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:39`_
-
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:32`_
-
 ## IndexParams
 
 ```rust
@@ -77,7 +41,7 @@ let params = IndexParams::builder()
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:153` |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:59` |
 
 ### new
 
@@ -87,16 +51,15 @@ pub fn new(
 metric: Option<DistanceType>,
 intermediate_graph_degree: Option<usize>,
 graph_degree: Option<usize>,
-compression: Option<CompressionParams>,
 #[builder(setters(vis = "", some_fn = graph_build_internal))] graph_build: Option<
 RequestedGraphBuild,
 >,
 ) -> Result<Self, CagraError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:153`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:59`_
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:142`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:49`_
 
 ## SearchParams
 
@@ -118,7 +81,7 @@ let params = SearchParams::builder().itopk_size(128).build()?;
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:340` |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:233` |
 
 ### new
 
@@ -131,6 +94,7 @@ itopk_size: Option<usize>,
 max_iterations: Option<usize>,
 algo: Option<SearchAlgo>,
 team_size: Option<usize>,
+search_width: Option<usize>,
 min_iterations: Option<usize>,
 thread_block_size: Option<usize>,
 hashmap_mode: Option<HashMode>,
@@ -138,12 +102,15 @@ hashmap_min_bitlen: Option<usize>,
 hashmap_max_fill_rate: Option<f32>,
 num_random_samplings: Option<u32>,
 rand_xor_mask: Option<u64>,
+persistent: Option<bool>,
+persistent_lifetime: Option<f32>,
+persistent_device_usage: Option<f32>,
 ) -> Result<Self, CagraError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:340`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:233`_
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:332`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:225`_
 
 ## impl IndexParamsBuilder
 
@@ -155,12 +122,12 @@ impl IndexParamsBuilder
 
 | Name | Source |
 | --- | --- |
-| `auto` | `rust/cuvs/src/neighbors/cagra/params.rs:214` |
-| `nn_descent` | `rust/cuvs/src/neighbors/cagra/params.rs:221` |
-| `nn_descent_with_iterations` | `rust/cuvs/src/neighbors/cagra/params.rs:228` |
-| `iterative_cagra_search` | `rust/cuvs/src/neighbors/cagra/params.rs:238` |
-| `ace` | `rust/cuvs/src/neighbors/cagra/params.rs:245` |
-| `ivf_pq` | `rust/cuvs/src/neighbors/cagra/params.rs:252` |
+| `auto` | `rust/cuvs/src/neighbors/cagra/params.rs:107` |
+| `nn_descent` | `rust/cuvs/src/neighbors/cagra/params.rs:114` |
+| `nn_descent_with_iterations` | `rust/cuvs/src/neighbors/cagra/params.rs:121` |
+| `iterative_cagra_search` | `rust/cuvs/src/neighbors/cagra/params.rs:131` |
+| `ace` | `rust/cuvs/src/neighbors/cagra/params.rs:138` |
+| `ivf_pq` | `rust/cuvs/src/neighbors/cagra/params.rs:145` |
 
 ### auto
 
@@ -170,7 +137,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:214`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:107`_
 
 ### nn_descent
 
@@ -180,7 +147,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:221`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:114`_
 
 ### nn_descent_with_iterations
 
@@ -193,7 +160,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:228`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:121`_
 
 ### iterative_cagra_search
 
@@ -203,7 +170,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:238`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:131`_
 
 ### ace
 
@@ -213,7 +180,7 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:245`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:138`_
 
 ### ivf_pq
 
@@ -223,6 +190,6 @@ where
 S::GraphBuild: IsUnset,
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:252`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:145`_
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:213`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:106`_

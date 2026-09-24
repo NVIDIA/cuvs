@@ -11,6 +11,7 @@
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 
+#include <cuda/stream>
 #include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/add.cuh>
 #include <raft/matrix/gather.cuh>
@@ -344,7 +345,7 @@ class ivf_pq_test : public ::testing::TestWithParam<ivf_pq_inputs> {
                          rec_list->indices.data_handle() + n_skip,
                          IdxT{n_take},
                          orig_data.data_handle(),
-                         stream_);
+                         stream_.get());
 
     compare_vectors_l2(handle_, rec_data.view(), orig_data.view(), label, compression_ratio, 0.06);
   }
@@ -705,7 +706,7 @@ class ivf_pq_test : public ::testing::TestWithParam<ivf_pq_inputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   ivf_pq_inputs ps;                           // NOLINT
   rmm::device_uvector<DataT> database;        // NOLINT
   rmm::device_uvector<DataT> search_queries;  // NOLINT
@@ -772,7 +773,7 @@ class ivf_pq_filter_test : public ::testing::TestWithParam<ivf_pq_inputs> {
                             indices_naive_dev.data(),
                             IdxT(test_ivf_sample_filter::offset),
                             queries_size,
-                            stream_);
+                            stream_.get());
     distances_ref.resize(queries_size);
     raft::update_host(distances_ref.data(), distances_naive_dev.data(), queries_size, stream_);
     indices_ref.resize(queries_size);
@@ -867,7 +868,7 @@ class ivf_pq_filter_test : public ::testing::TestWithParam<ivf_pq_inputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   ivf_pq_inputs ps;                           // NOLINT
   rmm::device_uvector<DataT> database;        // NOLINT
   rmm::device_uvector<DataT> search_queries;  // NOLINT

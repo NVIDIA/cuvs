@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,6 +12,8 @@
 #include "../utils/reductions.cuh"
 #include "ivf_gpu.cuh"
 #include "searcher_gpu.cuh"
+#include <cuda/stream>
+#include <cuvs/util/file_io.hpp>
 #include <raft/util/integer_utils.hpp>
 
 #include <cuvs/selection/select_k.hpp>
@@ -29,6 +31,7 @@
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <limits>
 #include <numeric>
 #include <omp.h>
@@ -92,8 +95,7 @@ void IVFGPU::AllocateHostMemory()
   this->ids_host_ = raft::make_host_vector<PID, int64_t>(pids_size / sizeof(PID));
 }
 
-// load transposed data for short codes
-void IVFGPU::load_transposed(const char* filename)
+void IVFGPU::load(const char* filename)
 {
   std::ifstream input(filename, std::ios::binary);
   RAFT_EXPECTS(input.is_open(), "failed to open file: %s", filename);
@@ -185,70 +187,12 @@ void IVFGPU::load_transposed(const char* filename)
     memcpy(h_ptr, h_buf.data(), n_bytes);
   };
 
-  auto read_into_device_host_transposed_short =
-    [&](void* d_ptr, void* h_ptr, size_t n_bytes, size_t& max_cluster_size) {
-      // Read all clusters' data into staging buffer (still in sequential format)
-      std::vector<std::uint8_t> h_buf(n_bytes);
-      input.read(reinterpret_cast<char*>(h_buf.data()), n_bytes);
-      if (input.gcount() != static_cast<std::streamsize>(n_bytes))
-        throw std::runtime_error("unexpected EOF");
-
-      // Create transposed buffer
-      std::vector<std::uint8_t> h_transposed(n_bytes);
-
-      // Process each cluster and transpose its vectors
-      size_t src_offset = 0;  // offset in original sequential buffer
-      size_t dst_offset = 0;  // offset in transposed buffer
-
-      // Also evaluate maximum cluster size during this loop
-      max_cluster_size = 0;
-      for (size_t cluster_id = 0; cluster_id < num_centroids; cluster_id++) {
-        size_t cluster_size = cluster_sizes[cluster_id];
-        max_cluster_size    = max(max_cluster_size, cluster_size);
-        if (cluster_size == 0) continue;
-
-        // Calculate dimensions per vector
-        size_t bytes_per_vector   = DQ->block_bytes();
-        size_t uint32s_per_vector = bytes_per_vector / sizeof(uint32_t);
-
-        // Get pointers to source (sequential) and destination (transposed) data
-        uint32_t* src_cluster = reinterpret_cast<uint32_t*>(h_buf.data() + src_offset);
-        uint32_t* dst_cluster = reinterpret_cast<uint32_t*>(h_transposed.data() + dst_offset);
-
-        // Transpose the cluster:
-        // From: vec1[all_dims], vec2[all_dims], ..., vecn[all_dims]
-        // To: vec1[dim0-31], vec2[dim0-31], ..., vecn[dim0-31],
-        //     vec1[dim32-63], vec2[dim32-63], ..., vecn[dim32-63], ...
-
-        for (size_t dim_chunk = 0; dim_chunk < uint32s_per_vector; dim_chunk++) {
-          for (size_t vec_id = 0; vec_id < cluster_size; vec_id++) {
-            // Source: vector vec_id, dimension chunk dim_chunk
-            size_t src_idx = vec_id * uint32s_per_vector + dim_chunk;
-            // Destination: dimension chunk dim_chunk, vector vec_id
-            size_t dst_idx = dim_chunk * cluster_size + vec_id;
-
-            dst_cluster[dst_idx] = src_cluster[src_idx];
-          }
-        }
-
-        // Update offsets for next cluster
-        size_t cluster_bytes = cluster_size * bytes_per_vector;
-        src_offset += cluster_bytes;
-        dst_offset += cluster_bytes;
-      }
-
-      // Copy transposed data to device and host
-      raft::copy(static_cast<uint8_t*>(d_ptr), h_transposed.data(), n_bytes, stream_);
-      raft::resource::sync_stream(handle_);
-      memcpy(h_ptr, h_transposed.data(), n_bytes);
-    };
+  this->max_cluster_length = *std::max_element(cluster_sizes.begin(), cluster_sizes.end());
 
   // New change: host copy of ivf.
   AllocateHostMemory();
-  read_into_device_host_transposed_short(short_data_.data_handle(),
-                                         short_data_host_.data_handle(),
-                                         GetShortDataBytesSimple(),
-                                         this->max_cluster_length);
+  read_into_device_host(
+    short_data_.data_handle(), short_data_host_.data_handle(), GetShortDataBytesSimple());
   read_into_device(short_factors_batch_.data_handle(),
                    GetShortDataFactorBytesBatch());  // SoA layout - no copy on CPU
   read_into_device_host(
@@ -344,8 +288,7 @@ void IVFGPU::save(const char* filename) const
 {
   RAFT_EXPECTS(num_centroids > 0, "IVF index has not been constructed");
 
-  std::ofstream output(filename, std::ios::binary);
-  RAFT_EXPECTS(output.is_open(), "failed to open file for saving: %s", filename);
+  cuvs::util::kvikio_ofstream output(filename);
 
   auto write_exact = [&](const void* ptr, size_t n_bytes) {
     output.write(reinterpret_cast<const char*>(ptr), n_bytes);
@@ -386,37 +329,14 @@ void IVFGPU::save(const char* filename) const
   // for batch data
   size_t short_factors_size = GetShortDataFactorBytesBatch();
 
-  // Allocate temporary host buffers.
-  auto h_short_data_buf = raft::make_host_vector<uint8_t, int64_t>(short_data_size);
-  auto h_long_code_buf  = raft::make_host_vector<uint8_t, int64_t>(long_code_size);
-  auto h_ex_factor_buf =
-    raft::make_host_vector<ExFactor, int64_t>(ex_factor_size / sizeof(ExFactor));
-  auto h_ids_buf                 = raft::make_host_vector<PID, int64_t>(ids_size / sizeof(PID));
-  auto h_short_factors_batch_buf = raft::make_host_vector<uint8_t, int64_t>(short_factors_size);
-
-  // Copy device data to host (SoA layout).
-  raft::copy(h_short_data_buf.data_handle(),
-             reinterpret_cast<const uint8_t*>(short_data_.data_handle()),
-             short_data_size,
-             stream_);
-  raft::copy(h_short_factors_batch_buf.data_handle(),
-             reinterpret_cast<const uint8_t*>(short_factors_batch_.data_handle()),
-             short_factors_size,
-             stream_);
-  raft::copy(h_long_code_buf.data_handle(), long_code_.data_handle(), long_code_size, stream_);
-  raft::copy(h_ex_factor_buf.data_handle(),
-             ex_factor_.data_handle(),
-             ex_factor_size / sizeof(ExFactor),
-             stream_);
-  raft::copy(h_ids_buf.data_handle(), ids_.data_handle(), ids_size / sizeof(PID), stream_);
   raft::resource::sync_stream(handle_);
 
   // Write raw arrays to file.
-  write_exact(h_short_data_buf.data_handle(), short_data_size);
-  write_exact(h_short_factors_batch_buf.data_handle(), short_factors_size);
-  write_exact(h_long_code_buf.data_handle(), long_code_size);
-  write_exact(h_ex_factor_buf.data_handle(), ex_factor_size);
-  write_exact(h_ids_buf.data_handle(), ids_size);
+  output.write_device(short_data_.data_handle(), short_data_size);
+  output.write_device(short_factors_batch_.data_handle(), short_factors_size);
+  output.write_device(long_code_.data_handle(), long_code_size);
+  output.write_device(ex_factor_.data_handle(), ex_factor_size);
+  output.write_device(ids_.data_handle(), ids_size);
 
   output.close();
 }
@@ -516,7 +436,7 @@ void IVFGPU::construct_on_gpu(const float* device_data,
                                                     lower_level,
                                                     upper_level,
                                                     num_vectors,
-                                                    stream_));
+                                                    stream_.get()));
 
   {
     rmm::device_buffer d_temp_storage(temp_storage_bytes, stream_);
@@ -528,7 +448,7 @@ void IVFGPU::construct_on_gpu(const float* device_data,
                                                       lower_level,
                                                       upper_level,
                                                       num_vectors,
-                                                      stream_));
+                                                      stream_.get()));
   }
 
   // -------------------------
@@ -537,8 +457,12 @@ void IVFGPU::construct_on_gpu(const float* device_data,
   rmm::device_uvector<size_t> d_offsets(num_centroids + 1, stream_);
 
   temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceScan::ExclusiveSum(
-    nullptr, temp_storage_bytes, d_histogram.data(), d_offsets.data(), num_centroids, stream_));
+  RAFT_CUDA_TRY(cub::DeviceScan::ExclusiveSum(nullptr,
+                                              temp_storage_bytes,
+                                              d_histogram.data(),
+                                              d_offsets.data(),
+                                              num_centroids,
+                                              stream_.get()));
 
   {
     rmm::device_buffer d_temp_storage(temp_storage_bytes, stream_);
@@ -547,7 +471,7 @@ void IVFGPU::construct_on_gpu(const float* device_data,
                                                 d_histogram.data(),
                                                 d_offsets.data(),
                                                 num_centroids,
-                                                stream_));
+                                                stream_.get()));
   }
 
   // Set the last offset element
@@ -559,7 +483,7 @@ void IVFGPU::construct_on_gpu(const float* device_data,
   GPUClusterMeta* d_cluster_meta_temp = cluster_meta_.data_handle();
 
   num_blocks = (num_centroids + block_size - 1) / block_size;
-  build_cluster_meta_kernel<<<num_blocks, block_size, 0, stream_>>>(
+  build_cluster_meta_kernel<<<num_blocks, block_size, 0, stream_.get()>>>(
     d_cluster_meta_temp, d_histogram.data(), d_offsets.data(), num_centroids);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
@@ -573,7 +497,7 @@ void IVFGPU::construct_on_gpu(const float* device_data,
   raft::copy(d_atomic_counters.data(), d_offsets.data(), num_centroids, stream_);
 
   num_blocks = (num_vectors + block_size - 1) / block_size;
-  scatter_pids_kernel<<<num_blocks, block_size, 0, stream_>>>(
+  scatter_pids_kernel<<<num_blocks, block_size, 0, stream_.get()>>>(
     d_flat_pids, device_cluster_ids, d_offsets.data(), d_atomic_counters.data(), num_vectors);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
@@ -609,6 +533,7 @@ void IVFGPU::construct_on_gpu(const float* device_data,
 
   // Add rotated centroids
   initializer->AddVectors(d_rotated_centroids.data());
+  compute_centroid_norms();
 
   raft::resource::sync_stream(handle_);
 }
@@ -668,7 +593,7 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
                                                     lower_level,
                                                     upper_level,
                                                     num_vectors,
-                                                    stream_));
+                                                    stream_.get()));
 
   auto d_temp_storage_vec = raft::make_device_vector<uint8_t, int64_t>(handle_, temp_storage_bytes);
   d_temp_storage          = d_temp_storage_vec.data_handle();
@@ -681,7 +606,7 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
                                                     lower_level,
                                                     upper_level,
                                                     num_vectors,
-                                                    stream_));
+                                                    stream_.get()));
 
   // -------------------------
   // 4. Compute prefix sum (offsets) on GPU using CUB
@@ -695,7 +620,7 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
                                               d_histogram.data_handle(),
                                               d_offsets.data_handle(),
                                               num_centroids,
-                                              stream_));
+                                              stream_.get()));
 
   d_temp_storage_vec = raft::make_device_vector<uint8_t, int64_t>(handle_, temp_storage_bytes);
   d_temp_storage     = d_temp_storage_vec.data_handle();
@@ -705,7 +630,7 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
                                               d_histogram.data_handle(),
                                               d_offsets.data_handle(),
                                               num_centroids,
-                                              stream_));
+                                              stream_.get()));
 
   // Set the last offset element
   raft::copy(d_offsets.data_handle() + num_centroids, &num_vectors, 1, stream_);
@@ -717,7 +642,7 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
 
   int block_size = 256;
   int num_blocks = (num_centroids + block_size - 1) / block_size;
-  build_cluster_meta_kernel<<<num_blocks, block_size, 0, stream_>>>(
+  build_cluster_meta_kernel<<<num_blocks, block_size, 0, stream_.get()>>>(
     d_cluster_meta_temp, d_histogram.data_handle(), d_offsets.data_handle(), num_centroids);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
@@ -731,11 +656,11 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
   raft::copy(d_atomic_counters.data_handle(), d_offsets.data_handle(), num_centroids, stream_);
 
   num_blocks = (num_vectors + block_size - 1) / block_size;
-  scatter_pids_kernel<<<num_blocks, block_size, 0, stream_>>>(d_flat_pids,
-                                                              device_cluster_ids,
-                                                              d_offsets.data_handle(),
-                                                              d_atomic_counters.data_handle(),
-                                                              num_vectors);
+  scatter_pids_kernel<<<num_blocks, block_size, 0, stream_.get()>>>(d_flat_pids,
+                                                                    device_cluster_ids,
+                                                                    d_offsets.data_handle(),
+                                                                    d_atomic_counters.data_handle(),
+                                                                    num_vectors);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
   // -------------------------
@@ -862,6 +787,7 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
   // 13. Add rotated centroids
   // -------------------------
   initializer->AddVectors(d_rotated_centroids.data_handle());
+  compute_centroid_norms();
 
   raft::resource::sync_stream(handle_);
 }
@@ -925,7 +851,7 @@ void sort_cluster_query_pairs(raft::resources const& handle,
                               int batch_size,
                               int nprobe)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   int total_pairs     = batch_size * nprobe;
 
   // Allocate temporary arrays for sorting
@@ -1056,7 +982,7 @@ void IVFGPU::PrepareClusterSearchInputs(
   raft::device_vector<float, int64_t>& d_G_kbxSumq)
 {
   raft::resources const& searcher_handle = searcher.get_handle();
-  rmm::cuda_stream_view searcher_stream  = searcher.get_stream();
+  cuda::stream_ref searcher_stream       = searcher.get_stream();
   const size_t batch_size                = queries.extent(0);
 
   // Compute ||q - c||^2 = -2 * q . c + ||q||^2 + ||c||^2 into centroid_distances:
@@ -1114,7 +1040,7 @@ void IVFGPU::PrepareClusterSearchInputs(
   d_G_k1xSumq = raft::make_device_vector<float, int64_t>(searcher_handle, batch_size);
   d_G_kbxSumq = raft::make_device_vector<float, int64_t>(searcher_handle, batch_size);
   computeQueryFactors<float>(
-    queries, d_G_k1xSumq.view(), d_G_kbxSumq.view(), ex_bits, searcher_stream);
+    queries, d_G_k1xSumq.view(), d_G_kbxSumq.view(), ex_bits, searcher_stream.get());
 
   // Sync here to ensure all outputs are visible before SearcherGPU reads them.
   raft::resource::sync_stream(searcher_handle);

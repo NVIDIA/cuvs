@@ -21,11 +21,10 @@
 #include <raft/linalg/reduce.cuh>
 
 #include <cuvs/core/bitset.hpp>
+#include <cuvs/core/roaring_allowlist.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/common.hpp>
-
-#include <rmm/cuda_stream_view.hpp>
 
 #include <algorithm>
 #include <optional>
@@ -46,7 +45,8 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
   if constexpr (nb::is_padded_dataset_view_v<DatasetViewT> ||
                 nb::is_standard_dataset_view_v<DatasetViewT>) {
     rm_dataset = dataset_.view();
-  } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT>) {
+  } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT> ||
+                       nb::is_bbq_dataset_view_v<DatasetViewT>) {
     skip_norms = true;
   }
 
@@ -264,15 +264,18 @@ void sort_knn_graph(
  * @param[in] res raft resources
  * @param[in] knn_graph a matrix view (host or device) of the input knn graph [n_rows,
  * knn_graph_degree]
- * @param[out] new_graph a host matrix view of the optimized knn graph [n_rows, graph_degree]
+ * @param[out] new_graph a matrix view (host or device) of the optimized knn graph [n_rows,
+ * graph_degree]
  */
 template <typename IdxT = uint32_t,
           typename g_accessor =
+            raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>,
+          typename n_accessor =
             raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>>
 void optimize(
   raft::resources const& res,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, g_accessor> knn_graph,
-  raft::host_matrix_view<IdxT, int64_t, raft::row_major> new_graph,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, n_accessor> new_graph,
   const bool guarantee_connectivity = false)
 {
   detail::optimize(res, knn_graph, new_graph, guarantee_connectivity);
@@ -296,13 +299,46 @@ template <typename DatasetViewT>
 auto build(raft::resources const& res, const index_params& params, DatasetViewT const& dataset)
   -> cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>
 {
-  using T    = cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>;
-  using IdxT = uint32_t;
+  using index_type = cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>;
+  using T          = typename index_type::value_type;
+  using IdxT       = uint32_t;
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
   // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
-  if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
-    RAFT_FAIL("cagra::build: VPQ-compressed dataset cannot be used for dense graph construction.");
+  if constexpr (cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>) {
+    return cuvs::neighbors::cagra::detail::build_from_bbq_dataset<T, IdxT, DatasetViewT>(
+      res, params, dataset);
+  } else if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
+    auto effective_params = params;
+    if (std::holds_alternative<std::monostate>(effective_params.graph_build_params)) {
+      effective_params.graph_build_params = graph_build_params::iterative_search_params{};
+    }
+
+    RAFT_EXPECTS(std::holds_alternative<graph_build_params::iterative_search_params>(
+                   effective_params.graph_build_params),
+                 "cagra::build: a VPQ dataset requires iterative_search_params graph construction");
+    RAFT_EXPECTS(effective_params.metric == cuvs::distance::DistanceType::L2Expanded,
+                 "cagra::build: a VPQ dataset supports only L2Expanded distance");
+    RAFT_EXPECTS(dataset.n_rows() > 0, "cagra::build: VPQ dataset must not be empty");
+    RAFT_EXPECTS(dataset.dset().pq_bits() == 8,
+                 "cagra::build: VPQ dataset requires pq_bits == 8, got %u",
+                 dataset.dset().pq_bits());
+    auto const pq_len = dataset.dset().pq_len();
+    RAFT_EXPECTS(pq_len == 2 || pq_len == 4 || pq_len == 8,
+                 "cagra::build: VPQ dataset requires pq_len in {2, 4, 8}, got %u",
+                 pq_len);
+
+    detail::check_graph_degree<T, IdxT>(effective_params.intermediate_graph_degree,
+                                        effective_params.graph_degree,
+                                        static_cast<size_t>(dataset.n_rows()));
+    auto cagra_graph = detail::iterative_build_graph<T, IdxT>(res, effective_params, dataset);
+
+    index_type idx(res, effective_params.metric);
+    idx.update_graph(res, std::move(cagra_graph));
+    if (effective_params.attach_dataset_on_build) {
+      idx = cuvs::neighbors::cagra::update_dataset(res, std::move(idx), dataset);
+    }
+    return idx;
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
     auto idx = cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
       res, params, dataset);
@@ -439,6 +475,25 @@ void search(raft::resources const& res,
     }
     auto sample_filter_copy = sample_filter;
     return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT>(
+      res, params_copy, idx, queries, neighbors, distances, sample_filter_copy);
+  } catch (const std::bad_cast&) {
+  }
+
+  try {
+    auto& sample_filter =
+      dynamic_cast<const cuvs::neighbors::filtering::roaring_bitmap_filter&>(sample_filter_ref);
+    RAFT_EXPECTS(sample_filter.valid(), "roaring_bitmap_filter must be initialized before search.");
+    RAFT_EXPECTS(sample_filter.num_queries() == static_cast<std::size_t>(queries.extent(0)),
+                 "Roaring filter query rows must equal the number of search queries.");
+    RAFT_EXPECTS(sample_filter.dataset_rows() == static_cast<std::size_t>(idx.dataset().n_rows()),
+                 "Roaring filter dataset_rows must equal the number of rows in the index.");
+
+    search_params params_copy = params;
+    if (params.filtering_rate < 0.0f) {
+      params_copy.filtering_rate = sample_filter.filtering_rate();
+    }
+    auto sample_filter_copy = sample_filter;
+    return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT, DatasetViewT>(
       res, params_copy, idx, queries, neighbors, distances, sample_filter_copy);
   } catch (const std::bad_cast&) {
   }

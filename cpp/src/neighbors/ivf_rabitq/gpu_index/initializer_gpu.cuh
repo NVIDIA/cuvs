@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,6 +11,9 @@
 
 #include "../defines.hpp"
 
+#include <cuvs/util/file_io.hpp>
+
+#include <cuda/stream>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -73,13 +76,13 @@ class InitializerGPU {
    * @param save
    * @param filename
    */
-  virtual void SaveCentroids(std::ofstream& output, const char* filename) const = 0;
+  virtual void SaveCentroids(cuvs::util::kvikio_ofstream& output, const char* filename) const = 0;
 
  protected:
   size_t D;                        // Dimension
   size_t K;                        // Num of Centroids
   raft::resources const& handle_;  // reusable resource handle
-  rmm::cuda_stream_view stream_ =
+  cuda::stream_ref stream_ =
     raft::resource::get_cuda_stream(handle_);  // CUDA stream obtained from handle_
 };
 
@@ -93,7 +96,7 @@ class FlatInitializerGPU : public InitializerGPU {
 
   void LoadCentroids(std::ifstream& input, const char* filename) override;
 
-  void SaveCentroids(std::ofstream& output, const char* filename) const override;
+  void SaveCentroids(cuvs::util::kvikio_ofstream& output, const char* filename) const override;
 
  private:
   // D, K are inherited from parent

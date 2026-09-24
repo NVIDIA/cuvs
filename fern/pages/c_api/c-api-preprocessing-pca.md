@@ -112,14 +112,16 @@ bool flip_signs_based_on_U);
 
 Computes the principal components, explained variances, singular values, and column means from the input data.
 
+The layout of `input` (C-contiguous / row-major or F-contiguous / col-major) is detected from its DLPack strides; `components` must use the same layout as `input`.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
 | `params` | in | [`cuvsPcaParams_t`](/api-reference/c-api-preprocessing-pca#cuvspcaparams) | PCA parameters |
-| `input` | inout | `DLManagedTensor*` | input data [n_rows x n_cols] (col-major, float32, device) |
-| `components` | out | `DLManagedTensor*` | principal components [n_components x n_cols] (col-major, float32, device) |
+| `input` | inout | `DLManagedTensor*` | input data [n_rows x n_cols] (C- or F-contiguous, float32, device) |
+| `components` | out | `DLManagedTensor*` | principal components [n_components x n_cols] (same layout as input) |
 | `explained_var` | out | `DLManagedTensor*` | explained variances [n_components] (float32, device) |
 | `explained_var_ratio` | out | `DLManagedTensor*` | explained variance ratios [n_components] (float32, device) |
 | `singular_vals` | out | `DLManagedTensor*` | singular values [n_components] (float32, device) |
@@ -150,7 +152,7 @@ DLManagedTensor* noise_vars,
 bool flip_signs_based_on_U);
 ```
 
-Computes the principal components and transforms the input data into the eigenspace.
+Computes the principal components and transforms the input data into the eigenspace. The layout of `input` (C- or F-contiguous) is detected from its DLPack strides; all other matrix tensors must use the same layout.
 
 **Parameters**
 
@@ -158,9 +160,9 @@ Computes the principal components and transforms the input data into the eigensp
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
 | `params` | in | [`cuvsPcaParams_t`](/api-reference/c-api-preprocessing-pca#cuvspcaparams) | PCA parameters |
-| `input` | inout | `DLManagedTensor*` | input data [n_rows x n_cols] (col-major, float32, device) |
-| `trans_input` | out | `DLManagedTensor*` | transformed data [n_rows x n_components] (col-major, float32, device) |
-| `components` | out | `DLManagedTensor*` | principal components [n_components x n_cols] (col-major, float32, device) |
+| `input` | inout | `DLManagedTensor*` | input data [n_rows x n_cols] (C- or F-contiguous, float32, device) |
+| `trans_input` | out | `DLManagedTensor*` | transformed data [n_rows x n_components] (same layout as input) |
+| `components` | out | `DLManagedTensor*` | principal components [n_components x n_cols] (same layout as input) |
 | `explained_var` | out | `DLManagedTensor*` | explained variances [n_components] (float32, device) |
 | `explained_var_ratio` | out | `DLManagedTensor*` | explained variance ratios [n_components] (float32, device) |
 | `singular_vals` | out | `DLManagedTensor*` | singular values [n_components] (float32, device) |
@@ -187,7 +189,7 @@ DLManagedTensor* mu,
 DLManagedTensor* trans_input);
 ```
 
-Transforms the input data into the eigenspace using previously computed principal components.
+Transforms the input data into the eigenspace using previously computed principal components. The layout of `input` (C- or F-contiguous) is detected from its DLPack strides; all other matrix tensors must use the same layout.
 
 **Parameters**
 
@@ -195,11 +197,11 @@ Transforms the input data into the eigenspace using previously computed principa
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
 | `params` | in | [`cuvsPcaParams_t`](/api-reference/c-api-preprocessing-pca#cuvspcaparams) | PCA parameters |
-| `input` | inout | `DLManagedTensor*` | data to transform [n_rows x n_cols] (col-major, float32, device) |
-| `components` | in | `DLManagedTensor*` | principal components [n_components x n_cols] (col-major, float32, device) |
+| `input` | inout | `DLManagedTensor*` | data to transform [n_rows x n_cols] (C- or F-contiguous, float32, device) |
+| `components` | in | `DLManagedTensor*` | principal components [n_components x n_cols] (same layout as input) |
 | `singular_vals` | in | `DLManagedTensor*` | singular values [n_components] (float32, device) |
 | `mu` | in | `DLManagedTensor*` | column means [n_cols] (float32, device) |
-| `trans_input` | out | `DLManagedTensor*` | transformed data [n_rows x n_components] (col-major, float32, device) |
+| `trans_input` | out | `DLManagedTensor*` | transformed data [n_rows x n_components] (same layout as input) |
 
 **Returns**
 
@@ -220,7 +222,7 @@ DLManagedTensor* mu,
 DLManagedTensor* output);
 ```
 
-Transforms data from the eigenspace back to the original space.
+Transforms data from the eigenspace back to the original space. The layout of `trans_input` (C- or F-contiguous) is detected from its DLPack strides; all other matrix tensors must use the same layout.
 
 **Parameters**
 
@@ -228,11 +230,11 @@ Transforms data from the eigenspace back to the original space.
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
 | `params` | in | [`cuvsPcaParams_t`](/api-reference/c-api-preprocessing-pca#cuvspcaparams) | PCA parameters |
-| `trans_input` | in | `DLManagedTensor*` | transformed data [n_rows x n_components] (col-major, float32, device) |
-| `components` | in | `DLManagedTensor*` | principal components [n_components x n_cols] (col-major, float32, device) |
+| `trans_input` | in | `DLManagedTensor*` | transformed data [n_rows x n_components] (C- or F-contiguous, float32, device) |
+| `components` | in | `DLManagedTensor*` | principal components [n_components x n_cols] (same layout as trans_input) |
 | `singular_vals` | in | `DLManagedTensor*` | singular values [n_components] (float32, device) |
 | `mu` | in | `DLManagedTensor*` | column means [n_cols] (float32, device) |
-| `output` | out | `DLManagedTensor*` | reconstructed data [n_rows x n_cols] (col-major, float32, device) |
+| `output` | out | `DLManagedTensor*` | reconstructed data [n_rows x n_cols] (same layout as trans_input) |
 
 **Returns**
 

@@ -298,6 +298,48 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   }
 
   /**
+   * Gets the FieldEntry for the given field name, or {@code null} when this segment holds no
+   * cuVS index for it.
+   *
+   * @param field name of the field
+   * @return the meta information for the field, or {@code null}
+   */
+  FieldEntry getFieldEntry(String field) {
+    final FieldInfo info = fieldInfos.fieldInfo(field);
+    return info == null ? null : fields.get(info.number);
+  }
+
+  /**
+   * Deserializes the CAGRA index of a single field onto the GPU, bypassing the {@link GPUIndex}
+   * cache. This is how {@link CuVS2510GPUVectorsWriter} obtains the inputs for the cuVS merge API:
+   * a reader opened with {@link Context#MERGE} has no cached indexes at all, and a cached index
+   * belongs to the {@link com.nvidia.cuvs.CuVSResources} of whichever thread opened the reader,
+   * while the merge API requires every input to share one resources instance - the merging
+   * thread's.
+   *
+   * <p>The returned index is owned by the caller and must be closed by it.
+   *
+   * @param field name of the field
+   * @return a freshly loaded CAGRA index, or {@code null} if this segment has none for the field
+   * @throws IOException I/O exception
+   */
+  CagraIndex openCagraIndexForMerge(String field) throws IOException {
+    FieldEntry fieldEntry = getFieldEntry(field);
+    if (fieldEntry == null || fieldEntry.cagraIndexLength() == 0) {
+      return null;
+    }
+    try (var slice =
+            cuvsIndexInput.slice(
+                "cagra index", fieldEntry.cagraIndexOffset(), fieldEntry.cagraIndexLength());
+        var in = new IndexInputInputStream(slice)) {
+      return CagraIndex.newBuilder(getCuVSResourcesInstance()).from(in).build();
+    } catch (Throwable t) {
+      Utils.handleThrowable(t);
+      throw new AssertionError("unreachable");
+    }
+  }
+
+  /**
    * Invokes loadCuVSIndex for each field and returns the map of {@link GPUIndex}.
    *
    * @return the map containing {@link GPUIndex} objects
@@ -445,7 +487,14 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
           mask[0].set(i);
         }
       }
-      topK = Math.min(knnCollector.k() + 10, mask[0].cardinality());
+      int cardinality = mask[0].cardinality();
+      if (cardinality == 0) {
+        // Every vector in this segment is deleted or filtered out. cuVS cannot be asked for zero
+        // neighbours, and Lucene's contract for such a leaf is to collect nothing, so return
+        // before touching the GPU.
+        return;
+      }
+      topK = Math.min(knnCollector.k() + 10, cardinality);
       // numDocs must be the total vector count so cuVS sizes the prefilter to cover every ordinal.
       // BitSet.length() is (highest set bit + 1), which under a selective filter is smaller than
       // the
@@ -520,7 +569,11 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
         searchResult = bruteforceIndex.search(query).getResults();
       }
 
-      // List expected to have only one entry because of single query "target".
+      // List expected to have only one entry because of single query "target". A zero-row
+      // response can only mean no neighbours were produced, so there is nothing to collect.
+      if (searchResult.isEmpty()) {
+        return;
+      }
       assert searchResult.size() == 1;
       final IntToIntFunction ordToDocFunction = (IntToIntFunction) rawValues::ordToDoc;
       final FloatToFloatFunction scoreCorrectionFunction =

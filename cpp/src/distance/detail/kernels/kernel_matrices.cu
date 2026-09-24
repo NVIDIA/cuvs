@@ -182,7 +182,7 @@ void PolynomialKernel<math_t, exp_t>::evaluate(raft::resources const& handle,
               out.extent(0),
               out.extent(1),
               is_row_major,
-              raft::resource::get_cuda_stream(handle));
+              raft::resource::get_cuda_stream(handle).get());
 }
 
 /** Evaluate kernel matrix using polynomial kernel.
@@ -214,7 +214,7 @@ void PolynomialKernel<math_t, exp_t>::evaluate(raft::resources const& handle,
               out.extent(0),
               out.extent(1),
               is_row_major,
-              raft::resource::get_cuda_stream(handle));
+              raft::resource::get_cuda_stream(handle).get());
 }
 
 /** Evaluate kernel matrix using polynomial kernel.
@@ -246,7 +246,7 @@ void PolynomialKernel<math_t, exp_t>::evaluate(raft::resources const& handle,
               out.extent(0),
               out.extent(1),
               is_row_major,
-              raft::resource::get_cuda_stream(handle));
+              raft::resource::get_cuda_stream(handle).get());
 }
 
 /** Evaluate the Gram matrix using the legacy interface.
@@ -333,7 +333,7 @@ void TanhKernel<math_t>::evaluate(raft::resources const& handle,
               out.extent(0),
               out.extent(1),
               is_row_major,
-              raft::resource::get_cuda_stream(handle));
+              raft::resource::get_cuda_stream(handle).get());
 }
 
 /** Evaluate kernel matrix using tanh kernel.
@@ -365,7 +365,7 @@ void TanhKernel<math_t>::evaluate(raft::resources const& handle,
               out.extent(0),
               out.extent(1),
               is_row_major,
-              raft::resource::get_cuda_stream(handle));
+              raft::resource::get_cuda_stream(handle).get());
 }
 
 /** Evaluate kernel matrix using tanh kernel.
@@ -397,7 +397,7 @@ void TanhKernel<math_t>::evaluate(raft::resources const& handle,
               out.extent(0),
               out.extent(1),
               is_row_major,
-              raft::resource::get_cuda_stream(handle));
+              raft::resource::get_cuda_stream(handle).get());
 }
 
 /** Evaluate the Gram matrix using the legacy interface.
@@ -519,7 +519,7 @@ void RBFKernel<math_t>::evaluate(raft::resources const& handle,
                                  math_t* norm_x1,
                                  math_t* norm_x2)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   // lazy compute norms if not given
   rmm::device_uvector<math_t> tmp_norm_x1(0, stream);
   rmm::device_uvector<math_t> tmp_norm_x2(0, stream);
@@ -545,7 +545,7 @@ void RBFKernel<math_t>::evaluate(raft::resources const& handle,
               norm_x1,
               norm_x2,
               is_row_major,
-              raft::resource::get_cuda_stream(handle));
+              raft::resource::get_cuda_stream(handle).get());
 }
 
 /** Evaluate kernel matrix using RBF kernel.
@@ -569,7 +569,7 @@ void RBFKernel<math_t>::evaluate(raft::resources const& handle,
                                  math_t* norm_x1,
                                  math_t* norm_x2)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   // lazy compute norms if not given
   rmm::device_uvector<math_t> tmp_norm_x1(0, stream);
@@ -596,7 +596,7 @@ void RBFKernel<math_t>::evaluate(raft::resources const& handle,
               norm_x1,
               norm_x2,
               is_row_major,
-              raft::resource::get_cuda_stream(handle));
+              raft::resource::get_cuda_stream(handle).get());
 }
 
 /** Evaluate kernel matrix using RBF kernel.
@@ -620,7 +620,7 @@ void RBFKernel<math_t>::evaluate(raft::resources const& handle,
                                  math_t* norm_x1,
                                  math_t* norm_x2)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   // lazy compute norms if not given
   rmm::device_uvector<math_t> tmp_norm_x1(0, stream);
@@ -647,7 +647,7 @@ void RBFKernel<math_t>::evaluate(raft::resources const& handle,
               norm_x1,
               norm_x2,
               is_row_major,
-              raft::resource::get_cuda_stream(handle));
+              raft::resource::get_cuda_stream(handle).get());
 }
 
 /** Evaluate the Gram matrix using the legacy interface.

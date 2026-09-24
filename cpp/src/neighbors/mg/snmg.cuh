@@ -24,6 +24,8 @@
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
+#include <cuvs/util/file_io.hpp>
+#include <cuvs/util/numpy_dtype.hpp>
 
 #include <fstream>
 
@@ -309,13 +311,13 @@ void sharded_search_with_direct_merge(
                    ncclUint8,
                    from_rank,
                    raft::resource::get_nccl_comm_for_rank(clique, rank),
-                   raft::resource::get_cuda_stream(dev_res));
+                   raft::resource::get_cuda_stream(dev_res).get());
           ncclRecv(in_distances.data_handle() + batch_offset,
                    part_size * sizeof(float),
                    ncclUint8,
                    from_rank,
                    raft::resource::get_nccl_comm_for_rank(clique, rank),
-                   raft::resource::get_cuda_stream(dev_res));
+                   raft::resource::get_cuda_stream(dev_res).get());
         }
         ncclGroupEnd();
         resource::sync_stream(dev_res);
@@ -334,13 +336,13 @@ void sharded_search_with_direct_merge(
                  ncclUint8,
                  raft::resource::get_root_rank(clique),
                  raft::resource::get_nccl_comm_for_rank(clique, rank),
-                 raft::resource::get_cuda_stream(dev_res));
+                 raft::resource::get_cuda_stream(dev_res).get());
         ncclSend(d_distances.data_handle(),
                  part_size * sizeof(float),
                  ncclUint8,
                  raft::resource::get_root_rank(clique),
                  raft::resource::get_nccl_comm_for_rank(clique, rank),
-                 raft::resource::get_cuda_stream(dev_res));
+                 raft::resource::get_cuda_stream(dev_res).get());
         ncclGroupEnd();
         resource::sync_stream(dev_res);
       }
@@ -463,7 +465,7 @@ void sharded_search_with_tree_merge(
                               neighbors_view.data_handle(),
                               translation_offset,
                               part_size,
-                              raft::resource::get_cuda_stream(dev_res));
+                              raft::resource::get_cuda_stream(dev_res).get());
 
       auto d_trans = raft::make_device_vector<searchIdxT>(dev_res, 2);
       raft::matrix::fill(dev_res, d_trans.view(), searchIdxT(0));
@@ -485,13 +487,13 @@ void sharded_search_with_tree_merge(
                      ncclUint8,
                      other_id,
                      raft::resource::get_nccl_comm_for_rank(clique, rank),
-                     raft::resource::get_cuda_stream(dev_res));
+                     raft::resource::get_cuda_stream(dev_res).get());
             ncclRecv(tmp_distances.data_handle() + part_size,
                      part_size * sizeof(float),
                      ncclUint8,
                      other_id,
                      raft::resource::get_nccl_comm_for_rank(clique, rank),
-                     raft::resource::get_cuda_stream(dev_res));
+                     raft::resource::get_cuda_stream(dev_res).get());
             received_something = true;
           }
         } else if (rank % radix == offset)  // This is one of the senders
@@ -502,13 +504,13 @@ void sharded_search_with_tree_merge(
                    ncclUint8,
                    other_id,
                    raft::resource::get_nccl_comm_for_rank(clique, rank),
-                   raft::resource::get_cuda_stream(dev_res));
+                   raft::resource::get_cuda_stream(dev_res).get());
           ncclSend(tmp_distances.data_handle(),
                    part_size * sizeof(float),
                    ncclUint8,
                    other_id,
                    raft::resource::get_nccl_comm_for_rank(clique, rank),
-                   raft::resource::get_cuda_stream(dev_res));
+                   raft::resource::get_cuda_stream(dev_res).get());
         }
         ncclGroupEnd();
 
@@ -782,10 +784,9 @@ void serialize(const raft::resources& clique,
                const mg_index<AnnIndexType, T, IdxT>& index,
                const std::string& filename)
 {
-  std::ofstream of(filename, std::ios::out | std::ios::binary);
-  if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
+  cuvs::util::kvikio_ofstream of(filename);
 
-  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = cuvs::util::detail::numpy_dtype_string<T>();
   dtype_string.resize(4);
   of << dtype_string;
 

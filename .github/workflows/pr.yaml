@@ -15,6 +15,7 @@ jobs:
       - changed-files
       - checks
       - check-c-abi
+      - security-suite
       - conda-cpp-build
       - conda-cpp-tests
       - conda-cpp-checks
@@ -26,12 +27,16 @@ jobs:
       - rocky8-clib-tests
       - conda-java-build-and-tests-matrix
       - conda-java-build-and-tests
+      - conda-java-tests-other-arch-matrix
+      - conda-java-tests-other-arch
       - conda-lucene-build-and-tests
+      - conda-lucene-tests-other-arch
       - rust-build-matrix
       - rust-build
       - go-build-matrix
       - go-build
       - docs-build
+      - docs-build-matrix
       - wheel-build-libcuvs
       - wheel-build-cuvs
       - wheel-tests-cuvs
@@ -101,6 +106,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -133,6 +139,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -159,6 +166,8 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!examples/go/**'
+          - '!examples/java/**'
           - '!fern/**'
           - '!go/**'
           - '!img/**'
@@ -183,6 +192,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -210,7 +220,15 @@ jobs:
           - '!conda/recipes/cuvs-bench/**'
           - '!conda/recipes/cuvs-bench-cpu/**'
           - '!docs/**'
-          - '!examples/**'
+          - '!examples/.clang-format'
+          - '!examples/.clang-tidy'
+          - '!examples/.clangd'
+          - '!examples/README.md'
+          - '!examples/build.sh'
+          - '!examples/c/**'
+          - '!examples/cmake/**'
+          - '!examples/cpp/**'
+          - '!examples/go/**'
           - '!fern/**'
           - '!go/**'
           - '!img/**'
@@ -235,6 +253,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -263,6 +282,7 @@ jobs:
           - '!README.md'
           - '!SECURITY.md'
           - '!docs/**'
+          - '!examples/**'
           - '!fern/**'
           - '!go/**'
           - '!img/**'
@@ -286,6 +306,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -319,6 +340,7 @@ jobs:
           - '!cpp/.clang-tidy'
           - '!cpp/doxygen/**'
           - '!docs/**'
+          - '!examples/**'
           - '!fern/**'
           - '!java/**'
           - '!go/**'
@@ -342,6 +364,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -370,6 +393,7 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!examples/**'
           - '!fern/**'
           - '!go/**'
           - '!img/**'
@@ -393,6 +417,7 @@ jobs:
           - '!.github/workflows/check-c-abi.yaml'
           - '!.github/workflows/labeler.yml'
           - '!.github/workflows/publish-rust.yaml'
+          - '!.github/workflows/security-suite.yml'
           - '!.github/workflows/store-c-abi-baseline.yaml'
           - '!.github/workflows/test.yaml'
           - '!.github/workflows/trigger-breaking-change-alert.yaml'
@@ -422,6 +447,15 @@ jobs:
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
+          - '!examples/.clang-format'
+          - '!examples/.clang-tidy'
+          - '!examples/.clangd'
+          - '!examples/README.md'
+          - '!examples/build.sh'
+          - '!examples/c/**'
+          - '!examples/cmake/**'
+          - '!examples/cpp/**'
+          - '!examples/java/**'
           - '!fern/**'
           - '!img/**'
           - '!java/**'
@@ -445,6 +479,13 @@ jobs:
       issues: write
       pull-requests: read
     uses: ./.github/workflows/check-c-abi.yaml
+  security-suite:
+    permissions:
+      actions: read
+      contents: read
+      id-token: write # OIDC -> Vault -> nvcr.io image pull
+      security-events: write # publish redacted SARIF to code scanning
+    uses: ./.github/workflows/security-suite.yml
   conda-cpp-build:
     needs: [build-details, checks]
     permissions:
@@ -526,30 +567,45 @@ jobs:
       build_type: pull-request
       matrix_name: conda-cpp-build
   rocky8-clib-standalone-build:
-    needs: [build-details, rocky8-clib-standalone-build-matrix]
+    needs: [rocky8-clib-standalone-build-matrix]
+    runs-on: linux-${{ matrix.ARCH }}-cpu16
+    env:
+      RAPIDS_BUILD_TYPE: pull-request
     permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
-    with:
-      build_type: pull-request
-      build-datetime: ${{ needs.build-details.outputs.build-datetime }}
-      arch: "${{matrix.arch}}"
-      date: ${{ inputs.date }}_c
-      container_image: "rapidsai/ci-wheel:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      node_type: "cpu16"
-      requires_license_builder: true
-      script: "ci/build_standalone_c.sh --build-tests"
-      artifact-name: "libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
-      file_to_upload: "libcuvs_c.tar.gz"
-      sha: ${{ inputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 10800
+      - name: Setup sccache-dist
+        uses: rapidsai/shared-actions/setup-sccache-dist@main
+        with:
+          request-timeout: 7140
+      - name: Build standalone C tarball
+        env:
+          CUVS_TARBALL_CUDA_VERSION: ${{ matrix.CUDA_VER }}
+          CUVS_TARBALL_PYTHON_VERSION: ${{ matrix.PY_VER }}
+        run: |
+          ./build.sh tarball --tarball-build-tests
+      - name: Upload artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz
+          path: libcuvs_c.tar.gz
   rocky8-clib-tests-matrix:
     needs: [rocky8-clib-standalone-build, changed-files]
     permissions:
@@ -574,10 +630,10 @@ jobs:
       matrix: ${{ fromJSON(needs.rocky8-clib-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: ${{ matrix.ARCH == 'amd64' && 'gpu-rtxpro6000-latest-1' || 'gpu-l4-latest-1' }}
       arch: "${{matrix.arch}}"
       date: ${{ inputs.date }}_c
-      container_image: "rapidsai/ci-wheel:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-wheel:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_standalone_c.sh libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
       sha: ${{ inputs.sha }}
   conda-java-build-and-tests-matrix:
@@ -607,12 +663,45 @@ jobs:
       matrix: ${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_java.sh"
       artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-java/target/"
+  conda-java-tests-other-arch-matrix:
+    # All architectures the C++ core builds for, except amd64.
+    needs: [conda-cpp-build, changed-files]
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@release/26.10
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+    with:
+      build_type: pull-request
+      matrix_name: conda-cpp-build
+      matrix_filter: map(select(.ARCH != "amd64"))
+  conda-java-tests-other-arch:
+    # Verifies that the amd64-built cuvs-java jar (jextract-generated Panama bindings and
+    # all) also works correctly on every non-amd64 architecture, by running its own IT test
+    # suite against the amd64-built classes without recompiling -- see ci/test_java_prebuilt.sh.
+    needs: [conda-java-tests-other-arch-matrix, conda-java-build-and-tests]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@release/26.10
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.conda-java-tests-other-arch-matrix.outputs.matrix) }}
+    with:
+      build_type: pull-request
+      node_type: "gpu-l4-latest-1"
+      arch: "${{ matrix.ARCH }}"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      script: "ci/test_java_prebuilt.sh ${{ matrix.ARCH }} cuvs-java-cuda${{ matrix.CUDA_VER }}"
   conda-lucene-build-and-tests:
     # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against, and
     # reuses its matrix so the two always agree on the set of CUDA versions.
@@ -632,12 +721,35 @@ jobs:
       matrix: ${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
       artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
       file_to_upload: "java/cuvs-lucene/target/"
+  conda-lucene-tests-other-arch:
+    # Verifies that cuvs-lucene, built against the amd64-built cuvs-java jar, also works
+    # correctly on every non-amd64 architecture, by running its test suite against the
+    # amd64-built classes without recompiling -- see ci/test_lucene_prebuilt.sh. Reuses
+    # conda-java-tests-other-arch-matrix so the two always agree on which architectures to test.
+    needs: [conda-java-tests-other-arch-matrix, conda-java-build-and-tests, conda-lucene-build-and-tests]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@release/26.10
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.conda-java-tests-other-arch-matrix.outputs.matrix) }}
+    with:
+      build_type: pull-request
+      node_type: "gpu-l4-latest-1"
+      arch: "${{ matrix.ARCH }}"
+      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      script: "ci/test_lucene_prebuilt.sh ${{ matrix.ARCH }} cuvs-java-cuda${{ matrix.CUDA_VER }} cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
   rust-build-matrix:
     needs: [conda-cpp-build, changed-files]
     permissions:
@@ -665,9 +777,9 @@ jobs:
       matrix: ${{ fromJSON(needs.rust-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_rust.sh"
   go-build-matrix:
     needs: [conda-cpp-build, changed-files]
@@ -696,11 +808,19 @@ jobs:
       matrix: ${{ fromJSON(needs.go-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
+      node_type: "gpu-rtxpro6000-latest-1"
       arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_go.sh"
+  docs-build-matrix:
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
+    with:
+      build_type: pull-request
+      matrix_name: docs-build
   docs-build:
+    needs: [docs-build-matrix]
     permissions:
       actions: read
       contents: read
@@ -709,11 +829,15 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).build_docs
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.docs-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
-      arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.10-latest"
+      node_type: "gpu-${{ matrix.GPU }}-${{ matrix.DRIVER }}-1"
+      arch: "${{ matrix.arch }}"
+      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_docs.sh"
   wheel-build-libcuvs:
     needs: [build-details, checks]

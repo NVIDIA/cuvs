@@ -62,29 +62,33 @@ enum class MergeStrategy {
 <a id="neighbors-dataset"></a>
 ### neighbors::dataset
 
-Two-dimensional dataset; maybe owning, maybe compressed, maybe strided.
+Tags selecting dataset representation for `dataset` / `dataset_view`.
+
+Each container defines nested `owning_storage` then `view_storage` (aliases into `detail::*` storage types shared by device/host). Accessibility (device vs host) is selected by the `Accessor` template parameter on `dataset` / `dataset_view`, not by duplicating containers. Layout kinds: empty, padded, standard, VPQ. `dataset` / `dataset_view` only express ownership vs view.
 
 ```cpp
-template <typename IdxT>
+template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
 struct dataset;
 ```
 
-<a id="neighbors-vpq-dataset"></a>
-### neighbors::device_vpq_dataset
+<a id="math-type"></a>
+### math_type
 
-VPQ compressed dataset.
-
-The dataset is compressed using two level quantization
-
-1. Vector Quantization
-2. Product Quantization of residuals
+Floating-point type used for VQ/PQ codebooks (rows are still uint8 codes).
 
 ```cpp
-template <typename MathT, typename IdxT>
-struct device_vpq_dataset : public dataset<IdxT> {
-  raft::device_matrix<math_type, uint32_t, raft::row_major> vq_code_book;
-  raft::device_matrix<math_type, uint32_t, raft::row_major> pq_code_book;
-  raft::device_matrix<uint8_t, index_type, raft::row_major> data;
+using math_type = MathT;
+```
+
+<a id="neighbors-dataset-view-kind-of"></a>
+### neighbors::dataset_view_kind_of
+
+Primary template returns `unknown` so traits safely return `false` for non-dataset-view types.
+
+```cpp
+template <typename V>
+struct dataset_view_kind_of {
+  static constexpr dataset_view_kind value;
 };
 ```
 
@@ -92,9 +96,59 @@ struct device_vpq_dataset : public dataset<IdxT> {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `vq_code_book` | `raft::device_matrix<math_type, uint32_t, raft::row_major>` | Vector Quantization codebook - "coarse cluster centers". |
-| `pq_code_book` | `raft::device_matrix<math_type, uint32_t, raft::row_major>` | Product Quantization codebook - "fine cluster centers". |
-| `data` | `raft::device_matrix<uint8_t, index_type, raft::row_major>` | Compressed dataset. |
+| `value` | `static constexpr dataset_view_kind` |  |
+
+<a id="neighbors-dataset-view-is-device-accessible"></a>
+### neighbors::dataset_view_is_device_accessible
+
+True when the dataset view accessor is device-accessible.
+
+```cpp
+template <typename V>
+struct dataset_view_is_device_accessible;
+```
+
+<a id="neighbors-with-accessor"></a>
+### neighbors::with_accessor
+
+Generic accessor retargeting while preserving the dataset tag/layout and value/index types:
+
+`dataset&lt;Tag, DataT, IdxT, OldAccessor&gt;      -&gt; dataset&lt;Tag, DataT, IdxT, NewAccessor&gt;` `dataset_view&lt;Tag, DataT, IdxT, OldAccessor&gt; -&gt; dataset_view&lt;Tag, DataT, IdxT, NewAccessor&gt;`
+
+```cpp
+template <typename DatasetLikeT, typename NewAccessor>
+struct with_accessor;
+```
+
+<a id="neighbors-to-device-accessor"></a>
+### neighbors::to_device_accessor
+
+Map any host accessor to its device counterpart (same payload policy).
+
+```cpp
+template <typename Accessor>
+struct to_device_accessor;
+```
+
+<a id="neighbors-device-counterpart"></a>
+### neighbors::device_counterpart
+
+Maps a host dataset view type to its device-resident counterpart.
+
+```cpp
+template <typename HostViewT>
+struct device_counterpart;
+```
+
+<a id="neighbors-cagra-view-element-type"></a>
+### neighbors::cagra_view_element_type
+
+Element type `T` for `cagra::build(res, params, dataset_view)` (deduced, not a template arg).
+
+```cpp
+template <typename V, typename = void>
+struct cagra_view_element_type;
+```
 
 <a id="neighbors-ivf-list-base"></a>
 ### neighbors::ivf::list_base
@@ -144,10 +198,13 @@ SizeT> {
 Filtering for ANN Types
 
 ```cpp
-enum class FilterType {
-  None,
-  Bitmap,
-  Bitset
+enum class FilterType : int {
+  None = 0,
+  Bitmap = 1,
+  Bitset = 2,
+  Bloom = 3,
+  Roaring = 4,
+  UDF = 100
 };
 ```
 
@@ -155,9 +212,12 @@ enum class FilterType {
 
 | Name | Value |
 | --- | --- |
-| `None` | `` |
-| `Bitmap` | `` |
-| `Bitset` | `` |
+| `None` | `0` |
+| `Bitmap` | `1` |
+| `Bitset` | `2` |
+| `Bloom` | `3` |
+| `Roaring` | `4` |
+| `UDF` | `100` |
 
 <a id="neighbors-filtering-none-sample-filter-operator"></a>
 ### neighbors::filtering::none_sample_filter::operator
@@ -277,6 +337,8 @@ FilterType get_filter_type() const override;
 
 Filter an index with a bitset
 
+This filter holds a non-owning view of the bitset; it does not allocate or copy the underlying device buffer. The library performs no caching of the bitset across search calls. Allocating and populating the device bitset may be more expensive than a single filtered search, so callers that issue repeated searches against the same filter (e.g. many queries over one index) should build the bitset once and reuse it across those calls rather than rebuild it per search. Reusing the bitset is essential for realizing the full throughput of filtered search.
+
 ```cpp
 template <typename bitset_t, typename index_t>
 struct bitset_filter : public base_filter {
@@ -317,6 +379,172 @@ FilterType get_filter_type() const override;
 **Returns**
 
 [`FilterType`](/api-reference/cpp-api-neighbors-common#neighbors-filtering-filtertype)
+
+<a id="neighbors-filtering-bloom-filter"></a>
+### neighbors::filtering::bloom_filter
+
+Filter CAGRA candidates with a global `cuvs::core::bloom_filter` over the index.
+
+Build the filter once on the host with bulk `add`() over the allowed dataset row ids and pass the owning `cuvs::core::bloom_filter` to this wrapper. CAGRA internals build/cache the device payload, similar to `bitset_filter`, and the linked JIT-LTO fragment probes the same filter for every query and candidate with probabilistic membership tests.
+
+Bloom filters have no false negatives: if a row was inserted, `contains` returns `true`. False positives are possible, so highly selective predicates may still need a bitset or UDF for exact filtering.
+
+This adapter is non-owning. The referenced `cuvs::core::bloom_filter` must outlive the adapter and any searches that use it, and must not be moved or mutated concurrently with a search.
+
+```cpp
+struct bloom_filter : public base_filter {
+  void* filter_data;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `filter_data` | `void*` |  |
+
+<a id="neighbors-filtering-roaring-bitmap-filter"></a>
+### neighbors::filtering::roaring_bitmap_filter
+
+Reusable per-query mapping to immutable exact Roaring allowlists.
+
+Entry `q` selects view `q`. CAGRA retains candidate dataset row `r` when the selected allowlist contains `r`. Construction copies only already initialized device-reference pointers and empty flags into the filter payload; encoded bytes are neither copied nor parsed. Search therefore performs no Roaring allocation, initialization, synchronization, or preprocessing.
+
+Owners and views can be reused across filters and queries. This filter owns its mapping tables and device payload, but not the referenced owners, which must outlive the filter and all searches using it. Copies are cheap shared handles required by CAGRA query-offset wrappers.
+
+Roaring filters currently support direct `cagra::search` only. Dynamic batching can combine requests into a different query-row layout, and tiered search applies one filter to partitions with different row domains; both paths reject this filter type.
+
+```cpp
+struct roaring_bitmap_filter;
+```
+
+<a id="neighbors-filtering-roaring-bitmap-filter-roaring-bitmap-filter"></a>
+### neighbors::filtering::roaring_bitmap_filter::roaring_bitmap_filter
+
+Construct an invalid handle. It cannot be passed to CAGRA search.
+
+```cpp
+roaring_bitmap_filter() = default;
+```
+
+**Returns**
+
+`void`
+
+**Additional overload:** `neighbors::filtering::roaring_bitmap_filter::roaring_bitmap_filter`
+
+Materialize the query-to-allowlist device pointer table.
+
+```cpp
+explicit roaring_bitmap_filter(raft::resources const& res,
+std::span<const cuvs::core::roaring_allowlist_view> allowlists);
+```
+
+`dataset_rows()`. Query count is inferred from the span length.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `allowlists` |  | [`std::span<const cuvs::core::roaring_allowlist_view>`](/api-reference/cpp-api-core-roaring-allowlist#core-roaring-allowlist-view) |  |
+
+**Returns**
+
+`explicit`
+
+<a id="neighbors-filtering-roaring-bitmap-filter-filtering-rate"></a>
+### neighbors::filtering::roaring_bitmap_filter::filtering_rate
+
+Conservative maximum rejected fraction among all query allowlists.
+
+```cpp
+[[nodiscard]] float filtering_rate() const noexcept;
+```
+
+CAGRA uses this precomputed value when `search_params::filtering_rate` is unset. Basing one batch-wide scalar on the sparsest query avoids under-provisioning that query, but a very sparse or empty allowlist can increase the search work performed for every query in the batch. Callers may set `search_params::filtering_rate` explicitly when another tradeoff is preferable.
+
+**Returns**
+
+`[[nodiscard]] float`
+
+<a id="neighbors-filtering-roaring-bitmap-filter-size-bytes"></a>
+### neighbors::filtering::roaring_bitmap_filter::size_bytes
+
+Device bytes owned by this mapping, excluding the referenced allowlists.
+
+```cpp
+[[nodiscard]] std::size_t size_bytes() const noexcept;
+```
+
+**Returns**
+
+`[[nodiscard]] std::size_t`
+
+<a id="neighbors-filtering-roaring-bitmap-filter-set-allowlist"></a>
+### neighbors::filtering::roaring_bitmap_filter::set_allowlist
+
+Replace one query's allowlist pointer outside the search path.
+
+```cpp
+void set_allowlist(raft::resources const& res,
+std::size_t query_id,
+cuvs::core::roaring_allowlist_view replacement);
+```
+
+The replacement must have the same `dataset_rows()`. Copies share the underlying mapping, so the replacement is visible through every copy of this filter. The method copies one pointer and one empty flag to the device and synchronizes `res` before returning. Do not call it concurrently with a search, and keep the replacement owner alive for all subsequent searches.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `query_id` |  | `std::size_t` |  |
+| `replacement` |  | [`cuvs::core::roaring_allowlist_view`](/api-reference/cpp-api-core-roaring-allowlist#core-roaring-allowlist-view) |  |
+
+**Returns**
+
+`void`
+
+<a id="neighbors-filtering-roaring-bitmap-filter-device-payload"></a>
+### neighbors::filtering::roaring_bitmap_filter::device_payload
+
+Internal device payload already prepared for the linked CAGRA predicate.
+
+```cpp
+[[nodiscard]] void* device_payload() const noexcept;
+```
+
+**Returns**
+
+`[[nodiscard]] void*`
+
+<a id="neighbors-filtering-udf-filter"></a>
+### neighbors::filtering::udf_filter
+
+JIT-LTO user-defined filter predicate.
+
+The source must define a device function named by `function_name` with signature:
+
+Return `true` to allow a source vector to appear in the results and `false` to reject it. UDF dereferences it. CAGRA currently provides `source_index_t` as `uint32_t` in the generated JIT fragment.
+
+```cpp
+struct udf_filter : public base_filter {
+  std::string source;
+  void* filter_data;
+  float filtering_rate;
+  std::string function_name;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `source` | `std::string` | CUDA C++ source containing the device predicate. |
+| `filter_data` | `void*` | Opaque device-accessible pointer passed to the predicate. |
+| `filtering_rate` | `float` | Estimated fraction of rows rejected by the predicate, or negative if unknown. |
+| `function_name` | `std::string` | Device function name to call from the generated CAGRA sample filter. |
 
 ## ANN MG index build parameters
 
