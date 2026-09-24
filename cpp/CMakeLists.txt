@@ -1373,6 +1373,12 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_transform_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
   generate_inst_matrix(
+    gmm_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/gmm_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/gmm_inst.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/gmm_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
     nn_descent_inst_files
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_matrix.json"
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_inst.cu.in"
@@ -1407,8 +1413,7 @@ if(NOT BUILD_CPU_ONLY)
     cuvs_objs OBJECT
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
-    src/cluster/gmm_double.cu
-    src/cluster/gmm_float.cu
+    ${gmm_inst_files}
     src/cluster/kmeans_cluster_cost.cu
     src/cluster/kmeans_fit_double.cu
     src/cluster/kmeans_fit_float.cu
