@@ -6,7 +6,7 @@
 #include <cuvs/core/cuda_fp16.hpp>
 
 #include <cuvs/neighbors/vamana.hpp>
-#include <neighbors/detail/vamana/vamana_serialize.cuh>
+#include <neighbors/vamana.cuh>
 
 namespace {
 
