@@ -1380,6 +1380,20 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/nn_descent_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
   generate_inst_matrix(
+    vamana_build_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_build_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/vamana_build_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    vamana_serialize_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_serialize_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/vamana_serialize_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
     refine_device_inst_files
     MATRIX_JSON_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/refine/detail/refine_device_matrix.json"
@@ -1521,15 +1535,9 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/sample_filter.cu
     src/neighbors/tiered_index.cu
     src/neighbors/sparse_brute_force.cu
-    src/neighbors/vamana_build_float.cu
-    src/neighbors/vamana_build_half.cu
-    src/neighbors/vamana_build_uint8.cu
-    src/neighbors/vamana_build_int8.cu
+    ${vamana_build_inst_files}
     src/neighbors/vamana_codebooks_float.cu
-    src/neighbors/vamana_serialize_float.cu
-    src/neighbors/vamana_serialize_half.cu
-    src/neighbors/vamana_serialize_uint8.cu
-    src/neighbors/vamana_serialize_int8.cu
+    ${vamana_serialize_inst_files}
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu

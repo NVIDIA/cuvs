@@ -1,0 +1,30 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/core/cuda_fp16.hpp>
+
+#include <cuvs/neighbors/vamana.hpp>
+#include <neighbors/detail/vamana/vamana_serialize.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = uint32_t;
+
+}  // namespace
+
+namespace cuvs::neighbors::vamana {
+
+void serialize(raft::resources const& handle,
+               const std::string& file_prefix,
+               const index<data_t, index_t>& index_,
+               bool include_dataset,
+               bool sector_aligned)
+{
+  cuvs::neighbors::vamana::serialize<data_t, index_t>(
+    handle, file_prefix, index_, include_dataset, sector_aligned);
+}
+
+}  // namespace cuvs::neighbors::vamana
