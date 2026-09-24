@@ -191,8 +191,27 @@ void IVFGPU::load(const char* filename)
 
   // New change: host copy of ivf.
   AllocateHostMemory();
-  read_into_device_host(
-    short_data_.data_handle(), short_data_host_.data_handle(), GetShortDataBytesSimple());
+  // The persisted format is vector-major within each cluster. Search and quantization
+  // use word-major codes, so convert at the serialization boundary.
+  const size_t words_per_vector = DQ->short_code_length();
+  std::vector<uint32_t> disk_codes(max_cluster_length * words_per_vector);
+  size_t code_offset = 0;
+  for (auto cluster_size : cluster_sizes) {
+    const size_t cluster_words = cluster_size * words_per_vector;
+    read_exact(disk_codes.data(), cluster_words * sizeof(uint32_t));
+    for (size_t word = 0; word < words_per_vector; ++word) {
+      for (size_t row = 0; row < cluster_size; ++row) {
+        short_data_host_(code_offset + word * cluster_size + row) =
+          disk_codes[row * words_per_vector + word];
+      }
+    }
+    code_offset += cluster_words;
+  }
+  raft::copy(short_data_.data_handle(),
+             short_data_host_.data_handle(),
+             GetShortDataBytesSimple() / sizeof(uint32_t),
+             stream_);
+  raft::resource::sync_stream(handle_);
   read_into_device(short_factors_batch_.data_handle(),
                    GetShortDataFactorBytesBatch());  // SoA layout - no copy on CPU
   read_into_device_host(
@@ -322,17 +341,37 @@ void IVFGPU::save(const char* filename) const
   this->initializer->SaveCentroids(output, filename);
 
   // Compute sizes for device arrays.
-  size_t short_data_size = GetShortDataBytesSimple();
-  size_t long_code_size  = GetLongCodeBytes();
-  size_t ex_factor_size  = GetExFactorBytes();
-  size_t ids_size        = GetPIDsBytes();
+  size_t long_code_size = GetLongCodeBytes();
+  size_t ex_factor_size = GetExFactorBytes();
+  size_t ids_size       = GetPIDsBytes();
   // for batch data
   size_t short_factors_size = GetShortDataFactorBytesBatch();
 
   raft::resource::sync_stream(handle_);
 
-  // Write raw arrays to file.
-  output.write_device(short_data_.data_handle(), short_data_size);
+  // Preserve the legacy vector-major disk layout while keeping word-major codes
+  // in memory. Bound staging memory to the largest cluster.
+  const size_t words_per_vector = DQ->short_code_length();
+  const size_t max_cluster_size = *std::max_element(cluster_sizes.begin(), cluster_sizes.end());
+  std::vector<uint32_t> memory_codes(max_cluster_size * words_per_vector);
+  std::vector<uint32_t> disk_codes(max_cluster_size * words_per_vector);
+  for (auto const& cluster : h_cluster_meta) {
+    const size_t cluster_words = cluster.num * words_per_vector;
+    if (cluster_words == 0) { continue; }
+    raft::copy(memory_codes.data(),
+               short_data_.data_handle() + cluster.start_index * words_per_vector,
+               cluster_words,
+               stream_);
+    raft::resource::sync_stream(handle_);
+    for (size_t row = 0; row < cluster.num; ++row) {
+      for (size_t word = 0; word < words_per_vector; ++word) {
+        disk_codes[row * words_per_vector + word] = memory_codes[word * cluster.num + row];
+      }
+    }
+    write_exact(disk_codes.data(), cluster_words * sizeof(uint32_t));
+  }
+
+  // The remaining arrays have the same layout in memory and on disk.
   output.write_device(short_factors_batch_.data_handle(), short_factors_size);
   output.write_device(long_code_.data_handle(), long_code_size);
   output.write_device(ex_factor_.data_handle(), ex_factor_size);
