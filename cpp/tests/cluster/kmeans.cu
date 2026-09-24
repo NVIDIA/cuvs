@@ -495,7 +495,7 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     }
   }
 
-  T fitHostWithInitSize(int64_t init_size_value)
+  T fitWithInitSize(bool data_on_host, int64_t init_size_value, int max_iter = 20)
   {
     int n_features = testparams.n_col;
     int n_clusters = testparams.n_clusters;
@@ -506,7 +506,7 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     p.tol                   = testparams.tol;
     p.n_init                = 1;
     p.init                  = cuvs::cluster::kmeans::params::KMeansPlusPlus;
-    p.max_iter              = 20;
+    p.max_iter              = max_iter;
     p.rng_state.seed        = 1;
     p.oversampling_factor   = 0;
     p.device_buffer_samples = testparams.device_buffer_samples;
@@ -515,14 +515,27 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     auto d_centroids_buf = raft::make_device_matrix<T, int64_t>(handle, n_clusters, n_features);
     T inertia            = 0;
     int64_t n_iter       = 0;
-    cuvs::cluster::kmeans::fit(
-      handle,
-      p,
-      raft::make_const_mdspan(h_X->view()),
-      std::optional<raft::host_vector_view<const T, int64_t>>{std::nullopt},
-      d_centroids_buf.view(),
-      raft::make_host_scalar_view<T>(&inertia),
-      raft::make_host_scalar_view<int64_t>(&n_iter));
+    if (data_on_host) {
+      cuvs::cluster::kmeans::fit(
+        handle,
+        p,
+        raft::make_const_mdspan(h_X->view()),
+        std::optional<raft::host_vector_view<const T, int64_t>>{std::nullopt},
+        d_centroids_buf.view(),
+        raft::make_host_scalar_view<T>(&inertia),
+        raft::make_host_scalar_view<int64_t>(&n_iter));
+    } else {
+      auto d_X_view = raft::make_device_matrix_view<const T, int64_t>(
+        d_X->data_handle(), testparams.n_row, n_features);
+      cuvs::cluster::kmeans::fit(
+        handle,
+        p,
+        d_X_view,
+        std::optional<raft::device_vector_view<const T, int64_t>>{std::nullopt},
+        d_centroids_buf.view(),
+        raft::make_host_scalar_view<T>(&inertia),
+        raft::make_host_scalar_view<int64_t>(&n_iter));
+    }
     raft::resource::sync_stream(handle, stream);
     return inertia;
   }
@@ -533,9 +546,11 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     int n_clusters        = testparams.n_clusters;
     int default_init_size = std::min(3 * n_clusters, n_samples);
 
-    T inertia_default  = fitHostWithInitSize(0);
-    T inertia_explicit = fitHostWithInitSize(default_init_size);
-    T inertia_full     = fitHostWithInitSize(n_samples);
+    T inertia_default          = fitWithInitSize(true, 0);
+    T inertia_explicit         = fitWithInitSize(true, default_init_size);
+    T inertia_full             = fitWithInitSize(true, n_samples);
+    T inertia_full_host_init   = fitWithInitSize(true, n_samples, 0);
+    T inertia_full_device_init = fitWithInitSize(false, n_samples, 0);
 
     ASSERT_TRUE(std::isfinite(inertia_default));
     ASSERT_TRUE(std::isfinite(inertia_explicit));
@@ -555,6 +570,11 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     // Full-dataset seeding has at least as much information as the subsample
     // default, so the converged inertia should not be worse.
     ASSERT_LE(inertia_full, inertia_default * (T(1) + rel));
+
+    // With the full dataset, host and device initialization use the same rows
+    // in the same order and select the same seeded centers.
+    ASSERT_NEAR(
+      inertia_full_host_init, inertia_full_device_init, std::abs(inertia_full_device_init) * rel);
   }
 
   T fitKMeansPlusPlus(int n_init_value)
