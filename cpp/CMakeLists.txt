@@ -1536,7 +1536,7 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/tiered_index.cu
     src/neighbors/sparse_brute_force.cu
     ${vamana_build_inst_files}
-    src/neighbors/vamana_codebooks_float.cu
+    src/neighbors/vamana_codebooks.cu
     ${vamana_serialize_inst_files}
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
