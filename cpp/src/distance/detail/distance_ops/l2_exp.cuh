@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -39,13 +39,13 @@ struct l2_exp_cutlass_op {
   {
     AccT outVal = aNorm + bNorm - AccT(2.0) * accVal;
 
-    /**
-     * Self-neighboring points should have (aNorm == bNorm) == accVal and the dot product (accVal)
-     * can sometimes have round-off errors, which will cause (aNorm == bNorm) ~ accVal instead.
-     */
-    outVal =
-      outVal * AccT(!((outVal * outVal < get_clamp_precision<DataT, AccT>()) * (aNorm == bNorm)));
-    return sqrt ? raft::sqrt(outVal * static_cast<AccT>(outVal > AccT(0))) : outVal;
+    // Clamp negative values to zero (can occur due to floating-point round-off).
+    // We intentionally do NOT try to detect and zero out self-distances here,
+    // as it's impossible to reliably distinguish them from near-duplicate points
+    // without access to the actual row/column indices.
+    outVal = raft::max(outVal, AccT(0));
+
+    return sqrt ? raft::sqrt(outVal) : outVal;
   }
 
   __device__ AccT operator()(DataT aData) const noexcept
@@ -113,14 +113,8 @@ struct l2_exp_distance_op {
         AccT accVal = acc[i][j];
         AccT val    = regxn[i] + regyn[j] - (AccT)2.0 * accVal;
 
-        /**
-         * Self-neighboring points should have (aNorm == bNorm) == accVal and the dot product
-         * (accVal) can sometimes have round-off errors, which will cause (aNorm == bNorm) ~ accVal
-         * instead.
-         */
-        acc[i][j] = val * static_cast<AccT>((val > AccT(0))) *
-                    static_cast<AccT>(
-                      !((val * val < get_clamp_precision<DataT, AccT>()) * (regxn[i] == regyn[j])));
+        // Clamp negative values to zero (can occur due to floating-point round-off)
+        acc[i][j] = raft::max(val, AccT(0));
       }
     }
     if (sqrt) {
