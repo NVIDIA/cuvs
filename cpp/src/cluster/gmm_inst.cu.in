@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "gmm.cuh"
+#include <cluster/gmm.cuh>
 
 #include <cuvs/cluster/gmm.hpp>
 
