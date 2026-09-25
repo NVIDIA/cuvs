@@ -88,13 +88,7 @@ void train_pq_centers(
       if constexpr (std::is_same_v<KP, cuvs::cluster::kmeans::balanced_params>) {
         auto bal_params   = base_kmeans_params;
         bal_params.metric = cuvs::distance::DistanceType::L2Expanded;
-        cuvs::cluster::kmeans_balanced::helpers::build_clusters<
-          MathT,
-          MathT,
-          IdxT,
-          uint32_t,
-          uint32_t,
-          cuvs::spatial::knn::detail::utils::mapping<MathT>>(
+        cuvs::cluster::kmeans_balanced::helpers::build_clusters(
           res,
           bal_params,
           pq_trainset_view,

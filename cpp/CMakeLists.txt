@@ -1409,28 +1409,7 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/agglomerative.cu
     src/cluster/gmm_double.cu
     src/cluster/gmm_float.cu
-    src/cluster/kmeans_cluster_cost.cu
-    src/cluster/kmeans_fit_double.cu
-    src/cluster/kmeans_fit_float.cu
-    $<$<BOOL:${BUILD_MG_ALGOS}>:src/cluster/kmeans_fit_mg_float.cu>
-    $<$<BOOL:${BUILD_MG_ALGOS}>:src/cluster/kmeans_fit_mg_double.cu>
-    src/cluster/kmeans_auto_find_k_float.cu
-    src/cluster/kmeans_fit_predict_double.cu
-    src/cluster/kmeans_fit_predict_float.cu
-    src/cluster/kmeans_predict_double.cu
-    src/cluster/kmeans_predict_float.cu
-    src/cluster/kmeans_balanced_fit_float.cu
-    src/cluster/kmeans_balanced_fit_half.cu
-    src/cluster/kmeans_balanced_fit_predict_float.cu
-    src/cluster/kmeans_balanced_predict_float.cu
-    src/cluster/kmeans_balanced_predict_half.cu
-    src/cluster/kmeans_balanced_fit_int8.cu
-    src/cluster/kmeans_balanced_fit_uint8.cu
-    src/cluster/kmeans_balanced_fit_predict_int8.cu
-    src/cluster/kmeans_balanced_predict_int8.cu
-    src/cluster/kmeans_balanced_predict_uint8.cu
-    src/cluster/kmeans_transform_double.cu
-    src/cluster/kmeans_transform_float.cu
+    src/cluster/kmeans.cu
     src/cluster/single_linkage_float.cu
     src/cluster/spectral.cu
     src/core/bitset.cu
