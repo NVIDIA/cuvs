@@ -1373,6 +1373,72 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_transform_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
   generate_inst_matrix(
+    kmeans_balanced_fit_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_balanced_fit_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_balanced_fit_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/kmeans_balanced_fit_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    kmeans_balanced_fit_predict_inst_files
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_balanced_fit_predict_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_balanced_fit_predict_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/kmeans_balanced_fit_predict_inst_data_@data_abbrev@_label_@label_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    kmeans_balanced_predict_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_balanced_predict_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_balanced_predict_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/kmeans_balanced_predict_inst_data_@data_abbrev@_label_@label_abbrev@.cu"
+  )
+  if(BUILD_MG_ALGOS)
+    generate_inst_matrix(
+      kmeans_fit_mg_inst_files
+      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_matrix.json"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_fit_mg_inst.cu.in"
+      OUTPUT_FILE_FORMAT
+        "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/kmeans_fit_mg_inst_data_@data_abbrev@.cu"
+    )
+  endif()
+  generate_inst_matrix(
+    kmeans_cluster_cost_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_data_index_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_cluster_cost_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/kmeans_cluster_cost_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    kmeans_fit_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_fit_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/kmeans_fit_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    kmeans_fit_predict_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_data_index_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_fit_predict_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/kmeans_fit_predict_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    kmeans_predict_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_data_index_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_predict_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/kmeans_predict_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    kmeans_transform_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/kmeans_transform_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/kmeans_transform_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
     nn_descent_inst_files
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_matrix.json"
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_inst.cu.in"
@@ -1409,28 +1475,17 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/agglomerative.cu
     src/cluster/gmm_double.cu
     src/cluster/gmm_float.cu
-    src/cluster/kmeans_cluster_cost.cu
-    src/cluster/kmeans_fit_double.cu
-    src/cluster/kmeans_fit_float.cu
-    $<$<BOOL:${BUILD_MG_ALGOS}>:src/cluster/kmeans_fit_mg_float.cu>
-    $<$<BOOL:${BUILD_MG_ALGOS}>:src/cluster/kmeans_fit_mg_double.cu>
+    ${kmeans_cluster_cost_inst_files}
+    ${kmeans_fit_inst_files}
+    ${kmeans_fit_mg_inst_files}
     src/cluster/kmeans_auto_find_k_float.cu
-    src/cluster/kmeans_fit_predict_double.cu
-    src/cluster/kmeans_fit_predict_float.cu
-    src/cluster/kmeans_predict_double.cu
-    src/cluster/kmeans_predict_float.cu
-    src/cluster/kmeans_balanced_fit_float.cu
-    src/cluster/kmeans_balanced_fit_half.cu
-    src/cluster/kmeans_balanced_fit_predict_float.cu
-    src/cluster/kmeans_balanced_predict_float.cu
-    src/cluster/kmeans_balanced_predict_half.cu
-    src/cluster/kmeans_balanced_fit_int8.cu
-    src/cluster/kmeans_balanced_fit_uint8.cu
-    src/cluster/kmeans_balanced_fit_predict_int8.cu
-    src/cluster/kmeans_balanced_predict_int8.cu
-    src/cluster/kmeans_balanced_predict_uint8.cu
-    src/cluster/kmeans_transform_double.cu
-    src/cluster/kmeans_transform_float.cu
+    ${kmeans_fit_predict_inst_files}
+    ${kmeans_predict_inst_files}
+    src/cluster/kmeans_balanced_build_clusters_inst.cu
+    ${kmeans_balanced_fit_inst_files}
+    ${kmeans_balanced_fit_predict_inst_files}
+    ${kmeans_balanced_predict_inst_files}
+    ${kmeans_transform_inst_files}
     src/cluster/single_linkage_float.cu
     src/cluster/spectral.cu
     src/core/bitset.cu

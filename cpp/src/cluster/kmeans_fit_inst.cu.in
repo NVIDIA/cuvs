@@ -1,0 +1,37 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cluster/kmeans_fit_impl.cuh>
+
+#include <raft/core/resources.hpp>
+
+namespace {
+
+using data_t = @data_type@;
+
+}  // namespace
+
+namespace cuvs::cluster::kmeans {
+
+#define CUVS_INST_KMEANS_FIT(MatrixViewT, VectorViewT, IndexT)             \
+  void fit(raft::resources const& handle,                                  \
+           const cuvs::cluster::kmeans::params& params,                    \
+           MatrixViewT<const data_t, IndexT> X,                            \
+           std::optional<VectorViewT<const data_t, IndexT>> sample_weight, \
+           raft::device_matrix_view<data_t, IndexT> centroids,             \
+           raft::host_scalar_view<data_t> inertia,                         \
+           raft::host_scalar_view<IndexT> n_iter)                          \
+  {                                                                        \
+    cuvs::cluster::kmeans::fit<data_t, IndexT>(                            \
+      handle, params, X, sample_weight, centroids, inertia, n_iter);       \
+  }
+
+CUVS_INST_KMEANS_FIT(raft::device_matrix_view, raft::device_vector_view, int)
+CUVS_INST_KMEANS_FIT(raft::device_matrix_view, raft::device_vector_view, int64_t)
+CUVS_INST_KMEANS_FIT(raft::host_matrix_view, raft::host_vector_view, int64_t)
+
+#undef CUVS_INST_KMEANS_FIT
+
+}  // namespace cuvs::cluster::kmeans

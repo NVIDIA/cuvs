@@ -181,12 +181,6 @@ namespace helpers {
  *       handle, params, X, centroids.view(), labels.view(), sizes.view());
  * @endcode
  *
- * @tparam DataT Type of the input data.
- * @tparam MathT Type of the centroids and mapped data.
- * @tparam IndexT Type used for indexing.
- * @tparam LabelT Type of the output labels.
- * @tparam CounterT Counter type supported by CUDA's native atomicAdd.
- * @tparam MappingOpT Type of the mapping function.
  * @param[in]  handle        The raft resources
  * @param[in]  params        Structure containing the hyper-parameters
  * @param[in]  X             Training instances to cluster. The data must be in row-major format.
@@ -194,42 +188,17 @@ namespace helpers {
  * @param[out] centroids     The output centroids [dim = n_clusters x n_features]
  * @param[out] labels        The output labels [dim = n_samples]
  * @param[out] cluster_sizes Size of each cluster [dim = n_clusters]
- * @param[in]  mapping_op    (optional) Functor to convert from the input datatype to the
- *                           arithmetic datatype. If DataT == MathT, this must be the identity.
+ * @param[in]  mapping_op    Functor to convert from the input datatype to float.
  * @param[in]  X_norm        (optional) Dataset's row norms [dim = n_samples]
  */
-template <typename DataT,
-          typename MathT,
-          typename IndexT,
-          typename LabelT,
-          typename CounterT,
-          typename MappingOpT>
 void build_clusters(const raft::resources& handle,
                     const cuvs::cluster::kmeans::balanced_params& params,
-                    raft::device_matrix_view<const DataT, IndexT> X,
-                    raft::device_matrix_view<MathT, IndexT> centroids,
-                    raft::device_vector_view<LabelT, IndexT> labels,
-                    raft::device_vector_view<CounterT, IndexT> cluster_sizes,
-                    MappingOpT mapping_op = raft::identity_op(),
-                    std::optional<raft::device_vector_view<const MathT>> X_norm = std::nullopt);
-
-#define EXTERN_TEMPLATE_BUILD_CLUSTERS(DataT, MathT, IndexT, LabelT, CounterT, MappingOpT) \
-  extern template void build_clusters<DataT, MathT, IndexT, LabelT, CounterT, MappingOpT>( \
-    const raft::resources& handle,                                                         \
-    const cuvs::cluster::kmeans::balanced_params& params,                                  \
-    raft::device_matrix_view<const DataT, IndexT> X,                                       \
-    raft::device_matrix_view<MathT, IndexT> centroids,                                     \
-    raft::device_vector_view<LabelT, IndexT> labels,                                       \
-    raft::device_vector_view<CounterT, IndexT> cluster_sizes,                              \
-    MappingOpT mapping_op,                                                                 \
-    std::optional<raft::device_vector_view<const MathT>> X_norm);
-
-// Extern template declaration for the instantiation actually used in IVF-PQ build
-// IVF-PQ converts input data to float before calling build_clusters
-EXTERN_TEMPLATE_BUILD_CLUSTERS(
-  float, float, int64_t, uint32_t, uint32_t, cuvs::spatial::knn::detail::utils::mapping<float>)
-
-#undef EXTERN_TEMPLATE_BUILD_CLUSTERS
+                    raft::device_matrix_view<const float, int64_t> X,
+                    raft::device_matrix_view<float, int64_t> centroids,
+                    raft::device_vector_view<uint32_t, int64_t> labels,
+                    raft::device_vector_view<uint32_t, int64_t> cluster_sizes,
+                    cuvs::spatial::knn::detail::utils::mapping<float> mapping_op,
+                    std::optional<raft::device_vector_view<const float>> X_norm = std::nullopt);
 
 /**
  * @brief Given the data and labels, calculate cluster centers and sizes in one sweep.

@@ -1,0 +1,22 @@
+{
+  "_type": [
+    {
+      "data_type": "float",
+      "data_abbrev": "f",
+      "label_type": "uint32_t",
+      "label_abbrev": "u32"
+    },
+    {
+      "data_type": "int8_t",
+      "data_abbrev": "i8",
+      "label_type": "uint32_t",
+      "label_abbrev": "u32"
+    },
+    {
+      "data_type": "int8_t",
+      "data_abbrev": "i8",
+      "label_type": "int",
+      "label_abbrev": "i"
+    }
+  ]
+}

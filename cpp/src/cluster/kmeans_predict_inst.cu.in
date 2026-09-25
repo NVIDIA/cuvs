@@ -1,0 +1,33 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cluster/kmeans.cuh>
+#include <cluster/kmeans_predict_impl.cuh>
+
+#include <raft/core/resources.hpp>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = @index_type@;
+
+}  // namespace
+
+namespace cuvs::cluster::kmeans {
+
+void predict(raft::resources const& handle,
+             const kmeans::params& params,
+             raft::device_matrix_view<const data_t, index_t> X,
+             std::optional<raft::device_vector_view<const data_t, index_t>> sample_weight,
+             raft::device_matrix_view<const data_t, index_t> centroids,
+             raft::device_vector_view<index_t, index_t> labels,
+             bool normalize_weight,
+             raft::host_scalar_view<data_t> inertia)
+{
+  cuvs::cluster::kmeans::predict<data_t, index_t>(
+    handle, params, X, sample_weight, centroids, labels, normalize_weight, inertia);
+}
+
+}  // namespace cuvs::cluster::kmeans
