@@ -33,13 +33,27 @@ function(find_and_configure_faiss)
     set(CPM_DOWNLOAD_faiss ON)
   endif()
 
+<<<<<<< sve
+  include(cmake/modules/FindAVX)
+  include(cmake/modules/FindSVE)
+=======
   include(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../modules/FindAVX.cmake)
   include(${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../modules/FindSVE.cmake)
+>>>>>>> main
   # Link against AVX CPU lib if it exists
   set(CUVS_FAISS_OPT_LEVEL "generic")
   if(CXX_AVX2_FOUND)
     set(CUVS_FAISS_OPT_LEVEL "avx2")
   endif()
+<<<<<<< sve
+  if(CXX_SVE_FOUND)
+      set(CUVS_FAISS_OPT_LEVEL "sve")
+  endif
+
+  rapids_cpm_find(faiss ${version} ${find_args}
+    GLOBAL_TARGETS faiss faiss_avx2 faiss_gpu_objs faiss::faiss faiss::faiss_avx2 faiss::faiss_sve
+    CPM_ARGS ${cpm_args}
+=======
   if(CXX_SVE_FOUND AND CUVS_CPU_ONLY_FAISS_ENABLE_SVE)
     set(CUVS_FAISS_OPT_LEVEL "sve")
   endif()
@@ -52,6 +66,7 @@ function(find_and_configure_faiss)
     GIT_TAG ${tag}
     GIT_SHALLOW ${shallow} ${patch_command}
     EXCLUDE_FROM_ALL ${exclude}
+>>>>>>> main
     OPTIONS
     "FAISS_ENABLE_GPU ${PKG_ENABLE_GPU}"
     "FAISS_ENABLE_CUVS ${PKG_ENABLE_GPU}"
@@ -108,11 +123,17 @@ function(find_and_configure_faiss)
   # and fail due to invalid compiler flags.
   if(PKG_ENABLE_GPU AND PKG_BUILD_STATIC_LIBS AND CXX_AVX2_FOUND)
     set(CUVS_FAISS_TARGETS "$<LINK_GROUP:RESCAN,$<LINK_LIBRARY:WHOLE_ARCHIVE,faiss_gpu_objs>,faiss::faiss_avx2>" PARENT_SCOPE)
+  elseif(PKG_ENABLE_GPU AND PKG_BUILD_STATIC_LIBS AND CXX_SVE_FOUND)
+    set(CUVS_FAISS_TARGETS "$<LINK_GROUP:RESCAN,$<LINK_LIBRARY:WHOLE_ARCHIVE,faiss_gpu_objs>,faiss::faiss_sve>" PARENT_SCOPE)
   elseif(PKG_ENABLE_GPU AND  PKG_BUILD_STATIC_LIBS)
     set(CUVS_FAISS_TARGETS "$<LINK_GROUP:RESCAN,$<LINK_LIBRARY:WHOLE_ARCHIVE,faiss_gpu_objs>,faiss::faiss>" PARENT_SCOPE)
   elseif(CXX_AVX2_FOUND)
     set(CUVS_FAISS_TARGETS faiss::faiss_avx2 PARENT_SCOPE)
+<<<<<<< sve
+  elseif(CXX_SVE_FOUND)
+=======
   elseif(CXX_SVE_FOUND AND CUVS_CPU_ONLY_FAISS_ENABLE_SVE)
+>>>>>>> main
     set(CUVS_FAISS_TARGETS faiss::faiss_sve PARENT_SCOPE)
   else()
     set(CUVS_FAISS_TARGETS faiss::faiss PARENT_SCOPE)
