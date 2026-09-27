@@ -163,7 +163,10 @@ void select_clusters(raft::resources const& handle,
     std::nullopt,
     raft::make_device_matrix_view<float, int64_t>(cluster_dists.data(), n_queries, n_probes),
     raft::make_device_matrix_view<uint32_t, int64_t>(clusters_to_probe, n_queries, n_probes),
-    true);
+    true,
+    false,
+    // Radix select, chosen above k = 256, settles ties by atomic arrival order.
+    cuvs::selection::SelectAlgo::kWarpDistributedShm);
 }
 
 template <typename T>
@@ -251,7 +254,10 @@ void select_clusters(raft::resources const& handle,
     std::nullopt,
     raft::make_device_matrix_view<dist_type, int64_t>(cluster_dists.data(), n_queries, n_probes),
     raft::make_device_matrix_view<uint32_t, int64_t>(clusters_to_probe, n_queries, n_probes),
-    true);
+    true,
+    false,
+    // Radix select, chosen above k = 256, settles ties by atomic arrival order.
+    cuvs::selection::SelectAlgo::kWarpDistributedShm);
 }
 
 template <typename T>
@@ -335,7 +341,10 @@ void select_clusters(raft::resources const& handle,
     std::nullopt,
     raft::make_device_matrix_view<dist_type, int64_t>(cluster_dists.data(), n_queries, n_probes),
     raft::make_device_matrix_view<uint32_t, int64_t>(clusters_to_probe, n_queries, n_probes),
-    true);
+    true,
+    false,
+    // Radix select, chosen above k = 256, settles ties by atomic arrival order.
+    cuvs::selection::SelectAlgo::kWarpDistributedShm);
 }
 
 /**
@@ -650,7 +659,8 @@ void ivfpq_search_worker(raft::resources const& handle,
     raft::make_device_matrix_view<uint32_t, int64_t>(neighbors_uint32, n_queries, topK),
     true,
     false,
-    cuvs::selection::SelectAlgo::kAuto,
+    // Radix select, chosen above k = 256, settles ties by atomic arrival order.
+    cuvs::selection::SelectAlgo::kWarpDistributedShm,
     num_samples_vector);
 
   // Postprocessing
