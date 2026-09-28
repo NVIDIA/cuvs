@@ -15,7 +15,7 @@ Simple object to specify hyper-parameters for SOAR assignment.
 
 ```cpp
 struct params {
-  float lambda = 1.0f;
+  float lambda;
 };
 ```
 
@@ -23,7 +23,7 @@ struct params {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `lambda` | `float` | Weight of the projection of the secondary residual onto the primary residual in the SOAR loss. Larger values penalize secondary centroids whose residual is aligned with the primary residual, favoring complementary assignments. `0` reduces the loss to plain squared distance, which the primary centroid itself minimizes, so nothing is spilled.<br />Default: `1.0`. |
+| `lambda` | `float` | Weight of the projection of the secondary residual onto the primary residual in the SOAR loss. Larger values penalize secondary centroids whose residual is aligned with the primary residual, favoring complementary assignments. `0` reduces the loss to plain squared distance, which the primary centroid itself minimizes, so nothing is spilled. Default: 1.0. |
 
 ## SOAR assignment
 
@@ -43,7 +43,7 @@ raft::device_vector_view<uint32_t, int64_t> soar_labels);
 
 SOAR (Spilling with Orthogonality-Amplified Residuals) picks, for each vector, a second centroid that complements the primary assignment instead of merely being the next-closest one. It minimizes the loss of Theorem 3.1 of https://arxiv.org/abs/2404.00774: for a vector `x` with primary residual `r = x - centroids[labels[i]]`,
 
-`score(c) = ||x - c||^2 + lambda * (dot(r / ||r||, x - c))^2`
+`score(c) = \|\|x - c\|\|^2 + lambda * (dot(r / \|\|r\|\|, x - c))^2`
 
 and `soar_labels[i]` is the centroid minimizing that score. Indexing a vector under both its primary and its secondary centroid improves recall for queries near a partition boundary.
 
