@@ -11,8 +11,9 @@ NUMARGS=$#
 VERSION="26.10.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
 GROUP_ID="com.nvidia.cuvs.lucene"
 
-function hasArg {
-    (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " $1 ")
+function has_arg {
+    local arg="$1"
+    (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " ${arg} ")
 }
 
 # Resolve paths from this script's location so it can be invoked from anywhere.
@@ -22,7 +23,7 @@ REPODIR="$(cd "${LUCENE_DIR}"/../.. && pwd)"
 # cuvs-lucene compiles against the cuvs-java artifact built by this repo, which
 # './build.sh java' installs into the local Maven repository.
 MAVEN_LOCAL_REPO="${MAVEN_LOCAL_REPO:-${HOME}/.m2/repository}"
-if [ ! -f "${MAVEN_LOCAL_REPO}/com/nvidia/cuvs/cuvs-java/${VERSION}/cuvs-java-${VERSION}.jar" ]; then
+if [[ ! -f "${MAVEN_LOCAL_REPO}/com/nvidia/cuvs/cuvs-java/${VERSION}/cuvs-java-${VERSION}.jar" ]]; then
     echo "com.nvidia.cuvs:cuvs-java:${VERSION} was not found in ${MAVEN_LOCAL_REPO}."
     echo "Please build it first (ex. '${REPODIR}/build.sh libcuvs java') if it is not already installed."
 fi
@@ -30,12 +31,12 @@ fi
 # The tests load libcuvs_c.so through the JVM, so make a local libcuvs build
 # discoverable. In CI, libcuvs comes from the conda environment instead.
 CUVS_LIB_DIR="${CMAKE_PREFIX_PATH:-${REPODIR}/cpp/build}"
-if [ -d "${CUVS_LIB_DIR}" ]; then
+if [[ -d "${CUVS_LIB_DIR}" ]]; then
     export LD_LIBRARY_PATH="${CUVS_LIB_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 fi
 
 MAVEN_VERIFY_ARGS=()
-if ! hasArg --run-java-tests; then
+if ! has_arg --run-java-tests; then
     MAVEN_VERIFY_ARGS=("-DskipTests")
 fi
 
@@ -44,7 +45,7 @@ cd "${LUCENE_DIR}"
 mvn clean verify "${MAVEN_VERIFY_ARGS[@]}"
 
 # Coverage data only exists when the tests actually ran.
-if hasArg --run-java-tests; then
+if has_arg --run-java-tests; then
     mvn jacoco:report
 fi
 
@@ -53,6 +54,6 @@ cp pom.xml ./target/
 
 # Build the cuvs-lucene examples against the jar just installed above, to catch drift between the
 # examples and the cuvs-lucene API.
-if hasArg --build-java-examples; then
+if has_arg --build-java-examples; then
     mvn -f "${REPODIR}/examples/java/cuvs-lucene/pom.xml" package
 fi

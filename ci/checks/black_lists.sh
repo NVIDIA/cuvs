@@ -1,5 +1,5 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2020-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 ##########################################
 # RAFT black listed function call Tester #
@@ -22,16 +22,16 @@ RETVAL=0
 
 for black_listed in cudaDeviceSynchronize cudaMalloc cudaMallocManaged cudaFree cudaMallocHost cudaHostAlloc cudaFreeHost; do
     TMP=$(git --no-pager diff --ignore-submodules -w --minimal -U0 -S"$black_listed" "$PR_TARGET_BRANCH" | grep '^+' | grep -v '^+++' | grep "$black_listed")
-    if [ "$TMP" != "" ]; then
+    if [[ "$TMP" != "" ]]; then
         for filename in $(git --no-pager diff --ignore-submodules -w --minimal --name-only -S"$black_listed" "$PR_TARGET_BRANCH"); do
             basefilename=$(basename -- "$filename")
             filext="${basefilename##*.}"
-            if [ "$filext" != "md" ] && [ "$filext" != "sh" ]; then
+            if [[ "$filext" != "md" && "$filext" != "sh" ]]; then
                 TMP2=$(git --no-pager diff --ignore-submodules -w --minimal -U0 -S"$black_listed" "$PR_TARGET_BRANCH" -- "$filename" | grep '^+' | grep -v '^+++' | grep "$black_listed" | grep -vE "^\+[[:space:]]*/{2,}.*$black_listed")
-                if [ "$TMP2" != "" ]; then
-                    echo "=== ERROR: black listed function call $black_listed added to $filename ==="
-                    git --no-pager diff --ignore-submodules -w --minimal -S"$black_listed" "$PR_TARGET_BRANCH" -- "$filename"
-                    echo "=== END ERROR ==="
+                if [[ "$TMP2" != "" ]]; then
+                    echo "=== ERROR: black listed function call $black_listed added to $filename ===" >&2
+                    git --no-pager diff --ignore-submodules -w --minimal -S"$black_listed" "$PR_TARGET_BRANCH" -- "$filename" >&2
+                    echo "=== END ERROR ===" >&2
                     RETVAL=1
                 fi
             fi
@@ -42,16 +42,16 @@ done
 for cond_black_listed in cudaMemcpy cudaMemset; do
     TMP=$(git --no-pager diff --ignore-submodules -w --minimal -U0 -S"$cond_black_listed" "$PR_TARGET_BRANCH" | grep '^+' | grep -v '^+++' | grep -P "$cond_black_listed(?!Async)")
 
-    if [ "$TMP" != "" ]; then
+    if [[ "$TMP" != "" ]]; then
         for filename in $(git --no-pager diff --ignore-submodules -w --minimal --name-only -S"$cond_black_listed" "$PR_TARGET_BRANCH"); do
             basefilename=$(basename -- "$filename")
             filext="${basefilename##*.}"
-            if [ "$filext" != "md" ] && [ "$filext" != "sh" ]; then
+            if [[ "$filext" != "md" && "$filext" != "sh" ]]; then
                 TMP2=$(git --no-pager diff --ignore-submodules -w --minimal -U0 -S"$cond_black_listed" "$PR_TARGET_BRANCH" -- "$filename" | grep '^+' | grep -v '^+++' | grep -P "$cond_black_listed(?!Async)" | grep -vE "^\+[[:space:]]*/{2,}.*$cond_black_listed")
-                if [ "$TMP2" != "" ]; then
-                    echo "=== ERROR: black listed function call $cond_black_listed added to $filename ==="
-                    git --no-pager diff --ignore-submodules -w --minimal -S"$cond_black_listed" "$PR_TARGET_BRANCH" -- "$filename"
-                    echo "=== END ERROR ==="
+                if [[ "$TMP2" != "" ]]; then
+                    echo "=== ERROR: black listed function call $cond_black_listed added to $filename ===" >&2
+                    git --no-pager diff --ignore-submodules -w --minimal -S"$cond_black_listed" "$PR_TARGET_BRANCH" -- "$filename" >&2
+                    echo "=== END ERROR ===" >&2
                     RETVAL=1
                 fi
             fi
