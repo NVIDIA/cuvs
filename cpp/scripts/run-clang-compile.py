@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2020-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2020-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
@@ -13,6 +13,7 @@ import json
 import multiprocessing as mp
 import os
 import re
+import shlex
 import shutil
 import subprocess
 
@@ -261,17 +262,15 @@ def get_clang_args(cmd, build_dir):
 
 
 def run_clang_command(clang_cmd, cwd):
-    cmd = " ".join(clang_cmd)
     result = subprocess.run(
-        cmd,
+        clang_cmd,
         check=False,
-        shell=True,
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
     result.stdout = result.stdout.decode("utf-8").strip()
-    out = "CMD: " + cmd + "\n"
+    out = "CMD: " + shlex.join(clang_cmd) + "\n"
     out += "CWD: " + cwd + "\n"
     out += "EXIT-CODE: %d\n" % result.returncode
     status = result.returncode == 0

@@ -1,16 +1,17 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
 
 NUMARGS=$#
 ARGS=$*
-function hasArg {
-    (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " $1 ")
+function has_arg {
+    local arg="$1"
+    (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " ${arg} ")
 }
 
-if hasArg -h || hasArg --help; then
+if has_arg -h || has_arg --help; then
     echo "Usage:"
     echo "    $0 [--NEIGHBORS_ANN_VAMANA_TEST]"
     exit 0
@@ -19,7 +20,7 @@ fi
 DEST=${RAPIDS_DATASET_ROOT_DIR:-"$PWD"}
 
 # get test data for NEIGHBORS_ANN_VAMANA_TEST
-if hasArg "--NEIGHBORS_ANN_VAMANA_TEST"; then
+if has_arg "--NEIGHBORS_ANN_VAMANA_TEST"; then
     echo "Downloading test data for NEIGHBORS_ANN_VAMANA_TEST"
     echo "Destination: ${DEST}"
     URL_PREFIX=https://data.rapids.ai/cuvs/tests/data

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # This script is a wrapper for cmakelang that may be used with pre-commit. The
@@ -27,19 +27,19 @@
 # bash run-cmake-format.sh {cmake-format,cmake-lint} infile [infile ...]
 
 status=0
-if [ -z ${CUVS_ROOT:+PLACEHOLDER} ]; then
+if [[ -z ${CUVS_ROOT:+PLACEHOLDER} ]]; then
     CUVS_BUILD_DIR=$(git rev-parse --show-toplevel 2>&1)/cpp/build
     status=$?
 else
     CUVS_BUILD_DIR=${CUVS_ROOT}
 fi
 
-if ! [ ${status} -eq 0 ]; then
+if ! [[ ${status} -eq 0 ]]; then
     if [[ ${CUVS_BUILD_DIR} == *"not a git repository"* ]]; then
-        echo "This script must be run inside the cuvs repository, or the CUVS_ROOT environment variable must be set."
+        echo "This script must be run inside the cuvs repository, or the CUVS_ROOT environment variable must be set." >&2
     else
-        echo "Script failed with unknown error attempting to determine project root:"
-        echo "${CUVS_BUILD_DIR}"
+        echo "Script failed with unknown error attempting to determine project root:" >&2
+        echo "${CUVS_BUILD_DIR}" >&2
     fi
     exit 1
 fi
@@ -49,16 +49,16 @@ DEFAULT_FORMAT_FILE_LOCATIONS=(
   "${CUVS_BUILD_DIR:-cpp/build}/latest/_deps/rapids-cmake-src/cmake-format-rapids-cmake.json"
 )
 
-if [ -z ${RAPIDS_CMAKE_FORMAT_FILE:+PLACEHOLDER} ]; then
+if [[ -z ${RAPIDS_CMAKE_FORMAT_FILE:+PLACEHOLDER} ]]; then
     for file_path in "${DEFAULT_FORMAT_FILE_LOCATIONS[@]}"; do
-        if [ -f "${file_path}" ]; then
+        if [[ -f "${file_path}" ]]; then
             RAPIDS_CMAKE_FORMAT_FILE=${file_path}
             break
         fi
     done
 fi
 
-if [ -z ${RAPIDS_CMAKE_FORMAT_FILE:+PLACEHOLDER} ]; then
+if [[ -z ${RAPIDS_CMAKE_FORMAT_FILE:+PLACEHOLDER} ]]; then
   echo "The rapids-cmake cmake-format configuration file was not found at any of the default search locations: "
   echo ""
   ( IFS=$'\n'; echo "${DEFAULT_FORMAT_FILE_LOCATIONS[*]}" )
@@ -78,7 +78,7 @@ elif [[ $1 == "cmake-lint" ]]; then
   OUTPUT=$(cmake-lint --config-files cpp/cmake/config.json "${RAPIDS_CMAKE_FORMAT_FILE}" -- "${@:2}")
   status=$?
 
-  if ! [ ${status} -eq 0 ]; then
+  if ! [[ ${status} -eq 0 ]]; then
     echo "${OUTPUT}"
   fi
   exit ${status}
