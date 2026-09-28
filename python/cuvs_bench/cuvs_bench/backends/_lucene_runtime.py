@@ -26,6 +26,14 @@ ACCELERATED_HNSW_CODEC = "Lucene101AcceleratedHNSWCodec"
 CAGRA_CODEC = "CuVS2510GPUSearchCodec"
 MAX_CAGRA_TOP_K = 1024
 REQUIRED_PYLUCENE_VERSION = "10.2.0"
+_PYLUCENE_SETUP_GUIDANCE = (
+    "Setup documentation: fern/pages/cuvs_bench/lucene_backend.md "
+    "(published at https://docs.nvidia.com/cuvs/user-guide/benchmarking-guide/"
+    "cu-vs-bench-tool/lucene-backend). Source-checkout helper: "
+    "python/cuvs_bench/tools/pylucene/build_pylucene_10_2.sh "
+    "(run it with --build-root <stable-absolute-path>, then source "
+    "<stable-absolute-path>/activate.sh)."
+)
 
 _ID_FIELD = "id"
 _VECTOR_FIELD = "vector"
@@ -366,9 +374,9 @@ def _load_pylucene() -> Any:
         return importlib.import_module("lucene")
     except ImportError as error:
         raise ImportError(
-            "The Lucene backend requires PyLucene 10.2.0. Install the pinned "
-            "custom PyLucene runtime before selecting --backend lucene; "
-            "cuVS Bench does not currently package that runtime."
+            "The Lucene backend requires the custom PyLucene 10.2.0 runtime, "
+            "which is not included in cuVS Bench packages. "
+            f"{_PYLUCENE_SETUP_GUIDANCE} PyLucene import failed: {error}"
         ) from error
 
 
@@ -424,7 +432,8 @@ def initialize_pylucene(
     if actual_version != REQUIRED_PYLUCENE_VERSION:
         raise RuntimeError(
             "PyLucene must match cuvs-lucene's Lucene version: expected "
-            f"{REQUIRED_PYLUCENE_VERSION}, found {actual_version}"
+            f"{REQUIRED_PYLUCENE_VERSION}, found {actual_version}. "
+            f"{_PYLUCENE_SETUP_GUIDANCE}"
         )
     vmargs = _vmargs(config)
     with _JVM_LOCK:

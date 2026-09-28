@@ -3,6 +3,8 @@
 
 """Tests for the opt-in Lucene backend scaffold."""
 
+import os
+import subprocess
 import tomllib
 from importlib import resources
 from pathlib import Path
@@ -189,3 +191,73 @@ def test_lucene_algorithm_configs_are_packaged_resources():
                 "build": {"codec": [codec]},
                 "search": {},
             }
+
+
+def test_pylucene_source_builder_is_self_describing() -> None:
+    tool_directory = _PROJECT_ROOT / "tools" / "pylucene"
+    helper = tool_directory / "build_pylucene_10_2.sh"
+    compatibility_patch = tool_directory / "pylucene-10.2.0.patch"
+
+    completed = subprocess.run(
+        ["bash", str(helper), "--help"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert os.access(helper, os.X_OK)
+    assert compatibility_patch.is_file()
+    assert completed.returncode == 0, completed.stderr
+    assert "Build an isolated PyLucene 10.2.0 environment" in completed.stdout
+
+
+def test_pylucene_source_builder_rejects_unsafe_build_roots(
+    tmp_path: Path,
+) -> None:
+    helper = _PROJECT_ROOT / "tools" / "pylucene" / "build_pylucene_10_2.sh"
+
+    for unsafe_character in (" ", ":", ";", "$", "`", "&", "#", "|"):
+        build_root = tmp_path / f"unsafe{unsafe_character}root"
+        completed = subprocess.run(
+            [
+                "bash",
+                str(helper),
+                "--build-root",
+                str(build_root),
+                "--prepare-only",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        assert completed.returncode != 0
+        assert "--build-root may contain only" in completed.stderr
+        assert not build_root.exists()
+
+
+def test_pylucene_source_builder_rejects_unsafe_resolved_build_root(
+    tmp_path: Path,
+) -> None:
+    helper = _PROJECT_ROOT / "tools" / "pylucene" / "build_pylucene_10_2.sh"
+    unsafe_target = tmp_path / "unsafe;target"
+    unsafe_target.mkdir()
+    build_root = tmp_path / "safe-link"
+    build_root.symlink_to(unsafe_target, target_is_directory=True)
+
+    completed = subprocess.run(
+        [
+            "bash",
+            str(helper),
+            "--build-root",
+            str(build_root),
+            "--prepare-only",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode != 0
+    assert "--build-root may contain only" in completed.stderr
+    assert not (unsafe_target / ".build.lock").exists()

@@ -1,0 +1,50 @@
+--- a/Makefile
++++ b/Makefile
+@@ -15,8 +15,8 @@
+ # site-packages directory.
+ #
+
+-VERSION=10.0.0
+-LUCENE_VER=10.0.0
++VERSION=10.2.0
++LUCENE_VER=10.2.0
+ PYLUCENE:=$(shell pwd)
+ LUCENE_SRC=lucene-java-$(LUCENE_VER)
+ LUCENE=$(LUCENE_SRC)/lucene
+@@ -163,7 +163,7 @@
+ STEMPEL_JAR=$(LUCENE)/analysis/stempel/build/runtimeJars/lucene-analysis-stempel-$(LUCENE_VER)-SNAPSHOT.jar
+ SUGGEST_JAR=$(LUCENE)/suggest/build/runtimeJars/lucene-suggest-$(LUCENE_VER)-SNAPSHOT.jar
+
+-ANTLR_JAR=$(LUCENE)/expressions/build/runtimeJars/antlr4-runtime-4.11.1.jar
++ANTLR_JAR=$(LUCENE)/expressions/build/runtimeJars/antlr4-runtime-4.13.2.jar
+ ASM_JAR=$(LUCENE)/expressions/build/runtimeJars/asm-9.6.jar
+ ASM_COMMONS_JAR=$(LUCENE)/expressions/build/runtimeJars/asm-commons-9.6.jar
+
+@@ -254,6 +254,7 @@
+            --package org.antlr.v4.runtime.atn \
+            --package org.apache.lucene.analysis.ko.dict \
+            --package org.apache.lucene.analysis.ja.dict \
++           --package org.apache.lucene.sandbox.facet.plain.histograms \
+            --exclude org.apache.lucene.sandbox.queries.regex.JakartaRegexpCapabilities \
+            --exclude org.apache.regexp.RegexpTunnel \
+            --exclude org.apache.lucene.misc.store.WindowsDirectory \
+--- a/lucene-java-10.2.0/settings.gradle
++++ b/lucene-java-10.2.0/settings.gradle
+@@ -69,6 +69,7 @@
+ include "lucene:distribution.tests"
+ include "lucene:documentation"
+ include "lucene:expressions"
++include "lucene:extensions"
+ include "lucene:facet"
+ include "lucene:grouping"
+ include "lucene:highlighter"
+--- a/lucene-java-10.2.0/gradle/wrapper/gradle-wrapper.properties
++++ b/lucene-java-10.2.0/gradle/wrapper/gradle-wrapper.properties
+@@ -1,6 +1,7 @@
+ distributionBase=GRADLE_USER_HOME
+ distributionPath=wrapper/dists
+ distributionUrl=https\://services.gradle.org/distributions/gradle-8.10-bin.zip
++distributionSha256Sum=5b9c5eb3f9fc2c94abaea57d90bd78747ca117ddbbf96c859d3741181a12bf2a
+ networkTimeout=10000
+ validateDistributionUrl=true
+ zipStoreBase=GRADLE_USER_HOME
