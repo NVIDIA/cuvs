@@ -13,6 +13,7 @@
 #include <raft/core/error.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/mdspan_types.hpp>
+#include <raft/matrix/select_k_types.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/integer_utils.hpp>
 
@@ -210,6 +211,19 @@ struct search_params : cuvs::neighbors::search_params {
    * Set the internal batch size to improve GPU utilization at the cost of larger memory footprint.
    */
   uint32_t max_internal_batch_size = 4096;
+  /**
+   * Which k-selection algorithm to use.
+   *
+   * `kAuto` returns a warp-sort selector at or below k = 256 and a radix selector above it. The
+   * radix selector claims each output slot with `atomicAdd`, so thread arrival order decides which
+   * of several equidistant candidates survives and a repeated search can return different
+   * neighbours.
+   *
+   * `kWarpDistributedShmStable` breaks such a tie on the payload index instead. It is valid only
+   * at or below k = 256, because the warp-sort selectors cap at `kMaxCapacity`. Above 256 there is
+   * no reproducible selector.
+   */
+  raft::matrix::SelectAlgo select_algo = raft::matrix::SelectAlgo::kAuto;
 };
 /**
  * @}
