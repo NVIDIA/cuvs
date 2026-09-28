@@ -314,7 +314,7 @@ void launch_fused_1nn_tile(raft::resources const& handle,
   } else {
     const auto stream             = raft::resource::get_cuda_stream(handle);
     constexpr int64_t max_batch_m = fused_1nn_cutile_max_batch_m<DataT>;
-    auto* tmp_idx                 = static_cast<int*>(index_workspace);
+    auto* tmp_idx = nearest_idx == nullptr ? nullptr : static_cast<int*>(index_workspace);
     for (int64_t offset = 0; offset < m;) {
       const int64_t batch_m64 = std::min<int64_t>(max_batch_m, m - offset);
       const int batch_m       = static_cast<int>(batch_m64);

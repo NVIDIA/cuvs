@@ -827,11 +827,11 @@ cuvsDataset_t dataset,
 cuvsCagraIndex_t index);
 ```
 
-The memory space and layout `dataset` was constructed with select the C++ build overload. Build the handle with an owning factory or the matching dataset view factory (`cuvsDatasetMakePaddedView` / `cuvsDatasetMakeStandardView`).
+The memory space and layout `dataset` was constructed with select the C++ build overload. Build the handle with an owning factory or the matching dataset view factory (`cuvsDatasetMakePaddedView`, `cuvsDatasetMakeStandardView`, or `cuvsDatasetMakeBbqView`).
 
 Note that a dataset residing in host memory produces a host-backed index, which must be made search-ready with `cuvsCagraUpdateDataset` (using a device-padded dataset) before calling `cuvsCagraSearch`.
 
-A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the VPQ dataset must outlive the index because the index stores a non-owning view.
+A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the VPQ dataset must outlive the index because the index stores a non-owning view. A `CUVS_DATASET_LAYOUT_BBQ` dataset builds a graph-only index; attach a searchable dataset with `cuvsCagraUpdateDataset` before search.
 
 **Parameters**
 
@@ -935,7 +935,7 @@ const char* filename,
 cuvsCagraIndex_t index);
 ```
 
-This supports dense and PQ-backed indexes. The dataset must be attached separately after loading the graph.
+This supports dense, PQ-backed, and BBQ-built indexes. The serialized file does not contain vector data. After deserialization the index cannot be searched until a compatible dataset is attached with `cuvsCagraUpdateDataset`.
 
 Experimental, both the API and the serialization format are subject to change.
 
@@ -962,7 +962,7 @@ const char* filename,
 cuvsCagraIndex_t index);
 ```
 
-The index stores a non-owning dataset view. The caller must keep the dataset backing that view alive while this function runs. Returns CUVS_ERROR without modifying the destination file if the index has no attached dataset. PQ datasets are not serialized by this function.
+The index stores a non-owning dataset view. The caller must keep the memory of the dataset backing that view alive while this function runs. Returns CUVS_ERROR without modifying the destination file if the index has no attached dataset. PQ and BBQ datasets are not serialized by this function.
 
 Experimental, both the API and the serialization format are subject to change.
 

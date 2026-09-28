@@ -43,6 +43,16 @@ INSTANTIATE_TEST_CASE_P(AnnHnswAceMemoryFallbackTest,
                         AnnHnswAceMemoryFallbackTest_half,
                         ::testing::ValuesIn(hnsw_ace_memory_fallback_inputs));
 
+typedef AnnHnswAceTest<float, half, uint32_t> AnnHnswAceLayeredTest_half;
+TEST_P(AnnHnswAceLayeredTest_half, AnnHnswAceLayeredBuildDeserializeSearch)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch();
+}
+
+INSTANTIATE_TEST_CASE_P(AnnHnswAceLayeredTest,
+                        AnnHnswAceLayeredTest_half,
+                        ::testing::ValuesIn(hnsw_ace_layered_inputs));
+
 // Test for in-memory CAGRA -> HNSW disk-spill conversion
 typedef AnnHnswAceTest<float, half, uint32_t> AnnHnswInmemSpillTest_half;
 TEST_P(AnnHnswInmemSpillTest_half, AnnHnswFromCagraInmemSpill)

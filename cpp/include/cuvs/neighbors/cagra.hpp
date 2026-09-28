@@ -11,6 +11,7 @@
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
+#include <cuvs/preprocessing/quantize/bbq.hpp>
 #include <cuvs/util/file_io.hpp>
 
 #include <raft/core/device_mdarray.hpp>
@@ -956,6 +957,10 @@ template <typename T, typename IdxT = uint32_t, typename CodebookT = half>
 using device_pq_index =
   index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<CodebookT, int64_t>>;
 
+/** CAGRA index with a device-resident BBQ-quantized dataset. */
+template <typename T, typename IdxT = uint32_t>
+using device_bbq_index = index<T, IdxT, cuvs::neighbors::device_bbq_dataset_view<T, int64_t>>;
+
 /** Index type returned by `cagra::build(res, params, dataset_view)`. */
 template <typename DatasetViewT>
 using cagra_index_t =
@@ -1213,6 +1218,49 @@ auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_standard_index<uint8_t, uint32_t>;
+
+/**
+ * @brief Build from a device BBQ-quantized dataset view.
+ *
+ * The kNN graph is built from the quantized codes alone, so the uncompressed vectors are never
+ * needed and peak memory is driven by the code size. Only nn-descent graph construction is
+ * available (IVF-PQ, iterative CAGRA search, and ACE all read uncompressed vectors), and the
+ * metric must be one of L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct and must match
+ * the metric the quantizer corrections were generated for.
+ *
+ * The returned index cannot be searched: CAGRA has no BBQ search kernels. Call the type-changing
+ * `update_dataset` with an uncompressed device-padded dataset to search the resulting graph.
+ *
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device BBQ dataset view [n_rows, dim]
+ * @return built `device_bbq_index<float, uint32_t>`
+ */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>;
+
+/** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
+
+/** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
+
+/** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
 
 /**
  * @}
@@ -2964,6 +3012,75 @@ void serialize(raft::resources const& handle,
 void deserialize(raft::resources const& handle,
                  std::istream& is,
                  cuvs::neighbors::cagra::device_pq_index<uint8_t>* index);
+
+/* device_bbq_index graph-only overloads (CAGRA + BBQ).
+ *
+ * These overloads persist the graph and index metadata, but not the attached BBQ dataset
+ * Attach a compatible dataset with `update_dataset` after deserialization before searching.
+ */
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<float>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<float>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<float>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<float>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<half>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<half>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<half>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<half>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<int8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<int8_t>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<int8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<int8_t>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<uint8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<uint8_t>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<uint8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<uint8_t>* index);
 
 /** @copydoc serialize */
 void serialize(raft::resources const& handle,
@@ -4946,6 +5063,48 @@ auto update_dataset(raft::resources const& res,
 auto update_dataset(raft::resources const& res,
                     index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
                     device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<float, uint32_t, device_bbq_dataset_view<float, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, device_bbq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<int8_t, uint32_t, device_bbq_dataset_view<int8_t, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_bbq_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<float, uint32_t, device_bbq_dataset_view<float, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, device_bbq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<int8_t, uint32_t, device_bbq_dataset_view<int8_t, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_bbq_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
   -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
 
 }  // namespace cagra

@@ -28,6 +28,13 @@
 
 namespace cuvs::neighbors {
 
+/** Compute capability of the current device as major * 10 + minor. */
+inline auto device_compute_capability() -> int
+{
+  auto [major, minor] = raft::getComputeCapability();
+  return major * 10 + minor;
+}
+
 struct print_dtype {
   cudaDataType_t value;
 };

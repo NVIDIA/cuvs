@@ -157,6 +157,13 @@ CUVS_INST_HNSW_SEARCH(int8_t);
                    index<T>** idx)                                                             \
   {                                                                                            \
     detail::deserialize<T>(res, params, filename, dim, metric, idx);                           \
+  }                                                                                            \
+  void deserialize(raft::resources const& res,                                                 \
+                   const std::string& graph_filename,                                          \
+                   const std::string& dataset_filename,                                        \
+                   index<T>** idx)                                                             \
+  {                                                                                            \
+    detail::deserialize<T>(res, graph_filename, dataset_filename, idx);                        \
   }
 
 CUVS_INST_HNSW_SERIALIZE(float);

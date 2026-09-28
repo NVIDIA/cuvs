@@ -1435,6 +1435,8 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/spectral.cu
     src/core/bitset.cu
     src/core/bloom_filter.cu
+    src/core/roaring_allowlist.cu
+    src/neighbors/roaring_bitmap_filter.cu
     src/core/omp_wrapper.cpp
     src/util/file_io.cpp
     src/util/host_memory.cpp
@@ -1531,6 +1533,7 @@ if(NOT BUILD_CPU_ONLY)
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu
+    src/preprocessing/quantize/bbq.cu
     src/preprocessing/spectral/spectral_embedding.cu
     src/preprocessing/pca/pca.cu
     ${select_k_inst_files}
@@ -1836,9 +1839,10 @@ endif()
 # ##################################################################################################
 # * build test executable ----------------------------------------------------
 
+add_subdirectory(internal)
+
 if(BUILD_TESTS)
   enable_testing()
-  add_subdirectory(internal)
   add_subdirectory(tests)
 endif()
 

@@ -77,6 +77,8 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
                "Bitmap filter isn't supported inside cagra::merge");
   RAFT_EXPECTS(row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Bloom,
                "Bloom filter isn't supported inside cagra::merge");
+  RAFT_EXPECTS(row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Roaring,
+               "Roaring filter isn't supported inside cagra::merge");
 
   for (cagra_index_t* index : indices) {
     RAFT_EXPECTS(index != nullptr,

@@ -4,10 +4,13 @@
  */
 
 #include "test_utils.cuh"
+#include "../../src/core/interop.hpp"
 #include <array>
 #include <cstddef>
 #include <cuvs/core/c_api.h>
+#include <cuvs/core/dataset.h>
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/preprocessing/quantize/bbq.h>
 #include <dlpack/dlpack.h>
 
 #include <cstdint>
@@ -35,6 +38,31 @@
 #include <sys/types.h>
 
 #include <raft/random/make_blobs.cuh>
+
+namespace {
+
+template <typename T>
+auto make_device_matrix_tensor(T* data, int64_t rows, int64_t columns) -> DLManagedTensor
+{
+  DLManagedTensor tensor{};
+  cuvs::core::to_dlpack(raft::make_device_matrix_view<T, int64_t>(data, rows, columns), &tensor);
+  return tensor;
+}
+
+template <typename T>
+auto make_device_vector_tensor(T* data, int64_t size) -> DLManagedTensor
+{
+  DLManagedTensor tensor{};
+  cuvs::core::to_dlpack(raft::make_device_vector_view<T, int64_t>(data, size), &tensor);
+  return tensor;
+}
+
+void free_tensor(DLManagedTensor& tensor)
+{
+  if (tensor.deleter != nullptr) { tensor.deleter(&tensor); }
+}
+
+}  // namespace
 
 float dataset[4][2] = {{0.74021935, 0.9209938},
                        {0.03902049, 0.9689629},
@@ -177,6 +205,153 @@ TEST(CagraC, BuildSearch)
   cuvsCagraIndexParamsDestroy(build_params);
   cuvsCagraIndexDestroy(index);
   cuvsResourcesDestroy(res);
+}
+
+TEST(CagraC, BuildBbqGraphAndAttachDataset)
+{
+  constexpr int64_t n_rows = 64;
+  constexpr int64_t dim    = 32;
+
+  cuvsResources_t res;
+  ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
+  cudaStream_t stream;
+  ASSERT_EQ(cuvsStreamGet(res, &stream), CUVS_SUCCESS);
+
+  rmm::device_uvector<uint8_t> codes(n_rows * dim, stream);
+  rmm::device_uvector<float> lower(n_rows, stream);
+  rmm::device_uvector<float> upper(n_rows, stream);
+  rmm::device_uvector<float> corrections(n_rows, stream);
+  rmm::device_uvector<int32_t> sums(n_rows, stream);
+  rmm::device_uvector<float> centroid(dim, stream);
+  rmm::device_uvector<float> delta(n_rows, stream);
+  rmm::device_uvector<float> sum_delta(n_rows, stream);
+  rmm::device_uvector<float> row_norm(n_rows, stream);
+  rmm::device_uvector<float> dense(n_rows * dim, stream);
+  ASSERT_EQ(cudaMemsetAsync(codes.data(), 0, codes.size(), stream), cudaSuccess);
+  ASSERT_EQ(cudaMemsetAsync(lower.data(), 0, lower.size() * sizeof(float), stream), cudaSuccess);
+  ASSERT_EQ(cudaMemsetAsync(upper.data(), 0, upper.size() * sizeof(float), stream), cudaSuccess);
+  ASSERT_EQ(
+    cudaMemsetAsync(corrections.data(), 0, corrections.size() * sizeof(float), stream), cudaSuccess);
+  ASSERT_EQ(cudaMemsetAsync(sums.data(), 0, sums.size() * sizeof(int32_t), stream), cudaSuccess);
+  ASSERT_EQ(
+    cudaMemsetAsync(centroid.data(), 0, centroid.size() * sizeof(float), stream), cudaSuccess);
+  ASSERT_EQ(cudaMemsetAsync(delta.data(), 0, delta.size() * sizeof(float), stream), cudaSuccess);
+  ASSERT_EQ(
+    cudaMemsetAsync(sum_delta.data(), 0, sum_delta.size() * sizeof(float), stream), cudaSuccess);
+  ASSERT_EQ(
+    cudaMemsetAsync(row_norm.data(), 0, row_norm.size() * sizeof(float), stream), cudaSuccess);
+  ASSERT_EQ(cudaMemsetAsync(dense.data(), 0, dense.size() * sizeof(float), stream), cudaSuccess);
+
+  auto codes_tensor       = make_device_matrix_tensor(codes.data(), n_rows, dim);
+  auto lower_tensor       = make_device_vector_tensor(lower.data(), n_rows);
+  auto upper_tensor       = make_device_vector_tensor(upper.data(), n_rows);
+  auto corrections_tensor = make_device_vector_tensor(corrections.data(), n_rows);
+  auto sums_tensor        = make_device_vector_tensor(sums.data(), n_rows);
+  auto centroid_tensor    = make_device_vector_tensor(centroid.data(), dim);
+  auto delta_tensor       = make_device_vector_tensor(delta.data(), n_rows);
+  auto sum_delta_tensor   = make_device_vector_tensor(sum_delta.data(), n_rows);
+  auto row_norm_tensor    = make_device_vector_tensor(row_norm.data(), n_rows);
+  auto dense_tensor       = make_device_matrix_tensor(dense.data(), n_rows, dim);
+
+  cuvsBbqQuantizer_t quantizer;
+  ASSERT_EQ(cuvsBbqQuantizerCreateView(&codes_tensor,
+                                       &lower_tensor,
+                                       &upper_tensor,
+                                       &corrections_tensor,
+                                       &sums_tensor,
+                                       &centroid_tensor,
+                                       &delta_tensor,
+                                       &sum_delta_tensor,
+                                       &row_norm_tensor,
+                                       CUVS_BBQ_CODE_LAYOUT_PACKED_8B,
+                                       L2Expanded,
+                                       0.0f,
+                                       &quantizer),
+            CUVS_SUCCESS);
+
+  cuvsDataset_t bbq_dataset;
+  ASSERT_EQ(cuvsDatasetMakeBbqView(res, &quantizer, 1, &bbq_dataset), CUVS_SUCCESS);
+
+  cuvsCagraIndexParams_t params;
+  ASSERT_EQ(cuvsCagraIndexParamsCreate(&params), CUVS_SUCCESS);
+  params->metric                    = L2Expanded;
+  params->build_algo                = NN_DESCENT;
+  params->graph_degree              = 8;
+  params->intermediate_graph_degree = 16;
+  params->nn_descent_niter          = 5;
+
+  cuvsCagraIndex_t index;
+  ASSERT_EQ(cuvsCagraIndexCreate(&index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraBuild(res, params, bbq_dataset, index), CUVS_SUCCESS);
+
+  DLManagedTensor graph_tensor{};
+  ASSERT_EQ(cuvsCagraIndexGetGraph(index, &graph_tensor), CUVS_SUCCESS);
+  ASSERT_EQ(graph_tensor.dl_tensor.shape[0], n_rows);
+  ASSERT_EQ(graph_tensor.dl_tensor.shape[1], params->graph_degree);
+  std::vector<uint32_t> graph(n_rows * params->graph_degree);
+  raft::copy(graph.data(),
+             static_cast<uint32_t*>(graph_tensor.dl_tensor.data),
+             graph.size(),
+             stream);
+  ASSERT_EQ(cudaStreamSynchronize(stream), cudaSuccess);
+  for (auto neighbor : graph) {
+    EXPECT_LT(neighbor, static_cast<uint32_t>(n_rows));
+  }
+
+  rmm::device_uvector<float> query(dim, stream);
+  rmm::device_uvector<uint32_t> neighbors(1, stream);
+  rmm::device_uvector<float> distances(1, stream);
+  ASSERT_EQ(cudaMemsetAsync(query.data(), 0, query.size() * sizeof(float), stream), cudaSuccess);
+  auto query_tensor     = make_device_matrix_tensor(query.data(), 1, dim);
+  auto neighbors_tensor = make_device_matrix_tensor(neighbors.data(), 1, 1);
+  auto distances_tensor = make_device_matrix_tensor(distances.data(), 1, 1);
+  cuvsCagraSearchParams_t search_params;
+  ASSERT_EQ(cuvsCagraSearchParamsCreate(&search_params), CUVS_SUCCESS);
+  cuvsFilter filter{.addr = 0, .type = NO_FILTER};
+  EXPECT_EQ(cuvsCagraSearch(res,
+                           search_params,
+                           index,
+                           &query_tensor,
+                           &neighbors_tensor,
+                           &distances_tensor,
+                           filter),
+            CUVS_ERROR);
+  EXPECT_NE(std::string(cuvsGetLastErrorText()).find("BBQ-built"), std::string::npos);
+
+  cuvsDataset_t padded_dataset;
+  ASSERT_EQ(cuvsDatasetMakePaddedView(res, &dense_tensor, &padded_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraUpdateDataset(res, padded_dataset, index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraSearch(res,
+                            search_params,
+                            index,
+                            &query_tensor,
+                            &neighbors_tensor,
+                            &distances_tensor,
+                            filter),
+            CUVS_SUCCESS);
+
+  ASSERT_EQ(cuvsCagraSearchParamsDestroy(search_params), CUVS_SUCCESS);
+  if (graph_tensor.deleter != nullptr) { graph_tensor.deleter(&graph_tensor); }
+  ASSERT_EQ(cuvsCagraIndexDestroy(index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsDatasetDestroy(padded_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraIndexParamsDestroy(params), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsDatasetDestroy(bbq_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsBbqQuantizerDestroy(quantizer), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
+
+  free_tensor(codes_tensor);
+  free_tensor(lower_tensor);
+  free_tensor(upper_tensor);
+  free_tensor(corrections_tensor);
+  free_tensor(sums_tensor);
+  free_tensor(centroid_tensor);
+  free_tensor(delta_tensor);
+  free_tensor(sum_delta_tensor);
+  free_tensor(row_norm_tensor);
+  free_tensor(dense_tensor);
+  free_tensor(query_tensor);
+  free_tensor(neighbors_tensor);
+  free_tensor(distances_tensor);
 }
 
 // CAGRA operations that need a search-ready index must reject host / non-device-padded

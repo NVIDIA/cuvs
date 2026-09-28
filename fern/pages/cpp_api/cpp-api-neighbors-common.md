@@ -203,6 +203,7 @@ enum class FilterType : int {
   Bitmap = 1,
   Bitset = 2,
   Bloom = 3,
+  Roaring = 4,
   UDF = 100
 };
 ```
@@ -215,6 +216,7 @@ enum class FilterType : int {
 | `Bitmap` | `1` |
 | `Bitset` | `2` |
 | `Bloom` | `3` |
+| `Roaring` | `4` |
 | `UDF` | `100` |
 
 <a id="neighbors-filtering-none-sample-filter-operator"></a>
@@ -400,6 +402,122 @@ struct bloom_filter : public base_filter {
 | Name | Type | Description |
 | --- | --- | --- |
 | `filter_data` | `void*` |  |
+
+<a id="neighbors-filtering-roaring-bitmap-filter"></a>
+### neighbors::filtering::roaring_bitmap_filter
+
+Reusable per-query mapping to immutable exact Roaring allowlists.
+
+Entry `q` selects view `q`. CAGRA retains candidate dataset row `r` when the selected allowlist contains `r`. Construction copies only already initialized device-reference pointers and empty flags into the filter payload; encoded bytes are neither copied nor parsed. Search therefore performs no Roaring allocation, initialization, synchronization, or preprocessing.
+
+Owners and views can be reused across filters and queries. This filter owns its mapping tables and device payload, but not the referenced owners, which must outlive the filter and all searches using it. Copies are cheap shared handles required by CAGRA query-offset wrappers.
+
+Roaring filters currently support direct `cagra::search` only. Dynamic batching can combine requests into a different query-row layout, and tiered search applies one filter to partitions with different row domains; both paths reject this filter type.
+
+```cpp
+struct roaring_bitmap_filter;
+```
+
+<a id="neighbors-filtering-roaring-bitmap-filter-roaring-bitmap-filter"></a>
+### neighbors::filtering::roaring_bitmap_filter::roaring_bitmap_filter
+
+Construct an invalid handle. It cannot be passed to CAGRA search.
+
+```cpp
+roaring_bitmap_filter() = default;
+```
+
+**Returns**
+
+`void`
+
+**Additional overload:** `neighbors::filtering::roaring_bitmap_filter::roaring_bitmap_filter`
+
+Materialize the query-to-allowlist device pointer table.
+
+```cpp
+explicit roaring_bitmap_filter(raft::resources const& res,
+std::span<const cuvs::core::roaring_allowlist_view> allowlists);
+```
+
+`dataset_rows()`. Query count is inferred from the span length.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `allowlists` |  | [`std::span<const cuvs::core::roaring_allowlist_view>`](/api-reference/cpp-api-core-roaring-allowlist#core-roaring-allowlist-view) |  |
+
+**Returns**
+
+`explicit`
+
+<a id="neighbors-filtering-roaring-bitmap-filter-filtering-rate"></a>
+### neighbors::filtering::roaring_bitmap_filter::filtering_rate
+
+Conservative maximum rejected fraction among all query allowlists.
+
+```cpp
+[[nodiscard]] float filtering_rate() const noexcept;
+```
+
+CAGRA uses this precomputed value when `search_params::filtering_rate` is unset. Basing one batch-wide scalar on the sparsest query avoids under-provisioning that query, but a very sparse or empty allowlist can increase the search work performed for every query in the batch. Callers may set `search_params::filtering_rate` explicitly when another tradeoff is preferable.
+
+**Returns**
+
+`[[nodiscard]] float`
+
+<a id="neighbors-filtering-roaring-bitmap-filter-size-bytes"></a>
+### neighbors::filtering::roaring_bitmap_filter::size_bytes
+
+Device bytes owned by this mapping, excluding the referenced allowlists.
+
+```cpp
+[[nodiscard]] std::size_t size_bytes() const noexcept;
+```
+
+**Returns**
+
+`[[nodiscard]] std::size_t`
+
+<a id="neighbors-filtering-roaring-bitmap-filter-set-allowlist"></a>
+### neighbors::filtering::roaring_bitmap_filter::set_allowlist
+
+Replace one query's allowlist pointer outside the search path.
+
+```cpp
+void set_allowlist(raft::resources const& res,
+std::size_t query_id,
+cuvs::core::roaring_allowlist_view replacement);
+```
+
+The replacement must have the same `dataset_rows()`. Copies share the underlying mapping, so the replacement is visible through every copy of this filter. The method copies one pointer and one empty flag to the device and synchronizes `res` before returning. Do not call it concurrently with a search, and keep the replacement owner alive for all subsequent searches.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `query_id` |  | `std::size_t` |  |
+| `replacement` |  | [`cuvs::core::roaring_allowlist_view`](/api-reference/cpp-api-core-roaring-allowlist#core-roaring-allowlist-view) |  |
+
+**Returns**
+
+`void`
+
+<a id="neighbors-filtering-roaring-bitmap-filter-device-payload"></a>
+### neighbors::filtering::roaring_bitmap_filter::device_payload
+
+Internal device payload already prepared for the linked CAGRA predicate.
+
+```cpp
+[[nodiscard]] void* device_payload() const noexcept;
+```
+
+**Returns**
+
+`[[nodiscard]] void*`
 
 <a id="neighbors-filtering-udf-filter"></a>
 ### neighbors::filtering::udf_filter

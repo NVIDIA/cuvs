@@ -21,7 +21,8 @@ extern "C" {
 typedef enum {
   CUVS_DATASET_LAYOUT_STANDARD = 0,
   CUVS_DATASET_LAYOUT_PADDED   = 1,
-  CUVS_DATASET_LAYOUT_PQ = 2
+  CUVS_DATASET_LAYOUT_PQ       = 2,
+  CUVS_DATASET_LAYOUT_BBQ      = 3
 } cuvsDatasetLayout_t;
 
 /**

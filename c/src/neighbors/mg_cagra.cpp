@@ -581,7 +581,7 @@ extern "C" cuvsError_t cuvsMultiGpuCagraDeserialize(cuvsResources_t res,
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_deser(float{});
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') && dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_deser(half{});
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
@@ -627,7 +627,7 @@ extern "C" cuvsError_t cuvsMultiGpuCagraDistribute(cuvsResources_t res,
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_distribute(float{});
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') && dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_distribute(half{});
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {

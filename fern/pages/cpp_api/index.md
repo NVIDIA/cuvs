@@ -13,6 +13,7 @@ These pages are generated from the documented public headers in the cuVS source 
 
 - [Bloom Filter](/api-reference/cpp-api-core-bloom-filter)
 - [Common Types](/api-reference/cpp-api-common-types)
+- [Roaring Allowlist](/api-reference/cpp-api-core-roaring-allowlist)
 
 ## Distance
 
@@ -42,6 +43,7 @@ These pages are generated from the documented public headers in the cuVS source 
 
 ## Preprocessing
 
+- [Bbq](/api-reference/cpp-api-preprocessing-quantize-bbq)
 - [Binary](/api-reference/cpp-api-preprocessing-quantize-binary)
 - [PCA](/api-reference/cpp-api-preprocessing-pca)
 - [PQ](/api-reference/cpp-api-preprocessing-quantize-pq)
