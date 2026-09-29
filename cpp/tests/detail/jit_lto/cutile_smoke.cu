@@ -54,7 +54,7 @@ void add_smoke_fragments(TileAlgorithmPlanner& planner)
 
 }  // namespace
 
-TEST(CutileSmoke, ResolvesExactArchitectureOrSm89Compatibility)
+TEST(CutileSmoke, ResolvesExactOrCompatibleArchitecture)
 {
   auto fragments = make_smoke_fragments();
 
@@ -65,10 +65,20 @@ TEST(CutileSmoke, ResolvesExactArchitectureOrSm89Compatibility)
   EXPECT_EQ(find_compatible_cubin_fragment(9, 1, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(10, 0, fragments), fragments[3].get());
   EXPECT_EQ(find_compatible_cubin_fragment(10, 1, fragments), nullptr);
+  EXPECT_EQ(find_compatible_cubin_fragment(10, 3, fragments), fragments[3].get());
+  EXPECT_EQ(find_compatible_cubin_fragment(10, 4, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(12, 0, fragments), fragments[4].get());
   EXPECT_EQ(find_compatible_cubin_fragment(12, 1, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(13, 0, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(7, 5, fragments), nullptr);
+
+  CutileRuntimeCapabilities gb300{0, 10, 3};
+  auto image = resolve_cutile_module_image(gb300, fragments);
+  ASSERT_TRUE(image.has_value());
+  EXPECT_EQ(image->data, fragments[3]->get_data());
+  EXPECT_EQ(image->size, fragments[3]->get_length());
+  EXPECT_TRUE(has_compatible_embedded_cubin_for_arch(10, 3));
+  EXPECT_FALSE(has_compatible_embedded_cubin_for_arch(10, 1));
 }
 
 TEST(CutileSmoke, LaunchesCompatibleCubin)

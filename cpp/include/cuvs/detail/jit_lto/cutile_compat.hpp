@@ -67,12 +67,13 @@ inline bool cutile_integration_enabled()
 inline bool has_compatible_embedded_cubin_for_arch(int cc_major, int cc_minor)
 {
   return is_embedded_cubin_arch(cc_major, cc_minor) ||
-         (can_use_sm86_compat_cubin(cc_major, cc_minor) && is_embedded_cubin_arch(8, 6));
+         (can_use_sm86_compat_cubin(cc_major, cc_minor) && is_embedded_cubin_arch(8, 6)) ||
+         (can_use_sm100_compat_cubin(cc_major, cc_minor) && is_embedded_cubin_arch(10, 0));
 }
 
 /**
  * True when a cuTile launch may be attempted for the given device: cuTile is enabled, the runtime
- * is CUDA 13+, and an exact cubin exists, except that SM89 may use the embedded SM86 cubin.
+ * is CUDA 13+, and an exact cubin exists, except that SM89 and SM103 may use compatible cubins.
  */
 #if CUVS_CUTILE_ENABLED
 inline bool cutile_launch_available_for_arch(int cc_major, int cc_minor)

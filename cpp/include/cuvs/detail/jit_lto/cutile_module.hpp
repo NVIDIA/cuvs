@@ -27,13 +27,14 @@ struct CutileModuleImage {
   size_t size;
 };
 
-/** Selects an exact architecture-specific cubin, with SM86 accepted only for SM89. */
+/** Selects an exact cubin, or the explicit SM86/SM100 compatibility fallbacks. */
 inline const CubinFragmentEntry* find_compatible_cubin_fragment(
   int cc_major,
   int cc_minor,
   const std::vector<std::unique_ptr<CubinFragmentEntry>>& cubin_fragments)
 {
-  const CubinFragmentEntry* sm86_fallback = nullptr;
+  const CubinFragmentEntry* sm86_fallback  = nullptr;
+  const CubinFragmentEntry* sm100_fallback = nullptr;
   for (const auto& fragment : cubin_fragments) {
     if (fragment->get_cc_major() == cc_major && fragment->get_cc_minor() == cc_minor) {
       return fragment.get();
@@ -41,8 +42,12 @@ inline const CubinFragmentEntry* find_compatible_cubin_fragment(
     if (fragment->get_cc_major() == 8 && fragment->get_cc_minor() == 6) {
       sm86_fallback = fragment.get();
     }
+    if (fragment->get_cc_major() == 10 && fragment->get_cc_minor() == 0) {
+      sm100_fallback = fragment.get();
+    }
   }
-  return can_use_sm86_compat_cubin(cc_major, cc_minor) ? sm86_fallback : nullptr;
+  if (can_use_sm86_compat_cubin(cc_major, cc_minor)) { return sm86_fallback; }
+  return can_use_sm100_compat_cubin(cc_major, cc_minor) ? sm100_fallback : nullptr;
 }
 
 /** Selects compatible prebuilt SASS for the device. */

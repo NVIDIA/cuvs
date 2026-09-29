@@ -57,4 +57,10 @@ inline constexpr bool can_use_sm86_compat_cubin(int cc_major, int cc_minor)
   return cc_major == 8 && cc_minor == 9;
 }
 
+/** GB300 (SM103) can use the embedded SM100 cubin. */
+inline constexpr bool can_use_sm100_compat_cubin(int cc_major, int cc_minor)
+{
+  return cc_major == 10 && cc_minor == 3;
+}
+
 }  // namespace cuvs::detail::jit_lto
