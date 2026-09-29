@@ -27,14 +27,18 @@
 #include <cstddef>  // size_t
 #include <cstdint>
 #include <limits>  // std::numeric_limits
+#include <type_traits>
 
 namespace cuvs {
 namespace distance {
 
 namespace detail {
 
-/** Explicit implementation selected for the top-1 nearest-neighbor primitive. */
+/** Implementation or automatic selection policy for the top-1 nearest-neighbor primitive. */
 enum class Top1nnBackend : std::uint8_t {
+  Auto,
+  /** Select between CUTLASS and unfused without using reduced-precision cuTile computation. */
+  Stable,
   Cutile,
   /** Legacy fused dispatcher: CUTLASS on SM80+, with its existing SIMT path before SM80. */
   Cutlass,
@@ -51,12 +55,60 @@ struct Top1nnTuning {
   UnfusedTop1nnTuning unfused{};
 };
 
+/** Native result representation required by the resolved top-1 NN backend. */
+enum class Top1nnOutputLayout : std::uint8_t { KeyValuePair, Separate };
+
+/** Arithmetic policy callers must use when preparing row norms. */
+enum class Top1nnNormPolicy : std::uint8_t { Native, Tf32 };
+
+/** Reusable result of probing one exact top-1 NN invocation. */
+template <typename IdxT>
+struct Top1nnPlan {
+  bool available{};
+  Top1nnBackend requested_backend{Top1nnBackend::Auto};
+  Top1nnBackend backend{Top1nnBackend::Unfused};
+  Top1nnOutputLayout output_layout{Top1nnOutputLayout::KeyValuePair};
+  Top1nnNormPolicy norm_policy{Top1nnNormPolicy::Native};
+  std::size_t norm_alignment{1};
+  /** Bytes and alignment required for the backend-native output storage. */
+  std::size_t output_bytes{};
+  std::size_t output_alignment{};
+  /** Byte offset of distances in Separate output storage; zero for KeyValuePair output. */
+  std::size_t distance_offset{};
+  std::size_t workspace_bytes{};
+  std::size_t workspace_alignment{};
+  /** Whether this invocation stores nearest-neighbor indices. */
+  bool store_indices{true};
+  const void* x{};
+  const void* y{};
+  /** GEMM-equivalent dimensions: query rows, candidate rows, and feature columns. */
+  IdxT m{};
+  IdxT n{};
+  IdxT k{};
+  DistanceType metric{};
+  Top1nnTuning tuning{};
+};
+
+template <typename IdxT>
+constexpr Top1nnBackend legacy_top_1_nn_backend(int cc_major, IdxT m, IdxT n, DistanceType metric)
+{
+  const bool supported = metric == DistanceType::L2Expanded ||
+                         metric == DistanceType::L2SqrtExpanded ||
+                         metric == DistanceType::CosineExpanded;
+  if (!supported) { return Top1nnBackend::Unfused; }
+  return cc_major == 8 || (cc_major == 9 && (m >= IdxT{4096} || n >= IdxT{4096}))
+           ? Top1nnBackend::Cutlass
+           : Top1nnBackend::Unfused;
+}
+
 inline constexpr bool is_top_1_nn_metric_supported(Top1nnBackend backend, DistanceType metric)
 {
   switch (backend) {
+    case Top1nnBackend::Auto:
     case Top1nnBackend::Cutile:
       return metric == DistanceType::InnerProduct || metric == DistanceType::L2Expanded ||
              metric == DistanceType::L2SqrtExpanded || metric == DistanceType::CosineExpanded;
+    case Top1nnBackend::Stable:
     case Top1nnBackend::Cutlass:
     case Top1nnBackend::Unfused:
       return metric == DistanceType::L2Expanded || metric == DistanceType::L2SqrtExpanded ||
@@ -79,7 +131,11 @@ bool is_top_1_nn_backend_available(Top1nnBackend backend,
                                    IdxT k,
                                    cuvs::distance::DistanceType metric)
 {
+  if (backend == Top1nnBackend::Auto || backend == Top1nnBackend::Stable) { return false; }
   if (!is_top_1_nn_metric_supported(backend, metric)) { return false; }
+  if (x == nullptr || y == nullptr || m <= IdxT{0} || n <= IdxT{0} || k <= IdxT{0}) {
+    return false;
+  }
   if (backend == Top1nnBackend::Cutile) {
 #if CUVS_CUTILE_ENABLED
     if constexpr (is_fused_1nn_cutile_data_v<DataT>) {
@@ -88,9 +144,10 @@ bool is_top_1_nn_backend_available(Top1nnBackend backend,
 #endif
     return false;
   }
-  if (backend == Top1nnBackend::Unfused) { return true; }
-  return backend == Top1nnBackend::Cutlass && x != nullptr && y != nullptr && m > 0 && n > 0 &&
-         k > 0;
+  constexpr bool is_legacy_data_type =
+    std::is_same_v<DataT, float> || std::is_same_v<DataT, double>;
+  if (backend == Top1nnBackend::Unfused) { return is_legacy_data_type; }
+  return backend == Top1nnBackend::Cutlass && is_legacy_data_type;
 }
 
 template <typename DataT,
