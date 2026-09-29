@@ -184,6 +184,7 @@ public class TestCagraIndexParamsFactory extends LuceneTestCase {
             .withMaxConn(16)
             .withBeamWidth(100)
             .withWriterThreads(7)
+            .withGraphThreads(3)
             .build();
 
     CagraIndexParams cagraParams = CagraIndexParamsFactory.create(params, 10_000, 128);

@@ -21,11 +21,8 @@ import java.util.Random;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.VectorSimilarityFunction;
-import org.apache.lucene.search.TaskExecutor;
 import org.apache.lucene.store.ByteBuffersDataOutput;
 import org.apache.lucene.store.DataOutput;
 import org.apache.lucene.store.IndexOutput;
@@ -68,7 +65,7 @@ public class AcceleratedHNSWUtils {
     try (CuVSMatrix adjacencyMatrix = CuVSMatrix.ofArray(singleNodeAdjacency)) {
       List<int[]> layerNodes = new ArrayList<>();
       layerNodes.add(null); // Layer 0 contains all nodes, so its node list is implicit.
-      return new GPUBuiltHnswGraph(size, dimensions, layerNodes, List.of(adjacencyMatrix), 1);
+      return new GPUBuiltHnswGraph(size, dimensions, layerNodes, List.of(adjacencyMatrix));
     }
   }
 
@@ -88,7 +85,14 @@ public class AcceleratedHNSWUtils {
       QuantizationType quantization)
       throws Throwable {
     return createMultiLayerHnswGraph(
-        size, dimensions, adjacencyListMatrix, vectors, hnswLayers, params, quantization, 1);
+        size,
+        dimensions,
+        adjacencyListMatrix,
+        vectors,
+        hnswLayers,
+        params,
+        quantization,
+        AcceleratedHNSWParams.DEFAULT_GRAPH_THREADS);
   }
 
   private static GPUBuiltHnswGraph createMultiLayerHnswGraph(
@@ -99,7 +103,7 @@ public class AcceleratedHNSWUtils {
       int hnswLayers,
       CagraIndexParams params,
       QuantizationType quantization,
-      int numThreads)
+      int graphThreads)
       throws Throwable {
 
     int M = Math.ceilDiv((int) adjacencyListMatrix.columns(), 2);
@@ -188,7 +192,7 @@ public class AcceleratedHNSWUtils {
       }
 
       // The graph eagerly copies all adjacency rows, so generated upper matrices can now close.
-      return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, numThreads);
+      return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies, graphThreads);
     } catch (Throwable t) {
       failure = t;
       throw t;
@@ -218,7 +222,13 @@ public class AcceleratedHNSWUtils {
       QuantizationType quantization)
       throws Throwable {
     return createMultiLayerHnswGraph(
-        dimensions, adjacencyListMatrix, vectorDataset, hnswLayers, params, quantization, 1);
+        dimensions,
+        adjacencyListMatrix,
+        vectorDataset,
+        hnswLayers,
+        params,
+        quantization,
+        AcceleratedHNSWParams.DEFAULT_GRAPH_THREADS);
   }
 
   static GPUBuiltHnswGraph createMultiLayerHnswGraph(
@@ -228,7 +238,7 @@ public class AcceleratedHNSWUtils {
       int hnswLayers,
       CagraIndexParams params,
       QuantizationType quantization,
-      int numThreads)
+      int graphThreads)
       throws Throwable {
     int size = Math.toIntExact(vectorDataset.size());
     // Matrix columns are the stored width: binary vectors are bit-packed, while scalar and float
@@ -262,7 +272,7 @@ public class AcceleratedHNSWUtils {
         hnswLayers,
         params,
         quantization,
-        numThreads);
+        graphThreads);
   }
 
   private static Throwable closeUpperLayerAdjacencies(List<CuVSMatrix> layerAdjacencies) {
@@ -360,27 +370,21 @@ public class AcceleratedHNSWUtils {
    */
   public static int[][] writeGraph(GPUBuiltHnswGraph graph, IndexOutput vectorIndex)
       throws IOException {
-    return writeGraph(graph, vectorIndex, 1);
+    return writeGraph(graph, vectorIndex, AcceleratedHNSWParams.DEFAULT_GRAPH_THREADS);
   }
 
-  public static int[][] writeGraph(GPUBuiltHnswGraph graph, IndexOutput vectorIndex, int numThreads)
+  static int[][] writeGraph(GPUBuiltHnswGraph graph, IndexOutput vectorIndex, int graphThreads)
       throws IOException {
     int countOnLevel0 = graph.size();
     int numLevels = graph.numLevels();
     int[][] offsets = new int[numLevels][];
-
-    // Each level-0 node's delta/VInt block is independent. Encode those blocks in parallel in fixed
-    // waves, then concatenate thread buffers in node order. Higher levels are much smaller and stay
-    // serial. Both paths write the same blocks and offsets in the same order.
-    // graph.maxConn() scans every layer-0 adjacency row (O(graph size)); compute it once here
-    // rather than per level/per task below.
     int maxConn = graph.maxConn();
 
     int[] level0Nodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(0));
     offsets[0] = new int[level0Nodes.length];
-    if (numThreads > 1 && level0Nodes.length >= PARALLEL_MIN_NODES) {
+    if (graphThreads > 1 && level0Nodes.length >= GPUBuiltHnswGraph.PARALLEL_MIN_NODES) {
       writeLevel0Parallel(
-          graph, vectorIndex, level0Nodes, offsets[0], countOnLevel0, maxConn, numThreads);
+          graph, vectorIndex, level0Nodes, offsets[0], countOnLevel0, maxConn, graphThreads);
     } else {
       writeLevelSerial(graph, vectorIndex, 0, level0Nodes, offsets[0], countOnLevel0, maxConn);
     }
@@ -394,36 +398,32 @@ public class AcceleratedHNSWUtils {
     return offsets;
   }
 
-  /** Node count below which parallel level-0 serialization is not worth the overhead. */
-  static final int PARALLEL_MIN_NODES = 1 << 16;
+  /** Absolute node cap for one serialization wave. */
+  static final int MAX_SERIALIZATION_WAVE_NODES = 1 << 20;
 
-  /** Nodes per wave, bounding the number of nodes buffered independently of dataset size. */
-  static final int SERIALIZATION_WAVE_NODES = 1 << 20;
+  /** Maximum worst-case encoded payload buffered by one serialization wave. */
+  static final long MAX_SERIALIZED_BYTES_PER_WAVE = 64L << 20;
 
-  /** Serially encodes a level's nodes into {@code out}, recording per-node byte lengths. */
+  private static final int MAX_VINT_BYTES = 5;
+
   private static void writeLevelSerial(
       GPUBuiltHnswGraph graph,
       IndexOutput out,
       int level,
-      int[] sortedNodes,
+      int[] nodes,
       int[] offsets,
       int countOnLevel0,
       int maxConn)
       throws IOException {
     int[] scratch = new int[maxConn * 2];
-    int idx = 0;
-    for (int node : sortedNodes) {
+    for (int i = 0; i < nodes.length; i++) {
       long start = out.getFilePointer();
-      encodeNode(graph.getNeighbors(level, node), scratch, out, countOnLevel0);
-      offsets[idx++] = Math.toIntExact(out.getFilePointer() - start);
+      encodeNode(graph.getNeighbors(level, nodes[i]), scratch, out, countOnLevel0);
+      offsets[i] = Math.toIntExact(out.getFilePointer() - start);
     }
   }
 
-  /**
-   * Encodes level 0 in parallel: within fixed-size waves, threads encode contiguous node
-   * sub-ranges into per-thread buffers, which are then concatenated to {@code out} in node order
-   * (identical layout to the serial path).
-   */
+  /** Encodes level zero in bounded waves, then concatenates buffers in node order. */
   private static void writeLevel0Parallel(
       GPUBuiltHnswGraph graph,
       IndexOutput out,
@@ -431,76 +431,68 @@ public class AcceleratedHNSWUtils {
       int[] offsets,
       int countOnLevel0,
       int maxConn,
-      int numThreads)
+      int graphThreads)
       throws IOException {
-    // invokeAll joins every task before it returns, including tasks still running when a sibling
-    // fails, so `buffers` is never concatenated while a worker might still be writing into it.
-    // It also runs one share of each wave on the calling thread instead of parking it, so the
-    // pool only has to cover the other ranges.
-    ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, numThreads - 1));
-    try {
-      TaskExecutor executor = new TaskExecutor(pool);
-      int n = nodes.length;
-      for (int waveStart = 0; waveStart < n; ) {
-        int waveEnd = (int) Math.min(n, (long) waveStart + SERIALIZATION_WAVE_NODES);
-        int perThread = (waveEnd - waveStart + numThreads - 1) / numThreads;
-
-        ByteBuffersDataOutput[] buffers = new ByteBuffersDataOutput[numThreads];
-        List<Callable<Void>> tasks = new ArrayList<>(numThreads);
-        for (int t = 0; t < numThreads; t++) {
-          final int subStart = waveStart + t * perThread;
-          final int subEnd = Math.min(subStart + perThread, waveEnd);
-          final int slot = t;
-          if (subStart >= subEnd) {
-            continue;
-          }
-          tasks.add(
-              () -> {
-                ByteBuffersDataOutput buffer = new ByteBuffersDataOutput();
-                int[] scratch = new int[maxConn * 2];
-                for (int i = subStart; i < subEnd; i++) {
-                  long before = buffer.size();
-                  encodeNode(graph.getNeighbors(0, nodes[i]), scratch, buffer, countOnLevel0);
-                  offsets[i] = Math.toIntExact(buffer.size() - before);
-                }
-                buffers[slot] = buffer;
-                return null;
-              });
+    int waveNodes = serializationWaveNodes(maxConn);
+    for (int waveStart = 0; waveStart < nodes.length; ) {
+      int waveEnd = (int) Math.min(nodes.length, (long) waveStart + waveNodes);
+      int nodesPerTask = Math.ceilDiv(waveEnd - waveStart, graphThreads);
+      ByteBuffersDataOutput[] buffers = new ByteBuffersDataOutput[graphThreads];
+      List<Callable<Void>> tasks = new ArrayList<>(graphThreads);
+      for (int task = 0; task < graphThreads; task++) {
+        int start = waveStart + task * nodesPerTask;
+        int end = Math.min(start + nodesPerTask, waveEnd);
+        int bufferIndex = task;
+        if (start >= end) {
+          break;
         }
-        executor.invokeAll(tasks);
-        // Concatenate in thread order (== node order), preserving the serial byte layout.
-        for (ByteBuffersDataOutput buffer : buffers) {
-          if (buffer != null) {
-            buffer.copyTo(out);
-          }
-        }
-        waveStart = waveEnd;
+        tasks.add(
+            () -> {
+              ByteBuffersDataOutput buffer = new ByteBuffersDataOutput();
+              int[] scratch = new int[maxConn * 2];
+              for (int i = start; i < end; i++) {
+                long before = buffer.size();
+                encodeNode(graph.getNeighbors(0, nodes[i]), scratch, buffer, countOnLevel0);
+                offsets[i] = Math.toIntExact(buffer.size() - before);
+              }
+              buffers[bufferIndex] = buffer;
+              return null;
+            });
       }
-    } finally {
-      pool.shutdown();
+      GraphWorkExecutor.invokeAll(tasks);
+      for (ByteBuffersDataOutput buffer : buffers) {
+        if (buffer != null) {
+          buffer.copyTo(out);
+        }
+      }
+      waveStart = waveEnd;
     }
   }
 
-  /**
-   * Sorts, delta-encodes and de-duplicates a node's neighbors and writes the block (VInt size + VInt
-   * deltas) to {@code out}. Shared by the serial and parallel paths so encoding is identical.
-   */
+  static int serializationWaveNodes(int maxConn) {
+    if (maxConn < 0) {
+      throw new IllegalArgumentException("maxConn must not be negative");
+    }
+    long maxBytesPerNode = Math.addExact(MAX_VINT_BYTES, (long) maxConn * MAX_VINT_BYTES);
+    long byteBoundedNodes = Math.max(1, MAX_SERIALIZED_BYTES_PER_WAVE / maxBytesPerNode);
+    return (int) Math.min(MAX_SERIALIZATION_WAVE_NODES, byteBoundedNodes);
+  }
+
   private static void encodeNode(
       NeighborArray neighbors, int[] scratch, DataOutput out, int countOnLevel0)
       throws IOException {
     int size = neighbors == null ? 0 : neighbors.size();
     int actualSize = 0;
     if (size > 0) {
-      int[] nnodes = neighbors.nodes();
-      Arrays.sort(nnodes, 0, size);
-      scratch[0] = nnodes[0];
+      int[] nodes = neighbors.nodes();
+      Arrays.sort(nodes, 0, size);
+      scratch[0] = nodes[0];
       actualSize = 1;
       for (int i = 1; i < size; i++) {
-        assert nnodes[i] < countOnLevel0 : "node too large: " + nnodes[i] + ">=" + countOnLevel0;
-        if (nnodes[i - 1] == nnodes[i]) {
-          continue;
+        assert nodes[i] < countOnLevel0 : "node too large: " + nodes[i] + ">=" + countOnLevel0;
+        if (nodes[i - 1] != nodes[i]) {
+          scratch[actualSize++] = nodes[i] - nodes[i - 1];
         }
-        scratch[actualSize++] = nnodes[i] - nnodes[i - 1];
       }
     }
     out.writeVInt(actualSize);

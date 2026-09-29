@@ -31,27 +31,7 @@ Multi-layer constructor that supports arbitrary number of layers.
 | `layerNodes` | the nodes on the layer |
 | `layerAdjacencies` | adjacency list |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:55`_
-
-### GPUBuiltHnswGraph
-
-```java
-public GPUBuiltHnswGraph( int size, int dimensions, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies, int numThreads) throws IOException
-```
-
-Builds a graph while materializing adjacency rows with the requested number of threads.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:61`_
-
-### fitsParallelGraphCopyBudget
-
-```java
-static boolean fitsParallelGraphCopyBudget(long rows, long columns)
-```
-
-Returns whether an INT32 adjacency can be copied without exceeding the native-host budget.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:169`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:56`_
 
 ### getNodesOnLevel
 
@@ -61,7 +41,7 @@ public NodesIterator getNodesOnLevel(int level)
 
 Get all nodes on a given level as node 0th ordinals.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:256`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:228`_
 
 ### getNeighbors
 
@@ -82,7 +62,7 @@ Get the neighbors for the node and the level it resides.
 
 an instance of NeighborArray
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:274`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:246`_
 
 ### seek
 
@@ -92,7 +72,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGrap
 
 Move the pointer to exactly the given level's target.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:299`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:271`_
 
 ### nextNeighbor
 
@@ -102,7 +82,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGrap
 
 Iterates over the neighbor list.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:309`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:281`_
 
 ### entryNode
 
@@ -112,7 +92,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGrap
 
 Returns graph's entry point on the top level.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:340`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:312`_
 
 ### maxConn
 
@@ -122,7 +102,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGrap
 
 returns M, the maximum number of connections for a node.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:359`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:331`_
 
 ### neighborCount
 
@@ -132,7 +112,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGrap
 
 Returns the neighbor count.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:374`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:346`_
 
 ### size
 
@@ -142,7 +122,7 @@ public int size()
 
 Returns the number of nodes in the graph.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:449`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:421`_
 
 ### numLevels
 
@@ -156,7 +136,7 @@ Returns the number of levels in the HNSW graph.
 
 the number of levels
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:458`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:430`_
 
 ### dimensions
 
@@ -170,6 +150,6 @@ Gets the vector dimension.
 
 the vector dimension
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:467`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:439`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:29`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUBuiltHnswGraph.java:27`_

@@ -13,11 +13,9 @@ import com.nvidia.cuvs.RowView;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.Supplier;
-import org.apache.lucene.search.TaskExecutor;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.NeighborArray;
 
@@ -39,6 +37,9 @@ public class GPUBuiltHnswGraph extends HnswGraph {
   // Layer 0 is special - it contains all nodes
   private final NeighborArray[] layer0Neighbors;
 
+  /** Node count below which parallel graph processing is not worth its overhead. */
+  static final int PARALLEL_MIN_NODES = 1 << 16;
+
   private record MaterializedGraph(
       int numLevels,
       List<int[]> layerNodes,
@@ -58,15 +59,15 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     this(size, dimensions, materializeSerial(size, layerNodes, layerAdjacencies));
   }
 
-  /** Builds a graph while materializing adjacency rows with the requested number of threads. */
-  public GPUBuiltHnswGraph(
+  // Builds a graph while materializing adjacency rows with up to graphThreads threads.
+  GPUBuiltHnswGraph(
       int size,
       int dimensions,
       List<int[]> layerNodes,
       List<CuVSMatrix> layerAdjacencies,
-      int numThreads)
+      int graphThreads)
       throws IOException {
-    this(size, dimensions, materialize(size, layerNodes, layerAdjacencies, numThreads));
+    this(size, dimensions, materialize(size, layerNodes, layerAdjacencies, graphThreads));
   }
 
   private GPUBuiltHnswGraph(int size, int dimensions, MaterializedGraph graph) {
@@ -80,107 +81,87 @@ public class GPUBuiltHnswGraph extends HnswGraph {
 
   private static MaterializedGraph materializeSerial(
       int size, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies) {
-    List<int[]> upperLayerNodes = new ArrayList<>();
-    List<NeighborArray[]> upperLayerNeighbors = new ArrayList<>();
-    NeighborArray[] baseLayerNeighbors = fillNeighborArraySerial(layerAdjacencies.get(0), size);
-
-    for (int level = 1; level < layerAdjacencies.size(); level++) {
-      int[] nodes = layerNodes.get(level);
-      upperLayerNodes.add(nodes);
-      upperLayerNeighbors.add(fillNeighborArraySerial(layerAdjacencies.get(level), nodes.length));
+    try {
+      return materialize(size, layerNodes, layerAdjacencies, 1);
+    } catch (IOException impossible) {
+      throw new AssertionError(
+          "serial graph materialization cannot fail with IOException", impossible);
     }
-    return new MaterializedGraph(
-        layerAdjacencies.size(), upperLayerNodes, baseLayerNeighbors, upperLayerNeighbors);
   }
 
   private static MaterializedGraph materialize(
-      int size, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies, int numThreads)
+      int size, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies, int graphThreads)
       throws IOException {
-    if (numThreads <= 1) {
-      return materializeSerial(size, layerNodes, layerAdjacencies);
-    }
-
     List<int[]> upperLayerNodes = new ArrayList<>();
     List<NeighborArray[]> upperLayerNeighbors = new ArrayList<>();
     NeighborArray[] baseLayerNeighbors =
-        fillNeighborArray(layerAdjacencies.get(0), size, numThreads);
+        fillNeighborArray(layerAdjacencies.get(0), size, graphThreads);
 
     for (int level = 1; level < layerAdjacencies.size(); level++) {
       int[] nodes = layerNodes.get(level);
       upperLayerNodes.add(nodes);
       upperLayerNeighbors.add(
-          fillNeighborArray(layerAdjacencies.get(level), nodes.length, numThreads));
+          fillNeighborArray(layerAdjacencies.get(level), nodes.length, graphThreads));
     }
     return new MaterializedGraph(
         layerAdjacencies.size(), upperLayerNodes, baseLayerNeighbors, upperLayerNeighbors);
   }
 
-  /** Node count below which parallel materialization is not worth the thread overhead. */
-  static final int PARALLEL_MIN_NODES = 1 << 16;
-
   /**
-   * Maximum temporary native-host copy used to make a device adjacency safe for concurrent reads.
-   * Larger device matrices retain serial row access instead of risking a full-matrix native-memory
-   * spike on top of the Java {@link NeighborArray} representation.
-   */
-  static final long MAX_PARALLEL_GRAPH_COPY_BYTES = 4L << 30;
-
-  /**
-   * Materializes the adjacency matrix into on-heap {@link NeighborArray}s, one per node.
-   *
-   * <p>The serial path reads the adjacency directly (a device matrix's {@code getRow} is safe
-   * single-threaded). The parallel path cannot: the CAGRA layer-0 adjacency is a device matrix whose
-   * {@code getRow} uses a shared, stateful buffered reader that is not safe for concurrent access, so
-   * it is pulled to host once (a single bulk device-&gt;host copy) before materializing disjoint node
-   * ranges concurrently. Host matrices (the upper layers, built via {@link CuVSMatrix#ofArray}) are
-   * read directly in both paths.
+   * Materializes an adjacency matrix into heap-backed neighbor arrays. Device matrices are copied
+   * to host before parallel reads because their row reader is stateful.
    *
    * @param adjacency instance of adjacency CuVSMatrix
    * @param size the number of nodes
-   * @param numThreads threads to use (1, or fewer than {@value #PARALLEL_MIN_NODES} nodes = serial)
+   * @param graphThreads maximum threads for this operation, including the caller
    * @return the NeighborArray
    */
-  private static NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size, int numThreads)
+  private static NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size, int graphThreads)
       throws IOException {
-    NeighborArray[] neighbors = new NeighborArray[size];
-    if (numThreads <= 1
-        || size < PARALLEL_MIN_NODES
-        || (adjacency instanceof CuVSDeviceMatrix
-            && !fitsParallelGraphCopyBudget(adjacency.size(), adjacency.columns()))) {
-      fillNeighborRange(adjacency, neighbors, 0, size);
-      return neighbors;
+    if (graphThreads <= 1 || size < PARALLEL_MIN_NODES) {
+      return fillNeighborArraySerial(adjacency, size);
     }
+
     if (adjacency instanceof CuVSDeviceMatrix deviceAdjacency) {
-      try (CuVSHostMatrix hostCopy = copyToHost(deviceAdjacency)) {
-        fillNeighborArrayParallel(hostCopy, neighbors, size, numThreads);
-      }
-      return neighbors;
+      return materializeDeviceAdjacency(
+          deviceAdjacency,
+          size,
+          graphThreads,
+          GraphCopyMemoryBudget.system(),
+          () -> newHostMatrix(deviceAdjacency));
     }
-    fillNeighborArrayParallel(adjacency, neighbors, size, numThreads);
-    return neighbors;
+
+    return fillNeighborArrayParallel(adjacency, size, graphThreads);
   }
 
-  private static NeighborArray[] fillNeighborArraySerial(CuVSMatrix adjacency, int size) {
+  private static NeighborArray[] fillNeighborArraySerial(CuVSMatrix source, int size) {
     NeighborArray[] neighbors = new NeighborArray[size];
-    fillNeighborRange(adjacency, neighbors, 0, size);
+    fillNeighborRange(source, neighbors, 0, size);
     return neighbors;
   }
 
-  /** Returns whether an INT32 adjacency can be copied without exceeding the native-host budget. */
-  static boolean fitsParallelGraphCopyBudget(long rows, long columns) {
-    if (rows < 0 || columns < 0) {
-      return false;
+  static NeighborArray[] materializeDeviceAdjacency(
+      CuVSDeviceMatrix source,
+      int size,
+      int graphThreads,
+      GraphCopyMemoryBudget memoryBudget,
+      Supplier<CuVSHostMatrix> hostCopyFactory)
+      throws IOException {
+    Optional<GraphCopyMemoryBudget.Reservation> reservation =
+        memoryBudget.tryReserve(source.size(), source.columns());
+    if (reservation.isEmpty()) {
+      return fillNeighborArraySerial(source, size);
     }
-    if (rows == 0 || columns == 0) {
-      return true;
+    try (GraphCopyMemoryBudget.Reservation ignored = reservation.orElseThrow();
+        CuVSHostMatrix hostCopy = copyToHost(source, hostCopyFactory)) {
+      return fillNeighborArrayParallel(hostCopy, size, graphThreads);
     }
-    return rows <= MAX_PARALLEL_GRAPH_COPY_BYTES / Integer.BYTES / columns;
   }
 
-  private static CuVSHostMatrix copyToHost(CuVSDeviceMatrix source) {
+  private static CuVSHostMatrix newHostMatrix(CuVSDeviceMatrix source) {
     try (CuVSMatrix.Builder<CuVSHostMatrix> builder =
         CuVSMatrix.hostBuilder(source.size(), source.columns(), source.dataType())) {
-      return copyToHost(source, builder::build);
+      return builder.build();
     }
   }
 
@@ -202,49 +183,40 @@ public class GPUBuiltHnswGraph extends HnswGraph {
     }
   }
 
-  /**
-   * Materializes disjoint node ranges concurrently. Each thread writes its own slots of {@code
-   * neighbors} and its own {@link NeighborArray} instances, so no synchronization is needed; {@code
-   * source} must be a host matrix (stateless {@code getRow}).
-   */
-  private static void fillNeighborArrayParallel(
-      CuVSMatrix source, NeighborArray[] neighbors, int size, int numThreads) throws IOException {
-    ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, numThreads - 1));
-    try {
-      int perThread = (size + numThreads - 1) / numThreads;
-      List<Callable<Void>> tasks = new ArrayList<>(numThreads);
-      for (int t = 0; t < numThreads; t++) {
-        final int start = t * perThread;
-        final int end = Math.min(start + perThread, size);
-        if (start >= end) {
-          break;
-        }
-        tasks.add(
-            () -> {
-              fillNeighborRange(source, neighbors, start, end);
-              return null;
-            });
+  private static NeighborArray[] fillNeighborArrayParallel(
+      CuVSMatrix source, int size, int graphThreads) throws IOException {
+    NeighborArray[] neighbors = new NeighborArray[size];
+    int nodesPerTask = Math.ceilDiv(size, graphThreads);
+    List<Callable<Void>> tasks = new ArrayList<>(graphThreads);
+    for (int task = 0; task < graphThreads; task++) {
+      int start = task * nodesPerTask;
+      int end = Math.min(start + nodesPerTask, size);
+      if (start >= end) {
+        break;
       }
-      new TaskExecutor(pool).invokeAll(tasks);
-    } finally {
-      pool.shutdown();
+      tasks.add(
+          () -> {
+            fillNeighborRange(source, neighbors, start, end);
+            return null;
+          });
     }
+    GraphWorkExecutor.invokeAll(tasks);
+    return neighbors;
   }
 
-  /** Fills {@code neighbors[start, end)} from the adjacency rows. */
   private static void fillNeighborRange(
       CuVSMatrix source, NeighborArray[] neighbors, int start, int end) {
     for (int i = start; i < end; i++) {
       RowView rv = source.getRow(i);
       if (rv != null && rv.size() > 0) {
-        NeighborArray na = new NeighborArray((int) rv.size(), true);
+        NeighborArray nodeNeighbors = new NeighborArray((int) rv.size(), true);
         for (int j = 0; j < rv.size(); j++) {
           int neighbor = rv.getAsInt(j);
           if (neighbor >= 0) {
-            na.addInOrder(neighbor, 1.0f - (j * 0.001f));
+            nodeNeighbors.addInOrder(neighbor, 1.0f - (j * 0.001f));
           }
         }
-        neighbors[i] = na;
+        neighbors[i] = nodeNeighbors;
       } else {
         neighbors[i] = new NeighborArray(0, true);
       }
