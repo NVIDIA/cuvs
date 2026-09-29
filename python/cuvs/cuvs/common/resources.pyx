@@ -40,7 +40,8 @@ cdef class Resources:
         given file from a background thread. The CSV file is created
         or truncated. The global host and device memory resources are
         replaced for the lifetime of the handle and restored when the
-        handle is destroyed.
+        handle is destroyed. Memory pool configuration with
+        :meth:`set_memory_pool` is unavailable for a tracking handle.
     memory_tracking_sample_interval_ms : int, default ``10``
         Minimum interval between successive CSV samples, in
         milliseconds. Ignored when ``memory_tracking_csv_path`` is
@@ -94,6 +95,12 @@ cdef class Resources:
     def set_memory_pool(self, percent_of_free_memory):
         """
         Set a memory pool on the device used by these resources.
+
+        Call this before the first operation that configures or uses a
+        workspace or large workspace resource. RAFT captures the allocator
+        when it registers either resource, so later pool changes are rejected.
+        This method is unavailable for a handle created with
+        ``memory_tracking_csv_path``; calling it raises ``CuvsException``.
 
         Parameters
         ----------

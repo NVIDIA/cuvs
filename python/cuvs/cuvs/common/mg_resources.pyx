@@ -95,6 +95,10 @@ cdef class MultiGpuResources:
         """
         Set a memory pool on all devices managed by these resources.
 
+        Call this before the first operation that configures or uses a
+        workspace or large workspace resource on the handle or any managed
+        device. Later pool changes are rejected.
+
         Parameters
         ----------
         percent_of_free_memory : int

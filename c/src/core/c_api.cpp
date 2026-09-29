@@ -32,13 +32,42 @@
 
 #include <chrono>
 #include <cstdint>
+#include <list>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <thread>
 
 namespace {
+
+struct pool_installation {
+  bool active{true};
+  std::optional<raft::mr::device_resource> previous_resource;
+};
+
+using pool_installation_list = std::list<pool_installation>;
+
+struct pool_registry {
+  std::mutex mutex;
+  std::map<int, pool_installation_list> devices;
+};
+
+pool_registry& get_pool_registry()
+{
+  static pool_registry registry;
+  return registry;
+}
+
+void check_memory_pool_can_be_set(raft::resources const& res)
+{
+  RAFT_EXPECTS(
+    !res.has_resource_factory(raft::resource::resource_type::WORKSPACE_RESOURCE) &&
+      !res.has_resource_factory(raft::resource::resource_type::LARGE_WORKSPACE_RESOURCE),
+    "memory pool must be set before workspace resources are configured or used");
+}
 
 class single_gpu_resources : public raft::resources {
  public:
@@ -48,29 +77,53 @@ class single_gpu_resources : public raft::resources {
   {
     RAFT_EXPECTS(percent_of_free_memory > 0 && percent_of_free_memory <= 100,
                  "percent_of_free_memory must be in the range [1, 100]");
+    check_memory_pool_can_be_set(*this);
 
     reset_memory_pool();
-    pool_device_id_ = rmm::get_current_cuda_device();
-    auto pool       = rmm::mr::pool_memory_resource{
+    auto& registry = get_pool_registry();
+    std::lock_guard<std::mutex> lock{registry.mutex};
+    auto device_id = rmm::get_current_cuda_device();
+    auto pool      = rmm::mr::pool_memory_resource{
       rmm::mr::get_current_device_resource_ref(),
       rmm::percent_of_free_device_memory(percent_of_free_memory)};
-    previous_memory_resource_.emplace(
-      rmm::mr::set_per_device_resource(*pool_device_id_, std::move(pool)));
+    auto& installations = registry.devices[device_id.value()];
+    auto installation   = installations.emplace(installations.end());
+    try {
+      installation->previous_resource.emplace(
+        rmm::mr::set_per_device_resource(device_id, std::move(pool)));
+    } catch (...) {
+      installations.erase(installation);
+      if (installations.empty()) { registry.devices.erase(device_id.value()); }
+      throw;
+    }
+    pool_device_id_     = device_id;
+    pool_installation_ = installation;
   }
 
  private:
   void reset_memory_pool()
   {
-    if (!previous_memory_resource_.has_value()) { return; }
+    if (!pool_device_id_.has_value()) { return; }
 
+    auto& registry = get_pool_registry();
+    std::lock_guard<std::mutex> lock{registry.mutex};
     rmm::cuda_set_device_raii device_guard{*pool_device_id_};
-    rmm::mr::set_per_device_resource(*pool_device_id_, std::move(*previous_memory_resource_));
-    previous_memory_resource_.reset();
+    auto& installations = registry.devices.at(pool_device_id_->value());
+    pool_installation_->active = false;
+
+    // Newer pools may still use an older pool as their upstream resource. Leave the
+    // older pool in the chain until all pools above it have been removed.
+    while (!installations.empty() && !installations.back().active) {
+      auto previous = std::move(*installations.back().previous_resource);
+      installations.pop_back();
+      rmm::mr::set_per_device_resource(*pool_device_id_, std::move(previous));
+    }
+    if (installations.empty()) { registry.devices.erase(pool_device_id_->value()); }
     pool_device_id_.reset();
   }
 
   std::optional<rmm::cuda_device_id> pool_device_id_;
-  std::optional<raft::mr::device_resource> previous_memory_resource_;
+  pool_installation_list::iterator pool_installation_;
 };
 
 }  // namespace
@@ -192,6 +245,11 @@ extern "C" cuvsError_t cuvsMultiGpuResourcesSetMemoryPool(cuvsResources_t res,
 {
   return cuvs::core::translate_exceptions([=] {
     auto res_ptr = reinterpret_cast<raft::device_resources_snmg*>(res);
+    RAFT_EXPECTS(res_ptr != nullptr, "res must not be NULL");
+    check_memory_pool_can_be_set(*res_ptr);
+    for (auto const& device_res : raft::resource::get_multi_gpu_resource(*res_ptr)) {
+      check_memory_pool_can_be_set(device_res);
+    }
     res_ptr->set_memory_pool(percent_of_free_memory);
   });
 }
