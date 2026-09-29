@@ -33,6 +33,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <random>
 #include <vector>
@@ -58,11 +59,12 @@ namespace cuvs::cluster::kmeans::mg::detail {
  * @param X_parts              Local device matrix partitions on this rank.
  * @param part_offsets         Prefix-sum of partition row counts (size
  *                             `X_parts.size() + 1`).
- * @param n_local              Total local rows (`part_offsets.back()`).
+ * @param distance_part_offsets Offsets into `minClusterDistance`; each non-empty partition starts
+ *                              at a 16-byte-aligned address.
  * @param L2NormX              Precomputed L2 norms of every local row (length
  *                             `>= n_local`). Sliced per partition.
  * @param potentialCentroids   Current candidate centroid set (the "C" buffer).
- * @param minClusterDistance   Per-row min-distance scratch (length `>= n_local`).
+ * @param minClusterDistance   Padded per-partition min-distance scratch.
  * @param L2NormBuf_OR_DistBuf Scratch buffer reused across `min_cluster_distance`
  *                             calls; grown as needed.
  * @param workspace            General scratch buffer.
@@ -75,7 +77,7 @@ DataT compute_global_cluster_cost(
   const cuvs::cluster::kmeans::params& params,
   const std::vector<raft::device_matrix_view<const DataT, IndexT>>& X_parts,
   const std::vector<IndexT>& part_offsets,
-  IndexT n_local,
+  const std::vector<IndexT>& distance_part_offsets,
   raft::device_vector_view<DataT, IndexT> L2NormX,
   raft::device_matrix_view<DataT, IndexT> potentialCentroids,
   raft::device_vector_view<DataT, IndexT> minClusterDistance,
@@ -87,6 +89,7 @@ DataT compute_global_cluster_cost(
   const auto n_features = static_cast<IndexT>(potentialCentroids.extent(1));
 
   auto d_partial = raft::make_device_scalar<DataT>(handle, DataT{0});
+  auto d_part    = raft::make_device_scalar<DataT>(handle, DataT{0});
 
   for (std::size_t p = 0; p < X_parts.size(); ++p) {
     auto part_rows = static_cast<IndexT>(X_parts[p].extent(0));
@@ -94,7 +97,7 @@ DataT compute_global_cluster_cost(
     auto x_slice = raft::make_device_matrix_view<const DataT, IndexT>(
       X_parts[p].data_handle(), part_rows, n_features);
     auto mcd_slice = raft::make_device_vector_view<DataT, IndexT>(
-      minClusterDistance.data_handle() + part_offsets[p], part_rows);
+      minClusterDistance.data_handle() + distance_part_offsets[p], part_rows);
     auto norm_slice = raft::make_device_vector_view<DataT, IndexT>(
       L2NormX.data_handle() + part_offsets[p], part_rows);
 
@@ -108,13 +111,10 @@ DataT compute_global_cluster_cost(
                                                                params.batch_samples,
                                                                params.batch_centroids,
                                                                workspace);
-  }
-
-  if (n_local > 0) {
-    auto mcd_view =
-      raft::make_device_vector_view<DataT, IndexT>(minClusterDistance.data_handle(), n_local);
     cuvs::cluster::kmeans::cluster_cost<DataT, IndexT>(
-      handle, mcd_view, workspace, d_partial.view(), raft::add_op{});
+      handle, mcd_slice, workspace, d_part.view(), raft::add_op{});
+    raft::linalg::add(
+      d_partial.data_handle(), d_partial.data_handle(), d_part.data_handle(), 1, stream);
   }
 
   comms.allreduce(d_partial.data_handle(), d_partial.data_handle(), 1);
@@ -200,6 +200,24 @@ void initKMeansPlusPlus_distributed(
     part_offsets.push_back(n_local);
   }
 
+  constexpr IndexT distance_alignment_elements = 16 / sizeof(DataT);
+  IndexT distance_storage_size                 = 0;
+  std::vector<IndexT> distance_part_offsets;
+  distance_part_offsets.reserve(X_parts.size());
+  for (auto const& X_part : X_parts) {
+    const auto padding =
+      (distance_alignment_elements - distance_storage_size % distance_alignment_elements) %
+      distance_alignment_elements;
+    const auto part_rows = static_cast<IndexT>(X_part.extent(0));
+    RAFT_EXPECTS(distance_storage_size <= std::numeric_limits<IndexT>::max() - padding,
+                 "aligned KMeans distance offsets overflow IndexT");
+    distance_storage_size += padding;
+    distance_part_offsets.push_back(distance_storage_size);
+    RAFT_EXPECTS(distance_storage_size <= std::numeric_limits<IndexT>::max() - part_rows,
+                 "aligned KMeans distance storage size overflows IndexT");
+    distance_storage_size += part_rows;
+  }
+
   raft::random::RngState rng(params.rng_state.seed, raft::random::GeneratorType::GenPhilox);
 
   auto d_rp = raft::make_device_scalar<int>(handle, 0);
@@ -260,7 +278,7 @@ void initKMeansPlusPlus_distributed(
   // Per-rank working buffers spanning the rank's local row range.
   auto L2NormX = raft::make_device_vector<DataT, IndexT>(handle, std::max(n_local, IndexT{1}));
   auto minClusterDistance =
-    raft::make_device_vector<DataT, IndexT>(handle, std::max(n_local, IndexT{1}));
+    raft::make_device_vector<DataT, IndexT>(handle, std::max(distance_storage_size, IndexT{1}));
   auto uniformRands = raft::make_device_vector<DataT, IndexT>(handle, std::max(n_local, IndexT{1}));
 
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
@@ -282,7 +300,7 @@ void initKMeansPlusPlus_distributed(
                                                          params,
                                                          X_parts,
                                                          part_offsets,
-                                                         n_local,
+                                                         distance_part_offsets,
                                                          L2NormX.view(),
                                                          potentialCentroids,
                                                          minClusterDistance.view(),
@@ -301,7 +319,7 @@ void initKMeansPlusPlus_distributed(
                                                        params,
                                                        X_parts,
                                                        part_offsets,
-                                                       n_local,
+                                                       distance_part_offsets,
                                                        L2NormX.view(),
                                                        potentialCentroids,
                                                        minClusterDistance.view(),
@@ -330,7 +348,7 @@ void initKMeansPlusPlus_distributed(
       auto x_slice = raft::make_device_matrix_view<const DataT, IndexT>(
         X_parts[p].data_handle(), part_rows, n_features);
       auto mcd_slice = raft::make_device_vector_view<DataT, IndexT>(
-        minClusterDistance.data_handle() + part_offsets[p], part_rows);
+        minClusterDistance.data_handle() + distance_part_offsets[p], part_rows);
       auto flag_slice = raft::make_device_vector_view<std::uint8_t, IndexT>(
         isSampleCentroid.data_handle() + part_offsets[p], part_rows);
 
