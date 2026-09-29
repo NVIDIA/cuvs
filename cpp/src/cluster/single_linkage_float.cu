@@ -1,9 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "single_linkage.cuh"
+#include "detail/single_linkage.cuh"
 #include <cuvs/cluster/agglomerative.hpp>
 
 #include <raft/core/device_mdspan.hpp>
@@ -18,14 +18,15 @@ void single_linkage(raft::resources const& handle,
                     cuvs::distance::DistanceType metric,
                     size_t n_clusters,
                     cuvs::cluster::agglomerative::Linkage linkage,
-                    std::optional<int> c)
+                    std::optional<int> c,
+                    std::optional<raft::device_vector_view<float, int>> distances)
 {
   if (linkage == Linkage::KNN_GRAPH) {
-    single_linkage<float, int, Linkage::KNN_GRAPH>(
-      handle, X, dendrogram, labels, metric, n_clusters, c);
+    detail::single_linkage<float, int, Linkage::KNN_GRAPH>(
+      handle, X, dendrogram, labels, metric, n_clusters, c, distances);
   } else {
-    single_linkage<float, int, Linkage::PAIRWISE>(
-      handle, X, dendrogram, labels, metric, n_clusters, c);
+    detail::single_linkage<float, int, Linkage::PAIRWISE>(
+      handle, X, dendrogram, labels, metric, n_clusters, c, distances);
   }
 }
 
