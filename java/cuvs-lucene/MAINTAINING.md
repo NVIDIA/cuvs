@@ -46,9 +46,9 @@ Work through the steps in order. Steps 1–3 always apply; the others depend on 
    and the Lucene version in the javadoc. Keep `LUCENE_MAJOR`/`LUCENE_MINOR` compile-time constants:
    the version check reads them without loading `LuceneCompat`.
 
-Nothing else in the build needs to know about the new module: `ci/release/update-version.sh`,
-`build.sh`, the CI workflows (`java/cuvs-lucene/*/target/`) and `ci/test_lucene_prebuilt.sh`
-all match `lucene-*`.
+`ci/release/update-version.sh`, `build.sh`, the CI workflows (`java/cuvs-lucene/*/target/`) and
+`ci/test_lucene_prebuilt.sh` all match `lucene-*`. The one exception is `ci/test_lucene_jdk21.sh`,
+which runs only the newest module on JDK 21: point its `-pl lucene-10.latest` at the new module.
 
 ### 2. Make it compile
 
