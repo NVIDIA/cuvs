@@ -160,7 +160,6 @@ void ace_get_partition_labels(
   size_t dataset_dim,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_labels,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_histogram,
-  size_t min_partition_size,
   double sampling_rate = 0.01)
 {
   size_t dataset_size = dataset.extent(0);
@@ -287,7 +286,6 @@ template <typename IdxT>
 void ace_check_partition_sizes(
   size_t dataset_size,
   size_t n_partitions,
-  raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_labels,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_histogram,
   size_t min_partition_size)
 {
@@ -321,7 +319,6 @@ void ace_check_partition_sizes(
 
   double avg_core_vectors      = static_cast<double>(total_core_vectors) / n_partitions;
   double avg_augmented_vectors = static_cast<double>(total_augmented_vectors) / n_partitions;
-  double avg_total_vectors     = 2.0 * static_cast<double>(dataset_size) / n_partitions;
   double expected_avg_vectors  = 2.0 * static_cast<double>(dataset_size) / n_partitions;
 
   RAFT_LOG_INFO("ACE: Core vectors        - Total: %lu, Avg: %.1f, Min: %lu, Max: %lu",
@@ -336,7 +333,7 @@ void ace_check_partition_sizes(
                 max_augmented_vectors);
   RAFT_LOG_INFO("ACE: Total per partition - Total: %lu, Avg: %.1f, Min: %lu, Max: %lu",
                 total_core_vectors + total_augmented_vectors,
-                avg_total_vectors,
+                expected_avg_vectors,
                 min_total_vectors,
                 max_total_vectors);
 
@@ -596,15 +593,11 @@ void ace_adjust_sub_graph_ids_disk(
 // partitions). Uses buffered writes optimized for NVMe storage.
 template <typename T, typename IdxT>
 void ace_reorder_and_store_dataset(
-  raft::resources const& res,
-  const std::string& build_dir,
   raft::host_matrix_view<const T, int64_t, row_major> dataset,
   size_t dataset_dim,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_labels,
   raft::host_matrix_view<IdxT, int64_t, raft::row_major> partition_histogram,
   raft::host_vector_view<IdxT, int64_t, raft::row_major> core_backward_mapping,
-  raft::host_vector_view<IdxT, int64_t, raft::row_major> core_partition_offsets,
-  raft::host_vector_view<IdxT, int64_t, raft::row_major> augmented_partition_offsets,
   cuvs::util::file_descriptor& reordered_fd,
   cuvs::util::file_descriptor& augmented_fd,
   cuvs::util::file_descriptor& mapping_fd,
@@ -630,13 +623,9 @@ void ace_reorder_and_store_dataset(
   // Calculate total sizes for pre-allocation
   size_t total_core_vectors      = 0;
   size_t total_augmented_vectors = 0;
-  size_t max_core_vectors        = 0;
-  size_t max_augmented_vectors   = 0;
   for (size_t p = 0; p < n_partitions; p++) {
     total_core_vectors += partition_histogram(p, 0);
     total_augmented_vectors += partition_histogram(p, 1);
-    max_core_vectors      = std::max<size_t>(max_core_vectors, partition_histogram(p, 0));
-    max_augmented_vectors = std::max<size_t>(max_augmented_vectors, partition_histogram(p, 1));
   }
   RAFT_EXPECTS(total_core_vectors == dataset_size,
                "Total core vectors must be equal to dataset size");
@@ -1013,9 +1002,10 @@ bool ace_check_use_disk_mode(raft::resources const& res,
   size_t sub_partition_size =
     static_cast<size_t>(imbalance_factor * vector_expansion_factor *
                         raft::div_rounding_up_safe(dataset_size, n_partitions));
-  auto [opt_host_ws_total, opt_dev_ws_total, opt_host_ws_fixed, opt_dev_ws_fixed] =
-    helpers::optimize_workspace_size(
-      sub_partition_size, graph_degree, intermediate_degree, sizeof(IdxT), guarantee_connectivity);
+  const auto workspace_sizes = helpers::optimize_workspace_size(
+    sub_partition_size, graph_degree, intermediate_degree, sizeof(IdxT), guarantee_connectivity);
+  const auto opt_host_ws_total = std::get<0>(workspace_sizes);
+  const auto opt_dev_ws_total  = std::get<1>(workspace_sizes);
 
   // Optimistic memory model: focus on largest arrays, assumes all partitions are of equal size
   // For memory path:
@@ -1250,12 +1240,13 @@ void ace_validate_disk_mode_partitions(raft::resources const& res,
     size_t new_sub_partition_size =
       static_cast<size_t>(imbalance_factor * vector_expansion_factor *
                           raft::div_rounding_up_safe(dataset_size, n_partitions));
-    auto [new_opt_host_ws, new_opt_dev_ws, new_opt_host_ws_fixed, new_opt_dev_ws_fixed] =
-      helpers::optimize_workspace_size(new_sub_partition_size,
-                                       graph_degree,
-                                       intermediate_degree,
-                                       sizeof(IdxT),
-                                       guarantee_connectivity);
+    const auto updated_workspace = helpers::optimize_workspace_size(new_sub_partition_size,
+                                                                    graph_degree,
+                                                                    intermediate_degree,
+                                                                    sizeof(IdxT),
+                                                                    guarantee_connectivity);
+    const auto new_opt_host_ws   = std::get<0>(updated_workspace);
+    const auto new_opt_dev_ws    = std::get<1>(updated_workspace);
 
     mem.sub_dataset_size = new_sub_partition_size * dataset_dim * sizeof(T);
     mem.sub_graph_size =
@@ -1451,18 +1442,11 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
     // Determine minimum partition size for stable KNN graph construction
     size_t min_partition_size = std::max<size_t>(1000ULL, dataset_size / n_partitions * 0.1);
 
-    ace_get_partition_labels<T, IdxT>(res,
-                                      dataset_view,
-                                      dataset_dim,
-                                      partition_labels.view(),
-                                      partition_histogram.view(),
-                                      min_partition_size);
+    ace_get_partition_labels<T, IdxT>(
+      res, dataset_view, dataset_dim, partition_labels.view(), partition_histogram.view());
 
-    ace_check_partition_sizes<IdxT>(dataset_size,
-                                    n_partitions,
-                                    partition_labels.view(),
-                                    partition_histogram.view(),
-                                    min_partition_size);
+    ace_check_partition_sizes<IdxT>(
+      dataset_size, n_partitions, partition_histogram.view(), min_partition_size);
 
     auto partition_end = std::chrono::high_resolution_clock::now();
     auto partition_elapsed =
@@ -1500,15 +1484,11 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
     // Reorder the dataset based on partitions and store to disk. Uses write buffers to improve
     // performance.
     if (use_disk_mode) {
-      ace_reorder_and_store_dataset<T, IdxT>(res,
-                                             build_dir,
-                                             dataset_view,
+      ace_reorder_and_store_dataset<T, IdxT>(dataset_view,
                                              dataset_dim,
                                              partition_labels.view(),
                                              partition_histogram.view(),
                                              core_backward_mapping.view(),
-                                             core_partition_offsets.view(),
-                                             augmented_partition_offsets.view(),
                                              reordered_fd,
                                              augmented_fd,
                                              mapping_fd,
