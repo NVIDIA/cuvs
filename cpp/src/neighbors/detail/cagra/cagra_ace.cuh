@@ -943,6 +943,39 @@ constexpr double imbalance_factor = 3.0;
 // Current partitioning adds each vector into 2 partitions (core and augmented)
 constexpr double vector_expansion_factor = 2.0;
 
+// Use a configured GiB cap when it fits in the measured memory. Otherwise keep the measured value.
+inline size_t ace_resolve_available_memory(size_t actual_bytes,
+                                           std::optional<double> configured_gb,
+                                           const char* memory_kind)
+{
+  if (!configured_gb.has_value() || *configured_gb <= 0) { return actual_bytes; }
+
+  const auto configured_bytes = static_cast<size_t>(*configured_gb * (1ULL << 30));
+  if (actual_bytes < configured_bytes) {
+    RAFT_LOG_WARN(
+      "ACE: Actual %s memory (%.2f GiB) is less than configured limit (%.2f GiB). "
+      "Using actual %s memory.",
+      memory_kind,
+      to_gib(actual_bytes),
+      to_gib(configured_bytes),
+      memory_kind);
+    return actual_bytes;
+  }
+
+  RAFT_LOG_INFO("ACE: Using overridden %s memory limit: %.2f GiB", memory_kind, *configured_gb);
+  return configured_bytes;
+}
+
+// Raise the partition count so the scaling portion of the estimate fits in available_bytes.
+inline size_t ace_suggest_partition_count(size_t n_partitions,
+                                          size_t dynamic_bytes,
+                                          double available_bytes)
+{
+  const auto suggested =
+    static_cast<size_t>(std::ceil(dynamic_bytes * n_partitions / available_bytes));
+  return std::max(suggested, n_partitions + 1);
+}
+
 // Check if disk mode should be used for ACE based on memory constraints
 template <typename T, typename IdxT>
 bool ace_check_use_disk_mode(raft::resources const& res,
@@ -980,25 +1013,8 @@ bool ace_check_use_disk_mode(raft::resources const& res,
       to_gib(host_memory.available));
   }
 
-  // Use overridden memory limits if provided (> 0), otherwise query actual system memory
-  if (max_host_memory_gb.has_value() && max_host_memory_gb.value() > 0) {
-    auto actual_available_host_memory = host_memory.available;
-    auto configured_host_memory = static_cast<size_t>(max_host_memory_gb.value() * (1ULL << 30));
-    if (actual_available_host_memory < configured_host_memory) {
-      RAFT_LOG_WARN(
-        "ACE: Actual host memory (%.2f GiB) is less than configured limit (%.2f GiB). "
-        "Using actual host memory.",
-        to_gib(actual_available_host_memory),
-        to_gib(configured_host_memory));
-      mem.available_host_memory = actual_available_host_memory;
-    } else {
-      RAFT_LOG_INFO("ACE: Using overridden host memory limit: %.2f GiB",
-                    max_host_memory_gb.value());
-      mem.available_host_memory = configured_host_memory;
-    }
-  } else {
-    mem.available_host_memory = host_memory.available;
-  }
+  mem.available_host_memory =
+    ace_resolve_available_memory(host_memory.available, max_host_memory_gb, "host");
   size_t sub_partition_size =
     static_cast<size_t>(imbalance_factor * vector_expansion_factor *
                         raft::div_rounding_up_safe(dataset_size, n_partitions));
@@ -1035,23 +1051,8 @@ bool ace_check_use_disk_mode(raft::resources const& res,
   // GPU is mostly limited by the index size (update_graph() in the end of this routine).
   // Check if GPU has enough memory for the final graph or use disk mode instead.
   // TODO: Extend model or use managed memory if running out of GPU memory.
-  if (max_gpu_memory_gb.has_value() && max_gpu_memory_gb.value() > 0) {
-    auto actual_available_gpu_memory = rmm::available_device_memory().second;
-    auto configured_gpu_memory = static_cast<size_t>(max_gpu_memory_gb.value() * (1ULL << 30));
-    if (actual_available_gpu_memory < configured_gpu_memory) {
-      RAFT_LOG_WARN(
-        "ACE: Actual GPU memory (%.2f GiB) is less than configured limit (%.2f GiB). "
-        "Using actual GPU memory.",
-        to_gib(actual_available_gpu_memory),
-        to_gib(configured_gpu_memory));
-      mem.available_gpu_memory = actual_available_gpu_memory;
-    } else {
-      RAFT_LOG_INFO("ACE: Using overridden GPU memory limit: %.2f GiB", max_gpu_memory_gb.value());
-      mem.available_gpu_memory = configured_gpu_memory;
-    }
-  } else {
-    mem.available_gpu_memory = rmm::available_device_memory().second;
-  }
+  mem.available_gpu_memory =
+    ace_resolve_available_memory(rmm::available_device_memory().second, max_gpu_memory_gb, "GPU");
 
   // what we need is maximum of:
   // * IVF-PQ on partition  (sub_dataset_size, uncompressed upper bound)
@@ -1181,9 +1182,7 @@ void ace_validate_disk_mode_partitions(raft::resources const& res,
                  to_gib(disk_mode_host_static),
                  to_gib(usable_cpu_memory_fraction * mem.available_host_memory));
     host_suggested_partitions =
-      static_cast<size_t>(std::ceil(disk_mode_host_dynamic * n_partitions / available_for_scaling));
-    // Ensure we always increase partitions (current count is insufficient by definition)
-    host_suggested_partitions = std::max(host_suggested_partitions, n_partitions + 1);
+      ace_suggest_partition_count(n_partitions, disk_mode_host_dynamic, available_for_scaling);
   }
 
   // Check GPU memory requirements in disk mode
@@ -1216,8 +1215,7 @@ void ace_validate_disk_mode_partitions(raft::resources const& res,
                  to_gib(mem.available_gpu_memory));
 
     gpu_suggested_partitions =
-      static_cast<size_t>(std::ceil(disk_mode_gpu_dynamic * n_partitions / available_for_scaling));
-    gpu_suggested_partitions = std::max(gpu_suggested_partitions, n_partitions + 1);
+      ace_suggest_partition_count(n_partitions, disk_mode_gpu_dynamic, available_for_scaling);
   }
 
   // Auto-adjust to the maximum of host and GPU requirements
