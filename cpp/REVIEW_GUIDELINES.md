@@ -67,6 +67,7 @@
 - Improper CUDA stream management causing false dependencies
 - Deadlock potential in resource acquisition
 - Thread-unsafe use of global/static variables
+- Direct OpenMP runtime calls (`omp_get_*`, `omp_set_*`, etc.) outside `cpp/src/core/omp_wrapper.cpp`. Flag these as HIGH: they can cause unresolved symbols when `DISABLE_OPENMP=ON`. Use the corresponding `cuvs::core::omp` wrapper instead.
 - **Concurrent operations sharing streams incorrectly** (multi-GPU without proper isolation)
 - **Stream reuse across independent operations** (causing unwanted serialization or race conditions)
 
