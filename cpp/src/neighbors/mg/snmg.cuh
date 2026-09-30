@@ -754,8 +754,7 @@ void search(const raft::resources& clique,
                                      n_neighbors,
                                      n_batches);
     } else {
-      // Only one rank is available, so process its batches sequentially. ANN indices and their
-      // resources are not safe to use concurrently from multiple host threads.
+      // Only one rank is available, so process its batches sequentially.
       const int rank = 0;
       for (int64_t batch_idx = 0; batch_idx < n_batches; batch_idx++) {
         int64_t offset                  = batch_idx * n_rows_per_batch;
