@@ -111,6 +111,15 @@ class ace_disk_workspace {
     artifacts_created_[static_cast<size_t>(which)] = true;
   }
 
+  bool remove_artifact(artifact which)
+  {
+    const auto& path = artifacts_[static_cast<size_t>(which)];
+    if (!std::filesystem::exists(path)) { return false; }
+    std::filesystem::remove(path);
+    artifacts_created_[static_cast<size_t>(which)] = false;
+    return true;
+  }
+
   void commit() noexcept { committed_ = true; }
 
   void cleanup() noexcept
@@ -1730,12 +1739,9 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
 
     // Clean up augmented dataset file to save disk space (no longer needed after partitions
     // processed)
-    if (use_disk_mode) {
-      const std::string augmented_dataset_path = build_dir + "/augmented_dataset.npy";
-      if (std::filesystem::exists(augmented_dataset_path)) {
-        std::filesystem::remove(augmented_dataset_path);
-        RAFT_LOG_INFO("ACE build: removed temporary augmented dataset");
-      }
+    if (use_disk_mode &&
+        workspace.remove_artifact(ace_disk_workspace::artifact::augmented_dataset)) {
+      RAFT_LOG_INFO("ACE build: removed temporary augmented dataset");
     }
 
     auto index_creation_start = std::chrono::high_resolution_clock::now();
