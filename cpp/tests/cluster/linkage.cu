@@ -176,6 +176,8 @@ class LinkageTest : public ::testing::TestWithParam<LinkageInputs<T, IdxT>> {
       out_children.data(), params.n_row, 2);
     auto labels_view = raft::make_device_vector_view<IdxT, IdxT>(labels.data(), params.n_row);
 
+    auto distances = raft::make_device_vector<T, IdxT>(handle, params.n_row - 1);
+
     if (params.use_knn) {
       cuvs::cluster::agglomerative::single_linkage(handle,
                                                    data_view,
@@ -184,7 +186,8 @@ class LinkageTest : public ::testing::TestWithParam<LinkageInputs<T, IdxT>> {
                                                    cuvs::distance::DistanceType::L2SqrtExpanded,
                                                    params.n_clusters,
                                                    Linkage::KNN_GRAPH,
-                                                   std::make_optional<int>(params.c));
+                                                   std::make_optional<int>(params.c),
+                                                   distances.view());
 
     } else {
       cuvs::cluster::agglomerative::single_linkage(handle,
