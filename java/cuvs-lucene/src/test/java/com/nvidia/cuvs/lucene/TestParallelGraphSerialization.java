@@ -61,6 +61,35 @@ public class TestParallelGraphSerialization extends LuceneTestCase {
     }
   }
 
+  @Test
+  public void lowDegreeSerializationWaveUsesAbsoluteNodeCap() {
+    assertEquals(
+        AcceleratedHNSWUtils.MAX_SERIALIZATION_WAVE_NODES,
+        AcceleratedHNSWUtils.serializationWaveNodes(/* maxConn= */ 0));
+  }
+
+  @Test
+  public void serialSerializationRejectsMissingAdjacency() throws Exception {
+    assertMissingAdjacencyRejected(/* graphSize= */ 1, /* graphThreads= */ 1);
+  }
+
+  @Test
+  public void parallelSerializationRejectsMissingAdjacency() throws Exception {
+    assertMissingAdjacencyRejected(
+        GPUBuiltHnswGraph.PARALLEL_MIN_NODES, /* graphThreads= */ GRAPH_THREADS);
+  }
+
+  private static void assertMissingAdjacencyRejected(int graphSize, int graphThreads)
+      throws Exception {
+    try (Directory dir = new ByteBuffersDirectory();
+        IndexOutput out = dir.createOutput("missing-adjacency", IOContext.DEFAULT)) {
+      GPUBuiltHnswGraph graph = new MissingAdjacencyGraph(graphSize);
+      expectThrows(
+          NullPointerException.class,
+          () -> AcceleratedHNSWUtils.writeGraph(graph, out, graphThreads));
+    }
+  }
+
   private static void assertSerialAndParallelMatch(
       GPUBuiltHnswGraph serialGraph, GPUBuiltHnswGraph parallelGraph, Directory dir)
       throws Exception {
@@ -109,8 +138,12 @@ public class TestParallelGraphSerialization extends LuceneTestCase {
     }
   }
 
-  /** Lazily makes boundary nodes distinct without retaining a heap graph. */
+  /**
+   * Crosses a maxConn-derived byte-bounded wave with sparse rows and no retained heap graph.
+   */
   private static final class LazyBoundaryGraph extends GPUBuiltHnswGraph {
+    private static final NeighborArray EMPTY_NEIGHBORS = new NeighborArray(0, true);
+
     private final int graphSize;
     private final int maxConn;
     private final int waveNodes;
@@ -155,11 +188,45 @@ public class TestParallelGraphSerialization extends LuceneTestCase {
         executionProbe.recordExecution();
       }
       if (node < waveNodes - 1) {
-        return null;
+        return EMPTY_NEIGHBORS;
       }
       NeighborArray neighbors = new NeighborArray(1, true);
       neighbors.addInOrder(node, 1.0f);
       return neighbors;
+    }
+  }
+
+  private static final class MissingAdjacencyGraph extends GPUBuiltHnswGraph {
+    private final int graphSize;
+
+    MissingAdjacencyGraph(int graphSize) throws IOException {
+      super(
+          0,
+          /* dimensions= */ 4,
+          Arrays.asList((int[]) null),
+          List.of(new IntGraphTestMatrix(new int[0][])),
+          1);
+      this.graphSize = graphSize;
+    }
+
+    @Override
+    public int size() {
+      return graphSize;
+    }
+
+    @Override
+    public int maxConn() {
+      return 0;
+    }
+
+    @Override
+    public NodesIterator getNodesOnLevel(int level) {
+      return new RangeNodesIterator(level == 0 ? graphSize : 0);
+    }
+
+    @Override
+    public NeighborArray getNeighbors(int level, int node) {
+      return null;
     }
   }
 

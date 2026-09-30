@@ -33,6 +33,9 @@ fi
 rapids-logger "Check GPU usage"
 nvidia-smi
 
+# This GPU lane must execute the real cuVS writer-path sentinel rather than skip it.
+export CUVS_TESTS_REQUIRE_GPU=1
+
 rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 

@@ -64,6 +64,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
   private final FlatVectorsWriter flatVectorsWriter;
   private final List<FieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
+  private final GraphProcessingTrace graphProcessingTrace;
   private final AcceleratedHNSWParams acceleratedHNSWParams;
   private IndexOutput hnswMeta = null, hnswVectorIndex = null;
   private boolean finished;
@@ -96,6 +97,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
     this.acceleratedHNSWParams = acceleratedHNSWParams;
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
+    this.graphProcessingTrace = GraphProcessingTrace.toInfoStream(infoStream, COMPONENT);
 
     vemFileName =
         IndexFileNames.segmentFileName(
@@ -211,11 +213,16 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
               acceleratedHNSWParams.getHnswLayers(),
               params,
               QuantizationType.SCALAR,
-              acceleratedHNSWParams.getGraphThreads());
+              acceleratedHNSWParams.getGraphThreads(),
+              graphProcessingTrace);
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
       int[][] graphLevelNodeOffsets =
-          writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getGraphThreads());
+          writeGraph(
+              hnswGraph,
+              hnswVectorIndex,
+              acceleratedHNSWParams.getGraphThreads(),
+              graphProcessingTrace);
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
       writeMeta(
           hnswVectorIndex,
@@ -309,7 +316,11 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
       // Write the graph to the vector index
       int[][] graphLevelNodeOffsets =
-          writeGraph(hnswGraph, hnswVectorIndex, acceleratedHNSWParams.getGraphThreads());
+          writeGraph(
+              hnswGraph,
+              hnswVectorIndex,
+              acceleratedHNSWParams.getGraphThreads(),
+              graphProcessingTrace);
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
 
       // Write metadata

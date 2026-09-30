@@ -67,7 +67,25 @@ public class GPUBuiltHnswGraph extends HnswGraph {
       List<CuVSMatrix> layerAdjacencies,
       int graphThreads)
       throws IOException {
-    this(size, dimensions, materialize(size, layerNodes, layerAdjacencies, graphThreads));
+    this(
+        size,
+        dimensions,
+        materialize(
+            size, layerNodes, layerAdjacencies, graphThreads, GraphProcessingTrace.disabled()));
+  }
+
+  GPUBuiltHnswGraph(
+      int size,
+      int dimensions,
+      List<int[]> layerNodes,
+      List<CuVSMatrix> layerAdjacencies,
+      int graphThreads,
+      GraphProcessingTrace graphProcessingTrace)
+      throws IOException {
+    this(
+        size,
+        dimensions,
+        materialize(size, layerNodes, layerAdjacencies, graphThreads, graphProcessingTrace));
   }
 
   private GPUBuiltHnswGraph(int size, int dimensions, MaterializedGraph graph) {
@@ -82,7 +100,7 @@ public class GPUBuiltHnswGraph extends HnswGraph {
   private static MaterializedGraph materializeSerial(
       int size, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies) {
     try {
-      return materialize(size, layerNodes, layerAdjacencies, 1);
+      return materialize(size, layerNodes, layerAdjacencies, 1, GraphProcessingTrace.disabled());
     } catch (IOException impossible) {
       throw new AssertionError(
           "serial graph materialization cannot fail with IOException", impossible);
@@ -90,18 +108,23 @@ public class GPUBuiltHnswGraph extends HnswGraph {
   }
 
   private static MaterializedGraph materialize(
-      int size, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies, int graphThreads)
+      int size,
+      List<int[]> layerNodes,
+      List<CuVSMatrix> layerAdjacencies,
+      int graphThreads,
+      GraphProcessingTrace graphProcessingTrace)
       throws IOException {
     List<int[]> upperLayerNodes = new ArrayList<>();
     List<NeighborArray[]> upperLayerNeighbors = new ArrayList<>();
     NeighborArray[] baseLayerNeighbors =
-        fillNeighborArray(layerAdjacencies.get(0), size, graphThreads);
+        fillNeighborArray(layerAdjacencies.get(0), size, graphThreads, graphProcessingTrace);
 
     for (int level = 1; level < layerAdjacencies.size(); level++) {
       int[] nodes = layerNodes.get(level);
       upperLayerNodes.add(nodes);
       upperLayerNeighbors.add(
-          fillNeighborArray(layerAdjacencies.get(level), nodes.length, graphThreads));
+          fillNeighborArray(
+              layerAdjacencies.get(level), nodes.length, graphThreads, graphProcessingTrace));
     }
     return new MaterializedGraph(
         layerAdjacencies.size(), upperLayerNodes, baseLayerNeighbors, upperLayerNeighbors);
@@ -116,10 +139,20 @@ public class GPUBuiltHnswGraph extends HnswGraph {
    * @param graphThreads maximum threads for this operation, including the caller
    * @return the NeighborArray
    */
-  private static NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size, int graphThreads)
+  private static NeighborArray[] fillNeighborArray(
+      CuVSMatrix adjacency, int size, int graphThreads, GraphProcessingTrace graphProcessingTrace)
       throws IOException {
     if (graphThreads <= 1 || size < PARALLEL_MIN_NODES) {
-      return fillNeighborArraySerial(adjacency, size);
+      NeighborArray[] neighbors = fillNeighborArraySerial(adjacency, size);
+      graphProcessingTrace.record(
+          GraphProcessingTrace.Stage.MATERIALIZATION,
+          GraphProcessingTrace.Mode.SERIAL,
+          graphThreads <= 1
+              ? GraphProcessingTrace.Reason.SINGLE_THREAD
+              : GraphProcessingTrace.Reason.BELOW_THRESHOLD,
+          graphThreads,
+          size);
+      return neighbors;
     }
 
     if (adjacency instanceof CuVSDeviceMatrix deviceAdjacency) {
@@ -128,10 +161,18 @@ public class GPUBuiltHnswGraph extends HnswGraph {
           size,
           graphThreads,
           GraphCopyMemoryBudget.system(),
-          () -> newHostMatrix(deviceAdjacency));
+          () -> newHostMatrix(deviceAdjacency),
+          graphProcessingTrace);
     }
 
-    return fillNeighborArrayParallel(adjacency, size, graphThreads);
+    NeighborArray[] neighbors = fillNeighborArrayParallel(adjacency, size, graphThreads);
+    graphProcessingTrace.record(
+        GraphProcessingTrace.Stage.MATERIALIZATION,
+        GraphProcessingTrace.Mode.PARALLEL,
+        GraphProcessingTrace.Reason.HOST_SOURCE,
+        graphThreads,
+        size);
+    return neighbors;
   }
 
   private static NeighborArray[] fillNeighborArraySerial(CuVSMatrix source, int size) {
@@ -147,14 +188,40 @@ public class GPUBuiltHnswGraph extends HnswGraph {
       GraphCopyMemoryBudget memoryBudget,
       Supplier<CuVSHostMatrix> hostCopyFactory)
       throws IOException {
+    return materializeDeviceAdjacency(
+        source, size, graphThreads, memoryBudget, hostCopyFactory, GraphProcessingTrace.disabled());
+  }
+
+  private static NeighborArray[] materializeDeviceAdjacency(
+      CuVSDeviceMatrix source,
+      int size,
+      int graphThreads,
+      GraphCopyMemoryBudget memoryBudget,
+      Supplier<CuVSHostMatrix> hostCopyFactory,
+      GraphProcessingTrace graphProcessingTrace)
+      throws IOException {
     Optional<GraphCopyMemoryBudget.Reservation> reservation =
         memoryBudget.tryReserve(source.size(), source.columns());
     if (reservation.isEmpty()) {
-      return fillNeighborArraySerial(source, size);
+      NeighborArray[] neighbors = fillNeighborArraySerial(source, size);
+      graphProcessingTrace.record(
+          GraphProcessingTrace.Stage.MATERIALIZATION,
+          GraphProcessingTrace.Mode.SERIAL,
+          GraphProcessingTrace.Reason.MEMORY_ADMISSION_DENIED,
+          graphThreads,
+          size);
+      return neighbors;
     }
     try (GraphCopyMemoryBudget.Reservation ignored = reservation.orElseThrow();
         CuVSHostMatrix hostCopy = copyToHost(source, hostCopyFactory)) {
-      return fillNeighborArrayParallel(hostCopy, size, graphThreads);
+      NeighborArray[] neighbors = fillNeighborArrayParallel(hostCopy, size, graphThreads);
+      graphProcessingTrace.record(
+          GraphProcessingTrace.Stage.MATERIALIZATION,
+          GraphProcessingTrace.Mode.PARALLEL,
+          GraphProcessingTrace.Reason.DEVICE_HOST_COPY,
+          graphThreads,
+          size);
+      return neighbors;
     }
   }
 
