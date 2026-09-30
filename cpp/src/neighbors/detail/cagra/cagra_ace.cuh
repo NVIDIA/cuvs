@@ -37,9 +37,6 @@
 
 #include <kvikio/file_handle.hpp>
 
-// TODO: This shouldn't be calling spatial/knn APIs
-#include "../ann_utils.cuh"
-
 #include <rmm/resource_ref.hpp>
 
 #include <algorithm>
