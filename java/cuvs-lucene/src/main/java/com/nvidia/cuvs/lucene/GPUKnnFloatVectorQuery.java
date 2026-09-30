@@ -81,6 +81,47 @@ import org.apache.lucene.util.FixedBitSet;
  */
 public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
 
+  /** Smallest supported CAGRA intermediate-result count. */
+  public static final int MIN_ITOPK = 1;
+
+  /**
+   * Largest intermediate-result count representable by the public Java API.
+   *
+   * <p>This is a representational limit only. It is emphatically not a supported maximum: values
+   * anywhere near it are rejected by native CAGRA in practice. Native CAGRA sizes internal
+   * traversal hash tables from a combination of itopk_size, search_width, max_iterations, and
+   * (for MULTI_CTA, which {@code AUTO} typically selects for a single query unless there are
+   * enough partitions to use SINGLE_CTA) the graph degree and dataset size, none of which are
+   * all known at query-construction time, so this class does not attempt to replicate that sizing
+   * logic.
+   *
+   * <p>Moderately oversized combinations are rejected by native CAGRA with a clear exception (see
+   * {@link Utils#handleThrowable}). Very large values are not: above roughly 1e9, native CAGRA's
+   * hash-table sizing loop fails to terminate and the search hangs instead of returning an error.
+   * See <a href="https://github.com/NVIDIA/cuvs/issues/2523">#2523</a>. Callers should treat
+   * itopk_size as bounded by what their algorithm and dataset actually support, not by this
+   * constant.
+   */
+  public static final int MAX_ITOPK = Integer.MAX_VALUE;
+
+  /** Largest intermediate-result count supported by CAGRA's SINGLE_CTA search algorithm. */
+  public static final int MAX_SINGLE_CTA_ITOPK = 512;
+
+  /** Smallest supported number of CAGRA search entry points. */
+  public static final int MIN_SEARCH_WIDTH = 1;
+
+  /**
+   * Largest search width that keeps CAGRA's result buffer within its unsigned 32-bit indexing
+   * limit at the maximum graph degree and aligned {@link #MAX_ITOPK}.
+   *
+   * <p>This bound alone does not guarantee a given (iTopK, searchWidth) pair is supported: as
+   * with {@link #MAX_ITOPK}, native CAGRA may still reject a combination that exceeds its
+   * traversal hash table's capacity (e.g. the MULTI_CTA path that {@code AUTO} typically selects
+   * for a single query unless there are enough partitions to use SINGLE_CTA), since that capacity
+   * also depends on max_iterations, graph degree, and dataset size, which are not known here.
+   */
+  public static final int MAX_SEARCH_WIDTH = 4_194_303;
+
   private final int iTopK;
   private final int searchWidth;
   private final int threadBlockSize;
@@ -112,8 +153,8 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
    * @param filter          optional pre-filter query
    * @param iTopK           CAGRA itopk_size parameter
    * @param searchWidth     CAGRA search_width parameter
-   * @param threadBlockSize CAGRA thread_block_size (0 = auto)
-   * @param maxIterations   CAGRA max_iterations (0 = auto)
+   * @param threadBlockSize CAGRA thread_block_size (0 = auto, or 64, 128, 256, 512, 1024)
+   * @param maxIterations   nonnegative CAGRA max_iterations (0 = auto)
    * @param searchAlgo      CAGRA search algorithm
    */
   public GPUKnnFloatVectorQuery(
@@ -127,11 +168,52 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       int maxIterations,
       CagraSearchParams.SearchAlgo searchAlgo) {
     super(field, target, k, filter);
+    validateSearchParameters(iTopK, searchWidth, k, threadBlockSize, maxIterations, searchAlgo);
     this.iTopK = iTopK;
     this.searchWidth = searchWidth;
     this.threadBlockSize = threadBlockSize;
     this.maxIterations = maxIterations;
     this.searchAlgo = searchAlgo;
+  }
+
+  private static void validateSearchParameters(
+      int iTopK,
+      int searchWidth,
+      int k,
+      int threadBlockSize,
+      int maxIterations,
+      CagraSearchParams.SearchAlgo searchAlgo) {
+    ParameterValidation.checkRange("iTopK", iTopK, MIN_ITOPK, MAX_ITOPK);
+    ParameterValidation.checkRange("searchWidth", searchWidth, MIN_SEARCH_WIDTH, MAX_SEARCH_WIDTH);
+    ParameterValidation.checkRange("maxIterations", maxIterations, 0, Integer.MAX_VALUE);
+    switch (threadBlockSize) {
+      case 0, 64, 128, 256, 512, 1024 -> {}
+      default ->
+          throw new IllegalArgumentException(
+              "threadBlockSize must be 0 (auto), 64, 128, 256, 512 or 1024, but was "
+                  + threadBlockSize);
+    }
+    // Validate caller-supplied values. The reader caps its optional filter over-fetch separately.
+    validateSingleCtaItopk(Math.max(iTopK, k), searchAlgo);
+  }
+
+  /**
+   * Validates the caller's effective iTopK against the SINGLE_CTA algorithm's limit.
+   *
+   * @param effectiveITopK the itopk_size value about to be sent to native CAGRA
+   * @param searchAlgo the CAGRA search algorithm the query will run under
+   */
+  private static void validateSingleCtaItopk(
+      int effectiveITopK, CagraSearchParams.SearchAlgo searchAlgo) {
+    if (searchAlgo == CagraSearchParams.SearchAlgo.SINGLE_CTA
+        && effectiveITopK > MAX_SINGLE_CTA_ITOPK) {
+      throw new IllegalArgumentException(
+          "effective iTopK must not exceed "
+              + MAX_SINGLE_CTA_ITOPK
+              + " for SINGLE_CTA search, but was "
+              + effectiveITopK
+              + ".");
+    }
   }
 
   // -------------------------------------------------------------------------
