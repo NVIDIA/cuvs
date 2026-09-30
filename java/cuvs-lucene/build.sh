@@ -33,9 +33,11 @@ if [ -d "${CUVS_LIB_DIR}" ]; then
     export LD_LIBRARY_PATH="${CUVS_LIB_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 fi
 
-MAVEN_INSTALL_ARGS=()
+# A test failure in one module doesn't stop the others: every module is tested and reported,
+# and the build still fails at the end.
+MAVEN_INSTALL_ARGS=("--fail-at-end")
 if ! hasArg --run-java-tests; then
-    MAVEN_INSTALL_ARGS=("-DskipTests")
+    MAVEN_INSTALL_ARGS+=("-DskipTests")
 fi
 
 cd "${LUCENE_DIR}"

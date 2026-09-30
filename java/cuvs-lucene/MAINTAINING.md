@@ -238,4 +238,6 @@ artifacts. Record the new zips in `src/test/resources/backcompat/README.md`.
    must read indexes written with it.
 4. Update the documentation listed in step 8 above.
 5. When dropping 10.2, the relocation in `relocation/pom.xml` would point to an artifact that is no longer
-   published: remove the `relocation` module (and stop publishing it) at that point.
+   published: remove the `relocation` module (and stop publishing it) at that point. The deprecated
+   `LuceneProvider` in `lucene-10.2/src/main/java`, kept only for callers of the old artifact, goes
+   with the module.
