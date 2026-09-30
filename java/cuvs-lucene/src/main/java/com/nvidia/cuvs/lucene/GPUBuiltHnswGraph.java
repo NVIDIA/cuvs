@@ -239,7 +239,10 @@ public class GPUBuiltHnswGraph extends HnswGraph {
       if (rv != null && rv.size() > 0) {
         NeighborArray na = new NeighborArray((int) rv.size(), true);
         for (int j = 0; j < rv.size(); j++) {
-          na.addInOrder(rv.getAsInt(j), 1.0f - (j * 0.001f));
+          int neighbor = rv.getAsInt(j);
+          if (neighbor >= 0) {
+            na.addInOrder(neighbor, 1.0f - (j * 0.001f));
+          }
         }
         neighbors[i] = na;
       } else {
