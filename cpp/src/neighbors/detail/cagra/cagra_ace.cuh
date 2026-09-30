@@ -688,37 +688,24 @@ void ace_reorder_and_store_dataset(
     core_buffer_counts(p)      = 0;
     augmented_buffer_counts(p) = 0;
   }
-  auto flush_core_buffer = [&](size_t partition_id) {
-    const size_t count = core_buffer_counts(partition_id);
-    if (count > 0) {
-      const size_t bytes_to_write = count * vector_size;
-      const size_t file_offset =
-        (core_partition_starts(partition_id) + core_partition_current(partition_id)) * vector_size +
-        reordered_header_size;
+  auto flush_buffer = [&](auto& buffer_counts,
+                          auto& partition_current,
+                          auto& partition_starts,
+                          auto& buffers,
+                          cuvs::util::file_descriptor& fd,
+                          size_t header_size,
+                          size_t partition_id) {
+    const size_t count = buffer_counts(partition_id);
+    if (count == 0) { return; }
 
-      cuvs::util::write_large_file(
-        reordered_fd, core_buffers[partition_id].data_handle(), bytes_to_write, file_offset);
-
-      core_partition_current(partition_id) += count;
-      core_buffer_counts(partition_id) = 0;
-    }
-  };
-
-  auto flush_augmented_buffer = [&](size_t partition_id) {
-    const size_t count = augmented_buffer_counts(partition_id);
-    if (count > 0) {
-      const size_t bytes_to_write = count * vector_size;
-      const size_t file_offset =
-        (augmented_partition_starts(partition_id) + augmented_partition_current(partition_id)) *
-          vector_size +
-        augmented_header_size;
-
-      cuvs::util::write_large_file(
-        augmented_fd, augmented_buffers[partition_id].data_handle(), bytes_to_write, file_offset);
-
-      augmented_partition_current(partition_id) += count;
-      augmented_buffer_counts(partition_id) = 0;
-    }
+    const size_t bytes_to_write = count * vector_size;
+    const size_t file_offset =
+      (partition_starts(partition_id) + partition_current(partition_id)) * vector_size +
+      header_size;
+    cuvs::util::write_large_file(
+      fd, buffers[partition_id].data_handle(), bytes_to_write, file_offset);
+    partition_current(partition_id) += count;
+    buffer_counts(partition_id) = 0;
   };
 
   size_t vectors_processed     = 0;
@@ -735,7 +722,13 @@ void ace_reorder_and_store_dataset(
 
     // Flush core buffer if full
     if (core_buffer_counts(core_partition) >= vectors_per_buffer) {
-      flush_core_buffer(core_partition);
+      flush_buffer(core_buffer_counts,
+                   core_partition_current,
+                   core_partition_starts,
+                   core_buffers,
+                   reordered_fd,
+                   reordered_header_size,
+                   core_partition);
     }
 
     // Add vector to augmented partition buffer
@@ -747,7 +740,13 @@ void ace_reorder_and_store_dataset(
 
     // Flush augmented buffer if full
     if (augmented_buffer_counts(secondary_partition) >= vectors_per_buffer) {
-      flush_augmented_buffer(secondary_partition);
+      flush_buffer(augmented_buffer_counts,
+                   augmented_partition_current,
+                   augmented_partition_starts,
+                   augmented_buffers,
+                   augmented_fd,
+                   augmented_header_size,
+                   secondary_partition);
     }
 
     vectors_processed++;
@@ -768,13 +767,25 @@ void ace_reorder_and_store_dataset(
 #pragma omp section
     {
       for (size_t p = 0; p < n_partitions; p++) {
-        flush_core_buffer(p);
+        flush_buffer(core_buffer_counts,
+                     core_partition_current,
+                     core_partition_starts,
+                     core_buffers,
+                     reordered_fd,
+                     reordered_header_size,
+                     p);
       }
     }
 #pragma omp section
     {
       for (size_t p = 0; p < n_partitions; p++) {
-        flush_augmented_buffer(p);
+        flush_buffer(augmented_buffer_counts,
+                     augmented_partition_current,
+                     augmented_partition_starts,
+                     augmented_buffers,
+                     augmented_fd,
+                     augmented_header_size,
+                     p);
       }
     }
   }
@@ -1538,13 +1549,21 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
       using device_sub_index_t  = cuvs::neighbors::cagra::device_padded_index<T, IdxT>;
       using host_sub_index_t    = cuvs::neighbors::cagra::host_standard_index<T, IdxT>;
       using sub_index_t         = std::variant<device_sub_index_t, host_sub_index_t>;
-      auto sub_index            = [&]() -> sub_index_t {
+      auto build_host_sub_index = [&](auto& sub_dataset) -> sub_index_t {
+        read_end              = std::chrono::high_resolution_clock::now();
+        auto sub_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(
+          raft::make_const_mdspan(sub_dataset.view()));
+        auto host_index = ::cuvs::neighbors::cagra::build(res, sub_index_params, sub_dataset_view);
+        static_assert(std::is_same_v<decltype(host_index), host_sub_index_t>);
+        return sub_index_t{std::in_place_type<host_sub_index_t>, std::move(host_index)};
+      };
+      auto sub_index = [&]() -> sub_index_t {
         if (use_disk_mode) {
           const size_t current_free_gpu = rmm::available_device_memory().first;
           const size_t configured_gpu =
             ace_params.max_gpu_memory_gb > 0
-                         ? static_cast<size_t>(ace_params.max_gpu_memory_gb * (1ULL << 30))
-                         : current_free_gpu;
+              ? static_cast<size_t>(ace_params.max_gpu_memory_gb * (1ULL << 30))
+              : current_free_gpu;
           const size_t free_gpu_bytes = std::min(current_free_gpu, configured_gpu);
           if (sub_ds_bytes < static_cast<size_t>(0.4 * free_gpu_bytes)) {
             try {
@@ -1581,7 +1600,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
             } catch (const std::bad_alloc& e) {
               RAFT_LOG_WARN(
                 "ACE: partition %lu did not fit in device memory for a direct (GDS) read: %s; "
-                           "falling back to a host read",
+                "falling back to a host read",
                 partition_id,
                 e.what());
             }
@@ -1598,13 +1617,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
                                                         reordered_header_size,
                                                         augmented_header_size,
                                                         sub_dataset.view());
-          read_end              = std::chrono::high_resolution_clock::now();
-          auto sub_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(
-            raft::make_const_mdspan(sub_dataset.view()));
-          auto host_index =
-            ::cuvs::neighbors::cagra::build(res, sub_index_params, sub_dataset_view);
-          static_assert(std::is_same_v<decltype(host_index), host_sub_index_t>);
-          return sub_index_t{std::in_place_type<host_sub_index_t>, std::move(host_index)};
+          return build_host_sub_index(sub_dataset);
         }
 
         auto sub_dataset = raft::make_host_matrix<T, int64_t>(sub_dataset_size, dataset_dim);
@@ -1618,12 +1631,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
                                               core_partition_offsets.view(),
                                               augmented_partition_offsets.view(),
                                               sub_dataset.view());
-        read_end              = std::chrono::high_resolution_clock::now();
-        auto sub_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(
-          raft::make_const_mdspan(sub_dataset.view()));
-        auto host_index = ::cuvs::neighbors::cagra::build(res, sub_index_params, sub_dataset_view);
-        static_assert(std::is_same_v<decltype(host_index), host_sub_index_t>);
-        return sub_index_t{std::in_place_type<host_sub_index_t>, std::move(host_index)};
+        return build_host_sub_index(sub_dataset);
       }();
       auto sub_graph = std::visit([](auto const& index) { return index.graph(); }, sub_index);
       if (used_device_read) {
