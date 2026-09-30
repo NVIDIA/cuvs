@@ -257,7 +257,7 @@ TEST_P(SoarTest, ComputeResidualsMatchesHost)
                                     residuals.data_handle(),
                                     h_residuals.size(),
                                     cuvs::CompareApprox<float>(1e-6f),
-                                    raft::resource::get_cuda_stream(handle_)));
+                                    raft::resource::get_cuda_stream(handle_).get()));
 }
 
 const std::vector<SoarInputs> inputs = {{1000, 8, 16, 1.0f},
