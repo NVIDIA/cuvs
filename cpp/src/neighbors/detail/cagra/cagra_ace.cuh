@@ -9,7 +9,6 @@
 #include "../../ivf_pq/ivf_pq_fp16_overflow.cuh"
 #include "cagra_search.cuh"
 #include "graph_core.cuh"
-#include <cuvs/preprocessing/quantize/pq.hpp>
 
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
@@ -32,12 +31,15 @@
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 #include <cuvs/neighbors/refine.hpp>
+#include <cuvs/preprocessing/quantize/pq.hpp>
 #include <cuvs/util/file_io.hpp>
 #include <cuvs/util/host_memory.hpp>
 
 #include <kvikio/file_handle.hpp>
-
 #include <rmm/resource_ref.hpp>
+
+#include <omp.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <array>
@@ -47,15 +49,12 @@
 #include <cstring>
 #include <exception>
 #include <filesystem>
-#include <omp.h>
 #include <optional>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
-
-#include <sys/stat.h>
 
 namespace cuvs::neighbors::cagra::detail {
 
