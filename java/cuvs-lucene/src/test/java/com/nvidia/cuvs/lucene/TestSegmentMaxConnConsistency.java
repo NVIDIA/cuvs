@@ -68,7 +68,7 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
       IndexWriterConfig cfg =
           new IndexWriterConfig()
               .setCodec(
-                  new Lucene101AcceleratedHNSWCodec(
+                  CuVSCodecs.acceleratedHNSW(
                       new AcceleratedHNSWParams.Builder()
                           .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
                           .withMaxConn(MAX_CONN)
@@ -135,8 +135,7 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
             .build();
 
     try (Directory dir = newDirectory()) {
-      IndexWriterConfig cfg =
-          new IndexWriterConfig().setCodec(new Lucene101AcceleratedHNSWCodec(params));
+      IndexWriterConfig cfg = new IndexWriterConfig().setCodec(CuVSCodecs.acceleratedHNSW(params));
       cfg.setMergePolicy(NoMergePolicy.INSTANCE);
       try (IndexWriter w = new IndexWriter(dir, cfg)) {
         addDocs(w, 1);

@@ -34,6 +34,11 @@ JAVA_SOURCE_DIRS = [
 ]
 LUCENE_SOURCE_DIRS = [
     REPO_DIR / "java" / "cuvs-lucene" / "src" / "main" / "java",
+    # Codecs introduced by a later Lucene release, which live in that release's module and are
+    # compiled into every later one as well.
+    *sorted(
+        (REPO_DIR / "java" / "cuvs-lucene").glob("lucene-*/src/since/java")
+    ),
 ]
 API_NAV_SECTIONS = [
     ("C API Documentation", "c_api", "c-api-documentation", "C API", "c-api"),
@@ -142,6 +147,12 @@ LUCENE_EXTENSION_POINTS = frozenset(
         "KnnVectorsFormat",
         "KnnVectorsReader",
         "KnnVectorsWriter",
+        # cuvs-lucene's own bases for these, which keep one signature across Lucene releases.
+        "BaseAcceleratedHNSWScalarQuantizedVectorsFormat",
+        "CompatKnnFloatVectorQuery",
+        "CompatKnnVectorsReader",
+        "CompatKnnVectorsWriter",
+        "CuVSFilterCodec",
     }
 )
 JAVA_SUPERTYPE_RE = re.compile(r"\b(?:extends|implements)\s+(?P<name>\w+)")
@@ -3014,7 +3025,7 @@ def generate_lucene_api_pages() -> None:
         title="Lucene API Documentation",
         intro=(
             "These pages are generated from the Java source files in "
-            "`java/cuvs-lucene/src/main`.\n\n"
+            "`java/cuvs-lucene/src/main` and `java/cuvs-lucene/lucene-*/src/since`.\n\n"
             "For an introduction to the codecs, configuration, and tuning, see the "
             "[Lucene Integration](/user-guide/lucene) guide."
         ),

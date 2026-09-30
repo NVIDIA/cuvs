@@ -19,6 +19,8 @@
     <maven.compiler.source>22</maven.compiler.source>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <lucene.version>10.5.1</lucene.version>
+    <cuvs.lucene.artifactId>cuvs-lucene-10.5</cuvs.lucene.artifactId>
   </properties>
 
     <repositories>
@@ -79,18 +81,18 @@
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-core</artifactId>
-        <version>10.2.0</version>
+        <version>${lucene.version}</version>
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-codecs</artifactId>
-        <version>10.2.0</version>
+        <version>${lucene.version}</version>
         <scope>test</scope>
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-backward-codecs</artifactId>
-        <version>10.2.0</version>
+        <version>${lucene.version}</version>
     </dependency>
     <dependency>
         <groupId>commons-io</groupId>
@@ -99,7 +101,7 @@
     </dependency>
     <dependency>
       <groupId>com.nvidia.cuvs.lucene</groupId>
-      <artifactId>cuvs-lucene</artifactId>
+      <artifactId>${cuvs.lucene.artifactId}</artifactId>
       <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
     </dependency>
   </dependencies>

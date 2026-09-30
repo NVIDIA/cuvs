@@ -33,6 +33,7 @@ import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FloatVectorValues;
@@ -53,13 +54,15 @@ import org.apache.lucene.util.InfoStream;
  *
  * @since 26.02
  */
-public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVectorsWriter {
+public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends CompatKnnVectorsWriter {
 
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.class);
   private static final String COMPONENT = "Lucene99AcceleratedHNSWQuantizedVectorsWriter";
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final Integer VERSION_CURRENT;
+  // The graph is written with plain vInt-encoded neighbor lists, the encoding of
+  // Lucene99HnswVectorsFormat.VERSION_START. Lucene 10.3 added a group-varint encoding and made it
+  // VERSION_CURRENT, so the version has to be pinned to the encoding actually written.
+  private static final int VERSION = Lucene99HnswVectorsFormat.VERSION_START;
 
   private final FlatVectorsWriter flatVectorsWriter;
   private final List<FieldWriter> fields = new ArrayList<>();
@@ -69,15 +72,6 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
   private boolean finished;
   private String vemFileName;
   private String vexFileName;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VERSION_CURRENT = LUCENE_PROVIDER.getStaticIntParam("VERSION_CURRENT");
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * Initializes {@link LuceneAcceleratedHNSWScalarQuantizedVectorsWriter}
@@ -110,15 +104,11 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
       hnswVectorIndex = state.directory.createOutput(vexFileName, state.context);
 
       CodecUtil.writeIndexHeader(
-          hnswMeta,
-          HNSW_META_CODEC_NAME,
-          VERSION_CURRENT,
-          state.segmentInfo.getId(),
-          state.segmentSuffix);
+          hnswMeta, HNSW_META_CODEC_NAME, VERSION, state.segmentInfo.getId(), state.segmentSuffix);
       CodecUtil.writeIndexHeader(
           hnswVectorIndex,
           HNSW_INDEX_CODEC_NAME,
-          VERSION_CURRENT,
+          VERSION,
           state.segmentInfo.getId(),
           state.segmentSuffix);
       success = true;
@@ -325,7 +315,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    * Write field for merging.
    */
   @Override
-  public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+  protected void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
     vectorBasedMerge(fieldInfo, mergeState);
   }

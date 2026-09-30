@@ -7,7 +7,7 @@ slug: api-reference/lucene-api-com-nvidia-cuvs-lucene-cuvs2510gpuvectorswriter
 _Java package: `com.nvidia.cuvs.lucene`_
 
 ```java
-public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter
+public class CuVS2510GPUVectorsWriter extends CompatKnnVectorsWriter
 ```
 
 extends upon KnnVectorsWriter and has implementation for critical methods like flush, merge etc.
@@ -22,7 +22,7 @@ CAGRA(true, false), /** Builds a Brute Force index. */ BRUTE_FORCE(false, true),
 
 Builds a CAGRA index.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:89`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:81`_
 
 ### BRUTE_FORCE
 
@@ -32,7 +32,7 @@ BRUTE_FORCE(false, true), /** Builds both - CAGRA and Brute Force indexes. */ CA
 
 Builds a Brute Force index.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:92`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:84`_
 
 ### CAGRA_AND_BRUTE_FORCE
 
@@ -42,7 +42,7 @@ CAGRA_AND_BRUTE_FORCE(true, true)
 
 Builds both - CAGRA and Brute Force indexes.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:95`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:87`_
 
 ### CuVS2510GPUVectorsWriter
 
@@ -66,7 +66,7 @@ Initializes `CuVS2510GPUVectorsWriter`.
 | --- | --- |
 | `IOException` | I/O exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:121`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:113`_
 
 ### addField
 
@@ -76,7 +76,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Add new field for indexing.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:160`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:152`_
 
 ### flush
 
@@ -86,17 +86,17 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Creates the CAGRA and/or brute force indexes and writes them to the disk.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:303`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:295`_
 
-### mergeOneField
+### doMergeOneField
 
 ```java
-@Override public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
+@Override protected void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
 ```
 
 Write field for merging.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:685`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:677`_
 
 ### ramBytesUsed
 
@@ -106,7 +106,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Returns the memory usage of this object in bytes.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:696`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:688`_
 
 ### finish
 
@@ -116,7 +116,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Called once at the end before close.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:708`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:700`_
 
 ### close
 
@@ -126,6 +126,6 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Close the applicable resources.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:728`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:720`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:59`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:60`_

@@ -70,7 +70,7 @@ public class TestCagraToHnswSerializationAndSearchWithFallbackWriter extends Luc
             .withMaxConn(16)
             .withBeamWidth(100)
             .build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    Codec codec = CuVSCodecs.acceleratedHNSW(params);
 
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 

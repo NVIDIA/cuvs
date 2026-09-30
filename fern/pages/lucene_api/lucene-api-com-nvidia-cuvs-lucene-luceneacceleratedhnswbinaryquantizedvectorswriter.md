@@ -7,7 +7,7 @@ slug: api-reference/lucene-api-com-nvidia-cuvs-lucene-luceneacceleratedhnswbinar
 _Java package: `com.nvidia.cuvs.lucene`_
 
 ```java
-public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVectorsWriter
+public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends CompatKnnVectorsWriter
 ```
 
 This class extends upon the KnnVectorsWriter to enable the creation of GPU-based accelerated
@@ -37,7 +37,7 @@ Initializes `LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter`
 | --- | --- |
 | `IOException` | IOException |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:79`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:83`_
 
 ### addField
 
@@ -59,10 +59,10 @@ Build the indexes and writes it to the disk.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:215`_
 
-### mergeOneField
+### doMergeOneField
 
 ```java
-@Override public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
+@Override protected void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
 ```
 
 Write field for merging.

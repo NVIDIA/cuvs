@@ -89,11 +89,11 @@ pushd java/cuvs-lucene
 mvn --batch-mode install:install-file -Dfile="${CUVS_JAVA_JARS[0]}" -DpomFile="${CUVS_JAVA_POM}"
 popd
 
-rapids-logger "Restore the amd64-built cuvs-lucene target/ directory so Maven can run the tests without recompiling"
+rapids-logger "Restore the amd64-built cuvs-lucene target/ directories so Maven can run the tests without recompiling"
 
-rm -rf java/cuvs-lucene/target
-mkdir -p java/cuvs-lucene/target
-cp -a "${CUVS_LUCENE_DIR}/." java/cuvs-lucene/target/
+# The artifact holds one <module>/target/ per module.
+rm -rf java/cuvs-lucene/*/target
+cp -a "${CUVS_LUCENE_DIR}/." java/cuvs-lucene/
 
 EXITCODE=0
 trap "EXITCODE=1" ERR

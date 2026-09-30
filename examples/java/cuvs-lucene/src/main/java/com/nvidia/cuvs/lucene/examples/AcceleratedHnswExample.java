@@ -8,7 +8,7 @@ import static com.nvidia.cuvs.lucene.examples.Utils.generateDataset;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
 import com.nvidia.cuvs.lucene.AcceleratedHNSWParams;
-import com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec;
+import com.nvidia.cuvs.lucene.CuVSCodecs;
 import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -46,7 +46,7 @@ public class AcceleratedHnswExample {
   public static void main(String[] args) throws Exception {
 
     AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    Codec codec = CuVSCodecs.acceleratedHNSW(params);
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 
     random = new Random(222);

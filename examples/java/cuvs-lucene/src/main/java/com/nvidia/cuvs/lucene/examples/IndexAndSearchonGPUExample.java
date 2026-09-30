@@ -7,7 +7,7 @@ package com.nvidia.cuvs.lucene.examples;
 import static com.nvidia.cuvs.lucene.examples.Utils.generateDataset;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
-import com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec;
+import com.nvidia.cuvs.lucene.CuVSCodecs;
 import com.nvidia.cuvs.lucene.GPUKnnFloatVectorQuery;
 import com.nvidia.cuvs.lucene.GPUSearchParams;
 import com.nvidia.cuvs.spi.CuVSProvider;
@@ -54,7 +54,7 @@ public class IndexAndSearchonGPUExample {
     CuVSProvider.provider().enableRMMAsyncMemory();
 
     GPUSearchParams params = new GPUSearchParams.Builder().build();
-    Codec codec = new CuVS2510GPUSearchCodec(params);
+    Codec codec = CuVSCodecs.gpuSearch(params);
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 
     random = new Random(222);

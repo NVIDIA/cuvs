@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.IndexOutput;
@@ -36,17 +37,8 @@ public class AcceleratedHNSWUtils {
     NONE
   }
 
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 
   /**
    * Creates a dummy HNSW graph for a single vector.
@@ -228,6 +220,21 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
+   * Returns the nodes of a graph level in ascending order.
+   *
+   * @param nodesOnLevel iterates over the nodes of one level
+   * @return the sorted nodes
+   */
+  private static int[] getSortedNodes(NodesIterator nodesOnLevel) {
+    int[] sortedNodes = new int[nodesOnLevel.size()];
+    for (int n = 0; nodesOnLevel.hasNext(); n++) {
+      sortedNodes[n] = nodesOnLevel.nextInt();
+    }
+    Arrays.sort(sortedNodes);
+    return sortedNodes;
+  }
+
+  /**
    * Returns a 2D array of offsets (information written while writing the meta info)
    *
    * @param graph instance of GPUBuiltHnswGraph
@@ -242,7 +249,7 @@ public class AcceleratedHNSWUtils {
     int[][] offsets = new int[graph.numLevels()][];
     int[] scratch = new int[graph.maxConn() * 2];
     for (int level = 0; level < graph.numLevels(); level++) {
-      int[] sortedNodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(level));
+      int[] sortedNodes = getSortedNodes(graph.getNodesOnLevel(level));
       offsets[level] = new int[sortedNodes.length];
       int nodeOffsetId = 0;
 

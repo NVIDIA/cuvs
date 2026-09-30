@@ -13,6 +13,7 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 
@@ -25,8 +26,8 @@ import org.apache.lucene.index.SegmentWriteState;
 public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
 
   private static final int MAX_DIMENSIONS = 4096;
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
+  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT =
+      new Lucene99FlatVectorsFormat(DefaultFlatVectorScorer.INSTANCE);
 
   public static final String CUVS_META_CODEC_NAME = "Lucene102CuVSVectorsFormatMeta";
   public static final String CUVS_META_CODEC_EXT = "vemc";
@@ -37,16 +38,6 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
 
   private final GPUSearchParams gpuSearchParams;
   private final FilterBitsetCache filterBitsetCache;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      FLAT_VECTORS_FORMAT =
-          LUCENE_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * Initializes the {@link CuVS2510GPUVectorsFormat} with default parameter values.
@@ -86,6 +77,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
+    LuceneVersionGuard.ensureCompatible();
     assertIsSupported();
     var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
     return new CuVS2510GPUVectorsWriter(state, gpuSearchParams, flatWriter);
@@ -96,6 +88,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
    */
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
+    LuceneVersionGuard.ensureCompatible();
     assertIsSupported();
     return new CuVS2510GPUVectorsReader(
         state, FLAT_VECTORS_FORMAT.fieldsReader(state), filterBitsetCache);

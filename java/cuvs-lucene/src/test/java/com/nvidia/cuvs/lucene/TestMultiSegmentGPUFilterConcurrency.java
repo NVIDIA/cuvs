@@ -83,7 +83,7 @@ public class TestMultiSegmentGPUFilterConcurrency extends LuceneTestCase {
       assumeTrue("cuVS not supported: " + unsupported.getMessage(), false);
     }
     assumeTrue("cuVS not supported", isSupported());
-    codec = new CuVS2510GPUSearchCodec(new GPUSearchParams.Builder().build(), TEST_CACHE_CONFIG);
+    codec = CuVSCodecs.gpuSearch(new GPUSearchParams.Builder().build(), TEST_CACHE_CONFIG);
 
     int datasetSize = 2000;
     int dimensions = 128;
@@ -114,8 +114,7 @@ public class TestMultiSegmentGPUFilterConcurrency extends LuceneTestCase {
     // DirectoryReader resolves the stored codec name through SPI. Give that singleton the same
     // deliberately small cache budget while it constructs this test's segment readers, then restore
     // its previous format so the test does not alter later reader construction in this JVM.
-    CuVS2510GPUSearchCodec spiCodec =
-        (CuVS2510GPUSearchCodec) Codec.forName("CuVS2510GPUSearchCodec");
+    CuVSFilterCodec spiCodec = (CuVSFilterCodec) Codec.forName(codec.getName());
     KnnVectorsFormat previousFormat = spiCodec.knnVectorsFormat();
     spiCodec.setKnnFormat(
         new CuVS2510GPUVectorsFormat(new GPUSearchParams.Builder().build(), TEST_CACHE_CONFIG));

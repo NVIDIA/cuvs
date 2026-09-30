@@ -1,0 +1,41 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.nvidia.cuvs.lucene</groupId>
+    <artifactId>cuvs-lucene-parent</artifactId>
+    <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
+    <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+  </parent>
+  <artifactId>cuvs-lucene-10.2</artifactId>
+  <name>cuvs-lucene-10.2</name>
+  <packaging>jar</packaging>
+
+  <description>
+      Pluggable codecs for Apache Lucene 10.2.x that enable GPU-based accelerated vector search.
+  </description>
+
+  <properties>
+    <lucene.version>10.2.2</lucene.version>
+    <!-- The compat/ variant of each Lucene class cuvs-lucene adapts that Lucene 10.2 needs. -->
+    <cuvs.lucene.compat.knnVectorsReader>knn-vectors-reader-102-bits</cuvs.lucene.compat.knnVectorsReader>
+    <cuvs.lucene.compat.knnVectorsWriter>knn-vectors-writer-102-void-merge</cuvs.lucene.compat.knnVectorsWriter>
+    <cuvs.lucene.compat.knnFloatVectorQuery>knn-float-vector-query-102-bits</cuvs.lucene.compat.knnFloatVectorQuery>
+    <cuvs.lucene.compat.leafReader>leaf-reader-102-bits</cuvs.lucene.compat.leafReader>
+  </properties>
+
+  <build>
+    <plugins>
+      <plugin>
+        <!-- The fat jar; see the parent pom for why each module declares it. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

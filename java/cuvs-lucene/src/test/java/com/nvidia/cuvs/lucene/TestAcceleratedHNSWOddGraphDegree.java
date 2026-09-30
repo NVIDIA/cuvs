@@ -70,7 +70,7 @@ public class TestAcceleratedHNSWOddGraphDegree extends LuceneTestCase {
             .withGraphDegree(ODD_GRAPH_DEGREE)
             .build();
 
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    Codec codec = CuVSCodecs.acceleratedHNSW(params);
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 
     int numDocs = 1000;

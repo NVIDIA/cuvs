@@ -54,11 +54,15 @@ import org.apache.lucene.util.InfoStream;
  *
  * @since 26.02
  */
-public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVectorsWriter {
+public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends CompatKnnVectorsWriter {
 
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.class);
   private static final String COMPONENT = "Lucene99AcceleratedHNSWBinaryQuantizedVectorsWriter";
+  // The graph is written with plain vInt-encoded neighbor lists, the encoding of
+  // Lucene99HnswVectorsFormat.VERSION_START. Lucene 10.3 added a group-varint encoding and made it
+  // VERSION_CURRENT, so the version has to be pinned to the encoding actually written.
+  private static final int VERSION = Lucene99HnswVectorsFormat.VERSION_START;
 
   private final FlatVectorsWriter flatVectorsWriter;
   private final List<FieldWriter> fields = new ArrayList<>();
@@ -100,15 +104,11 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       hnswVectorIndex = state.directory.createOutput(vexFileName, state.context);
 
       CodecUtil.writeIndexHeader(
-          hnswMeta,
-          HNSW_META_CODEC_NAME,
-          Lucene99HnswVectorsFormat.VERSION_CURRENT,
-          state.segmentInfo.getId(),
-          state.segmentSuffix);
+          hnswMeta, HNSW_META_CODEC_NAME, VERSION, state.segmentInfo.getId(), state.segmentSuffix);
       CodecUtil.writeIndexHeader(
           hnswVectorIndex,
           HNSW_INDEX_CODEC_NAME,
-          Lucene99HnswVectorsFormat.VERSION_CURRENT,
+          VERSION,
           state.segmentInfo.getId(),
           state.segmentSuffix);
 
@@ -301,7 +301,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * Write field for merging.
    */
   @Override
-  public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+  protected void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
     vectorBasedMerge(fieldInfo, mergeState);
   }

@@ -172,7 +172,7 @@ done
 NEXT_FULL_JAVA_TAG="${NEXT_SHORT_TAG}.${PATCH_PEP440}"
 sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" java/build.sh
 sed_runner "s/VERSION=\".*\"/VERSION=\"${NEXT_FULL_JAVA_TAG}\"/g" java/cuvs-lucene/build.sh
-for FILE in java/*/pom.xml java/cuvs-lucene/bench/pom.xml examples/java/cuvs-java/pom.xml examples/java/cuvs-lucene/pom.xml; do
+for FILE in java/*/pom.xml java/cuvs-lucene/lucene-*/pom.xml java/cuvs-lucene/relocation/pom.xml java/cuvs-lucene/bench/pom.xml examples/java/cuvs-java/pom.xml examples/java/cuvs-lucene/pom.xml; do
   sed_runner "/<!--CUVS_JAVA#VERSION_UPDATE_MARKER_START-->.*<!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->/s//<!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>${NEXT_FULL_JAVA_TAG}<\/version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->/g" "${FILE}"
 done
 

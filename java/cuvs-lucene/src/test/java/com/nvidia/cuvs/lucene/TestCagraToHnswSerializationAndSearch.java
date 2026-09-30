@@ -60,7 +60,7 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
   @Test
   public void testCagraToHnswSerializationAndSearch() throws Exception {
     AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
+    Codec codec = CuVSCodecs.acceleratedHNSW(params);
     IndexWriterConfig config = new IndexWriterConfig().setCodec(codec).setUseCompoundFile(false);
 
     final int COMMIT_FREQ = 2000;
@@ -151,7 +151,7 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
     // Test single vector index support with dummy HNSW graph
     // TODO: This test can be removed once https://github.com/rapidsai/cuvs/pull/1256 is merged
     // and CAGRA natively supports single vector indexes
-    Codec codec = new Lucene101AcceleratedHNSWCodec();
+    Codec codec = CuVSCodecs.acceleratedHNSW();
 
     final String ID_FIELD = "id";
     final String VECTOR_FIELD = "vector_field";
