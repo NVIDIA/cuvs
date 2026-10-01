@@ -214,6 +214,7 @@ class CUVS_EXPORT GNND {
   ~GNND()    = default;
   using ID_t = InternalID_t<Index_t>;
   void reset(raft::resources const& res);
+  [[nodiscard]] auto num_iterations() const noexcept -> size_t { return num_iterations_; }
 
  private:
   void add_reverse_edges(Index_t* graph_ptr,
@@ -239,6 +240,7 @@ class CUVS_EXPORT GNND {
 
   size_t nrow_;
   size_t ndim_;
+  size_t num_iterations_{0};
 
   using input_t = std::remove_const_t<Data_t>;
 

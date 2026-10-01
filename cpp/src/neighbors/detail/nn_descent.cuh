@@ -2636,6 +2636,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   graph_.nrow         = nrow;
   graph_.bloom_filter.set_nrow(nrow);
   update_counter_ = 0;
+  num_iterations_ = 0;
   graph_.h_graph  = (InternalID_t<Index_t>*)output_graph;
 
   d_data_ptr_ = nullptr;
@@ -2747,6 +2748,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   };
 
   for (size_t it = 0; it < build_config_.max_iterations; it++) {
+    num_iterations_ = it + 1;
     raft::copy(res, d_list_sizes_new_.view(), graph_.h_list_sizes_new.view());
     raft::copy(res, h_graph_old_.view(), graph_.h_graph_old.view());
     raft::copy(res, d_list_sizes_old_.view(), graph_.h_list_sizes_old.view());
@@ -2871,6 +2873,7 @@ void GNND<Data_t, Index_t>::build(
   graph_.nrow         = nrow_;
   graph_.bloom_filter.set_nrow(nrow_);
   update_counter_ = 0;
+  num_iterations_ = 0;
   graph_.h_graph  = reinterpret_cast<InternalID_t<Index_t>*>(output_graph);
 
   graph_.clear();
@@ -2892,6 +2895,7 @@ void GNND<Data_t, Index_t>::build(
   };
 
   for (size_t it = 0; it < build_config_.max_iterations; ++it) {
+    num_iterations_ = it + 1;
     raft::copy(res, d_list_sizes_new_.view(), graph_.h_list_sizes_new.view());
     raft::copy(res, h_graph_old_.view(), graph_.h_graph_old.view());
     raft::copy(res, d_list_sizes_old_.view(), graph_.h_list_sizes_old.view());
