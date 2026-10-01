@@ -2,6 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 
 
-from cuvs.cluster import kmeans, mg
+from cuvs.cluster import kmeans, mg, soar
 
-__all__ = ["kmeans", "mg"]
+__all__ = ["kmeans", "mg", "soar"]
