@@ -5,8 +5,12 @@
 
 #pragma once
 
+#include <raft/core/error.hpp>
+
+#include <cstdint>
 #include <cuda_runtime.h>
-#include <stdint.h>
+#include <limits>
+#include <type_traits>
 
 namespace cuvs::distance::detail::ops {
 
@@ -26,7 +30,13 @@ struct bitwise_hamming_distance_op {
 
   IdxT k;
 
-  bitwise_hamming_distance_op(IdxT k_) noexcept : k(k_) {}
+  bitwise_hamming_distance_op(IdxT k_) : k(k_)
+  {
+    static_assert(std::is_same_v<DataT, uint8_t>, "BitwiseHamming only supports uint8_t");
+    static_assert(std::is_same_v<AccT, uint32_t>, "BitwiseHamming requires a uint32_t accumulator");
+    RAFT_EXPECTS(k >= 0 && static_cast<uint64_t>(k) <= std::numeric_limits<AccT>::max() / 8,
+                 "BitwiseHamming dimension exceeds the uint32_t accumulator range");
+  }
 
   static constexpr bool use_norms            = false;
   static constexpr bool expensive_inner_loop = false;

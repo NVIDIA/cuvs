@@ -21,6 +21,7 @@
 #include "../core/interop.hpp"
 
 #include <fstream>
+#include <memory>
 
 namespace cuvs::neighbors::ivf_flat {
 void convert_c_index_params(cuvsIvfFlatIndexParams params,
@@ -55,14 +56,15 @@ void* _build(cuvsResources_t res, cuvsIvfFlatIndexParams params, DLManagedTensor
   auto dataset = dataset_tensor->dl_tensor;
   auto dim     = dataset.shape[1];
 
-  auto index = new cuvs::neighbors::ivf_flat::index<T, IdxT>(*res_ptr, build_params, dim);
+  auto index = std::make_unique<cuvs::neighbors::ivf_flat::index<T, IdxT>>(
+      *res_ptr, build_params, dim);
 
   using mdspan_type = raft::device_matrix_view<T const, IdxT, raft::row_major>;
   auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
 
   cuvs::neighbors::ivf_flat::build(*res_ptr, build_params, mds, *index);
 
-  return index;
+  return index.release();
 }
 
 template <typename T, typename IdxT>
@@ -122,9 +124,11 @@ template <typename T, typename IdxT>
 void* _deserialize(cuvsResources_t res, const char* filename)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  auto index   = new cuvs::neighbors::ivf_flat::index<T, IdxT>(*res_ptr);
-  cuvs::neighbors::ivf_flat::deserialize(*res_ptr, std::string(filename), index);
-  return index;
+  auto index =
+      std::make_unique<cuvs::neighbors::ivf_flat::index<T, IdxT>>(*res_ptr);
+  cuvs::neighbors::ivf_flat::deserialize(*res_ptr, std::string(filename),
+                                         index.get());
+  return index.release();
 }
 
 template <typename T, typename IdxT>
@@ -148,7 +152,11 @@ template <typename T, typename IdxT>
 void get_centers(cuvsIvfFlatIndex index, DLManagedTensor* centers)
 {
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_flat::index<T, IdxT>*>(index.addr);
-  cuvs::core::to_dlpack(index_ptr->centers(), centers);
+  if (index_ptr->binary_index()) {
+    cuvs::core::to_dlpack(index_ptr->binary_centers(), centers);
+  } else {
+    cuvs::core::to_dlpack(index_ptr->centers(), centers);
+  }
 }
 }  // namespace
 

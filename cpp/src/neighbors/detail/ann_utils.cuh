@@ -210,22 +210,14 @@ HDI constexpr auto mapping<int8_t>::operator()(const float& x) const -> int8_t
 
 template <typename OutT, typename IdxT>
 struct bitwise_decode_op {
-  bitwise_decode_op(const uint8_t* const binary_vecs, IdxT compressed_dim)
-    : binary_vecs(binary_vecs), compressed_dim(compressed_dim)
-  {
-    uncompressed_dim = compressed_dim << 3;
-  }
+  explicit bitwise_decode_op(const uint8_t* binary_vecs) : binary_vecs(binary_vecs) {}
   const uint8_t* binary_vecs;
-  IdxT compressed_dim;
-  IdxT uncompressed_dim;
-  HDI constexpr auto operator()(const IdxT& i) -> OutT
+  HDI constexpr auto operator()(const IdxT& i) const -> OutT
   {
-    IdxT row_id = i / uncompressed_dim;
-    IdxT col_id = i % uncompressed_dim;
-    return static_cast<OutT>(
-      -1 + 2 * static_cast<OutT>(
-                 (binary_vecs[row_id * compressed_dim + (col_id >> 3)] >> (col_id & 7)) & 1));
-  };
+    // Rows contain complete bytes, so flattened bit offsets directly address the packed input.
+    // Avoid multiplying the packed dimension (or row offset) in a potentially narrow index type.
+    return ((binary_vecs[i >> 3] >> (i & 7)) & 1) ? OutT{1} : OutT{-1};
+  }
 };
 
 /**

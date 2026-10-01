@@ -57,15 +57,18 @@ void fusedDistanceNNImpl(OutT* min,
 
   dim3 blk(P::Nthreads);
   auto nblks            = raft::ceildiv<int>(m, P::Nthreads);
-  constexpr auto maxVal = std::numeric_limits<DataT>::max();
-  typedef raft::KeyValuePair<IdxT, DataT> KVPair;
+  using AccT            = std::conditional_t<std::is_same_v<DataT, uint8_t>, uint32_t, DataT>;
+  constexpr auto maxVal = std::numeric_limits<AccT>::max();
 
   RAFT_CUDA_TRY(cudaMemsetAsync(workspace, 0, sizeof(int) * m, stream));
   if (initOutBuffer) {
-    initKernel<DataT, OutT, IdxT, ReduceOpT>
+    initKernel<AccT, OutT, IdxT, ReduceOpT>
       <<<nblks, P::Nthreads, 0, stream>>>(min, m, maxVal, redOp);
     RAFT_CUDA_TRY(cudaGetLastError());
   }
+
+  // An empty candidate set leaves the initialized (or supplied) result unchanged.
+  if (n == 0) { return; }
 
   switch (metric) {
     case cuvs::distance::DistanceType::CosineExpanded:

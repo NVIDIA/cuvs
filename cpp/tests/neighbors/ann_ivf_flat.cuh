@@ -196,6 +196,27 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
         cuvs::neighbors::ivf_flat::index<DataT, IdxT> index_loaded(handle_);
         cuvs::neighbors::ivf_flat::deserialize(handle_, index_file.filename, &index_loaded);
         ASSERT_EQ(index_2.size(), index_loaded.size());
+        if (index_2.binary_index()) {
+          ASSERT_TRUE(cuvs::devArrMatch(index_2.binary_centers().data_handle(),
+                                        index_loaded.binary_centers().data_handle(),
+                                        index_2.binary_centers().size(),
+                                        cuvs::Compare<uint8_t>(),
+                                        stream_));
+        }
+        if (index_2.binary_index() && index_2.adaptive_centers()) {
+          ASSERT_TRUE(cuvs::devArrMatch(index_2.binary_center_counts().data_handle(),
+                                        index_loaded.binary_center_counts().data_handle(),
+                                        index_2.binary_center_counts().size(),
+                                        cuvs::Compare<uint32_t>(),
+                                        stream_));
+        }
+        if (!index_2.binary_index()) {
+          ASSERT_TRUE(cuvs::devArrMatch(index_2.centers().data_handle(),
+                                        index_loaded.centers().data_handle(),
+                                        index_2.centers().size(),
+                                        cuvs::Compare<float>(),
+                                        stream_));
+        }
 
         cuvs::neighbors::ivf_flat::search(handle_,
                                           search_params,
@@ -353,11 +374,11 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
             [dim = idx.dim(),
              list_size,
              padded_list_size,
-             chunk_size = raft::util::FastIntDiv(idx.veclen())] __device__(auto i) {
+             chunk_size = raft::util::FastIntDiv<int64_t>(idx.veclen())] __device__(auto i) {
               uint32_t max_group_offset = interleaved_group::roundDown(list_size);
               if (i < max_group_offset * dim) { return true; }
               uint32_t surplus    = (i - max_group_offset * dim);
-              uint32_t ingroup_id = interleaved_group::mod(surplus / chunk_size);
+              uint32_t ingroup_id = interleaved_group::mod(int64_t(surplus) / chunk_size);
               return ingroup_id < (list_size - max_group_offset);
             });
 

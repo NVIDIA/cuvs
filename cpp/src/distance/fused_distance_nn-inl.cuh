@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 
+#include <algorithm>
 #include <limits>
 #include <type_traits>
 
@@ -87,7 +88,21 @@ void fusedDistanceNN(OutT* min,
                      float metric_arg,
                      cudaStream_t stream)
 {
-  ASSERT(isRowMajor, "fusedDistanceNN only supports row major inputs");
+  RAFT_EXPECTS(isRowMajor, "fusedDistanceNN only supports row major inputs");
+  RAFT_EXPECTS(m >= 0 && n >= 0 && k >= 0, "Distance dimensions must be non-negative");
+  if constexpr (std::is_same_v<DataT, uint8_t>) {
+    RAFT_EXPECTS(metric == cuvs::distance::DistanceType::BitwiseHamming,
+                 "uint8_t fused distance only supports BitwiseHamming");
+    RAFT_EXPECTS(static_cast<uint64_t>(k) <= std::numeric_limits<uint32_t>::max() / 8,
+                 "BitwiseHamming distance exceeds the uint32_t accumulator range");
+  } else {
+    RAFT_EXPECTS(metric == cuvs::distance::DistanceType::CosineExpanded ||
+                   metric == cuvs::distance::DistanceType::L2Expanded ||
+                   metric == cuvs::distance::DistanceType::L2SqrtExpanded,
+                 "Floating-point fused distance only supports cosine and L2 metrics");
+  }
+  if (m == 0) { return; }
+
   // When k is smaller than 32, the Policy4x4 results in redundant calculations
   // as it uses tiles that have k=32. Therefore, use a "skinny" policy instead
   // that uses tiles with a smaller value of k.

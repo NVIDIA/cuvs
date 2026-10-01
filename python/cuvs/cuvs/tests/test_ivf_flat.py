@@ -142,3 +142,43 @@ def test_extend(dtype, serialize):
 @pytest.mark.parametrize("sparsity", [0.5, 0.7, 1.0])
 def test_filtered_ivf_flat(sparsity):
     run_filtered_search_test(ivf_flat, sparsity)
+
+
+@pytest.mark.parametrize("dim", [3, 16])
+@pytest.mark.parametrize("adaptive", [False, True])
+def test_binary_ivf_roundtrip_and_centers(dim, adaptive, tmp_path):
+    rng = np.random.default_rng(42)
+    dataset = rng.integers(0, 256, size=(512, dim), dtype=np.uint8)
+    queries = rng.integers(0, 256, size=(5, dim), dtype=np.uint8)
+    params = ivf_flat.IndexParams(
+        metric="bitwise_hamming",
+        n_lists=8,
+        kmeans_n_iters=3,
+        adaptive_centers=adaptive,
+    )
+    assert params.metric == "bitwise_hamming"
+    index = ivf_flat.build(params, device_ndarray(dataset))
+    assert index.dim == dim
+    assert index.centers.shape == (8, dim)
+    assert index.centers.dtype == np.dtype("uint8")
+    filename = str(tmp_path / "binary_ivf.bin")
+    ivf_flat.save(filename, index)
+    index = ivf_flat.load(filename)
+    assert index.centers.shape == (8, dim)
+    assert index.centers.dtype == np.dtype("uint8")
+    distances, neighbors = ivf_flat.search(
+        ivf_flat.SearchParams(n_probes=8), index, device_ndarray(queries), 10
+    )
+    distances = distances.copy_to_host()
+    neighbors = neighbors.copy_to_host()
+    popcount = np.unpackbits(
+        np.arange(256, dtype=np.uint8)[:, None], axis=1
+    ).sum(axis=1)
+    exact = popcount[np.bitwise_xor(queries[:, None, :], dataset)].sum(axis=2)
+    expected = np.sort(exact, axis=1)[:, :10]
+    np.testing.assert_array_equal(np.sort(distances, axis=1), expected)
+    np.testing.assert_array_equal(
+        distances, np.take_along_axis(exact, neighbors, axis=1)
+    )
+    assert np.all((neighbors >= 0) & (neighbors < len(dataset)))
+    assert all(len(np.unique(row)) == 10 for row in neighbors)

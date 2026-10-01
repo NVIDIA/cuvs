@@ -23,11 +23,11 @@
 namespace cuvs::neighbors::ivf_flat::detail {
 
 // Serialization version
-// No backward compatibility yet; that is, can't add additional fields without breaking
-// backward compatibility.
+// Version 5 adds packed binary centers and exact adaptive counts. Version 4 remains
+// readable for nonbinary indexes, whose payload layout did not change.
 // TODO(hcho3) Implement next-gen serializer for IVF that allows for expansion in a backward
 //             compatible fashion.
-constexpr int serialization_version = 4;
+constexpr int serialization_version = 5;
 
 /**
  * Save the index to file.
@@ -56,7 +56,12 @@ void serialize(raft::resources const& handle, std::ostream& os, const index<T, I
   serialize_scalar(handle, os, index_.metric());
   serialize_scalar(handle, os, index_.adaptive_centers());
   serialize_scalar(handle, os, index_.conservative_memory_allocation());
-  serialize_mdspan(handle, os, index_.centers());
+  if (index_.binary_index()) {
+    serialize_mdspan(handle, os, index_.binary_centers());
+    if (index_.adaptive_centers()) { serialize_mdspan(handle, os, index_.binary_center_counts()); }
+  } else {
+    serialize_mdspan(handle, os, index_.centers());
+  }
   if (index_.center_norms()) {
     bool has_norms = true;
     serialize_scalar(handle, os, has_norms);
@@ -113,7 +118,7 @@ auto deserialize(raft::resources const& handle, std::istream& is) -> index<T, Id
                "ivf_flat::deserialize: serialized dtype prefix does not match requested type");
 
   auto ver = raft::deserialize_scalar<int>(handle, is);
-  if (ver != serialization_version) {
+  if (ver != serialization_version && ver != 4) {
     RAFT_FAIL("serialization version mismatch, expected %d, got %d ", serialization_version, ver);
   }
   auto n_rows           = raft::deserialize_scalar<IdxT>(handle, is);
@@ -137,9 +142,19 @@ auto deserialize(raft::resources const& handle, std::istream& is) -> index<T, Id
                n_lists,
                dim);
 
+  // Version 4 never stored packed centers, so its binary indexes cannot be recovered.
+  RAFT_EXPECTS(ver >= 5 || metric != cuvs::distance::DistanceType::BitwiseHamming,
+               "ivf_flat::deserialize: version 4 binary indexes did not store their centers");
   index<T, IdxT> index_ = index<T, IdxT>(handle, metric, n_lists, adaptive_centers, cma, dim);
 
-  deserialize_mdspan(handle, is, index_.centers());
+  if (index_.binary_index()) {
+    deserialize_mdspan(handle, is, index_.binary_centers());
+    if (index_.adaptive_centers()) {
+      deserialize_mdspan(handle, is, index_.binary_center_counts());
+    }
+  } else {
+    deserialize_mdspan(handle, is, index_.centers());
+  }
   bool has_norms = raft::deserialize_scalar<bool>(handle, is);
   if (has_norms) {
     index_.allocate_center_norms(handle);

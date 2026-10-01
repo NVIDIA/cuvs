@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/cluster/detail/kmeans_balanced.cuh"
 #include "../test_utils.h"
 
 #include <cuvs/cluster/kmeans.hpp>
@@ -273,5 +274,265 @@ KB_TEST((KmeansBalancedTest<int8_t, float, uint32_t, int, i2f_scaler<int8_t, flo
 KB_TEST((KmeansBalancedTest<int8_t, float, int, int, i2f_scaler<int8_t, float>, true>),
         KmeansBalancedTestFI8I32I32_SEP,
         inputsf_i32);
+
+// Packed input must behave exactly like explicitly expanding each bit to {-1, +1}.
+TEST(KmeansBalancedBinary, DecodeAcrossByteAndRowBoundaries)
+{
+  const std::vector<uint8_t> packed{0x81, 0x56, 0xfe, 0x23, 0x00, 0xff};
+  const cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, int64_t> decode(packed.data());
+  for (int64_t i = 0; i < 48; ++i) {
+    EXPECT_EQ(decode(i), ((packed[i / 8] >> (i % 8)) & 1) ? 1.0f : -1.0f);
+  }
+}
+
+TEST(KmeansBalancedBinary, PredictMatchesExpandedInput)
+{
+  raft::resources handle;
+  auto stream                  = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_rows     = 97;
+  constexpr int64_t n_clusters = 7;
+  for (int64_t packed_dim : {int64_t{1}, int64_t{3}, int64_t{192}}) {
+    SCOPED_TRACE(packed_dim);
+    const int64_t dim = packed_dim * 8;
+    std::vector<uint8_t> packed(n_rows * packed_dim);
+    std::vector<float> expanded(n_rows * dim);
+    std::vector<float> centers(n_clusters * dim);
+    for (size_t i = 0; i < packed.size(); ++i) {
+      packed[i] = uint8_t((i * 73 + i / 7 + 19) % 256);
+    }
+    for (size_t i = 0; i < expanded.size(); ++i) {
+      expanded[i] = ((packed[i / 8] >> (i % 8)) & 1) ? 1.0f : -1.0f;
+    }
+    for (size_t i = 0; i < centers.size(); ++i) {
+      centers[i] = (int((i * 19 + i / dim * 5) % 31) - 15) / 16.0f;
+    }
+    auto X          = raft::make_device_matrix<uint8_t, int64_t>(handle, n_rows, packed_dim);
+    auto X_expanded = raft::make_device_matrix<float, int64_t>(handle, n_rows, dim);
+    auto C          = raft::make_device_matrix<float, int64_t>(handle, n_clusters, dim);
+    auto labels     = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+    auto expected   = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+    raft::update_device(X.data_handle(), packed.data(), packed.size(), stream);
+    raft::update_device(X_expanded.data_handle(), expanded.data(), expanded.size(), stream);
+    raft::update_device(C.data_handle(), centers.data(), centers.size(), stream);
+    for (auto metric : {cuvs::distance::DistanceType::L2Expanded,
+                        cuvs::distance::DistanceType::L2SqrtExpanded,
+                        cuvs::distance::DistanceType::CosineExpanded,
+                        cuvs::distance::DistanceType::InnerProduct}) {
+      SCOPED_TRACE(int(metric));
+      cuvs::cluster::kmeans::balanced_params params;
+      params.metric           = metric;
+      params.is_packed_binary = true;
+      cuvs::cluster::kmeans::predict(handle,
+                                     params,
+                                     raft::make_const_mdspan(X.view()),
+                                     raft::make_const_mdspan(C.view()),
+                                     labels.view());
+      params.is_packed_binary = false;
+      cuvs::cluster::kmeans::predict(handle,
+                                     params,
+                                     raft::make_const_mdspan(X_expanded.view()),
+                                     raft::make_const_mdspan(C.view()),
+                                     expected.view());
+      std::vector<uint32_t> actual_labels(n_rows), expected_labels(n_rows);
+      raft::update_host(actual_labels.data(), labels.data_handle(), n_rows, stream);
+      raft::update_host(expected_labels.data(), expected.data_handle(), n_rows, stream);
+      raft::resource::sync_stream(handle);
+      EXPECT_EQ(actual_labels, expected_labels);
+    }
+  }
+}
+
+TEST(KmeansBalancedBinary, HierarchicalCentersPreserveEveryExpandedCoordinate)
+{
+  raft::resources handle;
+  auto stream              = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_rows = 4096, packed_dim = 32, dim = 256, n_clusters = 256;
+  std::vector<uint8_t> packed(n_rows * packed_dim);
+  for (int64_t row = 0; row < n_rows; ++row) {
+    // Initial mesocluster labels select the low four bits of the prototype ID.
+    // Within each mesocluster, fine-cluster labels select its high four bits.
+    // Every true centroid therefore has an exact {-1,+1} CPU oracle, with no
+    // dependence on centroid ordering or on private library symbols.
+    for (int64_t byte = 0; byte < packed_dim; ++byte) {
+      packed[row * packed_dim + byte] = (row & (int64_t{1} << (byte / 4))) ? 0xff : 0;
+    }
+  }
+  auto X      = raft::make_device_matrix<uint8_t, int64_t>(handle, n_rows, packed_dim);
+  auto C      = raft::make_device_matrix<float, int64_t>(handle, n_clusters, dim);
+  auto labels = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+  raft::update_device(X.data_handle(), packed.data(), packed.size(), stream);
+  raft::matrix::fill(handle, C.view(), 123.0f);
+  cuvs::cluster::kmeans::balanced_params params;
+  params.is_packed_binary = true;
+  params.n_iters          = 1;
+  cuvs::cluster::kmeans::fit(handle, params, raft::make_const_mdspan(X.view()), C.view());
+  cuvs::cluster::kmeans::predict(handle,
+                                 params,
+                                 raft::make_const_mdspan(X.view()),
+                                 raft::make_const_mdspan(C.view()),
+                                 labels.view());
+  std::vector<float> centers(n_clusters * dim);
+  std::vector<uint32_t> actual_labels(n_rows);
+  raft::update_host(centers.data(), C.data_handle(), centers.size(), stream);
+  raft::update_host(actual_labels.data(), labels.data_handle(), actual_labels.size(), stream);
+  raft::resource::sync_stream(handle);
+  std::vector<bool> seen(n_clusters, false);
+  for (int64_t row = 0; row < n_rows; ++row) {
+    ASSERT_LT(actual_labels[row], n_clusters);
+    seen[actual_labels[row]] = true;
+    for (int64_t bit = 0; bit < dim; ++bit) {
+      const auto byte = packed[row * packed_dim + bit / 8];
+      ASSERT_EQ(centers[actual_labels[row] * dim + bit], ((byte >> (bit % 8)) & 1) ? 1.0f : -1.0f)
+        << "row=" << row << ", bit=" << bit;
+    }
+  }
+  EXPECT_EQ(std::count(seen.begin(), seen.end(), true), n_clusters);
+}
+
+TEST(KmeansBalancedBinary, FitAndPredictRecoverPackedClusters)
+{
+  raft::resources handle;
+  auto stream              = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_rows = 128, packed_dim = 3, dim = 24, n_clusters = 4;
+  std::vector<uint8_t> packed(n_rows * packed_dim);
+  for (int64_t row = 0; row < n_rows; ++row) {
+    packed[row * packed_dim]     = (row & 1) ? 0xff : 0;
+    packed[row * packed_dim + 1] = (row & 2) ? 0xff : 0;
+    packed[row * packed_dim + 2] = (row & 2) ? 0xa5 : 0x5a;
+  }
+  auto X      = raft::make_device_matrix<uint8_t, int64_t>(handle, n_rows, packed_dim);
+  auto C      = raft::make_device_matrix<float, int64_t>(handle, n_clusters, dim);
+  auto labels = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+  raft::update_device(X.data_handle(), packed.data(), packed.size(), stream);
+  cuvs::cluster::kmeans::balanced_params params;
+  params.is_packed_binary = true;
+  params.n_iters          = 2;
+  cuvs::cluster::kmeans::fit(handle, params, raft::make_const_mdspan(X.view()), C.view());
+  cuvs::cluster::kmeans::predict(handle,
+                                 params,
+                                 raft::make_const_mdspan(X.view()),
+                                 raft::make_const_mdspan(C.view()),
+                                 labels.view());
+  std::vector<uint32_t> actual_labels(n_rows);
+  std::vector<float> centers(n_clusters * dim);
+  raft::update_host(actual_labels.data(), labels.data_handle(), n_rows, stream);
+  raft::update_host(centers.data(), C.data_handle(), centers.size(), stream);
+  raft::resource::sync_stream(handle);
+  for (int64_t row = 0; row < n_rows; ++row) {
+    ASSERT_LT(actual_labels[row], n_clusters);
+    for (int64_t bit = 0; bit < dim; ++bit) {
+      const auto byte = packed[row * packed_dim + bit / 8];
+      EXPECT_EQ(centers[actual_labels[row] * dim + bit], ((byte >> (bit % 8)) & 1) ? 1.0f : -1.0f);
+    }
+  }
+}
+
+TEST(KmeansBalancedBinary, RejectsInvalidPackedTypeDimensionsAndOverflow)
+{
+  raft::resources handle;
+  cuvs::cluster::kmeans::balanced_params params;
+  params.is_packed_binary  = true;
+  const auto X             = raft::make_device_matrix_view<const uint8_t, int64_t>(nullptr, 16, 3);
+  const auto wrong_centers = raft::make_device_matrix_view<float, int64_t>(nullptr, 2, 3);
+  EXPECT_THROW(cuvs::cluster::kmeans::fit(handle, params, X, wrong_centers), raft::logic_error);
+  const auto float_X          = raft::make_device_matrix_view<const float, int64_t>(nullptr, 16, 3);
+  const auto expanded_centers = raft::make_device_matrix_view<float, int64_t>(nullptr, 2, 24);
+  EXPECT_THROW(cuvs::cluster::kmeans::fit(handle, params, float_X, expanded_centers),
+               raft::logic_error);
+  constexpr int64_t max_index = std::numeric_limits<int64_t>::max();
+  const auto overflowing_dim =
+    raft::make_device_matrix_view<const uint8_t, int64_t>(nullptr, 1, max_index / 8 + 1);
+  EXPECT_THROW(cuvs::cluster::kmeans::fit(handle, params, overflowing_dim, expanded_centers),
+               raft::logic_error);
+  const auto overflowing_rows =
+    raft::make_device_matrix_view<const uint8_t, int64_t>(nullptr, max_index / 24 + 1, 3);
+  EXPECT_THROW(cuvs::cluster::kmeans::fit(handle, params, overflowing_rows, expanded_centers),
+               raft::logic_error);
+}
+
+TEST(KmeansBalancedBinary, IncrementalCentersMatchSinglePass)
+{
+  raft::resources handle;
+  auto stream              = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_rows = 9, packed_dim = 3, dim = 24, n_clusters = 3;
+  std::vector<uint8_t> packed(n_rows * packed_dim);
+  std::vector<uint32_t> labels(n_rows);
+  for (size_t i = 0; i < packed.size(); ++i) {
+    packed[i] = uint8_t(i * 73 + 19);
+  }
+  for (int64_t row = 0; row < n_rows; ++row) {
+    labels[row] = row % n_clusters;
+  }
+  auto X     = raft::make_device_matrix<uint8_t, int64_t>(handle, n_rows, packed_dim);
+  auto L     = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+  auto C     = raft::make_device_matrix<float, int64_t>(handle, n_clusters, dim);
+  auto sizes = raft::make_device_vector<uint32_t, int64_t>(handle, n_clusters);
+  raft::update_device(X.data_handle(), packed.data(), packed.size(), stream);
+  raft::update_device(L.data_handle(), labels.data(), labels.size(), stream);
+  auto update = [&](int64_t offset, int64_t rows, bool reset) {
+    cuvs::cluster::kmeans::detail::calc_centers_and_sizes(
+      handle,
+      C.data_handle(),
+      sizes.data_handle(),
+      n_clusters,
+      packed_dim,
+      X.data_handle() + offset * packed_dim,
+      rows,
+      L.data_handle() + offset,
+      reset,
+      true,
+      raft::identity_op{},
+      raft::resource::get_workspace_resource_ref(handle));
+  };
+  update(0, 4, true);
+  update(4, 5, false);
+  std::vector<float> actual(n_clusters * dim);
+  std::vector<uint32_t> actual_sizes(n_clusters);
+  raft::update_host(actual.data(), C.data_handle(), actual.size(), stream);
+  raft::update_host(actual_sizes.data(), sizes.data_handle(), actual_sizes.size(), stream);
+  raft::resource::sync_stream(handle);
+  for (int64_t cluster = 0; cluster < n_clusters; ++cluster) {
+    EXPECT_EQ(actual_sizes[cluster], 3);
+    for (int64_t bit = 0; bit < dim; ++bit) {
+      float expected = 0;
+      for (int64_t row = cluster; row < n_rows; row += n_clusters) {
+        const auto byte = packed[row * packed_dim + bit / 8];
+        expected += ((byte >> (bit % 8)) & 1) ? 1.0f : -1.0f;
+      }
+      EXPECT_NEAR(actual[cluster * dim + bit], expected / 3.0f, 1e-6f);
+    }
+  }
+}
+
+TEST(KmeansBalancedBinary, NumericUint8PredictionRemainsNumeric)
+{
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+  const std::vector<uint8_t> input{0, 32, 64, 127, 128, 129, 192, 224, 255};
+  const std::vector<float> centers{0, 0.5f, 1};
+  auto X      = raft::make_device_matrix<uint8_t, int64_t>(handle, 9, 1);
+  auto C      = raft::make_device_matrix<float, int64_t>(handle, 3, 1);
+  auto labels = raft::make_device_vector<uint32_t, int64_t>(handle, 9);
+  raft::update_device(X.data_handle(), input.data(), input.size(), stream);
+  raft::update_device(C.data_handle(), centers.data(), centers.size(), stream);
+  cuvs::cluster::kmeans::balanced_params params;
+  params.is_packed_binary = false;
+  cuvs::cluster::kmeans::predict(handle,
+                                 params,
+                                 raft::make_const_mdspan(X.view()),
+                                 raft::make_const_mdspan(C.view()),
+                                 labels.view());
+  std::vector<uint32_t> actual(9);
+  raft::update_host(actual.data(), labels.data_handle(), actual.size(), stream);
+  raft::resource::sync_stream(handle);
+  for (size_t row = 0; row < input.size(); ++row) {
+    ASSERT_LT(actual[row], centers.size());
+    const float value    = input[row] / 256.0f;
+    const float distance = std::abs(value - centers[actual[row]]);
+    for (float center : centers) {
+      EXPECT_LE(distance, std::abs(value - center));
+    }
+  }
+}
 
 }  // namespace cuvs

@@ -84,7 +84,7 @@ struct MinAndDistanceReduceOpImpl {
   DI void init(KVP* out, DataT maxVal) const
   {
     out->value = maxVal;
-    out->key   = 0xfffffff0;
+    out->key   = std::numeric_limits<LabelT>::max();
   }
 
   DI void init_key(DataT& out, LabelT idx) const { return; }

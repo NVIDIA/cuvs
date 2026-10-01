@@ -6,7 +6,6 @@
 #pragma once
 
 #include "../../core/nvtx.hpp"
-#include "../detail/ann_utils.cuh"
 #include "../ivf_common.cuh"                  // cuvs::neighbors::detail::ivf
 #include "ivf_flat_interleaved_scan_ext.cuh"  // interleaved_scan
 #include <cuvs/neighbors/common.hpp>          // none_sample_filter
@@ -64,7 +63,8 @@ void search_impl(raft::resources const& handle,
   // The norm of query
   rmm::device_uvector<float> query_norm_dev(n_queries, stream, search_mr);
   // The distance value of cluster(list) and queries
-  rmm::device_uvector<float> distance_buffer_dev(n_queries * index.n_lists(), stream, search_mr);
+  rmm::device_uvector<float> distance_buffer_dev(
+    size_t(n_queries) * index.n_lists(), stream, search_mr);
   // The topk distance value of cluster(list) and queries
   rmm::device_uvector<float> coarse_distances_dev(n_queries_probes, stream, search_mr);
   // The topk  index of cluster(list) and queries
@@ -89,29 +89,29 @@ void search_impl(raft::resources const& handle,
   if constexpr (std::is_same_v<T, float>) {
     float_query_size = 0;
   } else {
-    float_query_size = n_queries * index.dim();
+    float_query_size = index.binary_index() ? 0 : size_t(n_queries) * index.dim();
   }
   rmm::device_uvector<float> converted_queries_dev(float_query_size, stream, search_mr);
   float* converted_queries_ptr = converted_queries_dev.data();
 
   if constexpr (std::is_same_v<T, float>) {
     converted_queries_ptr = const_cast<float*>(queries);
-  } else {
+  } else if (!index.binary_index()) {
     raft::linalg::map(
       handle,
-      raft::make_device_vector_view<float>(converted_queries_ptr, n_queries * index.dim()),
+      raft::make_device_vector_view<float>(converted_queries_ptr, float_query_size),
       utils::mapping<float>{},
-      raft::make_const_mdspan(
-        raft::make_device_vector_view<const T>(queries, n_queries * index.dim())));
+      raft::make_const_mdspan(raft::make_device_vector_view<const T>(queries, float_query_size)));
   }
 
-  if (effective_metric == cuvs::distance::DistanceType::BitwiseHamming) {
+  // A custom scan metric still probes the coarse centers using the index's binary metric.
+  if (index.binary_index()) {
     if constexpr (std::is_same_v<T, uint8_t>) {
       cuvs::distance::detail::ops::bitwise_hamming_distance_op<uint8_t, uint32_t, IdxT> distance_op{
         static_cast<IdxT>(index.dim())};
 
       rmm::device_uvector<uint32_t> uint32_distances(
-        n_queries * index.n_lists(), stream, search_mr);
+        size_t(n_queries) * index.n_lists(), stream, search_mr);
 
       cuvs::distance::detail::pairwise_matrix_dispatch<decltype(distance_op),
                                                        uint8_t,
@@ -334,7 +334,7 @@ void search_impl(raft::resources const& handle,
       cuvs::selection::SelectAlgo::kAuto,
       num_samples_vector);
   }
-  if (!manage_local_topk) {
+  if (!manage_local_topk && effective_metric != cuvs::distance::DistanceType::CustomUDF) {
     // post process distances && neighbor IDs
     ivf::detail::postprocess_distances(
       handle, distances, distances, effective_metric, n_queries, k, 1.0, false);
@@ -387,9 +387,11 @@ inline void search_with_filtering(raft::resources const& handle,
   uint64_t max_ws_size =
     std::min(raft::resource::get_workspace_free_bytes(handle), kExpectedWsSize);
 
-  uint64_t ws_size_per_query = 4ull * (2 * n_probes + index.n_lists() + index.dim() + 1) +
-                               (manage_local_topk ? ((sizeof(IdxT) + 4) * n_probes * k)
-                                                  : (4ull * (max_samples + n_probes + 1)));
+  uint64_t ws_size_per_query =
+    4ull * (2ull * n_probes + (index.binary_index() ? 2ull : 1ull) * index.n_lists() +
+            (index.binary_index() ? 0ull : index.dim()) + 1) +
+    (manage_local_topk ? ((sizeof(IdxT) + 4) * n_probes * k)
+                       : (4ull * (max_samples + n_probes + 1)));
 
   const uint32_t max_queries =
     std::min<uint32_t>(n_queries, raft::div_rounding_up_safe(max_ws_size, ws_size_per_query));

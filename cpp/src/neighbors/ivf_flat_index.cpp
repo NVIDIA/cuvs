@@ -7,10 +7,21 @@
 #include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
+#include <limits>
 #include <raft/core/logger.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
+#include <raft/util/cudart_utils.hpp>
 #include <type_traits>
 
 namespace cuvs::neighbors::ivf_flat {
+namespace {
+uint32_t expanded_binary_dim(uint32_t dim)
+{
+  RAFT_EXPECTS(dim <= std::numeric_limits<uint32_t>::max() / 8,
+               "binary dimensionality is too large for expanded center statistics");
+  return dim * 8;
+}
+}  // namespace
 
 template <typename T, typename IdxT>
 index<T, IdxT>::index(raft::resources const& res)
@@ -49,17 +60,27 @@ index<T, IdxT>::index(raft::resources const& res,
     binary_centers_(metric != cuvs::distance::DistanceType::BitwiseHamming
                       ? raft::make_device_matrix<uint8_t, int64_t>(res, 0, 0)
                       : raft::make_device_matrix<uint8_t, int64_t>(res, n_lists, dim)),
+    binary_center_counts_(
+      metric == cuvs::distance::DistanceType::BitwiseHamming && adaptive_centers
+        ? raft::make_device_matrix<uint32_t, int64_t>(res, n_lists, expanded_binary_dim(dim))
+        : raft::make_device_matrix<uint32_t, int64_t>(res, 0, 0)),
     center_norms_(std::nullopt),
+    binary_index_(metric == cuvs::distance::DistanceType::BitwiseHamming),
     data_ptrs_{raft::make_device_vector<T*, uint32_t>(res, n_lists)},
     inds_ptrs_{raft::make_device_vector<IdxT*, uint32_t>(res, n_lists)},
-    accum_sorted_sizes_{raft::make_host_vector<IdxT, uint32_t>(n_lists + 1)},
-    binary_index_(metric == cuvs::distance::DistanceType::BitwiseHamming)
+    accum_sorted_sizes_{raft::make_host_vector<IdxT, uint32_t>(n_lists + 1)}
 {
   if (metric == cuvs::distance::DistanceType::BitwiseHamming && !std::is_same_v<T, uint8_t>) {
     RAFT_FAIL("BitwiseHamming distance is only supported with uint8_t data type, got %s",
               typeid(T).name());
   }
 
+  if (binary_center_counts_.size() != 0) {
+    RAFT_CUDA_TRY(cudaMemsetAsync(binary_center_counts_.data_handle(),
+                                  0,
+                                  binary_center_counts_.size() * sizeof(uint32_t),
+                                  raft::resource::get_cuda_stream(res)));
+  }
   check_consistency();
   accum_sorted_sizes_(n_lists) = 0;
 }
@@ -120,6 +141,20 @@ raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> index<T, IdxT>
 {
   return binary_centers_.view();
 }
+template <typename T, typename IdxT>
+raft::device_matrix_view<uint32_t, int64_t, raft::row_major>
+index<T, IdxT>::binary_center_counts() noexcept
+{
+  return binary_center_counts_.view();
+}
+
+template <typename T, typename IdxT>
+raft::device_matrix_view<const uint32_t, int64_t, raft::row_major>
+index<T, IdxT>::binary_center_counts() const noexcept
+{
+  return binary_center_counts_.view();
+}
+
 template <typename T, typename IdxT>
 std::optional<raft::device_vector_view<float, uint32_t>> index<T, IdxT>::center_norms() noexcept
 {
@@ -245,6 +280,9 @@ void index<T, IdxT>::check_consistency()
   if (binary_index_) {
     RAFT_EXPECTS(binary_centers_.extent(0) == list_sizes_.extent(0),
                  "inconsistent number of lists (clusters)");
+    RAFT_EXPECTS(!adaptive_centers_ || (binary_center_counts_.extent(0) == int64_t(n_lists) &&
+                                        binary_center_counts_.extent(1) == int64_t(dim()) * 8),
+                 "inconsistent binary center counts");
   } else {
     RAFT_EXPECTS(                                       //
       (centers_.extent(0) == list_sizes_.extent(0)) &&  //

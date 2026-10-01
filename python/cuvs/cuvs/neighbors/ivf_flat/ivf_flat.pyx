@@ -49,7 +49,7 @@ cdef class IndexParams:
     metric : str, default = "sqeuclidean"
         String denoting the metric type.
         Valid values for metric: ["sqeuclidean", "inner_product",
-        "euclidean", "cosine"], where
+        "euclidean", "cosine", "bitwise_hamming"], where
 
             - sqeuclidean is the euclidean distance without the square root
               operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,
@@ -58,6 +58,8 @@ cdef class IndexParams:
               distance(a, b) = \\sum_i a_i * b_i.
             - cosine distance is defined as
               distance(a, b) = 1 - \\sum_i a_i * b_i / ( ||a||_2 * ||b||_2).
+            - bitwise_hamming counts differing bits in packed uint8 data.
+              Input dimensions are the number of packed bytes per vector.
 
     kmeans_n_iters : int, default = 20
         The number of iterations searching for kmeans centers during index
@@ -189,8 +191,11 @@ cdef class Index:
 
     @property
     def centers(self):
-        """ Get the cluster centers corresponding to the lists in the
-        original space """
+        """Get cluster centers of shape (n_lists, dim).
+
+        Binary indexes return packed uint8 centers; other indexes return
+        float32 centers. Binary dimensions are measured in packed bytes.
+        """
         if not self.trained:
             raise ValueError("Index needs to be built before getting centers")
 

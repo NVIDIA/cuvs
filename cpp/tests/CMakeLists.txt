@@ -322,7 +322,8 @@ endif()
 
 ConfigureTest(
   NAME DISTANCE_TEST
-  PATH distance/dist_canberra.cu
+  PATH distance/dist_bitwise_hamming.cu
+       distance/dist_canberra.cu
        distance/dist_correlation.cu
        distance/dist_cos.cu
        distance/dist_hamming.cu

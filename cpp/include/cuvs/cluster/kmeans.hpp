@@ -156,10 +156,13 @@ struct balanced_params : base_params {
 
   /**
    * If true, treats uint8_t input data as bit-packed binary data where each byte contains 8 bits.
-   * Bits are expanded on-the-fly to {-1, +1} floats during training.
+   * Bits are expanded on-the-fly, least-significant bit first, to {-1, +1} floats
+   * during training and prediction. Other input types are rejected when this flag is set.
    * When enabled:
    *   - Input data dimension represents packed dimension (actual_dim / 8)
    *   - Output centroids dimension is expanded (packed_dim * 8)
+   *   - The metric operates on the expanded floating-point vectors (for example L2Expanded),
+   *     not on the packed bytes; BitwiseHamming is not a balanced k-means training metric.
    */
   bool is_packed_binary = false;
 };
@@ -620,6 +623,11 @@ void fit(const raft::resources& handle,
 
 /**
  * @brief Find balanced clusters with k-means algorithm.
+ *
+ * @note When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,
+ * and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are
+ * expanded least-significant bit first to {-1, +1}; the selected metric operates
+ * on those expanded vectors. With the flag disabled, uint8_t values are numeric.
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>
@@ -1118,6 +1126,11 @@ void predict(const raft::resources& handle,
 
 /**
  * @brief Predict the closest cluster each sample in X belongs to.
+ *
+ * @note When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,
+ * and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are
+ * expanded least-significant bit first to {-1, +1}; the selected metric operates
+ * on those expanded vectors. With the flag disabled, uint8_t values are numeric.
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>

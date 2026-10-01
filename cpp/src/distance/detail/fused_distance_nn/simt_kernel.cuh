@@ -65,7 +65,7 @@ __launch_bounds__(P::Nthreads, 2) RAFT_KERNEL fusedDistanceNNkernel(OutT* min,
                                                                     IdxT m,
                                                                     IdxT n,
                                                                     IdxT k,
-                                                                    DataT maxVal,
+                                                                    typename OpT::AccT maxVal,
                                                                     int* mutex,
                                                                     ReduceOpT redOp,
                                                                     KVPReduceOpT pairRedOp,
@@ -85,7 +85,7 @@ __launch_bounds__(P::Nthreads, 2) RAFT_KERNEL fusedDistanceNNkernel(OutT* min,
   if constexpr (compile) {
     extern __shared__ char smem[];
 
-    using AccT = std::conditional_t<std::is_same_v<DataT, uint8_t>, uint32_t, DataT>;
+    using AccT = typename OpT::AccT;
     typedef raft::KeyValuePair<IdxT, AccT> KVPair;
     KVPair val[P::AccRowsPerTh];
 #pragma unroll
@@ -152,7 +152,6 @@ __launch_bounds__(P::Nthreads, 2) RAFT_KERNEL fusedDistanceNNkernel(OutT* min,
     IdxT lda = k, ldb = k, ldd = n;
     constexpr bool row_major = true;
     constexpr bool write_out = false;
-    using AccT               = std::conditional_t<std::is_same_v<DataT, uint8_t>, uint32_t, DataT>;
     PairwiseDistances<DataT,
                       AccT,  // OutT (unused in PairwiseDistances)
                       IdxT,

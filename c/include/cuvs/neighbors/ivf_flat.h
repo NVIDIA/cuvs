@@ -34,10 +34,11 @@ struct cuvsIvfFlatIndexParams {
   /**
    * Whether to add the dataset content to the index, i.e.:
    *
-   *  - `true` means the index is filled with the dataset vectors and ready to search after calling
-   * `build`.
-   *  - `false` means `build` only trains the underlying model (e.g. quantizer or clustering), but
-   * the index is left empty; you'd need to call `extend` on the index afterwards to populate it.
+   *  - `true` means the index is filled with the dataset vectors and ready to
+   * search after calling `build`.
+   *  - `false` means `build` only trains the underlying model (e.g. quantizer
+   * or clustering), but the index is left empty; you'd need to call `extend` on
+   * the index afterwards to populate it.
    */
   bool add_data_on_build;
   /** The number of inverted lists (clusters) */
@@ -47,31 +48,37 @@ struct cuvsIvfFlatIndexParams {
   /** The fraction of data to use during iterative kmeans building. */
   double kmeans_trainset_fraction;
   /**
-   * By default (adaptive_centers = false), the cluster centers are trained in `ivf_flat::build`,
-   * and never modified in `ivf_flat::extend`. As a result, you may need to retrain the index
-   * from scratch after invoking (`ivf_flat::extend`) a few times with new data, the distribution of
-   * which is no longer representative of the original training set.
+   * By default (adaptive_centers = false), the cluster centers are trained in
+   * `ivf_flat::build`, and never modified in `ivf_flat::extend`. As a result,
+   * you may need to retrain the index from scratch after invoking
+   * (`ivf_flat::extend`) a few times with new data, the distribution of which
+   * is no longer representative of the original training set.
    *
-   * The alternative behavior (adaptive_centers = true) is to update the cluster centers for new
-   * data when it is added. In this case, `index.centers()` are always exactly the centroids of the
-   * data in the corresponding clusters. The drawback of this behavior is that the centroids depend
-   * on the order of adding new data (through the classification of the added data); that is,
-   * `index.centers()` "drift" together with the changing distribution of the newly added data.
+   * The alternative behavior (adaptive_centers = true) is to update the cluster
+   * centers when new data is added. For BitwiseHamming, centers are packed
+   * bitwise majorities of the data in each cluster, with ties resolved to zero.
+   * For other metrics, centers are floating-point means of the data in each
+   * cluster. Cluster assignments and centers depend on the order of adding new
+   * data, so the centers drift with the changing distribution of the newly
+   * added data.
    */
   bool adaptive_centers;
   /**
-   * By default, the algorithm allocates more space than necessary for individual clusters
-   * (`list_data`). This allows to amortize the cost of memory allocation and reduce the number of
-   * data copies during repeated calls to `extend` (extending the database).
+   * By default, the algorithm allocates more space than necessary for
+   * individual clusters
+   * (`list_data`). This allows to amortize the cost of memory allocation and
+   * reduce the number of data copies during repeated calls to `extend`
+   * (extending the database).
    *
-   * The alternative is the conservative allocation behavior; when enabled, the algorithm always
-   * allocates the minimum amount of memory required to store the given number of records. Set this
-   * flag to `true` if you prefer to use as little GPU memory for the database as possible.
+   * The alternative is the conservative allocation behavior; when enabled, the
+   * algorithm always allocates the minimum amount of memory required to store
+   * the given number of records. Set this flag to `true` if you prefer to use
+   * as little GPU memory for the database as possible.
    */
   bool conservative_memory_allocation;
 };
 
-typedef struct cuvsIvfFlatIndexParams* cuvsIvfFlatIndexParams_t;
+typedef struct cuvsIvfFlatIndexParams *cuvsIvfFlatIndexParams_t;
 
 /**
  * @brief Allocate IVF-Flat Index params, and populate with default values
@@ -79,7 +86,8 @@ typedef struct cuvsIvfFlatIndexParams* cuvsIvfFlatIndexParams_t;
  * @param[in] index_params cuvsIvfFlatIndexParams_t to allocate
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexParamsCreate(cuvsIvfFlatIndexParams_t* index_params);
+CUVS_EXPORT cuvsError_t
+cuvsIvfFlatIndexParamsCreate(cuvsIvfFlatIndexParams_t *index_params);
 
 /**
  * @brief De-allocate IVF-Flat Index params
@@ -87,7 +95,8 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexParamsCreate(cuvsIvfFlatIndexParams_t* i
  * @param[in] index_params
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexParamsDestroy(cuvsIvfFlatIndexParams_t index_params);
+CUVS_EXPORT cuvsError_t
+cuvsIvfFlatIndexParamsDestroy(cuvsIvfFlatIndexParams_t index_params);
 /**
  * @}
  */
@@ -105,7 +114,7 @@ struct cuvsIvfFlatSearchParams {
   uint32_t n_probes;
 };
 
-typedef struct cuvsIvfFlatSearchParams* cuvsIvfFlatSearchParams_t;
+typedef struct cuvsIvfFlatSearchParams *cuvsIvfFlatSearchParams_t;
 
 /**
  * @brief Allocate IVF-Flat search params, and populate with default values
@@ -113,7 +122,8 @@ typedef struct cuvsIvfFlatSearchParams* cuvsIvfFlatSearchParams_t;
  * @param[in] params cuvsIvfFlatSearchParams_t to allocate
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t* params);
+CUVS_EXPORT cuvsError_t
+cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t *params);
 
 /**
  * @brief De-allocate IVF-Flat search params
@@ -121,7 +131,8 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t*
  * @param[in] params
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsIvfFlatSearchParamsDestroy(cuvsIvfFlatSearchParams_t params);
+CUVS_EXPORT cuvsError_t
+cuvsIvfFlatSearchParamsDestroy(cuvsIvfFlatSearchParams_t params);
 /**
  * @}
  */
@@ -131,7 +142,8 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatSearchParamsDestroy(cuvsIvfFlatSearchParams_t
  * @{
  */
 /**
- * @brief Struct to hold address of cuvs::neighbors::ivf_flat::index and its active trained dtype
+ * @brief Struct to hold address of cuvs::neighbors::ivf_flat::index and its
+ * active trained dtype
  *
  */
 typedef struct {
@@ -139,7 +151,7 @@ typedef struct {
   DLDataType dtype;
 } cuvsIvfFlatIndex;
 
-typedef cuvsIvfFlatIndex* cuvsIvfFlatIndex_t;
+typedef cuvsIvfFlatIndex *cuvsIvfFlatIndex_t;
 
 /**
  * @brief Allocate IVF-Flat index
@@ -147,7 +159,7 @@ typedef cuvsIvfFlatIndex* cuvsIvfFlatIndex_t;
  * @param[in] index cuvsIvfFlatIndex_t to allocate
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexCreate(cuvsIvfFlatIndex_t* index);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexCreate(cuvsIvfFlatIndex_t *index);
 
 /**
  * @brief De-allocate IVF-Flat index
@@ -163,7 +175,8 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexDestroy(cuvsIvfFlatIndex_t index);
  * @param[out] n_lists Pointer to store the number of lists
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetNLists(cuvsIvfFlatIndex_t index, int64_t* n_lists);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetNLists(cuvsIvfFlatIndex_t index,
+                                                  int64_t *n_lists);
 
 /**
  * @brief Get the dimensionality of the indexed data
@@ -172,16 +185,25 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetNLists(cuvsIvfFlatIndex_t index, int6
  * @param[out] dim Pointer to store the dimensionality
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetDim(cuvsIvfFlatIndex_t index, int64_t* dim);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetDim(cuvsIvfFlatIndex_t index,
+                                               int64_t *dim);
 
 /**
- * @brief Get the cluster centers corresponding to the lists [n_lists, dim]
+ * @brief Get a borrowed device view of the cluster centers [n_lists, dim].
  *
- * @param[in] index cuvsIvfFlatIndex_t Built Ivf-Flat Index
- * @param[out] centers Preallocated array on host or device memory to store output, [n_lists, dim]
+ * Centers have dtype uint8 for BitwiseHamming, with dim measured in packed
+ * bytes, and float32 for other metrics. The index owns the underlying device
+ * storage; this function does not copy center data. The view remains valid only
+ * while that storage exists and has not been reallocated. Extending an index
+ * with adaptive centers can change the values visible through the view.
+ *
+ * @param[in] index Built IVF-Flat index that owns the centers.
+ * @param[out] centers Caller-allocated tensor descriptor to populate with the
+ * borrowed device view.
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index, DLManagedTensor* centers);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index,
+                                                   DLManagedTensor *centers);
 
 /**
  * @}
@@ -212,19 +234,22 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index, DLM
  *
  * // Create default index params
  * cuvsIvfFlatIndexParams_t index_params;
- * cuvsError_t params_create_status = cuvsIvfFlatIndexParamsCreate(&index_params);
+ * cuvsError_t params_create_status =
+ * cuvsIvfFlatIndexParamsCreate(&index_params);
  *
  * // Create IVF-Flat index
  * cuvsIvfFlatIndex_t index;
  * cuvsError_t index_create_status = cuvsIvfFlatIndexCreate(&index);
  *
  * // Build the IVF-Flat Index
- * cuvsError_t build_status = cuvsIvfFlatBuild(res, index_params, &dataset, index);
+ * cuvsError_t build_status = cuvsIvfFlatBuild(res, index_params, &dataset,
+ * index);
  *
  * // de-allocate `index_params`, `index` and `res`
- * cuvsError_t params_destroy_status = cuvsIvfFlatIndexParamsDestroy(index_params);
- * cuvsError_t index_destroy_status = cuvsIvfFlatIndexDestroy(index);
- * cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);
+ * cuvsError_t params_destroy_status =
+ * cuvsIvfFlatIndexParamsDestroy(index_params); cuvsError_t index_destroy_status
+ * = cuvsIvfFlatIndexDestroy(index); cuvsError_t res_destroy_status =
+ * cuvsResourcesDestroy(res);
  * @endcode
  *
  * @param[in] res cuvsResources_t opaque C handle
@@ -234,9 +259,9 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index, DLM
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
-                             cuvsIvfFlatIndexParams_t index_params,
-                             DLManagedTensor* dataset,
-                             cuvsIvfFlatIndex_t index);
+                                         cuvsIvfFlatIndexParams_t index_params,
+                                         DLManagedTensor *dataset,
+                                         cuvsIvfFlatIndex_t index);
 /**
  * @}
  */
@@ -248,12 +273,16 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
 /**
  * @brief Search a IVF-Flat index with a `DLManagedTensor` which has underlying
  *        `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`.
- *        It is also important to note that the IVF-Flat Index must have been built
+ *        It is also important to note that the IVF-Flat Index must have been
+ built
  *        with the same type of `queries`, such that `index.dtype.code ==
  * queries.dl_tensor.dtype.code` Types for input are:
- *        1. `queries`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
- *        2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 32`
- *        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
+ *        1. `queries`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits =
+ 32`
+ *        2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits =
+ 32`
+ *        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits =
+ 32`
  *
  * @code {.c}
  * #include <cuvs/core/c_api.h>
@@ -270,19 +299,23 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
  *
  * // Create default search params
  * cuvsIvfFlatSearchParams_t search_params;
- * cuvsError_t params_create_status = cuvsIvfFlatSearchParamsCreate(&search_params);
+ * cuvsError_t params_create_status =
+ cuvsIvfFlatSearchParamsCreate(&search_params);
  *
  * // Search the `index` built using `ivfFlatBuild`
- * cuvsError_t search_status = cuvsIvfFlatSearch(res, search_params, index, &queries, &neighbors,
+ * cuvsError_t search_status = cuvsIvfFlatSearch(res, search_params, index,
+ &queries, &neighbors,
  * &distances);
  *
  * // de-allocate `search_params` and `res`
- * cuvsError_t params_destroy_status = cuvsIvfFlatSearchParamsDestroy(search_params);
+ * cuvsError_t params_destroy_status =
+ cuvsIvfFlatSearchParamsDestroy(search_params);
  * cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);
  * @endcode
  *
  * @param[in] res cuvsResources_t opaque C handle
- * @param[in] search_params cuvsIvfFlatSearchParams_t used to search IVF-Flat index
+ * @param[in] search_params cuvsIvfFlatSearchParams_t used to search IVF-Flat
+ index
  * @param[in] index ivfFlatIndex which has been returned by `ivfFlatBuild`
  * @param[in] queries DLManagedTensor* queries dataset to search
  * @param[out] neighbors DLManagedTensor* output `k` neighbors for queries
@@ -290,13 +323,10 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
  * @param[in] filter cuvsFilter input filter that can be used
               to filter queries and neighbors based on the given bitset.
  */
-CUVS_EXPORT cuvsError_t cuvsIvfFlatSearch(cuvsResources_t res,
-                              cuvsIvfFlatSearchParams_t search_params,
-                              cuvsIvfFlatIndex_t index,
-                              DLManagedTensor* queries,
-                              DLManagedTensor* neighbors,
-                              DLManagedTensor* distances,
-                              cuvsFilter filter);
+CUVS_EXPORT cuvsError_t cuvsIvfFlatSearch(
+    cuvsResources_t res, cuvsIvfFlatSearchParams_t search_params,
+    cuvsIvfFlatIndex_t index, DLManagedTensor *queries,
+    DLManagedTensor *neighbors, DLManagedTensor *distances, cuvsFilter filter);
 
 /**
  * @}
@@ -309,7 +339,8 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatSearch(cuvsResources_t res,
 /**
  * Save the index to file.
  *
- * Experimental, both the API and the serialization format are subject to change.
+ * Experimental, both the API and the serialization format are subject to
+ * change.
  *
  * @code{.cpp}
  * #include <cuvs/neighbors/ivf_flat.h>
@@ -327,21 +358,22 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatSearch(cuvsResources_t res,
  * @param[in] index IVF-Flat index
  */
 CUVS_EXPORT cuvsError_t cuvsIvfFlatSerialize(cuvsResources_t res,
-                                 const char* filename,
-                                 cuvsIvfFlatIndex_t index);
+                                             const char *filename,
+                                             cuvsIvfFlatIndex_t index);
 
 /**
  * Load index from file.
  *
- * Experimental, both the API and the serialization format are subject to change.
+ * Experimental, both the API and the serialization format are subject to
+ * change.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] filename the name of the file that stores the index
  * @param[out] index IVF-Flat index loaded disk
  */
 CUVS_EXPORT cuvsError_t cuvsIvfFlatDeserialize(cuvsResources_t res,
-                                   const char* filename,
-                                   cuvsIvfFlatIndex_t index);
+                                               const char *filename,
+                                               cuvsIvfFlatIndex_t index);
 /**
  * @}
  */
@@ -355,14 +387,15 @@ CUVS_EXPORT cuvsError_t cuvsIvfFlatDeserialize(cuvsResources_t res,
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] new_vectors DLManagedTensor* the new vectors to add to the index
- * @param[in] new_indices DLManagedTensor* vector of new indices for the new vectors
+ * @param[in] new_indices DLManagedTensor* vector of new indices for the new
+ * vectors
  * @param[inout] index IVF-Flat index to be extended
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsIvfFlatExtend(cuvsResources_t res,
-                              DLManagedTensor* new_vectors,
-                              DLManagedTensor* new_indices,
-                              cuvsIvfFlatIndex_t index);
+                                          DLManagedTensor *new_vectors,
+                                          DLManagedTensor *new_indices,
+                                          cuvsIvfFlatIndex_t index);
 /**
  * @}
  */

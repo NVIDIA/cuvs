@@ -62,10 +62,12 @@ auto clone(const raft::resources& res, const index<T, IdxT>& source) -> index<T,
 
   // Copy the independent parts
   raft::copy(res, target.list_sizes(), source.list_sizes());
-  if (!source.binary_index()) {
-    raft::copy(res, target.centers(), source.centers());
-  } else {
+  if (!source.binary_index()) { raft::copy(res, target.centers(), source.centers()); }
+  if (source.binary_index()) {
     raft::copy(res, target.binary_centers(), source.binary_centers());
+    if (source.adaptive_centers()) {
+      raft::copy(res, target.binary_center_counts(), source.binary_center_counts());
+    }
   }
   if (source.center_norms().has_value()) {
     target.allocate_center_norms(res);
@@ -165,6 +167,22 @@ RAFT_KERNEL build_index_kernel(const LabelT* labels,
   }
 }
 
+// One thread per input byte; list sizes bound every per-bit count by uint32_t.
+template <typename LabelT>
+RAFT_KERNEL accumulate_binary_center_counts(
+  const uint8_t* data, const LabelT* labels, uint32_t* counts, uint64_t n_elements, uint32_t dim)
+{
+  const uint64_t offset = uint64_t(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (offset >= n_elements) { return; }
+  const auto row      = offset / dim;
+  const auto col      = offset % dim;
+  auto* output        = counts + (uint64_t(labels[row]) * dim + col) * 8;
+  const uint8_t value = data[offset];
+  for (int bit = 0; bit < 8; ++bit) {
+    if ((value >> bit) & 1) { atomicAdd(output + bit, 1u); }
+  }
+}
+
 /** See cuvs::neighbors::ivf_flat::extend docs */
 template <typename T, typename IdxT>
 void extend(raft::resources const& handle,
@@ -225,11 +243,10 @@ void extend(raft::resources const& handle,
       raft::make_device_matrix_view<const T, IdxT>(batch.data(), batch.size(), index->dim());
     auto batch_labels_view = raft::make_device_vector_view<LabelT, IdxT>(
       new_labels.data_handle() + batch.offset(), batch.size());
-    auto centroids_view = raft::make_device_matrix_view<const uint8_t, IdxT>(
-      index->binary_centers().data_handle(), n_lists, dim);
-
     if (index->binary_index()) {
       if constexpr (std::is_same_v<T, uint8_t>) {
+        auto centroids_view = raft::make_device_matrix_view<const uint8_t, IdxT>(
+          index->binary_centers().data_handle(), n_lists, dim);
         cuvs::cluster::kmeans::detail::predict_bitwise_hamming(
           handle, batch_data_view, centroids_view, batch_labels_view);
       } else {
@@ -267,37 +284,52 @@ void extend(raft::resources const& handle,
 
     if (index->binary_index()) {
       if constexpr (std::is_same_v<T, uint8_t>) {
-        // For binary data, we need to work in the expanded space and then convert back
-        rmm::device_uvector<float> temp_expanded_centers(
-          n_lists * dim * 8, stream, raft::resource::get_workspace_resource(handle));
-        auto expanded_centers_view = raft::make_device_matrix_view<float, IdxT>(
-          temp_expanded_centers.data(), n_lists, dim * 8);
-
+        // Accumulate exact per-bit one-counts, rather than rounded means or majority signs.
+        // Rounding a previous mean back to a sum can flip an exact majority tie.
+        vec_batches.reset();
+        vec_batches.prefetch_next_batch();
+        for (const auto& batch : vec_batches) {
+          const auto n_elements = uint64_t(batch.size()) * dim;
+          if (n_elements != 0) {
+            accumulate_binary_center_counts<<<raft::ceildiv(n_elements, uint64_t{256}),
+                                              256,
+                                              0,
+                                              stream>>>(batch.data(),
+                                                        new_labels.data_handle() + batch.offset(),
+                                                        index->binary_center_counts().data_handle(),
+                                                        n_elements,
+                                                        dim);
+            RAFT_CUDA_TRY(cudaPeekAtLastError());
+          }
+          vec_batches.prefetch_next_batch();
+          if (enable_prefetch) { raft::resource::sync_stream(handle); }
+        }
+        raft::stats::histogram<uint32_t, IdxT>(raft::stats::HistTypeAuto,
+                                               reinterpret_cast<int32_t*>(list_sizes_ptr),
+                                               IdxT(n_lists),
+                                               new_labels.data_handle(),
+                                               n_rows,
+                                               1,
+                                               stream);
+        raft::linalg::add(
+          handle,
+          raft::make_device_vector_view<const uint32_t, IdxT>(list_sizes_ptr, n_lists),
+          raft::make_device_vector_view<const uint32_t, IdxT>(old_list_sizes_dev.data_handle(),
+                                                              n_lists),
+          raft::make_device_vector_view<uint32_t, IdxT>(list_sizes_ptr, n_lists));
+        const auto* counts = index->binary_center_counts().data_handle();
         raft::linalg::map_offset(
           handle,
-          expanded_centers_view,
-          utils::bitwise_decode_op<float, IdxT>(index->binary_centers().data_handle(), dim));
-
-        vec_batches.reset();
-        for (const auto& batch : vec_batches) {
-          auto batch_labels_view = raft::make_device_vector_view<const LabelT, IdxT>(
-            new_labels.data_handle() + batch.offset(), batch.size());
-          auto batch_data_view =
-            raft::make_device_matrix_view<const T, IdxT>(batch.data(), batch.size(), index->dim());
-          cuvs::cluster::kmeans_balanced::helpers::calc_centers_and_sizes(handle,
-                                                                          batch_data_view,
-                                                                          batch_labels_view,
-                                                                          expanded_centers_view,
-                                                                          list_sizes_view,
-                                                                          false,
-                                                                          true,
-                                                                          raft::identity_op{});
-        }
-
-        // Convert updated centroids back to binary format
-        cuvs::preprocessing::quantize::binary::quantizer<float> temp_quantizer(handle);
-        cuvs::preprocessing::quantize::binary::transform(
-          handle, temp_quantizer, expanded_centers_view, index->binary_centers());
+          index->binary_centers(),
+          [counts, list_sizes_ptr, dim] __device__(int64_t offset) {
+            uint8_t packed = 0;
+            for (int bit = 0; bit < 8; ++bit) {
+              if (uint64_t(counts[offset * 8 + bit]) * 2 > list_sizes_ptr[offset / dim]) {
+                packed |= uint8_t(1u << bit);
+              }
+            }
+            return packed;
+          });
 
       } else {
         // Error: BitwiseHamming with non-uint8_t type
@@ -308,6 +340,7 @@ void extend(raft::resources const& handle,
       auto centroids_view = raft::make_device_matrix_view<float, IdxT>(
         index->centers().data_handle(), index->centers().extent(0), index->centers().extent(1));
       vec_batches.reset();
+      vec_batches.prefetch_next_batch();
       for (const auto& batch : vec_batches) {
         auto batch_data_view =
           raft::make_device_matrix_view<const T, IdxT>(batch.data(), batch.size(), index->dim());
@@ -321,6 +354,8 @@ void extend(raft::resources const& handle,
                                                                         false,
                                                                         false,
                                                                         utils::mapping<float>{});
+        vec_batches.prefetch_next_batch();
+        if (enable_prefetch) { raft::resource::sync_stream(handle); }
       }
     }
   } else {
@@ -517,11 +552,12 @@ inline auto build(raft::resources const& handle,
     kmeans_params.is_packed_binary = index.binary_index();
     if constexpr (std::is_same_v<T, uint8_t>) {
       if (index.binary_index()) {
-        rmm::device_uvector<float> decoded_centers(index.n_lists() * index.dim() * 8,
-                                                   stream,
-                                                   raft::resource::get_workspace_resource(handle));
+        rmm::device_uvector<float> decoded_centers(
+          size_t(index.n_lists()) * index.dim() * 8,
+          stream,
+          raft::resource::get_workspace_resource_ref(handle));
         auto decoded_centers_view = raft::make_device_matrix_view<float, IdxT>(
-          decoded_centers.data(), index.n_lists(), index.dim() * 8);
+          decoded_centers.data(), index.n_lists(), IdxT(index.dim()) * 8);
 
         cuvs::cluster::kmeans_balanced::fit(
           handle, kmeans_params, trainset_const_view, decoded_centers_view, raft::identity_op{});
