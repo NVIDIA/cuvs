@@ -15,6 +15,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -153,7 +155,7 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentBbqInputs ps;
   raft::device_matrix<float, int64_t> database;
 };
