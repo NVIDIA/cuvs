@@ -454,6 +454,7 @@ public class AcceleratedHNSWUtils {
       return new ArrayList<>();
     }
 
+    final int maximumUnsignedSevenBitValue = 127;
     int dimensions = floatVectors.get(0).length;
     int numVectors = floatVectors.size();
 
@@ -476,8 +477,8 @@ public class AcceleratedHNSWUtils {
         float range = maxPerDim[d] - minPerDim[d];
         if (range > 0) {
           float normalized = (vector[d] - minPerDim[d]) / range;
-          int quantizedValue = Math.round(normalized * 127.0f);
-          quantized[d] = (byte) Math.max(0, Math.min(127, quantizedValue));
+          int quantizedValue = Math.round(normalized * maximumUnsignedSevenBitValue);
+          quantized[d] = (byte) Math.max(0, Math.min(maximumUnsignedSevenBitValue, quantizedValue));
         } else {
           quantized[d] = 0;
         }

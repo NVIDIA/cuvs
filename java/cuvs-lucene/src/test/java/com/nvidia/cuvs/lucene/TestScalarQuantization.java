@@ -32,6 +32,7 @@ public class TestScalarQuantization {
                 new float[] {0.5f},
                 new float[] {1.0f}));
 
+    // Quarter-step inputs have exact expected codes after rounding across the 0..127 range.
     assertArrayEquals(new byte[] {0}, quantized.get(0));
     assertArrayEquals(new byte[] {32}, quantized.get(1));
     assertArrayEquals(new byte[] {64}, quantized.get(2));
