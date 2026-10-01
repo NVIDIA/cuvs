@@ -25,6 +25,10 @@ int* n_iter);
 
 X, sample_weight, and centroids must be host-accessible, row-major, C-contiguous DLPack tensors. X and centroids must have dtype float32 or float64, and sample_weight must match X when provided.
 
+Multiple batches use one input buffer per GPU by default. Call cuvsMultiGpuResourcesSetStreamPool(res, 1) to enable double-buffering and transfer/compute overlap; without it execution is correct but serialized. Pinned host memory (for example, from cuvsRMMHostAlloc) is crucial; pageable or unregistered mmap-backed input degrades throughput rapidly.
+
+A per-device memory pool is optional but recommended. Configure both before the fit:
+
 **Parameters**
 
 | Name | Direction | Type | Description |
