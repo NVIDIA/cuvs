@@ -56,6 +56,8 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
   static int NUM_QUERIES_LIMIT = 10;
   static int TOP_K_LIMIT = 64; // TODO This fails beyond 64
   static float[][] dataset;
+  // Whether each document of the dataset was indexed with a vector; only those can be hits.
+  static boolean[] hasVector;
 
   @BeforeClass
   public static void beforeClass() throws Exception {
@@ -77,6 +79,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
     int datasetSize = random.nextInt(DATASET_SIZE_LIMIT) + 1;
     int dimensions = random.nextInt(DIMENSIONS_LIMIT) + 1;
     dataset = generateDataset(random, datasetSize, dimensions);
+    hasVector = new boolean[datasetSize];
     for (int i = 0; i < datasetSize; i++) {
       Document doc = new Document();
       doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
@@ -86,6 +89,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
               < 4; // some documents won't have vectors to test deleted/missing vectors
       if (!skipVector
           || datasetSize < 100) { // about 10th of the documents shouldn't have a single vector
+        hasVector[i] = true;
         doc.add(new KnnFloatVectorField("vector", dataset[i], VectorSimilarityFunction.EUCLIDEAN));
         doc.add(new KnnFloatVectorField("vector2", dataset[i], VectorSimilarityFunction.EUCLIDEAN));
       }
@@ -139,7 +143,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
 
     for (ScoreDoc hit : hits) {
       int doc = Integer.parseInt(reader.storedFields().document(hit.doc).get("id"));
-      assertTrue("Result returned was not in topk*2: " + doc, expected.get(0).contains(doc));
+      assertTrue("Result returned was not in topK*3: " + doc, expected.get(0).contains(doc));
     }
   }
 
@@ -151,6 +155,9 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
     for (float[] query : queries) {
       Map<Integer, Double> distances = new TreeMap<>();
       for (int j = 0; j < dataset.length; j++) {
+        if (hasVector[j] == false) {
+          continue;
+        }
         double distance = 0;
         for (int k = 0; k < dimensions; k++) {
           distance += (query[k] - dataset[j][k]) * (query[k] - dataset[j][k]);
@@ -167,7 +174,7 @@ public class TestCuVSRandomizedVectorSearch extends LuceneTestCase {
               .sorted(Map.Entry.comparingByValue())
               .map(Map.Entry::getKey)
               .toList();
-      neighborsResult.add(neighbors.subList(0, Math.min(topK * 3, dataset.length)));
+      neighborsResult.add(neighbors.subList(0, Math.min(topK * 3, neighbors.size())));
     }
 
     log.log(Level.FINE, "Expected results generated successfully.");
