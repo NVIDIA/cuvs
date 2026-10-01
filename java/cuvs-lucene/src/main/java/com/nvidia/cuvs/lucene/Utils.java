@@ -76,40 +76,6 @@ public class Utils {
     return builder.build();
   }
 
-  /**
-   * Builds a host-memory CuVSMatrix from a list of float vectors.
-   *
-   * <p>Copies vectors directly into native host memory without creating an intermediate {@code
-   * float[][]} on the heap.
-   *
-   * @param data The float vectors
-   * @param dimensions The number of float elements in each vector
-   * @return a host-memory CuVSMatrix
-   */
-  static CuVSHostMatrix createHostFloatMatrix(List<float[]> data, int dimensions) {
-    try (CuVSMatrix.Builder<CuVSHostMatrix> builder =
-        CuVSMatrix.hostBuilder(data.size(), dimensions, CuVSMatrix.DataType.FLOAT)) {
-      for (float[] vector : data) {
-        builder.addVector(vector);
-      }
-      return builder.build();
-    }
-  }
-
-  /**
-   * Builds a host-memory CuVSMatrix from byte vectors without first materializing the list as an
-   * intermediate {@code byte[][]}.
-   */
-  static CuVSHostMatrix createHostByteMatrix(List<byte[]> data, int bytesPerVector) {
-    try (CuVSMatrix.Builder<CuVSHostMatrix> builder =
-        CuVSMatrix.hostBuilder(data.size(), bytesPerVector, CuVSMatrix.DataType.BYTE)) {
-      for (byte[] vector : data) {
-        builder.addVector(vector);
-      }
-      return builder.build();
-    }
-  }
-
   /** Builds a host-memory CuVSMatrix from a 2D byte array. */
   static CuVSHostMatrix createHostByteMatrixFromArray(byte[][] data, int bytesPerVector) {
     try (CuVSMatrix.Builder<CuVSHostMatrix> builder =
