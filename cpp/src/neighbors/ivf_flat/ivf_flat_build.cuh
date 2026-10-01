@@ -349,7 +349,6 @@ void extend(raft::resources const& handle,
                                                                         centroids_view,
                                                                         list_sizes_view,
                                                                         false,
-                                                                        false,
                                                                         utils::mapping<float>{});
         vec_batches.prefetch_next_batch();
         if (enable_prefetch) { raft::resource::sync_stream(handle); }

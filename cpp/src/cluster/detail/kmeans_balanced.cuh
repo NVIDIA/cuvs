@@ -60,11 +60,13 @@ IdxT centers_dim(IdxT dim, bool is_packed_binary)
 {
   RAFT_EXPECTS(dim > 0, "The number of features must be strictly positive");
   if (!is_packed_binary) { return dim; }
-  RAFT_EXPECTS((std::is_same_v<T, uint8_t>),
-               "Packed binary mode is only supported for uint8_t data type");
-  RAFT_EXPECTS(dim <= std::numeric_limits<IdxT>::max() / 8,
-               "The chosen index type cannot represent the expanded binary dimension");
-  return dim * 8;
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    RAFT_EXPECTS(dim <= std::numeric_limits<IdxT>::max() / 8,
+                 "The chosen index type cannot represent the expanded binary dimension");
+    return dim * 8;
+  } else {
+    RAFT_FAIL("Packed binary mode is only supported for uint8_t data type");
+  }
 }
 
 template <typename MathT, typename IdxT>

@@ -270,13 +270,16 @@ EXTERN_TEMPLATE_BUILD_CLUSTERS(
  * @param[in]  X              Dataset for which to calculate cluster centers. The data must be in
  *                            row-major format. [dim = n_samples x n_features]
  * @param[in]  labels         The input labels [dim = n_samples]
- * @param[out] centroids      The output centroids [dim = n_clusters x n_features]
+ * @param[out] centroids      The output centroids
+ *                            [dim = n_clusters x
+ *                            (is_packed_binary ? 8 * n_features : n_features)]
  * @param[out] cluster_sizes  Size of each cluster [dim = n_clusters]
  * @param[in]  reset_counters Whether to clear the output arrays before calculating.
  *                            When set to `false`, this function may be used to update existing
  *                            centers and sizes using the weighted average principle.
  * @param[in]  mapping_op     (optional) Functor to convert from the input datatype to the
  *                            arithmetic datatype. If DataT == MathT, this must be the identity.
+ * @param[in]  is_packed_binary Treat uint8_t X as packed bits. Requires DataT == uint8_t.
  */
 template <typename DataT,
           typename MathT,
@@ -290,8 +293,8 @@ void calc_centers_and_sizes(const raft::resources& handle,
                             raft::device_matrix_view<MathT, IndexT> centroids,
                             raft::device_vector_view<CounterT, IndexT> cluster_sizes,
                             bool reset_counters   = true,
-                            bool is_packed_binary = false,
-                            MappingOpT mapping_op = raft::identity_op())
+                            MappingOpT mapping_op = raft::identity_op(),
+                            bool is_packed_binary = false)
 {
   RAFT_EXPECTS(X.extent(0) == labels.extent(0),
                "Number of rows in dataset and labels are different");
