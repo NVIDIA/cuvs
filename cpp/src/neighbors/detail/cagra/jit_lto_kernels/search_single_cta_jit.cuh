@@ -46,6 +46,74 @@ using cuvs::neighbors::detail::sample_filter;
 using cuvs::neighbors::cagra::detail::device::compute_distance_to_child_nodes_jit;
 using cuvs::neighbors::cagra::detail::device::compute_distance_to_random_nodes_jit;
 
+template <typename DataT, typename IndexT, typename DistanceT>
+struct device_graph_provider {
+  const IndexT* graph;
+  std::uint32_t degree;
+
+  RAFT_DEVICE_INLINE_FUNCTION void initialize() const {}
+
+  RAFT_DEVICE_INLINE_FUNCTION auto candidate_capacity(std::uint32_t search_width) const
+    -> std::uint32_t
+  {
+    return search_width * degree;
+  }
+
+  RAFT_DEVICE_INLINE_FUNCTION auto result_buffer_size(std::uint32_t base_size, std::uint32_t) const
+    -> std::uint32_t
+  {
+    return base_size;
+  }
+
+  RAFT_DEVICE_INLINE_FUNCTION auto seed_pointer(const IndexT* seeds,
+                                                std::uint32_t num_seeds,
+                                                std::uint32_t query_id) const -> const IndexT*
+  {
+    return seeds == nullptr ? nullptr : seeds + static_cast<std::size_t>(num_seeds) * query_id;
+  }
+
+  RAFT_DEVICE_INLINE_FUNCTION auto initial_candidate_count(std::uint32_t candidate_count,
+                                                           std::uint32_t,
+                                                           std::uint32_t,
+                                                           std::uint32_t) const -> std::uint32_t
+  {
+    return candidate_count;
+  }
+
+  RAFT_DEVICE_INLINE_FUNCTION auto initial_distillation_count(std::uint32_t count,
+                                                              std::uint32_t) const -> std::uint32_t
+  {
+    return count;
+  }
+
+  RAFT_DEVICE_INLINE_FUNCTION auto expand(
+    IndexT* result_indices,
+    DistanceT* result_distances,
+    const dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dataset_desc,
+    IndexT* visited_hashmap,
+    std::uint32_t visited_hash_bitlen,
+    const IndexT* parent_indices,
+    const IndexT* internal_topk,
+    std::uint32_t search_width) const -> std::uint32_t
+  {
+    compute_distance_to_child_nodes_jit<IndexT, DistanceT, DataT>(result_indices,
+                                                                  result_distances,
+                                                                  dataset_desc,
+                                                                  graph,
+                                                                  degree,
+                                                                  visited_hashmap,
+                                                                  visited_hash_bitlen,
+                                                                  static_cast<IndexT*>(nullptr),
+                                                                  0u,
+                                                                  parent_indices,
+                                                                  internal_topk,
+                                                                  search_width);
+    return search_width * degree;
+  }
+
+  RAFT_DEVICE_INLINE_FUNCTION void finalize() const {}
+};
+
 // JIT search_core - setup_workspace/compute_distance via function pointers
 template <bool TOPK_BY_BITONIC_SORT,
           bool BITONIC_SORT_AND_MERGE_MULTI_WARPS,
@@ -53,13 +121,14 @@ template <bool TOPK_BY_BITONIC_SORT,
           typename IndexT,
           typename DistanceT,
           typename SourceIndexT,
+          typename GraphProviderT,
           typename BitsetT = cagra_bitset<SourceIndexT>>
 RAFT_DEVICE_INLINE_FUNCTION void search_core(
   uintptr_t result_indices_ptr,
   DistanceT* const result_distances_ptr,
   const std::uint32_t top_k,
   const DataT* const queries_ptr,
-  const IndexT* const knn_graph,
+  GraphProviderT graph_provider,
   const std::uint32_t graph_degree,
   const SourceIndexT* source_indices_ptr,
   const unsigned num_distilation,
@@ -111,7 +180,10 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
   extern __shared__ uint8_t smem[];
 
   // Layout of result_buffer
-  const auto result_buffer_size    = internal_topk + (search_width * graph_degree);
+  const auto candidate_capacity      = graph_provider.candidate_capacity(search_width);
+  const auto base_result_buffer_size = internal_topk + candidate_capacity;
+  const auto result_buffer_size =
+    graph_provider.result_buffer_size(base_result_buffer_size, num_seeds);
   const auto result_buffer_size_32 = raft::round_up_safe<uint32_t>(result_buffer_size, 32);
   const auto small_hash_size       = hashmap::get_size(small_hash_bitlen);
 
@@ -150,19 +222,24 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
     local_visited_hashmap_ptr = visited_hashmap_ptr + (hashmap::get_size(hash_bitlen) * blockIdx.y);
   }
   hashmap::init(local_visited_hashmap_ptr, hash_bitlen, 0);
+  graph_provider.initialize();
   __syncthreads();
   _CLK_REC(clk_init);
 
   // compute distance to randomly selecting nodes using JIT version
   _CLK_START();
-  const IndexT* const local_seed_ptr = seed_ptr ? seed_ptr + (num_seeds * query_id) : nullptr;
+  const IndexT* const local_seed_ptr = graph_provider.seed_pointer(seed_ptr, num_seeds, query_id);
+  auto const initial_candidate_count =
+    graph_provider.initial_candidate_count(result_buffer_size, num_seeds, 0, 1);
+  auto const initial_distillation_count =
+    graph_provider.initial_distillation_count(num_distilation, num_seeds);
   // Get dataset_size directly from base descriptor
   IndexT dataset_size = smem_desc->size;
   compute_distance_to_random_nodes_jit<IndexT, DistanceT, DataT>(result_indices_buffer,
                                                                  result_distances_buffer,
                                                                  smem_desc,
-                                                                 result_buffer_size,
-                                                                 num_distilation,
+                                                                 initial_candidate_count,
+                                                                 initial_distillation_count,
                                                                  rand_xor_mask,
                                                                  local_seed_ptr,
                                                                  num_seeds,
@@ -173,10 +250,16 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
                                                                  0,
                                                                  1,
                                                                  graph_size);
+  for (std::uint32_t i = initial_candidate_count + threadIdx.x; i < result_buffer_size;
+       i += blockDim.x) {
+    result_indices_buffer[i]   = raft::upper_bound<IndexT>();
+    result_distances_buffer[i] = raft::upper_bound<DistanceT>();
+  }
   __syncthreads();
   _CLK_REC(clk_compute_1st_distance);
 
-  std::uint32_t iter = 0;
+  std::uint32_t iter                             = 0;
+  std::uint32_t computed_children_this_iteration = result_buffer_size - internal_topk;
   while (1) {
     // sort
     if constexpr (TOPK_BY_BITONIC_SORT) {
@@ -225,7 +308,7 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
         result_distances_buffer + internal_topk,
         result_indices_buffer + internal_topk,
         max_candidates,
-        search_width * graph_degree,
+        computed_children_this_iteration,
         topk_ws,
         (iter == 0));
       __syncthreads();
@@ -280,19 +363,15 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
     __syncthreads();
     // compute the norms between child nodes and query node using JIT version
     _CLK_START();
-    compute_distance_to_child_nodes_jit<IndexT, DistanceT, DataT>(
-      result_indices_buffer + internal_topk,
-      result_distances_buffer + internal_topk,
-      smem_desc,
-      knn_graph,
-      graph_degree,
-      local_visited_hashmap_ptr,
-      hash_bitlen,
-      (IndexT*)nullptr,
-      0u,
-      parent_list_buffer,
-      result_indices_buffer,
-      search_width);
+    computed_children_this_iteration =
+      graph_provider.expand(result_indices_buffer + internal_topk,
+                            result_distances_buffer + internal_topk,
+                            smem_desc,
+                            local_visited_hashmap_ptr,
+                            hash_bitlen,
+                            parent_list_buffer,
+                            result_indices_buffer,
+                            search_width);
     // Critical: __syncthreads() must be reached by ALL threads
     // If any thread is stuck in compute_distance_to_child_nodes_jit, this will hang
     __syncthreads();
@@ -322,11 +401,13 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
     iter++;
   }
 
+  graph_provider.finalize();
+
   // Post process for filtering - use extern sample_filter function
   constexpr IndexT index_msb_1_mask = utils::gen_index_msb_1_mask<IndexT>::value;
   const IndexT invalid_index        = utils::get_max_value<IndexT>();
 
-  for (unsigned i = threadIdx.x; i < internal_topk + search_width * graph_degree; i += blockDim.x) {
+  for (unsigned i = threadIdx.x; i < internal_topk + candidate_capacity; i += blockDim.x) {
     const auto node_id = result_indices_buffer[i] & ~index_msb_1_mask;
     if (node_id != (invalid_index & ~index_msb_1_mask) &&
         !sample_filter<SourceIndexT>(query_id + query_id_offset,
@@ -387,7 +468,7 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
       result_distances_buffer + internal_topk,
       result_indices_buffer + internal_topk,
       max_candidates,
-      search_width * graph_degree,
+      computed_children_this_iteration,
       topk_ws,
       (iter == 0));
   }
@@ -418,9 +499,13 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
     if constexpr (TOPK_BY_BITONIC_SORT) { ii = device::swizzling(i); }
     if (result_distances_ptr != nullptr) { result_distances_ptr[j] = result_distances_buffer[ii]; }
 
-    auto internal_index =
-      result_indices_buffer[ii] & ~index_msb_1_mask;  // clear most significant bit
-    auto source_index = to_source_index(internal_index);
+    auto const result_index = result_indices_buffer[ii];
+    if (result_index == invalid_index) {
+      write_indices(result_indices_ptr, j, static_cast<SourceIndexT>(invalid_index));
+      continue;
+    }
+    auto internal_index = result_index & ~index_msb_1_mask;  // clear most significant bit
+    auto source_index   = to_source_index(internal_index);
     write_indices(result_indices_ptr, j, source_index);
   }
   if (threadIdx.x == 0 && num_executed_iterations != nullptr) {
@@ -495,33 +580,34 @@ __device__ void search_kernel_jit(
               DataT,
               IndexT,
               DistanceT,
-              SourceIndexT>(result_indices_ptr,
-                            result_distances_ptr,
-                            top_k,
-                            queries_ptr,
-                            knn_graph,
-                            graph_degree,
-                            source_indices_ptr,
-                            num_distilation,
-                            rand_xor_mask,
-                            seed_ptr,
-                            num_seeds,
-                            visited_hashmap_ptr,
-                            max_candidates,
-                            max_itopk,
-                            internal_topk,
-                            search_width,
-                            min_iteration,
-                            max_iteration,
-                            num_executed_iterations,
-                            hash_bitlen,
-                            small_hash_bitlen,
-                            small_hash_reset_interval,
-                            query_id,
-                            query_id_offset,
-                            dataset_desc,
-                            filter_payload,
-                            graph_size);
+              SourceIndexT>(
+    result_indices_ptr,
+    result_distances_ptr,
+    top_k,
+    queries_ptr,
+    device_graph_provider<DataT, IndexT, DistanceT>{knn_graph, graph_degree},
+    graph_degree,
+    source_indices_ptr,
+    num_distilation,
+    rand_xor_mask,
+    seed_ptr,
+    num_seeds,
+    visited_hashmap_ptr,
+    max_candidates,
+    max_itopk,
+    internal_topk,
+    search_width,
+    min_iteration,
+    max_iteration,
+    num_executed_iterations,
+    hash_bitlen,
+    small_hash_bitlen,
+    small_hash_reset_interval,
+    query_id,
+    query_id_offset,
+    dataset_desc,
+    filter_payload,
+    graph_size);
 }
 
 // JIT persistent device implementation - called from extern "C" __global__ entry in generated .cu
@@ -605,33 +691,34 @@ __device__ void search_single_cta_p_impl(
                 DataT,
                 IndexT,
                 DistanceT,
-                SourceIndexT>(result_indices_ptr,
-                              result_distances_ptr,
-                              top_k,
-                              queries_ptr,
-                              knn_graph,
-                              graph_degree,
-                              source_indices_ptr,
-                              num_distilation,
-                              rand_xor_mask,
-                              seed_ptr,
-                              num_seeds,
-                              visited_hashmap_ptr,
-                              max_candidates,
-                              max_itopk,
-                              internal_topk,
-                              search_width,
-                              min_iteration,
-                              max_iteration,
-                              num_executed_iterations,
-                              hash_bitlen,
-                              small_hash_bitlen,
-                              small_hash_reset_interval,
-                              query_id,
-                              query_id_offset,
-                              dataset_desc,
-                              filter_payload,
-                              graph_size);
+                SourceIndexT>(
+      result_indices_ptr,
+      result_distances_ptr,
+      top_k,
+      queries_ptr,
+      device_graph_provider<DataT, IndexT, DistanceT>{knn_graph, graph_degree},
+      graph_degree,
+      source_indices_ptr,
+      num_distilation,
+      rand_xor_mask,
+      seed_ptr,
+      num_seeds,
+      visited_hashmap_ptr,
+      max_candidates,
+      max_itopk,
+      internal_topk,
+      search_width,
+      min_iteration,
+      max_iteration,
+      num_executed_iterations,
+      hash_bitlen,
+      small_hash_bitlen,
+      small_hash_reset_interval,
+      query_id,
+      query_id_offset,
+      dataset_desc,
+      filter_payload,
+      graph_size);
 
     // make sure all writes are visible even for the host
     //     (e.g. when result buffers are in pinned memory)
@@ -709,33 +796,34 @@ __device__ void search_single_cta_mp_impl(
               DataT,
               IndexT,
               DistanceT,
-              SourceIndexT>(tagged_indices_ptr,
-                            part_result_distances,
-                            top_k,
-                            queries_ptr,
-                            part.graph,
-                            part.graph_degree,
-                            static_cast<const SourceIndexT*>(nullptr),
-                            num_distilation,
-                            rand_xor_mask,
-                            static_cast<const IndexT*>(nullptr),
-                            num_seeds,
-                            part_hashmap_ptr,
-                            max_candidates,
-                            max_itopk,
-                            internal_topk,
-                            search_width,
-                            min_iteration,
-                            max_iteration,
-                            num_executed_iterations,
-                            hash_bitlen,
-                            small_hash_bitlen,
-                            small_hash_reset_interval,
-                            query_id,
-                            query_id_offset,
-                            part.dataset_desc,
-                            filter_payload,
-                            /*graph_size=*/IndexT{0});
+              SourceIndexT>(
+    tagged_indices_ptr,
+    part_result_distances,
+    top_k,
+    queries_ptr,
+    device_graph_provider<DataT, IndexT, DistanceT>{part.graph, part.graph_degree},
+    part.graph_degree,
+    static_cast<const SourceIndexT*>(nullptr),
+    num_distilation,
+    rand_xor_mask,
+    static_cast<const IndexT*>(nullptr),
+    num_seeds,
+    part_hashmap_ptr,
+    max_candidates,
+    max_itopk,
+    internal_topk,
+    search_width,
+    min_iteration,
+    max_iteration,
+    num_executed_iterations,
+    hash_bitlen,
+    small_hash_bitlen,
+    small_hash_reset_interval,
+    query_id,
+    query_id_offset,
+    part.dataset_desc,
+    filter_payload,
+    /*graph_size=*/IndexT{0});
 }
 
 }  // namespace cuvs::neighbors::cagra::detail::single_cta_search

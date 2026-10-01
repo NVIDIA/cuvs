@@ -22,6 +22,12 @@ rapids_cuda_init_architectures(test_cuvs)
 project(test_cuvs LANGUAGES CXX CUDA)
 find_package(Threads)
 
+option(CUVS_ENABLE_FLOWANN_SEARCH "Build the experimental FlowANN search implementation" OFF)
+option(CUVS_ENABLE_FLOWANN_BUILD "Build the experimental FlowANN integrated builder" OFF)
+if(CUVS_ENABLE_FLOWANN_BUILD AND NOT CUVS_ENABLE_FLOWANN_SEARCH)
+  message(FATAL_ERROR "CUVS_ENABLE_FLOWANN_BUILD requires CUVS_ENABLE_FLOWANN_SEARCH")
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 20)
@@ -53,6 +59,22 @@ add_executable(IVF_FLAT_EXAMPLE src/ivf_flat_example.cu)
 add_executable(IVF_PQ_EXAMPLE src/ivf_pq_example.cu)
 add_executable(VAMANA_EXAMPLE src/vamana_example.cu)
 add_executable(SCANN_EXAMPLE src/scann_example.cu)
+if(CUVS_ENABLE_FLOWANN_SEARCH AND NOT TARGET FLOWANN_BENCHMARK)
+  find_package(OpenMP REQUIRED COMPONENTS CXX CUDA)
+  add_executable(FLOWANN_BENCHMARK src/flowann_benchmark.cu)
+  target_link_libraries(
+    FLOWANN_BENCHMARK
+    PRIVATE cuvs::cuvs OpenMP::OpenMP_CXX OpenMP::OpenMP_CUDA
+            $<TARGET_NAME_IF_EXISTS:GDRCopy::GDRCopy> $<TARGET_NAME_IF_EXISTS:conda_env>
+  )
+endif()
+if(CUVS_ENABLE_FLOWANN_BUILD AND NOT TARGET FLOWANN_BUILD_BENCHMARK)
+  add_executable(FLOWANN_BUILD_BENCHMARK src/flowann_build_benchmark.cu)
+  target_link_libraries(
+    FLOWANN_BUILD_BENCHMARK PRIVATE cuvs::cuvs OpenMP::OpenMP_CUDA
+                                    $<TARGET_NAME_IF_EXISTS:conda_env>
+  )
+endif()
 
 # `$<TARGET_NAME_IF_EXISTS:conda_env>` is a generator expression that ensures that targets are
 # installed in a conda environment, if one exists
