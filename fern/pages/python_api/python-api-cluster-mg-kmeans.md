@@ -16,6 +16,15 @@ def fit( KMeansParams params, X, centroids=None, sample_weights=None, resources=
 
 Find clusters with single-node multi-GPU k-means using host data.
 
+Multiple host batches use one input buffer per GPU by default. Configure
+``resources.set_stream_pool(1)`` to enable double-buffering and
+transfer/compute overlap; without it, execution is correct but serialized.
+Pinned host memory is crucial for performance: pageable or unregistered
+memory-mapped input degrades throughput rapidly.
+
+A per-device memory pool is optional but recommended. Configure both pools
+before calling ``fit``.
+
 **Parameters**
 
 | Name | Type | Description |
@@ -32,3 +41,23 @@ FitOutput
 ``centroids`` is a host NumPy array containing the computed centroids,
 ``inertia`` is the final objective value, and ``n_iter`` is the number
 of iterations run.
+
+**Examples**
+
+```python
+>>> import numpy as np
+>>> import cupyx
+>>> from cuvs.cluster.kmeans import KMeansParams
+>>> from cuvs.cluster.mg import kmeans
+>>> from cuvs.common import MultiGpuResources
+>>> X = cupyx.empty_pinned((10_000_000, 128), dtype=np.float32)
+>>> _ = np.random.default_rng().random(
+...     X.shape, dtype=np.float32, out=X)
+>>> params = KMeansParams(n_clusters=1000,
+...                       device_buffer_samples=1_000_000)
+>>> resources = MultiGpuResources()
+>>> resources.set_memory_pool(80)
+>>> resources.set_stream_pool(1)
+>>> result = kmeans.fit(params, X, resources=resources)
+>>> resources.sync()
+```

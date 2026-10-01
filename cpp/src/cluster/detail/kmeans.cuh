@@ -86,7 +86,8 @@ void cluster_cost(
     cuvs::distance::DistanceType::L2Expanded,
     n_samples,
     centroids.extent(0),
-    workspace);
+    workspace,
+    cuvs::distance::detail::Top1nnBackend::Stable);
 
   if (sample_weight.has_value()) {
     raft::linalg::map(
@@ -734,8 +735,7 @@ void kmeans_fit(
   DataT* cur_centroids_ptr = cur_centroids_buf.data();
   DataT* new_centroids_ptr = new_centroids_buf.data();
 
-  auto minClusterAndDistance = raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(
-    handle, device_buffer_samples);
+  rmm::device_uvector<char> assignment_output(0, stream);
   auto minClusterDistance = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
   const IndexT l2_norm_size = data_on_device ? n_samples : device_buffer_samples;
   auto L2NormBatch          = raft::make_device_vector<DataT, IndexT>(handle, l2_norm_size);
@@ -748,11 +748,13 @@ void kmeans_fit(
   auto batch_cost         = raft::make_device_scalar<DataT>(handle, DataT{0});
   rmm::device_uvector<char> batch_workspace(device_buffer_samples, stream);
 
-  auto batch_mr          = raft::resource::get_large_workspace_resource_ref(handle);
-  auto batch_copy_stream = cuvs::spatial::knn::detail::utils::get_prefetch_stream(handle).first;
+  auto batch_mr = raft::resource::get_large_workspace_resource_ref(handle);
+  auto [batch_copy_stream, enable_prefetch] =
+    cuvs::spatial::knn::detail::utils::get_prefetch_stream(handle);
+  const std::size_t recycle_offset = enable_prefetch ? 2 : 1;
 
   kmeans_batch_loader<DataT, IndexT, data_on_device> data_batches(
-    handle, X, device_buffer_samples, batch_copy_stream, batch_mr);
+    handle, X, device_buffer_samples, batch_copy_stream, batch_mr, enable_prefetch);
   // Host-path weight batches: only materialized when weights are provided and
   // the data resides on host
   std::optional<kmeans_batch_loader<DataT, IndexT, false>> weight_batches;
@@ -761,7 +763,7 @@ void kmeans_fit(
       auto weight_view =
         raft::make_host_matrix_view<const DataT, IndexT>(weight_ptr, n_samples, IndexT{1});
       weight_batches.emplace(
-        handle, weight_view, device_buffer_samples, batch_copy_stream, batch_mr);
+        handle, weight_view, device_buffer_samples, batch_copy_stream, batch_mr, enable_prefetch);
     } else {
       raft::matrix::fill(handle, batch_weights_buf.view(), DataT{1});
     }
@@ -912,15 +914,14 @@ void kmeans_fit(
           data_batch.data(), cur_batch_size, n_features);
         auto batch_weights_view =
           cur_batch_weights(static_cast<IndexT>(data_batch.offset()), wt_data, cur_batch_size);
-        auto minCAD_view = raft::make_device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT>(
-          minClusterAndDistance.data_handle(), cur_batch_size);
 
         if constexpr (!data_on_device) {
           if (need_compute_norms) { compute_batch_norms(data_batch.data(), cur_batch_size); }
         }
 
-        // An already-full pipeline makes this a no-op. During cold fill, submit the first real
-        // consumer before making the second H2D eligible, so CUDA can dispatch both at batch-ready.
+        // An already-full or single-buffer pipeline makes this a no-op. During two-buffer cold
+        // fill, submit the first real consumer before making the second H2D eligible, so CUDA can
+        // dispatch both at batch-ready.
         prefetch_batch((batch_pos + 1) % data_batches.num_batches());
 
         const auto l2_norm_offset =
@@ -935,7 +936,7 @@ void kmeans_fit(
                                      metric,
                                      iter_params.batch_samples,
                                      iter_params.batch_centroids,
-                                     minCAD_view,
+                                     assignment_output,
                                      l2_const_view,
                                      L2NormBuf_OR_DistBuf,
                                      ws,
@@ -945,9 +946,10 @@ void kmeans_fit(
                                      batch_workspace,
                                      batch_cost.view());
 
-        // The slot is reusable only after every batch consumer above has been submitted. Refill it
-        // with the batch two positions ahead; modulo arithmetic naturally crosses pass boundaries.
-        const auto next_batch_pos = (batch_pos + 2) % data_batches.num_batches();
+        // The slot is reusable only after every batch consumer above has been submitted. With two
+        // buffers the other slot already holds the next batch; with one buffer, refill this slot
+        // with that next batch. Modulo arithmetic naturally crosses pass boundaries.
+        const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
         data_batches.recycle(data_batch, next_batch_pos);
         if (weight_batch.has_value()) { weight_batches->recycle(*weight_batch, next_batch_pos); }
       }
@@ -983,8 +985,8 @@ void kmeans_fit(
       raft::copy(handle,
                  raft::make_pinned_scalar_view(h_done_flag.data_handle()),
                  raft::make_device_scalar_view<const int>(d_done_flag.data_handle()));
-      // The next pass's first two input batches are already in flight. The compute stream still
-      // serializes centroid finalization and convergence before it can consume them.
+      // The next pass's input pipeline is already staged. The compute stream still serializes
+      // centroid finalization and convergence before it can consume it.
     }
 
     {
@@ -1033,9 +1035,9 @@ void kmeans_fit(
                           stream);
 
         const bool needs_future_batch =
-          batch_pos + 2 < data_batches.num_batches() || seed_iter + 1 < n_init;
+          batch_pos + recycle_offset < data_batches.num_batches() || seed_iter + 1 < n_init;
         if (needs_future_batch) {
-          const auto next_batch_pos = (batch_pos + 2) % data_batches.num_batches();
+          const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
           data_batches.recycle(data_batch, next_batch_pos);
           if (weight_batch.has_value()) { weight_batches->recycle(*weight_batch, next_batch_pos); }
         } else {
@@ -1151,62 +1153,45 @@ void kmeans_predict(raft::resources const& handle,
       raft::make_const_mdspan(weight.view()));
   }
 
-  auto minClusterAndDistance =
-    raft::make_device_vector<raft::KeyValuePair<IndexT, DataT>, IndexT>(handle, n_samples);
+  rmm::device_uvector<char> assignment_output(0, stream);
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
 
-  // L2 norm of X: ||x||^2
   auto L2NormX = raft::make_device_vector<DataT, IndexT>(handle, n_samples);
   if (metric == cuvs::distance::DistanceType::L2Expanded ||
       metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
     raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
   }
 
-  // computes minClusterAndDistance[0:n_samples) where  minClusterAndDistance[i]
-  // is a <key, value> pair where
-  //   'key' is index to a sample in 'centroids' (index of the nearest
-  //   centroid) and 'value' is the distance between the sample 'X[i]' and the
-  //   'centroid[key]'
   auto l2normx_view =
     raft::make_device_vector_view<const DataT, IndexT>(L2NormX.data_handle(), n_samples);
-  cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(
-    handle,
-    X,
-    centroids,
-    minClusterAndDistance.view(),
-    l2normx_view,
-    L2NormBuf_OR_DistBuf,
-    pams.metric,
-    pams.batch_samples,
-    pams.batch_centroids,
-    workspace);
+  const auto result =
+    cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(handle,
+                                                                               X,
+                                                                               centroids,
+                                                                               assignment_output,
+                                                                               l2normx_view,
+                                                                               L2NormBuf_OR_DistBuf,
+                                                                               pams.metric,
+                                                                               pams.batch_samples,
+                                                                               pams.batch_centroids,
+                                                                               workspace);
 
-  // calculate cluster cost phi_x(C)
-  rmm::device_scalar<DataT> clusterCostD(stream);
-  raft::linalg::map(
-    handle,
-    minClusterAndDistance.view(),
-    [=] __device__(const raft::KeyValuePair<IndexT, DataT> kvp, DataT wt) {
-      raft::KeyValuePair<IndexT, DataT> res;
-      res.value = kvp.value * wt;
-      res.key   = kvp.key;
-      return res;
-    },
-    raft::make_const_mdspan(minClusterAndDistance.view()),
-    raft::make_const_mdspan(weight.view()));
+  cuvs::cluster::kmeans::detail::copyClusterLabels(handle, result, labels.data_handle());
 
-  cuvs::cluster::kmeans::detail::computeClusterCost(
-    handle,
-    minClusterAndDistance.view(),
-    workspace,
-    raft::make_device_scalar_view(clusterCostD.data()),
-    raft::value_op{},
-    raft::add_op{});
-
-  raft::linalg::map(
-    handle, labels, raft::key_op{}, raft::make_const_mdspan(minClusterAndDistance.view()));
-
-  inertia[0] = clusterCostD.value(stream);
+  if (result.plan().backend != cuvs::distance::detail::Top1nnBackend::Cutile) {
+    rmm::device_scalar<DataT> clusterCostD(stream);
+    cuvs::cluster::kmeans::detail::weightAndComputeClusterCost(
+      handle,
+      result,
+      raft::make_const_mdspan(weight.view()),
+      workspace,
+      raft::make_device_scalar_view(clusterCostD.data()));
+    inertia[0] = clusterCostD.value(stream);
+  } else {
+    auto stable_weights = std::optional<raft::device_vector_view<const DataT, IndexT>>{
+      raft::make_const_mdspan(weight.view())};
+    cuvs::cluster::kmeans::cluster_cost(handle, X, centroids, inertia, stable_weights);
+  }
 }
 
 template <typename DataT, typename IndexT = int>
