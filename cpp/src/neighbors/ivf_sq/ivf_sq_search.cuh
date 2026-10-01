@@ -353,7 +353,8 @@ void search_impl(raft::resources const& handle,
                  int64_t* neighbors,
                  float* distances,
                  rmm::device_async_resource_ref search_mr,
-                 IvfSampleFilterT sample_filter)
+                 IvfSampleFilterT sample_filter,
+                 cuvs::selection::SelectAlgo select_algo)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
   auto dim    = index.dim();
@@ -480,7 +481,9 @@ void search_impl(raft::resources const& handle,
     raft::make_device_matrix_view<float, int64_t>(coarse_distances_dev.data(), n_queries, n_probes),
     raft::make_device_matrix_view<uint32_t, int64_t>(
       coarse_indices_dev.data(), n_queries, n_probes),
-    coarse_select_min);
+    coarse_select_min,
+    false,
+    select_algo);
 
   rmm::device_uvector<uint32_t> num_samples(n_queries, stream, search_mr);
   rmm::device_uvector<uint32_t> chunk_index(n_queries_probes, stream, search_mr);
@@ -571,7 +574,9 @@ void search_impl(raft::resources const& handle,
         raft::make_device_matrix_view<const uint32_t, int64_t>(indices_tmp.data(), n_queries, cols),
         raft::make_device_matrix_view<float, int64_t>(distances, n_queries, k),
         raft::make_device_matrix_view<uint32_t, int64_t>(neighbors_uint32_ptr, n_queries, k),
-        /*select_min=*/true);
+        /*select_min=*/true,
+        false,
+        select_algo);
     }
   } else {
     // --- Fallback: materialize all distances ---
@@ -626,7 +631,7 @@ void search_impl(raft::resources const& handle,
       raft::make_device_matrix_view<uint32_t, int64_t>(neighbors_uint32_ptr, n_queries, k),
       /*select_min=*/true,
       false,
-      cuvs::selection::SelectAlgo::kAuto,
+      select_algo,
       num_samples_view);
   }
 
@@ -731,7 +736,8 @@ inline void search_with_filtering(raft::resources const& handle,
                                             neighbors + std::size_t(offset_q) * k,
                                             distances + std::size_t(offset_q) * k,
                                             raft::resource::get_workspace_resource_ref(handle),
-                                            sample_filter);
+                                            sample_filter,
+                                            params.select_algo);
   }
 }
 

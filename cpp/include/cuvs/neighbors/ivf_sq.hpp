@@ -9,6 +9,7 @@
 #include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
+#include <raft/matrix/select_k_types.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
@@ -74,6 +75,8 @@ static_assert(std::is_aggregate_v<index_params>);
 struct search_params : cuvs::neighbors::search_params {
   /** The number of clusters to search. */
   uint32_t n_probes = 20;
+  /** Which k-selection algorithm to use. See `ivf_pq::search_params::select_algo`. */
+  raft::matrix::SelectAlgo select_algo = raft::matrix::SelectAlgo::kAuto;
 };
 
 static_assert(std::is_aggregate_v<search_params>);
