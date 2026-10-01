@@ -2740,7 +2740,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
                           dists_host_buffer_.data_handle(),
                           DEGREE_ON_DEVICE,
                           update_counter_);
-      converged = update_counter_ <=
+      converged = update_counter_ <
                   build_config_.termination_threshold * nrow_ * build_config_.output_graph_degree;
     }
     graph_.sample_graph(false);
@@ -2885,7 +2885,7 @@ void GNND<Data_t, Index_t>::build(
                           dists_host_buffer_.data_handle(),
                           DEGREE_ON_DEVICE,
                           update_counter_);
-      converged = update_counter_ <=
+      converged = update_counter_ <
                   build_config_.termination_threshold * nrow_ * build_config_.output_graph_degree;
     }
     graph_.sample_graph(false);
