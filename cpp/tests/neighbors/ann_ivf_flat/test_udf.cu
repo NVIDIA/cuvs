@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -511,7 +511,7 @@ TEST(IvfFlatUdfInvalidSource, SearchThrowsWhenMetricUdfDoesNotCompile)
 __device__ void not_even_close_to_valid( { { {
 )__"};
 
-  EXPECT_THROW(ivf_flat::search(handle, sp, idx, q_view, out_idx, out_dist), raft::logic_error);
+  EXPECT_THROW(ivf_flat::search(handle, sp, idx, q_view, out_idx, out_dist), std::logic_error);
 }
 
 }  // namespace cuvs::neighbors::ivf_flat

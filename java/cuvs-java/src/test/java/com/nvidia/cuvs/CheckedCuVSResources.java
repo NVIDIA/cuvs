@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -54,6 +54,12 @@ public class CheckedCuVSResources implements CuVSResources {
   public void close() {
     destroyed = true;
     inner.close();
+  }
+
+  @Override
+  public void setWorkspacePool(long sizeBytes) {
+    checkNotDestroyed();
+    inner.setWorkspacePool(sizeBytes);
   }
 
   @Override

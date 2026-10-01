@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -46,7 +46,7 @@ template <typename MathT, typename IdxT>
 ::std::ostream& operator<<(::std::ostream& os, const KmeansBalancedInputs<MathT, IdxT>& p)
 {
   os << "{ " << p.n_rows << ", " << p.n_cols << ", " << p.n_clusters << ", " << p.kb_params.n_iters
-     << static_cast<int>(p.kb_params.metric) << '}' << std::endl;
+     << static_cast<int>(p.kb_params.metric) << '}';
   return os;
 }
 
@@ -59,7 +59,7 @@ template <typename DataT,
 class KmeansBalancedTest : public ::testing::TestWithParam<KmeansBalancedInputs<MathT, IdxT>> {
  protected:
   KmeansBalancedTest()
-    : stream(raft::resource::get_cuda_stream(handle)),
+    : stream(raft::resource::get_cuda_stream(handle).get()),
       d_labels(0, stream),
       d_labels_ref(0, stream),
       d_centroids(0, stream)
@@ -129,8 +129,10 @@ class KmeansBalancedTest : public ::testing::TestWithParam<KmeansBalancedInputs<
 
     raft::resource::sync_stream(handle, stream);
 
-    score = raft::stats::adjusted_rand_index(
-      d_labels_ref.data(), d_labels.data(), p.n_rows, raft::resource::get_cuda_stream(handle));
+    score = raft::stats::adjusted_rand_index(d_labels_ref.data(),
+                                             d_labels.data(),
+                                             p.n_rows,
+                                             raft::resource::get_cuda_stream(handle).get());
 
     if (score < 1.0) {
       std::stringstream ss;
@@ -208,6 +210,23 @@ const auto inputsf_i32 = get_kmeans_balanced_inputs<float, int>();
 const auto inputsf_i64 = get_kmeans_balanced_inputs<float, int64_t>();
 // const auto inputsd_i64 = get_kmeans_balanced_inputs<double, int64_t>();
 const auto inputsf_cosine_i32 = get_kmeans_balanced_cosine_inputs<float, int>();
+const std::vector<KmeansBalancedInputs<float, int64_t>> inputsh_i64 = [] {
+  KmeansBalancedInputs<float, int64_t> l2{};
+  l2.n_rows               = 1000;
+  l2.n_cols               = 32;
+  l2.n_clusters           = 5;
+  l2.kb_params.n_iters    = 20;
+  l2.kb_params.metric     = cuvs::distance::DistanceType::L2Expanded;
+  l2.tol                  = 0.001f;
+  auto cosine             = l2;
+  cosine.kb_params.metric = cuvs::distance::DistanceType::CosineExpanded;
+  return std::vector<KmeansBalancedInputs<float, int64_t>>{l2, cosine};
+}();
+
+struct half_to_float {
+  raft::cast_op<half> reverse_op{};
+  RAFT_INLINE_FUNCTION float operator()(half value) const { return static_cast<float>(value); }
+};
 
 #define KB_TEST(test_type, test_name, test_inputs)         \
   typedef RAFT_DEPAREN(test_type) test_name;               \
@@ -268,6 +287,10 @@ struct i2f_scaler {
   RAFT_INLINE_FUNCTION auto operator()(const DataT& x) const { return op(x); };
 };
 
+KB_TEST((KmeansBalancedTest<half, float, uint32_t, int64_t, half_to_float, true>),
+        KmeansBalancedTestHFU32I64_SEP,
+        inputsh_i64);
+
 KB_TEST((KmeansBalancedTest<int8_t, float, uint32_t, int, i2f_scaler<int8_t, float>, false>),
         KmeansBalancedTestFI8U32I32,
         inputsf_i32);
@@ -282,6 +305,66 @@ TEST(KmeansBalancedBinary, DecodeAcrossByteAndRowBoundaries)
   const cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, int64_t> decode(packed.data());
   for (int64_t i = 0; i < 48; ++i) {
     EXPECT_EQ(decode(i), ((packed[i / 8] >> (i % 8)) & 1) ? 1.0f : -1.0f);
+  }
+}
+
+TEST(KmeansBalancedBinary, MinibatchBudgetAlwaysMakesProgress)
+{
+  raft::resources handle;
+  auto [batch, bytes_per_row] = cuvs::cluster::kmeans::detail::calc_minibatch_size<float, int64_t>(
+    handle, 1, 128, int64_t{1} << 29, cuvs::distance::DistanceType::L2Expanded, true);
+  EXPECT_EQ(batch, 1);
+  EXPECT_GE(bytes_per_row, sizeof(float) * (size_t{1} << 29));
+}
+
+TEST(KmeansBalancedBinary, PackedDonorsPreserveBothBalancingStrategies)
+{
+  raft::resources handle;
+  auto stream          = raft::resource::get_cuda_stream(handle);
+  auto mr              = raft::resource::get_workspace_resource_ref(handle);
+  constexpr int n_rows = 8, n_clusters = 3, packed_dim = 3, expanded_dim = packed_dim * 8;
+  const std::vector<uint8_t> packed(n_rows * packed_dim, 0xa5);
+  const std::vector<int> labels(n_rows, 1);
+  const std::vector<uint32_t> counts{0, n_rows, 0};
+  std::vector<float> initial(n_clusters * expanded_dim, -3.0f);
+  for (int j = 0; j < expanded_dim; ++j) {
+    initial[expanded_dim + j] = ((0xa5 >> (j % 8)) & 1) ? 1.0f : -1.0f;
+  }
+  auto X     = raft::make_device_matrix<uint8_t, int>(handle, n_rows, packed_dim);
+  auto C     = raft::make_device_matrix<float, int>(handle, n_clusters, expanded_dim);
+  auto L     = raft::make_device_vector<int, int>(handle, n_rows);
+  auto sizes = raft::make_device_vector<uint32_t, int>(handle, n_clusters);
+  raft::update_device(X.data_handle(), packed.data(), packed.size(), stream);
+  raft::update_device(L.data_handle(), labels.data(), labels.size(), stream);
+  raft::update_device(sizes.data_handle(), counts.data(), counts.size(), stream);
+  using strategy = cuvs::cluster::kmeans::balanced_donor_selection;
+  for (auto donor_selection : {strategy::SizeSorted, strategy::Random}) {
+    raft::update_device(C.data_handle(), initial.data(), initial.size(), stream);
+    auto decoded =
+      cuvs::cluster::kmeans::detail::make_bitwise_expanded_iterator<float, int>(X.data_handle());
+    ASSERT_TRUE(cuvs::cluster::kmeans::detail::adjust_centers(handle,
+                                                              C.data_handle(),
+                                                              n_clusters,
+                                                              expanded_dim,
+                                                              decoded,
+                                                              n_rows,
+                                                              L.data_handle(),
+                                                              sizes.data_handle(),
+                                                              0.333f,
+                                                              3.0f,
+                                                              0.01f,
+                                                              donor_selection,
+                                                              raft::identity_op{},
+                                                              mr));
+    std::vector<float> actual(initial.size());
+    raft::update_host(actual.data(), C.data_handle(), actual.size(), stream);
+    raft::resource::sync_stream(handle);
+    for (int j = 0; j < expanded_dim; ++j) {
+      EXPECT_EQ(actual[j], initial[expanded_dim + j]);
+      EXPECT_EQ(actual[expanded_dim + j], initial[expanded_dim + j]);
+      EXPECT_EQ(actual[2 * expanded_dim + j],
+                donor_selection == strategy::Random ? initial[expanded_dim + j] : -3.0f);
+    }
   }
 }
 

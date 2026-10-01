@@ -12,13 +12,15 @@
 #include <cuvs/neighbors/common.hpp>
 
 #include "../compute_distance.hpp"  // dataset_descriptor_base_t
-#include "cagra_bitset.cuh"
+#include "../multi_partition_desc.hpp"
+#include "cagra_bitset.cuh"          // multi-partition payload helpers
+#include "cagra_filter_payload.cuh"  // single-partition / UDF payload
 #include "search_single_cta_device_helpers.cuh"
 
 namespace cuvs::neighbors::cagra::detail {
 
 // Function types for extern "C" __global__ JIT entry points — must match cudaLibraryGetKernel /
-// AlgorithmLauncher::dispatch signatures exactly (see static_assert in each *_kernel.cu).
+// rtcx::algorithm_launcher::dispatch signatures exactly (see static_assert in each *_kernel.cu).
 
 template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
 using search_single_cta_kernel_func_t =
@@ -47,9 +49,32 @@ using search_single_cta_kernel_func_t =
        const std::uint32_t,
        const dataset_descriptor_base_t<DataT, IndexT, DistanceT>*,
        const IndexT,
-       cagra_bitset<SourceIndexT>);
+       cagra_sample_filter<SourceIndexT>);
 
 namespace single_cta_search {
+
+template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
+using search_single_cta_mp_kernel_func_t =
+  void(const multi_partition_desc_t<DataT, IndexT, DistanceT>*,
+       const DataT* const,
+       IndexT* const,
+       DistanceT* const,
+       const std::uint32_t,
+       const unsigned,
+       const uint64_t,
+       const std::uint32_t,
+       IndexT* const,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       std::uint32_t* const,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t);
 
 template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
 using search_single_cta_p_kernel_func_t =
@@ -76,11 +101,30 @@ using search_single_cta_p_kernel_func_t =
        const std::uint32_t,
        const std::uint32_t,
        const dataset_descriptor_base_t<DataT, IndexT, DistanceT>*,
-       cagra_bitset<SourceIndexT>);
+       const IndexT,
+       cagra_sample_filter<SourceIndexT>);
 
 }  // namespace single_cta_search
 
 namespace multi_cta_search {
+
+template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
+using search_multi_cta_mp_kernel_func_t =
+  void(const multi_partition_desc_t<DataT, IndexT, DistanceT>*,
+       IndexT* const,
+       DistanceT* const,
+       const DataT* const,
+       const std::uint32_t,
+       const std::uint32_t,
+       const unsigned,
+       const uint64_t,
+       const std::uint32_t,
+       IndexT* const,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t,
+       const std::uint32_t);
 
 template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
 using search_multi_cta_kernel_func_t =
@@ -105,7 +149,7 @@ using search_multi_cta_kernel_func_t =
        std::uint32_t* const,
        const IndexT,
        const std::uint32_t,
-       cagra_bitset<SourceIndexT>);
+       cagra_sample_filter<SourceIndexT>);
 
 }  // namespace multi_cta_search
 
@@ -143,7 +187,7 @@ using compute_distance_to_child_nodes_kernel_func_t =
        IndexT* const,
        DistanceT* const,
        const std::uint32_t,
-       cagra_bitset<SourceIndexT>);
+       cagra_sample_filter<SourceIndexT>);
 
 template <typename IndexT, typename DistanceT, typename SourceIndexT>
 using apply_filter_kernel_func_t = void(const SourceIndexT* const,
@@ -153,7 +197,7 @@ using apply_filter_kernel_func_t = void(const SourceIndexT* const,
                                         const std::uint32_t,
                                         const std::uint32_t,
                                         const std::uint32_t,
-                                        cagra_bitset<SourceIndexT>);
+                                        cagra_sample_filter<SourceIndexT>);
 
 }  // namespace multi_kernel_search
 

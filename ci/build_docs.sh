@@ -4,25 +4,16 @@
 
 set -euo pipefail
 
-rapids-logger "Downloading artifacts from previous jobs"
-CPP_CHANNEL=$(rapids-download-conda-from-github cpp)
-PYTHON_CHANNEL=$(rapids-download-from-github "$(rapids-package-name "conda_python" cuvs --stable --cuda "$RAPIDS_CUDA_VERSION")")
-
-rapids-logger "Create test conda environment"
+rapids-logger "Create docs conda environment"
 . /opt/conda/etc/profile.d/conda.sh
 
 rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 
-RAPIDS_VERSION_MAJOR_MINOR="$(rapids-version-major-minor)"
-export RAPIDS_VERSION_MAJOR_MINOR
-
 rapids-dependency-file-generator \
   --output conda \
   --file-key docs \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION}" \
-  --prepend-channel "${CPP_CHANNEL}" \
-  --prepend-channel "${PYTHON_CHANNEL}" \
   | tee env.yaml
 
 rapids-mamba-retry env create --yes -f env.yaml -n docs
@@ -35,27 +26,40 @@ set -eu
 
 rapids-print-env
 
-RAPIDS_DOCS_DIR="$(mktemp -d)"
-export RAPIDS_DOCS_DIR
+rapids-logger "Validate Fern docs"
 
-rapids-logger "Build CPP docs"
-pushd cpp/doxygen
-doxygen Doxyfile
-popd
+find_pr_number() {
+  local ref
+  for ref in "${RAPIDS_REF_NAME:-}" "${GITHUB_REF:-}" "${GITHUB_REF_NAME:-}"; do
+    if [[ "${ref}" =~ (^|/)pull-request/([0-9]+)$ ]]; then
+      echo "${BASH_REMATCH[2]}"
+      return 0
+    fi
+    if [[ "${ref}" =~ ^refs/pull/([0-9]+)/ ]]; then
+      echo "${BASH_REMATCH[1]}"
+      return 0
+    fi
+    if [[ "${ref}" =~ ^([0-9]+)/merge$ ]]; then
+      echo "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done
+}
 
-rapids-logger "Build Rust docs"
-pushd rust
-LIBCLANG_PATH=$(dirname "$(find "$CONDA_PREFIX" -name libclang.so | head -n 1)")
-export LIBCLANG_PATH
-cargo doc -p cuvs --no-deps
-popd
+FERN_DOCS_MODE="${FERN_DOCS_MODE:-check}"
+FERN_DOCS_ARGS=()
 
-rapids-logger "Build Python docs"
-pushd docs
-make dirhtml
-mv ../rust/target/doc ./build/dirhtml/_static/rust
-mkdir -p "${RAPIDS_DOCS_DIR}/cuvs/"html
-mv build/dirhtml/* "${RAPIDS_DOCS_DIR}/cuvs/html"
-popd
+if [[ "${FERN_DOCS_MODE}" == "preview" ]]; then
+  FERN_PREVIEW_ID="${FERN_DOCS_PREVIEW_ID:-}"
+  if [[ -z "${FERN_PREVIEW_ID}" ]]; then
+    PR_NUMBER="$(find_pr_number || true)"
+    if [[ -n "${PR_NUMBER}" ]]; then
+      FERN_PREVIEW_ID="pr-${PR_NUMBER}"
+    fi
+  fi
+  if [[ -n "${FERN_PREVIEW_ID}" ]]; then
+    FERN_DOCS_ARGS+=(--id "${FERN_PREVIEW_ID}")
+  fi
+fi
 
-RAPIDS_VERSION_NUMBER="${RAPIDS_VERSION_MAJOR_MINOR}" rapids-upload-docs
+fern/build_docs.sh "${FERN_DOCS_MODE}" "${FERN_DOCS_ARGS[@]}"

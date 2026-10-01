@@ -1,21 +1,21 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-#include <cuvs/detail/jit_lto/AlgorithmPlanner.hpp>
-#include <cuvs/detail/jit_lto/FragmentEntry.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>
+#include <rtcx/algorithm_planner.hpp>
+#include <rtcx/fragment_entry.hpp>
 
 namespace cuvs::neighbors::ivf_pq::detail {
 
-struct ComputeSimilarityPlanner : AlgorithmPlanner {
-  inline static LauncherJitCache launcher_jit_cache{};
+struct ComputeSimilarityPlanner : rtcx::algorithm_planner {
+  inline static rtcx::launcher_jit_cache launcher_jit_cache{};
 
-  ComputeSimilarityPlanner() : AlgorithmPlanner("compute_similarity", launcher_jit_cache) {}
+  ComputeSimilarityPlanner() : rtcx::algorithm_planner("compute_similarity", launcher_jit_cache) {}
 
   template <typename OutTag, typename LutTag>
   void add_entrypoint()

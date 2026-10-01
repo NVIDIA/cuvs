@@ -1,6 +1,6 @@
 #=============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 #=============================================================================
@@ -32,11 +32,14 @@ function(find_and_configure_hnswlib)
   rapids_cpm_display_patch_status(hnswlib)
 
   if(NOT TARGET hnswlib::hnswlib)
-    add_library(hnswlib INTERFACE )
+    if(NOT TARGET hnswlib)
+      add_library(hnswlib INTERFACE)
+      target_include_directories(hnswlib INTERFACE
+        "$<BUILD_INTERFACE:${hnswlib_SOURCE_DIR}>"
+        "$<INSTALL_INTERFACE:include>"
+      )
+    endif()
     add_library(hnswlib::hnswlib ALIAS hnswlib)
-    target_include_directories(hnswlib INTERFACE
-     "$<BUILD_INTERFACE:${hnswlib_SOURCE_DIR}>"
-     "$<INSTALL_INTERFACE:include>")
   endif()
 
   if(hnswlib_ADDED)

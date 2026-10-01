@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -28,7 +28,7 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
+    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
   }
 
   // Sample data and query
@@ -63,6 +63,8 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
     CagraIndex index =
         CagraIndex.newBuilder(resources).withDataset(dataset).withIndexParams(indexParams).build();
 
+    // hnswlib search runs on the host, so a host-built index serializes straight from its own
+    // host-resident vectors without a detour through device-padded storage.
     // Saving the HNSW index on to the disk.
     String hnswIndexFileName = UUID.randomUUID() + ".hnsw";
     var hnswIndexPath = Path.of(hnswIndexFileName);
@@ -73,7 +75,10 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
 
       // Use NONE hierarchy since serializeToHNSW creates a base-layer-only index
       HnswIndexParams hnswIndexParams =
-          new HnswIndexParams.Builder().withVectorDimension(2).withHierarchy(HnswHierarchy.NONE).build();
+          new HnswIndexParams.Builder()
+              .withVectorDimension(2)
+              .withHierarchy(HnswHierarchy.NONE)
+              .build();
       try (var inputStreamHNSW = Files.newInputStream(hnswIndexPath)) {
         var hnswIndex =
             HnswIndex.newBuilder(resources)
@@ -120,6 +125,38 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
                 .build();
         indexAndQueryOnce(resources, hnswQuery, expectedResults);
       }
+    }
+  }
+
+  @Test
+  public void testBuildWithoutAce() throws Throwable {
+    List<Map<Integer, Float>> expectedResults =
+        Arrays.asList(
+            Map.of(3, 0.038782578f),
+            Map.of(0, 0.12472608f),
+            Map.of(3, 0.047766715f),
+            Map.of(1, 0.15224178f));
+
+    HnswIndexParams indexParams =
+        new HnswIndexParams.Builder()
+            .withHierarchy(HnswHierarchy.GPU)
+            .withM(2)
+            .withEfConstruction(100)
+            .withMetric(HnswIndexParams.CuvsDistanceType.L2Expanded)
+            .withVectorDimension(2)
+            .build();
+
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        CuVSMatrix datasetMatrix = CuVSMatrix.ofArray(dataset);
+        HnswIndex index = HnswIndex.build(resources, indexParams, datasetMatrix)) {
+      HnswQuery query =
+          new HnswQuery.Builder(resources)
+              .withQueryVectors(queries)
+              .withSearchParams(new HnswSearchParams.Builder().withEF(100).build())
+              .withTopK(1)
+              .build();
+
+      checkResults(expectedResults, index.search(query).getResults());
     }
   }
 

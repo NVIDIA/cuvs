@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -38,6 +38,16 @@ public class SynchronizedCuVSResources implements CuVSResources {
   @Override
   public void close() {
     inner.close();
+  }
+
+  @Override
+  public void setWorkspacePool(long sizeBytes) {
+    lock.lock();
+    try {
+      inner.setWorkspacePool(sizeBytes);
+    } finally {
+      lock.unlock();
+    }
   }
 
   @Override

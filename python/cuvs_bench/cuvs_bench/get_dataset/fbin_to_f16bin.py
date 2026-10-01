@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 
@@ -9,21 +9,27 @@ import sys
 
 import numpy as np
 
+from cuvs_bench._bin_format import read_bin_header, write_bin_header
+
 
 def read_fbin(fname):
-    shape = np.fromfile(fname, dtype=np.uint32, count=2)
-    if float(shape[0]) * shape[1] * 4 > 2_000_000_000:
-        data = np.memmap(fname, dtype=np.float32, offset=8, mode="r").reshape(
-            shape
-        )
+    itemsize = np.dtype(np.float32).itemsize
+    n_rows, n_cols, header_bytes = read_bin_header(fname, itemsize)
+    shape = (n_rows, n_cols)
+    if float(n_rows) * n_cols * itemsize > 2_000_000_000:
+        data = np.memmap(
+            fname, dtype=np.float32, offset=header_bytes, mode="r"
+        ).reshape(shape)
     else:
-        data = np.fromfile(fname, dtype=np.float32, offset=8).reshape(shape)
+        data = np.fromfile(
+            fname, dtype=np.float32, offset=header_bytes
+        ).reshape(shape)
     return data
 
 
 def write_bin(fname, data):
     with open(fname, "wb") as f:
-        np.asarray(data.shape, dtype=np.uint32).tofile(f)
+        write_bin_header(f, data.shape[0], data.shape[1])
         data.tofile(f)
 
 

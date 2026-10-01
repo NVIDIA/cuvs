@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -68,7 +68,7 @@ TEST(BinaryIvfFlatRegression, ExhaustiveScalarAndVectorizedScan)
                                   restored.binary_centers().data_handle(),
                                   idx.binary_centers().size(),
                                   cuvs::Compare<uint8_t>(),
-                                  stream));
+                                  stream.get()));
     index<uint8_t, int64_t> moved(std::move(restored));
     restored = std::move(moved);
     search_params search_params;
@@ -141,7 +141,7 @@ TEST(BinaryIvfFlatRegression, AdaptiveCountsSurviveCloneAndSerialization)
                                 restored.binary_center_counts().data_handle(),
                                 idx.binary_center_counts().size(),
                                 cuvs::Compare<uint32_t>(),
-                                stream));
+                                stream.get()));
   auto more = raft::make_device_matrix<uint8_t, int64_t>(handle, 3, 1);
   auto ids  = raft::make_device_vector<int64_t, int64_t>(handle, 3);
   const std::vector<uint8_t> more_host{0, 0, 0};
@@ -260,7 +260,7 @@ TEST(BinaryIvfFlatRegression, AdaptiveExactTieAfterTrainingOnly)
   EXPECT_EQ(center, 0);  // Exact ties use the same > 0 convention as binary quantization.
 }
 
-TEST(BinaryIvfFlatRegression, LegacyNonbinarySerializationCompatibility)
+TEST(BinaryIvfFlatRegression, LegacySerializationCompatibility)
 {
   raft::resources handle;
   auto stream = raft::resource::get_cuda_stream(handle);
@@ -279,23 +279,63 @@ TEST(BinaryIvfFlatRegression, LegacyNonbinarySerializationCompatibility)
     serialize(handle, serialized, idx);
     char dtype[4];
     serialized.read(dtype, 4);
-    EXPECT_EQ(raft::deserialize_scalar<int>(handle, serialized), 5);
-    std::stringstream legacy;
-    legacy.write(dtype, 4);
-    raft::serialize_scalar(handle, legacy, 4);
-    legacy << serialized.rdbuf();
-    index<uint8_t, int64_t> restored(handle);
-    if (metric == cuvs::distance::DistanceType::BitwiseHamming) {
-      EXPECT_THROW(deserialize(handle, legacy, &restored), raft::logic_error);
-    } else {
+    EXPECT_EQ(raft::deserialize_scalar<int>(handle, serialized), 6);
+    for (int version : {4, 5}) {
+      // Version 4 and the original binary version 5 stored padded list lengths and IDs.
+      // Upstream's nonbinary version 5 stores the actual list length with padded vector data.
+      const uint32_t stored_size = version == 4 || idx.binary_index() ? 32 : 4;
+      std::stringstream legacy;
+      legacy.write(dtype, 4);
+      raft::serialize_scalar(handle, legacy, version);
+      raft::serialize_scalar(handle, legacy, idx.size());
+      raft::serialize_scalar(handle, legacy, idx.dim());
+      raft::serialize_scalar(handle, legacy, idx.n_lists());
+      raft::serialize_scalar(handle, legacy, idx.metric());
+      raft::serialize_scalar(handle, legacy, idx.adaptive_centers());
+      raft::serialize_scalar(handle, legacy, idx.conservative_memory_allocation());
+      index<uint8_t, int64_t> restored(handle);
+      if (version == 4 && idx.binary_index()) {
+        EXPECT_THROW(deserialize(handle, legacy, &restored), raft::logic_error);
+        continue;
+      }
+      if (idx.binary_index()) {
+        raft::serialize_mdspan(handle, legacy, idx.binary_centers());
+      } else {
+        raft::serialize_mdspan(handle, legacy, idx.centers());
+      }
+      raft::serialize_scalar(handle, legacy, idx.center_norms().has_value());
+      if (idx.center_norms()) { raft::serialize_mdspan(handle, legacy, *idx.center_norms()); }
+      raft::serialize_mdspan(handle, legacy, idx.list_sizes());
+      raft::serialize_scalar(handle, legacy, stored_size);
+      raft::serialize_mdspan(
+        handle,
+        legacy,
+        raft::make_device_matrix_view<const uint8_t, uint32_t>(idx.lists()[0]->data_ptr(), 32, 1));
+      raft::serialize_mdspan(handle,
+                             legacy,
+                             raft::make_device_vector_view<const int64_t, uint32_t>(
+                               idx.lists()[0]->indices_ptr(), stored_size));
       deserialize(handle, legacy, &restored);
       ASSERT_EQ(restored.size(), idx.size());
       ASSERT_EQ(restored.metric(), idx.metric());
-      ASSERT_TRUE(cuvs::devArrMatch(idx.centers().data_handle(),
-                                    restored.centers().data_handle(),
-                                    idx.centers().size(),
-                                    cuvs::Compare<float>(),
-                                    stream));
+      if (idx.binary_index()) {
+        ASSERT_TRUE(cuvs::devArrMatch(idx.binary_centers().data_handle(),
+                                      restored.binary_centers().data_handle(),
+                                      idx.binary_centers().size(),
+                                      cuvs::Compare<uint8_t>(),
+                                      stream.get()));
+      } else {
+        ASSERT_TRUE(cuvs::devArrMatch(idx.centers().data_handle(),
+                                      restored.centers().data_handle(),
+                                      idx.centers().size(),
+                                      cuvs::Compare<float>(),
+                                      stream.get()));
+      }
+      ASSERT_TRUE(cuvs::devArrMatch(idx.lists()[0]->indices_ptr(),
+                                    restored.lists()[0]->indices_ptr(),
+                                    data_host.size(),
+                                    cuvs::Compare<int64_t>(),
+                                    stream.get()));
     }
   }
 }

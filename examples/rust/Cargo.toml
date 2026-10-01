@@ -1,9 +1,0 @@
-[package]
-name = "cuvs-rust-example"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-cuvs = ">=24.6.0"
-ndarray = "0.15"
-ndarray-rand = "0.14"

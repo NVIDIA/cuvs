@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -8,6 +8,7 @@
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 
+#include <cuda/stream>
 #include <cuvs/core/bitset.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
@@ -51,7 +52,7 @@ template <typename IdxT>
      << p.nprobe << ", " << p.nlist << ", "
      << cuvs::neighbors::print_metric{static_cast<cuvs::distance::DistanceType>((int)p.metric)}
      << ", " << p.adaptive_centers << "," << p.host_dataset << "," << p.kernel_copy_overlapping
-     << '}' << std::endl;
+     << '}';
   return os;
 }
 
@@ -201,21 +202,21 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
                                         index_loaded.binary_centers().data_handle(),
                                         index_2.binary_centers().size(),
                                         cuvs::Compare<uint8_t>(),
-                                        stream_));
+                                        stream_.get()));
         }
         if (index_2.binary_index() && index_2.adaptive_centers()) {
           ASSERT_TRUE(cuvs::devArrMatch(index_2.binary_center_counts().data_handle(),
                                         index_loaded.binary_center_counts().data_handle(),
                                         index_2.binary_center_counts().size(),
                                         cuvs::Compare<uint32_t>(),
-                                        stream_));
+                                        stream_.get()));
         }
         if (!index_2.binary_index()) {
           ASSERT_TRUE(cuvs::devArrMatch(index_2.centers().data_handle(),
                                         index_loaded.centers().data_handle(),
                                         index_2.centers().size(),
                                         cuvs::Compare<float>(),
-                                        stream_));
+                                        stream_.get()));
         }
 
         cuvs::neighbors::ivf_flat::search(handle_,
@@ -256,12 +257,12 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
                                                                       (IdxT)ps.dim,
                                                                       stream_);
               raft::stats::mean<true, float, uint32_t>(
-                centroid.data(), cluster_data.data(), ps.dim, list_sizes[l], false, stream_);
+                centroid.data(), cluster_data.data(), ps.dim, list_sizes[l], false, stream_.get());
               ASSERT_TRUE(cuvs::devArrMatch(index_2.centers().data_handle() + ps.dim * l,
                                             centroid.data(),
                                             ps.dim,
                                             cuvs::CompareApprox<float>(0.001),
-                                            stream_));
+                                            stream_.get()));
             }
           }
         } else {
@@ -272,13 +273,13 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
                                           idx.binary_centers().data_handle(),
                                           index_2.binary_centers().size(),
                                           cuvs::Compare<uint8_t>(),
-                                          stream_));
+                                          stream_.get()));
           } else {
             ASSERT_TRUE(cuvs::devArrMatch(index_2.centers().data_handle(),
                                           idx.centers().data_handle(),
                                           index_2.centers().size(),
                                           cuvs::Compare<float>(),
-                                          stream_));
+                                          stream_.get()));
           }
         }
       }
@@ -413,7 +414,7 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
                                         extend_data_filtered.data_handle(),
                                         n_elems,
                                         cuvs::Compare<DataT>(),
-                                        stream_));
+                                        stream_.get()));
         }
 
         auto unpacked_flat_codes =
@@ -426,7 +427,7 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
                                       unpacked_flat_codes.data_handle(),
                                       list_size * ps.dim,
                                       cuvs::Compare<DataT>(),
-                                      stream_));
+                                      stream_.get()));
       }
     }
   }
@@ -462,7 +463,7 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
                               indices_naive_dev.data(),
                               IdxT(test_ivf_sample_filter::offset),
                               queries_size,
-                              stream_);
+                              stream_.get());
       raft::update_host(distances_naive.data(), distances_naive_dev.data(), queries_size, stream_);
       raft::update_host(indices_naive.data(), indices_naive_dev.data(), queries_size, stream_);
       raft::resource::sync_stream(handle_);
@@ -569,7 +570,7 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnIvfFlatInputs<IdxT> ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;
@@ -606,7 +607,7 @@ const std::vector<AnnIvfFlatInputs<int64_t>> inputs = {
   {1000, 10000, 2050, 16, 40, 1024, cuvs::distance::DistanceType::InnerProduct, false},
   {1000, 10000, 2050, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
   // TODO: Re-enable test after adjusting parameters for higher recall. See
-  // https://github.com/rapidsai/cuvs/issues/1091
+  // https://github.com/nvidia/cuvs/issues/1091
   // {1000, 10000, 2051, 16, 40, 1024, cuvs::distance::DistanceType::InnerProduct, true},
   {1000, 10000, 2051, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, true},
   {1000, 10000, 2052, 16, 40, 1024, cuvs::distance::DistanceType::InnerProduct, false},

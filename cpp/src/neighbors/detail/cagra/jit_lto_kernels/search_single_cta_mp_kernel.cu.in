@@ -1,0 +1,78 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/cagra/jit_lto_kernels/kernel_def.hpp>
+#include <neighbors/detail/cagra/jit_lto_kernels/search_single_cta_jit.cuh>
+
+namespace {
+
+constexpr bool k_topk_by_bitonic_sort               = @topk_by_bitonic_sort@;
+constexpr bool k_bitonic_sort_and_merge_multi_warps = @bitonic_sort_and_merge_multi_warps@;
+
+using data_t         = @data_type@;
+using index_t        = @index_type@;
+using distance_t     = @distance_type@;
+using source_index_t = @source_index_type@;
+using mp_desc_t      = cuvs::neighbors::cagra::detail::single_cta_search::
+  multi_partition_desc_t<data_t, index_t, distance_t>;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra::detail::single_cta_search {
+
+extern "C" __global__ __launch_bounds__(1024, 1) void search_single_cta_mp(
+  const mp_desc_t* partitions,
+  const data_t* const queries_ptr,
+  index_t* const intermediate_neighbors_ptr,
+  distance_t* const intermediate_distances_ptr,
+  const std::uint32_t top_k,
+  const unsigned num_distilation,
+  const uint64_t rand_xor_mask,
+  const std::uint32_t num_seeds,
+  index_t* const visited_hashmap_ptr,
+  const std::uint32_t max_candidates,
+  const std::uint32_t max_itopk,
+  const std::uint32_t internal_topk,
+  const std::uint32_t search_width,
+  const std::uint32_t min_iteration,
+  const std::uint32_t max_iteration,
+  std::uint32_t* const num_executed_iterations,
+  const std::uint32_t hash_bitlen,
+  const std::uint32_t small_hash_bitlen,
+  const std::uint32_t small_hash_reset_interval,
+  const std::uint32_t query_id_offset)
+{
+  search_single_cta_mp_impl<k_topk_by_bitonic_sort,
+                            k_bitonic_sort_and_merge_multi_warps,
+                            data_t,
+                            index_t,
+                            distance_t,
+                            source_index_t>(partitions,
+                                            queries_ptr,
+                                            intermediate_neighbors_ptr,
+                                            intermediate_distances_ptr,
+                                            top_k,
+                                            num_distilation,
+                                            rand_xor_mask,
+                                            num_seeds,
+                                            visited_hashmap_ptr,
+                                            max_candidates,
+                                            max_itopk,
+                                            internal_topk,
+                                            search_width,
+                                            min_iteration,
+                                            max_iteration,
+                                            num_executed_iterations,
+                                            hash_bitlen,
+                                            small_hash_bitlen,
+                                            small_hash_reset_interval,
+                                            query_id_offset);
+}
+
+static_assert(
+  std::is_same_v<decltype(search_single_cta_mp),
+                 search_single_cta_mp_kernel_func_t<data_t, index_t, distance_t, source_index_t>>);
+
+}  // namespace cuvs::neighbors::cagra::detail::single_cta_search

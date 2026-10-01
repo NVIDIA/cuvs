@@ -31,7 +31,7 @@
     {
       "op_type": "cuvs::distance::detail::ops::l2_unexp_distance_op",
       "op_abbrev": "l2_unexpanded",
-      "arch_includes": "#include <distance/detail/pairwise_matrix/dispatch_sm60.cuh>"
+      "arch_includes": ""
     }
   ]
 }

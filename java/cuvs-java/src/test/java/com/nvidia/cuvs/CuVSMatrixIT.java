@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -25,7 +25,7 @@ public class CuVSMatrixIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
+    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
     initializeRandom();
   }
 

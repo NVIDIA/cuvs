@@ -1,0 +1,21 @@
+[
+  {
+    "_data": [
+      {"data_type": "float", "data_abbrev": "f"},
+      {"data_type": "__half", "data_abbrev": "h"},
+      {"data_type": "uint8_t", "data_abbrev": "u8"},
+      {"data_type": "int8_t", "data_abbrev": "i8"}
+    ],
+    "_source_index": [{"source_index_type": "uint32_t", "source_index_abbrev": "u32"}],
+    "_index": [{"index_type": "uint32_t", "index_abbrev": "u32"}],
+    "_distance": [{"distance_type": "float", "distance_abbrev": "f"}],
+    "_topk_by_bitonic": [
+      {"topk_by_bitonic_sort": "true", "topk_by_bitonic_sort_str": "topk_by_bitonic_sort"},
+      {"topk_by_bitonic_sort": "false", "topk_by_bitonic_sort_str": "no_topk_by_bitonic_sort"}
+    ],
+    "_bitonic_sort_and_merge_multi_warps": [
+      {"bitonic_sort_and_merge_multi_warps": "true", "bitonic_sort_and_merge_multi_warps_str": "bitonic_sort_and_merge_multi_warps"},
+      {"bitonic_sort_and_merge_multi_warps": "false", "bitonic_sort_and_merge_multi_warps_str": "no_bitonic_sort_and_merge_multi_warps"}
+    ]
+  }
+]

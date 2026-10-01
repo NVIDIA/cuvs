@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,8 +23,9 @@ namespace cuvs::cluster::kmeans_balanced {
  * iterations over the whole dataset and with all the centroids to obtain the final clusters.
  *
  * Each k-means iteration applies expectation-maximization-balancing:
- *  - Balancing: adjust centers for clusters that have a small number of entries. If the size of a
- *    cluster is below a threshold, the center is moved towards a bigger cluster.
+ *  - Balancing: adjust centers to reduce underfull and overfull clusters. Small clusters are moved
+ *    towards larger clusters; when overfull clusters exist, below-average clusters are moved
+ *    towards those overfull clusters.
  *  - Expectation: predict the labels (i.e find closest cluster centroid to each point)
  *  - Maximization: calculate optimal centroids (i.e find the center of gravity of each cluster)
  *

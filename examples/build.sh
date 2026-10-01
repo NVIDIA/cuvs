@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 # cuvs empty project template build script
@@ -93,7 +93,7 @@ build_example() {
   # Configure
   cmake -S "${example_dir}" -B "${build_dir}" \
   -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
-  -DCUVS_NVTX=OFF \
+  -DCUVS_NVTX=ON \
   -DCMAKE_CUDA_ARCHITECTURES="${CUVS_CMAKE_CUDA_ARCHITECTURES}" \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   "${EXTRA_CMAKE_ARGS[@]}"

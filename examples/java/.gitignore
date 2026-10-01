@@ -1,0 +1,8 @@
+*.iml
+hs_err*.log
+target/
+
+# serialized indexes written by the cuvs-java examples
+*.cag
+*.hnsw
+*.bf

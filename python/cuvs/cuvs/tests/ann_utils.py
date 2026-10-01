@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 import math
@@ -64,7 +64,8 @@ def run_filtered_search_test(
     queries_device = device_ndarray(queries)
     bitset_device = device_ndarray(bitset)
 
-    is_ivf = "ivf" in str(search_module).lower()
+    module_name = str(search_module).lower()
+    is_ivf = "ivf" in module_name
 
     if is_ivf:
         # Adjust parameters based on sparsity to maximize recall for IVF

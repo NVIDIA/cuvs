@@ -7,7 +7,10 @@
 
 #include "extern_device_functions.cuh"
 
+#include "../../roaring_bitmap_filter_data.cuh"
 #include "../../sample_filter_data.cuh"
+
+#include <cuco/bloom_filter_ref.cuh>
 
 #include <raft/core/bitset.cuh>
 
@@ -36,6 +39,32 @@ __device__ bool sample_filter_bitset_impl(uint32_t /*query_id*/,
   raft::core::bitset_view<uint32_t, SourceIndexT> const view{
     data->bitset_ptr, data->bitset_len, data->original_nbits};
   return view.test(node_id);
+}
+
+template <typename SourceIndexT, typename Key = std::uint32_t>
+__device__ bool sample_filter_bloom_filter_impl(uint32_t /*query_id*/,
+                                                SourceIndexT node_id,
+                                                void* filter_data)
+{
+  if (filter_data == nullptr) { return true; }
+
+  auto* data = static_cast<bloom_filter_data_t<Key>*>(filter_data);
+  return data->filter.contains(static_cast<Key>(node_id));
+}
+
+template <typename SourceIndexT, typename Key = std::uint32_t>
+__device__ bool sample_filter_roaring_impl(uint32_t query_id,
+                                           SourceIndexT node_id,
+                                           void* filter_data)
+{
+  if (filter_data == nullptr) { return false; }
+
+  auto const* data = static_cast<roaring_bitmap_filter_data_t<Key> const*>(filter_data);
+  if (query_id >= data->num_queries || static_cast<std::uint64_t>(node_id) >= data->dataset_rows ||
+      data->empty_rows[query_id] != 0) {
+    return false;
+  }
+  return data->refs[query_id]->contains(static_cast<Key>(node_id));
 }
 
 }  // namespace cuvs::neighbors::detail

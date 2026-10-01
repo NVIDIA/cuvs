@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -194,7 +194,7 @@ void create_connectivity_graph(
     sym_coo1_matrix.structure_view().get_rows().data(),
     sym_coo1_matrix.structure_view().get_cols().data(),
     sym_coo1_matrix.get_elements().data(),
-    stream);
+    stream.get());
 
   raft::sparse::op::coo_remove_scalar<128, float, int, NNZType>(
     handle,

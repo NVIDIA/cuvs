@@ -14,7 +14,7 @@ using distance_t     = @distance_type@;
 using source_index_t = @source_index_type@;
 using dataset_desc_base =
   cuvs::neighbors::cagra::detail::dataset_descriptor_base_t<data_t, index_t, distance_t>;
-using cagra_bitset_t = cuvs::neighbors::cagra::detail::cagra_bitset<source_index_t>;
+using cagra_sample_filter_t = cuvs::neighbors::cagra::detail::cagra_sample_filter<source_index_t>;
 
 }  // namespace
 
@@ -35,7 +35,7 @@ extern "C" __global__ void compute_distance_to_child_nodes(const index_t* const 
                                                            index_t* const result_indices_ptr,
                                                            distance_t* const result_distances_ptr,
                                                            const std::uint32_t ldd,
-                                                           cagra_bitset_t bitset)
+                                                           cagra_sample_filter_t filter_payload)
 {
   compute_distance_to_child_nodes_kernel_jit<data_t, index_t, distance_t, source_index_t>(
     parent_node_list,
@@ -53,7 +53,7 @@ extern "C" __global__ void compute_distance_to_child_nodes(const index_t* const 
     result_indices_ptr,
     result_distances_ptr,
     ldd,
-    bitset);
+    filter_payload);
 }
 
 static_assert(

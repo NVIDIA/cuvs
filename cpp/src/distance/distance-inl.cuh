@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -238,7 +238,7 @@ void pairwise_distance(raft::resources const& handle,
                        bool isRowMajor  = true,
                        DistT metric_arg = 2.0f)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
   auto dispatch = [&](auto distance_type) {
     auto worksize = getWorkspaceSize<distance_type(), Type, DistT, DistT, IdxT>(x, y, m, n, k);

@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="300" viewBox="0 0 920 300" role="img" aria-labelledby="title desc">
+  <title id="title">Locally partitioned index architecture</title>
+  <desc id="desc">A query fans out to every local partition, each partition searches its own ANN index, and the database merges the partial top-k results.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#4d4d4d" />
+    </marker>
+    <style>
+      .box { fill: #ffffff; stroke: #666666; stroke-width: 1.6; }
+      .accent { fill: #f3fae8; stroke: #76b900; stroke-width: 2; }
+      .title { font: 700 18px Arial, sans-serif; fill: #111111; }
+      .text { font: 600 15px Arial, sans-serif; fill: #222222; }
+      .small { font: 13px Arial, sans-serif; fill: #444444; }
+      .line { stroke: #4d4d4d; stroke-width: 1.8; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="920" height="300" fill="#ffffff" />
+  <text class="title" x="28" y="34">Locally partitioned index</text>
+  <text class="small" x="28" y="58">Each query visits every local partition, then merges the partial results.</text>
+
+  <rect class="accent" x="36" y="118" width="120" height="58" rx="8" />
+  <text class="text" x="77" y="142">Query</text>
+  <text class="small" x="67" y="162">vector</text>
+
+  <rect class="box" x="278" y="62" width="170" height="54" rx="8" />
+  <text class="text" x="316" y="84">Partition 1</text>
+  <text class="small" x="322" y="104">local ANN index</text>
+
+  <rect class="box" x="278" y="132" width="170" height="54" rx="8" />
+  <text class="text" x="316" y="154">Partition 2</text>
+  <text class="small" x="322" y="174">local ANN index</text>
+
+  <rect class="box" x="278" y="202" width="170" height="54" rx="8" />
+  <text class="text" x="316" y="224">Partition 3</text>
+  <text class="small" x="322" y="244">local ANN index</text>
+
+  <rect class="accent" x="602" y="118" width="150" height="58" rx="8" />
+  <text class="text" x="637" y="142">Merge</text>
+  <text class="small" x="622" y="162">partial top-k</text>
+
+  <rect class="box" x="804" y="118" width="86" height="58" rx="8" />
+  <text class="text" x="824" y="142">Final</text>
+  <text class="small" x="822" y="162">results</text>
+
+  <path class="line" d="M156 147 C202 147, 220 89, 278 89" />
+  <path class="line" d="M156 147 C206 147, 226 159, 278 159" />
+  <path class="line" d="M156 147 C202 147, 220 229, 278 229" />
+
+  <path class="line" d="M448 89 C506 89, 536 147, 602 147" />
+  <path class="line" d="M448 159 C506 159, 536 147, 602 147" />
+  <path class="line" d="M448 229 C506 229, 536 147, 602 147" />
+  <path class="line" d="M752 147 L804 147" />
+</svg>

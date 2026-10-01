@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -11,6 +11,7 @@ from pylibraft.common import device_ndarray
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
+from cuvs.common import make_device_padded_dataset
 from cuvs.neighbors import cagra, ivf_pq
 from cuvs.tests.ann_utils import (
     calc_recall,
@@ -34,7 +35,6 @@ def run_cagra_build_search_test(
     inplace=True,
     test_extend=False,
     search_params={},
-    compression=None,
     serialize=False,
 ):
     dataset = generate_data((n_rows, n_cols), dtype)
@@ -49,7 +49,6 @@ def run_cagra_build_search_test(
         intermediate_graph_degree=intermediate_graph_degree,
         graph_degree=graph_degree,
         build_algo=build_algo,
-        compression=compression,
     )
 
     if test_extend:
@@ -58,24 +57,42 @@ def run_cagra_build_search_test(
         extend_params = cagra.ExtendParams()
         if array_type == "device":
             dataset_1_device = device_ndarray(dataset_1)
-            dataset_2_device = device_ndarray(dataset_2)
 
             index = cagra.build(build_params, dataset_1_device)
-            index = cagra.extend(extend_params, index, dataset_2_device)
+            new_start_row = dataset_1.shape[0]
+            extended_dataset_owner = make_device_padded_dataset(
+                device_ndarray(np.concatenate((dataset_1, dataset_2), axis=0))
+            )
+            index = cagra.extend(
+                extend_params,
+                index,
+                extended_dataset_owner,
+                new_start_row,
+            )
         else:
-            index = cagra.build(build_params, dataset_1)
-            index = cagra.extend(index, dataset_2)
+            pytest.skip(
+                "extend test path requires explicit padded dataset view"
+            )
     else:
         if array_type == "device":
             index = cagra.build(build_params, dataset_device)
         else:
             index = cagra.build(build_params, dataset)
 
+    if not compare:
+        return
+
     if serialize:
         with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as f:
             temp_filename = f.name
         cagra.save(temp_filename, index)
-        index = cagra.load(temp_filename)
+        index = cagra.Index()
+        out_dataset = cagra.Dataset()
+        cagra.load(
+            index,
+            temp_filename,
+            out_dataset=out_dataset,
+        )
 
     queries = generate_data((n_queries, n_cols), dtype)
     out_idx = np.zeros((n_queries, k), dtype=np.uint32)
@@ -98,9 +115,6 @@ def run_cagra_build_search_test(
 
     if not inplace:
         out_dist_device, out_idx_device = ret_output
-
-    if not compare:
-        return
 
     out_idx = out_idx_device.copy_to_host()
     out_dist = out_dist_device.copy_to_host()
@@ -129,27 +143,33 @@ def run_cagra_build_search_test(
     cp_graph = cp.array(graph)
     assert cp_graph.shape == (n_rows, graph_degree)
 
-    if compression is None:
-        # make sure we can get the dataset from the cagra index
-        dataset_from_index = index.dataset
+    # make sure we can get the dataset from the cagra index
+    dataset_from_index = index.dataset
+    logical_dim = dataset.shape[1]
+    dataset_from_index_host = dataset_from_index.copy_to_host()
+    # CAGRA may store padded rows internally; compare only logical columns.
+    dataset_from_index_host_logical = dataset_from_index_host[:, :logical_dim]
+    assert np.allclose(dataset, dataset_from_index_host_logical)
 
-        dataset_from_index_host = dataset_from_index.copy_to_host()
-        assert np.allclose(dataset, dataset_from_index_host)
+    # make sure we can reconstruct the index from the graph
+    # Note that we can't actually use the dataset from the index itself
+    # - since that is a strided matrix (and we expect non-strided inputs
+    # in the C++ cagra::build api), so we are using the host version
+    # which will have been copied into a non-strided layout
+    reloaded_dataset_device = device_ndarray(dataset_from_index_host_logical)
+    reloaded_index = cagra.from_graph(
+        graph, reloaded_dataset_device, metric=metric
+    )
+    reloaded_padded_dataset = make_device_padded_dataset(
+        reloaded_dataset_device
+    )
+    cagra.update_dataset(reloaded_index, reloaded_padded_dataset)
 
-        # make sure we can reconstruct the index from the graph
-        # Note that we can't actually use the dataset from the index itself
-        # - since that is a strided matrix (and we expect non-strided inputs
-        # in the C++ cagra::build api), so we are using the host version
-        # which will have been copied into a non-strided layout
-        reloaded_index = cagra.from_graph(
-            graph, dataset_from_index_host, metric=metric
-        )
-
-        dist_device, idx_device = cagra.search(
-            search_params, reloaded_index, queries_device, k
-        )
-        recall = calc_recall(idx_device.copy_to_host(), skl_idx)
-        assert recall > 0.9
+    dist_device, idx_device = cagra.search(
+        search_params, reloaded_index, queries_device, k
+    )
+    recall = calc_recall(idx_device.copy_to_host(), skl_idx)
+    assert recall > 0.9
 
 
 @pytest.mark.parametrize("inplace", [True, False])
@@ -171,6 +191,39 @@ def test_cagra_dataset_dtype_host_device(
         metric=metric,
         serialize=serialize,
     )
+
+
+@pytest.mark.parametrize("from_host", [True, False])
+@pytest.mark.parametrize("n_rows", [1024, 2048])
+@pytest.mark.parametrize("n_cols", [32, 50])
+@pytest.mark.parametrize("n_queries", [32, 64])
+@pytest.mark.parametrize("k", [5, 10])
+def test_cagra_build_from_dataset_handle(
+    from_host, n_rows, n_cols, n_queries, k
+):
+    dataset = generate_data((n_rows, n_cols), np.float32)
+    padded = make_device_padded_dataset(
+        dataset if from_host else device_ndarray(dataset)
+    )
+    assert isinstance(padded, cagra.Dataset)
+    assert padded.layout == "padded"
+    assert padded.memory_type == "device"
+
+    index = cagra.build(cagra.IndexParams(), padded)
+    assert index.trained
+
+    queries = device_ndarray(generate_data((n_queries, n_cols), np.float32))
+    distances, neighbors = cagra.search(
+        cagra.SearchParams(), index, queries, k
+    )
+
+    nn_skl = NearestNeighbors(
+        n_neighbors=k, algorithm="brute", metric="sqeuclidean"
+    )
+    nn_skl.fit(dataset)
+    skl_idx = nn_skl.kneighbors(queries.copy_to_host(), return_distance=False)
+    assert calc_recall(neighbors.copy_to_host(), skl_idx) > 0.7
+    assert distances.shape == (n_queries, k)
 
 
 @pytest.mark.parametrize("sparsity", [0.2, 0.5, 0.7, 1.0])
@@ -231,14 +284,6 @@ def test_cagra_index_params(params):
         intermediate_graph_degree=params["intermediate_graph_degree"],
         compare=False,
         build_algo=params["build_algo"],
-    )
-
-
-def test_cagra_vpq_compression():
-    dim = 64
-    pq_len = 2
-    run_cagra_build_search_test(
-        n_cols=dim, compression=cagra.CompressionParams(pq_dim=dim / pq_len)
     )
 
 

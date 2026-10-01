@@ -1,10 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "../../src/distance/detail/distance_ops/bitwise_hamming.cuh"
-#include "../../src/distance/detail/pairwise_matrix/dispatch-inl.cuh"
+#include "../../src/distance/detail/pairwise_matrix/dispatch.cuh"
 #include "../../src/distance/fused_distance_nn.cuh"
 
 #include <raft/core/resource/cuda_stream.hpp>
@@ -70,7 +70,7 @@ void copy_to_device(uint8_t* destination, const std::vector<uint8_t>& source, cu
 TEST(BitwiseHammingDistance, PairwiseLayoutsAlignmentAndByteTails)
 {
   raft::resources handle;
-  auto stream = raft::resource::get_cuda_stream(handle);
+  auto stream = raft::resource::get_cuda_stream(handle).get();
   // Unequal row counts also exercise column-major transposition and partial tiles.
   constexpr Index m = 36, n = 68;
   std::mt19937 rng(42);
@@ -128,7 +128,7 @@ TEST(BitwiseHammingDistance, PairwiseLayoutsAlignmentAndByteTails)
 TEST(BitwiseHammingDistance, FusedDistancesAbove255TiesAndByteTails)
 {
   raft::resources handle;
-  auto stream       = raft::resource::get_cuda_stream(handle);
+  auto stream       = raft::resource::get_cuda_stream(handle).get();
   constexpr Index m = 35, n = 133;
   std::mt19937 rng(42);
   for (Index k : {0, 1, 2, 3, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 192, 193}) {
@@ -152,7 +152,8 @@ TEST(BitwiseHammingDistance, FusedDistancesAbove255TiesAndByteTails)
       rmm::device_uvector<int> workspace(m, stream);
       copy_to_device(dx.data() + offset, x, stream);
       copy_to_device(dy.data() + offset, y, stream);
-      fusedDistanceNNMinReduce<uint8_t, Pair, Index>(result.data(),
+      fusedDistanceNNMinReduce<uint8_t, Pair, Index>(handle,
+                                                     result.data(),
                                                      dx.data() + offset,
                                                      dy.data() + offset,
                                                      nullptr,
@@ -165,8 +166,7 @@ TEST(BitwiseHammingDistance, FusedDistancesAbove255TiesAndByteTails)
                                                      true,
                                                      true,
                                                      DistanceType::BitwiseHamming,
-                                                     0,
-                                                     stream);
+                                                     0);
       std::vector<Pair> actual(m);
       RAFT_CUDA_TRY(cudaMemcpyAsync(actual.data(),
                                     result.data(),
@@ -189,7 +189,8 @@ TEST(BitwiseHammingDistance, FusedDistancesAbove255TiesAndByteTails)
                                     actual.size() * sizeof(Pair),
                                     cudaMemcpyHostToDevice,
                                     stream));
-      fusedDistanceNNMinReduce<uint8_t, Pair, Index>(result.data(),
+      fusedDistanceNNMinReduce<uint8_t, Pair, Index>(handle,
+                                                     result.data(),
                                                      dx.data() + offset,
                                                      dy.data() + offset,
                                                      nullptr,
@@ -202,8 +203,7 @@ TEST(BitwiseHammingDistance, FusedDistancesAbove255TiesAndByteTails)
                                                      false,
                                                      true,
                                                      DistanceType::BitwiseHamming,
-                                                     0,
-                                                     stream);
+                                                     0);
       RAFT_CUDA_TRY(cudaMemcpyAsync(actual.data(),
                                     result.data(),
                                     actual.size() * sizeof(Pair),
@@ -221,7 +221,7 @@ TEST(BitwiseHammingDistance, FusedDistancesAbove255TiesAndByteTails)
 TEST(BitwiseHammingDistance, ScalarOutputAndExact255)
 {
   raft::resources handle;
-  auto stream = raft::resource::get_cuda_stream(handle);
+  auto stream = raft::resource::get_cuda_stream(handle).get();
   for (Index k : {32, 192}) {
     std::vector<uint8_t> x(k, 0), y(3 * k, 0xff);
     y[2 * k - 1] = 0x7f;
@@ -230,7 +230,8 @@ TEST(BitwiseHammingDistance, ScalarOutputAndExact255)
     rmm::device_uvector<int> workspace(1, stream);
     copy_to_device(dx.data(), x, stream);
     copy_to_device(dy.data(), y, stream);
-    fusedDistanceNNMinReduce<uint8_t, uint32_t, Index>(result.data(),
+    fusedDistanceNNMinReduce<uint8_t, uint32_t, Index>(handle,
+                                                       result.data(),
                                                        dx.data(),
                                                        dy.data(),
                                                        nullptr,
@@ -243,8 +244,7 @@ TEST(BitwiseHammingDistance, ScalarOutputAndExact255)
                                                        true,
                                                        true,
                                                        DistanceType::BitwiseHamming,
-                                                       0,
-                                                       stream);
+                                                       0);
     uint32_t actual{};
     RAFT_CUDA_TRY(
       cudaMemcpyAsync(&actual, result.data(), sizeof(actual), cudaMemcpyDeviceToHost, stream));
@@ -256,8 +256,9 @@ TEST(BitwiseHammingDistance, ScalarOutputAndExact255)
 TEST(BitwiseHammingDistance, EmptyInputsAndInvalidDimensions)
 {
   raft::resources handle;
-  auto stream = raft::resource::get_cuda_stream(handle);
-  EXPECT_NO_THROW((fusedDistanceNNMinReduce<uint8_t, Pair, Index>(nullptr,
+  auto stream = raft::resource::get_cuda_stream(handle).get();
+  EXPECT_NO_THROW((fusedDistanceNNMinReduce<uint8_t, Pair, Index>(handle,
+                                                                  nullptr,
                                                                   nullptr,
                                                                   nullptr,
                                                                   nullptr,
@@ -270,12 +271,12 @@ TEST(BitwiseHammingDistance, EmptyInputsAndInvalidDimensions)
                                                                   true,
                                                                   true,
                                                                   DistanceType::BitwiseHamming,
-                                                                  0,
-                                                                  stream)));
+                                                                  0)));
   using Op = detail::ops::bitwise_hamming_distance_op<uint8_t, uint32_t, Index>;
   EXPECT_THROW((Op{-1}), raft::logic_error);
   EXPECT_THROW((Op{Index(std::numeric_limits<uint32_t>::max()) / 8 + 1}), raft::logic_error);
-  EXPECT_THROW((fusedDistanceNNMinReduce<uint8_t, Pair, Index>(nullptr,
+  EXPECT_THROW((fusedDistanceNNMinReduce<uint8_t, Pair, Index>(handle,
+                                                               nullptr,
                                                                nullptr,
                                                                nullptr,
                                                                nullptr,
@@ -288,10 +289,10 @@ TEST(BitwiseHammingDistance, EmptyInputsAndInvalidDimensions)
                                                                true,
                                                                true,
                                                                DistanceType::L2Expanded,
-                                                               0,
-                                                               stream)),
+                                                               0)),
                raft::logic_error);
-  EXPECT_THROW((fusedDistanceNNMinReduce<uint8_t, Pair, Index>(nullptr,
+  EXPECT_THROW((fusedDistanceNNMinReduce<uint8_t, Pair, Index>(handle,
+                                                               nullptr,
                                                                nullptr,
                                                                nullptr,
                                                                nullptr,
@@ -304,8 +305,7 @@ TEST(BitwiseHammingDistance, EmptyInputsAndInvalidDimensions)
                                                                true,
                                                                false,
                                                                DistanceType::BitwiseHamming,
-                                                               0,
-                                                               stream)),
+                                                               0)),
                raft::logic_error);
   for (Index m : {0, 3}) {
     EXPECT_NO_THROW(
@@ -325,7 +325,8 @@ TEST(BitwiseHammingDistance, EmptyInputsAndInvalidDimensions)
   }
   rmm::device_uvector<Pair> result(1, stream);
   rmm::device_uvector<int> workspace(1, stream);
-  fusedDistanceNNMinReduce<uint8_t, Pair, Index>(result.data(),
+  fusedDistanceNNMinReduce<uint8_t, Pair, Index>(handle,
+                                                 result.data(),
                                                  nullptr,
                                                  nullptr,
                                                  nullptr,
@@ -338,8 +339,7 @@ TEST(BitwiseHammingDistance, EmptyInputsAndInvalidDimensions)
                                                  true,
                                                  true,
                                                  DistanceType::BitwiseHamming,
-                                                 0,
-                                                 stream);
+                                                 0);
   Pair actual{};
   RAFT_CUDA_TRY(
     cudaMemcpyAsync(&actual, result.data(), sizeof(actual), cudaMemcpyDeviceToHost, stream));

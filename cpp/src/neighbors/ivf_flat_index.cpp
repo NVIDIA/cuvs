@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -79,7 +79,7 @@ index<T, IdxT>::index(raft::resources const& res,
     RAFT_CUDA_TRY(cudaMemsetAsync(binary_center_counts_.data_handle(),
                                   0,
                                   binary_center_counts_.size() * sizeof(uint32_t),
-                                  raft::resource::get_cuda_stream(res)));
+                                  raft::resource::get_cuda_stream(res).get()));
   }
   check_consistency();
   accum_sorted_sizes_(n_lists) = 0;

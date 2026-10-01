@@ -7,7 +7,7 @@ This package provides Go bindings for the cuVS (CUDA Vector Search) library.
 The required dependencies can be installed with a simple command (which creates your build environment):
 
 ```bash
-conda env create --name go -f conda/environments/go_cuda-132_arch-$(uname -m).yaml
+conda env create --name go -f conda/environments/go_cuda-133_arch-$(uname -m).yaml
 conda activate go
 ```
 You may prefer to use `mamba`, as it provides significant speedup over `conda`.
@@ -24,7 +24,7 @@ export CC=clang
 
 2. Install the Go module:
 ```bash
-go get github.com/rapidsai/cuvs/go@v26.08.00 # 25.02.00 being your desired version, selected from https://github.com/rapidsai/cuvs/tags
+go get github.com/nvidia/cuvs/go@v26.12.00 # 25.02.00 being your desired version, selected from https://github.com/nvidia/cuvs/tags
 ```
 Then you can build your project with the usual `go build`.
 
@@ -36,8 +36,8 @@ Note: The installation will fail if the C libraries are not properly installed a
 package main
 
 import (
-    "github.com/rapidsai/cuvs/go"
-    "github.com/rapidsai/cuvs/go/cagra"
+    "github.com/nvidia/cuvs/go"
+    "github.com/nvidia/cuvs/go/cagra"
 )
 
 func main() {

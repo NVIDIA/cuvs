@@ -1,0 +1,23 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/ivf_sq/detail/jit_lto_kernels/device_functions.cuh>
+#include <neighbors/ivf_sq/detail/jit_lto_kernels/finalize_distance_impl.cuh>
+
+namespace {
+
+constexpr auto finalize_distance_impl =
+  cuvs::neighbors::ivf_sq::detail::finalize_distance_@metric_name@_impl;
+
+}  // namespace
+
+namespace cuvs::neighbors::ivf_sq::detail {
+
+__device__ float finalize_distance(float dist, float v_norm_sq, float query_norm)
+{
+  return finalize_distance_impl(dist, v_norm_sq, query_norm);
+}
+
+}  // namespace cuvs::neighbors::ivf_sq::detail

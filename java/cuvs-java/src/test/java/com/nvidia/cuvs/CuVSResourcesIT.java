@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -20,7 +20,7 @@ public class CuVSResourcesIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
+    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
   }
 
   @Test
@@ -57,6 +57,14 @@ public class CuVSResourcesIT extends CuVSTestCase {
         assertTrue(exception.getCause().getMessage().startsWith(expectedError));
         log.debug("Outer access finished");
       }
+    }
+  }
+
+  @Test
+  public void testSetWorkspacePoolRejectsNonPositiveSize() throws Throwable {
+    try (var resources = CuVSResources.create()) {
+      assertThrows(IllegalArgumentException.class, () -> resources.setWorkspacePool(0));
+      assertThrows(IllegalArgumentException.class, () -> resources.setWorkspacePool(-1));
     }
   }
 

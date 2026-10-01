@@ -1,11 +1,35 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <cuda_fp16.h>
+#include <type_traits>
+
 namespace cuvs::neighbors::vamana::detail {
+
+// RobustPrune wide-dim optimizations: smem candidate cache and GreedySearch distance reuse.
+static constexpr int kRobustPruneCandCacheMinDim = 128;
+
+// Minimum dim for 8 warps on degree-64 occlusion sweep (half). Below this, barrier tax wins.
+static constexpr int kRobustPruneMultiWarpMinDimHalf = 960;
+
+// Occlusion sweep is multi-warp (occId += num_warps). Extra warps hide wide-dim djk latency,
+// but narrow dim, low degree, and byte-wide (int8) / half distances have cheap djk -- barrier
+// overhead wins unless dim is very wide.
+template <typename T>
+__host__ __device__ inline int robust_prune_block_dim(int dim, int degree)
+{
+  if (degree < 64 || dim < kRobustPruneCandCacheMinDim) { return 128; }
+  if constexpr (std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>) { return 128; }
+  if constexpr (std::is_same_v<T, half>) {
+    if (dim < kRobustPruneMultiWarpMinDimHalf) { return 128; }
+    return 256;
+  }
+  return 256;
+}
 
 /* Macros to compute the shared memory requirements for CUB primitives used by search and prune */
 #define COMPUTE_SMEM_SIZE(degree, visited_size, DEG, CANDS)                                     \

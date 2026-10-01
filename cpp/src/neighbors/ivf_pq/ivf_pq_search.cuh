@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -38,7 +38,6 @@
 #include <raft/util/pow2_utils.cuh>
 #include <raft/util/vectorized.cuh>
 
-#include <rmm/cuda_stream_view.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
 #include <cub/device/device_radix_sort.cuh>
@@ -154,7 +153,7 @@ void select_clusters(raft::resources const& handle,
                      &beta,
                      qc_distances.data(),
                      n_lists,
-                     stream);
+                     stream.get());
 
   // Select neighbor clusters for each query.
   rmm::device_uvector<float> cluster_dists(size_t(n_queries) * size_t(n_probes), stream, mr);
@@ -240,7 +239,7 @@ void select_clusters(raft::resources const& handle,
                      &beta,
                      qc_distances.data(),
                      n_lists,
-                     stream);
+                     stream.get());
 
   // Select neighbor clusters for each query.
   rmm::device_uvector<dist_type> cluster_dists(size_t(n_queries) * size_t(n_probes), stream, mr);
@@ -325,7 +324,7 @@ void select_clusters(raft::resources const& handle,
                      &beta,
                      qc_distances.data(),
                      n_lists,
-                     stream);
+                     stream.get());
 
   // Select neighbor clusters for each query.
   rmm::device_uvector<dist_type> cluster_dists(size_t(n_queries) * size_t(n_probes), stream, mr);
@@ -508,7 +507,7 @@ void ivfpq_search_worker(raft::resources const& handle,
                                     n_queries_probes,
                                     begin_bit,
                                     end_bit,
-                                    stream);
+                                    stream.get());
     rmm::device_buffer cub_workspace(cub_workspace_size, stream, mr);
     cub::DeviceRadixSort::SortPairs(cub_workspace.data(),
                                     cub_workspace_size,
@@ -519,7 +518,7 @@ void ivfpq_search_worker(raft::resources const& handle,
                                     n_queries_probes,
                                     begin_bit,
                                     end_bit,
-                                    stream);
+                                    stream.get());
   }
 
   // select and run the main search kernel
@@ -780,7 +779,13 @@ inline auto get_max_fine_batch_size(raft::resources const& res,
     return static_cast<uint64_t>(bs) *
            (other + (is_local_topk_feasible(k, n_probes, bs) ? buffers_fused : buffers_non_fused));
   };
-  auto max_ws_size = raft::resource::get_workspace_free_bytes(res);
+
+  // Use only 40% of the available workspace memory as the coarse batch allocations have not been
+  // allocated yet. Also limit the maximum to 1GB to avoid conflicts in case the workspace is shared
+  // with the large workspace.
+  const auto free_ws_size = raft::resource::get_workspace_free_bytes(res);
+  const auto max_ws_size =
+    std::min<size_t>((free_ws_size * size_t{40}) / size_t{100}, size_t{1} << 30);
   if (ws_size(max_batch_size) > max_ws_size) {
     uint32_t smaller_batch_size = raft::bound_by_power_of_two(max_batch_size);
     // gradually reduce the batch size until we fit into the max size limit.
@@ -837,11 +842,17 @@ inline auto get_max_coarse_batch_size(raft::resources const& res,
   // Transient allocations during coarse search (select_clusters): qc_distances + cluster_dists.
   auto transient_per_query = static_cast<size_t>(n_lists + n_probes) * qc_elem_size;
   auto total_per_query     = persistent_per_query + transient_per_query;
-  auto max_per_ws          = raft::resource::get_workspace_free_bytes(res) / total_per_query;
+
+  // Use only 40% of the available workspace memory as the fine batch allocations have not been
+  // allocated yet. Also limit the maximum to 1GB to avoid conflicts in case the workspace is shared
+  // with the large workspace.
+  const auto free_ws_size = raft::resource::get_workspace_free_bytes(res);
+  const auto available_ws_size =
+    std::min<size_t>((free_ws_size * size_t{40}) / size_t{100}, size_t{1} << 30);
+  auto max_per_ws = available_ws_size / total_per_query;
   return std::max<uint32_t>(
     1,
-    std::min<uint32_t>(max_per_ws / 2,
-                       std::min<uint32_t>(params.max_internal_batch_size, n_queries)));
+    std::min<uint32_t>(max_per_ws, std::min<uint32_t>(params.max_internal_batch_size, n_queries)));
 }
 
 template <typename T, typename IdxT>
@@ -1002,7 +1013,7 @@ inline void search(raft::resources const& handle,
                            &beta,
                            rot_queries.data(),
                            index.rot_dim(),
-                           stream);
+                           stream.get());
       },
       gemm_queries);
     if (index.metric() == distance::DistanceType::CosineExpanded) {

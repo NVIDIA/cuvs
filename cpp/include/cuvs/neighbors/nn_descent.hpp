@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <cuvs/neighbors/common.hpp>
+#include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdarray.hpp>
@@ -18,6 +19,8 @@
 
 #include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/core/export.hpp>
+
+#include <utility>
 
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
@@ -521,6 +524,58 @@ auto build(raft::resources const& res,
            std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
              std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
 
+/**
+ * @brief Build an NN-Descent index directly from a device-resident BBQ dataset.
+ *
+ * Symmetric compressed-code distances are used during graph construction. Supported metrics are
+ * L2Expanded, L2SqrtExpanded, CosineExpanded, and InnerProduct. The dataset's correction terms
+ * must have been generated for the selected metric.
+ *
+ * @param res raft resources
+ * @param params NN-Descent build parameters
+ * @param dataset BBQ codes and correction terms in device memory
+ * @param graph optional caller-owned host graph
+ * @return index containing the all-neighbors graph
+ */
+auto build(raft::resources const& res,
+           index_params const& params,
+           cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
+             std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
+/**
+ * @copydoc build(raft::resources const& res, index_params const& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+ * std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph = std::nullopt)
+ * -> cuvs::neighbors::nn_descent::index<uint32_t>
+ */
+auto build(raft::resources const& res,
+           index_params const& params,
+           cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
+             std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
+/**
+ * @copydoc build(raft::resources const& res, index_params const& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+ * std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph = std::nullopt)
+ * -> cuvs::neighbors::nn_descent::index<uint32_t>
+ */
+auto build(raft::resources const& res,
+           index_params const& params,
+           cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
+             std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
+/**
+ * @copydoc build(raft::resources const& res, index_params const& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+ * std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph = std::nullopt)
+ * -> cuvs::neighbors::nn_descent::index<uint32_t>
+ */
+auto build(raft::resources const& res,
+           index_params const& params,
+           cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
+             std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
+
 /** @} */
 /**
  * @brief Test if we have enough GPU memory to run NN descent algorithm.
@@ -534,6 +589,24 @@ auto build(raft::resources const& res,
 bool has_enough_device_memory(raft::resources const& res,
                               raft::matrix_extent<int64_t> dataset,
                               size_t idx_size = 4);
+
+/**
+ * @brief Estimate the host and device memory (in bytes) required to build an
+ * all-neighbors kNN graph with NN-descent for a dataset of the given shape.
+ *
+ * The estimate mirrors the persistent allocations performed by the GNND solver.
+ * It does not include the input dataset nor the output graph.
+ *
+ * @param res
+ * @param dataset shape of the dataset
+ * @param graph_degree the degree of the all-neighbors graph
+ * @param idx_size the size of the graph index type in bytes
+ * @return std::pair<host_bytes, device_bytes>
+ */
+std::pair<size_t, size_t> build_mem_usage(raft::resources const& res,
+                                          raft::matrix_extent<int64_t> dataset,
+                                          size_t graph_degree,
+                                          size_t idx_size = 4);
 
 }  // namespace nn_descent
 }  // namespace neighbors

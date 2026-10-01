@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <cstdint>
 #include <dlpack/dlpack.h>
+#include <type_traits>
 
 #include <raft/core/error.hpp>
 #include <raft/core/mdspan_types.hpp>
@@ -80,36 +81,50 @@ static cuvs::neighbors::all_neighbors::all_neighbors_params convert_params(
   return out;
 }
 
-static void ensure_indices_dtype_and_device_compatibility(DLManagedTensor* indices)
+static void ensure_indices_dtype(DLManagedTensor* indices)
 {
   auto dtype = indices->dl_tensor.dtype;
   RAFT_EXPECTS(dtype.code == kDLInt && dtype.bits == 64, "indices must be int64 output tensor");
-  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(indices->dl_tensor),
-               "indices tensor must be device-compatible");
 }
 
-static void ensure_optional_distance_dtype_and_device_compatibility(DLManagedTensor* distances)
+static void ensure_optional_distance_dtype(DLManagedTensor* distances)
 {
   if (distances == nullptr) { return; }
   auto dtype = distances->dl_tensor.dtype;
   RAFT_EXPECTS(dtype.code == kDLFloat && dtype.bits == 32,
                "distances must be float32 output tensor");
-  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(distances->dl_tensor),
-               "distances tensor must be device-compatible");
 }
 
-static void ensure_optional_core_distance_dtype_and_device_compatibility(
-  DLManagedTensor* core_distances)
+static void ensure_optional_core_distance_dtype(DLManagedTensor* core_distances)
 {
   if (core_distances == nullptr) { return; }
   auto dtype = core_distances->dl_tensor.dtype;
   RAFT_EXPECTS(dtype.code == kDLFloat && dtype.bits == 32,
                "core_distances must be float32 output tensor");
-  RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(core_distances->dl_tensor),
-               "core_distances tensor must be device-compatible");
 }
 
-template <typename T>
+// Validate that the outputs (indices/distances/core_distances) all live in the same memory space
+static bool validate_output_memory_space(DLManagedTensor* indices,
+                                         DLManagedTensor* distances,
+                                         DLManagedTensor* core_distances)
+{
+  const bool host = cuvs::core::is_dlpack_host_compatible(indices->dl_tensor);
+  RAFT_EXPECTS(host || cuvs::core::is_dlpack_device_compatible(indices->dl_tensor),
+               "indices tensor must be host- or device-compatible");
+  auto same_space = [&](DLManagedTensor* t, const char* name) {
+    if (t == nullptr) { return; }
+    RAFT_EXPECTS(cuvs::core::is_dlpack_host_compatible(t->dl_tensor) == host,
+                 "%s tensor must be in the same memory space (host or device) as indices",
+                 name);
+  };
+  same_space(distances, "distances");
+  same_space(core_distances, "core_distances");
+  return host;
+}
+
+// Build with a host-resident dataset. HostOutput selects whether the outputs live on host or
+// device.
+template <typename T, bool HostOutput>
 void _build_host(cuvsResources_t res,
                  cuvsAllNeighborsIndexParams_t params,
                  DLManagedTensor* dataset_tensor,
@@ -124,24 +139,23 @@ void _build_host(cuvsResources_t res,
   RAFT_EXPECTS(cuvs::core::is_dlpack_host_compatible(dlt),
                "Host build expects host-compatible dataset tensor");
 
-  ensure_indices_dtype_and_device_compatibility(indices_tensor);
-  ensure_optional_distance_dtype_and_device_compatibility(distances_tensor);
-  ensure_optional_core_distance_dtype_and_device_compatibility(core_distances_tensor);
-
-  // Check dependencies between parameters
-  if (core_distances_tensor != nullptr && distances_tensor == nullptr) {
-    RAFT_FAIL("distances tensor must be provided when core_distances tensor is provided");
-  }
-
   int64_t n_rows = dlt.shape[0];
   int64_t n_cols = dlt.shape[1];
 
   auto cpp_params = convert_params(params, n_rows, n_cols);
 
-  using dataset_mdspan_t   = raft::host_matrix_view<const T, int64_t, raft::row_major>;
-  using indices_mdspan_t   = raft::device_matrix_view<int64_t, int64_t, raft::row_major>;
-  using distances_mdspan_t = raft::device_matrix_view<float, int64_t, raft::row_major>;
-  using core_mdspan_t      = raft::device_vector_view<float, int64_t>;
+  using dataset_mdspan_t = raft::host_matrix_view<const T, int64_t, raft::row_major>;
+  using indices_mdspan_t =
+    std::conditional_t<HostOutput,
+                       raft::host_matrix_view<int64_t, int64_t, raft::row_major>,
+                       raft::device_matrix_view<int64_t, int64_t, raft::row_major>>;
+  using distances_mdspan_t =
+    std::conditional_t<HostOutput,
+                       raft::host_matrix_view<float, int64_t, raft::row_major>,
+                       raft::device_matrix_view<float, int64_t, raft::row_major>>;
+  using core_mdspan_t = std::conditional_t<HostOutput,
+                                           raft::host_vector_view<float, int64_t>,
+                                           raft::device_vector_view<float, int64_t>>;
 
   auto dataset = cuvs::core::from_dlpack<dataset_mdspan_t>(dataset_tensor);
   auto indices = cuvs::core::from_dlpack<indices_mdspan_t>(indices_tensor);
@@ -160,6 +174,7 @@ void _build_host(cuvsResources_t res,
     cpp_res, cpp_params, dataset, indices, distances, core_distances, alpha);
 }
 
+// Build with a device-resident dataset. Outputs are always device-resident.
 template <typename T>
 void _build_device(cuvsResources_t device_res,
                    cuvsAllNeighborsIndexParams_t params,
@@ -174,15 +189,6 @@ void _build_device(cuvsResources_t device_res,
   auto& dlt = dataset_tensor->dl_tensor;
   RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(dlt),
                "Device build expects device-compatible dataset tensor");
-
-  ensure_indices_dtype_and_device_compatibility(indices_tensor);
-  ensure_optional_distance_dtype_and_device_compatibility(distances_tensor);
-  ensure_optional_core_distance_dtype_and_device_compatibility(core_distances_tensor);
-
-  // Check dependencies between parameters
-  if (core_distances_tensor != nullptr && distances_tensor == nullptr) {
-    RAFT_FAIL("distances tensor must be provided when core_distances tensor is provided");
-  }
 
   int64_t n_rows = dlt.shape[0];
   int64_t n_cols = dlt.shape[1];
@@ -250,17 +256,33 @@ extern "C" cuvsError_t cuvsAllNeighborsBuild(cuvsResources_t res,
   return cuvs::core::translate_exceptions([=] {
     auto dataset = dataset_tensor->dl_tensor;
 
+    ensure_indices_dtype(indices_tensor);
+    ensure_optional_distance_dtype(distances_tensor);
+    ensure_optional_core_distance_dtype(core_distances_tensor);
+    if (core_distances_tensor != nullptr && distances_tensor == nullptr) {
+      RAFT_FAIL("distances tensor must be provided when core_distances tensor is provided");
+    }
+
+     const bool host_output =
+      validate_output_memory_space(indices_tensor, distances_tensor, core_distances_tensor);
+
     if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
       // Check if dataset is host-compatible or device-compatible
       if (cuvs::core::is_dlpack_host_compatible(dataset)) {
-        _build_host<float>(res,
-                           params,
-                           dataset_tensor,
-                           indices_tensor,
-                           distances_tensor,
-                           core_distances_tensor,
-                           alpha);
+        // Host dataset supports both host- and device-resident outputs.
+        if (host_output) {
+          _build_host<float, true>(
+            res, params, dataset_tensor, indices_tensor, distances_tensor, core_distances_tensor,
+            alpha);
+        } else {
+          _build_host<float, false>(
+            res, params, dataset_tensor, indices_tensor, distances_tensor, core_distances_tensor,
+            alpha);
+        }
       } else if (cuvs::core::is_dlpack_device_compatible(dataset)) {
+        RAFT_EXPECTS(!host_output,
+                    "A device-resident dataset requires device-resident outputs; put the dataset "
+                    "on host to produce host-resident outputs.");
         _build_device<float>(res,
                              params,
                              dataset_tensor,

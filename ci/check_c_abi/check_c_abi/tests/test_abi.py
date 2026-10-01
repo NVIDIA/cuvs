@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -64,6 +64,13 @@ def test_struct():
 
     errors = analyze_c_abi(old_abi, old_abi)
     assert not errors
+
+    # removing a struct should return an error
+    new_abi = abi_from_str("")
+    errors = analyze_c_abi(old_abi, new_abi)
+    assert len(errors) == 1
+    assert errors[0].symbol == "Foo"
+    assert errors[0].error == "Struct has been removed"
 
     # removing a field should return an error
     new_abi = abi_from_str("""

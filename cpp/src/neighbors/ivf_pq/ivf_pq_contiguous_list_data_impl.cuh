@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 #include "ivf_pq_codepacking.cuh"
 #include <cstdint>
+#include <cuda/stream>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/util/cuda_dev_essentials.cuh>
@@ -72,7 +73,7 @@ inline void unpack_contiguous_list_data_impl(
   uint32_t pq_dim,
   std::variant<uint32_t, const uint32_t*> offset_or_indices,
   uint32_t pq_bits,
-  rmm::cuda_stream_view stream)
+  cuda::stream_ref stream)
 {
   if (n_rows == 0) { return; }
 
@@ -89,7 +90,7 @@ inline void unpack_contiguous_list_data_impl(
       default: RAFT_FAIL("Invalid pq_bits (%u), the value must be within [4, 8]", pq_bits);
     }
   }();
-  kernel<<<blocks, threads, 0, stream>>>(codes, list_data, n_rows, pq_dim, offset_or_indices);
+  kernel<<<blocks, threads, 0, stream.get()>>>(codes, list_data, n_rows, pq_dim, offset_or_indices);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
@@ -154,7 +155,7 @@ inline void pack_contiguous_list_data_impl(
   uint32_t pq_dim,
   std::variant<uint32_t, const uint32_t*> offset_or_indices,
   uint32_t pq_bits,
-  rmm::cuda_stream_view stream)
+  cuda::stream_ref stream)
 {
   if (n_rows == 0) { return; }
 
@@ -171,7 +172,7 @@ inline void pack_contiguous_list_data_impl(
       default: RAFT_FAIL("Invalid pq_bits (%u), the value must be within [4, 8]", pq_bits);
     }
   }();
-  kernel<<<blocks, threads, 0, stream>>>(list_data, codes, n_rows, pq_dim, offset_or_indices);
+  kernel<<<blocks, threads, 0, stream.get()>>>(list_data, codes, n_rows, pq_dim, offset_or_indices);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 }  // namespace cuvs::neighbors::ivf_pq::detail

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -42,7 +42,7 @@ class BinaryQuantizationTest : public ::testing::TestWithParam<BinaryQuantizatio
  public:
   BinaryQuantizationTest()
     : params_(::testing::TestWithParam<BinaryQuantizationInputs<T>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       input_(0, stream)
   {
   }

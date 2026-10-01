@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -27,11 +27,11 @@ inline auto to_raft_params(const params& config) -> raft::linalg::paramsPCA
   return prms;
 }
 
-template <typename DataT, typename IndexT>
+template <typename DataT, typename IndexT, typename LayoutPolicy>
 void fit(raft::resources const& handle,
          const params& config,
-         raft::device_matrix_view<DataT, IndexT, raft::col_major> input,
-         raft::device_matrix_view<DataT, IndexT, raft::col_major> components,
+         raft::device_matrix_view<DataT, IndexT, LayoutPolicy> input,
+         raft::device_matrix_view<DataT, IndexT, LayoutPolicy> components,
          raft::device_vector_view<DataT, IndexT> explained_var,
          raft::device_vector_view<DataT, IndexT> explained_var_ratio,
          raft::device_vector_view<DataT, IndexT> singular_vals,
@@ -52,12 +52,12 @@ void fit(raft::resources const& handle,
                         flip_signs_based_on_U);
 }
 
-template <typename DataT, typename IndexT>
+template <typename DataT, typename IndexT, typename LayoutPolicy>
 void fit_transform(raft::resources const& handle,
                    const params& config,
-                   raft::device_matrix_view<DataT, IndexT, raft::col_major> input,
-                   raft::device_matrix_view<DataT, IndexT, raft::col_major> trans_input,
-                   raft::device_matrix_view<DataT, IndexT, raft::col_major> components,
+                   raft::device_matrix_view<DataT, IndexT, LayoutPolicy> input,
+                   raft::device_matrix_view<DataT, IndexT, LayoutPolicy> trans_input,
+                   raft::device_matrix_view<DataT, IndexT, LayoutPolicy> components,
                    raft::device_vector_view<DataT, IndexT> explained_var,
                    raft::device_vector_view<DataT, IndexT> explained_var_ratio,
                    raft::device_vector_view<DataT, IndexT> singular_vals,
@@ -79,27 +79,27 @@ void fit_transform(raft::resources const& handle,
                                   flip_signs_based_on_U);
 }
 
-template <typename DataT, typename IndexT>
+template <typename DataT, typename IndexT, typename LayoutPolicy>
 void transform(raft::resources const& handle,
                const params& config,
-               raft::device_matrix_view<DataT, IndexT, raft::col_major> input,
-               raft::device_matrix_view<DataT, IndexT, raft::col_major> components,
+               raft::device_matrix_view<DataT, IndexT, LayoutPolicy> input,
+               raft::device_matrix_view<DataT, IndexT, LayoutPolicy> components,
                raft::device_vector_view<DataT, IndexT> singular_vals,
                raft::device_vector_view<DataT, IndexT> mu,
-               raft::device_matrix_view<DataT, IndexT, raft::col_major> trans_input)
+               raft::device_matrix_view<DataT, IndexT, LayoutPolicy> trans_input)
 {
   auto raft_prms = to_raft_params(config);
   raft::linalg::pca_transform(handle, raft_prms, input, components, singular_vals, mu, trans_input);
 }
 
-template <typename DataT, typename IndexT>
+template <typename DataT, typename IndexT, typename LayoutPolicy>
 void inverse_transform(raft::resources const& handle,
                        const params& config,
-                       raft::device_matrix_view<DataT, IndexT, raft::col_major> trans_input,
-                       raft::device_matrix_view<DataT, IndexT, raft::col_major> components,
+                       raft::device_matrix_view<DataT, IndexT, LayoutPolicy> trans_input,
+                       raft::device_matrix_view<DataT, IndexT, LayoutPolicy> components,
                        raft::device_vector_view<DataT, IndexT> singular_vals,
                        raft::device_vector_view<DataT, IndexT> mu,
-                       raft::device_matrix_view<DataT, IndexT, raft::col_major> output)
+                       raft::device_matrix_view<DataT, IndexT, LayoutPolicy> output)
 {
   auto raft_prms = to_raft_params(config);
   raft::linalg::pca_inverse_transform(

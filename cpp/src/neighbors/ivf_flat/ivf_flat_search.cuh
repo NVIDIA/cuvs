@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -128,7 +128,7 @@ void search_impl(raft::resources const& handle,
                                                              nullptr,
                                                              uint32_distances.data(),
                                                              raft::identity_op{},
-                                                             stream,
+                                                             stream.get(),
                                                              true);
 
       // Cast uint32_t distances to float for the rest of the IVF-Flat pipeline.
@@ -200,7 +200,7 @@ void search_impl(raft::resources const& handle,
                        &beta,
                        distance_buffer_dev.data(),
                        index.n_lists(),
-                       stream);
+                       stream.get());
 
     if (effective_metric == cuvs::distance::DistanceType::CosineExpanded) {
       auto n_lists                      = index.n_lists();

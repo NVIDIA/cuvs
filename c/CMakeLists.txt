@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 # =============================================================================
@@ -86,9 +86,11 @@ add_library(
   cuvs_c SHARED
   src/core/c_api.cpp
   src/cluster/kmeans.cpp
+  $<$<BOOL:${BUILD_MG_ALGOS}>:src/cluster/mg_kmeans.cpp>
   src/neighbors/brute_force.cpp
   src/neighbors/ivf_flat.cpp
   src/neighbors/ivf_pq.cpp
+  src/neighbors/ivf_sq.cpp
   src/neighbors/cagra.cpp
   $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/hnsw.cpp>
   $<$<BOOL:${BUILD_MG_ALGOS}>:src/neighbors/mg_ivf_pq.cpp>
@@ -101,9 +103,11 @@ add_library(
   src/neighbors/all_neighbors.cpp
   src/preprocessing/pca.cpp
   src/preprocessing/quantize/binary.cpp
+  src/preprocessing/quantize/bbq.cpp
   src/preprocessing/quantize/pq.cpp
   src/preprocessing/quantize/scalar.cpp
   src/distance/pairwise_distance.cpp
+  src/selection/select_k.cpp
 )
 add_library(cuvs::c_api ALIAS cuvs_c)
 set_target_properties(
@@ -170,6 +174,7 @@ target_link_libraries(
           $<IF:$<BOOL:${CUVSC_STATIC_CUVS_LIBRARY}>,cuvs::cuvs_static,cuvs::cuvs> #
           $<COMPILE_ONLY:raft::raft> # enforce we shouldn't use raft symbols
           $<TARGET_NAME_IF_EXISTS:hnswlib::hnswlib>
+          $<BUILD_LOCAL_INTERFACE:$<TARGET_NAME_IF_EXISTS:kvikio::kvikio>>
 )
 
 # ##################################################################################################
@@ -189,6 +194,19 @@ if(PROJECT_IS_TOP_LEVEL)
     COMPONENT c_api
     EXPORT cuvs-c-exports
   )
+  if(CUVSC_STATIC_CUVS_LIBRARY AND TARGET kvikio::kvikio)
+    get_target_property(_cuvs_kvikio_aliased_target kvikio::kvikio ALIASED_TARGET)
+    if(_cuvs_kvikio_aliased_target)
+      set(_cuvs_kvikio_runtime_target "${_cuvs_kvikio_aliased_target}")
+    else()
+      set(_cuvs_kvikio_runtime_target kvikio::kvikio)
+    endif()
+    install(
+      FILES "$<TARGET_FILE:${_cuvs_kvikio_runtime_target}>"
+      DESTINATION ${lib_dir}
+      COMPONENT c_api
+    )
+  endif()
   install(
     DIRECTORY include/cuvs
     COMPONENT c_api
@@ -212,6 +230,10 @@ if(BUILD_TESTS)
   rapids_cuda_init_architectures(CUVS_C)
   enable_language(CUDA)
   find_package(CUDAToolkit REQUIRED)
+
+  if(CUVSC_STATIC_CUVS_LIBRARY AND NOT TARGET kvikio::kvikio)
+    include(../cpp/cmake/thirdparty/get_kvikio.cmake)
+  endif()
 
   enable_testing()
   add_subdirectory(tests)

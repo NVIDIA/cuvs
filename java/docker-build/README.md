@@ -40,7 +40,7 @@ CUDA_VERSION=13.0.0 ./build-in-docker
 ### Core Configuration
 
 - **`CUDA_VERSION`**: CUDA toolkit version to use (default: `12.9.1`)
-  - Examples: `12.9.1`, `13.0.2`, `13.2.0`
+  - Examples: `12.9.1`, `13.0.2`, `13.3.0`
 - **`OS_VERSION`**: Rocky Linux OS version to use (default: `9`)
   - Supported values: `8`, `9`
 - **`CMAKE_GENERATOR`**: CMake generator to use (default: `Ninja`)
@@ -78,7 +78,7 @@ The build system automatically detects the host architecture:
 ### Development Build with Custom CUDA Version (Default: All GPU Architectures)
 
 ```bash
-CUDA_VERSION=13.2.0 JNI_DOCKER_DEV_BUILD=ON ./build-in-docker
+CUDA_VERSION=13.3.0 JNI_DOCKER_DEV_BUILD=ON ./build-in-docker
 ```
 
 ### Production Build with Rocky Linux 8

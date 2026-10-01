@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 
 
@@ -9,6 +9,7 @@ from cuvs.neighbors import (
     filters,
     ivf_flat,
     ivf_pq,
+    ivf_sq,
     mg,
     nn_descent,
     vamana,
@@ -22,6 +23,7 @@ __all__ = [
     "filters",
     "ivf_flat",
     "ivf_pq",
+    "ivf_sq",
     "mg",
     "nn_descent",
     "all_neighbors",

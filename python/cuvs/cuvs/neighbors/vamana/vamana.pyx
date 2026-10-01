@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -169,13 +169,14 @@ def build(IndexParams index_params, dataset, resources=None):
     struct controls the degree of the final graph.
 
     The following distance metrics are supported:
-        - L2Expanded
+        - L2Expanded (sqeuclidean)
+        - L2SqrtExpanded (l2 / euclidean distance)
 
     Parameters
     ----------
     index_params : IndexParams object
     dataset : CUDA array interface compliant matrix shape (n_samples, dim)
-        Supported dtype [float, int8, uint8]
+        Supported dtype [float, float16, int8, uint8]
     {resources_docstring}
 
     Returns
@@ -201,6 +202,7 @@ def build(IndexParams index_params, dataset, resources=None):
     # in RAFT to make this a single call
     dataset_ai = wrap_array(dataset)
     _check_input_array(dataset_ai, [np.dtype('float32'),
+                                    np.dtype('float16'),
                                     np.dtype('int8'),
                                     np.dtype('uint8')])
 

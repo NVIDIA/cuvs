@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -16,6 +16,8 @@ struct tag_metric_cosine {};
 struct tag_metric_hamming {};
 struct tag_codebook_none {};
 struct tag_codebook_half {};
+struct tag_smem_f16 {};
+struct tag_smem_e5m2 {};
 struct tag_metric_l1 {};
 struct tag_norm_noop {};
 struct tag_norm_cosine {};
@@ -33,7 +35,8 @@ template <typename DataTag,
           uint32_t TeamSize,
           uint32_t DatasetBlockDim,
           uint32_t PqBits,
-          uint32_t PqLen>
+          uint32_t PqLen,
+          typename SmemTag>
 struct fragment_tag_setup_workspace {};
 
 template <typename DataTag,
@@ -44,7 +47,8 @@ template <typename DataTag,
           uint32_t TeamSize,
           uint32_t DatasetBlockDim,
           uint32_t PqBits,
-          uint32_t PqLen>
+          uint32_t PqLen,
+          typename SmemTag>
 struct fragment_tag_compute_distance {};
 
 template <typename QueryTag, typename DistanceTag, typename MetricTag>
@@ -75,8 +79,19 @@ template <typename DataTag,
           bool BitonicSortAndMergeMultiWarps>
 struct fragment_tag_search_single_cta_p {};
 
+template <typename DataTag,
+          typename SourceIndexTag,
+          typename IndexTag,
+          typename DistanceTag,
+          bool TopkByBitonicSort,
+          bool BitonicSortAndMergeMultiWarps>
+struct fragment_tag_search_single_cta_mp {};
+
 template <typename DataTag, typename SourceIndexTag, typename IndexTag, typename DistanceTag>
 struct fragment_tag_search_multi_cta {};
+
+template <typename DataTag, typename SourceIndexTag, typename IndexTag, typename DistanceTag>
+struct fragment_tag_search_multi_cta_mp {};
 
 template <typename DataTag, typename IndexTag, typename DistanceTag>
 struct fragment_tag_random_pickup {};

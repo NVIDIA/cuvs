@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -309,7 +309,7 @@ class CppGoogleBenchmarkBackend(BenchmarkBackend):
         force: bool = False,
         search_threads: Optional[int] = None,
         dry_run: bool = False,
-    ) -> SearchResult:
+    ) -> List[SearchResult]:
         """
         Search using C++ Google Benchmark executable.
 
@@ -339,40 +339,45 @@ class CppGoogleBenchmarkBackend(BenchmarkBackend):
 
         Returns
         -------
-        SearchResult
-            Search timing, recall, and QPS (aggregated across all indexes)
+        List[SearchResult]
+            A single aggregate result containing search timing, recall, and
+            QPS across all indexes.
         """
         if not indexes:
-            return SearchResult(
-                neighbors=np.array([]),
-                distances=np.array([]),
-                search_time_ms=0.0,
-                queries_per_second=0.0,
-                recall=0.0,
-                algorithm="",
-                search_params=[],
-                metadata={"skipped": True, "reason": "no_indexes"},
-                success=True,
-            )
+            return [
+                SearchResult(
+                    neighbors=np.array([]),
+                    distances=np.array([]),
+                    search_time_ms=0.0,
+                    queries_per_second=0.0,
+                    recall=0.0,
+                    algorithm="",
+                    search_params=[],
+                    metadata={"skipped": True, "reason": "no_indexes"},
+                    success=True,
+                )
+            ]
 
         first_index = indexes[0]
 
         # Pre-flight check (GPU, network, etc.)
         skip_reason = self._pre_flight_check()
         if skip_reason:
-            return SearchResult(
-                neighbors=np.array([]),
-                distances=np.array([]),
-                search_time_ms=0.0,
-                queries_per_second=0.0,
-                recall=0.0,
-                algorithm=first_index.algo,
-                search_params=first_index.search_params
-                if first_index.search_params
-                else [],
-                metadata={"skipped": True, "reason": skip_reason},
-                success=True,
-            )
+            return [
+                SearchResult(
+                    neighbors=np.array([]),
+                    distances=np.array([]),
+                    search_time_ms=0.0,
+                    queries_per_second=0.0,
+                    recall=0.0,
+                    algorithm=first_index.algo,
+                    search_params=first_index.search_params
+                    if first_index.search_params
+                    else [],
+                    metadata={"skipped": True, "reason": skip_reason},
+                    success=True,
+                )
+            ]
 
         # Note: runners.py doesn't validate and lets C++ fail. We validate here for
         # better Python-side error messages.
@@ -470,21 +475,23 @@ class CppGoogleBenchmarkBackend(BenchmarkBackend):
                 f"Benchmark command for {self.output_filename[1]}:\n{' '.join(cmd)}\n"
             )
             Path(temp_config_path).unlink(missing_ok=True)
-            return SearchResult(
-                neighbors=np.array([]),
-                distances=np.array([]),
-                search_time_ms=0.0,
-                queries_per_second=0.0,
-                recall=0.0,
-                algorithm=first_index.algo,
-                search_params=first_index.search_params,
-                metadata={
-                    "dry_run": True,
-                    "num_indexes": len(indexes),
-                    "total_search_configs": total_search_configs,
-                },
-                success=True,
-            )
+            return [
+                SearchResult(
+                    neighbors=np.array([]),
+                    distances=np.array([]),
+                    search_time_ms=0.0,
+                    queries_per_second=0.0,
+                    recall=0.0,
+                    algorithm=first_index.algo,
+                    search_params=first_index.search_params,
+                    metadata={
+                        "dry_run": True,
+                        "num_indexes": len(indexes),
+                        "total_search_configs": total_search_configs,
+                    },
+                    success=True,
+                )
+            ]
 
         # Execute subprocess
         start_time = time.perf_counter()
@@ -544,54 +551,60 @@ class CppGoogleBenchmarkBackend(BenchmarkBackend):
 
             # Note: C++ Google Benchmark doesn't return actual neighbors/distances
             # This is a limitation of the current system
-            return SearchResult(
-                neighbors=np.array([]),  # Not available from C++ benchmark
-                distances=np.array([]),  # Not available from C++ benchmark
-                search_time_ms=total_search_time,
-                queries_per_second=avg_qps,
-                recall=avg_recall,
-                algorithm=first_index.algo,
-                search_params=first_index.search_params,
-                metadata={
-                    "num_indexes": len(indexes),
-                    "num_benchmarks": len(benchmarks),
-                    "elapsed_time": elapsed_time,
-                    "latency_us": benchmarks[0].get("Latency")
-                    if benchmarks
-                    else None,
-                    "end_to_end": benchmarks[0].get("end_to_end")
-                    if benchmarks
-                    else None,
-                    "context": gbench_results.get("context", {}),
-                },
-                success=True,
-            )
+            return [
+                SearchResult(
+                    neighbors=np.array([]),  # Not available from C++ benchmark
+                    distances=np.array([]),  # Not available from C++ benchmark
+                    search_time_ms=total_search_time,
+                    queries_per_second=avg_qps,
+                    recall=avg_recall,
+                    algorithm=first_index.algo,
+                    search_params=first_index.search_params,
+                    metadata={
+                        "num_indexes": len(indexes),
+                        "num_benchmarks": len(benchmarks),
+                        "elapsed_time": elapsed_time,
+                        "latency_us": benchmarks[0].get("Latency")
+                        if benchmarks
+                        else None,
+                        "end_to_end": benchmarks[0].get("end_to_end")
+                        if benchmarks
+                        else None,
+                        "context": gbench_results.get("context", {}),
+                    },
+                    success=True,
+                )
+            ]
 
         except subprocess.CalledProcessError as e:
-            return SearchResult(
-                neighbors=np.array([]),
-                distances=np.array([]),
-                search_time_ms=time.perf_counter() - start_time,
-                queries_per_second=0.0,
-                recall=0.0,
-                algorithm=first_index.algo,
-                search_params=first_index.search_params,
-                success=False,
-                error_message=f"Search failed: {e.stderr}",
-            )
+            return [
+                SearchResult(
+                    neighbors=np.array([]),
+                    distances=np.array([]),
+                    search_time_ms=time.perf_counter() - start_time,
+                    queries_per_second=0.0,
+                    recall=0.0,
+                    algorithm=first_index.algo,
+                    search_params=first_index.search_params,
+                    success=False,
+                    error_message=f"Search failed: {e.stderr}",
+                )
+            ]
 
         except Exception as e:
-            return SearchResult(
-                neighbors=np.array([]),
-                distances=np.array([]),
-                search_time_ms=time.perf_counter() - start_time,
-                queries_per_second=0.0,
-                recall=0.0,
-                algorithm=first_index.algo,
-                search_params=first_index.search_params,
-                success=False,
-                error_message=f"Search error: {str(e)}",
-            )
+            return [
+                SearchResult(
+                    neighbors=np.array([]),
+                    distances=np.array([]),
+                    search_time_ms=time.perf_counter() - start_time,
+                    queries_per_second=0.0,
+                    recall=0.0,
+                    algorithm=first_index.algo,
+                    search_params=first_index.search_params,
+                    success=False,
+                    error_message=f"Search error: {str(e)}",
+                )
+            ]
 
         finally:
             # Cleanup temporary config

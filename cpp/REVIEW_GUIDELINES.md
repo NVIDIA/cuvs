@@ -79,6 +79,7 @@
 ### Test Quality
 - Missing validation of numerical correctness
 - **Using external datasets** (tests must not depend on external resources; use synthetic data or bundled datasets)
+- **Trailing newline in GTest parameterized test names** (`operator<<` overloads or `PrintTo` functions used to stringify test parameters must not emit `std::endl` or `"\n"`; GTest uses the stream output to build the test name, and a trailing newline breaks exact-match tooling like `ctest --tests-from-file`)
 
 ## MEDIUM Issues (Comment Selectively)
 
@@ -304,6 +305,7 @@ cudaStreamCreate(&per_device_stream);
 - [ ] Are all datasets synthetic or bundled (no external resource dependencies)?
 - [ ] Is numerical correctness validated?
 - [ ] Are edge cases tested (empty, single element, extreme values)?
+- [ ] If an `operator<<`/`PrintTo` is used to name parameterized GTest cases, does it avoid `std::endl`/`"\n"` (a trailing newline in the generated name breaks `ctest --tests-from-file` exact matching)?
 
 ---
 

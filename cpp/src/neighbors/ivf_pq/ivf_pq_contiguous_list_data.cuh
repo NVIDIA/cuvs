@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 #include <cstdint>
+#include <cuda/stream>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <variant>
@@ -20,7 +21,7 @@ void unpack_contiguous_list_data(
   uint32_t pq_dim,
   std::variant<uint32_t, const uint32_t*> offset_or_indices,
   uint32_t pq_bits,
-  rmm::cuda_stream_view stream);
+  cuda::stream_ref stream);
 
 template <typename IdxT>
 void unpack_contiguous_list_data(raft::resources const& res,
@@ -53,7 +54,7 @@ void pack_contiguous_list_data(
   uint32_t pq_dim,
   std::variant<uint32_t, const uint32_t*> offset_or_indices,
   uint32_t pq_bits,
-  rmm::cuda_stream_view stream);
+  cuda::stream_ref stream);
 
 template <typename IdxT>
 void pack_contiguous_list_data(raft::resources const& res,

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -89,6 +89,29 @@ def test_hnsw(dtype, k, ef, num_threads, metric, build_algo, hierarchy):
         search_params={"ef": ef, "num_threads": num_threads},
         expected_recall=expected_recall,
     )
+
+
+def test_hnsw_build_hnsw_first_api():
+    dataset = generate_data((2000, 16), np.float32)
+    queries = generate_data((100, 16), np.float32)
+    k = 10
+
+    index_params = hnsw.IndexParams(
+        hierarchy="gpu",
+        M=16,
+        ef_construction=120,
+        metric="sqeuclidean",
+    )
+    index = hnsw.build(index_params, dataset)
+
+    _, neighbors = hnsw.search(hnsw.SearchParams(ef=100), index, queries, k)
+
+    reference = NearestNeighbors(
+        n_neighbors=k, algorithm="brute", metric="sqeuclidean"
+    ).fit(dataset)
+    _, reference_neighbors = reference.kneighbors(queries)
+
+    assert calc_recall(neighbors, reference_neighbors) >= 0.9
 
 
 def run_hnsw_extend_test(

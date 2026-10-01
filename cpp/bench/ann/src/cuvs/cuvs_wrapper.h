@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -65,7 +65,7 @@ class cuvs_gpu : public algo<T>, public algo_gpu {
   }
   [[nodiscard]] auto get_sync_stream() const noexcept -> cudaStream_t override
   {
-    return handle_.get_sync_stream();
+    return handle_.get_sync_stream().get();
   }
   void set_search_dataset(const T* dataset, size_t nrow) override;
   void save(const std::string& file) const override;

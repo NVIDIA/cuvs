@@ -1,0 +1,33 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cstdint>
+
+#include <cuda_fp16.h>
+
+#include <@header_file@>
+#include <distance/detail/pairwise_matrix/jit_lto_kernels/device_functions.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using acc_t   = @acc_type@;
+using index_t = @index_type@;
+using op_t    = @op_type@<data_t, acc_t, index_t>;
+
+}  // namespace
+
+namespace cuvs::distance::detail {
+
+template <>
+__device__ void compute_distance<op_t, data_t, acc_t, index_t>(op_t distance_op,
+                                                               acc_t& acc,
+                                                               data_t x,
+                                                               data_t y)
+{
+  distance_op.core(acc, x, y);
+}
+
+}  // namespace cuvs::distance::detail

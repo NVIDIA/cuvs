@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -40,6 +40,7 @@ cuvs::preprocessing::pca::params to_cpp_params(const cuvsPcaParams& c_params)
   return cpp_params;
 }
 
+template <typename LayoutT>
 void _fit(cuvsResources_t res,
           const cuvsPcaParams& params,
           DLManagedTensor* input_tensor,
@@ -54,12 +55,12 @@ void _fit(cuvsResources_t res,
   auto res_ptr    = reinterpret_cast<raft::resources*>(res);
   auto cpp_params = to_cpp_params(params);
 
-  using matrix_type = raft::device_matrix_view<float, int64_t, raft::col_major>;
+  using matrix_type = raft::device_matrix_view<float, int64_t, LayoutT>;
   using vector_type = raft::device_vector_view<float, int64_t>;
   using scalar_type = raft::device_scalar_view<float, int64_t>;
 
-  auto input      = cuvs::core::from_dlpack<matrix_type>(input_tensor);
-  auto components = cuvs::core::from_dlpack<matrix_type>(components_tensor);
+  auto input               = cuvs::core::from_dlpack<matrix_type>(input_tensor);
+  auto components          = cuvs::core::from_dlpack<matrix_type>(components_tensor);
   auto explained_var       = cuvs::core::from_dlpack<vector_type>(explained_var_tensor);
   auto explained_var_ratio = cuvs::core::from_dlpack<vector_type>(explained_var_ratio_tensor);
   auto singular_vals       = cuvs::core::from_dlpack<vector_type>(singular_vals_tensor);
@@ -78,6 +79,7 @@ void _fit(cuvsResources_t res,
                                 flip_signs_based_on_U);
 }
 
+template <typename LayoutT>
 void _fit_transform(cuvsResources_t res,
                     const cuvsPcaParams& params,
                     DLManagedTensor* input_tensor,
@@ -93,13 +95,13 @@ void _fit_transform(cuvsResources_t res,
   auto res_ptr    = reinterpret_cast<raft::resources*>(res);
   auto cpp_params = to_cpp_params(params);
 
-  using matrix_type = raft::device_matrix_view<float, int64_t, raft::col_major>;
+  using matrix_type = raft::device_matrix_view<float, int64_t, LayoutT>;
   using vector_type = raft::device_vector_view<float, int64_t>;
   using scalar_type = raft::device_scalar_view<float, int64_t>;
 
-  auto input       = cuvs::core::from_dlpack<matrix_type>(input_tensor);
-  auto trans_input = cuvs::core::from_dlpack<matrix_type>(trans_input_tensor);
-  auto components  = cuvs::core::from_dlpack<matrix_type>(components_tensor);
+  auto input               = cuvs::core::from_dlpack<matrix_type>(input_tensor);
+  auto trans_input         = cuvs::core::from_dlpack<matrix_type>(trans_input_tensor);
+  auto components          = cuvs::core::from_dlpack<matrix_type>(components_tensor);
   auto explained_var       = cuvs::core::from_dlpack<vector_type>(explained_var_tensor);
   auto explained_var_ratio = cuvs::core::from_dlpack<vector_type>(explained_var_ratio_tensor);
   auto singular_vals       = cuvs::core::from_dlpack<vector_type>(singular_vals_tensor);
@@ -119,6 +121,7 @@ void _fit_transform(cuvsResources_t res,
                                           flip_signs_based_on_U);
 }
 
+template <typename LayoutT>
 void _transform(cuvsResources_t res,
                 const cuvsPcaParams& params,
                 DLManagedTensor* input_tensor,
@@ -130,7 +133,7 @@ void _transform(cuvsResources_t res,
   auto res_ptr    = reinterpret_cast<raft::resources*>(res);
   auto cpp_params = to_cpp_params(params);
 
-  using matrix_type = raft::device_matrix_view<float, int64_t, raft::col_major>;
+  using matrix_type = raft::device_matrix_view<float, int64_t, LayoutT>;
   using vector_type = raft::device_vector_view<float, int64_t>;
 
   auto input         = cuvs::core::from_dlpack<matrix_type>(input_tensor);
@@ -143,6 +146,7 @@ void _transform(cuvsResources_t res,
     *res_ptr, cpp_params, input, components, singular_vals, mu, trans_input);
 }
 
+template <typename LayoutT>
 void _inverse_transform(cuvsResources_t res,
                         const cuvsPcaParams& params,
                         DLManagedTensor* trans_input_tensor,
@@ -154,7 +158,7 @@ void _inverse_transform(cuvsResources_t res,
   auto res_ptr    = reinterpret_cast<raft::resources*>(res);
   auto cpp_params = to_cpp_params(params);
 
-  using matrix_type = raft::device_matrix_view<float, int64_t, raft::col_major>;
+  using matrix_type = raft::device_matrix_view<float, int64_t, LayoutT>;
   using vector_type = raft::device_vector_view<float, int64_t>;
 
   auto trans_input   = cuvs::core::from_dlpack<matrix_type>(trans_input_tensor);
@@ -205,19 +209,32 @@ extern "C" cuvsError_t cuvsPcaFit(cuvsResources_t res,
                  "PCA input must be float32 (kDLFloat, 32 bits)");
     RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(input->dl_tensor),
                  "PCA input must be device-accessible memory");
-    RAFT_EXPECTS(cuvs::core::is_f_contiguous(input),
-                 "PCA input must be col-major (Fortran-contiguous)");
 
-    _fit(res,
-         *params,
-         input,
-         components,
-         explained_var,
-         explained_var_ratio,
-         singular_vals,
-         mu,
-         noise_vars,
-         flip_signs_based_on_U);
+    if (cuvs::core::is_f_contiguous(input)) {
+      _fit<raft::col_major>(res,
+                            *params,
+                            input,
+                            components,
+                            explained_var,
+                            explained_var_ratio,
+                            singular_vals,
+                            mu,
+                            noise_vars,
+                            flip_signs_based_on_U);
+    } else if (cuvs::core::is_c_contiguous(input)) {
+      _fit<raft::row_major>(res,
+                            *params,
+                            input,
+                            components,
+                            explained_var,
+                            explained_var_ratio,
+                            singular_vals,
+                            mu,
+                            noise_vars,
+                            flip_signs_based_on_U);
+    } else {
+      RAFT_FAIL("PCA input must be contiguous (C- or F-order)");
+    }
   });
 }
 
@@ -239,20 +256,34 @@ extern "C" cuvsError_t cuvsPcaFitTransform(cuvsResources_t res,
                  "PCA input must be float32 (kDLFloat, 32 bits)");
     RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(input->dl_tensor),
                  "PCA input must be device-accessible memory");
-    RAFT_EXPECTS(cuvs::core::is_f_contiguous(input),
-                 "PCA input must be col-major (Fortran-contiguous)");
 
-    _fit_transform(res,
-                   *params,
-                   input,
-                   trans_input,
-                   components,
-                   explained_var,
-                   explained_var_ratio,
-                   singular_vals,
-                   mu,
-                   noise_vars,
-                   flip_signs_based_on_U);
+    if (cuvs::core::is_f_contiguous(input)) {
+      _fit_transform<raft::col_major>(res,
+                                      *params,
+                                      input,
+                                      trans_input,
+                                      components,
+                                      explained_var,
+                                      explained_var_ratio,
+                                      singular_vals,
+                                      mu,
+                                      noise_vars,
+                                      flip_signs_based_on_U);
+    } else if (cuvs::core::is_c_contiguous(input)) {
+      _fit_transform<raft::row_major>(res,
+                                      *params,
+                                      input,
+                                      trans_input,
+                                      components,
+                                      explained_var,
+                                      explained_var_ratio,
+                                      singular_vals,
+                                      mu,
+                                      noise_vars,
+                                      flip_signs_based_on_U);
+    } else {
+      RAFT_FAIL("PCA input must be contiguous (C- or F-order)");
+    }
   });
 }
 
@@ -270,10 +301,14 @@ extern "C" cuvsError_t cuvsPcaTransform(cuvsResources_t res,
                  "PCA input must be float32 (kDLFloat, 32 bits)");
     RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(input->dl_tensor),
                  "PCA input must be device-accessible memory");
-    RAFT_EXPECTS(cuvs::core::is_f_contiguous(input),
-                 "PCA input must be col-major (Fortran-contiguous)");
 
-    _transform(res, *params, input, components, singular_vals, mu, trans_input);
+    if (cuvs::core::is_f_contiguous(input)) {
+      _transform<raft::col_major>(res, *params, input, components, singular_vals, mu, trans_input);
+    } else if (cuvs::core::is_c_contiguous(input)) {
+      _transform<raft::row_major>(res, *params, input, components, singular_vals, mu, trans_input);
+    } else {
+      RAFT_FAIL("PCA input must be contiguous (C- or F-order)");
+    }
   });
 }
 
@@ -291,9 +326,15 @@ extern "C" cuvsError_t cuvsPcaInverseTransform(cuvsResources_t res,
                  "PCA trans_input must be float32 (kDLFloat, 32 bits)");
     RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(trans_input->dl_tensor),
                  "PCA trans_input must be device-accessible memory");
-    RAFT_EXPECTS(cuvs::core::is_f_contiguous(trans_input),
-                 "PCA trans_input must be col-major (Fortran-contiguous)");
 
-    _inverse_transform(res, *params, trans_input, components, singular_vals, mu, output);
+    if (cuvs::core::is_f_contiguous(trans_input)) {
+      _inverse_transform<raft::col_major>(
+        res, *params, trans_input, components, singular_vals, mu, output);
+    } else if (cuvs::core::is_c_contiguous(trans_input)) {
+      _inverse_transform<raft::row_major>(
+        res, *params, trans_input, components, singular_vals, mu, output);
+    } else {
+      RAFT_FAIL("PCA trans_input must be contiguous (C- or F-order)");
+    }
   });
 }

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -205,6 +205,13 @@ class CUVS_EXPORT GNND {
              bool return_distances,
              DistData_t* output_distances,
              DistEpilogue_t dist_epilogue = DistEpilogue_t{});
+
+  template <typename DistEpilogue_t = raft::identity_op>
+  void build(cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
+             Index_t* output_graph,
+             bool return_distances,
+             DistData_t* output_distances,
+             DistEpilogue_t dist_epilogue = DistEpilogue_t{});
   ~GNND()    = default;
   using ID_t = InternalID_t<Index_t>;
   void reset(raft::resources const& res);
@@ -219,6 +226,12 @@ class CUVS_EXPORT GNND {
   template <typename DistEpilogue_t>
   void local_join(cudaStream_t stream = 0, DistEpilogue_t dist_epilogue = DistEpilogue_t{});
 
+  template <typename DistEpilogue_t>
+  void local_join(
+    cudaStream_t stream,
+    cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
+    DistEpilogue_t dist_epilogue = DistEpilogue_t{});
+
   raft::resources const& res;
 
   BuildConfig build_config_;
@@ -228,8 +241,18 @@ class CUVS_EXPORT GNND {
   size_t nrow_;
   size_t ndim_;
 
-  std::optional<raft::device_matrix<float, size_t, raft::row_major>> d_data_float_;
+  using input_t = std::remove_const_t<Data_t>;
+
+  // d_data_half_ is used for a special case when input data is fp32 on host and distances will be
+  // computed in fp16 (dist_comp_dtype == FP16, or AUTO with dim > 16): we store the dataset on
+  // device as fp16 (instead of fp32) to halve the device memory footprint and WMMA kernel read
+  // bandwidth.
   std::optional<raft::device_matrix<half, size_t, raft::row_major>> d_data_half_;
+  // d_data_direct_ is used when input data is on host, and we need to copy it to device
+  std::optional<raft::device_matrix<input_t, size_t, raft::row_major>> d_data_direct_;
+
+  // d_data_ptr_ is used to store the general pointer to the input data
+  const void* d_data_ptr_{nullptr};
   raft::device_vector<DistData_t, size_t> l2_norms_;
 
   raft::device_matrix<ID_t, size_t, raft::row_major> graph_buffer_;
