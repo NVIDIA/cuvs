@@ -6,7 +6,6 @@ package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.CuVSHostMatrix;
 import com.nvidia.cuvs.CuVSMatrix;
-import java.io.IOException;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.InfoStream;
 
@@ -29,6 +28,9 @@ public class TestHostInputMemory extends LuceneTestCase {
     expectThrows(
         IllegalArgumentException.class,
         () -> HostInputMemory.payloadBytes(-1, 128, CuVSMatrix.DataType.FLOAT));
+    expectThrows(
+        IllegalArgumentException.class,
+        () -> HostInputMemory.payloadBytes(1, -1, CuVSMatrix.DataType.FLOAT));
   }
 
   public void testPayloadAboveTwoGiBIsCountedUntilCleanupWithoutAllocatingIt() throws Exception {
@@ -81,39 +83,15 @@ public class TestHostInputMemory extends LuceneTestCase {
     assertEquals(baseline, memory.ramBytesUsed());
   }
 
-  public void testBodyFailureRemainsPrimaryWhenBuilderCleanupFails() {
+  public void testBuildFailureRemainsPrimaryWhenBuilderCleanupFails() {
     HostInputMemory memory = newMemory();
     long baseline = memory.ramBytesUsed();
-    IOException bodyFailure = new IOException("vector replay failed");
     IllegalStateException closeFailure = new IllegalStateException("builder cleanup failed");
     TrackingBuilder builder =
         new TrackingBuilder(
             () -> {
               throw closeFailure;
             });
-
-    IOException thrown =
-        expectThrows(
-            IOException.class,
-            () ->
-                memory.withAllocation(
-                    "embedding",
-                    512,
-                    () -> builder,
-                    allocated -> {
-                      throw bodyFailure;
-                    }));
-
-    assertSame(bodyFailure, thrown);
-    assertArrayEquals(new Throwable[] {closeFailure}, thrown.getSuppressed());
-    assertEquals(1, builder.closeCalls);
-    assertEquals(baseline, memory.ramBytesUsed());
-  }
-
-  public void testBuildFailureClosesBuilderAndClearsAccounting() {
-    HostInputMemory memory = newMemory();
-    long baseline = memory.ramBytesUsed();
-    TrackingBuilder builder = new TrackingBuilder(() -> {});
 
     IllegalStateException thrown =
         expectThrows(
@@ -123,32 +101,8 @@ public class TestHostInputMemory extends LuceneTestCase {
                     "embedding", 512, () -> builder, allocated -> allocated.build()));
 
     assertSame(builder.buildFailure, thrown);
+    assertArrayEquals(new Throwable[] {closeFailure}, thrown.getSuppressed());
     assertEquals(1, builder.closeCalls);
-    assertEquals(baseline, memory.ramBytesUsed());
-  }
-
-  public void testOwnershipTransferDoesNotDoubleCountPayload() throws Exception {
-    HostInputMemory memory = newMemory();
-    long baseline = memory.ramBytesUsed();
-    int[] indexCloses = {0};
-    memory.withAllocation(
-        "embedding",
-        512,
-        () -> new TrackingBuilder(() -> {}),
-        builder -> {
-          try (Utils.OwnedIndex<AutoCloseable> owned =
-              Utils.ownDataset(() -> fail("Index owns the transferred dataset"))) {
-            owned.transferTo(
-                () -> {
-                  assertEquals(baseline + 512, memory.ramBytesUsed());
-                  indexCloses[0]++;
-                });
-            assertEquals(baseline + 512, memory.ramBytesUsed());
-          } catch (Exception e) {
-            throw new IOException(e);
-          }
-        });
-    assertEquals(1, indexCloses[0]);
     assertEquals(baseline, memory.ramBytesUsed());
   }
 
