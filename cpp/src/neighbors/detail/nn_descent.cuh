@@ -2277,9 +2277,10 @@ template <typename Index_t>
 void GnndGraph<Index_t>::update_graph(const InternalID_t<Index_t>* new_neighbors,
                                       const DistData_t* new_dists,
                                       const size_t width,
-                                      std::atomic<int64_t>& update_counter)
+                                      size_t& update_counter)
 {
-#pragma omp parallel for
+  size_t n_updates = 0;
+#pragma omp parallel for reduction(+ : n_updates)
   for (size_t i = 0; i < nrow; i++) {
     for (size_t j = 0; j < width; j++) {
       auto new_neighb_id = new_neighbors[i * width + j];
@@ -2291,9 +2292,10 @@ void GnndGraph<Index_t>::update_graph(const InternalID_t<Index_t>* new_neighbors
       auto dist_list = h_dists.data_handle() + i * node_degree + seg_idx * segment_size;
       int insert_pos =
         insert_to_ordered_list(list, dist_list, segment_size, new_neighb_id, new_dist);
-      if (i % counter_interval == 0 && insert_pos != segment_size) { update_counter++; }
+      if (insert_pos != segment_size) { n_updates++; }
     }
   }
+  update_counter = n_updates;
 }
 
 template <typename Index_t>
@@ -2730,6 +2732,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   graph_.init_random_graph();
   graph_.sample_graph(true);
 
+  bool converged         = false;
   auto update_and_sample = [&](bool update_graph) {
     if (update_graph) {
       update_counter_ = 0;
@@ -2737,10 +2740,8 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
                           dists_host_buffer_.data_handle(),
                           DEGREE_ON_DEVICE,
                           update_counter_);
-      if (update_counter_ < build_config_.termination_threshold * nrow_ *
-                              build_config_.dataset_dim / counter_interval) {
-        update_counter_ = -1;
-      }
+      converged = update_counter_ <=
+                  build_config_.termination_threshold * nrow_ * build_config_.output_graph_degree;
     }
     graph_.sample_graph(false);
   };
@@ -2788,7 +2789,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
 
     update_and_sample_thread.join();
 
-    if (update_counter_ == -1) { break; }
+    if (converged) { break; }
     raft::copy(res, graph_host_buffer_.view(), graph_buffer_.view());
     raft::copy(res, dists_host_buffer_.view(), dists_buffer_.view());
     raft::resource::sync_stream(res);
@@ -2876,6 +2877,7 @@ void GNND<Data_t, Index_t>::build(
   graph_.init_random_graph();
   graph_.sample_graph(true);
 
+  bool converged         = false;
   auto update_and_sample = [&](bool update_graph) {
     if (update_graph) {
       update_counter_ = 0;
@@ -2883,10 +2885,8 @@ void GNND<Data_t, Index_t>::build(
                           dists_host_buffer_.data_handle(),
                           DEGREE_ON_DEVICE,
                           update_counter_);
-      if (update_counter_ < build_config_.termination_threshold * nrow_ *
-                              build_config_.dataset_dim / counter_interval) {
-        update_counter_ = -1;
-      }
+      converged = update_counter_ <=
+                  build_config_.termination_threshold * nrow_ * build_config_.output_graph_degree;
     }
     graph_.sample_graph(false);
   };
@@ -2915,7 +2915,7 @@ void GNND<Data_t, Index_t>::build(
 
     local_join(stream, dataset, dist_epilogue);
     update_and_sample_thread.join();
-    if (update_counter_ == -1) { break; }
+    if (converged) { break; }
     raft::copy(res, graph_host_buffer_.view(), graph_buffer_.view());
     raft::copy(res, dists_host_buffer_.view(), dists_buffer_.view());
     raft::resource::sync_stream(res);

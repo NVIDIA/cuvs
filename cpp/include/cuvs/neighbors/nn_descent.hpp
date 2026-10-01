@@ -63,7 +63,7 @@ struct index_params : cuvs::neighbors::index_params {
   size_t graph_degree              = 64;
   size_t intermediate_graph_degree = 128;
   size_t max_iterations            = 20;
-  float termination_threshold      = 0.0001;
+  float termination_threshold      = 0.001;
   bool return_distances            = true;
   DIST_COMP_DTYPE dist_comp_dtype  = DIST_COMP_DTYPE::AUTO;
 
