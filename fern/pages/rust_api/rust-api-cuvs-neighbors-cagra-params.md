@@ -112,6 +112,49 @@ _Source: `rust/cuvs/src/neighbors/cagra/params.rs:233`_
 
 _Source: `rust/cuvs/src/neighbors/cagra/params.rs:225`_
 
+## MergeParams
+
+```rust
+pub struct MergeParams {
+    /* private fields */
+}
+```
+
+Parameters controlling how physical CAGRA indices are merged.
+
+```ignore
+use cuvs::neighbors::cagra::{MergeAlgo, MergeParams};
+
+let params = MergeParams::builder().algo(MergeAlgo::Fastener).build()?;
+```
+
+**Methods**
+
+| Name | Source |
+| --- | --- |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:420` |
+
+### new
+
+```rust
+#[builder]
+#[allow(clippy::too_many_arguments)]
+pub fn new(
+algo: Option<MergeAlgo>,
+levels: Option<u32>,
+root_fanout: Option<u32>,
+lower_fanout: Option<u32>,
+leader_fraction: Option<f64>,
+max_leaders: Option<u32>,
+leaf_size: Option<u32>,
+leaf_degree: Option<u32>,
+) -> Result<Self, CagraError>
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:420`_
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:412`_
+
 ## impl IndexParamsBuilder
 
 ```rust

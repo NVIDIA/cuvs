@@ -22,8 +22,8 @@ mod params;
 
 pub use crate::dataset::{CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset};
 pub use crate::neighbors::filters::{Bitset, Filter};
-pub use index::{DeserializedIndex, Index};
-pub use params::{IndexParams, SearchParams};
+pub use index::{DeserializedIndex, Index, merged_dataset_offsets};
+pub use params::{IndexParams, MergeParams, SearchParams};
 
 use crate::dlpack::DLPackError;
 use crate::error::LibraryError;
@@ -100,6 +100,38 @@ impl From<ffi::cuvsCagraSearchAlgo> for SearchAlgo {
             ffi::cuvsCagraSearchAlgo::MULTI_CTA => Self::MultiCta,
             ffi::cuvsCagraSearchAlgo::MULTI_KERNEL => Self::MultiKernel,
             ffi::cuvsCagraSearchAlgo::AUTO => Self::Auto,
+        }
+    }
+}
+
+/// Algorithm used to merge multiple CAGRA indices into one.
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MergeAlgo {
+    /// Automatically select the best merge algorithm.
+    Auto,
+    /// Fast hierarchical merge ("Fastener").
+    Fastener,
+    /// Rebuild the graph from scratch over the merged dataset.
+    Rebuild,
+}
+
+impl From<MergeAlgo> for ffi::cuvsCagraMergeAlgo {
+    fn from(v: MergeAlgo) -> Self {
+        match v {
+            MergeAlgo::Auto => Self::CUVS_CAGRA_MERGE_AUTO,
+            MergeAlgo::Fastener => Self::CUVS_CAGRA_MERGE_FASTENER,
+            MergeAlgo::Rebuild => Self::CUVS_CAGRA_MERGE_REBUILD,
+        }
+    }
+}
+
+impl From<ffi::cuvsCagraMergeAlgo> for MergeAlgo {
+    fn from(v: ffi::cuvsCagraMergeAlgo) -> Self {
+        match v {
+            ffi::cuvsCagraMergeAlgo::CUVS_CAGRA_MERGE_AUTO => Self::Auto,
+            ffi::cuvsCagraMergeAlgo::CUVS_CAGRA_MERGE_FASTENER => Self::Fastener,
+            ffi::cuvsCagraMergeAlgo::CUVS_CAGRA_MERGE_REBUILD => Self::Rebuild,
         }
     }
 }
