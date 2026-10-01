@@ -52,10 +52,8 @@ dimensionality of the cluster centers
 def centers(self)
 ```
 
-Get cluster centers of shape (n_lists, dim).
-
-Binary indexes return packed uint8 centers; other indexes return
-float32 centers. Binary dimensions are measured in packed bytes.
+Get the cluster centers corresponding to the lists in the
+original space
 
 ## IndexParams
 
@@ -70,7 +68,7 @@ Parameters to build index for IvfFlat nearest neighbor search
 | Name | Type | Description |
 | --- | --- | --- |
 | `n_lists` | `int, default = 1024` | The number of clusters used in the coarse quantizer. |
-| `metric` | `str, default = "sqeuclidean"` | String denoting the metric type.<br />Valid values for metric: ["sqeuclidean", "inner_product", "euclidean", "cosine", "bitwise_hamming"], where<br /><br />- sqeuclidean is the euclidean distance without the square root operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,<br />- euclidean is the euclidean distance<br />- inner product distance is defined as distance(a, b) = \\sum_i a_i * b_i.<br />- cosine distance is defined as distance(a, b) = 1 - \\sum_i a_i * b_i / ( \|\|a\|\|_2 * \|\|b\|\|_2).<br />- bitwise_hamming counts differing bits in packed uint8 data. Input dimensions are the number of packed bytes per vector. |
+| `metric` | `str, default = "sqeuclidean"` | String denoting the metric type.<br />Valid values for metric: ["sqeuclidean", "inner_product", "euclidean", "cosine"], where<br /><br />- sqeuclidean is the euclidean distance without the square root operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,<br />- euclidean is the euclidean distance<br />- inner product distance is defined as distance(a, b) = \\sum_i a_i * b_i.<br />- cosine distance is defined as distance(a, b) = 1 - \\sum_i a_i * b_i / ( \|\|a\|\|_2 * \|\|b\|\|_2). |
 | `kmeans_n_iters` | `int, default = 20` | The number of iterations searching for kmeans centers during index building. The default setting is often fine, but this parameter can be decreased to improve training time wih larger trainset fractions (10M+ vectors) or increased for smaller trainset fractions (very small number of vectors) to improve recall. |
 | `kmeans_trainset_fraction` | `int, default = 0.5` | If kmeans_trainset_fraction is less than 1, then the dataset is subsampled, and only n_samples * kmeans_trainset_fraction rows are used for training. |
 | `add_data_on_build` | `bool, default = True` | After training the coarse and fine quantizers, we will populate the index with the dataset if add_data_on_build == True, otherwise the index is left empty, and the extend method can be used to add new vectors to the index. |

@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -49,7 +49,7 @@ cdef class IndexParams:
     metric : str, default = "sqeuclidean"
         String denoting the metric type.
         Valid values for metric: ["sqeuclidean", "inner_product",
-        "euclidean", "cosine", "bitwise_hamming"], where
+        "euclidean", "cosine"], where
 
             - sqeuclidean is the euclidean distance without the square root
               operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2,
@@ -58,8 +58,6 @@ cdef class IndexParams:
               distance(a, b) = \\sum_i a_i * b_i.
             - cosine distance is defined as
               distance(a, b) = 1 - \\sum_i a_i * b_i / ( ||a||_2 * ||b||_2).
-            - bitwise_hamming counts differing bits in packed uint8 data.
-              Input dimensions are the number of packed bytes per vector.
 
     kmeans_n_iters : int, default = 20
         The number of iterations searching for kmeans centers during index
@@ -191,11 +189,8 @@ cdef class Index:
 
     @property
     def centers(self):
-        """Get cluster centers of shape (n_lists, dim).
-
-        Binary indexes return packed uint8 centers; other indexes return
-        float32 centers. Binary dimensions are measured in packed bytes.
-        """
+        """ Get the cluster centers corresponding to the lists in the
+        original space """
         if not self.trained:
             raise ValueError("Index needs to be built before getting centers")
 

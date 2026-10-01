@@ -36,7 +36,7 @@ struct cuvsIvfFlatIndexParams {
 | `n_lists` | `uint32_t` | The number of inverted lists (clusters) |
 | `kmeans_n_iters` | `uint32_t` | The number of iterations searching for kmeans centers (index building). |
 | `kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building. |
-| `adaptive_centers` | `bool` | By default (adaptive_centers = false), the cluster centers are trained in `ivf_flat::build`, and never modified in `ivf_flat::extend`. As a result, you may need to retrain the index from scratch after invoking (`ivf_flat::extend`) a few times with new data, the distribution of which is no longer representative of the original training set.<br /><br />The alternative behavior (adaptive_centers = true) is to update the cluster centers when new data is added. For BitwiseHamming, centers are packed bitwise majorities of the data in each cluster, with ties resolved to zero. For other metrics, centers are floating-point means of the data in each cluster. Cluster assignments and centers depend on the order of adding new data, so the centers drift with the changing distribution of the newly added data. |
+| `adaptive_centers` | `bool` | By default (adaptive_centers = false), the cluster centers are trained in `ivf_flat::build`, and never modified in `ivf_flat::extend`. As a result, you may need to retrain the index from scratch after invoking (`ivf_flat::extend`) a few times with new data, the distribution of which is no longer representative of the original training set.<br /><br />The alternative behavior (adaptive_centers = true) is to update the cluster centers for new data when it is added. In this case, `index.centers()` are always exactly the centroids of the data in the corresponding clusters. The drawback of this behavior is that the centroids depend on the order of adding new data (through the classification of the added data); that is, `index.centers()` "drift" together with the changing distribution of the newly added data. |
 | `conservative_memory_allocation` | `bool` | By default, the algorithm allocates more space than necessary for individual clusters (`list_data`). This allows to amortize the cost of memory allocation and reduce the number of data copies during repeated calls to `extend` (extending the database).<br /><br />The alternative is the conservative allocation behavior; when enabled, the algorithm always allocates the minimum amount of memory required to store the given number of records. Set this flag to `true` if you prefer to use as little GPU memory for the database as possible. |
 
 <a id="cuvsivfflatindexparamscreate"></a>
@@ -45,8 +45,7 @@ struct cuvsIvfFlatIndexParams {
 Allocate IVF-Flat Index params, and populate with default values
 
 ```c
-cuvsError_t
-cuvsIvfFlatIndexParamsCreate(cuvsIvfFlatIndexParams_t *index_params);
+cuvsError_t cuvsIvfFlatIndexParamsCreate(cuvsIvfFlatIndexParams_t* index_params);
 ```
 
 **Parameters**
@@ -65,8 +64,7 @@ cuvsIvfFlatIndexParamsCreate(cuvsIvfFlatIndexParams_t *index_params);
 De-allocate IVF-Flat Index params
 
 ```c
-cuvsError_t
-cuvsIvfFlatIndexParamsDestroy(cuvsIvfFlatIndexParams_t index_params);
+cuvsError_t cuvsIvfFlatIndexParamsDestroy(cuvsIvfFlatIndexParams_t index_params);
 ```
 
 **Parameters**
@@ -104,8 +102,7 @@ struct cuvsIvfFlatSearchParams {
 Allocate IVF-Flat search params, and populate with default values
 
 ```c
-cuvsError_t
-cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t *params);
+cuvsError_t cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t* params);
 ```
 
 **Parameters**
@@ -124,8 +121,7 @@ cuvsIvfFlatSearchParamsCreate(cuvsIvfFlatSearchParams_t *params);
 De-allocate IVF-Flat search params
 
 ```c
-cuvsError_t
-cuvsIvfFlatSearchParamsDestroy(cuvsIvfFlatSearchParams_t params);
+cuvsError_t cuvsIvfFlatSearchParamsDestroy(cuvsIvfFlatSearchParams_t params);
 ```
 
 **Parameters**
@@ -165,7 +161,7 @@ typedef struct {
 Allocate IVF-Flat index
 
 ```c
-cuvsError_t cuvsIvfFlatIndexCreate(cuvsIvfFlatIndex_t *index);
+cuvsError_t cuvsIvfFlatIndexCreate(cuvsIvfFlatIndex_t* index);
 ```
 
 **Parameters**
@@ -203,8 +199,7 @@ cuvsError_t cuvsIvfFlatIndexDestroy(cuvsIvfFlatIndex_t index);
 Get the number of clusters/inverted lists in the index
 
 ```c
-cuvsError_t cuvsIvfFlatIndexGetNLists(cuvsIvfFlatIndex_t index,
-int64_t *n_lists);
+cuvsError_t cuvsIvfFlatIndexGetNLists(cuvsIvfFlatIndex_t index, int64_t* n_lists);
 ```
 
 **Parameters**
@@ -224,8 +219,7 @@ int64_t *n_lists);
 Get the dimensionality of the indexed data
 
 ```c
-cuvsError_t cuvsIvfFlatIndexGetDim(cuvsIvfFlatIndex_t index,
-int64_t *dim);
+cuvsError_t cuvsIvfFlatIndexGetDim(cuvsIvfFlatIndex_t index, int64_t* dim);
 ```
 
 **Parameters**
@@ -242,21 +236,18 @@ int64_t *dim);
 <a id="cuvsivfflatindexgetcenters"></a>
 ### cuvsIvfFlatIndexGetCenters
 
-Get a borrowed device view of the cluster centers [n_lists, dim].
+Get the cluster centers corresponding to the lists [n_lists, dim]
 
 ```c
-cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index,
-DLManagedTensor *centers);
+cuvsError_t cuvsIvfFlatIndexGetCenters(cuvsIvfFlatIndex_t index, DLManagedTensor* centers);
 ```
-
-Centers have dtype uint8 for BitwiseHamming, with dim measured in packed bytes, and float32 for other metrics. The index owns the underlying device storage; this function does not copy center data. The view remains valid only while that storage exists and has not been reallocated. Extending an index with adaptive centers can change the values visible through the view.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `index` | in | [`cuvsIvfFlatIndex_t`](/api-reference/c-api-neighbors-ivf-flat#cuvsivfflatindex) | Built IVF-Flat index that owns the centers. |
-| `centers` | out | `DLManagedTensor*` | Caller-allocated tensor descriptor to populate with the borrowed device view. |
+| `index` | in | [`cuvsIvfFlatIndex_t`](/api-reference/c-api-neighbors-ivf-flat#cuvsivfflatindex) | cuvsIvfFlatIndex_t Built Ivf-Flat Index |
+| `centers` | out | `DLManagedTensor*` | Preallocated array on host or device memory to store output, [n_lists, dim] |
 
 **Returns**
 
@@ -276,7 +267,7 @@ Build a IVF-Flat index with a `DLManagedTensor` which has underlying `DLDeviceTy
 ```c
 cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
 cuvsIvfFlatIndexParams_t index_params,
-DLManagedTensor *dataset,
+DLManagedTensor* dataset,
 cuvsIvfFlatIndex_t index);
 ```
 
@@ -305,10 +296,13 @@ Search a IVF-Flat index with a `DLManagedTensor` which has underlying `DLDeviceT
 3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
 
 ```c
-cuvsError_t cuvsIvfFlatSearch(
-cuvsResources_t res, cuvsIvfFlatSearchParams_t search_params,
-cuvsIvfFlatIndex_t index, DLManagedTensor *queries,
-DLManagedTensor *neighbors, DLManagedTensor *distances, cuvsFilter filter);
+cuvsError_t cuvsIvfFlatSearch(cuvsResources_t res,
+cuvsIvfFlatSearchParams_t search_params,
+cuvsIvfFlatIndex_t index,
+DLManagedTensor* queries,
+DLManagedTensor* neighbors,
+DLManagedTensor* distances,
+cuvsFilter filter);
 ```
 
 **Parameters**
@@ -336,7 +330,7 @@ Save the index to file.
 
 ```c
 cuvsError_t cuvsIvfFlatSerialize(cuvsResources_t res,
-const char *filename,
+const char* filename,
 cuvsIvfFlatIndex_t index);
 ```
 
@@ -361,7 +355,7 @@ Load index from file.
 
 ```c
 cuvsError_t cuvsIvfFlatDeserialize(cuvsResources_t res,
-const char *filename,
+const char* filename,
 cuvsIvfFlatIndex_t index);
 ```
 
@@ -388,8 +382,8 @@ Extend the index with the new data.
 
 ```c
 cuvsError_t cuvsIvfFlatExtend(cuvsResources_t res,
-DLManagedTensor *new_vectors,
-DLManagedTensor *new_indices,
+DLManagedTensor* new_vectors,
+DLManagedTensor* new_indices,
 cuvsIvfFlatIndex_t index);
 ```
 
