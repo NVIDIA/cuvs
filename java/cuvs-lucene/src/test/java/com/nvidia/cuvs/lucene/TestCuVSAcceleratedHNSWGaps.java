@@ -8,10 +8,7 @@ import static com.nvidia.cuvs.lucene.TestUtils.generateDataset;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 
 import java.io.IOException;
-import java.util.List;
-import java.util.Map;
 import java.util.Random;
-import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
@@ -116,7 +113,8 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
 
     // Use the first vector (from document 0) as query
     float[] queryVector = dataset[0];
-    int topK = random.nextInt(5, TOP_K_LIMIT);
+    int vectorCount = (datasetSize + 1) / 2;
+    int topK = Math.min(random.nextInt(5, TOP_K_LIMIT), vectorCount);
 
     Query query = new KnnFloatVectorQuery("vector", queryVector, topK);
     ScoreDoc[] hits = searcher.search(query, topK).scoreDocs;
@@ -129,17 +127,16 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
       String docId = reader.storedFields().document(hit.doc).get("id");
       int id = Integer.parseInt(docId);
       assertEquals("All results should be even-numbered (have vectors)", 0, id % 2);
+      float expectedScore = VectorSimilarityFunction.EUCLIDEAN.compare(queryVector, dataset[id]);
+      assertEquals(
+          "Score should match the vector for document " + id,
+          expectedScore,
+          hit.score,
+          expectedScore * 1e-4f);
       log.log(Level.FINE, "Document ID: " + id + ", Score: " + hit.score);
     }
 
-    // Verify the results match expected top-k based on Euclidean distance
-    List<Integer> expectedIds = calculateExpectedTopK(queryVector, topK, dataset);
-    for (int i = 0; i < hits.length; i++) {
-      String docId = reader.storedFields().document(hits[i].doc).get("id");
-      int id = Integer.parseInt(docId);
-      assertTrue("Result " + id + " should be in expected top-k results", expectedIds.contains(id));
-    }
-
+    // HNSW search is approximate, so exact Euclidean top-k membership is not guaranteed.
     log.log(Level.FINE, "Alternating document test passed with " + hits.length + " results");
   }
 
@@ -167,25 +164,5 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
     log.log(
         Level.FINE,
         "Filtered alternating document test passed with " + filteredHits.length + " results");
-  }
-
-  public static List<Integer> calculateExpectedTopK(float[] query, int topK, float[][] dataset) {
-    Map<Integer, Double> distances = new TreeMap<>();
-
-    // Calculate distances only for documents that have vectors (even-numbered)
-    for (int i = 0; i < dataset.length; i += 2) {
-      double distance = 0;
-      for (int j = 0; j < dataset[0].length; j++) {
-        distance += (query[j] - dataset[i][j]) * (query[j] - dataset[i][j]);
-      }
-      distances.put(i, distance);
-    }
-
-    // Sort by distance and return top-k
-    return distances.entrySet().stream()
-        .sorted(Map.Entry.comparingByValue())
-        .map(Map.Entry::getKey)
-        .limit(topK)
-        .toList();
   }
 }
