@@ -14,6 +14,7 @@ import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_I
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_INDEX_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_NAME;
+import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_VERSION;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.closeCuVSResourcesInstance;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.getCuVSResourcesInstance;
 import static com.nvidia.cuvs.lucene.Utils.createListFromMergedVectors;
@@ -32,7 +33,6 @@ import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.IndexFileNames;
@@ -55,10 +55,6 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends CompatKnnVectorsWriter
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(Lucene99AcceleratedHNSWVectorsWriter.class);
   private static final String COMPONENT = "Lucene99AcceleratedHNSWVectorsWriter";
-  // The graph is written with plain vInt-encoded neighbor lists, the encoding of
-  // Lucene99HnswVectorsFormat.VERSION_START. Lucene 10.3 added a group-varint encoding and made it
-  // VERSION_CURRENT, so the version has to be pinned to the encoding actually written.
-  private static final int VERSION = Lucene99HnswVectorsFormat.VERSION_START;
 
   private final AcceleratedHNSWParams acceleratedHNSWParams;
   private final FlatVectorsWriter flatVectorsWriter;
@@ -97,11 +93,15 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends CompatKnnVectorsWriter
       hnswMeta = state.directory.createOutput(vemFileName, state.context);
       hnswVectorIndex = state.directory.createOutput(vexFileName, state.context);
       CodecUtil.writeIndexHeader(
-          hnswMeta, HNSW_META_CODEC_NAME, VERSION, state.segmentInfo.getId(), state.segmentSuffix);
+          hnswMeta,
+          HNSW_META_CODEC_NAME,
+          HNSW_VERSION,
+          state.segmentInfo.getId(),
+          state.segmentSuffix);
       CodecUtil.writeIndexHeader(
           hnswVectorIndex,
           HNSW_INDEX_CODEC_NAME,
-          VERSION,
+          HNSW_VERSION,
           state.segmentInfo.getId(),
           state.segmentSuffix);
       success = true;

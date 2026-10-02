@@ -16,6 +16,7 @@ import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
@@ -35,6 +36,11 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat {
   private final AcceleratedHNSWParams acceleratedHNSWParams;
 
   static final String HNSW_META_CODEC_NAME = "Lucene99HnswVectorsFormatMeta";
+  // The version the GPU writers record in the HNSW files. AcceleratedHNSWUtils.writeGraph writes
+  // plain vInt-encoded neighbor lists, the encoding of Lucene99HnswVectorsFormat.VERSION_START.
+  // Lucene 10.3 added a group-varint encoding and made it VERSION_CURRENT, so the version has to be
+  // pinned to the encoding actually written.
+  static final int HNSW_VERSION = Lucene99HnswVectorsFormat.VERSION_START;
   static final String HNSW_META_CODEC_EXT = "vem";
   static final String HNSW_INDEX_CODEC_NAME = "Lucene99HnswVectorsFormatIndex";
   static final String HNSW_INDEX_EXT = "vex";
