@@ -30,7 +30,9 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
   private static final int MAX_DIMENSIONS = 4096;
 
   private final AcceleratedHNSWParams acceleratedHNSWParams;
-  private final Supplier<FlatVectorsFormat> flatVectorsFormat;
+  private final Supplier<FlatVectorsFormat> flatVectorsFormatSupplier;
+  // Created by the supplier on first use and then reused.
+  private volatile FlatVectorsFormat flatVectorsFormat;
   private final Function<AcceleratedHNSWParams, KnnVectorsFormat> cpuFormat;
 
   /**
@@ -54,7 +56,7 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
       Function<AcceleratedHNSWParams, KnnVectorsFormat> cpuFormat) {
     super(name);
     this.acceleratedHNSWParams = acceleratedHNSWParams;
-    this.flatVectorsFormat = flatVectorsFormat;
+    this.flatVectorsFormatSupplier = flatVectorsFormat;
     this.cpuFormat = cpuFormat;
   }
 
@@ -71,7 +73,7 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
     if (isSupported()) {
       log.fine("cuVS is supported so using the Lucene99AcceleratedHNSWQuantizedVectorsWriter");
       return new LuceneAcceleratedHNSWScalarQuantizedVectorsWriter(
-          state, acceleratedHNSWParams, flatVectorsFormat.get().fieldsWriter(state));
+          state, acceleratedHNSWParams, flatVectorsFormat().fieldsWriter(state));
     } else {
       KnnVectorsFormat fallback = cpuFormat.apply(acceleratedHNSWParams);
       // The class name, not getName(): in Lucene 10.4 and 10.5,
@@ -81,6 +83,17 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
               + fallback.getClass().getSimpleName());
       return fallback.fieldsWriter(state);
     }
+  }
+
+  /** Returns the format that stores the quantized vectors, creating it on first use. */
+  private FlatVectorsFormat flatVectorsFormat() {
+    FlatVectorsFormat format = flatVectorsFormat;
+    if (format == null) {
+      // Flat formats hold no state, so two threads racing here at most create a spare one.
+      format = flatVectorsFormatSupplier.get();
+      flatVectorsFormat = format;
+    }
+    return format;
   }
 
   /**
@@ -98,7 +111,7 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     LuceneVersionGuard.ensureCompatible();
-    return new Lucene99HnswVectorsReader(state, flatVectorsFormat.get().fieldsReader(state));
+    return new Lucene99HnswVectorsReader(state, flatVectorsFormat().fieldsReader(state));
   }
 
   /**
