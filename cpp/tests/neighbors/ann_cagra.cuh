@@ -44,6 +44,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <iterator>
 #include <memory>
 #include <numeric>
 #include <optional>
@@ -1657,6 +1658,21 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
   rmm::device_uvector<DataT> search_queries;
 };
 
+// The fixtures of the suites whose TEST_Ps are compiled once into an OBJECT library (e.g.
+// ann_cagra/test_float_uint32_t_search.cu) and instantiated over a slice of `inputs` by each test
+// executable that links it (e.g. ann_cagra/test_float_uint32_t_search_l2.cu). The suite names in
+// both have to match.
+typedef AnnCagraTest<float, float, std::uint32_t> AnnCagraTestF_U32;
+typedef AnnCagraIndexMergeTest<float, float, std::uint32_t> AnnCagraIndexMergeTestF_U32;
+typedef AnnCagraIndexFilteredMergeTest<float, float, std::uint32_t>
+  AnnCagraIndexFilteredMergeTestF_U32;
+typedef AnnCagraTest<float, half, std::uint32_t> AnnCagraTestF16_U32;
+typedef AnnCagraIndexMergeTest<float, half, std::uint32_t> AnnCagraIndexMergeTestF16_U32;
+typedef AnnCagraTest<float, std::int8_t, std::uint32_t> AnnCagraTestI8_U32;
+typedef AnnCagraIndexMergeTest<float, std::int8_t, std::uint32_t> AnnCagraIndexMergeTestI8_U32;
+typedef AnnCagraTest<float, std::uint8_t, std::uint32_t> AnnCagraTestU8_U32;
+typedef AnnCagraIndexMergeTest<float, std::uint8_t, std::uint32_t> AnnCagraIndexMergeTestU8_U32;
+
 inline std::vector<AnnCagraInputs> generate_inputs()
 {
   // TODO(tfeher): test MULTI_CTA kernel with search_width > 1 to allow multiple CTA per queries
@@ -2025,6 +2041,32 @@ inline std::vector<AnnCagraInputs> generate_filtering_inputs()
 const std::vector<AnnCagraInputs> inputs           = generate_inputs();
 const std::vector<AnnCagraInputs> inputs_addnode   = generate_addnode_inputs();
 const std::vector<AnnCagraInputs> inputs_filtering = generate_filtering_inputs();
+
+template <typename Pred>
+inline std::vector<AnnCagraInputs> filter_inputs(const std::vector<AnnCagraInputs>& all, Pred keep)
+{
+  std::vector<AnnCagraInputs> out;
+  std::copy_if(all.begin(), all.end(), std::back_inserter(out), keep);
+  return out;
+}
+
+// A suite swept over all of `inputs` takes minutes per dtype, so the suites over it are spread
+// across several test executables by distance metric. The CAGRA search kernels (and those of the
+// IVF-PQ / iterative graph builds) are JIT-linked once per process and per metric, so slicing by
+// metric keeps each executable's JIT warm-up mostly disjoint from the others'. Together the three
+// slices cover `inputs` exactly once.
+const std::vector<AnnCagraInputs> inputs_l2 = filter_inputs(inputs, [](const AnnCagraInputs& p) {
+  return p.metric == cuvs::distance::DistanceType::L2Expanded;
+});
+const std::vector<AnnCagraInputs> inputs_ip = filter_inputs(inputs, [](const AnnCagraInputs& p) {
+  return p.metric == cuvs::distance::DistanceType::InnerProduct;
+});
+// CosineExpanded, L1 and BitwiseHamming: everything not in the two slices above.
+const std::vector<AnnCagraInputs> inputs_other_metrics =
+  filter_inputs(inputs, [](const AnnCagraInputs& p) {
+    return p.metric != cuvs::distance::DistanceType::L2Expanded &&
+           p.metric != cuvs::distance::DistanceType::InnerProduct;
+  });
 
 // ===================================================================================
 // Multi-partition CAGRA search (cagra::search over a std::vector<const index*>).

@@ -1283,8 +1283,19 @@ inline auto special_cases() -> test_cases_t
 #define TEST_FLAT_LAYOUT_CODES(type) \
   TEST_P(type, flat_layout_codes) /* NOLINT */ { this->check_flat_layout_codes(); }
 
-#define INSTANTIATE(type, vals) \
-  INSTANTIATE_TEST_SUITE_P(IvfPq, type, ::testing::ValuesIn(vals)); /* NOLINT */
+#define INSTANTIATE_WITH_PREFIX(prefix, type, vals) \
+  INSTANTIATE_TEST_SUITE_P(prefix, type, ::testing::ValuesIn(vals)); /* NOLINT */
+
+#define INSTANTIATE(type, vals) INSTANTIATE_WITH_PREFIX(IvfPq, type, vals)
+
+/*
+ * The big_dims() / big_dims_moderate_lut() cases dominate the runtime of these tests (codebook
+ * training runs one k-means per PQ subspace, i.e. up to ~3k k-means per index build). To keep each
+ * test executable short, they are instantiated with the `IvfPqBigDims` prefix in the separate
+ * `ann_ivf_pq/test_big_dims_*.cu` translation units, while the per-dtype `test_*_int64_t*.cu`
+ * files instantiate the remaining (standard-size) cases.
+ */
+#define INSTANTIATE_BIG_DIMS(type, vals) INSTANTIATE_WITH_PREFIX(IvfPqBigDims, type, vals)
 
 /**
  * Test cases for flat layout comparison.

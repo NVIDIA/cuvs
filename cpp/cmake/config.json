@@ -11,6 +11,12 @@
           "PATH": "*"
         }
       },
+      "ConfigureTestObjects": {
+        "kwargs": {
+          "NAME": 1,
+          "PATH": "*"
+        }
+      },
       "compute_matrix_product": {
         "pargs": {
           "nargs": 1

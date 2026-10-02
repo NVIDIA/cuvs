@@ -12,6 +12,54 @@ enable_testing()
 include(rapids-test)
 rapids_test_init()
 
+# Dependencies, language standards, compile flags and include directories shared by the test
+# executables (ConfigureTest) and the OBJECT libraries of test sources (ConfigureTestObjects).
+function(ConfigureTestTarget TARGET)
+  target_link_libraries(
+    ${TARGET}
+    PRIVATE cuvs
+            cuvs::cuvs
+            cuvs_internal
+            raft::raft
+            rtcx::rtcx
+            GTest::gtest
+            Threads::Threads
+            ${CUVS_CTK_MATH_DEPENDENCIES}
+            $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
+            $<TARGET_NAME_IF_EXISTS:conda_env>
+            $<TARGET_NAME_IF_EXISTS:nvidia::cutlass::cutlass>
+  )
+  set_target_properties(
+    ${TARGET}
+    PROPERTIES CXX_STANDARD 20
+               CXX_STANDARD_REQUIRED ON
+               CUDA_STANDARD 20
+               CUDA_STANDARD_REQUIRED ON
+  )
+  target_compile_options(
+    ${TARGET}
+    PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUVS_CXX_FLAGS}>"
+            "$<$<COMPILE_LANGUAGE:CUDA>:${CUVS_CUDA_FLAGS}>"
+            "$<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>>:${CUVS_DEBUG_CUDA_FLAGS}>"
+  )
+  target_include_directories(${TARGET} PUBLIC "$<BUILD_INTERFACE:${CUVS_SOURCE_DIR}/tests>")
+endfunction()
+
+# Compiles test sources once into an OBJECT library that several test executables link through
+# ConfigureTest's ADDITIONAL_DEP. This lets executables share TEST_P definitions while each one
+# INSTANTIATEs them over its own parameters in a small source of its own. Every TEST_P in the
+# library runs for every instantiation of its suite in an executable, and gtest fails an executable
+# that links a TEST_P suite without instantiating it. It must be an OBJECT library: from a STATIC
+# library the linker would drop the self-registering tests, since nothing references them.
+function(ConfigureTestObjects)
+  set(oneValueArgs NAME)
+  set(multiValueArgs PATH)
+  cmake_parse_arguments(_CUVS_TEST_OBJECTS "" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
+
+  add_library(${_CUVS_TEST_OBJECTS_NAME} OBJECT ${_CUVS_TEST_OBJECTS_PATH})
+  ConfigureTestTarget(${_CUVS_TEST_OBJECTS_NAME})
+endfunction()
+
 function(ConfigureTest)
 
   set(options NOCUDA FETCH_CODEBOOKS RUN_SERIAL)
@@ -37,36 +85,11 @@ function(ConfigureTest)
   endif()
 
   add_executable(${TEST_NAME} ${_CUVS_TEST_PATH})
-  target_link_libraries(
-    ${TEST_NAME}
-    PRIVATE cuvs
-            cuvs::cuvs
-            cuvs_internal
-            raft::raft
-            rtcx::rtcx
-            GTest::gtest
-            GTest::gtest_main
-            Threads::Threads
-            ${CUVS_CTK_MATH_DEPENDENCIES}
-            $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
-            $<TARGET_NAME_IF_EXISTS:conda_env>
-            ${_CUVS_TEST_ADDITIONAL_DEP}
-            $<TARGET_NAME_IF_EXISTS:nvidia::cutlass::cutlass>
-  )
+  ConfigureTestTarget(${TEST_NAME})
+  target_link_libraries(${TEST_NAME} PRIVATE GTest::gtest_main ${_CUVS_TEST_ADDITIONAL_DEP})
   set_target_properties(
-    ${TEST_NAME}
-    PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${CUVS_BINARY_DIR}/gtests>"
-               INSTALL_RPATH "\$ORIGIN/../../../lib"
-               CXX_STANDARD 20
-               CXX_STANDARD_REQUIRED ON
-               CUDA_STANDARD 20
-               CUDA_STANDARD_REQUIRED ON
-  )
-  target_compile_options(
-    ${TEST_NAME}
-    PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUVS_CXX_FLAGS}>"
-            "$<$<COMPILE_LANGUAGE:CUDA>:${CUVS_CUDA_FLAGS}>"
-            "$<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>>:${CUVS_DEBUG_CUDA_FLAGS}>"
+    ${TEST_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "$<BUILD_INTERFACE:${CUVS_BINARY_DIR}/gtests>"
+                            INSTALL_RPATH "\$ORIGIN/../../../lib"
   )
 
   if(_CUVS_TEST_NOCUDA)
@@ -79,17 +102,21 @@ function(ConfigureTest)
     )
 
     foreach(CODEBOOK ${CODEBOOKS})
-      file(
-        DOWNLOAD
-        https://data.rapids.ai/cuvs/tests/data/neighbors/ann_vamana/randomized_codebooks/${CODEBOOK}
-        ${CUVS_BINARY_DIR}/tests/data/neighbors/ann_vamana/randomized_codebooks/${CODEBOOK}
+      set(CODEBOOK_PATH
+          ${CUVS_BINARY_DIR}/tests/data/neighbors/ann_vamana/randomized_codebooks/${CODEBOOK}
       )
+      # Several tests share these codebooks, so only download them once
+      if(NOT EXISTS ${CODEBOOK_PATH})
+        file(
+          DOWNLOAD
+          https://data.rapids.ai/cuvs/tests/data/neighbors/ann_vamana/randomized_codebooks/${CODEBOOK}
+          ${CODEBOOK_PATH}
+        )
+      endif()
     endforeach()
 
     target_compile_definitions(${TEST_NAME} PRIVATE TEST_DATA_DIR="${CUVS_BINARY_DIR}/tests/data/")
   endif()
-
-  target_include_directories(${TEST_NAME} PUBLIC "$<BUILD_INTERFACE:${CUVS_SOURCE_DIR}/tests>")
 
   rapids_test_add(
     NAME ${TEST_NAME}
@@ -109,19 +136,48 @@ endfunction()
 # ##################################################################################################
 
 ConfigureTest(
-  NAME NEIGHBORS_TEST
-  PATH neighbors/brute_force.cu neighbors/brute_force_prefiltered.cu neighbors/sparse_brute_force.cu
-       neighbors/refine.cu neighbors/distance_nn.cu neighbors/knn_merge_parts.cu
+  NAME NEIGHBORS_BRUTE_FORCE_TEST
+  PATH neighbors/brute_force.cu neighbors/sparse_brute_force.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 30
 )
-target_compile_definitions(NEIGHBORS_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
+target_compile_definitions(
+  NEIGHBORS_BRUTE_FORCE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_BRUTE_FORCE_PREFILTERED_TEST
+  PATH neighbors/brute_force_prefiltered.cu
+  GPUS 1
+  PERCENT 30
+)
+target_compile_definitions(
+  NEIGHBORS_BRUTE_FORCE_PREFILTERED_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_DISTANCE_NN_TEST
+  PATH neighbors/distance_nn.cu
+  GPUS 1
+  PERCENT 10
+)
+target_compile_definitions(
+  NEIGHBORS_DISTANCE_NN_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_REFINE_TEST
+  PATH neighbors/refine.cu neighbors/knn_merge_parts.cu
+  GPUS 1
+  PERCENT 5
+)
+target_compile_definitions(NEIGHBORS_REFINE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
 
 ConfigureTest(
   NAME NEIGHBORS_TIERED_INDEX_TEST
   PATH neighbors/tiered_index.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
@@ -135,14 +191,14 @@ ConfigureTest(
        cluster/connect_knn.cu
        cluster/spectral.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 60
 )
 
 ConfigureTest(
   NAME CUTILE_SMOKE_TEST
   PATH detail/jit_lto/cutile_smoke.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 target_compile_definitions(CUTILE_SMOKE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
 if(CUVS_CUTILE_ENABLED)
@@ -160,51 +216,112 @@ ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_FLAT_UDF_TEST
   PATH neighbors/ann_ivf_flat/test_udf.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
-  NAME NEIGHBORS_ANN_IVF_FLAT_TEST
-  PATH neighbors/ann_ivf_flat/test_float_int64_t.cu neighbors/ann_ivf_flat/test_half_int64_t.cu
-       neighbors/ann_ivf_flat/test_int8_t_int64_t.cu neighbors/ann_ivf_flat/test_uint8_t_int64_t.cu
+  NAME NEIGHBORS_ANN_IVF_FLAT_FLOAT_INT64_TEST
+  PATH neighbors/ann_ivf_flat/test_float_int64_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 15
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_FLAT_HALF_INT64_TEST
+  PATH neighbors/ann_ivf_flat/test_half_int64_t.cu
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_FLAT_INT8_INT64_TEST
+  PATH neighbors/ann_ivf_flat/test_int8_t_int64_t.cu
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_FLAT_UINT8_INT64_TEST
+  PATH neighbors/ann_ivf_flat/test_uint8_t_int64_t.cu
+  GPUS 1
+  PERCENT 10
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_SQ_TEST
   PATH neighbors/ann_ivf_sq/test_float_int64_t.cu neighbors/ann_ivf_sq/test_half_int64_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 10
 )
 
 ConfigureTest(
-  NAME NEIGHBORS_ANN_IVF_PQ_TEST
-  PATH neighbors/ann_ivf_pq/test_float_int64_t.cu neighbors/ann_ivf_pq/test_int8_t_int64_t.cu
-       neighbors/ann_ivf_pq/test_uint8_t_int64_t.cu
+  NAME NEIGHBORS_ANN_IVF_PQ_FLOAT_TEST
+  PATH neighbors/ann_ivf_pq/test_float_int64_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_PQ_INT8_TEST
+  PATH neighbors/ann_ivf_pq/test_int8_t_int64_t.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_PQ_INT8_HOST_INPUT_TEST
+  PATH neighbors/ann_ivf_pq/test_int8_t_int64_t_host_input.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_PQ_UINT8_TEST
+  PATH neighbors/ann_ivf_pq/test_uint8_t_int64_t.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_PQ_BIG_DIMS_HOST_INPUT_TEST
+  PATH neighbors/ann_ivf_pq/test_big_dims_host_input.cu
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_PQ_BIG_DIMS_EXTEND_SERIALIZE_TEST
+  PATH neighbors/ann_ivf_pq/test_big_dims_extend_serialize.cu
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_PQ_BIG_DIMS_SEARCH_TEST
+  PATH neighbors/ann_ivf_pq/test_big_dims_search.cu
+  GPUS 1
+  PERCENT 10
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_RABITQ_TEST
   PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_SCANN_TEST
   PATH neighbors/ann_scann/test_float_int64_t.cu
   GPUS 1
-  PERCENT 1
+  PERCENT 5
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_BRUTE_FORCE_TEST
   PATH neighbors/ann_brute_force/test_float.cu neighbors/ann_brute_force/test_half.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 15
 )
 
 ConfigureTest(
@@ -212,7 +329,7 @@ ConfigureTest(
   PATH neighbors/roaring_allowlist.cu
   ADDITIONAL_DEP cuco::cuco
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
@@ -224,63 +341,368 @@ ConfigureTest(
        neighbors/ann_cagra/bug_issue_93_reproducer.cu
        neighbors/ann_cagra/bug_issue_2523_hashmap_bitlen.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 15
+)
+
+# The CAGRA build/search (AnnCagraTest), merge and filtered merge suites are each swept over three
+# slices of `inputs` (ann_cagra.cuh), one test executable per slice. Their TEST_Ps are compiled once
+# into the OBJECT libraries below, and each executable links the ones it runs and instantiates them
+# over its slice in a small source of its own. The merge tests with U32 and I64 search indices are
+# in separate objects, as some executables only run one of them.
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_SEARCH_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_float_uint32_t_search.cu
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_U32_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_float_uint32_t_merge_u32.cu
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_I64_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_float_uint32_t_merge_i64.cu
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_FILTERED_MERGE_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_float_uint32_t_filtered_merge.cu
 )
 
 ConfigureTest(
-  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_TEST
-  PATH neighbors/ann_cagra/test_float_uint32_t.cu neighbors/ann_cagra/test_iterative_cagra_q.cu
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_SEARCH_L2_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_search_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_SEARCH_TEST_OBJECTS
   GPUS 1
-  PERCENT 100
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_SEARCH_IP_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_search_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_SEARCH_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_L2_U32_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_merge_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_U32_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_L2_I64_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_merge_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_I64_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_IP_U32_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_merge_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_U32_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_IP_I64_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_merge_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_I64_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_FILTERED_MERGE_L2_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_filtered_merge_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_FILTERED_MERGE_TEST_OBJECTS
+  GPUS 1
+  PERCENT 15
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_FILTERED_MERGE_IP_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_filtered_merge_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_FILTERED_MERGE_TEST_OBJECTS
+  GPUS 1
+  PERCENT 15
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_OTHER_METRICS_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_other_metrics.cu
+  ADDITIONAL_DEP
+    NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_SEARCH_TEST_OBJECTS
+    NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_U32_TEST_OBJECTS
+    NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MERGE_I64_TEST_OBJECTS
+    NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_FILTERED_MERGE_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_FILTER_ADD_NODES_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_filter_add_nodes.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_MULTI_PARTITION_TEST
+  PATH neighbors/ann_cagra/test_float_uint32_t_multi_partition.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_ITERATIVE_Q_TEST
+  PATH neighbors/ann_cagra/test_iterative_cagra_q.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_SEARCH_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_half_uint32_t_search.cu
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_U32_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_half_uint32_t_merge_u32.cu
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_I64_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_half_uint32_t_merge_i64.cu
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_SEARCH_L2_TEST
+  PATH neighbors/ann_cagra/test_half_uint32_t_search_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_HALF_UINT32_SEARCH_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_SEARCH_IP_TEST
+  PATH neighbors/ann_cagra/test_half_uint32_t_search_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_HALF_UINT32_SEARCH_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_L2_U32_TEST
+  PATH neighbors/ann_cagra/test_half_uint32_t_merge_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_U32_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_L2_I64_TEST
+  PATH neighbors/ann_cagra/test_half_uint32_t_merge_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_I64_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_IP_U32_TEST
+  PATH neighbors/ann_cagra/test_half_uint32_t_merge_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_U32_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_IP_I64_TEST
+  PATH neighbors/ann_cagra/test_half_uint32_t_merge_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_I64_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_OTHER_METRICS_TEST
+  PATH neighbors/ann_cagra/test_half_uint32_t_other_metrics.cu
+  ADDITIONAL_DEP
+    NEIGHBORS_ANN_CAGRA_HALF_UINT32_SEARCH_TEST_OBJECTS
+    NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_U32_TEST_OBJECTS
+    NEIGHBORS_ANN_CAGRA_HALF_UINT32_MERGE_I64_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_ADD_NODES_MULTI_PARTITION_TEST
+  PATH neighbors/ann_cagra/test_half_uint32_t_add_nodes_multi_partition.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_SEARCH_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_int8_t_uint32_t_search.cu
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_MERGE_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_int8_t_uint32_t_merge.cu
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_SEARCH_L2_TEST
+  PATH neighbors/ann_cagra/test_int8_t_uint32_t_search_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_INT8_UINT32_SEARCH_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_SEARCH_IP_TEST
+  PATH neighbors/ann_cagra/test_int8_t_uint32_t_search_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_INT8_UINT32_SEARCH_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_MERGE_L2_TEST
+  PATH neighbors/ann_cagra/test_int8_t_uint32_t_merge_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_INT8_UINT32_MERGE_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_MERGE_IP_TEST
+  PATH neighbors/ann_cagra/test_int8_t_uint32_t_merge_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_INT8_UINT32_MERGE_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_OTHER_METRICS_TEST
+  PATH neighbors/ann_cagra/test_int8_t_uint32_t_other_metrics.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_INT8_UINT32_SEARCH_TEST_OBJECTS
+                 NEIGHBORS_ANN_CAGRA_INT8_UINT32_MERGE_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_FILTER_ADD_NODES_TEST
+  PATH neighbors/ann_cagra/test_int8_t_uint32_t_filter_add_nodes.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_MULTI_PARTITION_TEST
+  PATH neighbors/ann_cagra/test_int8_t_uint32_t_multi_partition.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_SEARCH_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_uint8_t_uint32_t_search.cu
+)
+
+ConfigureTestObjects(
+  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_MERGE_TEST_OBJECTS
+  PATH neighbors/ann_cagra/test_uint8_t_uint32_t_merge.cu
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_SEARCH_L2_TEST
+  PATH neighbors/ann_cagra/test_uint8_t_uint32_t_search_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_UINT8_UINT32_SEARCH_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_SEARCH_IP_TEST
+  PATH neighbors/ann_cagra/test_uint8_t_uint32_t_search_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_UINT8_UINT32_SEARCH_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_MERGE_L2_TEST
+  PATH neighbors/ann_cagra/test_uint8_t_uint32_t_merge_l2.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_UINT8_UINT32_MERGE_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_MERGE_IP_TEST
+  PATH neighbors/ann_cagra/test_uint8_t_uint32_t_merge_ip.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_UINT8_UINT32_MERGE_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_OTHER_METRICS_TEST
+  PATH neighbors/ann_cagra/test_uint8_t_uint32_t_other_metrics.cu
+  ADDITIONAL_DEP NEIGHBORS_ANN_CAGRA_UINT8_UINT32_SEARCH_TEST_OBJECTS
+                 NEIGHBORS_ANN_CAGRA_UINT8_UINT32_MERGE_TEST_OBJECTS
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_FILTER_ADD_NODES_TEST
+  PATH neighbors/ann_cagra/test_uint8_t_uint32_t_filter_add_nodes.cu
+  GPUS 1
+  PERCENT 5
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_MULTI_PARTITION_TEST
+  PATH neighbors/ann_cagra/test_uint8_t_uint32_t_multi_partition.cu
+  GPUS 1
+  PERCENT 5
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_FILTER_UDF_TEST
   PATH neighbors/ann_cagra/test_filter_udf.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HELPERS_TEST
   PATH neighbors/ann_cagra/test_optimize_uint32_t.cu neighbors/ann_cagra/test_batch_load_iterator.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_MERGE_TEST
   PATH neighbors/ann_cagra/test_merge_fastener.cu
   GPUS 1
-  PERCENT 100
-)
-
-ConfigureTest(
-  NAME NEIGHBORS_ANN_CAGRA_HALF_UINT32_TEST
-  PATH neighbors/ann_cagra/test_half_uint32_t.cu
-  GPUS 1
-  PERCENT 100
-)
-
-ConfigureTest(
-  NAME NEIGHBORS_ANN_CAGRA_INT8_UINT32_TEST
-  PATH neighbors/ann_cagra/test_int8_t_uint32_t.cu
-  GPUS 1
-  PERCENT 100
-)
-
-ConfigureTest(
-  NAME NEIGHBORS_ANN_CAGRA_UINT8_UINT32_TEST
-  PATH neighbors/ann_cagra/test_uint8_t_uint32_t.cu
-  GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_BBQ_UINT32_TEST
   PATH neighbors/ann_cagra/test_bbq_uint32_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
@@ -290,15 +712,38 @@ ConfigureTest(
        neighbors/ann_nn_descent/test_uint8_t_uint32_t.cu
        neighbors/ann_nn_descent/test_bbq_uint32_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
-  NAME NEIGHBORS_ANN_VAMANA_TEST
-  PATH neighbors/ann_vamana/test_float_uint32_t.cu neighbors/ann_vamana/test_int8_t_uint32_t.cu
-       neighbors/ann_vamana/test_uint8_t_uint32_t.cu neighbors/ann_vamana/test_half_uint32_t.cu
+  NAME NEIGHBORS_ANN_VAMANA_FLOAT_UINT32_TEST
+  PATH neighbors/ann_vamana/test_float_uint32_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 65
+  FETCH_CODEBOOKS
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_VAMANA_HALF_UINT32_TEST
+  PATH neighbors/ann_vamana/test_half_uint32_t.cu
+  GPUS 1
+  PERCENT 65
+  FETCH_CODEBOOKS
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_VAMANA_INT8_UINT32_TEST
+  PATH neighbors/ann_vamana/test_int8_t_uint32_t.cu
+  GPUS 1
+  PERCENT 65
+  FETCH_CODEBOOKS
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_VAMANA_UINT8_UINT32_TEST
+  PATH neighbors/ann_vamana/test_uint8_t_uint32_t.cu
+  GPUS 1
+  PERCENT 65
   FETCH_CODEBOOKS
 )
 
@@ -306,29 +751,50 @@ ConfigureTest(
   NAME NEIGHBORS_BALL_COVER_TEST
   PATH neighbors/ball_cover.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
   NAME NEIGHBORS_EPSILON_NEIGHBORHOOD_TEST
   PATH neighbors/epsilon_neighborhood.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 15
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ALL_NEIGHBORS_TEST
   PATH neighbors/all_neighbors/test_float.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
   NAME NEIGHBORS_DYNAMIC_BATCHING_TEST
-  PATH neighbors/dynamic_batching/test_brute_force.cu neighbors/dynamic_batching/test_cagra.cu
-       neighbors/dynamic_batching/test_ivf_flat.cu neighbors/dynamic_batching/test_ivf_pq.cu
+  PATH neighbors/dynamic_batching/test_brute_force.cu neighbors/dynamic_batching/test_ivf_flat.cu
+       neighbors/dynamic_batching/test_ivf_pq.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_DYNAMIC_BATCHING_CAGRA_FLOAT_TEST
+  PATH neighbors/dynamic_batching/test_cagra.cu
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_DYNAMIC_BATCHING_CAGRA_FLOAT_MULTI_KERNEL_TEST
+  PATH neighbors/dynamic_batching/test_cagra_multi_kernel.cu
+  GPUS 1
+  PERCENT 10
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_DYNAMIC_BATCHING_CAGRA_UINT8_TEST
+  PATH neighbors/dynamic_batching/test_cagra_uint8.cu
+  GPUS 1
+  PERCENT 10
 )
 
 if(BUILD_CAGRA_HNSWLIB)
@@ -336,7 +802,7 @@ if(BUILD_CAGRA_HNSWLIB)
     NAME NEIGHBORS_HNSW_TEST
     PATH neighbors/hnsw.cu
     GPUS 1
-    PERCENT 100
+    PERCENT 5
   )
   target_link_libraries(NEIGHBORS_HNSW_TEST PRIVATE hnswlib::hnswlib)
   target_compile_definitions(NEIGHBORS_HNSW_TEST PUBLIC CUVS_BUILD_CAGRA_HNSWLIB)
@@ -345,7 +811,7 @@ if(BUILD_CAGRA_HNSWLIB)
     NAME NEIGHBORS_ANN_HNSW_ACE_FLOAT_UINT32_TEST
     PATH neighbors/ann_hnsw_ace/test_float_uint32_t.cu
     GPUS 1
-    PERCENT 100
+    PERCENT 5
   )
   target_link_libraries(NEIGHBORS_ANN_HNSW_ACE_FLOAT_UINT32_TEST PRIVATE hnswlib::hnswlib)
   target_compile_definitions(
@@ -356,7 +822,7 @@ if(BUILD_CAGRA_HNSWLIB)
     NAME NEIGHBORS_ANN_HNSW_ACE_HALF_UINT32_TEST
     PATH neighbors/ann_hnsw_ace/test_half_uint32_t.cu
     GPUS 1
-    PERCENT 100
+    PERCENT 5
   )
   target_link_libraries(NEIGHBORS_ANN_HNSW_ACE_HALF_UINT32_TEST PRIVATE hnswlib::hnswlib)
   target_compile_definitions(
@@ -367,7 +833,7 @@ if(BUILD_CAGRA_HNSWLIB)
     NAME NEIGHBORS_ANN_HNSW_ACE_INT8_UINT32_TEST
     PATH neighbors/ann_hnsw_ace/test_int8_t_uint32_t.cu
     GPUS 1
-    PERCENT 100
+    PERCENT 5
   )
   target_link_libraries(NEIGHBORS_ANN_HNSW_ACE_INT8_UINT32_TEST PRIVATE hnswlib::hnswlib)
   target_compile_definitions(
@@ -378,7 +844,7 @@ if(BUILD_CAGRA_HNSWLIB)
     NAME NEIGHBORS_ANN_HNSW_ACE_UINT8_UINT32_TEST
     PATH neighbors/ann_hnsw_ace/test_uint8_t_uint32_t.cu
     GPUS 1
-    PERCENT 100
+    PERCENT 5
   )
   target_link_libraries(NEIGHBORS_ANN_HNSW_ACE_UINT8_UINT32_TEST PRIVATE hnswlib::hnswlib)
   target_compile_definitions(
@@ -462,21 +928,21 @@ ConfigureTest(
        preprocessing/product_quantization.cu
        preprocessing/pca.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 10
 )
 
 ConfigureTest(
   NAME STATS_TEST
   PATH stats/trustworthiness.cu stats/silhouette_score.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 ConfigureTest(
   NAME UTIL_TEST
   PATH util/file_io_test.cpp util/host_memory_test.cpp
   GPUS 1
-  PERCENT 100
+  PERCENT 5
 )
 
 # ##################################################################################################

@@ -42,7 +42,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    -n                          - no install step
    --uninstall                 - uninstall files for specified targets which were built and installed prior
    --cpu-only                  - build CPU only components without CUDA. Currently only applies to bench-ann.
-   --limit-tests               - semicolon-separated list of test executables to compile (e.g. NEIGHBORS_TEST;CLUSTER_TEST)
+   --limit-tests               - semicolon-separated list of test executables to compile (e.g. NEIGHBORS_BRUTE_FORCE_TEST;CLUSTER_TEST)
    --limit-bench-ann           - semicolon-separated list of ann benchmark executables to compute (e.g. HNSWLIB_ANN_BENCH;RAFT_IVF_PQ_ANN_BENCH)
    --allgpuarch                - build for all supported GPU architectures
    --gpu-arch=\"<arch>\"        - build for specific GPU architectures (e.g. \"80-real;90-real\")

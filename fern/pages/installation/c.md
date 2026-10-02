@@ -67,5 +67,5 @@ Build the C and C++ tests with:
 Build a limited set of tests with:
 
 ```bash
-./build.sh libcuvs tests -n --limit-tests='NEIGHBORS_TEST;CAGRA_C_TEST'
+./build.sh libcuvs tests -n --limit-tests='NEIGHBORS_BRUTE_FORCE_TEST;CAGRA_C_TEST'
 ```
