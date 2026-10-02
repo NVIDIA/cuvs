@@ -12,6 +12,13 @@ enable_testing()
 include(rapids-test)
 rapids_test_init()
 
+# Shared gtest entry point, optionally reporting peak RMM memory usage (see test_main.cpp)
+add_library(cuvs_test_main OBJECT test_main.cpp)
+target_link_libraries(
+  cuvs_test_main PRIVATE rmm::rmm GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+)
+set_target_properties(cuvs_test_main PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
 function(ConfigureTest)
 
   set(options NOCUDA FETCH_CODEBOOKS RUN_SERIAL)
@@ -45,7 +52,7 @@ function(ConfigureTest)
             raft::raft
             rtcx::rtcx
             GTest::gtest
-            GTest::gtest_main
+            cuvs_test_main
             Threads::Threads
             ${CUVS_CTK_MATH_DEPENDENCIES}
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
