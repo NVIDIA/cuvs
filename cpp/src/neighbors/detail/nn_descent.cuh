@@ -968,6 +968,10 @@ __launch_bounds__(BLOCK_SIZE)
   wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
   wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> b_frag;
   wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
+  // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
+  // starts past either extent only produces cells calculate_metric discards -- skip its MMA and
+  // its store. Staging is cooperative, so this must not skip the barriers.
+  const bool warp_active = warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_new_size;
   if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
     wmma::fill_fragment(c_frag, 0.0);
 
@@ -991,21 +995,23 @@ __launch_bounds__(BLOCK_SIZE)
       }
       __syncthreads();
 
-      for (int i = 0; i < TILE_COL_WIDTH / WMMA_K; i++) {
+      for (int i = 0; warp_active && i < TILE_COL_WIDTH / WMMA_K; i++) {
         wmma::load_matrix_sync(
           a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
         wmma::load_matrix_sync(
           b_frag, s_nv[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
         wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
-        __syncthreads();
       }
+      __syncthreads();
     }
 
-    wmma::store_matrix_sync(
-      s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
-      c_frag,
-      SKEWED_MAX_NUM_BI_SAMPLES,
-      wmma::mem_row_major);
+    if (warp_active) {
+      wmma::store_matrix_sync(
+        s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
+        c_frag,
+        SKEWED_MAX_NUM_BI_SAMPLES,
+        wmma::mem_row_major);
+    }
   }
   __syncthreads();
 
@@ -1034,6 +1040,10 @@ __launch_bounds__(BLOCK_SIZE)
 
   __syncthreads();
 
+  // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
+  // starts past either extent only produces cells calculate_metric discards
+  const bool warp_active_2 =
+    warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_old_size;
   if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
     wmma::fill_fragment(c_frag, 0.0);
     for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
@@ -1070,21 +1080,23 @@ __launch_bounds__(BLOCK_SIZE)
       }
       __syncthreads();
 
-      for (int i = 0; i < TILE_COL_WIDTH / WMMA_K; i++) {
+      for (int i = 0; warp_active_2 && i < TILE_COL_WIDTH / WMMA_K; i++) {
         wmma::load_matrix_sync(
           a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
         wmma::load_matrix_sync(
           b_frag, s_ov[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
         wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
-        __syncthreads();
       }
+      __syncthreads();
     }
 
-    wmma::store_matrix_sync(
-      s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
-      c_frag,
-      SKEWED_MAX_NUM_BI_SAMPLES,
-      wmma::mem_row_major);
+    if (warp_active_2) {
+      wmma::store_matrix_sync(
+        s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
+        c_frag,
+        SKEWED_MAX_NUM_BI_SAMPLES,
+        wmma::mem_row_major);
+    }
     __syncthreads();
   }
 
@@ -1188,9 +1200,7 @@ __device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
                                                     const Index_t* neighbors,
                                                     const int count,
                                                     const int step,
-                                                    const int native_row_bytes,
-                                                    const int warp_id,
-                                                    const int lane_id)
+                                                    const int native_row_bytes)
 {
   static_assert(Layout == bbq_code_layout::packed_1b || Layout == bbq_code_layout::packed_4b,
                 "int4 MMA path supports packed_1b (1b), packed_4b (4b)");
@@ -1201,21 +1211,20 @@ __device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
   constexpr int expansion       = Layout == bbq_code_layout::packed_1b ? 4 : 1;
   constexpr int native_tile     = TileBytes / expansion;
   constexpr int native_tile_u32 = native_tile / 4;
-  constexpr int num_warps       = BLOCK_SIZE / raft::warp_size();
-  // packed_4b's native tile is 32 u32s (one per lane). packed_1b's is 8, so a warp-per-row
-  // map would leave 24 lanes idle; instead pack warp_size/8 = 4 rows into one pass.
-  static_assert(raft::warp_size() % native_tile_u32 == 0);
-  constexpr int rows_per_pass = raft::warp_size() / native_tile_u32;
-  static_assert(MAX_NUM_BI_SAMPLES % (num_warps * rows_per_pass) == 0);
+  // packed_4b's native tile is 32 u32s (one per thread). packed_1b's is 8, so a warp-per-row
+  // map would leave 24 lanes idle; instead give each row native_tile_u32 threads.
+  static_assert(BLOCK_SIZE % native_tile_u32 == 0);
+  constexpr int rows_per_pass = BLOCK_SIZE / native_tile_u32;
+  static_assert(MAX_NUM_BI_SAMPLES % rows_per_pass == 0);
 
   const int base      = step * native_tile;
   const int remaining = native_row_bytes - base;
   const int num_load_u32 =
     (remaining < native_tile ? (remaining > 0 ? remaining : 0) : native_tile) / 4;
 
-  for (int i = 0; i < MAX_NUM_BI_SAMPLES / (num_warps * rows_per_pass); ++i) {
-    const int idx = (i * num_warps + warp_id) * rows_per_pass + lane_id / native_tile_u32;
-    const int w   = lane_id % native_tile_u32;
+  for (int i = 0; i < MAX_NUM_BI_SAMPLES / rows_per_pass; ++i) {
+    const int idx = i * rows_per_pass + threadIdx.x / native_tile_u32;
+    const int w   = threadIdx.x % native_tile_u32;
     if (idx >= count) continue;
     auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
     const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
@@ -1849,26 +1858,19 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
         }
       }
 
+      // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole block starts
+      // past either extent only produces cells the epilogue discards -- skip its MMA and its store.
+      // Staging is cooperative, so this must not skip either __syncthreads() in the step loop.
+      const bool warp_active = warp_id_y * WARP_TILE < new_size && warp_id_x * WARP_TILE < col_size;
+
       for (int step = 0; step < n_tiles; ++step) {
         if (!row_resident) {
-          stage_promoted_tile<DocumentLayout, BBQ_ROW_BYTES>(s_row_vec,
-                                                             dataset_document,
-                                                             new_neighbors,
-                                                             new_size,
-                                                             step,
-                                                             doc_row_bytes,
-                                                             warp_id,
-                                                             lane_id);
+          stage_promoted_tile<DocumentLayout, BBQ_ROW_BYTES>(
+            s_row_vec, dataset_document, new_neighbors, new_size, step, doc_row_bytes);
         }
         if constexpr (!alias_col) {
-          stage_promoted_tile<QueryLayout, BBQ_ROW_BYTES>(s_col_vec,
-                                                          dataset_query,
-                                                          col_neighbors,
-                                                          col_size,
-                                                          step,
-                                                          query_row_bytes,
-                                                          warp_id,
-                                                          lane_id);
+          stage_promoted_tile<QueryLayout, BBQ_ROW_BYTES>(
+            s_col_vec, dataset_query, col_neighbors, col_size, step, query_row_bytes);
         }
         __syncthreads();
 
@@ -1878,7 +1880,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
         // Deliberately not #pragma unroll'd: full unrolling here keeps more fragment live ranges
         // simultaneous, driving register pressure up -- letting the compiler pick reduces that at
         // the cost of some intra-warp ILP.
-        for (int kk = 0; kk < K_STEPS_PER_TILE; ++kk) {
+        for (int kk = 0; warp_active && kk < K_STEPS_PER_TILE; ++kk) {
           wmma::fragment<wmma::matrix_a, MMA_M, MMA_N, MMA_K, uint8_t, wmma::row_major>
             a_frag[SUB_PER_DIM];
           wmma::fragment<wmma::matrix_b, MMA_M, MMA_N, MMA_K, uint8_t, wmma::col_major>
@@ -1915,7 +1917,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
         __syncthreads();
       }
 
-      for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
+      for (int msub = 0; warp_active && msub < SUB_PER_DIM; ++msub) {
         const int row0 = warp_id_y * WARP_TILE + msub * MMA_M;
         for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
           const int col0 = warp_id_x * WARP_TILE + nsub * MMA_N;
