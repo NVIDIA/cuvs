@@ -163,7 +163,7 @@ const char* csv_path,
 int64_t sample_interval_ms);
 ```
 
-The returned handle wraps all reachable memory resources (host, pinned, managed, device, workspace, large_workspace) with allocation-tracking adaptors and replaces the global host and device memory resources for the lifetime of the handle. It is otherwise indistinguishable from a handle created by ::cuvsResourcesCreate and can be used wherever a :cuvsResources_t is accepted. The CSV reporter is stopped and the global memory resources are restored when the handle is destroyed via :cuvsResourcesDestroy.
+The returned handle wraps all reachable memory resources (host, pinned, managed, device, workspace, large_workspace) with allocation-tracking adaptors and replaces the global host and device memory resources for the lifetime of the handle. It can be used with single-GPU operations that accept a ::cuvsResources_t, except ::cuvsResourcesSetMemoryPool. The CSV reporter is stopped and the global memory resources are restored when the handle is destroyed via ::cuvsResourcesDestroy.
 
 **Parameters**
 
@@ -191,6 +191,49 @@ cuvsError_t cuvsResourcesDestroy(cuvsResources_t res);
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsresourcessetmemorypool"></a>
+### cuvsResourcesSetMemoryPool
+
+Set a memory pool on the device used by these resources
+
+```c
+cuvsError_t cuvsResourcesSetMemoryPool(cuvsResources_t res,
+int percent_of_free_memory);
+```
+
+Call before the handle's first operation that configures or uses a workspace or large workspace resource. RAFT captures the allocator when either resource is registered, so later device pool changes are rejected. Only handles created by ::cuvsResourcesCreate are supported. Passing a handle created by :cuvsResourcesCreateWithMemoryTracking returns CUVS_ERROR.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+| `percent_of_free_memory` | in | `int` | Percentage of free device memory to allocate for the pool |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsresourcessetstreampool"></a>
+### cuvsResourcesSetStreamPool
+
+Set a CUDA stream pool on these resources
+
+```c
+cuvsError_t cuvsResourcesSetStreamPool(cuvsResources_t res, size_t num_streams);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+| `num_streams` | in | `size_t` | Number of non-blocking CUDA streams in the pool |
 
 **Returns**
 
@@ -364,12 +407,35 @@ Set a memory pool on all devices managed by the multi-GPU resources
 cuvsError_t cuvsMultiGpuResourcesSetMemoryPool(cuvsResources_t res, int percent_of_free_memory);
 ```
 
+Call before the first operation that configures or uses a workspace or large workspace resource on the handle or any managed device. RAFT captures the allocator when either resource is registered, so later pool changes are rejected.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle for multi-GPU resources |
 | `percent_of_free_memory` | in | `int` | Percent of free memory to allocate for the pool |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsmultigpuresourcessetstreampool"></a>
+### cuvsMultiGpuResourcesSetStreamPool
+
+Set a CUDA stream pool on all devices managed by the multi-GPU resources
+
+```c
+cuvsError_t cuvsMultiGpuResourcesSetStreamPool(cuvsResources_t res,
+size_t num_streams);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle for multi-GPU resources |
+| `num_streams` | in | `size_t` | Number of CUDA streams in each device's pool |
 
 **Returns**
 
