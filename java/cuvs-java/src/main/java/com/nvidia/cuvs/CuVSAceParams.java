@@ -75,19 +75,31 @@ public class CuVSAceParams {
    */
   private final double maxGpuMemoryGb;
 
+  /**
+   * Target number of augmented (spill) copies per input vector.
+   *
+   * ACE samples boundary-margin scores and chooses a global threshold whose expected augmentation
+   * ratio matches this value. A value of 0 disables augmentation. Values above 1 allow a vector to
+   * spill into multiple nearby partitions. The implementation bounds each vector to three spill
+   * partitions. The default is {@code 1.0}.
+   */
+  private final double targetAlpha;
+
   private CuVSAceParams(
       long npartitions,
       long efConstruction,
       String buildDir,
       boolean useDisk,
       double maxHostMemoryGb,
-      double maxGpuMemoryGb) {
+      double maxGpuMemoryGb,
+      double targetAlpha) {
     this.npartitions = npartitions;
     this.efConstruction = efConstruction;
     this.buildDir = buildDir;
     this.useDisk = useDisk;
     this.maxHostMemoryGb = maxHostMemoryGb;
     this.maxGpuMemoryGb = maxGpuMemoryGb;
+    this.targetAlpha = targetAlpha;
   }
 
   /**
@@ -144,6 +156,15 @@ public class CuVSAceParams {
     return maxGpuMemoryGb;
   }
 
+  /**
+   * Gets the target number of augmented copies per input vector.
+   *
+   * @return the target augmentation ratio ({@code 0} disables augmentation)
+   */
+  public double getTargetAlpha() {
+    return targetAlpha;
+  }
+
   @Override
   public String toString() {
     return "CuVSAceParams [npartitions="
@@ -158,6 +179,8 @@ public class CuVSAceParams {
         + maxHostMemoryGb
         + ", maxGpuMemoryGb="
         + maxGpuMemoryGb
+        + ", targetAlpha="
+        + targetAlpha
         + "]";
   }
 
@@ -183,6 +206,9 @@ public class CuVSAceParams {
 
     /** Maximum GPU memory in GiB (0 = use available memory) */
     private double maxGpuMemoryGb = 0;
+
+    /** Target augmented copies per input vector (0 disables augmentation) */
+    private double targetAlpha = 1.0;
 
     public Builder() {}
 
@@ -259,13 +285,33 @@ public class CuVSAceParams {
     }
 
     /**
+     * Sets the target number of augmented (spill) copies per input vector.
+     *
+     * A value of 0 disables augmentation. Values above 1 allow a vector to spill into multiple
+     * nearby partitions. The default is {@code 1.0}.
+     *
+     * @param targetAlpha the target augmentation ratio
+     * @return an instance of Builder
+     */
+    public Builder withTargetAlpha(double targetAlpha) {
+      this.targetAlpha = targetAlpha;
+      return this;
+    }
+
+    /**
      * Builds an instance of {@link CuVSAceParams}.
      *
      * @return an instance of {@link CuVSAceParams}
      */
     public CuVSAceParams build() {
       return new CuVSAceParams(
-          npartitions, efConstruction, buildDir, useDisk, maxHostMemoryGb, maxGpuMemoryGb);
+          npartitions,
+          efConstruction,
+          buildDir,
+          useDisk,
+          maxHostMemoryGb,
+          maxGpuMemoryGb,
+          targetAlpha);
     }
   }
 }

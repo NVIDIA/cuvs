@@ -30,7 +30,7 @@ Gets the number of partitions for ACE partitioned build.
 
 the number of partitions
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:41`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:44`_
 
 ### getBuildDir
 
@@ -44,7 +44,7 @@ Gets the directory to store ACE build artifacts.
 
 the build directory path
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:50`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:53`_
 
 ### isUseDisk
 
@@ -58,7 +58,7 @@ Gets whether disk-based storage is enabled for ACE build.
 
 true if disk mode is enabled
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:59`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:62`_
 
 ### getMaxHostMemoryGb
 
@@ -72,7 +72,7 @@ Gets the maximum host memory limit in GiB.
 
 the max host memory limit (0 means use available memory)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:68`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:71`_
 
 ### getMaxGpuMemoryGb
 
@@ -86,7 +86,21 @@ Gets the maximum GPU memory limit in GiB.
 
 the max GPU memory limit (0 means use available memory)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:77`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:80`_
+
+### getTargetAlpha
+
+```java
+public double getTargetAlpha()
+```
+
+Gets the target number of augmented copies per input vector.
+
+**Returns**
+
+the target augmentation ratio (`0` disables augmentation)
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:89`_
 
 ### Builder
 
@@ -96,7 +110,7 @@ public Builder()
 
 Constructs this Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:110`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:125`_
 
 ### withNpartitions
 
@@ -129,7 +143,7 @@ constraints and a warning will be issued.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:131`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:146`_
 
 ### withBuildDir
 
@@ -150,7 +164,7 @@ Used when useDisk is true or when the graph does not fit in memory.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:143`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:158`_
 
 ### withUseDisk
 
@@ -171,7 +185,7 @@ When true, enables disk-based operations for memory-efficient graph construction
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:155`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:170`_
 
 ### withMaxHostMemoryGb
 
@@ -194,7 +208,7 @@ Useful for testing or when running alongside other memory-intensive processes.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:169`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:184`_
 
 ### withMaxGpuMemoryGb
 
@@ -217,7 +231,30 @@ Useful for testing or when running alongside other memory-intensive processes.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:183`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:198`_
+
+### withTargetAlpha
+
+```java
+public Builder withTargetAlpha(double targetAlpha)
+```
+
+Sets the target number of augmented (spill) copies per input vector.
+
+A value of 0 disables augmentation. Values above 1 allow a vector to spill into multiple
+nearby partitions. The default is `1.0`.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `targetAlpha` | the target augmentation ratio |
+
+**Returns**
+
+an instance of Builder
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:212`_
 
 ### build
 
@@ -231,6 +268,6 @@ Builds an instance of `HnswAceParams`.
 
 an instance of `HnswAceParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:193`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:222`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:16`_

@@ -1099,10 +1099,11 @@ pub struct cuvsAceParams {
     pub use_disk: bool,
     pub max_host_memory_gb: f64,
     pub max_gpu_memory_gb: f64,
+    pub target_alpha: f64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsAceParams"][::std::mem::size_of::<cuvsAceParams>() - 48usize];
+    ["Size of cuvsAceParams"][::std::mem::size_of::<cuvsAceParams>() - 56usize];
     ["Alignment of cuvsAceParams"][::std::mem::align_of::<cuvsAceParams>() - 8usize];
     ["Offset of field: cuvsAceParams::npartitions"]
         [::std::mem::offset_of!(cuvsAceParams, npartitions) - 0usize];
@@ -1116,6 +1117,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsAceParams, max_host_memory_gb) - 32usize];
     ["Offset of field: cuvsAceParams::max_gpu_memory_gb"]
         [::std::mem::offset_of!(cuvsAceParams, max_gpu_memory_gb) - 40usize];
+    ["Offset of field: cuvsAceParams::target_alpha"]
+        [::std::mem::offset_of!(cuvsAceParams, target_alpha) - 48usize];
 };
 pub type cuvsAceParams_t = *mut cuvsAceParams;
 #[repr(C)]
@@ -2004,10 +2007,11 @@ pub struct cuvsHnswAceParams {
     pub use_disk: bool,
     pub max_host_memory_gb: f64,
     pub max_gpu_memory_gb: f64,
+    pub target_alpha: f64,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsHnswAceParams"][::std::mem::size_of::<cuvsHnswAceParams>() - 40usize];
+    ["Size of cuvsHnswAceParams"][::std::mem::size_of::<cuvsHnswAceParams>() - 48usize];
     ["Alignment of cuvsHnswAceParams"][::std::mem::align_of::<cuvsHnswAceParams>() - 8usize];
     ["Offset of field: cuvsHnswAceParams::npartitions"]
         [::std::mem::offset_of!(cuvsHnswAceParams, npartitions) - 0usize];
@@ -2019,6 +2023,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsHnswAceParams, max_host_memory_gb) - 24usize];
     ["Offset of field: cuvsHnswAceParams::max_gpu_memory_gb"]
         [::std::mem::offset_of!(cuvsHnswAceParams, max_gpu_memory_gb) - 32usize];
+    ["Offset of field: cuvsHnswAceParams::target_alpha"]
+        [::std::mem::offset_of!(cuvsHnswAceParams, target_alpha) - 40usize];
 };
 pub type cuvsHnswAceParams_t = *mut cuvsHnswAceParams;
 unsafe extern "C" {
