@@ -1,8 +1,14 @@
 #!/bin/bash
-# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 set -euo pipefail
+
+# Usage: ci/test_cpp.sh [SHARD NUM_SHARDS]
+# With SHARD and NUM_SHARDS (1 <= SHARD <= NUM_SHARDS), only every NUM_SHARDS-th libcuvs test is
+# run, starting from test number SHARD, so the tests can be split across several CI jobs.
+SHARD=${1:-1}
+NUM_SHARDS=${2:-1}
 
 . /opt/conda/etc/profile.d/conda.sh
 
@@ -43,14 +49,16 @@ EXITCODE=0
 trap "EXITCODE=1" ERR
 set +e
 
-# Run Python build utilities tests
-rapids-logger "Run libcuvs Python build utilities tests"
-pytest cpp/tests/python
+# Run Python build utilities tests (once, in the first shard)
+if [[ "${SHARD}" == "1" ]]; then
+  rapids-logger "Run libcuvs Python build utilities tests"
+  pytest cpp/tests/python
+fi
 
 # Run libcuvs gtests from libcuvs-tests package
-rapids-logger "Run libcuvs tests"
+rapids-logger "Run libcuvs tests (shard ${SHARD} of ${NUM_SHARDS})"
 pushd "$CONDA_PREFIX"/bin/gtests/libcuvs
-ctest -j8 --output-on-failure
+ctest -j8 --output-on-failure -I "${SHARD},,${NUM_SHARDS}"
 popd
 
 rapids-logger "Test script exiting with value: $EXITCODE"

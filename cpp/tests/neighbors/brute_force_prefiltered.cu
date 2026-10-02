@@ -363,6 +363,8 @@ class PrefilteredBruteForceOnBitmapTest
       raft::ceildiv(params.n_queries * params.n_dataset, index_t(sizeof(bitmap_t) * 8));
     std::vector<bitmap_t> filter_h(element);
     filter_d.resize(element, stream);
+    // set_bitmap only sets bits, so the filter must start out empty
+    RAFT_CUDA_TRY(cudaMemsetAsync(filter_d.data(), 0, filter_d.size() * sizeof(bitmap_t), stream));
 
     nnz =
       create_sparse_matrix_with_rmat(params.n_queries, params.n_dataset, params.sparsity, filter_d);
@@ -783,6 +785,8 @@ class PrefilteredBruteForceOnBitsetTest
     std::vector<bitset_t> filter_repeat_h(element * params.n_queries);
 
     filter_d.resize(element, stream);
+    // set_bitmap only sets bits, so the filter must start out empty
+    RAFT_CUDA_TRY(cudaMemsetAsync(filter_d.data(), 0, filter_d.size() * sizeof(bitset_t), stream));
 
     nnz = create_sparse_matrix_with_rmat(1, params.n_dataset, params.sparsity, filter_d);
     raft::update_host(filter_h.data(), filter_d.data(), filter_d.size(), stream);
