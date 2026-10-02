@@ -17,6 +17,9 @@ package com.nvidia.cuvs.lucene;
 public class Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat
     extends BaseAcceleratedHNSWScalarQuantizedVectorsFormat {
 
+  /** The format's name, which Lucene records in the segments it writes. */
+  static final String NAME = "Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat";
+
   /** Creates the format with default parameters. */
   public Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat() {
     this(new AcceleratedHNSWParams.Builder().build());
@@ -30,7 +33,7 @@ public class Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat
   public Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat(
       AcceleratedHNSWParams acceleratedHNSWParams) {
     super(
-        "Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat",
+        NAME,
         acceleratedHNSWParams,
         () -> LuceneCompat.lucene104ScalarQuantizedFlatFormat(),
         params -> LuceneCompat.lucene104HnswScalarQuantizedFormat(params));

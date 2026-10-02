@@ -134,6 +134,16 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
     IllegalArgumentException e =
         assertThrows(IllegalArgumentException.class, () -> atLimit.withGraphDegree(33).build());
     assertTrue(e.getMessage(), e.getMessage().contains("maxConn to at least 17"));
+    assertTrue(e.getMessage(), e.getMessage().contains("graphDegree to at most 32"));
+
+    // When the intermediate graph degree is the smaller one, the message names both.
+    e =
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> atLimit.withGraphDegree(200).withIntermediateGraphDegree(100).build());
+    assertTrue(e.getMessage(), e.getMessage().contains("intermediateGraphDegree 100"));
+    assertTrue(e.getMessage(), e.getMessage().contains("maxConn to at least 50"));
+    assertTrue(e.getMessage(), e.getMessage().contains("graphDegree to at most 32"));
 
     // cuVS lowers the graph degree to the intermediate graph degree, so that is what is checked.
     assertEquals(

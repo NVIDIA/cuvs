@@ -14,8 +14,7 @@ A codec that both builds and searches CAGRA indexes on the GPU. cuVS serializati
 experimental phase and hence backward compatibility cannot be guaranteed.
 
 This codec wraps `Lucene103Codec`, the default codec of Lucene 10.3. Once a later Lucene
-release replaces that default, this codec can only read existing indexes; use \{@link
-CuVSCodecs#gpuSearch\} to write.
+release replaces that default, this codec can only read existing indexes; use `CuVSCodecs#gpuSearch` to write.
 
 ## Public Members
 

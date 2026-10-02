@@ -11,12 +11,10 @@ public class Lucene104AcceleratedHNSWScalarQuantizedCodec extends CuVSFilterCode
 ```
 
 A codec that builds HNSW graphs on the GPU over scalar-quantized vectors, and writes them in
-Lucene's HNSW format so that they are searched on the CPU. See \{@link
-Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat\}.
+Lucene's HNSW format so that they are searched on the CPU. See `Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat`.
 
 This codec wraps `Lucene104Codec`, the default codec of Lucene 10.4 and 10.5. Once a
-later Lucene release replaces that default, this codec can only read existing indexes; use \{@link
-CuVSCodecs#acceleratedHNSWScalarQuantized\} to write.
+later Lucene release replaces that default, this codec can only read existing indexes; use `CuVSCodecs#acceleratedHNSWScalarQuantized` to write.
 
 ## Public Members
 

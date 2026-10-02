@@ -14,8 +14,7 @@ cuVS based scalar-quantized KnnVectorsFormat for indexing on the GPU and searchi
 
 Stores the vectors with Lucene's `Lucene104ScalarQuantizedVectorsFormat`, quantized to 7
 bits per dimension, which replaced `Lucene99ScalarQuantizedVectorsFormat` in Lucene 10.4.
-The graph is built on the GPU over the vectors quantized the same way as \{@link
-LuceneAcceleratedHNSWScalarQuantizedVectorsFormat\} does.
+The graph is built on the GPU over the vectors quantized the same way as `LuceneAcceleratedHNSWScalarQuantizedVectorsFormat` does.
 
 ## Public Members
 
@@ -27,7 +26,7 @@ public Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat()
 
 Creates the format with default parameters.
 
-_Source: `java/cuvs-lucene/lucene-10.4/src/since/java/com/nvidia/cuvs/lucene/Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat.java:20`_
+_Source: `java/cuvs-lucene/lucene-10.4/src/since/java/com/nvidia/cuvs/lucene/Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat.java:23`_
 
 ### Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat
 
@@ -43,6 +42,6 @@ Creates the format.
 | --- | --- |
 | `acceleratedHNSWParams` | the index build parameters |
 
-_Source: `java/cuvs-lucene/lucene-10.4/src/since/java/com/nvidia/cuvs/lucene/Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat.java:29`_
+_Source: `java/cuvs-lucene/lucene-10.4/src/since/java/com/nvidia/cuvs/lucene/Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat.java:32`_
 
 _Source: `java/cuvs-lucene/lucene-10.4/src/since/java/com/nvidia/cuvs/lucene/Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat.java:17`_

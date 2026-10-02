@@ -15,8 +15,7 @@ are searched on the CPU. Falls back to building the graph on the CPU when no GPU
 available.
 
 This codec wraps `Lucene104Codec`, the default codec of Lucene 10.4 and 10.5. Once a
-later Lucene release replaces that default, this codec can only read existing indexes; use \{@link
-CuVSCodecs#acceleratedHNSW\} to write.
+later Lucene release replaces that default, this codec can only read existing indexes; use `CuVSCodecs#acceleratedHNSW` to write.
 
 ## Public Members
 

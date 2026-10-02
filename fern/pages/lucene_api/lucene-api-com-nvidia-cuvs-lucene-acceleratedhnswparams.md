@@ -536,6 +536,6 @@ Create an instance of `AcceleratedHNSWParams`
 
 instance of `AcceleratedHNSWParams`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:568`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:578`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:17`_

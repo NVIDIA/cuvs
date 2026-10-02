@@ -14,8 +14,7 @@ Creates the cuvs-lucene codecs and vectors formats that write indexes on the Luc
 artifact is built for.
 
 Each cuvs-lucene codec wraps the default codec of one Lucene release, so the codec to write
-with changes along with Lucene: `Lucene101AcceleratedHNSWCodec` on Lucene 10.2, \{@code
-Lucene103AcceleratedHNSWCodec\} on 10.3, `Lucene104AcceleratedHNSWCodec` on 10.4 and later.
+with changes along with Lucene: `Lucene101AcceleratedHNSWCodec` on Lucene 10.2, `Lucene103AcceleratedHNSWCodec` on 10.3, `Lucene104AcceleratedHNSWCodec` on 10.4 and later.
 The older codecs stay available for reading existing indexes. Creating codecs through this class
 instead of naming them keeps application code unchanged when it moves to another Lucene release
 and the matching cuvs-lucene artifact.
@@ -122,8 +121,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVSCodecs.java:
 public static KnnVectorsFormat acceleratedHNSWScalarQuantizedFormat( AcceleratedHNSWParams params)
 ```
 
-Returns the vectors format used by \{@link
-#acceleratedHNSWScalarQuantized(AcceleratedHNSWParams)\}, for use with a per-field codec.
+Returns the vectors format used by `#acceleratedHNSWScalarQuantized(AcceleratedHNSWParams)`, for use with a per-field codec.
 
 **Parameters**
 

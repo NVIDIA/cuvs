@@ -548,15 +548,25 @@ public class AcceleratedHNSWParams {
       // intermediate graph degree if that is smaller.
       if (strategy == Strategy.CUSTOM) {
         int builtDegree = Math.min(graphdegree, intermediateGraphDegree);
-        if (builtDegree > 2 * maxConn) {
+        int maxDegree = 2 * maxConn;
+        if (builtDegree > maxDegree) {
+          String built =
+              graphdegree <= intermediateGraphDegree
+                  ? "graphDegree " + graphdegree
+                  : "graphDegree "
+                      + graphdegree
+                      + ", lowered by cuVS to intermediateGraphDegree "
+                      + intermediateGraphDegree
+                      + ",";
           throw new IllegalArgumentException(
-              "graphDegree "
-                  + builtDegree
+              built
                   + " is larger than 2 * maxConn ("
-                  + (2 * maxConn)
+                  + maxDegree
                   + "), the most neighbors an HNSW graph holds per node: set maxConn to at least "
                   + Math.ceilDiv(builtDegree, 2)
-                  + " or lower graphDegree.");
+                  + " or graphDegree to at most "
+                  + maxDegree
+                  + ".");
         }
       }
     }

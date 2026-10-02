@@ -19,6 +19,9 @@ import org.apache.lucene.util.Version;
 public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat
     extends BaseAcceleratedHNSWScalarQuantizedVectorsFormat {
 
+  /** The format's name, which Lucene records in the segments it writes. */
+  static final String NAME = "Lucene99AcceleratedHNSWScalarQuantizedVectorsFormat";
+
   /**
    * Initializes {@link LuceneAcceleratedHNSWScalarQuantizedVectorsFormat} with default values.
    *
@@ -36,7 +39,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat
   public LuceneAcceleratedHNSWScalarQuantizedVectorsFormat(
       AcceleratedHNSWParams acceleratedHNSWParams) {
     super(
-        "Lucene99AcceleratedHNSWScalarQuantizedVectorsFormat",
+        NAME,
         acceleratedHNSWParams,
         () -> LuceneCompat.lucene99ScalarQuantizedFlatFormat(),
         params -> LuceneCompat.lucene99HnswScalarQuantizedFormat(params));
@@ -47,15 +50,11 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat
     if (LuceneCompat.canWriteLucene99ScalarQuantized()) {
       return null;
     }
-    String replacement =
-        LuceneCompat.acceleratedHNSWScalarQuantizedFormat(
-                new AcceleratedHNSWParams.Builder().build())
-            .getName();
     return getName()
         + " can only read indexes on Lucene "
         + Version.LATEST
         + ", which no longer writes Lucene99ScalarQuantizedVectorsFormat. Use "
-        + replacement
+        + LuceneCompat.acceleratedHNSWScalarQuantizedFormatName()
         + " (CuVSCodecs.acceleratedHNSWScalarQuantizedFormat) to write.";
   }
 }

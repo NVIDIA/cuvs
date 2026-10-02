@@ -69,8 +69,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParams
 static CagraIndexParams withMaxGraphDegree(CagraIndexParams params, long maxGraphDegree)
 ```
 
-Returns `params` with the graph degree lowered to `maxGraphDegree`, or \{@code
-params\} itself if its graph degree is not larger. The intermediate graph degree is kept, so it
+Returns `params` with the graph degree lowered to `maxGraphDegree`, or `params` itself if its graph degree is not larger. The intermediate graph degree is kept, so it
 stays at least the graph degree, as CAGRA requires.
 
 **Parameters**

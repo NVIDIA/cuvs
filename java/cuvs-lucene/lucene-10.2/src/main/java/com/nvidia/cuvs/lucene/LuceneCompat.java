@@ -83,6 +83,11 @@ final class LuceneCompat {
     return new LuceneAcceleratedHNSWScalarQuantizedCodec(params);
   }
 
+  /** Returns the name of the format {@link #acceleratedHNSWScalarQuantizedFormat} creates. */
+  static String acceleratedHNSWScalarQuantizedFormatName() {
+    return LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.NAME;
+  }
+
   static KnnVectorsFormat acceleratedHNSWScalarQuantizedFormat(AcceleratedHNSWParams params) {
     return new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat(params);
   }
