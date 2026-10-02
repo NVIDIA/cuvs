@@ -9,6 +9,7 @@ import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupporte
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
 import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
+import java.util.Arrays;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
@@ -196,22 +197,49 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
    * sized from the M recorded by its largest source segment, so merging small segments that recorded
    * their truncated degree failed with "No growth is allowed". Lucene 10.2 and 10.3 size it from the
    * merging writer's own M, so there this test always passes.
-   *
-   * <p>Single-vector segments are left out: their graph stores a placeholder neighbor {@code -1},
-   * which a CPU merge rejects on every Lucene release regardless of M.
    */
   @Test
   public void testCpuMergeOfSmallGpuSegments() throws Exception {
     assumeTrue("cuVS not supported", isSupported());
+    cpuMergeGpuSegments(repeat(20, 50));
+  }
 
+  /**
+   * A single-vector segment's only node has no neighbors, which must be written as an empty
+   * neighbor list, as Lucene does. A placeholder neighbor {@code -1} made a CPU merge that includes
+   * the segment fail on every Lucene release.
+   */
+  @Test
+  public void testCpuMergeOfSingleVectorGpuSegments() throws Exception {
+    assumeTrue("cuVS not supported", isSupported());
+    int[] sizes = repeat(20, 50);
+    int[] withSingles = Arrays.copyOf(sizes, sizes.length + 10);
+    Arrays.fill(withSingles, sizes.length, withSingles.length, 1);
+    cpuMergeGpuSegments(withSingles);
+  }
+
+  private static int[] repeat(int value, int count) {
+    int[] values = new int[count];
+    Arrays.fill(values, value);
+    return values;
+  }
+
+  /**
+   * Writes one GPU-built segment per size, merges them into one on the CPU with Lucene's own HNSW
+   * format, and checks the merged index.
+   */
+  private void cpuMergeGpuSegments(int[] segmentSizes) throws Exception {
     // High-dimensional random vectors pass the diversity check often enough to fill a node's
     // neighbor array, which a low-dimensional dataset would not.
     int dimensions = 256;
     // Lucene 10.4+ skips the graph of a segment smaller than about 650 vectors (see
     // Lucene99HnswVectorsFormat.HNSW_GRAPH_THRESHOLD), so the merged segment must be larger for the
     // merge to build one.
-    int segments = 50;
-    int segmentSize = 20;
+    int total = 0;
+    for (int size : segmentSizes) {
+      total += size;
+    }
+    assertTrue("merged segment too small to get a graph: " + total, total >= 1000);
     AcceleratedHNSWParams params =
         new AcceleratedHNSWParams.Builder()
             .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
@@ -223,8 +251,8 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
           new IndexWriterConfig().setCodec(CuVSCodecs.acceleratedHNSW(params));
       gpuCfg.setMergePolicy(NoMergePolicy.INSTANCE);
       try (IndexWriter w = new IndexWriter(dir, gpuCfg)) {
-        for (int s = 0; s < segments; s++) {
-          addRandomDocs(w, segmentSize, dimensions);
+        for (int size : segmentSizes) {
+          addRandomDocs(w, size, dimensions);
           w.commit();
         }
       }
@@ -240,7 +268,7 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
       TestUtil.checkIndex(dir);
       try (DirectoryReader reader = DirectoryReader.open(dir)) {
         LeafReader leaf = getOnlyLeafReader(reader);
-        assertEquals(segments * segmentSize, graphOf(leaf).size());
+        assertEquals(total, graphOf(leaf).size());
       }
     }
   }

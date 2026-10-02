@@ -46,8 +46,10 @@ public class AcceleratedHNSWUtils {
    */
   public static GPUBuiltHnswGraph createSingleVectorHnswGraph(int size, int dimensions)
       throws Throwable {
-    // Create adjacency list for single node with no neighbors
-    int[][] singleNodeAdjacency = new int[][] {{-1}}; // -1 indicates no neighbors
+    // One node with an empty adjacency row: like Lucene's own writer, the graph records no
+    // neighbors for it. A placeholder neighbor such as -1 would be written to the index, where a
+    // CPU merge takes it for a node ordinal and fails.
+    int[][] singleNodeAdjacency = new int[][] {{}};
 
     // Create CuVSMatrix from the adjacency list
     CuVSMatrix adjacencyMatrix = CuVSMatrix.ofArray(singleNodeAdjacency);
