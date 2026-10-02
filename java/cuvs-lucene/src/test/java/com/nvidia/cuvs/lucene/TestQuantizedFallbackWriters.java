@@ -45,11 +45,13 @@ public class TestQuantizedFallbackWriters extends LuceneTestCase {
 
   @BeforeClass
   public static void beforeClass() {
-    assumeTrue("cuVS not supported", isSupported());
-    // Makes isSupported() false on this thread, like on a host without a GPU. Close the resources
-    // isSupported() just created first, so that they do not leak.
-    closeCuVSResourcesInstance();
-    setCuVSResourcesInstance(null);
+    // Where cuVS is unavailable (no GPU, JDK 21) the writers fall back by themselves. Elsewhere,
+    // make isSupported() false on this thread, like on a host without a GPU, after closing the
+    // resources isSupported() just created, so that they do not leak.
+    if (isSupported()) {
+      closeCuVSResourcesInstance();
+      setCuVSResourcesInstance(null);
+    }
   }
 
   @AfterClass

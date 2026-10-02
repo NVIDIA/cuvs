@@ -15,7 +15,9 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
+import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.lucene95.OrdToDocDISIReaderConfiguration;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
@@ -27,6 +29,9 @@ import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
+import org.apache.lucene.store.IOContext;
+import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
 
@@ -51,6 +56,82 @@ public class TestQuantizedVectorsFormats extends BaseCuVSKnnVectorsFormatTestCas
                 new AcceleratedHNSWParams.Builder().build())
           }
         });
+  }
+
+  /**
+   * Only the scalar-quantized format of Lucene 10.4+ keeps a quantized copy it can rebuild float
+   * vectors from; the binary-quantized format stores full-precision vectors only. Matched by name,
+   * because the class does not exist on earlier releases.
+   */
+  @Override
+  protected boolean supportsFloatVectorFallback() {
+    return "Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat"
+        .equals(knnVectorsFormat.getName());
+  }
+
+  // The format quantizes to 7 bits (ScalarEncoding.SEVEN_BIT). Since Lucene 10.4; not marked
+  // @Override, so that it compiles against earlier releases.
+  protected int getQuantizationBits() {
+    return 7;
+  }
+
+  /**
+   * Empties the raw vectors of the scalar-quantized format's flat storage, as Lucene's own
+   * TestLucene104ScalarQuantizedVectorsFormat does. Since Lucene 10.4; not marked @Override, so
+   * that it compiles against earlier releases.
+   */
+  protected void simulateEmptyRawVectors(Directory dir) throws Exception {
+    for (String file : dir.listAll()) {
+      if (file.endsWith(".vec")) {
+        replaceWithEmptyVectorFile(dir, file);
+      } else if (file.endsWith(".vemf")) {
+        updateVectorMetadataFile(dir, file);
+      }
+    }
+  }
+
+  /** Replaces a raw vector file with an empty one that has a valid header and footer. */
+  private static void replaceWithEmptyVectorFile(Directory dir, String fileName) throws Exception {
+    byte[] indexHeader;
+    try (IndexInput in = dir.openInput(fileName, IOContext.DEFAULT)) {
+      indexHeader = CodecUtil.readIndexHeader(in);
+    }
+    dir.deleteFile(fileName);
+    try (IndexOutput out = dir.createOutput(fileName, IOContext.DEFAULT)) {
+      out.writeBytes(indexHeader, 0, indexHeader.length);
+      CodecUtil.writeFooter(out);
+    }
+  }
+
+  /** Rewrites the flat vectors' metadata to describe no stored vectors. */
+  private static void updateVectorMetadataFile(Directory dir, String fileName) throws Exception {
+    byte[] indexHeader;
+    int fieldNumber, vectorEncoding, vectorSimilarityFunction, dimension;
+    long vectorStartPos;
+    try (IndexInput in = dir.openInput(fileName, IOContext.DEFAULT)) {
+      indexHeader = CodecUtil.readIndexHeader(in);
+      fieldNumber = in.readInt();
+      vectorEncoding = in.readInt();
+      vectorSimilarityFunction = in.readInt();
+      vectorStartPos = in.readVLong();
+      in.readVLong(); // the original vector length
+      dimension = in.readVInt();
+    }
+    dir.deleteFile(fileName);
+    try (IndexOutput out = dir.createOutput(fileName, IOContext.DEFAULT)) {
+      out.writeBytes(indexHeader, 0, indexHeader.length);
+      out.writeInt(fieldNumber);
+      out.writeInt(vectorEncoding);
+      out.writeInt(vectorSimilarityFunction);
+      out.writeVLong(vectorStartPos);
+      out.writeVLong(0); // no vector data
+      out.writeVInt(dimension);
+      out.writeInt(0); // no vectors
+      // Lucene99FlatVectorsFormat.DIRECT_MONOTONIC_BLOCK_SHIFT, which is package-private.
+      OrdToDocDISIReaderConfiguration.writeStoredMeta(16, out, null, 0, 0, null);
+      out.writeInt(-1); // end of fields
+      CodecUtil.writeFooter(out);
+    }
   }
 
   @Override

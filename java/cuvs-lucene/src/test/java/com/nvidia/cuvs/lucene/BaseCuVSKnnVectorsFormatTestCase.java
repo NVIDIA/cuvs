@@ -30,8 +30,11 @@ public abstract class BaseCuVSKnnVectorsFormatTestCase extends BaseKnnVectorsFor
     return VectorEncoding.FLOAT32;
   }
 
-  // BaseKnnVectorsFormatTestCase declares this abstract since Lucene 10.5 and not at all before, so
-  // it cannot be marked @Override. Lucene's own HNSW formats return false as well.
+  // Whether the format can rebuild float vectors from its quantized copy once the raw vectors are
+  // gone. Lucene's suite runs its raw-vector fallback tests only when this returns true; subclasses
+  // that return true also implement simulateEmptyRawVectors(Directory).
+  // BaseKnnVectorsFormatTestCase
+  // declares it abstract since Lucene 10.4 and not at all before, so it cannot be marked @Override.
   protected boolean supportsFloatVectorFallback() {
     return false;
   }
