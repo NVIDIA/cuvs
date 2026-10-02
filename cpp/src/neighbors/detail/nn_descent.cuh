@@ -1677,6 +1677,21 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   }
 }
 
+// Masks one nibble half of a packed-4b fragment into `dst`, normalised to 0..15. The high half is
+// shifted down so both halves reach the MMA at the same scale and can share one accumulator.
+template <bool High, typename FragT>
+__device__ __forceinline__ void select_packed_nibble(const FragT& src, FragT& dst)
+{
+  constexpr int kWords = FragT::num_elements / 4;
+  static_assert(FragT::num_elements % 4 == 0, "fragment must be a whole number of u32 words");
+  const auto* w = reinterpret_cast<const uint32_t*>(src.x);
+  auto* d       = reinterpret_cast<uint32_t*>(dst.x);
+#pragma unroll
+  for (int i = 0; i < kWords; ++i) {
+    d[i] = High ? ((w[i] >> 4) & 0x0f0f0f0fu) : (w[i] & 0x0f0f0f0fu);
+  }
+}
+
 // int4 tensor-core BBQ local join, covering both the symmetric (one quantizer, self-join) and
 // asymmetric (two quantizers) cases. Modeled on local_join_kernel_wmma: nvcuda::wmma fragments
 // (u4 x u4 -> s32, shape m8n8k32) replace the popc/dp4a inner product; the accumulator lives in
@@ -1714,15 +1729,16 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              cuvs::distance::DistanceType metric,
                              DistEpilogue_t dist_epilogue)
 {
-// int4 sub-byte MMA (nvcuda::wmma experimental::precision::u4) still compiles on every Blackwell
-// variant (sm_100/103/110/120/121, verified by disassembly): ptxas lowers it to the same software
-// path it's always used since Turing -- unpack each u4 nibble pair into two u8 operands and run
-// two native u8 IMMA instructions, summing the partial products.
+// The staged bytes are packed 4b; the MMA reads them as u8 and splits the nibbles here rather than
+// leaving it to ptxas. u4 MMA is native only through sm_89, and past that ptxas emits this same
+// split out of line, once per MMA. Inlining it keeps the IMMAs in the loop body on every arch, and
+// the 16x16x16 tile u8 allows drops SUB_PER_DIM to 1.
 #if (__CUDA_ARCH__ >= 750)
   using namespace nvcuda;
-  constexpr int MMA_M = 8;
-  constexpr int MMA_N = 8;
-  constexpr int MMA_K = 32;
+  constexpr int MMA_M = 16;
+  constexpr int MMA_N = 16;
+  // A k-step reads 16 packed bytes = 32 codes; each nibble half is a separate MMA over MMA_K.
+  constexpr int MMA_K = 16;
   // num_warps = BLOCK_SIZE/32 = 16, arranged as a square WARPS_PER_DIM x WARPS_PER_DIM grid since
   // 4*4=16 matches exactly; the static_assert is what actually enforces this holds for the
   // current BLOCK_SIZE, WARPS_PER_DIM itself isn't derived (no trivial constexpr integer sqrt).
@@ -1742,19 +1758,13 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   constexpr int SUB_PER_DIM = TILES_PER_DIM / WARPS_PER_DIM;
   constexpr int WARP_TILE   = SUB_PER_DIM * MMA_M;
 
-  // Promoted (4-bit-width) staging tile, 128 B/row. Row stride is BBQ_ROW_BYTES + MMA_PAD, not
-  // just BBQ_ROW_BYTES: sub-byte IMMA loads need at least 16-byte row alignment, and MMA_PAD must
-  // be a multiple of 16 to preserve that -- but BBQ_ROW_BYTES=128 alone is *also* exactly 32
-  // shared-memory banks (4 B/bank), so every row would land on the same bank offset and any
-  // multi-row access load_matrix_sync does internally would conflict. MMA_PAD=16 breaks that
-  // exact-32-bank alignment (144 B/row is not a multiple of 128 B) while staying a multiple of 16
-  // for the IMMA alignment requirement.
   constexpr int BBQ_ROW_BYTES = 128;
   constexpr int MMA_PAD       = 16;
   static_assert(MMA_PAD % 16 == 0, "row padding must preserve 16-byte IMMA row alignment");
-  constexpr int ELEMS_PER_TILE   = BBQ_ROW_BYTES * 2;  // 2 u4 elements/byte
-  constexpr int K_STEPS_PER_TILE = ELEMS_PER_TILE / MMA_K;
-  constexpr int ROW_STRIDE_U4    = (BBQ_ROW_BYTES + MMA_PAD) * 2;  // row-to-row stride, u4 elements
+  // Strides are in fragment elements (u8), so plain byte counts, though the data is packed 4b.
+  constexpr int K_STEPS_PER_TILE = BBQ_ROW_BYTES / MMA_K;
+  constexpr int KSTEP_BYTES      = MMA_K;
+  constexpr int ROW_STRIDE_U8    = BBQ_ROW_BYTES + MMA_PAD;
 
   constexpr int MMA_STORE_STRIDE = SKEWED_MAX_NUM_BI_SAMPLES;
 
@@ -1833,9 +1843,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     [&](const Index_t* col_neighbors, int col_size, auto alias_tag, bool row_resident) {
       constexpr bool alias_col = decltype(alias_tag)::value;
       wmma::fragment<wmma::accumulator, MMA_M, MMA_N, MMA_K, int> c_frag[SUB_PER_DIM][SUB_PER_DIM];
-#pragma unroll
       for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-#pragma unroll
         for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
           wmma::fill_fragment(c_frag[msub][nsub], 0);
         }
@@ -1868,49 +1876,47 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
         // per kk and reuse across the other sub-tile index, instead of reloading redundantly inside
         // a full msub x nsub x kk cross product.
         // Deliberately not #pragma unroll'd: full unrolling here keeps more fragment live ranges
-        // simultaneous, driving register pressure up (64/thread, tied with SMEM for the occupancy
-        // cap) -- letting the compiler pick reduces that at the cost of some intra-warp ILP.
+        // simultaneous, driving register pressure up -- letting the compiler pick reduces that at
+        // the cost of some intra-warp ILP.
         for (int kk = 0; kk < K_STEPS_PER_TILE; ++kk) {
-          wmma::fragment<wmma::matrix_a,
-                         MMA_M,
-                         MMA_N,
-                         MMA_K,
-                         wmma::experimental::precision::u4,
-                         wmma::row_major>
+          wmma::fragment<wmma::matrix_a, MMA_M, MMA_N, MMA_K, uint8_t, wmma::row_major>
             a_frag[SUB_PER_DIM];
-          wmma::fragment<wmma::matrix_b,
-                         MMA_M,
-                         MMA_N,
-                         MMA_K,
-                         wmma::experimental::precision::u4,
-                         wmma::col_major>
+          wmma::fragment<wmma::matrix_b, MMA_M, MMA_N, MMA_K, uint8_t, wmma::col_major>
             b_frag[SUB_PER_DIM];
           const auto* col_buf = alias_col ? s_row_vec : s_col_vec;  // compile-time select
-#pragma unroll
           for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
             const int row0 = warp_id_y * WARP_TILE + msub * MMA_M;
-            wmma::load_matrix_sync(a_frag[msub], s_row_vec[row0] + kk * (MMA_K / 2), ROW_STRIDE_U4);
+            wmma::load_matrix_sync(a_frag[msub], s_row_vec[row0] + kk * KSTEP_BYTES, ROW_STRIDE_U8);
           }
-#pragma unroll
           for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
             const int col0 = warp_id_x * WARP_TILE + nsub * MMA_N;
-            wmma::load_matrix_sync(b_frag[nsub], col_buf[col0] + kk * (MMA_K / 2), ROW_STRIDE_U4);
+            wmma::load_matrix_sync(b_frag[nsub], col_buf[col0] + kk * KSTEP_BYTES, ROW_STRIDE_U8);
           }
-#pragma unroll
-          for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-#pragma unroll
-            for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-              wmma::mma_sync(c_frag[msub][nsub], a_frag[msub], b_frag[nsub], c_frag[msub][nsub]);
+          // One scratch fragment per operand, reused across the halves.
+          std::remove_reference_t<decltype(a_frag[0])> a_half[SUB_PER_DIM];
+          std::remove_reference_t<decltype(b_frag[0])> b_half[SUB_PER_DIM];
+          auto accumulate_half = [&](auto high_tag) {
+            constexpr bool High = decltype(high_tag)::value;
+            for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
+              select_packed_nibble<High>(a_frag[msub], a_half[msub]);
             }
-          }
+            for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
+              select_packed_nibble<High>(b_frag[nsub], b_half[nsub]);
+            }
+            for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
+              for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
+                wmma::mma_sync(c_frag[msub][nsub], a_half[msub], b_half[nsub], c_frag[msub][nsub]);
+              }
+            }
+          };
+          accumulate_half(std::false_type{});
+          accumulate_half(std::true_type{});
         }
         __syncthreads();
       }
 
-#pragma unroll
       for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
         const int row0 = warp_id_y * WARP_TILE + msub * MMA_M;
-#pragma unroll
         for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
           const int col0 = warp_id_x * WARP_TILE + nsub * MMA_N;
           wmma::store_matrix_sync(
