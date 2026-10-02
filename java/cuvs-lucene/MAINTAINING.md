@@ -200,18 +200,6 @@ This builds and tests every module, installs them, and builds the examples.
 The API reference pages in `fern/pages/lucene_api` are generated: the `fern-api-reference` pre-commit
 hook picks up new classes in `lucene-*/src/since/java` by itself. Run `pre-commit run --all-files` last.
 
-## Publishing
-
-Nothing in this repository deploys to Maven Central; the publishing step takes the files from each
-module's `target/` directory (the CI artifact holds them all). For every release, publish:
-
-- each `lucene-10.X/target/`: the jar, the `-sources`, `-javadoc` and `-jar-with-dependencies` jars, and
-  `pom.xml` (the flattened, standalone pom);
-- `relocation/target/pom.xml`, as `com.nvidia.cuvs.lucene:cuvs-lucene` (packaging `pom`, no jar). Until
-  26.10 cuvs-lucene was a single artifact under that name; this pom relocates it to `cuvs-lucene-10.2`,
-  so that Maven users who only bump the version keep building and see a warning telling them to switch.
-  The parent `cuvs-lucene-parent` pom does not need to be published.
-
 ## After a cuvs-lucene release
 
 Add the indexes written by the published jars to the back-compat tests, so that later changes cannot
