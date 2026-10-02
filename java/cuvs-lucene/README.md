@@ -26,7 +26,9 @@ Each codec wraps the default codec of one Lucene release, so the codec that writ
 example `Lucene101AcceleratedHNSWCodec` on Lucene 10.2, `Lucene103AcceleratedHNSWCodec` on 10.3, and
 `Lucene104AcceleratedHNSWCodec` on 10.4 and 10.5. Codecs of earlier releases stay available so that existing
 indexes can still be read after an upgrade, but they refuse to write. `CuVSCodecs` always returns the codecs
-that write on the Lucene release in use.
+that write on the Lucene release in use. The same holds for the vectors format
+`Lucene99AcceleratedHNSWScalarQuantizedVectorsFormat`, which only reads from Lucene 10.4 on; per-field
+configuration that names it has to switch to `Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat`.
 
 For guidance on choosing between them, configuring builds, and tuning GPU resources, see the
 [Lucene Integration](https://docs.nvidia.com/cuvs/user-guide/lucene) guide.

@@ -66,6 +66,13 @@ final class LuceneCompat {
     return new Lucene99ScalarQuantizedVectorsFormat();
   }
 
+  /**
+   * Whether this Lucene release can write {@link #lucene99ScalarQuantizedFlatFormat()}. Lucene 10.4 moved it to its backward codecs, which only read.
+   */
+  static boolean canWriteLucene99ScalarQuantized() {
+    return false;
+  }
+
   /** Lucene 10.4 cannot write {@link #lucene99ScalarQuantizedFlatFormat()}, so this throws. */
   static KnnVectorsFormat lucene99HnswScalarQuantizedFormat(AcceleratedHNSWParams params) {
     throw new UnsupportedOperationException("Old codecs may only be used for reading");

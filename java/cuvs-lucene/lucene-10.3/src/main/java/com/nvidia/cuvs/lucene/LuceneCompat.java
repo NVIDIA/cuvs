@@ -56,6 +56,13 @@ final class LuceneCompat {
   }
 
   /**
+   * Whether this Lucene release can write {@link #lucene99ScalarQuantizedFlatFormat()}. Lucene 10.3 still writes it.
+   */
+  static boolean canWriteLucene99ScalarQuantized() {
+    return true;
+  }
+
+  /**
    * Returns Lucene's HNSW format over {@link #lucene99ScalarQuantizedFlatFormat()}, which builds
    * the graph on the CPU.
    */

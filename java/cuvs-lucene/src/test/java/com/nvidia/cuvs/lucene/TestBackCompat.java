@@ -74,6 +74,27 @@ public class TestBackCompat {
   }
 
   @Test
+  public void testOldScalarQuantizedFormatNamesItsReplacement() {
+    // Looked up by name, as a per-field configuration such as Solr's does. It stores its vectors
+    // with Lucene99ScalarQuantizedVectorsFormat, which Lucene 10.4 moved to its backward codecs.
+    BaseAcceleratedHNSWScalarQuantizedVectorsFormat format =
+        (BaseAcceleratedHNSWScalarQuantizedVectorsFormat)
+            KnnVectorsFormat.forName("Lucene99AcceleratedHNSWScalarQuantizedVectorsFormat");
+    KnnVectorsFormat replacement =
+        CuVSCodecs.acceleratedHNSWScalarQuantizedFormat(
+            new AcceleratedHNSWParams.Builder().build());
+    if (replacement.getName().equals(format.getName())) {
+      // Still the format CuVSCodecs writes with, on Lucene 10.2 and 10.3.
+      assertNull(format.readOnlyReason());
+      return;
+    }
+    UnsupportedOperationException e =
+        assertThrows(UnsupportedOperationException.class, () -> format.fieldsWriter(null));
+    assertTrue(e.getMessage(), e.getMessage().contains(format.getName()));
+    assertTrue(e.getMessage(), e.getMessage().contains(replacement.getName()));
+  }
+
+  @Test
   public void testCallerChosenDelegateIsNeverReadOnly() {
     // Lucene101Codec is a read-only backward codec from Lucene 10.3 on, but a codec built with a
     // delegate chosen by the caller leaves that to the caller instead of guessing from the class.

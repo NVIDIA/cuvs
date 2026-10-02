@@ -62,6 +62,10 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
     LuceneVersionGuard.ensureCompatible();
+    String readOnlyReason = readOnlyReason();
+    if (readOnlyReason != null) {
+      throw new UnsupportedOperationException(readOnlyReason);
+    }
     if (isSupported()) {
       log.fine("cuVS is supported so using the Lucene99AcceleratedHNSWQuantizedVectorsWriter");
       return new LuceneAcceleratedHNSWScalarQuantizedVectorsWriter(
@@ -76,6 +80,15 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
               + fallback.getClass().getSimpleName());
       return fallback.fieldsWriter(state);
     }
+  }
+
+  /**
+   * Returns why this format cannot write on the running Lucene release, or {@code null} if it can.
+   * Checked before writing, so that the error names the format and its replacement rather than
+   * coming from Lucene's backward codecs.
+   */
+  String readOnlyReason() {
+    return null;
   }
 
   /**
