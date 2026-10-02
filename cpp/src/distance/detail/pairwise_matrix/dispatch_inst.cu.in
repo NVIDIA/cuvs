@@ -1,15 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cuvs/core/export.hpp>
 #include <distance/detail/distance_ops/all_ops.cuh>          // ops::*
 #include <distance/detail/pairwise_matrix/dispatch-inl.cuh>  // dispatch
 #include <raft/core/operators.hpp>                           // raft::identity_op
 @arch_includes@
-
-#define CUVS_PAIRWISE_DISPATCH_INSTANTIATION_EXPORT @instantiation_export@
 
   namespace
 {
@@ -21,7 +18,7 @@
   using op_t     = @op_type@<data_t, acc_t, index_t>;
 }
 
-template CUVS_PAIRWISE_DISPATCH_INSTANTIATION_EXPORT void
+template void
 cuvs::distance::detail::pairwise_matrix_dispatch<op_t, data_t, acc_t, out_t, fin_op_t, index_t>(
   op_t distance_op,
   index_t m,
@@ -35,5 +32,3 @@ cuvs::distance::detail::pairwise_matrix_dispatch<op_t, data_t, acc_t, out_t, fin
   fin_op_t fin_op,
   cudaStream_t stream,
   bool is_row_major);
-
-#undef CUVS_PAIRWISE_DISPATCH_INSTANTIATION_EXPORT

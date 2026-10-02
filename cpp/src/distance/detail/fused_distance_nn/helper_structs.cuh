@@ -132,11 +132,7 @@ struct kvp_cg_min_reduce_op {
   using AccTypeT = AccType;
   using IndexT   = Index;
   // functor signature.
-  // Use index as tiebreaker for consistent behavior when distances are equal
-  __host__ __device__ KVP operator()(KVP a, KVP b) const
-  {
-    return (a.value < b.value || (a.value == b.value && a.key < b.key)) ? a : b;
-  }
+  __host__ __device__ KVP operator()(KVP a, KVP b) const { return a.value < b.value ? a : b; }
 
   __host__ __device__ AccType operator()(AccType a, AccType b) const { return min(a, b); }
 
