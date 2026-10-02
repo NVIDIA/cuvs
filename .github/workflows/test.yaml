@@ -49,11 +49,17 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
+    # Split the C++ tests across several jobs for each CUDA/GPU configuration
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+        num_shards: [4]
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
-      script: ci/test_cpp.sh
+      script: "ci/test_cpp.sh ${{ matrix.shard }} ${{ matrix.num_shards }}"
       sha: ${{ inputs.sha }}
   conda-python-tests:
     permissions:
