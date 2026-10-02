@@ -16,6 +16,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <cstdint>
 #include <optional>
 #include <sstream>
@@ -331,7 +333,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnCagraBbqInputs ps;
   rmm::device_uvector<float> database;
   rmm::device_uvector<float> search_queries;
