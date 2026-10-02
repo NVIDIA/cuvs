@@ -352,11 +352,26 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
             + observed);
   }
 
-  /** Counts the live vectors that the merge iterator will actually yield. */
+  /**
+   * Returns the merged vector count. Deletion-free merges use the merged view's size; merges with
+   * deletions count the iterator's live-vector output.
+   */
   private static int countMergedVectors(FieldInfo fieldInfo, MergeState mergeState)
       throws IOException {
     FloatVectorValues mergedVectors =
         KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
+    // With no deletions, the merged view's size includes only documents with this vector field.
+    boolean hasDeletions = false;
+    for (var liveDocs : mergeState.liveDocs) {
+      if (liveDocs != null) {
+        hasDeletions = true;
+        break;
+      }
+    }
+    if (!hasDeletions) {
+      return mergedVectors.size();
+    }
+
     int count = 0;
     KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
     for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {

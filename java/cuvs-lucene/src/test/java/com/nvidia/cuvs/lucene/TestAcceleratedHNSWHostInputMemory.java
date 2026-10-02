@@ -32,6 +32,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.IOConsumer;
+import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.InfoStream;
 
 /** Observes the real codec writer, not IndexWriter's cached buffering counters. Requires cuVS. */
@@ -122,9 +123,7 @@ public class TestAcceleratedHNSWHostInputMemory extends LuceneTestCase {
   }
 
   private IndexWriterConfig config(AccountingObserver observer) {
-    assertTrue(
-        "These accounting integration tests require GPU/cuVS support",
-        ThreadLocalCuVSResourcesProvider.isSupported());
+    assumeTrue("cuVS not supported", ThreadLocalCuVSResourcesProvider.isSupported());
     return newIndexWriterConfig()
         .setCodec(TestUtil.alwaysKnnVectorsFormat(observingFormat(observer)))
         .setInfoStream(observer)
@@ -153,11 +152,12 @@ public class TestAcceleratedHNSWHostInputMemory extends LuceneTestCase {
       @Override
       public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
         KnnVectorsWriter delegate = format.fieldsWriter(state);
-        assertTrue(
-            "CPU fallback must not satisfy accounting tests",
-            delegate instanceof Lucene99AcceleratedHNSWVectorsWriter
-                || delegate instanceof LuceneAcceleratedHNSWScalarQuantizedVectorsWriter
-                || delegate instanceof LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter);
+        if (!(delegate instanceof Lucene99AcceleratedHNSWVectorsWriter)
+            && !(delegate instanceof LuceneAcceleratedHNSWScalarQuantizedVectorsWriter)
+            && !(delegate instanceof LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter)) {
+          IOUtils.closeWhileHandlingException(delegate);
+          throw new AssertionError("CPU fallback must not satisfy accounting tests");
+        }
         // Capture identities independently of the diagnostic text being checked.
         observer.segments.add(state.segmentInfo.name);
         return new ObservedWriter(delegate, observer, state.segmentInfo.name);

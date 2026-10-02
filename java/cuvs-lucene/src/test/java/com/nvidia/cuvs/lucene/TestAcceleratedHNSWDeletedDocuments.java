@@ -21,6 +21,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsReader;
+import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
@@ -34,6 +35,7 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.NoMergePolicy;
+import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.VectorSimilarityFunction;
@@ -50,6 +52,7 @@ import org.apache.lucene.tests.index.RandomIndexWriter;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
+import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -61,7 +64,18 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
       Logger.getLogger(TestAcceleratedHNSWDeletedDocuments.class.getName());
 
   static final Codec codec =
-      TestUtil.alwaysKnnVectorsFormat(new Lucene99AcceleratedHNSWVectorsFormat());
+      TestUtil.alwaysKnnVectorsFormat(
+          new Lucene99AcceleratedHNSWVectorsFormat() {
+            @Override
+            public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
+              KnnVectorsWriter writer = super.fieldsWriter(state);
+              if (!(writer instanceof Lucene99AcceleratedHNSWVectorsWriter)) {
+                IOUtils.closeWhileHandlingException(writer);
+                throw new AssertionError("CPU fallback must not satisfy accelerated writer tests");
+              }
+              return writer;
+            }
+          });
   private static Random random;
 
   @BeforeClass
@@ -337,8 +351,7 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
     Map<String, float[]> expected = new LinkedHashMap<>();
 
     try (Directory directory = newDirectory()) {
-      try (IndexWriter writer =
-          new IndexWriter(directory, createWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE))) {
+      try (IndexWriter writer = new IndexWriter(directory, createCommitControlledWriterConfig())) {
         for (int segment = 0; segment < 3; segment++) {
           for (int row = 0; row < 5; row++) {
             String id = segment + "-" + row;
@@ -414,8 +427,7 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
     final int dimensions = 129;
 
     try (Directory directory = newDirectory()) {
-      try (IndexWriter writer =
-          new IndexWriter(directory, createWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE))) {
+      try (IndexWriter writer = new IndexWriter(directory, createCommitControlledWriterConfig())) {
         for (int id = 0; id < 3; id++) {
           Document vectorDocument = new Document();
           vectorDocument.add(new StringField("id", "vector-" + id, Field.Store.YES));
@@ -524,5 +536,12 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
     return newIndexWriterConfig(new MockAnalyzer(random(), MockTokenizer.SIMPLE, true))
         .setCodec(codec)
         .setMergePolicy(newTieredMergePolicy());
+  }
+
+  private IndexWriterConfig createCommitControlledWriterConfig() {
+    return createWriterConfig()
+        .setMergePolicy(NoMergePolicy.INSTANCE)
+        .setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH)
+        .setRAMBufferSizeMB(256);
   }
 }
