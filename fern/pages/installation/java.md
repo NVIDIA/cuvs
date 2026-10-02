@@ -94,7 +94,7 @@ For example, for Lucene 10.5, add the following dependency to your `pom.xml`:
 </dependency>
 ```
 
-An artifact refuses to load against any other Lucene minor release, with an error naming the artifact to use instead. Releases before 26.12 published a single `cuvs-lucene` artifact, built for Lucene 10.2. Its coordinates are relocated to `cuvs-lucene-10.2`, so Maven builds that only bump its version to 26.12 or later keep working and print a warning; switch to the artifact matching your Lucene version. Build tools other than Maven may not follow the relocation; update the artifact name there.
+Against any other Lucene minor release, an artifact's codecs fail when they are used, with an error naming the artifact to use instead, and the problem is logged at `SEVERE` the first time Lucene looks up its codecs. Call `CuVSCodecs.checkLuceneVersion()` at startup to fail early instead. Releases before 26.12 published a single `cuvs-lucene` artifact, built for Lucene 10.2. Its coordinates are relocated to `cuvs-lucene-10.2`, so Maven builds that only bump its version to 26.12 or later keep working and print a warning; switch to the artifact matching your Lucene version. Build tools other than Maven may not follow the relocation; update the artifact name there.
 
 The native NVIDIA cuVS libraries are not bundled with the artifact. Install a matching version of `libcuvs` and `libcuvs_c` as described above, and make sure the directory containing them is on `LD_LIBRARY_PATH` before starting the JVM.
 

@@ -59,7 +59,9 @@ your `pom.xml`:
 </dependency>
 ```
 
-An artifact fails to load against another Lucene minor release, with an error that names the artifact to use.
+Against another Lucene minor release, an artifact's codecs fail when they are used, with an error that names
+the artifact to use; the problem is also logged at `SEVERE` the first time Lucene looks up its codecs. Call
+`CuVSCodecs.checkLuceneVersion()` at startup to fail early instead.
 
 ### Building from source
 

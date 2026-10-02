@@ -157,11 +157,12 @@ and `LuceneCompat.acceleratedHNSWScalarQuantizedFormat` use it.
 mvn -pl lucene-10.6 -am verify
 ```
 
-- New abstract methods or new tests in Lucene's `BaseKnnVectorsFormatTestCase` are handled in the shared
-  test classes without `@Override`, so that they still compile against older releases. See
-  `supportsFloatVectorFallback()` and `testWriterByteVectorRamEstimate()` in
-  `src/test/java/.../TestLucene99AcceleratedHNSWVectorsFormat.java` (and the same in
-  `TestCuVSVectorsFormat` and `TestQuantizedVectorsFormats`).
+- New abstract methods or new tests in Lucene's `BaseKnnVectorsFormatTestCase` are handled once, in
+  `src/test/java/.../BaseCuVSKnnVectorsFormatTestCase.java`, which every format test extends, and without
+  `@Override`, so that they still compile against older releases. See `supportsFloatVectorFallback()`
+  (abstract since Lucene 10.4) and `testWriterByteVectorRamEstimate()` (added in 10.5). Hooks that only
+  some formats implement go in their test: `TestQuantizedVectorsFormats` implements
+  `getQuantizationBits()` and `simulateEmptyRawVectors()` for the scalar-quantized format of 10.4+.
 - A test call whose signature changed goes through `TestLuceneCompat`, in a `compat/` variant (step 2).
 - `TestBackCompat` fails if a codec from `CuVSCodecs` is not registered, or if an older codec can still
   write.

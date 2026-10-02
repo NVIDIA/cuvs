@@ -98,6 +98,8 @@ public class TestBackCompat {
   public void testCallerChosenDelegateIsNeverReadOnly() {
     // Lucene101Codec is a read-only backward codec from Lucene 10.3 on, but a codec built with a
     // delegate chosen by the caller leaves that to the caller instead of guessing from the class.
+    // Created by class on purpose: CuVSCodecs cannot pass a delegate, and this constructor is what
+    // is under test.
     Codec codec = new Lucene101AcceleratedHNSWCodec("CustomCodec", Codec.forName("Lucene101"));
     assertTrue(
         codec.knnVectorsFormat().toString(),

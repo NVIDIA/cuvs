@@ -39,7 +39,7 @@ The GPU search codec has no such fallback. Its on-disk format has no CPU reader,
 
 ## Lucene Versions and Upgrades
 
-Lucene changes its codec APIs between minor releases, so `cuvs-lucene` is published as one artifact per Lucene minor release, `cuvs-lucene-10.2` through `cuvs-lucene-10.5`; see [cuVS Lucene](/installation/java#cuvs-lucene). Use the one that matches your application's Lucene version. An artifact refuses to load against another Lucene minor release.
+Lucene changes its codec APIs between minor releases, so `cuvs-lucene` is published as one artifact per Lucene minor release, `cuvs-lucene-10.2` through `cuvs-lucene-10.5`; see [cuVS Lucene](/installation/java#cuvs-lucene). Use the one that matches your application's Lucene version. Against another Lucene minor release, its codecs fail when they are used; see [Troubleshooting](#troubleshooting).
 
 Each codec also wraps the default codec of one Lucene release, and Lucene records the codec's name in every segment it writes. The codec that writes therefore changes with Lucene:
 
