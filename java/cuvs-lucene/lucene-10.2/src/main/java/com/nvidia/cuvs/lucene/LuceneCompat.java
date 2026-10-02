@@ -50,7 +50,8 @@ final class LuceneCompat {
   }
 
   /**
-   * Whether this Lucene release can write {@link #lucene99ScalarQuantizedFlatFormat()}. Lucene 10.2 still writes it.
+   * Whether this Lucene release can write {@link #lucene99ScalarQuantizedFlatFormat()}. Lucene 10.2
+   * still writes it.
    */
   static boolean canWriteLucene99ScalarQuantized() {
     return true;

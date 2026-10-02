@@ -26,8 +26,8 @@ import org.apache.lucene.search.TaskExecutor;
 /**
  * Dynamically loads Lucene format, reader, and writer classes with a fallback mechanism.
  *
- * <p>Remains unchanged, for source compatibility, only in {@code cuvs-lucene-10.2}; the artifacts for
- * later Lucene releases do not have it. To migrate off it:
+ * <p>Remains unchanged, for source compatibility, only in {@code cuvs-lucene-10.2}; the artifacts
+ * for later Lucene releases do not have it. To migrate off it:
  *
  * <ul>
  *   <li>Get the cuvs-lucene codecs from {@link CuVSCodecs} instead of building them from {@link

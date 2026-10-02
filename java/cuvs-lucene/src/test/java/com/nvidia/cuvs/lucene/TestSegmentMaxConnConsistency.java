@@ -159,23 +159,14 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
   }
 
   /**
-   * When the built graph is wider than {@code 2 * maxConn}, the recorded M must follow the graph:
-   * maxConn is only a lower bound.
+   * The widest graph the CUSTOM strategy accepts has degree {@code 2 * maxConn}, the most neighbors
+   * HNSW holds per node on level 0. It records M = maxConn and merges on the CPU.
    */
   @Test
-  public void testRecordedMCoversGraphWiderThanMaxConn() throws Exception {
+  public void testCustomGraphDegreeAtTheLimit() throws Exception {
     assumeTrue("cuVS not supported", isSupported());
 
-    int graphDegree = 4 * MAX_CONN;
-    AcceleratedHNSWParams params =
-        new AcceleratedHNSWParams.Builder()
-            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
-            .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
-            .withIntermediateGraphDegree(2 * graphDegree)
-            .withGraphDegree(graphDegree)
-            .withMaxConn(MAX_CONN)
-            .build();
-
+    AcceleratedHNSWParams params = customParams(2 * MAX_CONN);
     try (Directory dir = newDirectory()) {
       IndexWriterConfig cfg = new IndexWriterConfig().setCodec(CuVSCodecs.acceleratedHNSW(params));
       try (IndexWriter w = new IndexWriter(dir, cfg)) {
@@ -185,23 +176,34 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
 
       try (DirectoryReader reader = DirectoryReader.open(dir)) {
         HnswGraph graph = graphOf(getOnlyLeafReader(reader));
-        assertEquals(graphDegree, widestAdjacencyRow(graph));
-        assertEquals(Math.ceilDiv(graphDegree, 2), graph.maxConn());
+        assertEquals(2 * MAX_CONN, widestAdjacencyRow(graph));
+        assertEquals(MAX_CONN, graph.maxConn());
       }
     }
+    cpuMergeGpuSegments(params, repeat(1000, 2));
+  }
+
+  private static AcceleratedHNSWParams customParams(int graphDegree) {
+    return new AcceleratedHNSWParams.Builder()
+        .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
+        .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+        .withIntermediateGraphDegree(2 * graphDegree)
+        .withGraphDegree(graphDegree)
+        .withMaxConn(MAX_CONN)
+        .build();
   }
 
   /**
    * A CPU merge of GPU-written segments, which the formats' fallback writers and stock Lucene do,
    * must have room for {@code 2 * maxConn} neighbors per node. On Lucene 10.4+ the merged graph is
-   * sized from the M recorded by its largest source segment, so merging small segments that recorded
-   * their truncated degree failed with "No growth is allowed". Lucene 10.2 and 10.3 size it from the
-   * merging writer's own M, so there this test always passes.
+   * sized from the M recorded by its largest source segment, so merging small segments that
+   * recorded their truncated degree failed with "No growth is allowed". Lucene 10.2 and 10.3 size
+   * it from the merging writer's own M, so there this test always passes.
    */
   @Test
   public void testCpuMergeOfSmallGpuSegments() throws Exception {
     assumeTrue("cuVS not supported", isSupported());
-    cpuMergeGpuSegments(repeat(20, 50));
+    cpuMergeGpuSegments(heuristicParams(1), repeat(20, 50));
   }
 
   /**
@@ -215,7 +217,26 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
     int[] sizes = repeat(20, 50);
     int[] withSingles = Arrays.copyOf(sizes, sizes.length + 10);
     Arrays.fill(withSingles, sizes.length, withSingles.length, 1);
-    cpuMergeGpuSegments(withSingles);
+    cpuMergeGpuSegments(heuristicParams(1), withSingles);
+  }
+
+  /**
+   * HNSW allows maxConn neighbors per node above level 0. Upper layers built with the level-0
+   * degree of 2 * maxConn were read fine, but a CPU merge copies them into arrays of maxConn + 1
+   * slots and failed with "No growth is allowed" on every Lucene release.
+   */
+  @Test
+  public void testCpuMergeOfMultiLayerGpuSegments() throws Exception {
+    assumeTrue("cuVS not supported", isSupported());
+    cpuMergeGpuSegments(heuristicParams(3), repeat(1000, 2));
+  }
+
+  private static AcceleratedHNSWParams heuristicParams(int hnswLayers) {
+    return new AcceleratedHNSWParams.Builder()
+        .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
+        .withMaxConn(MAX_CONN)
+        .withHNSWLayer(hnswLayers)
+        .build();
   }
 
   private static int[] repeat(int value, int count) {
@@ -228,7 +249,8 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
    * Writes one GPU-built segment per size, merges them into one on the CPU with Lucene's own HNSW
    * format, and checks the merged index.
    */
-  private void cpuMergeGpuSegments(int[] segmentSizes) throws Exception {
+  private void cpuMergeGpuSegments(AcceleratedHNSWParams params, int[] segmentSizes)
+      throws Exception {
     // High-dimensional random vectors pass the diversity check often enough to fill a node's
     // neighbor array, which a low-dimensional dataset would not.
     int dimensions = 256;
@@ -240,11 +262,6 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
       total += size;
     }
     assertTrue("merged segment too small to get a graph: " + total, total >= 1000);
-    AcceleratedHNSWParams params =
-        new AcceleratedHNSWParams.Builder()
-            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
-            .withMaxConn(MAX_CONN)
-            .build();
 
     try (Directory dir = newDirectory()) {
       IndexWriterConfig gpuCfg =
@@ -254,6 +271,17 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
         for (int size : segmentSizes) {
           addRandomDocs(w, size, dimensions);
           w.commit();
+        }
+      }
+
+      // Every GPU-built level above 0 must fit HNSW's maxConn neighbors per node.
+      try (DirectoryReader reader = DirectoryReader.open(dir)) {
+        for (LeafReaderContext ctx : reader.leaves()) {
+          HnswGraph graph = graphOf(ctx.reader());
+          for (int level = 1; level < graph.numLevels(); level++) {
+            int widest = widestRowOnLevel(graph, level);
+            assertTrue("level " + level + " has a row of " + widest, widest <= MAX_CONN);
+          }
         }
       }
 
@@ -293,6 +321,21 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
               FIELD, new float[] {i, i + 1f, i + 2f, i + 3f}, VectorSimilarityFunction.EUCLIDEAN));
       w.addDocument(doc);
     }
+  }
+
+  /** The largest number of arcs stored for any node on the given level. */
+  private static int widestRowOnLevel(HnswGraph graph, int level) throws Exception {
+    int widest = 0;
+    HnswGraph.NodesIterator nodes = graph.getNodesOnLevel(level);
+    while (nodes.hasNext()) {
+      graph.seek(level, nodes.nextInt());
+      int arcs = 0;
+      while (graph.nextNeighbor() != NO_MORE_DOCS) {
+        arcs++;
+      }
+      widest = Math.max(widest, arcs);
+    }
+    return widest;
   }
 
   /** The largest number of arcs stored for any node on any level. */

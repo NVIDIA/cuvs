@@ -67,7 +67,8 @@ final class LuceneCompat {
   }
 
   /**
-   * Whether this Lucene release can write {@link #lucene99ScalarQuantizedFlatFormat()}. Lucene 10.5 moved it to its backward codecs, which only read.
+   * Whether this Lucene release can write {@link #lucene99ScalarQuantizedFlatFormat()}. Lucene 10.5
+   * moved it to its backward codecs, which only read.
    */
   static boolean canWriteLucene99ScalarQuantized() {
     return false;

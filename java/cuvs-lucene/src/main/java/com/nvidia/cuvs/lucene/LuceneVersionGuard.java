@@ -15,9 +15,9 @@ import org.apache.lucene.util.Version;
  * counterpart, and Lucene silently runs its own implementation instead. Checking the version turns
  * that into a clear error.
  *
- * <p>The check must only run where cuvs-lucene is actually used, never while Lucene's service loader
- * instantiates the registered codecs and formats: an exception there would break every codec and
- * format lookup in the JVM, including Lucene's own.
+ * <p>The check must only run where cuvs-lucene is actually used, never while Lucene's service
+ * loader instantiates the registered codecs and formats: an exception there would break every codec
+ * and format lookup in the JVM, including Lucene's own.
  */
 final class LuceneVersionGuard {
 

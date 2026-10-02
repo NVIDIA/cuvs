@@ -32,13 +32,13 @@ import org.apache.lucene.util.Version;
  * Writes the back-compat indexes of a released cuvs-lucene artifact, for TestBackCompatIndices.
  *
  * <p>Not part of the build: generate-released-indices.sh compiles and runs it against the published
- * jars of one release. It writes the same documents as TestBackCompatIndices#writeIndex, so that the
- * same checks apply to indexes written by released code.
+ * jars of one release. It writes the same documents as TestBackCompatIndices#writeIndex, so that
+ * the same checks apply to indexes written by released code.
  *
- * <p>It writes one index with each cuvs-lucene codec the release registers. Releases that registered
- * no codecs (25.12 and earlier) instead get one index per cuvs-lucene vectors format, used per field
- * by Lucene's default codec, which is how those releases were used. The GPU search codec and format
- * are left out: their on-disk format is documented as experimental.
+ * <p>It writes one index with each cuvs-lucene codec the release registers. Releases that
+ * registered no codecs (25.12 and earlier) instead get one index per cuvs-lucene vectors format,
+ * used per field by Lucene's default codec, which is how those releases were used. The GPU search
+ * codec and format are left out: their on-disk format is documented as experimental.
  *
  * <p>Arguments: the output directory and the cuvs-lucene version.
  */

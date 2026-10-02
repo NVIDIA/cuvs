@@ -100,8 +100,8 @@ abstract class CuVSFilterCodec extends FilterCodec {
    *
    * <p>Lucene's service loader creates every registered codec when it first looks one up, and an
    * exception there breaks every codec lookup in the JVM, Lucene's own included. A cuvs-lucene
-   * artifact running on another Lucene release than it was built for must therefore still create its
-   * codecs, and only fail once they are used.
+   * artifact running on another Lucene release than it was built for must therefore still create
+   * its codecs, and only fail once they are used.
    *
    * <p>Pass {@code delegate} as a lambda, such as {@code () -> LuceneCompat.lucene101Codec()}, not
    * as a method reference: the JVM resolves a method reference, and so loads {@code LuceneCompat},

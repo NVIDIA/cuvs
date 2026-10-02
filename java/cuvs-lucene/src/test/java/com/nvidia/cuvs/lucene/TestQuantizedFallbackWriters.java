@@ -33,8 +33,8 @@ import org.junit.AfterClass;
 import org.junit.BeforeClass;
 
 /**
- * Checks that the accelerated HNSW codecs build the graph on the CPU when cuVS is not available, and
- * that they read back what their CPU fallback wrote.
+ * Checks that the accelerated HNSW codecs build the graph on the CPU when cuVS is not available,
+ * and that they read back what their CPU fallback wrote.
  */
 @SuppressSysoutChecks(bugUrl = "")
 public class TestQuantizedFallbackWriters extends LuceneTestCase {

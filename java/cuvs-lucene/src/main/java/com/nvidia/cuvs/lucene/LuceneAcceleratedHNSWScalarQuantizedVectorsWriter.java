@@ -200,7 +200,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends CompatKnn
               unsignedVectors,
               acceleratedHNSWParams.getHnswLayers(),
               params,
-              QuantizationType.SCALAR);
+              QuantizationType.SCALAR,
+              acceleratedHNSWParams.getMaxConn());
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
 

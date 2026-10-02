@@ -107,4 +107,29 @@ public class CagraIndexParamsFactory {
         .withNumWriterThreads(acceleratedHNSWParams.getWriterThreads())
         .build();
   }
+
+  /**
+   * Returns {@code params} with the graph degree lowered to {@code maxGraphDegree}, or {@code
+   * params} itself if its graph degree is not larger. The intermediate graph degree is kept, so it
+   * stays at least the graph degree, as CAGRA requires.
+   *
+   * @param params the parameters to copy
+   * @param maxGraphDegree the largest graph degree to build
+   * @return parameters whose graph degree is at most {@code maxGraphDegree}
+   */
+  static CagraIndexParams withMaxGraphDegree(CagraIndexParams params, long maxGraphDegree) {
+    if (params.getGraphDegree() <= maxGraphDegree) {
+      return params;
+    }
+    return new CagraIndexParams.Builder()
+        .withGraphDegree(maxGraphDegree)
+        .withIntermediateGraphDegree(params.getIntermediateGraphDegree())
+        .withCagraGraphBuildAlgo(params.getCagraGraphBuildAlgo())
+        .withCuVSIvfPqParams(params.getCuVSIvfPqParams())
+        .withCuVSAceParams(params.getCuVSAceParams())
+        .withNNDescentNumIterations(params.getNNDescentNumIterations())
+        .withMetric(params.getCuvsDistanceType())
+        .withNumWriterThreads(params.getNumWriterThreads())
+        .build();
+  }
 }

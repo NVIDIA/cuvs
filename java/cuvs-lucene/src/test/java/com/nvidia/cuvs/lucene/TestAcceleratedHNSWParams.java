@@ -121,6 +121,36 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
   }
 
   @Test
+  public void testCustomGraphDegreeAtMostTwiceMaxConn() {
+    // An HNSW graph holds at most 2 * maxConn neighbors per node on level 0.
+    AcceleratedHNSWParams.Builder atLimit =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
+            .withMaxConn(16)
+            .withIntermediateGraphDegree(64)
+            .withGraphDegree(32);
+    assertEquals(32, atLimit.build().getGraphdegree());
+
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> atLimit.withGraphDegree(33).build());
+    assertTrue(e.getMessage(), e.getMessage().contains("maxConn to at least 17"));
+
+    // cuVS lowers the graph degree to the intermediate graph degree, so that is what is checked.
+    assertEquals(
+        64, atLimit.withGraphDegree(64).withIntermediateGraphDegree(32).build().getGraphdegree());
+
+    // HEURISTIC ignores the configured graph degree and derives one from maxConn.
+    assertEquals(
+        64,
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
+            .withMaxConn(16)
+            .withGraphDegree(64)
+            .build()
+            .getGraphdegree());
+  }
+
+  @Test
   public void testGraphDegreeRelationshipNotEnforcedUnderHeuristicStrategy() {
     // Under HEURISTIC, both degrees are derived from maxConn/beamWidth and the configured values
     // are ignored, so a configured graphDegree > intermediateGraphDegree must not fail to build.

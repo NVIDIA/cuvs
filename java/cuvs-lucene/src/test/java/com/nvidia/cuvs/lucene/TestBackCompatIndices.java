@@ -56,10 +56,11 @@ import org.apache.lucene.util.Version;
  *
  * <p>The indexes are in {@code src/test/resources/backcompat}, one zip each, named {@code <lucene
  * major.minor>-<codec name>[-<per-field format name>][-cuvs-<cuvs-lucene version>].zip}: the Lucene
- * release they were written on, the codec recorded in their segments, the cuvs-lucene vectors format
- * used per field if the codec is Lucene's own, and the released cuvs-lucene version that wrote them,
- * if it was not the code in this repository. Each module reads the ones written on its own Lucene
- * release and all earlier ones. See the {@code README.md} next to them for how to add more.
+ * release they were written on, the codec recorded in their segments, the cuvs-lucene vectors
+ * format used per field if the codec is Lucene's own, and the released cuvs-lucene version that
+ * wrote them, if it was not the code in this repository. Each module reads the ones written on its
+ * own Lucene release and all earlier ones. See the {@code README.md} next to them for how to add
+ * more.
  *
  * <p>Reading and upgrading need no GPU, so those tests also run where cuVS is not available.
  */

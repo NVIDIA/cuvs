@@ -81,10 +81,15 @@ public class AcceleratedHNSWUtils {
       List<?> vectors,
       int hnswLayers,
       CagraIndexParams params,
-      QuantizationType quantization)
+      QuantizationType quantization,
+      int maxConn)
       throws Throwable {
 
     int M = Math.ceilDiv((int) adjacencyListMatrix.columns(), 2);
+    // HNSW allows maxConn neighbors per node above level 0, half of level 0's 2 * maxConn. A wider
+    // upper-layer row is read fine, but a CPU merge copies it into an array of maxConn + 1 slots
+    // and fails with "No growth is allowed", so build the upper layers with degree maxConn.
+    CagraIndexParams upperLayerParams = CagraIndexParamsFactory.withMaxGraphDegree(params, maxConn);
 
     // Store all layers data
     List<int[]> layerNodes = new ArrayList<>();
@@ -134,7 +139,7 @@ public class AcceleratedHNSWUtils {
         // Build CAGRA graph for this layer
         layerAdjacencies.add(
             buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, 0, params, dimensions, quantization));
+                selectedVectors, selectedNodes, 0, upperLayerParams, dimensions, quantization));
 
       } else {
 
@@ -148,7 +153,12 @@ public class AcceleratedHNSWUtils {
         // Build CAGRA graph for this layer
         layerAdjacencies.add(
             buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, bytesPerVector, params, dimensions, quantization));
+                selectedVectors,
+                selectedNodes,
+                bytesPerVector,
+                upperLayerParams,
+                dimensions,
+                quantization));
       }
 
       // Update for next iteration

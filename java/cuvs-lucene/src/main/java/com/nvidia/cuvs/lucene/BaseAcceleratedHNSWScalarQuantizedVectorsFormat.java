@@ -36,14 +36,16 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
   /**
    * Initializes the format.
    *
+   * <p>{@code flatVectorsFormat} and {@code cpuFormat} are only called when the format is used,
+   * never while Lucene's service loader creates it, so pass lambdas rather than method references
+   * to {@code LuceneCompat}, which may not link against the Lucene release in use (see {@link
+   * CuVSFilterCodec#delegate}).
+   *
    * @param name the format's name
    * @param acceleratedHNSWParams the index build parameters
    * @param flatVectorsFormat creates the format that stores the quantized vectors
    * @param cpuFormat returns the Lucene format to build the graph with when no GPU is available;
    *     it has to store the vectors with {@code flatVectorsFormat}
-   *     <p>Both are only called when the format is used, never while Lucene's service loader creates
-   *     it, so pass lambdas rather than method references to {@code LuceneCompat}, which may not
-   *     link against the Lucene release in use (see {@link CuVSFilterCodec#delegate}).
    */
   BaseAcceleratedHNSWScalarQuantizedVectorsFormat(
       String name,
@@ -73,8 +75,7 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
     } else {
       KnnVectorsFormat fallback = cpuFormat.apply(acceleratedHNSWParams);
       // The class name, not getName(): in Lucene 10.4 and 10.5,
-      // Lucene104HnswScalarQuantizedVectorsFormat
-      // reports the name of its binary-quantized sibling.
+      // Lucene104HnswScalarQuantizedVectorsFormat reports the name of its binary-quantized sibling.
       log.warning(
           "GPU based indexing not supported, falling back to using the "
               + fallback.getClass().getSimpleName());
@@ -101,7 +102,8 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
   }
 
   /**
-   * Returns the maximum number of vector dimensions supported by this Codec for the given field name.
+   * Returns the maximum number of vector dimensions supported by this format for the given field
+   * name.
    */
   @Override
   public int getMaxDimensions(String fieldName) {
