@@ -157,7 +157,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends CompatKnn
    */
   private void writeFieldInternal(FieldInfo fieldInfo, List<?> vectors) throws IOException {
     if (vectors.size() == 0) {
-      writeEmpty(fieldInfo, hnswMeta);
+      writeEmpty(fieldInfo, hnswMeta, acceleratedHNSWParams.getMaxConn());
       return;
     }
 
@@ -218,7 +218,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends CompatKnn
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
 
       cagraIndex.close();
     } catch (Throwable t) {
@@ -304,7 +305,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends CompatKnn
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
 
     } catch (Throwable t) {
       Utils.handleThrowable(t);

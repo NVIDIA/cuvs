@@ -8,8 +8,10 @@ package com.nvidia.cuvs.lucene;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.KnnFloatVectorField;
@@ -24,23 +26,26 @@ import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.junit.Test;
 
 /**
- * Verifies that the HNSW {@code M} recorded in a segment's metadata describes the graph that
- * segment actually contains, for every segment an accelerated-HNSW writer can produce.
+ * Verifies the HNSW {@code M} recorded in a segment's metadata, for every segment an
+ * accelerated-HNSW writer can produce.
  *
- * <p>{@code M} is written as {@code ceil(cagraGraphDegree / 2)} and bounds what the reader accepts:
- * Lucene sizes its arc buffer as {@code M * 2} and asserts that every stored adjacency row fits. An
- * {@code M} taken from configuration rather than from the built graph can understate the graph,
- * because cuVS is free to build a degree other than the one requested -- and under the HEURISTIC
- * strategy it derives the degree from maxConn and ignores the configured graph degree outright.
+ * <p>{@code M} has two lower bounds. It bounds what the reader accepts: Lucene sizes its arc buffer
+ * as {@code M * 2} and asserts that every stored adjacency row fits, so {@code M} must cover {@code
+ * ceil(cagraGraphDegree / 2)} of the graph actually built. An {@code M} taken from the configured
+ * graph degree can understate the graph, because cuVS is free to build a degree other than the one
+ * requested -- and under the HEURISTIC strategy it derives the degree from maxConn and ignores the
+ * configured graph degree outright.
  *
- * <p>The invariant checked here is per-segment self-consistency, not cross-segment equality.
- * Segments of the same field legitimately record different values of {@code M}: cuVS truncates the
- * CAGRA graph degree to {@code dataset_size - 1} for small datasets, so with maxConn 16 a 20-vector
- * segment records {@code M = 10} while a 3000-vector segment records {@code M = 16}.
+ * <p>{@code M} must also not fall below maxConn. On Lucene 10.4+ a CPU merge sizes the merged
+ * graph's neighbor arrays from the {@code M} of its largest source segment but fills them up to
+ * {@code 2 * maxConn}. cuVS truncates the CAGRA graph degree to {@code dataset_size - 1} for small
+ * datasets, so the graph alone would give a 20-vector segment {@code M = 10} with maxConn 16, and a
+ * single-vector segment an even smaller one; merging either throws.
  *
  * <p>A non-default maxConn is used throughout. At stock defaults the configured graph degree (64)
  * and the degree cuVS derives from maxConn (2 * 32) coincide, so an {@code M} read from the wrong
@@ -53,11 +58,11 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
   private static final int MAX_CONN = 16;
 
   /**
-   * Every segment -- including a degenerate single-vector one -- must record an M consistent with
-   * its own widest adjacency row.
+   * Every segment -- including a degenerate single-vector one -- must record an M that covers both
+   * its own widest adjacency row and maxConn.
    */
   @Test
-  public void testRecordedMMatchesEachSegmentsGraph() throws Exception {
+  public void testRecordedMCoversEachSegmentsGraphAndMaxConn() throws Exception {
     assumeTrue("cuVS not supported", isSupported());
 
     // Sizes span the interesting cases: the single-vector special path, a segment small enough for
@@ -100,8 +105,9 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
                   + recordedM
                   + " but its widest adjacency row holds "
                   + widestRow
-                  + " arcs",
-              Math.ceilDiv(widestRow, 2),
+                  + " arcs and maxConn is "
+                  + MAX_CONN,
+              Math.max(MAX_CONN, Math.ceilDiv(widestRow, 2)),
               recordedM);
 
           // The reader sizes its arc buffer as M*2 and asserts every arc count fits, so an M that
@@ -145,12 +151,109 @@ public class TestSegmentMaxConnConsistency extends LuceneTestCase {
       try (DirectoryReader reader = DirectoryReader.open(dir)) {
         LeafReader leaf = getOnlyLeafReader(reader);
         HnswGraph graph = graphOf(leaf);
-        assertEquals(
-            "single-vector segment must not record M derived from the ignored graphDegree",
-            Math.ceilDiv(widestAdjacencyRow(graph), 2),
-            graph.maxConn());
+        assertEquals("single-vector segment must record maxConn as M", MAX_CONN, graph.maxConn());
         assertNotEquals("M leaked from the configured graphDegree", 256 / 2, graph.maxConn());
       }
+    }
+  }
+
+  /**
+   * When the built graph is wider than {@code 2 * maxConn}, the recorded M must follow the graph:
+   * maxConn is only a lower bound.
+   */
+  @Test
+  public void testRecordedMCoversGraphWiderThanMaxConn() throws Exception {
+    assumeTrue("cuVS not supported", isSupported());
+
+    int graphDegree = 4 * MAX_CONN;
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.CUSTOM)
+            .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+            .withIntermediateGraphDegree(2 * graphDegree)
+            .withGraphDegree(graphDegree)
+            .withMaxConn(MAX_CONN)
+            .build();
+
+    try (Directory dir = newDirectory()) {
+      IndexWriterConfig cfg = new IndexWriterConfig().setCodec(CuVSCodecs.acceleratedHNSW(params));
+      try (IndexWriter w = new IndexWriter(dir, cfg)) {
+        addDocs(w, 3000);
+        w.forceMerge(1);
+      }
+
+      try (DirectoryReader reader = DirectoryReader.open(dir)) {
+        HnswGraph graph = graphOf(getOnlyLeafReader(reader));
+        assertEquals(graphDegree, widestAdjacencyRow(graph));
+        assertEquals(Math.ceilDiv(graphDegree, 2), graph.maxConn());
+      }
+    }
+  }
+
+  /**
+   * A CPU merge of GPU-written segments, which the formats' fallback writers and stock Lucene do,
+   * must have room for {@code 2 * maxConn} neighbors per node. On Lucene 10.4+ the merged graph is
+   * sized from the M recorded by its largest source segment, so merging small segments that recorded
+   * their truncated degree failed with "No growth is allowed". Lucene 10.2 and 10.3 size it from the
+   * merging writer's own M, so there this test always passes.
+   *
+   * <p>Single-vector segments are left out: their graph stores a placeholder neighbor {@code -1},
+   * which a CPU merge rejects on every Lucene release regardless of M.
+   */
+  @Test
+  public void testCpuMergeOfSmallGpuSegments() throws Exception {
+    assumeTrue("cuVS not supported", isSupported());
+
+    // High-dimensional random vectors pass the diversity check often enough to fill a node's
+    // neighbor array, which a low-dimensional dataset would not.
+    int dimensions = 256;
+    // Lucene 10.4+ skips the graph of a segment smaller than about 650 vectors (see
+    // Lucene99HnswVectorsFormat.HNSW_GRAPH_THRESHOLD), so the merged segment must be larger for the
+    // merge to build one.
+    int segments = 50;
+    int segmentSize = 20;
+    AcceleratedHNSWParams params =
+        new AcceleratedHNSWParams.Builder()
+            .withStrategy(AcceleratedHNSWParams.Strategy.HEURISTIC)
+            .withMaxConn(MAX_CONN)
+            .build();
+
+    try (Directory dir = newDirectory()) {
+      IndexWriterConfig gpuCfg =
+          new IndexWriterConfig().setCodec(CuVSCodecs.acceleratedHNSW(params));
+      gpuCfg.setMergePolicy(NoMergePolicy.INSTANCE);
+      try (IndexWriter w = new IndexWriter(dir, gpuCfg)) {
+        for (int s = 0; s < segments; s++) {
+          addRandomDocs(w, segmentSize, dimensions);
+          w.commit();
+        }
+      }
+
+      IndexWriterConfig cpuCfg =
+          new IndexWriterConfig()
+              .setCodec(
+                  TestUtil.alwaysKnnVectorsFormat(new Lucene99HnswVectorsFormat(MAX_CONN, 100)));
+      try (IndexWriter w = new IndexWriter(dir, cpuCfg)) {
+        w.forceMerge(1);
+      }
+
+      TestUtil.checkIndex(dir);
+      try (DirectoryReader reader = DirectoryReader.open(dir)) {
+        LeafReader leaf = getOnlyLeafReader(reader);
+        assertEquals(segments * segmentSize, graphOf(leaf).size());
+      }
+    }
+  }
+
+  private static void addRandomDocs(IndexWriter w, int count, int dimensions) throws Exception {
+    for (int i = 0; i < count; i++) {
+      float[] vector = new float[dimensions];
+      for (int d = 0; d < dimensions; d++) {
+        vector[d] = random().nextFloat();
+      }
+      Document doc = new Document();
+      doc.add(new KnnFloatVectorField(FIELD, vector, VectorSimilarityFunction.EUCLIDEAN));
+      w.addDocument(doc);
     }
   }
 

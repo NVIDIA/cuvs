@@ -305,6 +305,7 @@ public class AcceleratedHNSWUtils {
    * @param count the count of vectors
    * @param graph instance of HnswGraph
    * @param graphLevelNodeOffsets graph level node offsets
+   * @param maxConn the configured maxConn, which a CPU writer uses when it merges this segment
    * @throws IOException I/O Exceptions
    */
   public static void writeMeta(
@@ -315,7 +316,8 @@ public class AcceleratedHNSWUtils {
       long vectorIndexLength,
       int count,
       HnswGraph graph,
-      int[][] graphLevelNodeOffsets)
+      int[][] graphLevelNodeOffsets,
+      int maxConn)
       throws IOException {
 
     meta.writeInt(field.number);
@@ -325,10 +327,14 @@ public class AcceleratedHNSWUtils {
     meta.writeVLong(vectorIndexLength);
     meta.writeVInt(field.getVectorDimension());
     meta.writeInt(count);
-    // M = ceil(cagraGraphDegree / 2), derived from the graph being written rather than from a
-    // caller-supplied degree: graph.maxConn() is the widest layer-0 adjacency row, which is the
-    // degree cuVS actually built (it may truncate the requested one for small datasets).
-    meta.writeVInt(graph == null ? 0 : Math.ceilDiv(graph.maxConn(), 2));
+    // The reader sizes its arc buffer as M * 2, so M must cover ceil(cagraGraphDegree / 2), taken
+    // from the graph being written: graph.maxConn() is the widest layer-0 adjacency row, which is
+    // the degree cuVS actually built (it may truncate the requested one for small datasets).
+    // M must not fall below maxConn either: on Lucene 10.4+ a CPU merge sizes the merged graph's
+    // neighbor arrays from the M of its largest source segment but fills them up to 2 * maxConn,
+    // so a smaller M makes the merge throw. Like Lucene, record maxConn even without a graph.
+    int graphM = graph == null ? 0 : Math.ceilDiv(graph.maxConn(), 2);
+    meta.writeVInt(Math.max(maxConn, graphM));
 
     // write graph nodes on each level
     if (graph == null) {
@@ -399,10 +405,12 @@ public class AcceleratedHNSWUtils {
    * Writes an empty meta information for the field.
    *
    * @param fieldInfo instance of FieldInfo
+   * @param maxConn the configured maxConn, recorded as the field's M
    * @throws IOException I/O Exceptions
    */
-  public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op) throws IOException {
-    writeMeta(null, op, fieldInfo, 0, 0, 0, null, null);
+  public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op, int maxConn)
+      throws IOException {
+    writeMeta(null, op, fieldInfo, 0, 0, 0, null, null, maxConn);
   }
 
   /**

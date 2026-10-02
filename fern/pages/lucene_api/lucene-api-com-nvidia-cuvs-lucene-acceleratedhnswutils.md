@@ -67,7 +67,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWU
 ### writeMeta
 
 ```java
-public static void writeMeta( IndexOutput vectorIndex, IndexOutput meta, FieldInfo field, long vectorIndexOffset, long vectorIndexLength, int count, HnswGraph graph, int[][] graphLevelNodeOffsets) throws IOException
+public static void writeMeta( IndexOutput vectorIndex, IndexOutput meta, FieldInfo field, long vectorIndexOffset, long vectorIndexLength, int count, HnswGraph graph, int[][] graphLevelNodeOffsets, int maxConn) throws IOException
 ```
 
 Writes the meta information for the index.
@@ -84,6 +84,7 @@ Writes the meta information for the index.
 | `count` | the count of vectors |
 | `graph` | instance of HnswGraph |
 | `graphLevelNodeOffsets` | graph level node offsets |
+| `maxConn` | the configured maxConn, which a CPU writer uses when it merges this segment |
 
 **Throws**
 
@@ -91,7 +92,7 @@ Writes the meta information for the index.
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:309`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:310`_
 
 ### printInfoStream
 
@@ -107,12 +108,12 @@ A utility method to print info/debugging messages using InfoStream.
 | --- | --- |
 | `msg` | the debugging message to print |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:391`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:397`_
 
 ### writeEmpty
 
 ```java
-public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op) throws IOException
+public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op, int maxConn) throws IOException
 ```
 
 Writes an empty meta information for the field.
@@ -122,6 +123,7 @@ Writes an empty meta information for the field.
 | Name | Description |
 | --- | --- |
 | `fieldInfo` | instance of FieldInfo |
+| `maxConn` | the configured maxConn, recorded as the field's M |
 
 **Throws**
 
@@ -129,7 +131,7 @@ Writes an empty meta information for the field.
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:403`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:410`_
 
 ### quantizeFloatVectorsToBinary
 
@@ -152,7 +154,7 @@ Bits are packed: 8 dimensions per byte.
 
 A list of byte binary representation for the input vectors
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:416`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:424`_
 
 ### quantizeFloatVectorsToScalar
 
@@ -172,6 +174,6 @@ Scalar quantization.
 
 A list of byte scalar representation for the input vectors
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:458`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:466`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:32`_

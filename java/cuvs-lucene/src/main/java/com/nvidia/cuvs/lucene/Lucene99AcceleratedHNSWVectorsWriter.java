@@ -137,7 +137,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends CompatKnnVectorsWriter
    */
   private void writeFieldInternal(FieldInfo fieldInfo, List<float[]> vectors) throws IOException {
     if (vectors.size() == 0) {
-      writeEmpty(fieldInfo, hnswMeta);
+      writeEmpty(fieldInfo, hnswMeta, acceleratedHNSWParams.getMaxConn());
       return;
     }
     if (vectors.size() < 2) {
@@ -181,7 +181,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends CompatKnnVectorsWriter
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
       cagraIndex.close();
     } catch (Throwable t) {
       Utils.handleThrowable(t);
@@ -256,7 +257,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends CompatKnnVectorsWriter
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
