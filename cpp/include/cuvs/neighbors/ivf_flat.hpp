@@ -38,11 +38,11 @@ struct index_params : cuvs::neighbors::index_params {
    * from scratch after invoking (`ivf_flat::extend`) a few times with new data, the distribution of
    * which is no longer representative of the original training set.
    *
-   * The alternative behavior (adaptive_centers = true) is to update the cluster centers for new
-   * data when it is added. In this case, `index.centers()` are always exactly the centroids of the
-   * data in the corresponding clusters. The drawback of this behavior is that the centroids depend
-   * on the order of adding new data (through the classification of the added data); that is,
-   * `index.centers()` "drift" together with the changing distribution of the newly added data.
+   * The alternative behavior (adaptive_centers = true) is to update the cluster centers when new
+   * data is added. For BitwiseHamming, centers are packed bitwise majorities of the data in each
+   * cluster, with ties resolved to zero. For other metrics, centers are floating-point means of
+   * the data in each cluster. Cluster assignments and centers depend on the order of adding new
+   * data, so the centers drift with the changing distribution of the newly added data.
    */
   bool adaptive_centers = false;
   /**
@@ -208,9 +208,37 @@ struct index : cuvs::neighbors::index {
   raft::device_vector_view<uint32_t, uint32_t> list_sizes() noexcept;
   raft::device_vector_view<const uint32_t, uint32_t> list_sizes() const noexcept;
 
-  /** k-means cluster centers corresponding to the lists [n_lists, dim] */
+  /** Floating-point k-means centers [n_lists, dim]; empty for binary indexes. */
   raft::device_matrix_view<float, uint32_t, raft::row_major> centers() noexcept;
   raft::device_matrix_view<const float, uint32_t, raft::row_major> centers() const noexcept;
+
+  /**
+   * @brief Packed binary cluster centers, with `dim()` bytes per center.
+   * @return A mutable device view of shape [n_lists, dim], or an empty view for nonbinary indexes.
+   */
+  raft::device_matrix_view<uint8_t, int64_t, raft::row_major> binary_centers() noexcept;
+
+  /**
+   * @brief Packed binary cluster centers, with `dim()` bytes per center.
+   * @return A read-only device view of shape [n_lists, dim], or an empty view for nonbinary
+   * indexes.
+   */
+  raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> binary_centers() const noexcept;
+
+  /**
+   * @brief Exact per-bit one-counts for adaptive binary centers.
+   * Together with list_sizes(), these retain majority statistics across extensions.
+   * @return A mutable device view of shape [n_lists, dim * 8], or an empty view when unused.
+   */
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> binary_center_counts() noexcept;
+
+  /**
+   * @brief Exact per-bit one-counts for adaptive binary centers.
+   * Together with list_sizes(), these retain majority statistics across extensions.
+   * @return A read-only device view of shape [n_lists, dim * 8], or an empty view when unused.
+   */
+  raft::device_matrix_view<const uint32_t, int64_t, raft::row_major> binary_center_counts()
+    const noexcept;
 
   /**
    * (Optional) Precomputed norms of the `centers` w.r.t. the chosen distance metric [n_lists].
@@ -237,7 +265,10 @@ struct index : cuvs::neighbors::index {
   /** Total length of the index. */
   IdxT size() const noexcept;
 
-  /** Dimensionality of the data. */
+  /** Dimensionality of the data.
+   * @note For binary index, this returns the dimensionality of the byte dataset, which is the
+   * number of bits / 8.
+   */
   uint32_t dim() const noexcept;
 
   /** Number of clusters/inverted lists. */
@@ -263,6 +294,9 @@ struct index : cuvs::neighbors::index {
 
   void check_consistency();
 
+  /** Whether the index uses byte-packed vectors and BitwiseHamming distance. */
+  bool binary_index() const noexcept;
+
  private:
   /**
    * TODO: in theory, we can lift this to the template parameter and keep it at hardware maximum
@@ -275,7 +309,10 @@ struct index : cuvs::neighbors::index {
   std::vector<std::shared_ptr<list_data<T, IdxT>>> lists_;
   raft::device_vector<uint32_t, uint32_t> list_sizes_;
   raft::device_matrix<float, uint32_t, raft::row_major> centers_;
+  raft::device_matrix<uint8_t, int64_t, raft::row_major> binary_centers_;
+  raft::device_matrix<uint32_t, int64_t, raft::row_major> binary_center_counts_;
   std::optional<raft::device_vector<float, uint32_t>> center_norms_;
+  bool binary_index_;
 
   // Computed members
   raft::device_vector<T*, uint32_t> data_ptrs_;
@@ -310,6 +347,7 @@ struct index : cuvs::neighbors::index {
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -339,6 +377,7 @@ auto build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -369,6 +408,7 @@ void build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -398,6 +438,7 @@ auto build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -428,6 +469,7 @@ void build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -457,6 +499,7 @@ auto build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -487,6 +530,7 @@ void build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -516,6 +560,7 @@ auto build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -546,6 +591,7 @@ void build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Note, if index_params.add_data_on_build is set to true, the user can set a
  * stream pool in the input raft::resource with at least one stream to enable kernel and copy
@@ -582,6 +628,7 @@ auto build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Note, if index_params.add_data_on_build is set to true, the user can set a
  * stream pool in the input raft::resource with at least one stream to enable kernel and copy
@@ -619,6 +666,7 @@ void build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Note, if index_params.add_data_on_build is set to true, the user can set a
  * stream pool in the input raft::resource with at least one stream to enable kernel and copy
@@ -655,6 +703,7 @@ auto build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Note, if index_params.add_data_on_build is set to true, the user can set a
  * stream pool in the input raft::resource with at least one stream to enable kernel and copy
@@ -692,6 +741,7 @@ void build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Note, if index_params.add_data_on_build is set to true, the user can set a
  * stream pool in the input raft::resource with at least one stream to enable kernel and copy
@@ -728,6 +778,7 @@ auto build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Note, if index_params.add_data_on_build is set to true, the user can set a
  * stream pool in the input raft::resource with at least one stream to enable kernel and copy
@@ -765,6 +816,7 @@ void build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Note, if index_params.add_data_on_build is set to true, the user can set a
  * stream pool in the input raft::resource with at least one stream to enable kernel and copy
@@ -801,6 +853,7 @@ auto build(raft::resources const& handle,
  * - L2Unexpanded
  * - InnerProduct
  * - CosineExpanded
+ * - BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
  *
  * Note, if index_params.add_data_on_build is set to true, the user can set a
  * stream pool in the input raft::resource with at least one stream to enable kernel and copy

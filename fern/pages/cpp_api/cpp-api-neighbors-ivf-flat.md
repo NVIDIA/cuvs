@@ -184,7 +184,7 @@ NB: This may differ from the actual list size if the shared lists have been exte
 <a id="neighbors-ivf-flat-index-centers"></a>
 ### neighbors::ivf_flat::index::centers
 
-k-means cluster centers corresponding to the lists [n_lists, dim]
+Floating-point k-means centers [n_lists, dim]; empty for binary indexes.
 
 ```cpp
 raft::device_matrix_view<float, uint32_t, raft::row_major> centers() noexcept;
@@ -193,6 +193,65 @@ raft::device_matrix_view<float, uint32_t, raft::row_major> centers() noexcept;
 **Returns**
 
 `raft::device_matrix_view<float, uint32_t, raft::row_major>`
+
+<a id="neighbors-ivf-flat-index-binary-centers"></a>
+### neighbors::ivf_flat::index::binary_centers
+
+Packed binary cluster centers, with `dim()` bytes per center.
+
+```cpp
+raft::device_matrix_view<uint8_t, int64_t, raft::row_major> binary_centers() noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<uint8_t, int64_t, raft::row_major>`
+
+A mutable device view of shape [n_lists, dim], or an empty view for nonbinary indexes.
+
+**Additional overload:** `neighbors::ivf_flat::index::binary_centers`
+
+Packed binary cluster centers, with `dim()` bytes per center.
+
+```cpp
+raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> binary_centers() const noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<const uint8_t, int64_t, raft::row_major>`
+
+A read-only device view of shape [n_lists, dim], or an empty view for nonbinary indexes.
+
+<a id="neighbors-ivf-flat-index-binary-center-counts"></a>
+### neighbors::ivf_flat::index::binary_center_counts
+
+Exact per-bit one-counts for adaptive binary centers. Together with list_sizes(), these retain majority statistics across extensions.
+
+```cpp
+raft::device_matrix_view<uint32_t, int64_t, raft::row_major> binary_center_counts() noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<uint32_t, int64_t, raft::row_major>`
+
+A mutable device view of shape [n_lists, dim * 8], or an empty view when unused.
+
+**Additional overload:** `neighbors::ivf_flat::index::binary_center_counts`
+
+Exact per-bit one-counts for adaptive binary centers. Together with list_sizes(), these retain majority statistics across extensions.
+
+```cpp
+raft::device_matrix_view<const uint32_t, int64_t, raft::row_major> binary_center_counts()
+const noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<const uint32_t, int64_t, raft::row_major>`
+
+A read-only device view of shape [n_lists, dim * 8], or an empty view when unused.
 
 <a id="neighbors-ivf-flat-index-center-norms"></a>
 ### neighbors::ivf_flat::index::center_norms
@@ -249,6 +308,8 @@ Dimensionality of the data.
 ```cpp
 uint32_t dim() const noexcept;
 ```
+
+**Note:** For binary index, this returns the dimensionality of the byte dataset, which is the<br />number of bits / 8.
 
 **Returns**
 
@@ -308,6 +369,19 @@ std::vector<std::shared_ptr<list_data<T, IdxT>>>& lists() noexcept;
 
 `std::vector<std::shared_ptr<list_data<T, IdxT>>>&`
 
+<a id="neighbors-ivf-flat-index-binary-index"></a>
+### neighbors::ivf_flat::index::binary_index
+
+Whether the index uses byte-packed vectors and BitwiseHamming distance.
+
+```cpp
+bool binary_index() const noexcept;
+```
+
+**Returns**
+
+`bool`
+
 ## IVF-Flat index build
 
 <a id="neighbors-ivf-flat-build"></a>
@@ -328,6 +402,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Usage example:
 
@@ -360,6 +435,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Usage example:
 
@@ -393,6 +469,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Usage example:
 
@@ -425,6 +502,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Usage example:
 
@@ -458,6 +536,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Usage example:
 
@@ -490,6 +569,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Usage example:
 
@@ -523,6 +603,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Usage example:
 
@@ -555,6 +636,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Usage example:
 
@@ -588,6 +670,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Note, if index_params.add_data_on_build is set to true, the user can set a stream pool in the input raft::resource with at least one stream to enable kernel and copy overlapping.
 
@@ -622,6 +705,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Note, if index_params.add_data_on_build is set to true, the user can set a stream pool in the input raft::resource with at least one stream to enable kernel and copy overlapping.
 
@@ -657,6 +741,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Note, if index_params.add_data_on_build is set to true, the user can set a stream pool in the input raft::resource with at least one stream to enable kernel and copy overlapping.
 
@@ -691,6 +776,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Note, if index_params.add_data_on_build is set to true, the user can set a stream pool in the input raft::resource with at least one stream to enable kernel and copy overlapping.
 
@@ -726,6 +812,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Note, if index_params.add_data_on_build is set to true, the user can set a stream pool in the input raft::resource with at least one stream to enable kernel and copy overlapping.
 
@@ -760,6 +847,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Note, if index_params.add_data_on_build is set to true, the user can set a stream pool in the input raft::resource with at least one stream to enable kernel and copy overlapping.
 
@@ -795,6 +883,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Note, if index_params.add_data_on_build is set to true, the user can set a stream pool in the input raft::resource with at least one stream to enable kernel and copy overlapping.
 
@@ -829,6 +918,7 @@ NB: Currently, the following distance metrics are supported:
 - L2Unexpanded
 - InnerProduct
 - CosineExpanded
+- BitwiseHamming (uint8_t input only; dimensions are measured in packed bytes)
 
 Note, if index_params.add_data_on_build is set to true, the user can set a stream pool in the input raft::resource with at least one stream to enable kernel and copy overlapping.
 
