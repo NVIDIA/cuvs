@@ -47,6 +47,7 @@ void _build(cuvsResources_t res,
     ace_params.use_disk           = params->ace_params->use_disk;
     ace_params.max_host_memory_gb = params->ace_params->max_host_memory_gb;
     ace_params.max_gpu_memory_gb  = params->ace_params->max_gpu_memory_gb;
+    ace_params.target_alpha       = params->ace_params->target_alpha;
     cpp_params.graph_build_params = ace_params;
   }
 
@@ -161,7 +162,8 @@ extern "C" cuvsError_t cuvsHnswAceParamsCreate(cuvsHnswAceParams_t* params)
                                     .build_dir           = "/tmp/hnsw_ace_build",
                                     .use_disk            = false,
                                     .max_host_memory_gb  = 0,
-                                    .max_gpu_memory_gb   = 0};
+                                    .max_gpu_memory_gb   = 0,
+                                    .target_alpha        = 1.0};
   });
 }
 

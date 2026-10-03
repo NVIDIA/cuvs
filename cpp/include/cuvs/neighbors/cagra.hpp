@@ -231,6 +231,16 @@ struct ace_params {
    */
   double max_gpu_memory_gb = 0;
 
+  /**
+   * Target number of augmented (spill) copies per input vector.
+   *
+   * ACE samples boundary-margin scores and chooses a global threshold whose expected
+   * augmentation ratio matches this value. A value of 0 disables augmentation. Values above 1
+   * allow a vector to spill into multiple nearby partitions. The implementation bounds each
+   * vector to three spill partitions to keep memory and build work predictable.
+   */
+  double target_alpha = 1.0;
+
   ace_params() = default;
 };
 

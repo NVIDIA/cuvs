@@ -406,6 +406,14 @@ void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::cagra::index
       } else if constexpr (std::is_same_v<U,
                                           cuvs::neighbors::graph_build_params::nn_descent_params>) {
         parse_build_param<T, IdxT>(nn_descent_conf, arg);
+      } else if constexpr (std::is_same_v<U, cuvs::neighbors::graph_build_params::ace_params>) {
+        if (ace_conf.contains("npartitions")) { arg.npartitions = ace_conf.at("npartitions"); }
+        if (ace_conf.contains("build_dir")) { arg.build_dir = ace_conf.at("build_dir"); }
+        if (ace_conf.contains("ef_construction")) {
+          arg.ef_construction = ace_conf.at("ef_construction");
+        }
+        if (ace_conf.contains("use_disk")) { arg.use_disk = ace_conf.at("use_disk"); }
+        if (ace_conf.contains("target_alpha")) { arg.target_alpha = ace_conf.at("target_alpha"); }
       }
     },
     params.graph_build_params);
@@ -476,6 +484,9 @@ void parse_build_param(const nlohmann::json& conf,
         ace_params.ef_construction = ace_conf.at("ef_construction");
       }
       if (ace_conf.contains("use_disk")) { ace_params.use_disk = ace_conf.at("use_disk"); }
+      if (ace_conf.contains("target_alpha")) {
+        ace_params.target_alpha = ace_conf.at("target_alpha");
+      }
       cagra_params.graph_build_params = ace_params;
     }
     ::parse_build_param<T, IdxT>(conf, cagra_params);

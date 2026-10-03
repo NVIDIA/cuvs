@@ -313,6 +313,7 @@ public class HnswIndexImpl implements HnswIndex {
     cuvsHnswAceParams.use_disk(seg, aceParams.isUseDisk());
     cuvsHnswAceParams.max_host_memory_gb(seg, aceParams.getMaxHostMemoryGb());
     cuvsHnswAceParams.max_gpu_memory_gb(seg, aceParams.getMaxGpuMemoryGb());
+    cuvsHnswAceParams.target_alpha(seg, aceParams.getTargetAlpha());
 
     String buildDir = aceParams.getBuildDir();
     if (buildDir != null) {
