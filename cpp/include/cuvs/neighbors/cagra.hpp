@@ -12,6 +12,7 @@
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
+#include <cuvs/preprocessing/quantize/pq.hpp>
 #include <cuvs/util/file_io.hpp>
 
 #include <raft/core/device_mdarray.hpp>
@@ -344,7 +345,7 @@ struct index_params : cuvs::neighbors::index_params {
    * Disk-based ACE builds manage file-backed dataset state separately and ignore this flag.
    *
    * @code{.cpp}
-   *   auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host_matrix.view());
+   *   auto dataset = cuvs::core::make_device_padded_dataset(res, host_matrix.view());
    *   cagra::index_params index_params;
    *   // Build graph only — caller attaches dataset later.
    *   index_params.attach_dataset_on_build = false;
@@ -482,7 +483,8 @@ static_assert(std::is_aggregate_v<search_params>);
  */
 template <typename T,
           typename IdxT,
-          ann_dataset_view DatasetViewT = device_padded_dataset_view<T, int64_t>>
+          cuvs::core::ann_dataset_view DatasetViewT =
+            cuvs::core::device_padded_dataset_view<T, int64_t>>
 struct CUVS_EXPORT index : cuvs::neighbors::index {
   using index_params_type  = cagra::index_params;
   using search_params_type = cagra::search_params;
@@ -588,7 +590,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** Construct a graph-only index with a zero-row dataset view placeholder. */
   explicit index(raft::resources const& res,
                  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded)
-    requires(cuvs::neighbors::ann_dataset_view<DatasetViewT, int64_t>)
+    requires(cuvs::core::ann_dataset_view<DatasetViewT, int64_t>)
     : cuvs::neighbors::index(),
       metric_(metric),
       graph_(raft::make_device_matrix<graph_index_type, int64_t>(res, 0, 0)),
@@ -606,7 +608,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    * that matrix must outlive the index):
    * @code{.cpp}
    *   raft::device_matrix_view<const float, int64_t, raft::row_major> dataset = ...;
-   *   auto view = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
+   *   auto view = cuvs::core::make_device_padded_dataset_view(res, dataset);
    *   auto graph = raft::make_device_matrix_view<const uint32_t, int64_t>(...);
    *   cuvs::neighbors::cagra::device_padded_index<float> idx(res, metric, view,
    *                                                       raft::make_const_mdspan(graph));
@@ -617,7 +619,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    * **keep that object alive** (e.g. hold the `unique_ptr` in a variable or member) for as long as
    * the index uses the dataset; the index does not take ownership of the buffer.
    * @code{.cpp}
-   *   auto padded_owner = cuvs::neighbors::make_device_padded_dataset(res, dataset_mdspan);
+   *   auto padded_owner = cuvs::core::make_device_padded_dataset(res, dataset_mdspan);
    *   auto view         = padded_owner->as_dataset_view();
    *   cuvs::neighbors::cagra::device_padded_index<float> idx(res, metric, view,
    *                                                       raft::make_const_mdspan(graph));
@@ -642,7 +644,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
                  "Dataset and knn_graph must have equal number of rows");
     update_graph(res, knn_graph);
 
-    if constexpr (cuvs::neighbors::is_device_dataset_view_v<DatasetViewT>) {
+    if constexpr (cuvs::core::is_device_dataset_view_v<DatasetViewT>) {
       if (metric_ == cuvs::distance::DistanceType::CosineExpanded && dataset.n_rows() > 0) {
         compute_dataset_norms_(res);
       }
@@ -653,7 +655,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
 
   /* Construct an index with a new dataset type by moving the old index and passing in a new
    * dataset*/
-  template <ann_dataset_view SrcDatasetViewT>
+  template <cuvs::core::ann_dataset_view SrcDatasetViewT>
   index(raft::resources const& res, index<T, IdxT, SrcDatasetViewT>&& other, DatasetViewT dataset)
     : metric_(other.metric_),
       graph_(std::move(other.graph_)),
@@ -667,7 +669,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
       dim_(other.dim_),
       graph_degree_(other.graph_degree_)
   {
-    if constexpr (is_device_dataset_view_v<DatasetViewT>) {
+    if constexpr (cuvs::core::is_device_dataset_view_v<DatasetViewT>) {
       if (metric() == cuvs::distance::DistanceType::CosineExpanded) {
         if (dataset_.n_rows() > 0) { compute_dataset_norms_(res); }
       }
@@ -793,23 +795,23 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     // Re-open the file descriptor in read-only mode for subsequent operations
     dataset_fd_.emplace(std::move(fd));
 
-    if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
+    if constexpr (cuvs::core::is_device_padded_dataset_view_v<DatasetViewT>) {
       auto v = raft::make_device_matrix_view<const T, int64_t>(
         static_cast<const T*>(nullptr), int64_t{0}, dim_);
       dataset_ = DatasetViewT(v, dim_);
-    } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
+    } else if constexpr (cuvs::core::is_device_standard_dataset_view_v<DatasetViewT>) {
       auto v = raft::make_device_matrix_view<const T, int64_t>(
         static_cast<const T*>(nullptr), int64_t{0}, dim_);
       dataset_ = DatasetViewT(v);
-    } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<DatasetViewT>) {
+    } else if constexpr (cuvs::core::is_host_padded_dataset_view_v<DatasetViewT>) {
       auto v = raft::make_host_matrix_view<const T, int64_t>(
         static_cast<const T*>(nullptr), int64_t{0}, dim_);
       dataset_ = DatasetViewT(v, dim_);
-    } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
+    } else if constexpr (cuvs::core::is_host_standard_dataset_view_v<DatasetViewT>) {
       auto v = raft::make_host_matrix_view<const T, int64_t>(
         static_cast<const T*>(nullptr), int64_t{0}, dim_);
       dataset_ = DatasetViewT(v);
-    } else if constexpr (cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
+    } else if constexpr (cuvs::core::is_empty_dataset_view_v<DatasetViewT>) {
       dataset_ = DatasetViewT{dim_};
     } else {
       RAFT_FAIL("update_dataset(fd): unsupported DatasetViewT for disk-backed dataset");
@@ -894,7 +896,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   }
 
  private:
-  template <typename, typename, ann_dataset_view>
+  template <typename, typename, cuvs::core::ann_dataset_view>
   friend struct index;
 
   friend struct detail::fd_transfer;
@@ -937,38 +939,38 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
 
 /** CAGRA index with the usual padded device dataset view (graph build output type). */
 template <typename T, typename IdxT = uint32_t>
-using device_padded_index = index<T, IdxT, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>;
+using device_padded_index = index<T, IdxT, cuvs::core::device_padded_dataset_view<T, int64_t>>;
 
 /** CAGRA index with a host-resident padded dataset view (returned by host build path). */
 template <typename T, typename IdxT = uint32_t>
-using host_padded_index = index<T, IdxT, cuvs::neighbors::host_padded_dataset_view<T, int64_t>>;
+using host_padded_index = index<T, IdxT, cuvs::core::host_padded_dataset_view<T, int64_t>>;
 
 /** CAGRA index with a device-resident standard (arbitrary stride) dataset view. */
 template <typename T, typename IdxT = uint32_t>
-using device_standard_index =
-  index<T, IdxT, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>;
+using device_standard_index = index<T, IdxT, cuvs::core::device_standard_dataset_view<T, int64_t>>;
 
 /** CAGRA index with a host-resident standard dataset view. */
 template <typename T, typename IdxT = uint32_t>
-using host_standard_index = index<T, IdxT, cuvs::neighbors::host_standard_dataset_view<T, int64_t>>;
+using host_standard_index = index<T, IdxT, cuvs::core::host_standard_dataset_view<T, int64_t>>;
 
 /** CAGRA index with a device-resident VPQ dataset. */
 template <typename T, typename IdxT = uint32_t, typename CodebookT = half>
 using device_pq_index =
-  index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<CodebookT, int64_t>>;
+  index<T, IdxT, cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<CodebookT, int64_t>>;
 
 /** CAGRA index with a device-resident BBQ-quantized dataset. */
 template <typename T, typename IdxT = uint32_t>
-using device_bbq_index = index<T, IdxT, cuvs::neighbors::device_bbq_dataset_view<T, int64_t>>;
+using device_bbq_index =
+  index<T, IdxT, cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<T, int64_t>>;
 
 /** Index type returned by `cagra::build(res, params, dataset_view)`. */
 template <typename DatasetViewT>
-using cagra_index_t =
-  std::conditional_t<cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>,
-                     device_pq_index<float>,
-                     index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
-                           uint32_t,
-                           cuvs::neighbors::dataset_view_type_t<DatasetViewT>>>;
+using cagra_index_t = std::conditional_t<
+  cuvs::preprocessing::quantize::pq::is_device_vpq_f16_dataset_view_v<DatasetViewT>,
+  device_pq_index<float>,
+  index<cuvs::core::cagra_view_element_type_t<DatasetViewT>,
+        uint32_t,
+        cuvs::core::dataset_view_type_t<DatasetViewT>>>;
 
 /**
  * @}
@@ -1020,11 +1022,12 @@ using cagra_index_t =
  * @param[in] res raft resources
  * @param[in] params CAGRA index build parameters
  * @param[in] dataset device VPQ dataset view
- * @return built `index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>`
+ * @return built `index<float, uint32_t,
+ * cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>`
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>;
 
 /**
@@ -1036,7 +1039,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& dataset)
+           cuvs::core::device_padded_dataset_view<float, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_padded_index<float, uint32_t>;
 
 /**
@@ -1048,7 +1051,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_standard_dataset_view<float, int64_t> const& dataset)
+           cuvs::core::device_standard_dataset_view<float, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_standard_index<float, uint32_t>;
 
 /**
@@ -1060,7 +1063,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::host_padded_dataset_view<float, int64_t> const& dataset)
+           cuvs::core::host_padded_dataset_view<float, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_padded_index<float, uint32_t>;
 
 /**
@@ -1072,7 +1075,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::host_standard_dataset_view<float, int64_t> const& dataset)
+           cuvs::core::host_standard_dataset_view<float, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_standard_index<float, uint32_t>;
 
 /**
@@ -1084,7 +1087,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& dataset)
+           cuvs::core::device_padded_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_padded_index<half, uint32_t>;
 
 /**
@@ -1096,7 +1099,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_standard_dataset_view<half, int64_t> const& dataset)
+           cuvs::core::device_standard_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_standard_index<half, uint32_t>;
 
 /**
@@ -1108,7 +1111,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::host_padded_dataset_view<half, int64_t> const& dataset)
+           cuvs::core::host_padded_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_padded_index<half, uint32_t>;
 
 /**
@@ -1120,7 +1123,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::host_standard_dataset_view<half, int64_t> const& dataset)
+           cuvs::core::host_standard_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_standard_index<half, uint32_t>;
 
 /**
@@ -1132,7 +1135,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& dataset)
+           cuvs::core::device_padded_dataset_view<int8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>;
 
 /**
@@ -1144,7 +1147,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> const& dataset)
+           cuvs::core::device_standard_dataset_view<int8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>;
 
 /**
@@ -1156,7 +1159,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> const& dataset)
+           cuvs::core::host_padded_dataset_view<int8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_padded_index<int8_t, uint32_t>;
 
 /**
@@ -1168,7 +1171,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> const& dataset)
+           cuvs::core::host_standard_dataset_view<int8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_standard_index<int8_t, uint32_t>;
 
 /**
@@ -1180,7 +1183,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& dataset)
+           cuvs::core::device_padded_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>;
 
 /**
@@ -1192,7 +1195,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> const& dataset)
+           cuvs::core::device_standard_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>;
 
 /**
@@ -1204,7 +1207,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> const& dataset)
+           cuvs::core::host_padded_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_padded_index<uint8_t, uint32_t>;
 
 /**
@@ -1216,7 +1219,7 @@ auto build(raft::resources const& res,
  */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const& dataset)
+           cuvs::core::host_standard_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_standard_index<uint8_t, uint32_t>;
 
 /**
@@ -1236,30 +1239,34 @@ auto build(raft::resources const& res,
  * @param[in] dataset device BBQ dataset view [n_rows, dim]
  * @return built `device_bbq_index<float, uint32_t>`
  */
-auto build(raft::resources const& res,
-           const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset)
+auto build(
+  raft::resources const& res,
+  const cuvs::neighbors::cagra::index_params& params,
+  cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<float, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>;
 
 /** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
- * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
-auto build(raft::resources const& res,
-           const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const& dataset)
+ * cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<float, int64_t> const& dataset) */
+auto build(
+  raft::resources const& res,
+  const cuvs::neighbors::cagra::index_params& params,
+  cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<half, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
 
 /** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
- * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
-auto build(raft::resources const& res,
-           const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const& dataset)
+ * cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<float, int64_t> const& dataset) */
+auto build(
+  raft::resources const& res,
+  const cuvs::neighbors::cagra::index_params& params,
+  cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<int8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
 
 /** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
- * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
-auto build(raft::resources const& res,
-           const cuvs::neighbors::cagra::index_params& params,
-           cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> const& dataset)
+ * cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<float, int64_t> const& dataset) */
+auto build(
+  raft::resources const& res,
+  const cuvs::neighbors::cagra::index_params& params,
+  cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
 
 /**
@@ -1292,7 +1299,7 @@ auto build(raft::resources const& res,
  * @code{.cpp}
  *   using namespace cuvs::neighbors;
  *   // Build `extended` = old || new on device, padded for CAGRA.
- *   auto extended = make_device_padded_dataset(res, concatenated_view);
+ *   auto extended = cuvs::core::make_device_padded_dataset(res, concatenated_view);
  *   auto extended_view = extended->as_dataset_view();
  *
  *   cagra::extend_params params;
@@ -1308,28 +1315,28 @@ auto build(raft::resources const& res,
  */
 void extend(raft::resources const& handle,
             const cagra::extend_params& params,
-            cuvs::neighbors::device_padded_dataset_view<float, int64_t> extended_dataset,
+            cuvs::core::device_padded_dataset_view<float, int64_t> extended_dataset,
             int64_t new_start_row,
             cuvs::neighbors::cagra::device_padded_index<float, uint32_t>& idx);
 
 /** @brief Add new vectors to a CAGRA index. See the float overload for the full contract. */
 void extend(raft::resources const& handle,
             const cagra::extend_params& params,
-            cuvs::neighbors::device_padded_dataset_view<half, int64_t> extended_dataset,
+            cuvs::core::device_padded_dataset_view<half, int64_t> extended_dataset,
             int64_t new_start_row,
             cuvs::neighbors::cagra::device_padded_index<half, uint32_t>& idx);
 
 /** @brief Add new vectors to a CAGRA index. See the float overload for the full contract. */
 void extend(raft::resources const& handle,
             const cagra::extend_params& params,
-            cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> extended_dataset,
+            cuvs::core::device_padded_dataset_view<int8_t, int64_t> extended_dataset,
             int64_t new_start_row,
             cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>& idx);
 
 /** @brief Add new vectors to a CAGRA index. See the float overload for the full contract. */
 void extend(raft::resources const& handle,
             const cagra::extend_params& params,
-            cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> extended_dataset,
+            cuvs::core::device_padded_dataset_view<uint8_t, int64_t> extended_dataset,
             int64_t new_start_row,
             cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>& idx);
 
@@ -2226,7 +2233,7 @@ void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::device_padded_index<float>* index,
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_padded_dataset<float, int64_t>>* out_dataset = nullptr);
 
 /**
  * Write the index to an output stream
@@ -2283,7 +2290,7 @@ void deserialize(
   raft::resources const& handle,
   std::istream& is,
   cuvs::neighbors::cagra::device_padded_index<float>* index,
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_padded_dataset<float, int64_t>>* out_dataset = nullptr);
 /**
  * Save the index to file.
  *
@@ -2341,7 +2348,7 @@ void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::device_padded_index<half>* index,
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<half, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_padded_dataset<half, int64_t>>* out_dataset = nullptr);
 
 /**
  * Write the index to an output stream
@@ -2398,7 +2405,7 @@ void deserialize(
   raft::resources const& handle,
   std::istream& is,
   cuvs::neighbors::cagra::device_padded_index<half>* index,
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<half, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_padded_dataset<half, int64_t>>* out_dataset = nullptr);
 
 /**
  * Save the index to file.
@@ -2456,7 +2463,7 @@ void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::device_padded_index<int8_t>* index,
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<int8_t, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_padded_dataset<int8_t, int64_t>>* out_dataset = nullptr);
 
 /**
  * Write the index to an output stream
@@ -2513,7 +2520,7 @@ void deserialize(
   raft::resources const& handle,
   std::istream& is,
   cuvs::neighbors::cagra::device_padded_index<int8_t>* index,
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<int8_t, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_padded_dataset<int8_t, int64_t>>* out_dataset = nullptr);
 
 /**
  * Save the index to file.
@@ -2571,7 +2578,7 @@ void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::device_padded_index<uint8_t>* index,
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_padded_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
 
 /**
  * Write the index to an output stream
@@ -2628,7 +2635,7 @@ void deserialize(
   raft::resources const& handle,
   std::istream& is,
   cuvs::neighbors::cagra::device_padded_index<uint8_t>* index,
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_padded_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
@@ -2639,7 +2646,7 @@ void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::device_standard_index<float>* index,
-  std::unique_ptr<cuvs::neighbors::device_standard_dataset<float, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_standard_dataset<float, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
@@ -2650,7 +2657,7 @@ void deserialize(
   raft::resources const& handle,
   std::istream& is,
   cuvs::neighbors::cagra::device_standard_index<float>* index,
-  std::unique_ptr<cuvs::neighbors::device_standard_dataset<float, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_standard_dataset<float, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
@@ -2661,7 +2668,7 @@ void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::device_standard_index<half>* index,
-  std::unique_ptr<cuvs::neighbors::device_standard_dataset<half, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_standard_dataset<half, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
@@ -2672,51 +2679,51 @@ void deserialize(
   raft::resources const& handle,
   std::istream& is,
   cuvs::neighbors::cagra::device_standard_index<half>* index,
-  std::unique_ptr<cuvs::neighbors::device_standard_dataset<half, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::device_standard_dataset<half, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
                const cuvs::neighbors::cagra::device_standard_index<int8_t>& index,
                bool include_dataset = true);
 
-void deserialize(raft::resources const& handle,
-                 const std::string& filename,
-                 cuvs::neighbors::cagra::device_standard_index<int8_t>* index,
-                 std::unique_ptr<cuvs::neighbors::device_standard_dataset<int8_t, int64_t>>*
-                   out_dataset = nullptr);
+void deserialize(
+  raft::resources const& handle,
+  const std::string& filename,
+  cuvs::neighbors::cagra::device_standard_index<int8_t>* index,
+  std::unique_ptr<cuvs::core::device_standard_dataset<int8_t, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
                const cuvs::neighbors::cagra::device_standard_index<int8_t>& index,
                bool include_dataset = true);
 
-void deserialize(raft::resources const& handle,
-                 std::istream& is,
-                 cuvs::neighbors::cagra::device_standard_index<int8_t>* index,
-                 std::unique_ptr<cuvs::neighbors::device_standard_dataset<int8_t, int64_t>>*
-                   out_dataset = nullptr);
+void deserialize(
+  raft::resources const& handle,
+  std::istream& is,
+  cuvs::neighbors::cagra::device_standard_index<int8_t>* index,
+  std::unique_ptr<cuvs::core::device_standard_dataset<int8_t, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
                const cuvs::neighbors::cagra::device_standard_index<uint8_t>& index,
                bool include_dataset = true);
 
-void deserialize(raft::resources const& handle,
-                 const std::string& filename,
-                 cuvs::neighbors::cagra::device_standard_index<uint8_t>* index,
-                 std::unique_ptr<cuvs::neighbors::device_standard_dataset<uint8_t, int64_t>>*
-                   out_dataset = nullptr);
+void deserialize(
+  raft::resources const& handle,
+  const std::string& filename,
+  cuvs::neighbors::cagra::device_standard_index<uint8_t>* index,
+  std::unique_ptr<cuvs::core::device_standard_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
                const cuvs::neighbors::cagra::device_standard_index<uint8_t>& index,
                bool include_dataset = true);
 
-void deserialize(raft::resources const& handle,
-                 std::istream& is,
-                 cuvs::neighbors::cagra::device_standard_index<uint8_t>* index,
-                 std::unique_ptr<cuvs::neighbors::device_standard_dataset<uint8_t, int64_t>>*
-                   out_dataset = nullptr);
+void deserialize(
+  raft::resources const& handle,
+  std::istream& is,
+  cuvs::neighbors::cagra::device_standard_index<uint8_t>* index,
+  std::unique_ptr<cuvs::core::device_standard_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
 
 /* FP16-codebook device_pq_index graph-only overloads (CAGRA-Q).
  *
@@ -2957,56 +2964,56 @@ void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::host_padded_index<float>* index,
-  std::unique_ptr<cuvs::neighbors::host_padded_dataset<float, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::host_padded_dataset<float, int64_t>>* out_dataset = nullptr);
 
 /** @copydoc deserialize */
 void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::host_standard_index<float>* index,
-  std::unique_ptr<cuvs::neighbors::host_standard_dataset<float, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::host_standard_dataset<float, int64_t>>* out_dataset = nullptr);
 
 /** @copydoc deserialize */
 void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::host_padded_index<half>* index,
-  std::unique_ptr<cuvs::neighbors::host_padded_dataset<half, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::host_padded_dataset<half, int64_t>>* out_dataset = nullptr);
 
 /** @copydoc deserialize */
 void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::host_standard_index<half>* index,
-  std::unique_ptr<cuvs::neighbors::host_standard_dataset<half, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::host_standard_dataset<half, int64_t>>* out_dataset = nullptr);
 
 /** @copydoc deserialize */
 void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::host_padded_index<int8_t>* index,
-  std::unique_ptr<cuvs::neighbors::host_padded_dataset<int8_t, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::host_padded_dataset<int8_t, int64_t>>* out_dataset = nullptr);
 
 /** @copydoc deserialize */
 void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::host_standard_index<int8_t>* index,
-  std::unique_ptr<cuvs::neighbors::host_standard_dataset<int8_t, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::host_standard_dataset<int8_t, int64_t>>* out_dataset = nullptr);
 
 /** @copydoc deserialize */
 void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::host_padded_index<uint8_t>* index,
-  std::unique_ptr<cuvs::neighbors::host_padded_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::host_padded_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
 
 /** @copydoc deserialize */
 void deserialize(
   raft::resources const& handle,
   const std::string& filename,
   cuvs::neighbors::cagra::host_standard_index<uint8_t>* index,
-  std::unique_ptr<cuvs::neighbors::host_standard_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
+  std::unique_ptr<cuvs::core::host_standard_dataset<uint8_t, int64_t>>* out_dataset = nullptr);
 
 /**
  * Write the CAGRA built index as a base layer HNSW index to an output stream
@@ -3513,7 +3520,7 @@ struct merge_params {
  * explicit FASTENER.
  * @return The merged physical CAGRA index.
  */
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::core::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
@@ -3525,7 +3532,7 @@ auto merge(raft::resources const& res,
 /** @copydoc merge
  * @param[in] merge_params Parameters for the merge, including the algorithm selection.
  */
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::core::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
@@ -3560,7 +3567,7 @@ auto merge(raft::resources const& res,
  */
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
-           cuvs::neighbors::host_standard_dataset_view<float, int64_t> const& index_dataset)
+           cuvs::core::host_standard_dataset_view<float, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>;
 
 /// \ingroup mg_cpp_index_build
@@ -3582,7 +3589,7 @@ auto build(const raft::resources& clique,
  */
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
-           cuvs::neighbors::host_standard_dataset_view<half, int64_t> const& index_dataset)
+           cuvs::core::host_standard_dataset_view<half, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>;
 
 /// \ingroup mg_cpp_index_build
@@ -3604,7 +3611,7 @@ auto build(const raft::resources& clique,
  */
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
-           cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> const& index_dataset)
+           cuvs::core::host_standard_dataset_view<int8_t, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>;
 
 /// \ingroup mg_cpp_index_build
@@ -3626,27 +3633,27 @@ auto build(const raft::resources& clique,
  */
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
-           cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const& index_dataset)
+           cuvs::core::host_standard_dataset_view<uint8_t, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
 
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
-           cuvs::neighbors::host_padded_dataset_view<float, int64_t> const& index_dataset)
+           cuvs::core::host_padded_dataset_view<float, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>;
 
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
-           cuvs::neighbors::host_padded_dataset_view<half, int64_t> const& index_dataset)
+           cuvs::core::host_padded_dataset_view<half, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>;
 
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
-           cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> const& index_dataset)
+           cuvs::core::host_padded_dataset_view<int8_t, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>;
 
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
-           cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> const& index_dataset)
+           cuvs::core::host_padded_dataset_view<uint8_t, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
 
 /**
@@ -3657,26 +3664,26 @@ auto build(const raft::resources& clique,
 auto update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&& idx,
-  cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& padded_dataset)
+  cuvs::core::device_padded_dataset_view<float, int64_t> const& padded_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>;
 
 auto update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&& idx,
-  cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& padded_dataset)
+  cuvs::core::device_padded_dataset_view<half, int64_t> const& padded_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>;
 
 auto update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&& idx,
-  cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& padded_dataset)
+  cuvs::core::device_padded_dataset_view<int8_t, int64_t> const& padded_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>;
 
 auto update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>&&
     idx,
-  cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& padded_dataset)
+  cuvs::core::device_padded_dataset_view<uint8_t, int64_t> const& padded_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
 
 /**
@@ -3685,22 +3692,22 @@ auto update_dataset(
 void update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>& idx,
-  cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& padded_dataset);
+  cuvs::core::device_padded_dataset_view<float, int64_t> const& padded_dataset);
 
 void update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>& idx,
-  cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& padded_dataset);
+  cuvs::core::device_padded_dataset_view<half, int64_t> const& padded_dataset);
 
 void update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>& idx,
-  cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& padded_dataset);
+  cuvs::core::device_padded_dataset_view<int8_t, int64_t> const& padded_dataset);
 
 void update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>& idx,
-  cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& padded_dataset);
+  cuvs::core::device_padded_dataset_view<uint8_t, int64_t> const& padded_dataset);
 
 /// \defgroup mg_cpp_index_extend ANN MG index extend
 
@@ -3726,7 +3733,7 @@ void update_dataset(
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>& index,
-  cuvs::neighbors::host_padded_dataset_view<float, int64_t> new_vectors,
+  cuvs::core::host_padded_dataset_view<float, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \ingroup mg_cpp_index_extend
@@ -3751,7 +3758,7 @@ void extend(
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>& index,
-  cuvs::neighbors::host_standard_dataset_view<float, int64_t> new_vectors,
+  cuvs::core::host_standard_dataset_view<float, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \ingroup mg_cpp_index_extend
@@ -3776,14 +3783,14 @@ void extend(
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>& index,
-  cuvs::neighbors::host_padded_dataset_view<half, int64_t> new_vectors,
+  cuvs::core::host_padded_dataset_view<half, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /** @copydoc extend */
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>& index,
-  cuvs::neighbors::host_standard_dataset_view<half, int64_t> new_vectors,
+  cuvs::core::host_standard_dataset_view<half, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \ingroup mg_cpp_index_extend
@@ -3808,7 +3815,7 @@ void extend(
 void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>& index,
-  cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> new_vectors,
+  cuvs::core::host_padded_dataset_view<int8_t, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /** @copydoc extend */
@@ -3816,7 +3823,7 @@ void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
     index,
-  cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> new_vectors,
+  cuvs::core::host_standard_dataset_view<int8_t, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \ingroup mg_cpp_index_extend
@@ -3842,7 +3849,7 @@ void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
     index,
-  cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> new_vectors,
+  cuvs::core::host_padded_dataset_view<uint8_t, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /** @copydoc extend */
@@ -3850,7 +3857,7 @@ void extend(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>&
     index,
-  cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> new_vectors,
+  cuvs::core::host_standard_dataset_view<uint8_t, int64_t> new_vectors,
   std::optional<raft::host_vector_view<const uint32_t, int64_t>> new_indices);
 
 /// \defgroup mg_cpp_index_search ANN MG index search
@@ -4400,7 +4407,7 @@ void distribute(const raft::resources& clique,
  *   auto optimized_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 64);
  *   cagra::helpers::optimize(res, knn_graph.view(), optimized_graph.view());
  *   // Construct an index from dataset and optimized knn_graph
- *   auto dataset_view = make_host_standard_dataset_view(dataset);
+ *   auto dataset_view = cuvs::core::make_host_standard_dataset_view(dataset);
  *   auto index = cagra::host_standard_index<float, uint32_t>(
  *     res, metric, dataset_view, raft::make_const_mdspan(optimized_graph.view()));
  * @endcode
@@ -4441,7 +4448,7 @@ void build_knn_graph(raft::resources const& res,
  *   auto optimized_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 64);
  *   cagra::helpers::optimize(res, knn_graph.view(), optimized_graph.view());
  *   // Construct an index from dataset and optimized knn_graph
- *   auto dataset_view = make_host_standard_dataset_view(dataset);
+ *   auto dataset_view = cuvs::core::make_host_standard_dataset_view(dataset);
  *   auto index = cagra::host_standard_index<half, uint32_t>(
  *     res, metric, dataset_view, raft::make_const_mdspan(optimized_graph.view()));
  * @endcode
@@ -4482,7 +4489,7 @@ void build_knn_graph(raft::resources const& res,
  *   auto optimized_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 64);
  *   cagra::helpers::optimize(res, knn_graph.view(), optimized_graph.view());
  *   // Construct an index from dataset and optimized knn_graph
- *   auto dataset_view = make_host_standard_dataset_view(dataset);
+ *   auto dataset_view = cuvs::core::make_host_standard_dataset_view(dataset);
  *   auto index = cagra::host_standard_index<int8_t, uint32_t>(
  *     res, metric, dataset_view, raft::make_const_mdspan(optimized_graph.view()));
  * @endcode
@@ -4523,7 +4530,7 @@ void build_knn_graph(raft::resources const& res,
  *   auto optimized_graph = raft::make_host_matrix<uint32_t, int64_t>(dataset.extent(0), 64);
  *   cagra::helpers::optimize(res, knn_graph.view(), optimized_graph.view());
  *   // Construct an index from dataset and optimized knn_graph
- *   auto dataset_view = make_host_standard_dataset_view(dataset);
+ *   auto dataset_view = cuvs::core::make_host_standard_dataset_view(dataset);
  *   auto index = cagra::host_standard_index<uint8_t, uint32_t>(
  *     res, metric, dataset_view, raft::make_const_mdspan(optimized_graph.view()));
  * @endcode
@@ -4548,8 +4555,8 @@ namespace detail {
 struct fd_transfer {
   template <typename T,
             typename IdxT,
-            cuvs::neighbors::ann_dataset_view SrcDatasetViewT,
-            cuvs::neighbors::ann_dataset_view DstDatasetViewT>
+            cuvs::core::ann_dataset_view SrcDatasetViewT,
+            cuvs::core::ann_dataset_view DstDatasetViewT>
   static inline void steal_disk_fds_to(raft::resources const& res,
                                        index<T, IdxT, SrcDatasetViewT>& src,
                                        index<T, IdxT, DstDatasetViewT>& dst)
@@ -4580,16 +4587,15 @@ struct fd_transfer {
 template <typename T, typename IdxT>
 auto convert_standard_to_padded_index(
   raft::resources const& res,
-  index<T, IdxT, cuvs::neighbors::device_standard_dataset_view<T, int64_t>> const& standard_idx,
-  cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& padded_dataset)
+  index<T, IdxT, cuvs::core::device_standard_dataset_view<T, int64_t>> const& standard_idx,
+  cuvs::core::device_padded_dataset_view<T, int64_t> const& padded_dataset)
   -> device_padded_index<T, IdxT>
 {
   RAFT_EXPECTS(padded_dataset.n_rows() == standard_idx.size(),
                "Padded dataset row count must match the index size");
 
   using GraphIndexType =
-    typename index<T, IdxT, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>::
-      graph_index_type;
+    typename index<T, IdxT, cuvs::core::device_standard_dataset_view<T, int64_t>>::graph_index_type;
   auto graph_host = raft::make_host_matrix<GraphIndexType, int64_t>(standard_idx.graph().extent(0),
                                                                     standard_idx.graph().extent(1));
   if (standard_idx.graph().size() > 0) {
@@ -4609,277 +4615,383 @@ auto convert_standard_to_padded_index(
 
 auto update_dataset(
   raft::resources const& res,
-  index<float, uint32_t, host_standard_dataset_view<float, int64_t>>&& cagra_index,
-  device_padded_dataset_view<float, int64_t> dataset)
-  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, host_standard_dataset_view<half, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+  index<float, uint32_t, cuvs::core::host_standard_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, cuvs::core::device_padded_dataset_view<float, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<int8_t, uint32_t, host_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_padded_dataset_view<int8_t, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+  index<half, uint32_t, cuvs::core::host_standard_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, cuvs::core::device_padded_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, host_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_padded_dataset_view<uint8_t, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+  index<int8_t, uint32_t, cuvs::core::host_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, cuvs::core::device_padded_dataset_view<int8_t, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<float, uint32_t, host_standard_dataset_view<float, int64_t>>&& cagra_index,
-  device_standard_dataset_view<float, int64_t> dataset)
-  -> index<float, uint32_t, device_standard_dataset_view<float, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, host_standard_dataset_view<half, int64_t>>&& cagra_index,
-                    device_standard_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_standard_dataset_view<half, int64_t>>;
+  index<uint8_t, uint32_t, cuvs::core::host_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, cuvs::core::device_padded_dataset_view<uint8_t, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<int8_t, uint32_t, host_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_standard_dataset_view<int8_t, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>;
+  index<float, uint32_t, cuvs::core::host_standard_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::core::device_standard_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, cuvs::core::device_standard_dataset_view<float, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, host_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_standard_dataset_view<uint8_t, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<float, uint32_t, host_padded_dataset_view<float, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<float, int64_t> dataset)
-  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, host_padded_dataset_view<half, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+  index<half, uint32_t, cuvs::core::host_standard_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_standard_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, cuvs::core::device_standard_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<int8_t, uint32_t, host_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_padded_dataset_view<int8_t, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+  index<int8_t, uint32_t, cuvs::core::host_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_standard_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, cuvs::core::device_standard_dataset_view<int8_t, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, host_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_padded_dataset_view<uint8_t, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+  index<uint8_t, uint32_t, cuvs::core::host_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_standard_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, cuvs::core::device_standard_dataset_view<uint8_t, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<float, uint32_t, device_standard_dataset_view<float, int64_t>>&& cagra_index,
-  device_padded_dataset_view<float, int64_t> dataset)
-  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
+  index<float, uint32_t, cuvs::core::host_padded_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, cuvs::core::device_padded_dataset_view<float, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<half, uint32_t, device_standard_dataset_view<half, int64_t>>&& cagra_index,
-  device_padded_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+  index<half, uint32_t, cuvs::core::host_padded_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, cuvs::core::device_padded_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_padded_dataset_view<int8_t, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+  index<int8_t, uint32_t, cuvs::core::host_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, cuvs::core::device_padded_dataset_view<int8_t, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_padded_dataset_view<uint8_t, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+  index<uint8_t, uint32_t, cuvs::core::host_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, cuvs::core::device_padded_dataset_view<uint8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<float, uint32_t, cuvs::core::device_standard_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, cuvs::core::device_padded_dataset_view<float, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<half, uint32_t, cuvs::core::device_standard_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, cuvs::core::device_padded_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, cuvs::core::device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, cuvs::core::device_padded_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, cuvs::core::device_standard_dataset_view<uint8_t, int64_t>>&&
+    cagra_index,
+  cuvs::core::device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, cuvs::core::device_padded_dataset_view<uint8_t, int64_t>>;
 
 auto update_dataset(
   raft::resources const& res,
-  index<float, uint32_t, device_standard_dataset_view<float, int64_t>>&& cagra_index,
-  device_standard_dataset_view<float, int64_t> dataset)
-  -> index<float, uint32_t, device_standard_dataset_view<float, int64_t>>;
+  index<float, uint32_t, cuvs::core::device_standard_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::core::device_standard_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, cuvs::core::device_standard_dataset_view<float, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<half, uint32_t, device_standard_dataset_view<half, int64_t>>&& cagra_index,
-  device_standard_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_standard_dataset_view<half, int64_t>>;
+  index<half, uint32_t, cuvs::core::device_standard_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_standard_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, cuvs::core::device_standard_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_standard_dataset_view<int8_t, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>;
+  index<int8_t, uint32_t, cuvs::core::device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_standard_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, cuvs::core::device_standard_dataset_view<int8_t, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_standard_dataset_view<uint8_t, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>;
+  index<uint8_t, uint32_t, cuvs::core::device_standard_dataset_view<uint8_t, int64_t>>&&
+    cagra_index,
+  cuvs::core::device_standard_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, cuvs::core::device_standard_dataset_view<uint8_t, int64_t>>;
 
 auto update_dataset(
   raft::resources const& res,
-  index<float, uint32_t, device_padded_dataset_view<float, int64_t>>&& cagra_index,
-  device_padded_dataset_view<float, int64_t> dataset)
-  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, device_padded_dataset_view<half, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+  index<float, uint32_t, cuvs::core::device_padded_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, cuvs::core::device_padded_dataset_view<float, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_padded_dataset_view<int8_t, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+  index<half, uint32_t, cuvs::core::device_padded_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, cuvs::core::device_padded_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_padded_dataset_view<uint8_t, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+  index<int8_t, uint32_t, cuvs::core::device_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, cuvs::core::device_padded_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, cuvs::core::device_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, cuvs::core::device_padded_dataset_view<uint8_t, int64_t>>;
 
 auto update_dataset(
   raft::resources const& res,
-  index<float, uint32_t, host_standard_dataset_view<float, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, host_standard_dataset_view<half, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+  index<float, uint32_t, cuvs::core::host_standard_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<int8_t, uint32_t, host_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+  index<half, uint32_t, cuvs::core::host_standard_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, host_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-
-auto update_dataset(raft::resources const& res,
-                    index<float, uint32_t, host_padded_dataset_view<float, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, host_padded_dataset_view<half, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+  index<int8_t, uint32_t, cuvs::core::host_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<int8_t, uint32_t, host_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-auto update_dataset(
-  raft::resources const& res,
-  index<uint8_t, uint32_t, host_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+  index<uint8_t, uint32_t, cuvs::core::host_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 
 auto update_dataset(
   raft::resources const& res,
-  index<float, uint32_t, device_standard_dataset_view<float, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+  index<float, uint32_t, cuvs::core::host_padded_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<half, uint32_t, device_standard_dataset_view<half, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+  index<half, uint32_t, cuvs::core::host_padded_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+  index<int8_t, uint32_t, cuvs::core::host_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-
-auto update_dataset(
-  raft::resources const& res,
-  index<float, uint32_t, device_padded_dataset_view<float, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, device_padded_dataset_view<half, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-auto update_dataset(
-  raft::resources const& res,
-  index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-auto update_dataset(
-  raft::resources const& res,
-  index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-
-auto update_dataset(raft::resources const& res,
-                    index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<float, int64_t> dataset)
-  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<int8_t, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<uint8_t, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
-
-auto update_dataset(raft::resources const& res,
-                    index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-auto update_dataset(raft::resources const& res,
-                    index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-
-auto update_dataset(raft::resources const& res,
-                    index<float, uint32_t, device_bbq_dataset_view<float, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<float, int64_t> dataset)
-  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
-
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, device_bbq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
-
-auto update_dataset(raft::resources const& res,
-                    index<int8_t, uint32_t, device_bbq_dataset_view<int8_t, int64_t>>&& cagra_index,
-                    device_padded_dataset_view<int8_t, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+  index<uint8_t, uint32_t, cuvs::core::host_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, device_bbq_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_padded_dataset_view<uint8_t, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
-
-auto update_dataset(raft::resources const& res,
-                    index<float, uint32_t, device_bbq_dataset_view<float, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-
-auto update_dataset(raft::resources const& res,
-                    index<half, uint32_t, device_bbq_dataset_view<half, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
-
-auto update_dataset(raft::resources const& res,
-                    index<int8_t, uint32_t, device_bbq_dataset_view<int8_t, int64_t>>&& cagra_index,
-                    device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+  index<float, uint32_t, cuvs::core::device_standard_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<half, uint32_t, cuvs::core::device_standard_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, cuvs::core::device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, cuvs::core::device_standard_dataset_view<uint8_t, int64_t>>&&
+    cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 
 auto update_dataset(
   raft::resources const& res,
-  index<uint8_t, uint32_t, device_bbq_dataset_view<uint8_t, int64_t>>&& cagra_index,
-  device_vpq_dataset_view<half, int64_t> dataset)
-  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+  index<float, uint32_t, cuvs::core::device_padded_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<half, uint32_t, cuvs::core::device_padded_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, cuvs::core::device_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, cuvs::core::device_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<float,
+        uint32_t,
+        cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, cuvs::core::device_padded_dataset_view<float, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<half, uint32_t, cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>&&
+    cagra_index,
+  cuvs::core::device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, cuvs::core::device_padded_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t,
+        uint32_t,
+        cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, cuvs::core::device_padded_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t,
+        uint32_t,
+        cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, cuvs::core::device_padded_dataset_view<uint8_t, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<float,
+        uint32_t,
+        cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<half, uint32_t, cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>&&
+    cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t,
+        uint32_t,
+        cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t,
+        uint32_t,
+        cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<float,
+        uint32_t,
+        cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, cuvs::core::device_padded_dataset_view<float, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<half,
+        uint32_t,
+        cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, cuvs::core::device_padded_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t,
+        uint32_t,
+        cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::core::device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, cuvs::core::device_padded_dataset_view<int8_t, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t,
+        uint32_t,
+        cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<uint8_t, int64_t>>&&
+    cagra_index,
+  cuvs::core::device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, cuvs::core::device_padded_dataset_view<uint8_t, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<float,
+        uint32_t,
+        cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<float, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<half,
+        uint32_t,
+        cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<half, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t,
+        uint32_t,
+        cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<int8_t, int64_t>>&& cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t,
+        uint32_t,
+        cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<uint8_t, int64_t>>&&
+    cagra_index,
+  cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t,
+           uint32_t,
+           cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>>;
 
 }  // namespace cagra
 }  // namespace neighbors

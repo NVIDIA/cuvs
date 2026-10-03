@@ -33,7 +33,7 @@ bool dataset_mdspan_uses_padded_device_view(
 {
   using value_type = T;
   uint32_t const required_stride =
-    cagra_required_row_width<value_type>(static_cast<uint32_t>(mds.extent(1)));
+    cuvs::core::cagra_required_row_width<value_type>(static_cast<uint32_t>(mds.extent(1)));
   uint32_t const src_stride =
     mds.stride(0) > 0 ? static_cast<uint32_t>(mds.stride(0)) : static_cast<uint32_t>(mds.extent(1));
   cudaPointerAttributes a{};
@@ -55,12 +55,12 @@ void cagra_build_from_device_dataset(
   auto dview = raft::make_device_strided_matrix_view<const T, int64_t, row_major>(
     m.data_handle(), m.extent(0), m.extent(1), stride);
   if constexpr (std::is_same_v<AnnIndexType, cagra::device_padded_index<T, IdxT>>) {
-    auto padded = cuvs::neighbors::make_device_padded_dataset_view(h, dview);
+    auto padded = cuvs::core::make_device_padded_dataset_view(h, dview);
     auto index  = cuvs::neighbors::cagra::build(h, cagra_params, padded);
     index       = cuvs::neighbors::cagra::update_dataset(h, std::move(index), padded);
     interface.index_.emplace(std::move(index));
   } else {
-    auto standard = cuvs::neighbors::make_device_standard_dataset_view(dview);
+    auto standard = cuvs::core::make_device_standard_dataset_view(dview);
     auto index    = cuvs::neighbors::cagra::build(h, cagra_params, standard);
     index         = cuvs::neighbors::cagra::update_dataset(h, std::move(index), standard);
     interface.index_.emplace(std::move(index));
@@ -104,23 +104,23 @@ void build(const raft::resources& handle,
       auto host_view = raft::make_host_matrix_view<const T, int64_t, raft::row_major>(
         index_dataset.data_handle(), index_dataset.extent(0), index_dataset.extent(1));
       if constexpr (std::is_same<AnnIndexType, cagra::device_padded_index<T, IdxT>>::value) {
-        cuvs::neighbors::host_padded_dataset_view<T, int64_t> host_padded(
+        cuvs::core::host_padded_dataset_view<T, int64_t> host_padded(
           host_view, static_cast<uint32_t>(host_view.extent(1)));
         auto host_idx   = cuvs::neighbors::cagra::build(handle, cagra_params, host_padded);
-        auto padded_r   = cuvs::neighbors::make_device_padded_dataset(handle, index_dataset);
+        auto padded_r   = cuvs::core::make_device_padded_dataset(handle, index_dataset);
         auto device_idx = cuvs::neighbors::cagra::update_dataset(
           handle, std::move(host_idx), padded_r->as_dataset_view());
         interface.cagra_owned_padded_dataset_ = std::move(padded_r);
         interface.cagra_owned_standard_dataset_.reset();
         interface.index_.emplace(std::move(device_idx));
       } else {
-        auto host_standard = cuvs::neighbors::make_host_standard_dataset_view(host_view);
+        auto host_standard = cuvs::core::make_host_standard_dataset_view(host_view);
         auto host_idx      = cuvs::neighbors::cagra::build(handle, cagra_params, host_standard);
-        auto standard_r    = cuvs::neighbors::make_device_standard_dataset(
-          handle,
-          index_dataset,
-          static_cast<uint32_t>(index_dataset.extent(1)),
-          static_cast<uint32_t>(index_dataset.stride(0)));
+        auto standard_r =
+          cuvs::core::make_device_standard_dataset(handle,
+                                                   index_dataset,
+                                                   static_cast<uint32_t>(index_dataset.extent(1)),
+                                                   static_cast<uint32_t>(index_dataset.stride(0)));
         auto device_idx = cuvs::neighbors::cagra::update_dataset(
           handle, std::move(host_idx), standard_r->as_dataset_view());
         interface.cagra_owned_standard_dataset_ = std::move(standard_r);
@@ -251,7 +251,7 @@ void deserialize(const raft::resources& handle,
     interface.index_.emplace(std::move(idx));
   } else if constexpr (std::is_same<AnnIndexType, cagra::device_padded_index<T, IdxT>>::value) {
     cagra::device_padded_index<T, IdxT> idx(handle);
-    std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> out_dataset;
+    std::unique_ptr<cuvs::core::device_padded_dataset<T, int64_t>> out_dataset;
     cagra::deserialize(handle, is, &idx, &out_dataset);
     interface.cagra_owned_padded_dataset_.reset();
     interface.cagra_owned_standard_dataset_.reset();
@@ -260,7 +260,7 @@ void deserialize(const raft::resources& handle,
     interface.index_.emplace(std::move(idx));
   } else if constexpr (std::is_same<AnnIndexType, cagra::device_standard_index<T, IdxT>>::value) {
     cagra::device_standard_index<T, IdxT> idx(handle);
-    std::unique_ptr<cuvs::neighbors::device_standard_dataset<T, int64_t>> out_dataset;
+    std::unique_ptr<cuvs::core::device_standard_dataset<T, int64_t>> out_dataset;
     cagra::deserialize(handle, is, &idx, &out_dataset);
     interface.cagra_owned_padded_dataset_.reset();
     interface.cagra_owned_standard_dataset_.reset();
@@ -289,7 +289,7 @@ void deserialize(const raft::resources& handle,
     interface.index_.emplace(std::move(idx));
   } else if constexpr (std::is_same<AnnIndexType, cagra::device_padded_index<T, IdxT>>::value) {
     cagra::device_padded_index<T, IdxT> idx(handle);
-    std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> out_dataset;
+    std::unique_ptr<cuvs::core::device_padded_dataset<T, int64_t>> out_dataset;
     cagra::deserialize(handle, filename, &idx, &out_dataset);
     interface.cagra_owned_padded_dataset_.reset();
     interface.cagra_owned_standard_dataset_.reset();
@@ -298,7 +298,7 @@ void deserialize(const raft::resources& handle,
     interface.index_.emplace(std::move(idx));
   } else if constexpr (std::is_same<AnnIndexType, cagra::device_standard_index<T, IdxT>>::value) {
     cagra::device_standard_index<T, IdxT> idx(handle);
-    std::unique_ptr<cuvs::neighbors::device_standard_dataset<T, int64_t>> out_dataset;
+    std::unique_ptr<cuvs::core::device_standard_dataset<T, int64_t>> out_dataset;
     cagra::deserialize(handle, filename, &idx, &out_dataset);
     interface.cagra_owned_padded_dataset_.reset();
     interface.cagra_owned_standard_dataset_.reset();

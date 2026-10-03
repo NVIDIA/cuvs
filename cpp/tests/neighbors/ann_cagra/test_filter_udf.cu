@@ -126,10 +126,10 @@ class CagraUdfFilterTest : public ::testing::TestWithParam<cagra::search_algo> {
     index_params.graph_build_params =
       cagra::graph_build_params::nn_descent_params(index_params.intermediate_graph_degree);
 
-    index.emplace(cagra::build(res,
-                               index_params,
-                               cuvs::neighbors::make_device_padded_dataset_view(
-                                 res, raft::make_const_mdspan(dataset->view()))));
+    index.emplace(cagra::build(
+      res,
+      index_params,
+      cuvs::core::make_device_padded_dataset_view(res, raft::make_const_mdspan(dataset->view()))));
     raft::resource::sync_stream(res);
   }
 
@@ -205,10 +205,10 @@ class CagraUdfFilterHalfTest : public ::testing::TestWithParam<cagra::search_alg
     index_params.graph_build_params =
       cagra::graph_build_params::nn_descent_params(index_params.intermediate_graph_degree);
 
-    index.emplace(cagra::build(res,
-                               index_params,
-                               cuvs::neighbors::make_device_padded_dataset_view(
-                                 res, raft::make_const_mdspan(dataset->view()))));
+    index.emplace(cagra::build(
+      res,
+      index_params,
+      cuvs::core::make_device_padded_dataset_view(res, raft::make_const_mdspan(dataset->view()))));
     raft::resource::sync_stream(res);
   }
 

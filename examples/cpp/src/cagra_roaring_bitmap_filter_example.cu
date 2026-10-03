@@ -45,7 +45,7 @@ int main()
   index_params.graph_degree              = 32;
   index_params.intermediate_graph_degree = 64;
   auto padded =
-    cuvs::neighbors::make_device_padded_dataset_view(res, raft::make_const_mdspan(dataset.view()));
+    cuvs::core::make_device_padded_dataset_view(res, raft::make_const_mdspan(dataset.view()));
   auto index = cuvs::neighbors::cagra::build(res, index_params, padded);
 
   // Each owner is independently reusable. The filter supplies the query-to-allowlist mapping by

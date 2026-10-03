@@ -12,13 +12,13 @@ namespace {
 
 using data_t                    = @data_type@;
 using index_t                   = @index_type@;
-using inst_device_padded_view_t = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
+using inst_device_padded_view_t = cuvs::core::device_padded_dataset_view<data_t, int64_t>;
 
 }  // namespace
 
 namespace cuvs::neighbors::cagra {
 
-using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
+using inst_device_standard_view_t = cuvs::core::device_standard_dataset_view<data_t, int64_t>;
 
 extern template void index<data_t, index_t, inst_device_padded_view_t>::compute_dataset_norms_(
   raft::resources const&);

@@ -138,14 +138,14 @@ Non-owning dataset view stored by the index (full-precision vectors may live in
 
 ```cpp
 [[nodiscard]] inline auto data() const noexcept
--> const cuvs::neighbors::device_padded_dataset_view<T, int64_t>&;
+-> const cuvs::core::device_padded_dataset_view<T, int64_t>&;
 ```
 
 `full_precision_storage_`).
 
 **Returns**
 
-`const cuvs::neighbors::device_padded_dataset_view<T, int64_t>&`
+`const cuvs::core::device_padded_dataset_view<T, int64_t>&`
 
 <a id="neighbors-vamana-index-quantized-data"></a>
 ### neighbors::vamana::index::quantized_data

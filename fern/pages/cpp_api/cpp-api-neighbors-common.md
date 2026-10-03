@@ -57,139 +57,6 @@ enum class MergeStrategy {
 | `MERGE_STRATEGY_PHYSICAL` | `0` |
 | `MERGE_STRATEGY_LOGICAL` | `1` |
 
-## Types
-
-<a id="neighbors-dataset"></a>
-### neighbors::dataset
-
-Tags selecting dataset representation for `dataset` / `dataset_view`.
-
-Each container defines nested `owning_storage` then `view_storage` (aliases into `detail::*` storage types shared by device/host). Accessibility (device vs host) is selected by the `Accessor` template parameter on `dataset` / `dataset_view`, not by duplicating containers. Layout kinds: empty, padded, standard, VPQ. `dataset` / `dataset_view` only express ownership vs view.
-
-```cpp
-template <typename ContainerType, typename DataT, typename IdxT, typename Accessor>
-struct dataset;
-```
-
-<a id="math-type"></a>
-### math_type
-
-Floating-point type used for VQ/PQ codebooks (rows are still uint8 codes).
-
-```cpp
-using math_type = MathT;
-```
-
-<a id="neighbors-dataset-view-kind-of"></a>
-### neighbors::dataset_view_kind_of
-
-Primary template returns `unknown` so traits safely return `false` for non-dataset-view types.
-
-```cpp
-template <typename V>
-struct dataset_view_kind_of {
-  static constexpr dataset_view_kind value;
-};
-```
-
-**Fields**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `value` | `static constexpr dataset_view_kind` |  |
-
-<a id="neighbors-dataset-view-is-device-accessible"></a>
-### neighbors::dataset_view_is_device_accessible
-
-True when the dataset view accessor is device-accessible.
-
-```cpp
-template <typename V>
-struct dataset_view_is_device_accessible;
-```
-
-<a id="neighbors-with-accessor"></a>
-### neighbors::with_accessor
-
-Generic accessor retargeting while preserving the dataset tag/layout and value/index types:
-
-`dataset&lt;Tag, DataT, IdxT, OldAccessor&gt;      -&gt; dataset&lt;Tag, DataT, IdxT, NewAccessor&gt;` `dataset_view&lt;Tag, DataT, IdxT, OldAccessor&gt; -&gt; dataset_view&lt;Tag, DataT, IdxT, NewAccessor&gt;`
-
-```cpp
-template <typename DatasetLikeT, typename NewAccessor>
-struct with_accessor;
-```
-
-<a id="neighbors-to-device-accessor"></a>
-### neighbors::to_device_accessor
-
-Map any host accessor to its device counterpart (same payload policy).
-
-```cpp
-template <typename Accessor>
-struct to_device_accessor;
-```
-
-<a id="neighbors-device-counterpart"></a>
-### neighbors::device_counterpart
-
-Maps a host dataset view type to its device-resident counterpart.
-
-```cpp
-template <typename HostViewT>
-struct device_counterpart;
-```
-
-<a id="neighbors-cagra-view-element-type"></a>
-### neighbors::cagra_view_element_type
-
-Element type `T` for `cagra::build(res, params, dataset_view)` (deduced, not a template arg).
-
-```cpp
-template <typename V, typename = void>
-struct cagra_view_element_type;
-```
-
-<a id="neighbors-ivf-list-base"></a>
-### neighbors::ivf::list_base
-
-Abstract base class for IVF list data.
-
-This allows polymorphic access to list data regardless of the underlying layout.
-
-TODO: Make this struct internal (tracking issue: https://github.com/nvidia/cuvs/issues/1726)
-
-```cpp
-template <typename ValueT, typename IdxT, typename SizeT = uint32_t>
-struct list_base;
-```
-
-<a id="neighbors-ivf-list"></a>
-### neighbors::ivf::list
-
-The data for a single IVF list.
-
-```cpp
-template <template <typename, typename...> typename SpecT,
-typename SizeT,
-typename... SpecExtraArgs>
-struct list : public list_base<typename SpecT<SizeT, SpecExtraArgs...>::value_type,
-typename SpecT<SizeT, SpecExtraArgs...>::index_type,
-SizeT> {
-  raft::device_mdarray<value_type, list_extents, raft::row_major> data;
-  raft::device_mdarray<index_type, raft::extent_1d<size_type>, raft::row_major> indices;
-  std::atomic<size_type> size;
-};
-```
-
-**Fields**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `data` | [`raft::device_mdarray<value_type, list_extents, raft::row_major>`](/api-reference/cpp-api-neighbors-ivf-pq#list-extents) | Possibly encoded data; it's layout is defined by `SpecT`. |
-| `indices` | `raft::device_mdarray<index_type, raft::extent_1d<size_type>, raft::row_major>` | Source indices. |
-| `size` | `std::atomic<size_type>` | The actual size of the content. |
-
 ## Filtering for ANN Types
 
 <a id="neighbors-filtering-filtertype"></a>
@@ -545,6 +412,48 @@ struct udf_filter : public base_filter {
 | `filter_data` | `void*` | Opaque device-accessible pointer passed to the predicate. |
 | `filtering_rate` | `float` | Estimated fraction of rows rejected by the predicate, or negative if unknown. |
 | `function_name` | `std::string` | Device function name to call from the generated CAGRA sample filter. |
+
+## Types
+
+<a id="neighbors-ivf-list-base"></a>
+### neighbors::ivf::list_base
+
+Abstract base class for IVF list data.
+
+This allows polymorphic access to list data regardless of the underlying layout.
+
+TODO: Make this struct internal (tracking issue: https://github.com/nvidia/cuvs/issues/1726)
+
+```cpp
+template <typename ValueT, typename IdxT, typename SizeT = uint32_t>
+struct list_base;
+```
+
+<a id="neighbors-ivf-list"></a>
+### neighbors::ivf::list
+
+The data for a single IVF list.
+
+```cpp
+template <template <typename, typename...> typename SpecT,
+typename SizeT,
+typename... SpecExtraArgs>
+struct list : public list_base<typename SpecT<SizeT, SpecExtraArgs...>::value_type,
+typename SpecT<SizeT, SpecExtraArgs...>::index_type,
+SizeT> {
+  raft::device_mdarray<value_type, list_extents, raft::row_major> data;
+  raft::device_mdarray<index_type, raft::extent_1d<size_type>, raft::row_major> indices;
+  std::atomic<size_type> size;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `data` | [`raft::device_mdarray<value_type, list_extents, raft::row_major>`](/api-reference/cpp-api-neighbors-ivf-pq#list-extents) | Possibly encoded data; it's layout is defined by `SpecT`. |
+| `indices` | `raft::device_mdarray<index_type, raft::extent_1d<size_type>, raft::row_major>` | Source indices. |
+| `size` | `std::atomic<size_type>` | The actual size of the content. |
 
 ## ANN MG index build parameters
 

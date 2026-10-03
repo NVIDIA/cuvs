@@ -5,9 +5,9 @@
 
 #pragma once
 
+#include <cuvs/core/dataset.hpp>
 #include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
-#include <cuvs/neighbors/common.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
@@ -242,30 +242,32 @@ void resolve_dequant_factors(
 
 }  // namespace preprocessing::quantize::bbq
 
-namespace neighbors {
-struct bbq_dataset_container {
-  template <typename DataT, typename IdxT>
-  using owning_storage = cuvs::preprocessing::quantize::bbq::quantizer<DataT, IdxT>;
-  template <typename DataT, typename IdxT>
-  using view_storage = cuvs::preprocessing::quantize::bbq::quantizer_view<DataT, IdxT>;
-};
+namespace preprocessing::quantize::bbq {
 
-template <typename DataT, typename IdxT, typename Accessor>
-struct dataset<bbq_dataset_container, DataT, IdxT, Accessor> {
-  using owning_storage_type = bbq_dataset_container::owning_storage<DataT, IdxT>;
+// -----------------------------------------------------------------------------
+// BBQ dataset: a child of `cuvs::core::dataset` / `dataset_view`. The quantizers and the
+// methods that manage them live in the payload types below; `dataset` itself knows nothing of them.
+// -----------------------------------------------------------------------------
+
+namespace detail {
+
+/**
+ * BBQ payloads: a BBQ dataset is a small bag of alternate encodings of the *same* rows, one per
+ * `bbq_code_layout`, selected at query time. The quantizers and the methods that manage them live
+ * here, in the BBQ payload, not in `dataset`/`dataset_view`; they are reached through `data()`.
+ */
+template <typename DataT, typename IdxT>
+struct bbq_view_storage;
+
+template <typename DataT, typename IdxT>
+struct bbq_owning_storage {
+  using value_type          = DataT;
+  using owning_storage_type = cuvs::preprocessing::quantize::bbq::quantizer<DataT, IdxT>;
   std::vector<owning_storage_type> quantizers;
 
-  dataset(owning_storage_type&& quantizer) noexcept { add_quantizer(std::move(quantizer)); }
-  [[nodiscard]] auto as_dataset_view() const noexcept
-    -> dataset_view<bbq_dataset_container,
-                    DataT,
-                    IdxT,
-                    detail::dataset_view_accessor_for_owning<DataT, Accessor>>
+  explicit bbq_owning_storage(owning_storage_type&& quantizer) noexcept
   {
-    return dataset_view<bbq_dataset_container,
-                        DataT,
-                        IdxT,
-                        detail::dataset_view_accessor_for_owning<DataT, Accessor>>{quantizers};
+    add_quantizer(std::move(quantizer));
   }
   [[nodiscard]] constexpr auto n_rows() const noexcept -> IdxT
   {
@@ -290,15 +292,16 @@ struct dataset<bbq_dataset_container, DataT, IdxT, Accessor> {
   }
 };
 
-template <typename DataT, typename IdxT, typename Accessor>
-struct dataset_view<bbq_dataset_container, DataT, IdxT, Accessor> {
-  using owning_storage_type = bbq_dataset_container::owning_storage<DataT, IdxT>;
-  using view_storage_type   = bbq_dataset_container::view_storage<DataT, IdxT>;
+template <typename DataT, typename IdxT>
+struct bbq_view_storage {
+  using value_type          = DataT;
+  using owning_storage_type = cuvs::preprocessing::quantize::bbq::quantizer<DataT, IdxT>;
+  using view_storage_type   = cuvs::preprocessing::quantize::bbq::quantizer_view<DataT, IdxT>;
   std::vector<view_storage_type> quantizers;
 
-  dataset_view() noexcept = default;
+  bbq_view_storage() noexcept = default;
 
-  dataset_view(const std::vector<owning_storage_type>& quantizers) noexcept
+  bbq_view_storage(const std::vector<owning_storage_type>& quantizers) noexcept
   {
     for (const auto& quantizer : quantizers) {
       add_quantizer(quantizer);
@@ -339,50 +342,82 @@ struct dataset_view<bbq_dataset_container, DataT, IdxT, Accessor> {
   }
 };
 
-template <typename DataT, typename IdxT>
-using device_bbq_dataset =
-  dataset<bbq_dataset_container, DataT, IdxT, detail::device_owning_accessor<DataT>>;
+}  // namespace detail
 
-template <typename DataT, typename IdxT>
-using device_bbq_dataset_view =
-  dataset_view<bbq_dataset_container, DataT, IdxT, detail::device_view_accessor<DataT>>;
+/** BBQ is just another dataset type: it plugs its payloads into the shared `dataset`/
+ * `dataset_view` through a spec, like every other kind does. */
+template <typename Accessor>
+struct bbq_dataset_spec {
+  using accessor_type = Accessor;
+  template <typename NewAccessor>
+  using rebind_accessor = bbq_dataset_spec<NewAccessor>;
 
-template <typename DataT, typename IdxT>
-struct owning_dataset_for_view<device_bbq_dataset_view<DataT, IdxT>> {
-  using type = device_bbq_dataset<DataT, IdxT>;
+  template <typename T, typename IdxT>
+  struct apply {
+    using value_type = std::remove_cv_t<T>;
+    using index_type = std::remove_cv_t<IdxT>;
+
+    using data_type = detail::bbq_owning_storage<T, IdxT>;
+    using view_type = detail::bbq_view_storage<T, IdxT>;
+
+    [[nodiscard]] static auto get_data_view(data_type const& data) noexcept -> view_type
+    {
+      return view_type{data.quantizers};
+    }
+    template <typename AnyStorage>
+    [[nodiscard]] static auto get_n_rows(AnyStorage const& data) noexcept -> index_type
+    {
+      return data.n_rows();
+    }
+    template <typename AnyStorage>
+    [[nodiscard]] static auto get_dim(AnyStorage const& data) noexcept -> uint32_t
+    {
+      return data.dim();
+    }
+  };
 };
 
+template <typename DataT, typename IdxT>
+using device_bbq_dataset = cuvs::core::
+  dataset<DataT, IdxT, bbq_dataset_spec<cuvs::core::detail::device_owning_accessor<DataT>>>;
+
+template <typename DataT, typename IdxT>
+using device_bbq_dataset_view = cuvs::core::
+  dataset_view<DataT, IdxT, bbq_dataset_spec<cuvs::core::detail::device_owning_accessor<DataT>>>;
+
+/** Spec predicate for `cuvs::core::dataset_view_has_spec_v`. */
+template <typename SpecT>
+struct is_bbq_spec : std::false_type {};
+template <typename Accessor>
+struct is_bbq_spec<bbq_dataset_spec<Accessor>> : std::true_type {};
+template <typename SpecT>
+inline constexpr bool is_bbq_spec_v = is_bbq_spec<SpecT>::value;
+
+/** True for an owning `dataset<...>` of the BBQ kind. */
 template <typename DatasetT>
 struct is_bbq_dataset : std::false_type {};
 
-template <typename DataT, typename IdxT, typename Accessor>
-struct is_bbq_dataset<dataset<bbq_dataset_container, DataT, IdxT, Accessor>> : std::true_type {};
+template <typename DataT, typename IdxT, typename SpecT>
+struct is_bbq_dataset<cuvs::core::dataset<DataT, IdxT, SpecT>>
+  : std::bool_constant<is_bbq_spec_v<SpecT>> {};
 
 template <typename DatasetT>
 inline constexpr bool is_bbq_dataset_v = is_bbq_dataset<DatasetT>::value;
 
-template <typename DataT, typename IdxT, typename Accessor>
-struct dataset_view_kind_of<dataset_view<bbq_dataset_container, DataT, IdxT, Accessor>> {
-  static constexpr dataset_view_kind value = dataset_view_kind::bbq;
-};
-
-template <typename DataT, typename IdxT>
-struct cagra_view_element_type<device_bbq_dataset_view<DataT, IdxT>> {
-  using type = DataT;
-};
-
 template <typename V>
 inline constexpr bool is_device_bbq_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::bbq && dataset_view_is_device_accessible_v<V>;
+  cuvs::core::dataset_view_has_spec_v<V, is_bbq_spec> &&
+  cuvs::core::dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
 inline constexpr bool is_host_bbq_dataset_view_v =
-  dataset_view_kind_v<V> == dataset_view_kind::bbq && !dataset_view_is_device_accessible_v<V>;
+  cuvs::core::dataset_view_has_spec_v<V, is_bbq_spec> &&
+  !cuvs::core::dataset_view_is_device_accessible_v<V>;
 
 template <typename V>
 inline constexpr bool is_bbq_dataset_view_v =
   is_device_bbq_dataset_view_v<V> || is_host_bbq_dataset_view_v<V>;
 
-}  // namespace neighbors
+}  // namespace preprocessing::quantize::bbq
 
 }  // namespace CUVS_EXPORT cuvs

@@ -15,12 +15,13 @@ namespace {
 
 using data_t                      = @data_type@;
 using index_t                     = @index_type@;
-using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
-using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
-using inst_host_padded_view_t     = cuvs::neighbors::host_padded_dataset_view<data_t, int64_t>;
-using inst_host_standard_view_t   = cuvs::neighbors::host_standard_dataset_view<data_t, int64_t>;
-using inst_vpq_view_t             = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
-using inst_bbq_view_t             = cuvs::neighbors::device_bbq_dataset_view<data_t, int64_t>;
+using inst_device_padded_view_t   = cuvs::core::device_padded_dataset_view<data_t, int64_t>;
+using inst_device_standard_view_t = cuvs::core::device_standard_dataset_view<data_t, int64_t>;
+using inst_host_padded_view_t     = cuvs::core::host_padded_dataset_view<data_t, int64_t>;
+using inst_host_standard_view_t   = cuvs::core::host_standard_dataset_view<data_t, int64_t>;
+using inst_vpq_view_t = cuvs::preprocessing::quantize::pq::device_vpq_dataset_view<half, int64_t>;
+using inst_bbq_view_t =
+  cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<data_t, int64_t>;
 }  // namespace
 
 namespace cuvs::neighbors::cagra {

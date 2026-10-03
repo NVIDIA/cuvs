@@ -75,8 +75,8 @@ static void with_mg_index_by_layout(mg_cagra_c_api_index_box* box,
 template <typename T, typename Fn>
 static void with_device_padded_dataset_view(cuvsDataset_t dataset, Fn&& fn)
 {
-  using owner_t = cuvs::neighbors::device_padded_dataset<T, int64_t>;
-  using view_t  = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
+  using owner_t = cuvs::core::device_padded_dataset<T, int64_t>;
+  using view_t  = cuvs::core::device_padded_dataset_view<T, int64_t>;
   if (dataset->is_owning) {
     auto* owner = reinterpret_cast<owner_t*>(dataset->addr);
     auto view   = owner->as_dataset_view();
@@ -204,13 +204,13 @@ void* _mg_build(cuvsResources_t res,
 
   if (layout == mg_cagra_dataset_layout::device_padded) {
     using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
-    auto padded_mds    = cuvs::neighbors::make_host_padded_dataset_view(mds);
+    auto padded_mds    = cuvs::core::make_host_padded_dataset_view(mds);
     auto* mg_index     = new mg_cagra_index_t<T, padded_ann_t>(
       cuvs::neighbors::cagra::build(*res_ptr, mg_params, padded_mds));
     return make_mg_cagra_box<T, padded_ann_t>(mg_index, mg_cagra_dataset_layout::device_padded);
   }
   using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
-  auto standard_mds    = cuvs::neighbors::make_host_standard_dataset_view(mds);
+  auto standard_mds    = cuvs::core::make_host_standard_dataset_view(mds);
   auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(
     cuvs::neighbors::cagra::build(*res_ptr, mg_params, standard_mds));
   return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
@@ -296,13 +296,13 @@ void _mg_extend(cuvsResources_t res,
     using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
     auto* mg_index_ptr =
       reinterpret_cast<mg_cagra_index_t<T, padded_ann_t>*>(box->index_ptr);
-    auto new_vectors = cuvs::neighbors::make_host_padded_dataset_view(new_vectors_mds);
+    auto new_vectors = cuvs::core::make_host_padded_dataset_view(new_vectors_mds);
     cuvs::neighbors::cagra::extend(*res_ptr, *mg_index_ptr, new_vectors, new_indices_mds);
   } else {
     using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
     auto* mg_index_ptr =
       reinterpret_cast<mg_cagra_index_t<T, standard_ann_t>*>(box->index_ptr);
-    auto new_vectors = cuvs::neighbors::make_host_standard_dataset_view(new_vectors_mds);
+    auto new_vectors = cuvs::core::make_host_standard_dataset_view(new_vectors_mds);
     cuvs::neighbors::cagra::extend(*res_ptr, *mg_index_ptr, new_vectors, new_indices_mds);
   }
 }
@@ -372,28 +372,28 @@ extern "C" cuvsError_t cuvsMultiGpuCagraBuild(cuvsResources_t res,
     if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
       auto mds = cuvs::core::from_dlpack<raft::host_matrix_view<const float, int64_t, raft::row_major>>(
         dataset_tensor);
-      auto layout = cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)
+      auto layout = cuvs::core::matrix_row_width_matches_cagra_required(mds)
                       ? mg_cagra_dataset_layout::device_padded
                       : mg_cagra_dataset_layout::device_standard;
       index->addr = reinterpret_cast<uintptr_t>(_mg_build<float>(res, *params, dataset_tensor, layout));
     } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
       auto mds = cuvs::core::from_dlpack<raft::host_matrix_view<const half, int64_t, raft::row_major>>(
         dataset_tensor);
-      auto layout = cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)
+      auto layout = cuvs::core::matrix_row_width_matches_cagra_required(mds)
                       ? mg_cagra_dataset_layout::device_padded
                       : mg_cagra_dataset_layout::device_standard;
       index->addr = reinterpret_cast<uintptr_t>(_mg_build<half>(res, *params, dataset_tensor, layout));
     } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
       auto mds = cuvs::core::from_dlpack<raft::host_matrix_view<const int8_t, int64_t, raft::row_major>>(
         dataset_tensor);
-      auto layout = cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)
+      auto layout = cuvs::core::matrix_row_width_matches_cagra_required(mds)
                       ? mg_cagra_dataset_layout::device_padded
                       : mg_cagra_dataset_layout::device_standard;
       index->addr = reinterpret_cast<uintptr_t>(_mg_build<int8_t>(res, *params, dataset_tensor, layout));
     } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
       auto mds = cuvs::core::from_dlpack<raft::host_matrix_view<const uint8_t, int64_t, raft::row_major>>(
         dataset_tensor);
-      auto layout = cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)
+      auto layout = cuvs::core::matrix_row_width_matches_cagra_required(mds)
                       ? mg_cagra_dataset_layout::device_padded
                       : mg_cagra_dataset_layout::device_standard;
       index->addr = reinterpret_cast<uintptr_t>(_mg_build<uint8_t>(res, *params, dataset_tensor, layout));

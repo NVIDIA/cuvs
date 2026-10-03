@@ -271,7 +271,8 @@ void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::nn_descent::
   }
 }
 
-inline void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::vpq_params& param)
+inline void parse_build_param(const nlohmann::json& conf,
+                              cuvs::preprocessing::quantize::pq::vpq_params& param)
 {
   if (conf.contains("pq_bits")) { param.pq_bits = conf.at("pq_bits"); }
   if (conf.contains("pq_dim")) { param.pq_dim = conf.at("pq_dim"); }
@@ -445,7 +446,7 @@ void parse_build_param(const nlohmann::json& conf,
 
   nlohmann::json comp_search_conf = collect_conf_with_prefix(conf, "compression_");
   if (!comp_search_conf.empty()) {
-    auto vpq_pams = param.compression.value_or(cuvs::neighbors::vpq_params{});
+    auto vpq_pams = param.compression.value_or(cuvs::preprocessing::quantize::pq::vpq_params{});
     parse_build_param(comp_search_conf, vpq_pams);
     param.compression.emplace(vpq_pams);
   }

@@ -57,7 +57,7 @@ inline auto make_ranges(raft::resources const& res,
 template <typename T>
 struct padded_storage {
   raft::device_matrix<T, int64_t> matrix;
-  cuvs::neighbors::device_padded_dataset_view<T, int64_t> view;
+  cuvs::core::device_padded_dataset_view<T, int64_t> view;
 };
 
 template <typename T>
@@ -66,7 +66,7 @@ auto make_padded(raft::resources const& res, raft::host_matrix_view<const T, int
 {
   auto stream       = raft::resource::get_cuda_stream(res);
   auto const dim    = static_cast<uint32_t>(src.extent(1));
-  auto const stride = cuvs::neighbors::cagra_required_row_width<T>(dim, 16);
+  auto const stride = cuvs::core::cagra_required_row_width<T>(dim, 16);
   auto matrix =
     raft::make_device_matrix<T, int64_t>(res, src.extent(0), static_cast<int64_t>(stride));
   RAFT_CUDA_TRY(cudaMemsetAsync(
@@ -79,8 +79,8 @@ auto make_padded(raft::resources const& res, raft::host_matrix_view<const T, int
                     static_cast<size_t>(src.extent(0)),
                     stream);
   raft::resource::sync_stream(res);
-  cuvs::neighbors::device_padded_dataset_view<T, int64_t> view(
-    raft::make_const_mdspan(matrix.view()), dim);
+  cuvs::core::device_padded_dataset_view<T, int64_t> view(raft::make_const_mdspan(matrix.view()),
+                                                          dim);
   return padded_storage<T>{std::move(matrix), view};
 }
 
@@ -88,10 +88,10 @@ auto make_padded(raft::resources const& res, raft::host_matrix_view<const T, int
 template <typename T>
 auto make_merged_storage(raft::resources const& res, int64_t rows, int64_t dim) -> padded_storage<T>
 {
-  auto const stride = cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(dim), 16);
+  auto const stride = cuvs::core::cagra_required_row_width<T>(static_cast<uint32_t>(dim), 16);
   auto matrix       = raft::make_device_matrix<T, int64_t>(res, rows, static_cast<int64_t>(stride));
-  cuvs::neighbors::device_padded_dataset_view<T, int64_t> view(
-    raft::make_const_mdspan(matrix.view()), static_cast<uint32_t>(dim));
+  cuvs::core::device_padded_dataset_view<T, int64_t> view(raft::make_const_mdspan(matrix.view()),
+                                                          static_cast<uint32_t>(dim));
   return padded_storage<T>{std::move(matrix), view};
 }
 
@@ -216,11 +216,13 @@ void expect_dataset_order(raft::resources const& res,
   // honouring that stride rather than as one contiguous block.
   auto host   = raft::make_host_matrix<T, int64_t>(res, expected.extent(0), expected.extent(1));
   auto stream = raft::resource::get_cuda_stream(res);
-  int64_t const row_stride = static_cast<int64_t>(view.stride());
+  int64_t const row_stride = static_cast<int64_t>(view.as_matrix_view().stride());
   int64_t const dim        = static_cast<int64_t>(view.dim());
   for (int64_t row = 0; row < view.n_rows(); ++row) {
-    raft::copy(
-      host.data_handle() + row * dim, view.view().data_handle() + row * row_stride, dim, stream);
+    raft::copy(host.data_handle() + row * dim,
+               view.as_matrix_view().data_handle() + row * row_stride,
+               dim,
+               stream);
   }
   raft::resource::sync_stream(res);
   for (int64_t row = 0; row < expected.extent(0); ++row) {
@@ -237,10 +239,10 @@ void expect_zero_padding(raft::resources const& res,
   auto view            = merged.dataset();
   int64_t const rows   = view.n_rows();
   int64_t const dim    = static_cast<int64_t>(view.dim());
-  int64_t const stride = static_cast<int64_t>(view.stride());
+  int64_t const stride = static_cast<int64_t>(view.as_matrix_view().stride());
   std::vector<T> host(static_cast<std::size_t>(rows * stride));
   auto stream = raft::resource::get_cuda_stream(res);
-  raft::copy(host.data(), view.view().data_handle(), host.size(), stream);
+  raft::copy(host.data(), view.as_matrix_view().data_handle(), host.size(), stream);
   raft::resource::sync_stream(res);
   for (int64_t row = 0; row < rows; ++row) {
     for (int64_t column = dim; column < stride; ++column) {

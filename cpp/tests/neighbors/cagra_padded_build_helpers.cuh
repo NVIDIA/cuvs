@@ -20,8 +20,8 @@ namespace cuvs::neighbors::test {
  */
 template <typename DataT>
 struct padded_device_matrix_for_cagra {
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<DataT, int64_t>> owned;
-  cuvs::neighbors::device_padded_dataset_view<DataT, int64_t> view;
+  std::unique_ptr<cuvs::core::device_padded_dataset<DataT, int64_t>> owned;
+  cuvs::core::device_padded_dataset_view<DataT, int64_t> view;
 
   padded_device_matrix_for_cagra(
     raft::resources const& res, raft::device_matrix_view<const DataT, int64_t, raft::row_major> src)
@@ -31,8 +31,8 @@ struct padded_device_matrix_for_cagra {
 
  private:
   struct build_result {
-    std::unique_ptr<cuvs::neighbors::device_padded_dataset<DataT, int64_t>> owned;
-    cuvs::neighbors::device_padded_dataset_view<DataT, int64_t> view;
+    std::unique_ptr<cuvs::core::device_padded_dataset<DataT, int64_t>> owned;
+    cuvs::core::device_padded_dataset_view<DataT, int64_t> view;
   };
 
   // device_padded_dataset_view has no default constructor; fill both members from one build step.
@@ -46,10 +46,10 @@ struct padded_device_matrix_for_cagra {
     -> build_result
   {
     using namespace cuvs::neighbors;
-    if (matrix_row_width_matches_cagra_required(src)) {
-      return build_result{nullptr, make_device_padded_dataset_view(res, src)};
+    if (cuvs::core::matrix_row_width_matches_cagra_required(src)) {
+      return build_result{nullptr, cuvs::core::make_device_padded_dataset_view(res, src)};
     } else {
-      auto own = make_device_padded_dataset(res, src);
+      auto own = cuvs::core::make_device_padded_dataset(res, src);
       auto vw  = own->as_dataset_view();
       return build_result{std::move(own), vw};
     }

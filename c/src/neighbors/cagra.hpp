@@ -20,7 +20,7 @@ void convert_c_search_params(cuvsCagraSearchParams params,
 void* cagra_c_api_index_ptr(cuvsCagraIndex const* idx);
 
 namespace detail {
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::core::ann_dataset_view DatasetViewT>
 int64_t merged_dataset_size(
   raft::resources const& res,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,

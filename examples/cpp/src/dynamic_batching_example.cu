@@ -116,7 +116,7 @@ void dynamic_batching_example(raft::resources const& res,
   cagra::index_params orig_index_params;
 
   std::cout << "Building CAGRA index (search graph)" << std::endl;
-  auto padded     = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
+  auto padded     = cuvs::core::make_device_padded_dataset_view(res, dataset);
   auto orig_index = cagra::build(res, orig_index_params, padded);
   orig_index      = cagra::update_dataset(res, std::move(orig_index), padded);
 

@@ -185,10 +185,10 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
       vq_codebook.data_handle(), idx.centers().data_handle(), idx.centers().size(), stream_);
     auto empty_data = raft::make_device_matrix<uint8_t, int64_t, raft::row_major>(handle_, 0, 0);
 
+    using vpq_owning_t = cuvs::preprocessing::quantize::pq::device_vpq_dataset<float, int64_t>;
     cuvs::preprocessing::quantize::pq::quantizer<float> quantizer{
       pq_params,
-      cuvs::neighbors::device_vpq_dataset<float, int64_t>{
-        std::move(vq_codebook), std::move(pq_codebook_copy), std::move(empty_data)}};
+      vpq_owning_t(std::move(empty_data), std::move(vq_codebook), std::move(pq_codebook_copy))};
 
     auto quantized_residuals_device =
       raft::make_device_matrix<uint8_t, IdxT>(handle_, ps.num_db_vecs, num_subspaces);

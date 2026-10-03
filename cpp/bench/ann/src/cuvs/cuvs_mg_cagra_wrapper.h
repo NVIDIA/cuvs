@@ -95,8 +95,8 @@ void cuvs_mg_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
     raft::make_host_matrix_view<const T, int64_t, raft::row_major>(dataset, nrow, dim_);
   // The row alignment of the host view is irrelevant: every per-rank device shard is padded
   // individually during the multi-GPU build.
-  cuvs::neighbors::host_padded_dataset_view<T, int64_t> dataset_view(dataset_mds,
-                                                                     static_cast<uint32_t>(dim_));
+  cuvs::core::host_padded_dataset_view<T, int64_t> dataset_view(dataset_mds,
+                                                                static_cast<uint32_t>(dim_));
   auto idx = cuvs::neighbors::cagra::build(clique_, build_params, dataset_view);
   index_   = std::make_shared<
       cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>(

@@ -68,7 +68,7 @@ void cagra_build_search_ace(raft::device_resources const& dev_resources,
     dataset_host.data_handle(), dataset_host.extent(0), dataset_host.extent(1));
   // Wrap in a host_padded_dataset_view. ACE graph construction is host-side CPU work and does not
   // require CUDA row-alignment; construct the view directly to avoid the alignment check.
-  cuvs::neighbors::host_padded_dataset_view<float, int64_t> host_padded_view(
+  cuvs::core::host_padded_dataset_view<float, int64_t> host_padded_view(
     dataset_host_view, static_cast<uint32_t>(dataset_host_view.extent(1)));
 
   std::cout << "Building CAGRA index (search graph)" << std::endl;
@@ -87,7 +87,7 @@ void cagra_build_search_ace(raft::device_resources const& dev_resources,
   hnsw_params.hierarchy = hnsw::HnswHierarchy::GPU;  // Offload hierarchy construction to GPU
 
   std::unique_ptr<hnsw::index<float>> hnsw_index;
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>> padded_owner;
+  std::unique_ptr<cuvs::core::device_padded_dataset<float, int64_t>> padded_owner;
   if (ace_host_index.dataset_fd().has_value()) {
     // Disk ACE path: ACE artifacts (dataset, graph, mapping) live on disk. Transfer file
     // descriptors to a device index so from_cagra can serialize to hnsw_index.bin on disk.
@@ -98,7 +98,7 @@ void cagra_build_search_ace(raft::device_resources const& dev_resources,
   } else {
     // In-memory ACE path: graph is in host memory. Upload the original dataset to device and
     // attach it before from_cagra builds the HNSW hierarchy in memory.
-    padded_owner = cuvs::neighbors::make_device_padded_dataset(dev_resources, dataset_host_view);
+    padded_owner      = cuvs::core::make_device_padded_dataset(dev_resources, dataset_host_view);
     auto device_index = cagra::update_dataset(
       dev_resources, std::move(ace_host_index), padded_owner->as_dataset_view());
     hnsw_index = hnsw::from_cagra(dev_resources, hnsw_params, device_index, dataset_host_view);
