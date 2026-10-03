@@ -209,13 +209,15 @@ void batched_insert_vamana(
   int sort_smem_size = 0;
   SELECT_SORT_SMEM_SIZE(degree, visited_size);  // Sets sort_smem_size based on dataset
 
-  // GreedySearch: per-warp shared memory (4 warps): coords, neighbor_array, candidate_queue
+  // GreedySearch: per-warp shared memory (4 warps): coords, neighbor_array, candidate_queue, bloom
   const int search_coords_size = (dim + align_padding) * greedy_search_query_smem_elem_size<T>(dim);
   const int coords_size        = (dim + align_padding) * static_cast<int>(sizeof(QueryCoordT));
   const int neighbor_size      = degree * sizeof(IdxT);
   const int queue_size_bytes   = queue_size * sizeof(DistPair<IdxT, accT>);
-  int search_smem_total_size =
-    static_cast<int>(4 * ((search_coords_size + neighbor_size + queue_size_bytes + 15) & ~15));
+  const int search_bloom_size =
+    params.use_bloom_filter ? static_cast<int>(params.bloom_bits / 8) : 0;
+  int search_smem_total_size = static_cast<int>(
+    4 * ((search_coords_size + neighbor_size + queue_size_bytes + search_bloom_size + 15) & ~15));
 
   // Total dynamic shared memory size needed by both RobustPrune calls
   const int cand_coords_smem_size = (dim >= kRobustPruneCandCacheMinDim) ? coords_size : 0;
@@ -348,7 +350,8 @@ void batched_insert_vamana(
         visited_size,
         metric,
         queue_size,
-        topk_pq_mem.data_handle());
+        topk_pq_mem.data_handle(),
+        params.use_bloom_filter ? static_cast<int>(params.bloom_bits) : 0);
     RAFT_CUDA_TRY(cudaPeekAtLastError());
 
 #if KERNEL_TIMING
@@ -607,6 +610,11 @@ index<T, IdxT> build(
 
   RAFT_EXPECTS(params.vamana_iters >= 1.0,
                "vamana_iters must be at least 1.0 to insert the entire input dataset");
+
+  RAFT_EXPECTS(!params.use_bloom_filter || params.bloom_bits % 32 == 0,
+               "bloom_bits must be a multiple of 32 when use_bloom_filter is enabled");
+  RAFT_EXPECTS(!params.use_bloom_filter || params.bloom_bits > 0,
+               "bloom_bits must be positive when use_bloom_filter is enabled");
 
   int dim = dataset.extent(1);
 
