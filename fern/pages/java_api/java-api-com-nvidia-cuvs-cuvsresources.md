@@ -115,9 +115,7 @@ static CuVSResources create() throws Throwable
 
 Creates a new resources.
 Equivalent to
-\{@code
-create(CuVSProvider.tempDirectory())
-\}
+`create(CuVSProvider.tempDirectory())`
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSResources.java:87`_
 
