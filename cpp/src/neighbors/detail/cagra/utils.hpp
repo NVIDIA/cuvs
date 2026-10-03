@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -299,6 +299,11 @@ void copy_with_padding(
                       src.extent(0),
                       raft::resource::get_cuda_stream(res));
   }
+}
+
+constexpr size_t recommended_intermediate_graph_degree(size_t graph_degree) noexcept
+{
+  return graph_degree + ((graph_degree + 1) / 2);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail
