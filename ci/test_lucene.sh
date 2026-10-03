@@ -11,6 +11,9 @@ set +e
 rapids-logger "Check GPU usage"
 nvidia-smi
 
+# This GPU lane must execute the real cuVS writer-path sentinel rather than skip it.
+export CUVS_TESTS_REQUIRE_GPU=1
+
 rapids-logger "Run cuvs-lucene build and tests"
 
 RAPIDS_CUDA_MAJOR="${RAPIDS_CUDA_VERSION%%.*}"

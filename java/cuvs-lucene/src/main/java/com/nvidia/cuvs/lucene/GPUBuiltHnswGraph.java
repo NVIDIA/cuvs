@@ -6,10 +6,16 @@ package com.nvidia.cuvs.lucene;
 
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
+import com.nvidia.cuvs.CuVSDeviceMatrix;
+import com.nvidia.cuvs.CuVSHostMatrix;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.RowView;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.function.Supplier;
 import org.apache.lucene.util.hnsw.HnswGraph;
 import org.apache.lucene.util.hnsw.NeighborArray;
 
@@ -31,6 +37,15 @@ public class GPUBuiltHnswGraph extends HnswGraph {
   // Layer 0 is special - it contains all nodes
   private final NeighborArray[] layer0Neighbors;
 
+  /** Node count below which parallel graph processing is not worth its overhead. */
+  static final int PARALLEL_MIN_NODES = 1 << 16;
+
+  private record MaterializedGraph(
+      int numLevels,
+      List<int[]> layerNodes,
+      NeighborArray[] layer0Neighbors,
+      List<NeighborArray[]> layerNeighbors) {}
+
   /**
    * Multi-layer constructor that supports arbitrary number of layers.
    *
@@ -41,47 +56,238 @@ public class GPUBuiltHnswGraph extends HnswGraph {
    */
   public GPUBuiltHnswGraph(
       int size, int dimensions, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies) {
+    this(size, dimensions, materializeSerial(size, layerNodes, layerAdjacencies));
+  }
 
+  // Builds a graph while materializing adjacency rows with up to graphThreads threads.
+  GPUBuiltHnswGraph(
+      int size,
+      int dimensions,
+      List<int[]> layerNodes,
+      List<CuVSMatrix> layerAdjacencies,
+      int graphThreads)
+      throws IOException {
+    this(
+        size,
+        dimensions,
+        materialize(
+            size, layerNodes, layerAdjacencies, graphThreads, GraphProcessingTrace.disabled()));
+  }
+
+  GPUBuiltHnswGraph(
+      int size,
+      int dimensions,
+      List<int[]> layerNodes,
+      List<CuVSMatrix> layerAdjacencies,
+      int graphThreads,
+      GraphProcessingTrace graphProcessingTrace)
+      throws IOException {
+    this(
+        size,
+        dimensions,
+        materialize(size, layerNodes, layerAdjacencies, graphThreads, graphProcessingTrace));
+  }
+
+  private GPUBuiltHnswGraph(int size, int dimensions, MaterializedGraph graph) {
     this.size = size;
     this.dimensions = dimensions;
-    this.numLevels = layerAdjacencies.size();
-    this.layerNodes = new ArrayList<>();
-    this.layerNeighbors = new ArrayList<>();
+    this.numLevels = graph.numLevels();
+    this.layerNodes = graph.layerNodes();
+    this.layerNeighbors = graph.layerNeighbors();
+    this.layer0Neighbors = graph.layer0Neighbors();
+  }
 
-    // Process Layer 0 (base layer with all nodes)
-    CuVSMatrix layer0Adjacency = layerAdjacencies.get(0);
-    this.layer0Neighbors = fillNeighborArray(layer0Adjacency, size);
-
-    // Process higher layers (1 to numLevels-1)
-    for (int level = 1; level < numLevels; level++) {
-      int[] nodes = layerNodes.get(level);
-      CuVSMatrix adjacency = layerAdjacencies.get(level);
-      this.layerNodes.add(nodes);
-      this.layerNeighbors.add(fillNeighborArray(adjacency, nodes.length));
+  private static MaterializedGraph materializeSerial(
+      int size, List<int[]> layerNodes, List<CuVSMatrix> layerAdjacencies) {
+    try {
+      return materialize(size, layerNodes, layerAdjacencies, 1, GraphProcessingTrace.disabled());
+    } catch (IOException impossible) {
+      throw new AssertionError(
+          "serial graph materialization cannot fail with IOException", impossible);
     }
   }
 
+  private static MaterializedGraph materialize(
+      int size,
+      List<int[]> layerNodes,
+      List<CuVSMatrix> layerAdjacencies,
+      int graphThreads,
+      GraphProcessingTrace graphProcessingTrace)
+      throws IOException {
+    List<int[]> upperLayerNodes = new ArrayList<>();
+    List<NeighborArray[]> upperLayerNeighbors = new ArrayList<>();
+    NeighborArray[] baseLayerNeighbors =
+        fillNeighborArray(layerAdjacencies.get(0), size, graphThreads, graphProcessingTrace);
+
+    for (int level = 1; level < layerAdjacencies.size(); level++) {
+      int[] nodes = layerNodes.get(level);
+      upperLayerNodes.add(nodes);
+      upperLayerNeighbors.add(
+          fillNeighborArray(
+              layerAdjacencies.get(level), nodes.length, graphThreads, graphProcessingTrace));
+    }
+    return new MaterializedGraph(
+        layerAdjacencies.size(), upperLayerNodes, baseLayerNeighbors, upperLayerNeighbors);
+  }
+
   /**
-   * Fills the neighbor array using the adjacency matrix.
+   * Materializes an adjacency matrix into heap-backed neighbor arrays. Device matrices are copied
+   * to host before parallel reads because their row reader is stateful.
    *
    * @param adjacency instance of adjacency CuVSMatrix
    * @param size the number of nodes
+   * @param graphThreads maximum threads for this operation, including the caller
    * @return the NeighborArray
    */
-  private NeighborArray[] fillNeighborArray(CuVSMatrix adjacency, int size) {
+  private static NeighborArray[] fillNeighborArray(
+      CuVSMatrix adjacency, int size, int graphThreads, GraphProcessingTrace graphProcessingTrace)
+      throws IOException {
+    if (graphThreads <= 1 || size < PARALLEL_MIN_NODES) {
+      NeighborArray[] neighbors = fillNeighborArraySerial(adjacency, size);
+      graphProcessingTrace.record(
+          GraphProcessingTrace.Stage.MATERIALIZATION,
+          GraphProcessingTrace.Mode.SERIAL,
+          graphThreads <= 1
+              ? GraphProcessingTrace.Reason.SINGLE_THREAD
+              : GraphProcessingTrace.Reason.BELOW_THRESHOLD,
+          graphThreads,
+          size);
+      return neighbors;
+    }
+
+    if (adjacency instanceof CuVSDeviceMatrix deviceAdjacency) {
+      return materializeDeviceAdjacency(
+          deviceAdjacency,
+          size,
+          graphThreads,
+          GraphCopyMemoryBudget.system(),
+          () -> newHostMatrix(deviceAdjacency),
+          graphProcessingTrace);
+    }
+
+    NeighborArray[] neighbors = fillNeighborArrayParallel(adjacency, size, graphThreads);
+    graphProcessingTrace.record(
+        GraphProcessingTrace.Stage.MATERIALIZATION,
+        GraphProcessingTrace.Mode.PARALLEL,
+        GraphProcessingTrace.Reason.HOST_SOURCE,
+        graphThreads,
+        size);
+    return neighbors;
+  }
+
+  private static NeighborArray[] fillNeighborArraySerial(CuVSMatrix source, int size) {
     NeighborArray[] neighbors = new NeighborArray[size];
-    for (int i = 0; i < size; i++) {
-      RowView rv = adjacency.getRow(i);
-      if (rv != null && rv.size() > 0) {
-        neighbors[i] = new NeighborArray((int) rv.size(), true);
-        for (int j = 0; j < rv.size(); j++) {
-          neighbors[i].addInOrder(rv.getAsInt(j), 1.0f - (j * 0.001f));
+    fillNeighborRange(source, neighbors, 0, size);
+    return neighbors;
+  }
+
+  static NeighborArray[] materializeDeviceAdjacency(
+      CuVSDeviceMatrix source,
+      int size,
+      int graphThreads,
+      GraphCopyMemoryBudget memoryBudget,
+      Supplier<CuVSHostMatrix> hostCopyFactory)
+      throws IOException {
+    return materializeDeviceAdjacency(
+        source, size, graphThreads, memoryBudget, hostCopyFactory, GraphProcessingTrace.disabled());
+  }
+
+  private static NeighborArray[] materializeDeviceAdjacency(
+      CuVSDeviceMatrix source,
+      int size,
+      int graphThreads,
+      GraphCopyMemoryBudget memoryBudget,
+      Supplier<CuVSHostMatrix> hostCopyFactory,
+      GraphProcessingTrace graphProcessingTrace)
+      throws IOException {
+    Optional<GraphCopyMemoryBudget.Reservation> reservation =
+        memoryBudget.tryReserve(source.size(), source.columns());
+    if (reservation.isEmpty()) {
+      NeighborArray[] neighbors = fillNeighborArraySerial(source, size);
+      graphProcessingTrace.record(
+          GraphProcessingTrace.Stage.MATERIALIZATION,
+          GraphProcessingTrace.Mode.SERIAL,
+          GraphProcessingTrace.Reason.MEMORY_ADMISSION_DENIED,
+          graphThreads,
+          size);
+      return neighbors;
+    }
+    try (GraphCopyMemoryBudget.Reservation ignored = reservation.orElseThrow();
+        CuVSHostMatrix hostCopy = copyToHost(source, hostCopyFactory)) {
+      NeighborArray[] neighbors = fillNeighborArrayParallel(hostCopy, size, graphThreads);
+      graphProcessingTrace.record(
+          GraphProcessingTrace.Stage.MATERIALIZATION,
+          GraphProcessingTrace.Mode.PARALLEL,
+          GraphProcessingTrace.Reason.DEVICE_HOST_COPY,
+          graphThreads,
+          size);
+      return neighbors;
+    }
+  }
+
+  private static CuVSHostMatrix newHostMatrix(CuVSDeviceMatrix source) {
+    try (CuVSMatrix.Builder<CuVSHostMatrix> builder =
+        CuVSMatrix.hostBuilder(source.size(), source.columns(), source.dataType())) {
+      return builder.build();
+    }
+  }
+
+  static CuVSHostMatrix copyToHost(
+      CuVSDeviceMatrix source, Supplier<CuVSHostMatrix> hostCopyFactory) {
+    CuVSHostMatrix hostCopy = hostCopyFactory.get();
+    try {
+      source.toHost(hostCopy);
+      return hostCopy;
+    } catch (RuntimeException | Error failure) {
+      try {
+        hostCopy.close();
+      } catch (RuntimeException | Error closeFailure) {
+        if (failure != closeFailure) {
+          failure.addSuppressed(closeFailure);
         }
+      }
+      throw failure;
+    }
+  }
+
+  private static NeighborArray[] fillNeighborArrayParallel(
+      CuVSMatrix source, int size, int graphThreads) throws IOException {
+    NeighborArray[] neighbors = new NeighborArray[size];
+    int nodesPerTask = Math.ceilDiv(size, graphThreads);
+    List<Callable<Void>> tasks = new ArrayList<>(graphThreads);
+    for (int task = 0; task < graphThreads; task++) {
+      int start = task * nodesPerTask;
+      int end = Math.min(start + nodesPerTask, size);
+      if (start >= end) {
+        break;
+      }
+      tasks.add(
+          () -> {
+            fillNeighborRange(source, neighbors, start, end);
+            return null;
+          });
+    }
+    GraphWorkExecutor.invokeAll(tasks);
+    return neighbors;
+  }
+
+  private static void fillNeighborRange(
+      CuVSMatrix source, NeighborArray[] neighbors, int start, int end) {
+    for (int i = start; i < end; i++) {
+      RowView rv = source.getRow(i);
+      if (rv != null && rv.size() > 0) {
+        NeighborArray nodeNeighbors = new NeighborArray((int) rv.size(), true);
+        for (int j = 0; j < rv.size(); j++) {
+          int neighbor = rv.getAsInt(j);
+          if (neighbor >= 0) {
+            nodeNeighbors.addInOrder(neighbor, 1.0f - (j * 0.001f));
+          }
+        }
+        neighbors[i] = nodeNeighbors;
       } else {
         neighbors[i] = new NeighborArray(0, true);
       }
     }
-    return neighbors;
   }
 
   /**

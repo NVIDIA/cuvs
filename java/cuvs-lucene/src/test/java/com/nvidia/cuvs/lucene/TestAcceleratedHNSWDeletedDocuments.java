@@ -7,24 +7,35 @@ package com.nvidia.cuvs.lucene;
 import static com.nvidia.cuvs.lucene.TestUtils.generateDataset;
 import static com.nvidia.cuvs.lucene.TestUtils.generateRandomVector;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
+import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
+import org.apache.lucene.codecs.KnnVectorsReader;
+import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
+import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
 import org.apache.lucene.document.StringField;
+import org.apache.lucene.index.CodecReader;
 import org.apache.lucene.index.DirectoryReader;
+import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
@@ -39,6 +50,7 @@ import org.apache.lucene.tests.index.RandomIndexWriter;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
+import org.apache.lucene.util.hnsw.HnswGraph;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -316,6 +328,187 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
                 + " active documents");
       }
     }
+  }
+
+  @Test
+  public void testForceMergeCountsOnlyLiveSparseVectors() throws Exception {
+    final String vectorField = "vector";
+    final int dimensions = 129;
+    Map<String, float[]> expected = new LinkedHashMap<>();
+
+    try (Directory directory = newDirectory()) {
+      try (IndexWriter writer =
+          new IndexWriter(directory, createWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE))) {
+        for (int segment = 0; segment < 3; segment++) {
+          for (int row = 0; row < 5; row++) {
+            String id = segment + "-" + row;
+            Document document = new Document();
+            document.add(new StringField("id", id, Field.Store.YES));
+            if (row < 4) {
+              float[] vector = deterministicVector(segment * 5 + row, dimensions);
+              document.add(
+                  new KnnFloatVectorField(vectorField, vector, VectorSimilarityFunction.EUCLIDEAN));
+              if (row != 1) {
+                expected.put(id, vector);
+              }
+            }
+            writer.addDocument(document);
+          }
+          writer.commit();
+        }
+        for (int segment = 0; segment < 3; segment++) {
+          writer.deleteDocuments(new Term("id", segment + "-1"));
+        }
+        writer.commit();
+
+        try (DirectoryReader sourceReader = DirectoryReader.open(writer)) {
+          assertEquals("the test requires three source segments", 3, sourceReader.leaves().size());
+          for (var context : sourceReader.leaves()) {
+            LeafReader sourceLeaf = context.reader();
+            assertTrue("each source segment must carry a deletion", sourceLeaf.hasDeletions());
+            assertEquals(5, sourceLeaf.maxDoc());
+            assertEquals(4, sourceLeaf.numDocs());
+            assertEquals(4, sourceLeaf.getFloatVectorValues(vectorField).size());
+          }
+        }
+
+        writer.getConfig().setMergePolicy(new TieredMergePolicy());
+        writer.forceMerge(1);
+      }
+
+      TestUtil.checkIndex(directory);
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        var leaf = getOnlyLeafReader(reader);
+        var values = leaf.getFloatVectorValues(vectorField);
+        assertNotNull(values);
+        assertEquals(expected.size(), values.size());
+        Set<String> seen = new HashSet<>();
+        for (int ordinal = 0; ordinal < values.size(); ordinal++) {
+          String id = leaf.storedFields().document(values.ordToDoc(ordinal)).get("id");
+          assertTrue("Unexpected or duplicate vector for " + id, seen.add(id));
+          assertNotNull("No expected vector for " + id, expected.get(id));
+          assertArrayEquals(expected.get(id), values.vectorValue(ordinal), 0.0f);
+        }
+        assertEquals(expected.keySet(), seen);
+
+        HnswGraph graph = graphOf(leaf, vectorField);
+        assertEquals(values.size(), graph.size());
+        assertEquals(values.size(), graph.getNodesOnLevel(0).size());
+        assertAllGraphOrdinalsInBounds(graph, values.size());
+      }
+    }
+  }
+
+  @Test
+  public void testForceMergeWithExactlyOneLiveVector() throws Exception {
+    assertTrivialLiveVectorMerge(1);
+  }
+
+  @Test
+  public void testForceMergeWithZeroLiveVectors() throws Exception {
+    assertTrivialLiveVectorMerge(0);
+  }
+
+  private void assertTrivialLiveVectorMerge(int liveVectors) throws Exception {
+    final String vectorField = "vector";
+    final int dimensions = 129;
+
+    try (Directory directory = newDirectory()) {
+      try (IndexWriter writer =
+          new IndexWriter(directory, createWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE))) {
+        for (int id = 0; id < 3; id++) {
+          Document vectorDocument = new Document();
+          vectorDocument.add(new StringField("id", "vector-" + id, Field.Store.YES));
+          vectorDocument.add(
+              new KnnFloatVectorField(
+                  vectorField,
+                  deterministicVector(id, dimensions),
+                  VectorSimilarityFunction.EUCLIDEAN));
+          writer.addDocument(vectorDocument);
+
+          Document sparseDocument = new Document();
+          sparseDocument.add(new StringField("id", "sparse-" + id, Field.Store.YES));
+          writer.addDocument(sparseDocument);
+          writer.commit();
+        }
+        for (int id = liveVectors; id < 3; id++) {
+          writer.deleteDocuments(new Term("id", "vector-" + id));
+        }
+        writer.commit();
+
+        try (DirectoryReader sourceReader = DirectoryReader.open(writer)) {
+          assertEquals("the test requires three source segments", 3, sourceReader.leaves().size());
+        }
+
+        writer.getConfig().setMergePolicy(new TieredMergePolicy());
+        writer.forceMerge(1);
+      }
+
+      TestUtil.checkIndex(directory);
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        LeafReader leaf = getOnlyLeafReader(reader);
+        FloatVectorValues values = leaf.getFloatVectorValues(vectorField);
+        assertNotNull(values);
+        assertEquals(liveVectors, values.size());
+
+        HnswGraph graph = graphOf(leaf, vectorField);
+        assertEquals(liveVectors, graph.size());
+        assertEquals(liveVectors == 0 ? 0 : 1, graph.numLevels());
+        assertEquals(liveVectors, graph.getNodesOnLevel(0).size());
+        if (liveVectors == 1) {
+          assertEquals(0, graph.maxConn());
+          graph.seek(0, 0);
+          assertEquals(NO_MORE_DOCS, graph.nextNeighbor());
+        }
+
+        ((CodecReader) leaf).getVectorReader().checkIntegrity();
+        IndexSearcher searcher = new IndexSearcher(reader);
+        TopDocs results =
+            searcher.search(
+                new KnnFloatVectorQuery(vectorField, deterministicVector(0, dimensions), 1), 1);
+        assertEquals(liveVectors, results.totalHits.value());
+        assertEquals(liveVectors, results.scoreDocs.length);
+        if (liveVectors == 1) {
+          assertEquals(
+              "vector-0", searcher.storedFields().document(results.scoreDocs[0].doc).get("id"));
+        }
+      }
+    }
+  }
+
+  private static HnswGraph graphOf(LeafReader leaf, String field) throws Exception {
+    KnnVectorsReader reader = ((CodecReader) leaf).getVectorReader();
+    if (reader instanceof PerFieldKnnVectorsFormat.FieldsReader fieldsReader) {
+      reader = fieldsReader.getFieldReader(field);
+    }
+    return ((HnswGraphProvider) reader).getGraph(field);
+  }
+
+  private static void assertAllGraphOrdinalsInBounds(HnswGraph graph, int vectorCount)
+      throws Exception {
+    for (int level = 0; level < graph.numLevels(); level++) {
+      HnswGraph.NodesIterator nodes = graph.getNodesOnLevel(level);
+      while (nodes.hasNext()) {
+        int node = nodes.nextInt();
+        assertTrue("graph node is outside the vector domain", node >= 0 && node < vectorCount);
+        graph.seek(level, node);
+        for (int neighbor = graph.nextNeighbor();
+            neighbor != NO_MORE_DOCS;
+            neighbor = graph.nextNeighbor()) {
+          assertTrue(
+              "graph neighbor is outside the vector domain",
+              neighbor >= 0 && neighbor < vectorCount);
+        }
+      }
+    }
+  }
+
+  private static float[] deterministicVector(int id, int dimensions) {
+    float[] vector = new float[dimensions];
+    for (int dimension = 0; dimension < dimensions; dimension++) {
+      vector[dimension] = id * 10.0f + dimension * 0.01f;
+    }
+    return vector;
   }
 
   private RandomIndexWriter createWriter(Directory directory) throws IOException {
