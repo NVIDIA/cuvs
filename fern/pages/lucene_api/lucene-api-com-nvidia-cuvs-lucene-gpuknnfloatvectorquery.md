@@ -7,7 +7,7 @@ slug: api-reference/lucene-api-com-nvidia-cuvs-lucene-gpuknnfloatvectorquery
 _Java package: `com.nvidia.cuvs.lucene`_
 
 ```java
-public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery
+public class GPUKnnFloatVectorQuery extends CompatKnnFloatVectorQuery
 ```
 
 Extends `KnnFloatVectorQuery` for GPU-only search.
@@ -62,7 +62,7 @@ and max_iterations auto-selected (0).
 | `iTopK` | CAGRA itopk_size parameter |
 | `searchWidth` | CAGRA search_width parameter |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:141`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:140`_
 
 ### GPUKnnFloatVectorQuery
 
@@ -86,6 +86,6 @@ Initializes `GPUKnnFloatVectorQuery`.
 | `maxIterations` | nonnegative CAGRA max_iterations (0 = auto) |
 | `searchAlgo` | CAGRA search algorithm |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:159`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:158`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:82`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:81`_

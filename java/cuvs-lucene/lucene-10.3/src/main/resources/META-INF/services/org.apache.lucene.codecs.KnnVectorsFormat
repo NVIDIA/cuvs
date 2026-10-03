@@ -1,0 +1,9 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Only cuvs-lucene's own formats. Lucene registers its formats itself, and listing a Lucene class
+# that a later release moved makes every KnnVectorsFormat lookup in the JVM fail.
+com.nvidia.cuvs.lucene.CuVS2510GPUVectorsFormat
+com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat
+com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat
+com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWScalarQuantizedVectorsFormat

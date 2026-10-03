@@ -28,8 +28,8 @@ import java.util.Map.Entry;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.apache.lucene.codecs.CodecUtil;
-import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.FieldInfo;
@@ -46,7 +46,6 @@ import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IOContext.Context;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.hnsw.IntToIntFunction;
@@ -56,10 +55,10 @@ import org.apache.lucene.util.hnsw.IntToIntFunction;
  *
  * @since 25.10
  */
-public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
+public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
 
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 
   private final FlatVectorsReader flatVectorsReader;
   private final FieldInfos fieldInfos;
@@ -67,15 +66,6 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   private final IntObjectHashMap<GPUIndex> cuvsIndices;
   private final IndexInput cuvsIndexInput;
   private final FilterBitsetCache filterBitsetCache;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * Initializes the {@link CuVS2510GPUVectorsReader}, checks and loads the index.
@@ -101,6 +91,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   CuVS2510GPUVectorsReader(
       SegmentReadState state, FlatVectorsReader flatReader, FilterBitsetCache filterBitsetCache)
       throws IOException {
+    super(flatReader);
     this.flatVectorsReader = flatReader;
     this.filterBitsetCache = filterBitsetCache;
     this.fieldInfos = state.fieldInfos;
@@ -127,7 +118,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
       } finally {
         CodecUtil.checkFooter(meta, priorException);
       }
-      var ioContext = state.context.withReadAdvice(ReadAdvice.SEQUENTIAL);
+      var ioContext = LuceneCompat.sequentialReadContext(state.context);
       cuvsIndexInput = openCuVSInput(state, versionMeta, ioContext);
       /*
        * Only load indexes on the GPU when this reader is opening for searches.
@@ -454,7 +445,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * Returns the k nearest neighbor documents using cuVS's CAGRA or brute force algorithm for this field, to the given vector.
    */
   @Override
-  public void search(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
+  protected void doSearch(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
       throws IOException {
     var fieldEntry = getFieldEntry(field, VectorEncoding.FLOAT32);
     if (fieldEntry.count() == 0 || knnCollector.k() == 0) {
@@ -614,7 +605,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * This is not supported.
    */
   @Override
-  public void search(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
+  protected void doSearch(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
       throws IOException {
     throw new UnsupportedOperationException("Byte vectors are not currently supported");
   }

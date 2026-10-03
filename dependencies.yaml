@@ -129,6 +129,10 @@ files:
       - depends_on_nccl
       - java
       - rapids_build
+  java_jdk21:
+    output: none
+    includes:
+      - java_jdk21
   py_build_libcuvs:
     output: pyproject
     pyproject_dir: python/libcuvs
@@ -671,6 +675,13 @@ dependencies:
           - libboost-devel
           - maven
           - *openjdk
+  java_jdk21:
+    common:
+      - output_types: conda
+        packages:
+          - maven
+          # The oldest JDK cuvs-lucene supports; cuvs-java needs 22+ to use the GPU.
+          - openjdk=21.*
   bench:
     common:
       - output_types: [conda, pyproject, requirements]

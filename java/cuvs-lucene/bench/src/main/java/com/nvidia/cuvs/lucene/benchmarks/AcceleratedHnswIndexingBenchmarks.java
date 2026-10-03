@@ -8,7 +8,8 @@ import static com.nvidia.cuvs.lucene.benchmarks.Utils.cleanup;
 import static com.nvidia.cuvs.lucene.benchmarks.Utils.generateDataset;
 import static com.nvidia.cuvs.lucene.benchmarks.Utils.index;
 
-import com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec;
+import com.nvidia.cuvs.lucene.AcceleratedHNSWParams;
+import com.nvidia.cuvs.lucene.CuVSCodecs;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -59,7 +60,16 @@ public class AcceleratedHnswIndexingBenchmarks {
   public void setup() throws Exception {
     random = new Random(222);
     indexDirPath = Paths.get(UUID.randomUUID().toString());
-    codec = new Lucene101AcceleratedHNSWCodec(32, 128, 64, 3, 16, 100);
+    codec =
+        CuVSCodecs.acceleratedHNSW(
+            new AcceleratedHNSWParams.Builder()
+                .withWriterThreads(32)
+                .withIntermediateGraphDegree(128)
+                .withGraphDegree(64)
+                .withHNSWLayer(3)
+                .withMaxConn(16)
+                .withBeamWidth(100)
+                .build());
     numDocs = 1000;
     dimension = 128;
     dataset = generateDataset(random, numDocs, dimension);

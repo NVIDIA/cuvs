@@ -1,0 +1,64 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <groupId>com.nvidia.cuvs.lucene</groupId>
+    <artifactId>cuvs-lucene-parent</artifactId>
+    <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
+    <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+  </parent>
+  <artifactId>cuvs-lucene-10.3</artifactId>
+  <name>cuvs-lucene-10.3</name>
+  <packaging>jar</packaging>
+
+  <description>
+      Pluggable codecs for Apache Lucene 10.3.x that enable GPU-based accelerated vector search.
+  </description>
+
+  <properties>
+    <lucene.version>10.3.2</lucene.version>
+    <!-- The compat/ variant of each Lucene class cuvs-lucene adapts that Lucene 10.3 needs. -->
+    <cuvs.lucene.compat.knnVectorsReader>knn-vectors-reader-103-acceptdocs</cuvs.lucene.compat.knnVectorsReader>
+    <cuvs.lucene.compat.knnVectorsWriter>knn-vectors-writer-102-void-merge</cuvs.lucene.compat.knnVectorsWriter>
+    <cuvs.lucene.compat.knnFloatVectorQuery>knn-float-vector-query-103-acceptdocs</cuvs.lucene.compat.knnFloatVectorQuery>
+    <cuvs.lucene.compat.leafReader>leaf-reader-103-acceptdocs</cuvs.lucene.compat.leafReader>
+  </properties>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <!--
+                Each lucene-X.Y/src/since/java holds code that first appears in Lucene X.Y, such as
+                the codecs wrapping that release's default codec. It is compiled by that module and by
+                every later one, which still has to read those codecs.
+            -->
+            <id>add-since-sources</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>src/since/java</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <!-- The fat jar; see the parent pom for why each module declares it. -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-assembly-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>

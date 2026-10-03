@@ -15,11 +15,17 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 
 /**
  * cuVS based Binary Quantized KnnVectorsFormat for indexing on GPU and searching on the CPU.
+ *
+ * <p>The vectors are binary quantized only to build the graph on the GPU. The index stores them in
+ * full precision, with Lucene's {@code Lucene99FlatVectorsFormat}, and search scores them in full
+ * precision too.
  *
  * @since 26.02
  */
@@ -27,23 +33,11 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
 
   private static final Logger log =
       Logger.getLogger(LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class.getName());
-  private static final LuceneProvider LUCENE102_PROVIDER;
-  private static final LuceneProvider LUCENE99_PROVIDER;
-  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
+  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT =
+      new Lucene99FlatVectorsFormat(DefaultFlatVectorScorer.INSTANCE);
   private static final int MAX_DIMENSIONS = 4096;
 
   private final AcceleratedHNSWParams acceleratedHNSWParams;
-
-  static {
-    try {
-      LUCENE99_PROVIDER = LuceneProvider.getInstance("99");
-      LUCENE102_PROVIDER = LuceneProvider.getInstance("102");
-      FLAT_VECTORS_FORMAT =
-          LUCENE102_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * Initializes {@link LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat} with default values.
@@ -70,27 +64,20 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-    var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
+    LuceneVersionGuard.ensureCompatible();
     if (isSupported()) {
       log.log(
           Level.FINE,
           "cuVS is supported so using the Lucene99AcceleratedHNSWBinaryQuantizedVectorsWriter");
       return new LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter(
-          state, acceleratedHNSWParams, flatWriter);
+          state, acceleratedHNSWParams, FLAT_VECTORS_FORMAT.fieldsWriter(state));
     } else {
-      try {
-        // Fallback to Lucene's Lucene102HnswBinaryQuantizedVectorsFormat format
-        log.log(
-            Level.WARNING,
-            "GPU based indexing not supported, falling back to using the"
-                + " Lucene102HnswBinaryQuantizedVectorsFormat");
-        KnnVectorsFormat fallbackFormat =
-            LUCENE102_PROVIDER.getLuceneHnswBinaryQuantizedVectorsFormatInstance(
-                acceleratedHNSWParams.getMaxConn(), acceleratedHNSWParams.getBeamWidth());
-        return fallbackFormat.fieldsWriter(state);
-      } catch (Exception e) {
-        throw Utils.handleThrowable(e);
-      }
+      // The GPU writer quantizes only to build the graph and stores full-precision vectors, which
+      // is exactly what Lucene's plain HNSW format writes.
+      log.log(
+          Level.WARNING,
+          "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
+      return Utils.cpuHnswFormat(acceleratedHNSWParams).fieldsWriter(state);
     }
   }
 
@@ -99,12 +86,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
    */
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
-    try {
-      return LUCENE99_PROVIDER.getLuceneHnswVectorsReaderInstance(
-          state, FLAT_VECTORS_FORMAT.fieldsReader(state));
-    } catch (Exception e) {
-      throw Utils.handleThrowable(e);
-    }
+    LuceneVersionGuard.ensureCompatible();
+    return new Lucene99HnswVectorsReader(state, FLAT_VECTORS_FORMAT.fieldsReader(state));
   }
 
   /**

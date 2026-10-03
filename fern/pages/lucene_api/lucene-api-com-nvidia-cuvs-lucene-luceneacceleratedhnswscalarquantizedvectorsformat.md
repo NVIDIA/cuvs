@@ -7,10 +7,14 @@ slug: api-reference/lucene-api-com-nvidia-cuvs-lucene-luceneacceleratedhnswscala
 _Java package: `com.nvidia.cuvs.lucene`_
 
 ```java
-public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVectorsFormat
+public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends BaseAcceleratedHNSWScalarQuantizedVectorsFormat
 ```
 
 cuVS based Scalar Quantized KnnVectorsFormat for indexing on GPU and searching on the CPU.
+
+Stores the vectors with Lucene's `Lucene99ScalarQuantizedVectorsFormat`, which Lucene
+10.4 moved to its backward codecs. On Lucene 10.4 and later this format can only read existing
+indexes; use `CuVSCodecs#acceleratedHNSWScalarQuantizedFormat` to write.
 
 ## Public Members
 
@@ -28,7 +32,7 @@ Initializes `LuceneAcceleratedHNSWScalarQuantizedVectorsFormat` with default val
 | --- | --- |
 | `LibraryException` | if the native library fails to load |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:47`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:29`_
 
 ### LuceneAcceleratedHNSWScalarQuantizedVectorsFormat
 
@@ -44,36 +48,6 @@ Initializes `LuceneAcceleratedHNSWScalarQuantizedVectorsFormat` with the given t
 | --- | --- |
 | `acceleratedHNSWParams` | An instance of `AcceleratedHNSWParams` |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:56`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:38`_
 
-### fieldsWriter
-
-```java
-@Override public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException
-```
-
-Returns a KnnVectorsWriter to write the scalar quantized vectors to the index.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:65`_
-
-### fieldsReader
-
-```java
-@Override public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException
-```
-
-Returns a KnnVectorsReader to read the scalar quantized vectors from the index.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:91`_
-
-### getMaxDimensions
-
-```java
-@Override public int getMaxDimensions(String fieldName)
-```
-
-Returns the maximum number of vector dimensions supported by this Codec for the given field name.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:104`_
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:24`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.java:19`_

@@ -7,7 +7,7 @@ slug: api-reference/lucene-api-com-nvidia-cuvs-lucene-luceneacceleratedhnswbinar
 _Java package: `com.nvidia.cuvs.lucene`_
 
 ```java
-public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVectorsWriter
+public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends CompatKnnVectorsWriter
 ```
 
 This class extends upon the KnnVectorsWriter to enable the creation of GPU-based accelerated
@@ -57,17 +57,17 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Build the indexes and writes it to the disk.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:215`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:217`_
 
-### mergeOneField
+### doMergeOneField
 
 ```java
-@Override public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
+@Override protected void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
 ```
 
 Write field for merging.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:302`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:305`_
 
 ### finish
 
@@ -77,7 +77,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Called once at the end before close.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:333`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:336`_
 
 ### close
 
@@ -87,7 +87,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Closes the resources.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:353`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:356`_
 
 ### ramBytesUsed
 
@@ -97,6 +97,6 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Returns the memory usage of this object in bytes.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:362`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:365`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:57`_

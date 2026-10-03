@@ -32,6 +32,7 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
@@ -40,9 +41,7 @@ import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.ScorerSupplier;
-import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.Weight;
-import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
 
@@ -79,7 +78,7 @@ import org.apache.lucene.util.FixedBitSet;
  *
  * @since 25.10
  */
-public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
+public class GPUKnnFloatVectorQuery extends CompatKnnFloatVectorQuery {
 
   /** Smallest supported CAGRA intermediate-result count. */
   public static final int MIN_ITOPK = 1;
@@ -391,17 +390,9 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   // -------------------------------------------------------------------------
 
   @Override
-  protected TopDocs approximateSearch(
-      LeafReaderContext context,
-      Bits acceptDocs,
-      int visitedLimit,
-      KnnCollectorManager knnCollectorManager)
-      throws IOException {
-    GPUPerLeafCuVSKnnCollector results =
-        new GPUPerLeafCuVSKnnCollector(
-            k, visitedLimit, iTopK, searchWidth, threadBlockSize, maxIterations, searchAlgo);
-    context.reader().searchNearestVectors(field, getTargetCopy(), results, acceptDocs);
-    return results.topDocs();
+  KnnCollector newPerLeafCollector(int visitedLimit) {
+    return new GPUPerLeafCuVSKnnCollector(
+        k, visitedLimit, iTopK, searchWidth, threadBlockSize, maxIterations, searchAlgo);
   }
 
   // -------------------------------------------------------------------------

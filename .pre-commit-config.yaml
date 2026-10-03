@@ -69,6 +69,7 @@ repos:
             ^cpp/include/.*[.](h|hpp|cuh)$|
             ^python/cuvs/cuvs/.*[.](py|pyx|pxd)$|
             ^java/cuvs-(java|lucene)/src/main/.*[.]java$|
+            ^java/cuvs-lucene/lucene-[^/]+/src/since/.*[.]java$|
             ^rust/cuvs/src/.*[.]rs$|
             ^go/.*[.]go$|
             ^fern/scripts/generate_api_reference[.]py$|
@@ -121,7 +122,7 @@ repos:
         name: spotless-fmt
         entry: ci/checks/run_spotless.sh
         pass_filenames: false
-        files: ^(java|examples/java)/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$
+        files: ^(java|examples/java)/(cuvs-java|cuvs-lucene)/([^/]+/){0,2}src/.*\.java$
         exclude: .*/panama/.*
         language: script
         verbose: true

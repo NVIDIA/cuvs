@@ -429,9 +429,12 @@ public class TestCuVSDeletedDocuments extends LuceneTestCase {
         float[] queryVector = generateRandomVector(dimensions, random);
         for (LeafReaderContext ctx : reader.leaves()) {
           TopKnnCollector collector = new TopKnnCollector(topK, Integer.MAX_VALUE);
-          ctx.reader()
-              .searchNearestVectors(
-                  "vector", queryVector, collector, new Bits.MatchNoBits(ctx.reader().maxDoc()));
+          TestLuceneCompat.searchNearestVectors(
+              ctx.reader(),
+              "vector",
+              queryVector,
+              collector,
+              new Bits.MatchNoBits(ctx.reader().maxDoc()));
           assertEquals(
               "An empty accepted-ordinal set should collect nothing",
               0,

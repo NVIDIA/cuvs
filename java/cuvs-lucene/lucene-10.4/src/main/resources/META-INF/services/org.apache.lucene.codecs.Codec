@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Every codec generation this Lucene release can read. Only the newest one can write.
+com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec
+com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec
+com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWBinaryQuantizedCodec
+com.nvidia.cuvs.lucene.LuceneAcceleratedHNSWScalarQuantizedCodec
+com.nvidia.cuvs.lucene.Lucene103AcceleratedHNSWCodec
+com.nvidia.cuvs.lucene.Lucene103CuVSGPUSearchCodec
+com.nvidia.cuvs.lucene.Lucene103AcceleratedHNSWBinaryQuantizedCodec
+com.nvidia.cuvs.lucene.Lucene103AcceleratedHNSWScalarQuantizedCodec
+com.nvidia.cuvs.lucene.Lucene104AcceleratedHNSWCodec
+com.nvidia.cuvs.lucene.Lucene104CuVSGPUSearchCodec
+com.nvidia.cuvs.lucene.Lucene104AcceleratedHNSWBinaryQuantizedCodec
+com.nvidia.cuvs.lucene.Lucene104AcceleratedHNSWScalarQuantizedCodec

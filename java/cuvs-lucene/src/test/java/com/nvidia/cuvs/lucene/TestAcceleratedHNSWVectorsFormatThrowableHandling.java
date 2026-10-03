@@ -52,7 +52,8 @@ public class TestAcceleratedHNSWVectorsFormatThrowableHandling extends LuceneTes
     return new KnnVectorsFormat[] {
       new Lucene99AcceleratedHNSWVectorsFormat(),
       new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat(),
-      new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat()
+      new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(),
+      CuVSCodecs.acceleratedHNSWScalarQuantizedFormat(new AcceleratedHNSWParams.Builder().build())
     };
   }
 

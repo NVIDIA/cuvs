@@ -1,0 +1,32 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+<!--
+    Like the assembly plugin's built-in jar-with-dependencies, but merges the META-INF/services files of
+    all the jars instead of keeping only the first one. Lucene finds codecs and formats through those
+    files, so without merging, the fat jar registers only lucene-core's own codecs: not cuvs-lucene's,
+    nor Lucene's backward codecs, which are needed to read indexes written by earlier Lucene releases.
+-->
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.2.0 https://maven.apache.org/xsd/assembly-2.2.0.xsd">
+    <id>jar-with-dependencies</id>
+    <formats>
+        <format>jar</format>
+    </formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+    <dependencySets>
+        <dependencySet>
+            <outputDirectory>/</outputDirectory>
+            <useProjectArtifact>true</useProjectArtifact>
+            <unpack>true</unpack>
+            <scope>runtime</scope>
+        </dependencySet>
+    </dependencySets>
+    <containerDescriptorHandlers>
+        <containerDescriptorHandler>
+            <handlerName>metaInf-services</handlerName>
+        </containerDescriptorHandler>
+    </containerDescriptorHandlers>
+</assembly>

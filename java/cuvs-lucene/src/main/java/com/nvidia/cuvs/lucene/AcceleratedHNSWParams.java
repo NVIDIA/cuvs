@@ -353,6 +353,10 @@ public class AcceleratedHNSWParams {
      * Valid range - Minimum: {@value MIN_GRAPH_DEG}, Maximum: {@value MAX_GRAPH_DEG}
      * Default value - {@value DEFAULT_GRAPH_DEGREE}
      *
+     * <p>With the CUSTOM strategy, the degree cuVS builds (this value, lowered to the intermediate
+     * graph degree if that is smaller) must be at most {@code 2 * maxConn}: the graph is written as
+     * an HNSW graph, which holds at most {@code 2 * maxConn} neighbors per node on level 0.
+     *
      * @param graphDegree
      * @return instance of {@link Builder}
      */
@@ -537,6 +541,34 @@ public class AcceleratedHNSWParams {
           nnDescentNumIterations,
           MIN_NN_DESCENT_NUM_ITERATIONS,
           MAX_NN_DESCENT_NUM_ITERATIONS);
+      // The CAGRA graph is written as an HNSW graph with maxConn, which holds at most 2 * maxConn
+      // neighbors per node on level 0. A wider graph is searched fine, but a CPU merge cannot copy
+      // it, or writes a segment that cannot be read. Under HEURISTIC, cuVS derives the degree from
+      // maxConn and stays within that; under CUSTOM, cuVS builds the graph degree, lowered to the
+      // intermediate graph degree if that is smaller.
+      if (strategy == Strategy.CUSTOM) {
+        int builtDegree = Math.min(graphdegree, intermediateGraphDegree);
+        int maxDegree = 2 * maxConn;
+        if (builtDegree > maxDegree) {
+          String built =
+              graphdegree <= intermediateGraphDegree
+                  ? "graphDegree " + graphdegree
+                  : "graphDegree "
+                      + graphdegree
+                      + ", lowered by cuVS to intermediateGraphDegree "
+                      + intermediateGraphDegree
+                      + ",";
+          throw new IllegalArgumentException(
+              built
+                  + " is larger than 2 * maxConn ("
+                  + maxDegree
+                  + "), the most neighbors an HNSW graph holds per node: set maxConn to at least "
+                  + Math.ceilDiv(builtDegree, 2)
+                  + " or graphDegree to at most "
+                  + maxDegree
+                  + ".");
+        }
+      }
     }
 
     /**

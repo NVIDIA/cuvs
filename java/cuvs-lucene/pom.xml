@@ -2,19 +2,26 @@
 SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0
 -->
+<!--
+    The child.*.inherit.append.path attributes stop Maven from appending each module's name to the
+    URLs the modules inherit, which would publish URLs such as https://rapids.ai/cuvs-lucene-10.5.
+-->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd"
+  child.project.url.inherit.append.path="false">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.nvidia.cuvs.lucene</groupId>
-  <artifactId>cuvs-lucene</artifactId>
+  <artifactId>cuvs-lucene-parent</artifactId>
   <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
   <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
-  <name>cuvs-lucene</name>
-  <packaging>jar</packaging>
+  <name>cuvs-lucene-parent</name>
+  <packaging>pom</packaging>
 
   <description>
       This project provides pluggable codecs for Apache Lucene to enable GPU-based accelerated vector search.
+      Lucene changes its codec APIs between minor releases, so there is one artifact per supported Lucene
+      minor version (cuvs-lucene-10.2, cuvs-lucene-10.3, ...), all built from the same sources.
   </description>
   <url>https://rapids.ai</url>
 
@@ -26,7 +33,9 @@ SPDX-License-Identifier: Apache-2.0
           <comments>A business-friendly OSS license</comments>
       </license>
   </licenses>
-  <scm>
+  <scm child.scm.connection.inherit.append.path="false"
+       child.scm.developerConnection.inherit.append.path="false"
+       child.scm.url.inherit.append.path="false">
       <connection>scm:git:https://github.com/rapidsai/cuvs.git</connection>
       <developerConnection>scm:git:git@github.com:rapidsai/cuvs.git</developerConnection>
       <tag>HEAD</tag>
@@ -45,11 +54,37 @@ SPDX-License-Identifier: Apache-2.0
       </developer>
   </developers>
 
+  <!--
+      One module per supported Lucene minor version. Each compiles the shared sources in ../src
+      against its own Lucene release, plus a small compatibility layer of its own. See README.md.
+  -->
+  <modules>
+    <module>lucene-10.2</module>
+    <module>lucene-10.3</module>
+    <module>lucene-10.4</module>
+    <module>lucene-10.5</module>
+    <!-- Relocates the pre-26.12 com.nvidia.cuvs.lucene:cuvs-lucene coordinates to cuvs-lucene-10.2. -->
+    <module>relocation</module>
+  </modules>
+
   <properties>
-    <maven.compiler.target>22</maven.compiler.target>
-    <maven.compiler.source>22</maven.compiler.source>
+    <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!--
+        The Lucene release a module is built for. Every module sets its own; this default only keeps
+        this pom valid, since it declares the Lucene dependencies. A module that forgot to set it would
+        build against this release and fail its tests, which check the Lucene version (LuceneCompat).
+    -->
+    <lucene.version>10.5.1</lucene.version>
+    <!-- The sources shared by every Lucene module. -->
+    <cuvs.lucene.shared.dir>${project.basedir}/../src</cuvs.lucene.shared.dir>
+    <!--
+        Code that differs between Lucene releases but is the same in several of them lives once, in
+        compat/<variant>/, one variant per adapted Lucene class and per release that changed it. Each
+        module picks one variant per class with the cuvs.lucene.compat.* properties.
+    -->
+    <cuvs.lucene.compat.dir>${project.basedir}/../compat</cuvs.lucene.compat.dir>
   </properties>
 
     <repositories>
@@ -106,44 +141,289 @@ SPDX-License-Identifier: Apache-2.0
         </pluginRepository>
     </pluginRepositories>
 
+  <!--
+      Every module depends on these. The Lucene ones use the module's lucene.version, the Lucene
+      release it is built for.
+  -->
   <dependencies>
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-core</artifactId>
-        <version>10.2.0</version>
-    </dependency>
-    <dependency>
-        <groupId>org.apache.lucene</groupId>
-        <artifactId>lucene-codecs</artifactId>
-        <version>10.2.0</version>
-        <scope>test</scope>
+        <version>${lucene.version}</version>
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-backward-codecs</artifactId>
-        <version>10.2.0</version>
+        <version>${lucene.version}</version>
+    </dependency>
+    <dependency>
+        <groupId>org.apache.lucene</groupId>
+        <artifactId>lucene-codecs</artifactId>
+        <version>${lucene.version}</version>
+        <scope>test</scope>
     </dependency>
     <dependency>
         <groupId>org.apache.lucene</groupId>
         <artifactId>lucene-test-framework</artifactId>
-        <version>10.2.0</version>
+        <version>${lucene.version}</version>
         <scope>test</scope>
     </dependency>
     <dependency>
         <groupId>commons-io</groupId>
         <artifactId>commons-io</artifactId>
-        <version>2.18.0</version>
         <scope>test</scope>
     </dependency>
     <dependency>
       <groupId>com.nvidia.cuvs</groupId>
       <artifactId>cuvs-java</artifactId>
-      <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
     </dependency>
   </dependencies>
 
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>com.nvidia.cuvs</groupId>
+        <artifactId>cuvs-java</artifactId>
+        <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+      </dependency>
+      <dependency>
+        <groupId>commons-io</groupId>
+        <artifactId>commons-io</artifactId>
+        <version>2.18.0</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
   <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <!-- Adds the shared sources to every module. -->
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>build-helper-maven-plugin</artifactId>
+          <version>3.6.2</version>
+          <executions>
+            <execution>
+              <id>add-shared-sources</id>
+              <phase>generate-sources</phase>
+              <goals>
+                <goal>add-source</goal>
+              </goals>
+              <configuration>
+                <sources>
+                  <source>${cuvs.lucene.shared.dir}/main/java</source>
+                  <!-- The variant of each adapted Lucene class the module's release needs; see compat/. -->
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnVectorsReader}/src/main/java</source>
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnVectorsWriter}/src/main/java</source>
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnFloatVectorQuery}/src/main/java</source>
+                </sources>
+              </configuration>
+            </execution>
+            <execution>
+              <id>add-shared-resources</id>
+              <phase>generate-resources</phase>
+              <goals>
+                <goal>add-resource</goal>
+              </goals>
+              <configuration>
+                <resources>
+                  <resource>
+                    <directory>${cuvs.lucene.shared.dir}/main/resources</directory>
+                  </resource>
+                </resources>
+              </configuration>
+            </execution>
+            <execution>
+              <id>add-shared-test-sources</id>
+              <phase>generate-test-sources</phase>
+              <goals>
+                <goal>add-test-source</goal>
+              </goals>
+              <configuration>
+                <sources>
+                  <source>${cuvs.lucene.shared.dir}/test/java</source>
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.leafReader}/src/test/java</source>
+                </sources>
+              </configuration>
+            </execution>
+            <execution>
+              <id>add-shared-test-resources</id>
+              <phase>generate-test-resources</phase>
+              <goals>
+                <goal>add-test-resource</goal>
+              </goals>
+              <configuration>
+                <resources>
+                  <resource>
+                    <directory>${cuvs.lucene.shared.dir}/test/resources</directory>
+                  </resource>
+                </resources>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <!--
+              Writes each module's pom, with everything it inherits from this one filled in, to
+              target/pom.xml, and installs that instead. target/ then holds all the files needed to
+              publish the module, and the published pom does not refer to this parent.
+          -->
+          <groupId>org.codehaus.mojo</groupId>
+          <artifactId>flatten-maven-plugin</artifactId>
+          <version>1.8.0</version>
+          <configuration>
+            <flattenMode>ossrh</flattenMode>
+            <outputDirectory>${project.build.directory}</outputDirectory>
+            <flattenedPomFilename>pom.xml</flattenedPomFilename>
+          </configuration>
+          <executions>
+            <execution>
+              <id>flatten</id>
+              <phase>process-resources</phase>
+              <goals>
+                <goal>flatten</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>3.6.0</version>
+          <configuration>
+            <descriptors>
+              <descriptor>${cuvs.lucene.shared.dir}/assembly/jar-with-dependencies.xml</descriptor>
+            </descriptors>
+            <archive>
+              <manifest>
+                <!--
+                    Implementation-Version: cuvs-java checks it against the native libcuvs version,
+                    and cuvs-lucene is released with the same version as cuvs-java.
+                -->
+                <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+              </manifest>
+              <manifestEntries>
+                <!-- cuvs-java keeps its implementation in META-INF/versions/22. -->
+                <Multi-Release>true</Multi-Release>
+              </manifestEntries>
+            </archive>
+          </configuration>
+          <executions>
+            <execution>
+              <id>make-assembly</id>
+              <phase>package</phase>
+              <goals>
+                <goal>single</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.5.4</version>
+          <configuration>
+            <reportFormat>plain</reportFormat>
+            <trimStackTrace>false</trimStackTrace>
+            <redirectTestOutputToFile>false</redirectTestOutputToFile>
+            <useFile>false</useFile>
+            <rerunFailingTestsCount>0</rerunFailingTestsCount>
+            <systemPropertyVariables>
+              <java.util.logging.config.file>${cuvs.lucene.shared.dir}/main/resources/logging.properties</java.util.logging.config.file>
+            </systemPropertyVariables>
+            <environmentVariables>
+              <CUFILE_LOGFILE_PATH>${project.build.directory}/cufile.log</CUFILE_LOGFILE_PATH>
+            </environmentVariables>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>3.3.1</version>
+          <executions>
+            <execution>
+              <id>attach-sources</id>
+              <goals>
+                <goal>jar-no-fork</goal>
+              </goals>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>3.12.0</version>
+          <executions>
+            <execution>
+              <id>attach-javadocs</id>
+              <goals>
+                  <goal>jar</goal>
+              </goals>
+              <configuration>
+                  <includePackageNames>com.nvidia.cuvs.lucene</includePackageNames>
+                  <doclint>all,-missing</doclint>
+                  <outputDirectory>${project.build.directory}/javadocs</outputDirectory>
+              </configuration>
+            </execution>
+          </executions>
+        </plugin>
+        <plugin>
+            <groupId>org.jacoco</groupId>
+            <artifactId>jacoco-maven-plugin</artifactId>
+            <version>0.8.14</version>
+            <executions>
+                <execution>
+                    <goals>
+                        <goal>prepare-agent</goal>
+                    </goals>
+                </execution>
+                <execution>
+                    <id>report</id>
+                    <phase>prepare-package</phase>
+                    <goals>
+                        <goal>report</goal>
+                    </goals>
+                </execution>
+            </executions>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
     <plugins>
+      <!--
+          Every module uses these, with the configuration from pluginManagement above. They also run
+          on this aggregator project, where they have nothing to do: its packaging is pom, so nothing
+          is compiled, tested or packaged. The assembly plugin is the exception, as it would build a
+          fat jar of this project's dependencies, so each module declares it itself.
+      -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>flatten-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+      </plugin>
+      <!--
+          Declared here rather than in pluginManagement so that it also runs on this aggregator
+          project, which is what formats the shared sources under src/.
+      -->
       <plugin>
         <groupId>com.diffplug.spotless</groupId>
         <artifactId>spotless-maven-plugin</artifactId>
@@ -152,6 +432,7 @@ SPDX-License-Identifier: Apache-2.0
             <java>
                 <includes>
                     <include>src/**/*.java</include>
+                    <include>compat/**/*.java</include>
                 </includes>
                 <googleJavaFormat>
                     <version>1.27.0</version>
@@ -161,93 +442,6 @@ SPDX-License-Identifier: Apache-2.0
                 </googleJavaFormat>
             </java>
         </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-assembly-plugin</artifactId>
-        <version>3.6.0</version>
-        <configuration>
-          <descriptorRefs>
-            <descriptorRef>jar-with-dependencies</descriptorRef>
-          </descriptorRefs>
-        </configuration>
-        <executions>
-          <execution>
-            <id>make-assembly</id>
-            <phase>package</phase>
-            <goals>
-              <goal>single</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.5.4</version>
-        <configuration>
-          <reportFormat>plain</reportFormat>
-          <trimStackTrace>false</trimStackTrace>
-          <redirectTestOutputToFile>false</redirectTestOutputToFile>
-          <useFile>false</useFile>
-          <rerunFailingTestsCount>0</rerunFailingTestsCount>
-          <systemPropertyVariables>
-            <java.util.logging.config.file>${project.basedir}/src/main/resources/logging.properties</java.util.logging.config.file>
-          </systemPropertyVariables>
-          <environmentVariables>
-            <CUFILE_LOGFILE_PATH>${project.build.directory}/cufile.log</CUFILE_LOGFILE_PATH>
-          </environmentVariables>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-source-plugin</artifactId>
-        <version>3.3.1</version>
-        <executions>
-          <execution>
-            <id>attach-sources</id>
-            <goals>
-              <goal>jar-no-fork</goal>
-            </goals>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-javadoc-plugin</artifactId>
-        <version>3.12.0</version>
-        <executions>
-          <execution>
-            <id>attach-javadocs</id>
-            <goals>
-                <goal>jar</goal>
-            </goals>
-            <configuration>
-                <includePackageNames>com.nvidia.cuvs.lucene</includePackageNames>
-                <doclint>all,-missing</doclint>
-                <outputDirectory>${project.build.directory}/javadocs</outputDirectory>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-      <plugin>
-          <groupId>org.jacoco</groupId>
-          <artifactId>jacoco-maven-plugin</artifactId>
-          <version>0.8.14</version>
-          <executions>
-              <execution>
-                  <goals>
-                      <goal>prepare-agent</goal>
-                  </goals>
-              </execution>
-              <execution>
-                  <id>report</id>
-                  <phase>prepare-package</phase>
-                  <goals>
-                      <goal>report</goal>
-                  </goals>
-              </execution>
-          </executions>
       </plugin>
     </plugins>
   </build>
