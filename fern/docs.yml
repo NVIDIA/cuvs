@@ -219,8 +219,11 @@ navigation:
                 path: "./pages/cuvs_bench/datasets.md"
               - page: "Synthetic Dataset Generation"
                 path: "./pages/cuvs_bench/synthesize_dataset.md"
-              - page: "Backends"
+              - section: "Backends"
                 path: "./pages/cuvs_bench/pluggable_backend.md"
+                contents:
+                  - page: "Lucene"
+                    path: "./pages/cuvs_bench/lucene_backend.md"
               - page: "cuVS Bench Parameter Tuning Guide"
                 hidden: true
                 path: "./pages/cuvs_bench/param_tuning.md"
@@ -575,6 +578,8 @@ navigation:
             path: "./pages/lucene_api/lucene-api-com-nvidia-cuvs-lucene-gpuindex.md"
           - page: "GPUSearchParams"
             path: "./pages/lucene_api/lucene-api-com-nvidia-cuvs-lucene-gpusearchparams.md"
+          - page: "IndexSearcherTimingBridge"
+            path: "./pages/lucene_api/lucene-api-com-nvidia-cuvs-lucene-indexsearchertimingbridge.md"
           - page: "LuceneProvider"
             path: "./pages/lucene_api/lucene-api-com-nvidia-cuvs-lucene-luceneprovider.md"
           - page: "ThreadLocalCuVSResourcesProvider"

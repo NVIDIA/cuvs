@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: lucene_cpu_hnsw
+groups:
+  base:
+    build:
+      codec: ["Lucene101"]
+    search: {}
+  test:
+    build:
+      codec: ["Lucene101"]
+    search: {}

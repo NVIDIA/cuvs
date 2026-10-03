@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+name: lucene_cuvs_cagra
+groups:
+  base:
+    build:
+      codec: ["CuVS2510GPUSearchCodec"]
+    search: {}
+  test:
+    build:
+      codec: ["CuVS2510GPUSearchCodec"]
+    search: {}
