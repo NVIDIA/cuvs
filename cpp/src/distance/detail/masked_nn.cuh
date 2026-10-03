@@ -8,6 +8,7 @@
 #include "compress_to_bits.cuh"
 #include "fused_distance_nn/fused_l2_nn.cuh"
 #include "masked_distance_base.cuh"
+#include <cuda/memory_resource>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/linalg/contractions.cuh>
@@ -246,8 +247,8 @@ void masked_l2_nn_impl(raft::resources const& handle,
   static_assert(P::Mblk == 64, "masked_l2_nn_impl only supports a policy with 64 rows per block.");
 
   // Get stream and workspace memory resource
-  rmm::device_async_resource_ref ws_mr = raft::resource::get_workspace_resource_ref(handle);
-  auto stream                          = raft::resource::get_cuda_stream(handle);
+  cuda::mr::device_resource_ref ws_mr = raft::resource::get_workspace_resource_ref(handle);
+  auto stream                         = raft::resource::get_cuda_stream(handle);
 
   // Acquire temporary buffers and initialize to zero:
   // 1) Adjacency matrix bitfield

@@ -14,8 +14,8 @@
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 
+#include <cuda/memory_resource>
 #include <rmm/device_uvector.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <cuda/stream>
 
@@ -100,7 +100,7 @@ class kmeans_batch_loader<DataT, IndexT, true> {
                       raft::device_matrix_view<const DataT, IndexT> input,
                       IndexT batch_size,
                       cuda::stream_ref copy_stream,
-                      rmm::device_async_resource_ref mr,
+                      cuda::mr::device_resource_ref mr,
                       bool enable_prefetch)
     : kmeans_batch_loader(res,
                           std::vector<raft::device_matrix_view<const DataT, IndexT>>{input},
@@ -115,7 +115,7 @@ class kmeans_batch_loader<DataT, IndexT, true> {
                       std::vector<raft::device_matrix_view<const DataT, IndexT>> const& partitions,
                       IndexT batch_size,
                       cuda::stream_ref,
-                      rmm::device_async_resource_ref,
+                      cuda::mr::device_resource_ref,
                       bool)
     : batch_size_(std::max<std::size_t>(static_cast<std::size_t>(batch_size), 1))
   {
@@ -163,7 +163,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
                       raft::host_matrix_view<const DataT, IndexT> input,
                       IndexT batch_size,
                       cuda::stream_ref copy_stream,
-                      rmm::device_async_resource_ref mr,
+                      cuda::mr::device_resource_ref mr,
                       bool enable_prefetch)
     : kmeans_batch_loader(res,
                           std::vector<raft::host_matrix_view<const DataT, IndexT>>{input},
@@ -178,7 +178,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
                       std::vector<raft::host_matrix_view<const DataT, IndexT>> const& partitions,
                       IndexT batch_size,
                       cuda::stream_ref copy_stream,
-                      rmm::device_async_resource_ref mr,
+                      cuda::mr::device_resource_ref mr,
                       bool enable_prefetch)
     : res_(&res),
       batch_size_(std::max<std::size_t>(static_cast<std::size_t>(batch_size), 1)),

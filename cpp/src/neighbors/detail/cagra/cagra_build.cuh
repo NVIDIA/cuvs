@@ -40,7 +40,7 @@
 // TODO: This shouldn't be calling spatial/knn APIs
 #include "../ann_utils.cuh"
 
-#include <rmm/resource_ref.hpp>
+#include <cuda/memory_resource>
 
 #include <algorithm>
 #include <array>
@@ -2005,7 +2005,7 @@ void build_knn_graph(
   }
 
   // If the workspace is smaller than desired, put the I/O buffers into the large workspace.
-  rmm::device_async_resource_ref workspace_mr =
+  cuda::mr::device_resource_ref workspace_mr =
     use_large_workspace ? raft::resource::get_large_workspace_resource_ref(res)
                         : raft::resource::get_workspace_resource_ref(res);
 

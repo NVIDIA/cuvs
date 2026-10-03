@@ -40,8 +40,7 @@ std::string get_rmm_mode(int argc, char** argv)
 }
 
 /// Creates the device memory resource for `rmm_mode` (as in cudf::test::create_memory_resource).
-cuda::mr::any_resource<cuda::mr::device_accessible> make_memory_resource(
-  std::string const& rmm_mode)
+cuda::mr::any_device_resource make_memory_resource(std::string const& rmm_mode)
 {
   if (rmm_mode == "cuda") { return rmm::mr::cuda_memory_resource{}; }
   if (rmm_mode == "async") { return rmm::mr::cuda_async_memory_resource{}; }

@@ -8,6 +8,7 @@
 #include "../common/ann_types.hpp"
 #include "../common/cuda_huge_page_resource.hpp"
 #include "cuvs_ann_bench_utils.h"
+#include <rmm/mr/per_device_resource.hpp>
 #include <rmm/mr/pinned_host_memory_resource.hpp>
 
 #include <cuvs/distance/distance.hpp>
@@ -25,8 +26,8 @@
 #include <raft/linalg/unary_op.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <cuda/memory_resource>
 #include <rmm/device_uvector.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <atomic>
 #include <cassert>
@@ -270,7 +271,7 @@ class cuvs_cagra : public algo<T>, public algo_gpu {
   std::shared_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>> vpq_dataset_;
   std::shared_ptr<cuvs::neighbors::cagra::device_pq_index<T, IdxT, half>> vpq_index_;
 
-  inline rmm::device_async_resource_ref get_mr(AllocatorType mem_type)
+  inline cuda::mr::device_resource_ref get_mr(AllocatorType mem_type)
   {
     switch (mem_type) {
       case (AllocatorType::kHostPinned): return mr_pinned_;

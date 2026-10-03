@@ -6,6 +6,7 @@
 #include <cub/device/device_histogram.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
+#include <cuda/memory_resource>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
@@ -58,7 +59,7 @@ void compute_cluster_offsets(raft::resources const& dev_resources,
                              int64_t& max_cluster_size)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources).get();
-  rmm::device_async_resource_ref device_memory =
+  cuda::mr::device_resource_ref device_memory =
     raft::resource::get_workspace_resource_ref(dev_resources);
 
   // Histrogram to compute cluster sizes
@@ -137,7 +138,7 @@ void sum_reduce_vector(raft::resources const& dev_resources,
                        raft::device_scalar_view<T> s)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(dev_resources).get();
-  rmm::device_async_resource_ref device_memory =
+  cuda::mr::device_resource_ref device_memory =
     raft::resource::get_workspace_resource_ref(dev_resources);
 
   size_t temp_storage_bytes = 0;
@@ -165,7 +166,7 @@ void cholesky_solver(raft::resources const& dev_resources,
 {
   cudaStream_t stream          = raft::resource::get_cuda_stream(dev_resources).get();
   cusolverDnHandle_t cusolverH = raft::resource::get_cusolver_dn_handle(dev_resources);
-  rmm::device_async_resource_ref device_memory =
+  cuda::mr::device_resource_ref device_memory =
     raft::resource::get_workspace_resource_ref(dev_resources);
 
   // RAFT_CUSOLVER_TRY(cusolverDnSetStream(cusolverH, stream));
