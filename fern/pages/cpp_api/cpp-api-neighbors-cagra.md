@@ -87,8 +87,18 @@ A strategy for selecting the graph build parameters based on similar HNSW index 
 Define how `cagra::index_params::from_hnsw_params` should construct a graph to construct a graph that is to be converted to (used by) a CPU HNSW index.
 
 ```cpp
-enum class hnsw_heuristic_type : uint32_t;
+enum class hnsw_heuristic_type : uint32_t {
+  SIMILAR_SEARCH_PERFORMANCE = 0,
+  SAME_GRAPH_FOOTPRINT = 1
+};
 ```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `SIMILAR_SEARCH_PERFORMANCE` | `0` |
+| `SAME_GRAPH_FOOTPRINT` | `1` |
 
 <a id="neighbors-cagra-index-params-graph-build-heuristic"></a>
 ### neighbors::cagra::index_params::graph_build_heuristic
@@ -2605,6 +2615,7 @@ CAGRA index build functions
 
 ```cpp
 enum class merge_algo {
+  AUTO,
   FASTENER,
   REBUILD
 };
@@ -2614,6 +2625,7 @@ enum class merge_algo {
 
 | Name | Value |
 | --- | --- |
+| `AUTO` | `` |
 | `FASTENER` | `` |
 | `REBUILD` | `` |
 

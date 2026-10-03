@@ -16,7 +16,10 @@ Enum to denote which ANN algorithm is used to build CAGRA graph
 ```c
 enum cuvsCagraGraphBuildAlgo {
   AUTO_SELECT = 0,
-  IVF_PQ = 1
+  IVF_PQ = 1,
+  NN_DESCENT = 2,
+  ITERATIVE_CAGRA_SEARCH = 3,
+  ACE = 4
 };
 ```
 
@@ -26,6 +29,9 @@ enum cuvsCagraGraphBuildAlgo {
 | --- | --- |
 | `AUTO_SELECT` | `0` |
 | `IVF_PQ` | `1` |
+| `NN_DESCENT` | `2` |
+| `ITERATIVE_CAGRA_SEARCH` | `3` |
+| `ACE` | `4` |
 
 <a id="cuvscagrahnswheuristictype"></a>
 ### cuvsCagraHnswHeuristicType
@@ -35,8 +41,18 @@ A strategy for selecting the graph build parameters based on similar HNSW index 
 Define how cuvsCagraIndexParamsFromHnswParams should construct a graph to construct a graph that is to be converted to (used by) a CPU HNSW index.
 
 ```c
-enum cuvsCagraHnswHeuristicType;
+enum cuvsCagraHnswHeuristicType {
+  CUVS_CAGRA_HEURISTIC_SIMILAR_SEARCH_PERFORMANCE = 0,
+  CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT = 1
+};
 ```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `CUVS_CAGRA_HEURISTIC_SIMILAR_SEARCH_PERFORMANCE` | `0` |
+| `CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT` | `1` |
 
 <a id="cuvscagracompressionparams"></a>
 ### cuvsCagraCompressionParams
