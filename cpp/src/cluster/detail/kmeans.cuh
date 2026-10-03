@@ -68,6 +68,8 @@ void cluster_cost(
   raft::device_vector_view<DataT, IndexT> distances,
   rmm::device_uvector<DataT>& distance_buffer,
   rmm::device_uvector<char>& workspace,
+  int batch_samples,
+  int batch_centroids,
   std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
 {
   auto n_samples = static_cast<IndexT>(X.extent(0));
@@ -84,8 +86,8 @@ void cluster_cost(
     norms,
     distance_buffer,
     cuvs::distance::DistanceType::L2Expanded,
-    n_samples,
-    centroids.extent(0),
+    batch_samples,
+    batch_centroids,
     workspace,
     cuvs::distance::detail::Top1nnBackend::Stable);
 
@@ -1027,6 +1029,8 @@ void kmeans_fit(
                                                     minClusterDistance.view(),
                                                     L2NormBuf_OR_DistBuf,
                                                     ws,
+                                                    iter_params.batch_samples,
+                                                    iter_params.batch_centroids,
                                                     batch_sw);
         raft::linalg::add(clustering_cost.data_handle(),
                           clustering_cost.data_handle(),
@@ -1178,20 +1182,14 @@ void kmeans_predict(raft::resources const& handle,
 
   cuvs::cluster::kmeans::detail::copyClusterLabels(handle, result, labels.data_handle());
 
-  if (result.plan().backend != cuvs::distance::detail::Top1nnBackend::Cutile) {
-    rmm::device_scalar<DataT> clusterCostD(stream);
-    cuvs::cluster::kmeans::detail::weightAndComputeClusterCost(
-      handle,
-      result,
-      raft::make_const_mdspan(weight.view()),
-      workspace,
-      raft::make_device_scalar_view(clusterCostD.data()));
-    inertia[0] = clusterCostD.value(stream);
-  } else {
-    auto stable_weights = std::optional<raft::device_vector_view<const DataT, IndexT>>{
-      raft::make_const_mdspan(weight.view())};
-    cuvs::cluster::kmeans::cluster_cost(handle, X, centroids, inertia, stable_weights);
-  }
+  rmm::device_scalar<DataT> clusterCostD(stream);
+  cuvs::cluster::kmeans::detail::weightAndComputeClusterCost(
+    handle,
+    result,
+    raft::make_const_mdspan(weight.view()),
+    workspace,
+    raft::make_device_scalar_view(clusterCostD.data()));
+  inertia[0] = clusterCostD.value(stream);
 }
 
 template <typename DataT, typename IndexT = int>

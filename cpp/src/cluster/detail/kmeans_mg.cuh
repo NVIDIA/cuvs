@@ -596,6 +596,8 @@ void mnmg_fit(
                                                   minClusterDistance.view(),
                                                   L2NormBuf_OR_DistBuf,
                                                   workspace,
+                                                  iter_params.batch_samples,
+                                                  iter_params.batch_centroids,
                                                   batch_sw);
       raft::linalg::add(clustering_cost.data_handle(),
                         clustering_cost.data_handle(),
