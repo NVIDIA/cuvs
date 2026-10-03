@@ -79,17 +79,8 @@ files:
   docs:
     output: none
     includes:
-      - clang
-      - cuda
-      - cutile_python
-      - cuda_version
-      - depends_on_cupy
       - docs
       - py_version
-      - rapids_build
-      - rust
-      - depends_on_libcuvs
-      - depends_on_cuvs
   rust:
     output: conda
     matrix:
