@@ -79,7 +79,10 @@ run_fern() {
 }
 
 generate_api_reference() {
+  pushd "${REPO_DIR}" >/dev/null
+  python3 -m unittest fern.scripts.test_generate_api_reference
   python3 "${SCRIPT_DIR}/scripts/generate_api_reference.py"
+  popd >/dev/null
 }
 
 run_checks() {
