@@ -538,6 +538,8 @@ navigation:
             path: "./pages/java_api/java-api-com-nvidia-cuvs-hnswindex.md"
           - page: "HnswIndexParams"
             path: "./pages/java_api/java-api-com-nvidia-cuvs-hnswindexparams.md"
+          - page: "HnswMaterializeParams"
+            path: "./pages/java_api/java-api-com-nvidia-cuvs-hnswmaterializeparams.md"
           - page: "HnswQuery"
             path: "./pages/java_api/java-api-com-nvidia-cuvs-hnswquery.md"
           - page: "HnswSearchParams"

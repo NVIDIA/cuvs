@@ -408,3 +408,41 @@ extern "C" cuvsError_t cuvsHnswDeserialize(cuvsResources_t res,
     }
   });
 }
+
+extern "C" cuvsError_t cuvsHnswMaterializeParamsCreate(cuvsHnswMaterializeParams_t* params)
+{
+  return cuvs::core::translate_exceptions([=] {
+    *params = new cuvsHnswMaterializeParams{
+      .dataset_path = nullptr, .max_host_memory_gb = 0, .num_threads = 0};
+  });
+}
+
+extern "C" cuvsError_t cuvsHnswMaterializeParamsDestroy(cuvsHnswMaterializeParams_t params)
+{
+  return cuvs::core::translate_exceptions([=] { delete params; });
+}
+
+extern "C" cuvsError_t cuvsHnswMaterializeToHnswlib(cuvsResources_t res,
+                                                    cuvsHnswMaterializeParams_t params,
+                                                    const char* layered_artifact_path,
+                                                    const char* output_path,
+                                                    int dim,
+                                                    cuvsDistanceType metric)
+{
+  return cuvs::core::translate_exceptions([=] {
+    auto res_ptr    = reinterpret_cast<raft::resources*>(res);
+    auto cpp_params = cuvs::neighbors::hnsw::materialize_params();
+    if (params->dataset_path != nullptr) {
+      cpp_params.dataset_path = std::string(params->dataset_path);
+    }
+    cpp_params.max_host_memory_gb = params->max_host_memory_gb;
+    cpp_params.num_threads        = params->num_threads;
+    auto metric_type              = static_cast<cuvs::distance::DistanceType>(metric);
+    cuvs::neighbors::hnsw::materialize_to_hnswlib(*res_ptr,
+                                                  cpp_params,
+                                                  std::string(layered_artifact_path),
+                                                  std::string(output_path),
+                                                  dim,
+                                                  metric_type);
+  });
+}

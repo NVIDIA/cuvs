@@ -77,6 +77,45 @@ public interface HnswIndex extends AutoCloseable {
   }
 
   /**
+   * Materializes a layered HNSW artifact into a standard hnswlib index file on
+   * disk.
+   *
+   * Materializes a {@code GRAPH_ONLY} artifact (graph topology only,
+   * stored in ACE order) plus a local dataset into a standard hnswlib index file,
+   * without ever holding the full materialized index in host memory. The
+   * resulting file is compatible with the original hnswlib library and can be read
+   * back with {@code hierarchy == CPU}. The element data type is inferred from the
+   * external dataset. GRAPH_ONLY artifacts are currently produced through the C++
+   * API.
+   *
+   * @param resources The CuVS resources
+   * @param materializeParams Materialization parameters (dataset path, host-memory
+   *     budget, threads)
+   * @param layeredArtifactPath Path to the layered HNSW artifact
+   * @param outputPath Path to the hnswlib index file to write
+   * @param dim The dimension of the vectors in the index
+   * @param metric The distance metric used to build the index
+   * @throws Throwable if an error occurs during materialization
+   */
+  static void materializeToHnswlib(
+      CuVSResources resources,
+      HnswMaterializeParams materializeParams,
+      String layeredArtifactPath,
+      String outputPath,
+      int dim,
+      HnswIndexParams.CuvsDistanceType metric)
+      throws Throwable {
+    Objects.requireNonNull(resources);
+    Objects.requireNonNull(materializeParams);
+    Objects.requireNonNull(layeredArtifactPath);
+    Objects.requireNonNull(outputPath);
+    Objects.requireNonNull(metric);
+    CuVSProvider.provider()
+        .hnswMaterializeToHnswlib(
+            resources, materializeParams, layeredArtifactPath, outputPath, dim, metric);
+  }
+
+  /**
    * Builder helps configure and create an instance of {@link HnswIndex}.
    */
   interface Builder {

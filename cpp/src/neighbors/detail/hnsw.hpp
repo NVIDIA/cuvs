@@ -35,6 +35,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <exception>
@@ -101,6 +102,18 @@ class exclusive_hnsw_temp_file {
                 error,
                 strerror(error));
     }
+  }
+
+  void publish_replace()
+  {
+    if (::rename(temporary_path_.c_str(), output_path_.c_str()) != 0) {
+      const int error = errno;
+      RAFT_FAIL("Cannot publish HNSW index %s (errno: %d, %s)",
+                output_path_.c_str(),
+                error,
+                strerror(error));
+    }
+    temporary_path_.clear();
   }
 
  private:
@@ -893,6 +906,33 @@ inline auto open_layered_dataset_file(const std::string& path) -> npy_file
           false};
 }
 
+inline auto layered_dataset_dtype(const std::string& path) -> layered_hnsw_dtype
+{
+  if (std::filesystem::path(path).extension() == ".npy") {
+    const auto file = open_npy_file(path);
+    if (file.dtype == cuvs::util::detail::numpy_dtype_string<float>()) {
+      return layered_hnsw_dtype::float32;
+    }
+    if (file.dtype == cuvs::util::detail::numpy_dtype_string<half>()) {
+      return layered_hnsw_dtype::float16;
+    }
+    if (file.dtype == cuvs::util::detail::numpy_dtype_string<uint8_t>()) {
+      return layered_hnsw_dtype::uint8;
+    }
+    if (file.dtype == cuvs::util::detail::numpy_dtype_string<int8_t>()) {
+      return layered_hnsw_dtype::int8;
+    }
+    return layered_hnsw_dtype::unknown;
+  }
+
+  const auto ext = std::filesystem::path(path).extension().string();
+  if (ext == ".fbin" && !ends_with(path, ".fp16.fbin")) { return layered_hnsw_dtype::float32; }
+  if (ext == ".f16bin" || ends_with(path, ".fp16.fbin")) { return layered_hnsw_dtype::float16; }
+  if (ext == ".u8bin") { return layered_hnsw_dtype::uint8; }
+  if (ext == ".i8bin") { return layered_hnsw_dtype::int8; }
+  return layered_hnsw_dtype::unknown;
+}
+
 template <typename T, typename CagraIndexT>
 void write_layered_base_links_from_disk(const CagraIndexT& index_,
                                         const cuvs::util::file_descriptor& output_fd,
@@ -1177,11 +1217,7 @@ auto serialize_to_layered_hnswlib_from_disk(
 
   exclusive_hnsw_temp_file output(artifact_file);
   cuvs::util::file_descriptor artifact_fd(output.temporary_path(), O_RDWR);
-  const auto fallocate_result = posix_fallocate(artifact_fd.get(), 0, final_file_size);
-  RAFT_EXPECTS(fallocate_result == 0,
-               "Failed to pre-allocate layered HNSW artifact %s: %s",
-               artifact_file.string().c_str(),
-               std::strerror(fallocate_result));
+  cuvs::util::preallocate_file(artifact_fd, final_file_size);
   cuvs::util::write_large_file(artifact_fd, &header, sizeof(header), 0);
   if (descriptors_bytes > 0) {
     cuvs::util::write_large_file(
@@ -1323,6 +1359,45 @@ auto serialize_to_layered_hnswlib_from_disk(
   return artifact_file.string();
 }
 
+// Build the standard hnswlib index header (matches HierarchicalNSW::saveIndex byte layout). Single
+// source of the on-disk header encoding, shared by the streaming serialize path and the
+// disk-to-disk materialize path so the two cannot drift.
+inline auto make_hnswlib_native_header(size_t offset_level0,
+                                       size_t n_rows,
+                                       size_t size_data_per_element,
+                                       size_t label_offset,
+                                       size_t offset_data,
+                                       int maxlevel,
+                                       int enterpoint_node,
+                                       size_t maxM,
+                                       size_t maxM0,
+                                       size_t M,
+                                       double mult,
+                                       size_t ef_construction) -> std::vector<char>
+{
+  std::vector<char> buffer;
+  auto append = [&buffer](const auto& value) {
+    const auto* bytes = reinterpret_cast<const char*>(&value);
+    buffer.insert(buffer.end(), bytes, bytes + sizeof(value));
+  };
+  const size_t max_elements      = n_rows;
+  const size_t cur_element_count = n_rows;
+  append(offset_level0);
+  append(max_elements);
+  append(cur_element_count);
+  append(size_data_per_element);
+  append(label_offset);
+  append(offset_data);
+  append(maxlevel);
+  append(enterpoint_node);
+  append(maxM);
+  append(maxM0);
+  append(M);
+  append(mult);
+  append(ef_construction);
+  return buffer;
+}
+
 // Source-agnostic core that streams a CAGRA index into hnswlib format on disk.
 // The disk-backed and in-memory variants differ only in the `read_batch` callable,
 // which fills the provided host buffers (graph, dataset, labels) for a given row range.
@@ -1408,33 +1483,21 @@ void serialize_to_hnswlib_batched(raft::resources const& res,
                  appr_algo->maxM0_,
                  appr_algo->M_);
 
-  // offset_level_0
-  os.write(reinterpret_cast<char*>(&appr_algo->offsetLevel0_), sizeof(std::size_t));
-  // 8 max_element - override with n_rows
-  size_t num_elements = (size_t)n_rows;
-  os.write(reinterpret_cast<char*>(&num_elements), sizeof(std::size_t));
-  // 16 curr_element_count - override with n_rows
-  os.write(reinterpret_cast<char*>(&num_elements), sizeof(std::size_t));
-  // 24 size_data_per_element
-  os.write(reinterpret_cast<char*>(&appr_algo->size_data_per_element_), sizeof(std::size_t));
-  // 32 label_offset
-  os.write(reinterpret_cast<char*>(&appr_algo->label_offset_), sizeof(std::size_t));
-  // 40 offset_data
-  os.write(reinterpret_cast<char*>(&appr_algo->offsetData_), sizeof(std::size_t));
-  // 48 maxlevel
-  os.write(reinterpret_cast<char*>(&appr_algo->maxlevel_), sizeof(int));
-  // 52 enterpoint_node
-  os.write(reinterpret_cast<char*>(&appr_algo->enterpoint_node_), sizeof(int));
-  // 56 maxM
-  os.write(reinterpret_cast<char*>(&appr_algo->maxM_), sizeof(std::size_t));
-  // 64 maxM0
-  os.write(reinterpret_cast<char*>(&appr_algo->maxM0_), sizeof(std::size_t));
-  // 72 M
-  os.write(reinterpret_cast<char*>(&appr_algo->M_), sizeof(std::size_t));
-  // 80 mult
-  os.write(reinterpret_cast<char*>(&appr_algo->mult_), sizeof(double));
-  // 88 ef_construction
-  os.write(reinterpret_cast<char*>(&appr_algo->ef_construction_), sizeof(std::size_t));
+  // Write the hnswlib index header (max_element / cur_element_count overridden with n_rows) using
+  // the shared encoder so the byte layout stays in lockstep with the materialize path.
+  const auto native_header = make_hnswlib_native_header(appr_algo->offsetLevel0_,
+                                                        static_cast<size_t>(n_rows),
+                                                        appr_algo->size_data_per_element_,
+                                                        appr_algo->label_offset_,
+                                                        appr_algo->offsetData_,
+                                                        appr_algo->maxlevel_,
+                                                        appr_algo->enterpoint_node_,
+                                                        appr_algo->maxM_,
+                                                        appr_algo->maxM0_,
+                                                        appr_algo->M_,
+                                                        appr_algo->mult_,
+                                                        appr_algo->ef_construction_);
+  os.write(native_header.data(), static_cast<std::streamsize>(native_header.size()));
 
   // host queries
   auto host_query_set =
@@ -2512,15 +2575,34 @@ void serialize(raft::resources const& res, const std::string& filename, const in
   hnswlib_index->saveIndex(filename);
 }
 
+// Parsed + fully validated view of a layered HNSW artifact: header metadata, the payload section
+// offsets, and the per-row levels array. Both the in-memory deserialize path and the disk-to-disk
+// materialize path consume this so the artifact format (offset arithmetic and the size-invariant
+// checks) lives in a single place and cannot drift between them.
+struct layered_artifact_view {
+  layered_hnsw_file_metadata metadata;
+  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded;
+  size_t artifact_size                = 0;
+  size_t levels_offset                = 0;
+  size_t base_nodes_offset            = 0;
+  size_t base_links_offset            = 0;
+  size_t upper_nodes_offset           = 0;
+  size_t upper_links_offset           = 0;
+  std::vector<uint8_t> levels;  // per-row top level, length n_rows
+};
+
+// Reads and validates the artifact header/descriptors/levels from an already-open artifact fd.
+// Enforces every structural invariant (magic, version, dtype, metric, dim, layer count, section
+// sizes, file length, and the levels max-level) BEFORE the caller allocates buffers sized from
+// these fields, so a corrupt/truncated/crafted header cannot drive an out-of-bounds read or write.
 template <typename T>
-auto deserialize_layered_hnswlib(raft::resources const& res,
-                                 const std::string& artifact_path,
-                                 const std::string& dataset_path) -> std::unique_ptr<index<T>>
+auto read_and_validate_layered_artifact(
+  const cuvs::util::file_descriptor& artifact_fd,
+  const std::string& artifact_path,
+  std::optional<int> expected_dim                             = std::nullopt,
+  std::optional<cuvs::distance::DistanceType> expected_metric = std::nullopt)
+  -> layered_artifact_view
 {
-  common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::deserialize_layered");
-  const auto total_start_time    = std::chrono::steady_clock::now();
-  const auto metadata_start_time = std::chrono::steady_clock::now();
-  cuvs::util::file_descriptor artifact_fd(artifact_path, O_RDONLY);
   layered_hnsw_file_header header{};
   cuvs::util::read_large_file(artifact_fd, &header, sizeof(header), 0);
   RAFT_EXPECTS(std::strncmp(header.magic, layered_hnsw_magic, sizeof(header.magic)) == 0,
@@ -2533,34 +2615,49 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
   RAFT_EXPECTS(is_supported_layered_dtype(construction_dtype),
                "Layered HNSW artifact contains unsupported construction dtype code %u",
                header.construction_dtype);
-  const auto metric = static_cast<cuvs::distance::DistanceType>(header.metric);
-  RAFT_EXPECTS(metric == cuvs::distance::DistanceType::L2Expanded ||
-                 metric == cuvs::distance::DistanceType::InnerProduct,
+  const auto artifact_metric = static_cast<cuvs::distance::DistanceType>(header.metric);
+  RAFT_EXPECTS(artifact_metric == cuvs::distance::DistanceType::L2Expanded ||
+                 artifact_metric == cuvs::distance::DistanceType::InnerProduct,
                "Layered HNSW artifact contains unsupported metric code %u",
                header.metric);
   RAFT_EXPECTS(header.dim <= static_cast<uint64_t>(std::numeric_limits<int>::max()),
                "Layered HNSW artifact dimension (%zu) exceeds supported maximum (%d)",
                static_cast<size_t>(header.dim),
                std::numeric_limits<int>::max());
-  const auto dim = static_cast<int>(header.dim);
+  const auto artifact_dim = static_cast<int>(header.dim);
+  if (expected_dim.has_value()) {
+    RAFT_EXPECTS(artifact_dim == *expected_dim,
+                 "Layered HNSW artifact dim (%d) does not match requested dim (%d)",
+                 artifact_dim,
+                 *expected_dim);
+  }
+  if (expected_metric.has_value()) {
+    RAFT_EXPECTS(artifact_metric == *expected_metric,
+                 "Layered HNSW artifact metric (%s) does not match requested metric (%s)",
+                 metric_name(artifact_metric),
+                 metric_name(*expected_metric));
+  }
 
-  const auto artifact_size      = static_cast<size_t>(std::filesystem::file_size(artifact_path));
+  layered_artifact_view view;
+  view.metric                   = artifact_metric;
+  view.artifact_size            = static_cast<size_t>(std::filesystem::file_size(artifact_path));
   const auto descriptors_offset = sizeof(layered_hnsw_file_header);
   const auto descriptors_bytes =
     static_cast<size_t>(header.num_layers) * sizeof(layered_hnsw_layer_descriptor);
-  RAFT_EXPECTS(descriptors_offset + descriptors_bytes <= artifact_size,
+  RAFT_EXPECTS(descriptors_offset + descriptors_bytes <= view.artifact_size,
                "Layered HNSW layer descriptors are outside artifact: offset=%zu size=%zu "
                "artifact=%zu",
                descriptors_offset,
                descriptors_bytes,
-               artifact_size);
+               view.artifact_size);
 
   std::vector<layered_hnsw_layer_descriptor> layer_descriptors(header.num_layers);
   if (descriptors_bytes > 0) {
     cuvs::util::read_large_file(
       artifact_fd, layer_descriptors.data(), descriptors_bytes, descriptors_offset);
   }
-  auto metadata = layered_hnsw_metadata_from_header(header);
+  auto& metadata = view.metadata;
+  metadata       = layered_hnsw_metadata_from_header(header);
   metadata.layers.reserve(layer_descriptors.size());
   for (const auto& descriptor : layer_descriptors) {
     metadata.layers.push_back({static_cast<size_t>(descriptor.level),
@@ -2569,7 +2666,6 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
                                static_cast<size_t>(descriptor.node_offset),
                                static_cast<size_t>(descriptor.link_offset)});
   }
-  const auto metadata_elapsed_ms = elapsed_ms_since(metadata_start_time);
 
   RAFT_EXPECTS(metadata.n_rows > 0, "Layered HNSW artifact must contain at least one row");
   RAFT_EXPECTS(metadata.dim > 0, "Layered HNSW artifact must contain at least one dimension");
@@ -2583,20 +2679,69 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
                metadata.layers.size(),
                metadata.maxlevel);
 
-  RAFT_EXPECTS(!dataset_path.empty(), "Layered HNSW deserialization requires a dataset filename");
+  // Section-size invariants: every buffer below is sized from n_rows / upper_nodes_count, so the
+  // declared section byte counts must match exactly or a later read/scatter would overrun.
+  RAFT_EXPECTS(metadata.levels_bytes == metadata.n_rows * sizeof(uint8_t),
+               "Layered HNSW levels section size mismatch");
+  RAFT_EXPECTS(metadata.base_nodes_bytes == metadata.n_rows * sizeof(uint32_t),
+               "Layered HNSW base node section size mismatch");
+  RAFT_EXPECTS(metadata.base_links_bytes == metadata.n_rows * metadata.base_link_row_bytes,
+               "Layered HNSW base links section size mismatch");
+  RAFT_EXPECTS(metadata.upper_nodes_bytes == metadata.upper_nodes_count * sizeof(uint32_t),
+               "Layered HNSW upper node section size mismatch");
+  RAFT_EXPECTS(
+    metadata.upper_links_bytes == metadata.upper_nodes_count * metadata.upper_link_row_bytes,
+    "Layered HNSW upper link section size mismatch");
+  RAFT_EXPECTS(metadata.base_degree <= metadata.maxM0,
+               "Layered HNSW base degree (%zu) exceeds maxM0 (%zu)",
+               metadata.base_degree,
+               metadata.maxM0);
 
   const auto payload_offset =
     align_up(descriptors_offset + descriptors_bytes, layered_hnsw_alignment);
-  const auto levels_offset      = payload_offset;
-  const auto base_nodes_offset  = levels_offset + metadata.levels_bytes;
-  const auto base_links_offset  = base_nodes_offset + metadata.base_nodes_bytes;
-  const auto upper_nodes_offset = base_links_offset + metadata.base_links_bytes;
-  const auto upper_links_offset = upper_nodes_offset + metadata.upper_nodes_bytes;
-  const auto expected_file_size = upper_links_offset + metadata.upper_links_bytes;
-  RAFT_EXPECTS(artifact_size >= expected_file_size,
+  view.levels_offset            = payload_offset;
+  view.base_nodes_offset        = view.levels_offset + metadata.levels_bytes;
+  view.base_links_offset        = view.base_nodes_offset + metadata.base_nodes_bytes;
+  view.upper_nodes_offset       = view.base_links_offset + metadata.base_links_bytes;
+  view.upper_links_offset       = view.upper_nodes_offset + metadata.upper_nodes_bytes;
+  const auto expected_file_size = view.upper_links_offset + metadata.upper_links_bytes;
+  RAFT_EXPECTS(view.artifact_size >= expected_file_size,
                "Layered HNSW artifact is truncated: expected at least %zu bytes, got %zu",
                expected_file_size,
-               artifact_size);
+               view.artifact_size);
+
+  view.levels.resize(metadata.n_rows);
+  cuvs::util::read_large_file(
+    artifact_fd, view.levels.data(), metadata.levels_bytes, view.levels_offset);
+  const auto max_level_in_levels = *std::max_element(view.levels.begin(), view.levels.end());
+  RAFT_EXPECTS(static_cast<int>(max_level_in_levels) == metadata.maxlevel,
+               "Layered HNSW levels max level (%d) does not match artifact maxlevel (%d)",
+               static_cast<int>(max_level_in_levels),
+               metadata.maxlevel);
+  return view;
+}
+
+template <typename T>
+auto deserialize_layered_hnswlib(raft::resources const& res,
+                                 const std::string& artifact_path,
+                                 const std::string& dataset_path) -> std::unique_ptr<index<T>>
+{
+  common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::deserialize_layered");
+  const auto total_start_time    = std::chrono::steady_clock::now();
+  const auto metadata_start_time = std::chrono::steady_clock::now();
+  cuvs::util::file_descriptor artifact_fd(artifact_path, O_RDONLY);
+  auto view                     = read_and_validate_layered_artifact<T>(artifact_fd, artifact_path);
+  auto& metadata                = view.metadata;
+  const auto dim                = static_cast<int>(metadata.dim);
+  const auto metric             = view.metric;
+  const auto artifact_size      = view.artifact_size;
+  const auto base_nodes_offset  = view.base_nodes_offset;
+  const auto base_links_offset  = view.base_links_offset;
+  const auto upper_nodes_offset = view.upper_nodes_offset;
+  const auto upper_links_offset = view.upper_links_offset;
+  const auto metadata_elapsed_ms = elapsed_ms_since(metadata_start_time);
+
+  RAFT_EXPECTS(!dataset_path.empty(), "Layered HNSW deserialization requires a dataset filename");
   RAFT_LOG_INFO("Layered HNSW load: metadata read in %ld ms (rows=%zu dim=%zu artifact=%.2f GiB)",
                 metadata_elapsed_ms,
                 metadata.n_rows,
@@ -2617,21 +2762,6 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
                dataset_file.shape.size() > 1 ? dataset_file.shape[1] : 0,
                dataset_path.c_str());
   validate_npy_file<T>(dataset_file, dataset_path, "Layered HNSW dataset");
-  RAFT_EXPECTS(metadata.levels_bytes == metadata.n_rows * sizeof(uint8_t),
-               "Layered HNSW levels section size mismatch");
-  RAFT_EXPECTS(metadata.base_nodes_bytes == metadata.n_rows * sizeof(uint32_t),
-               "Layered HNSW base node section size mismatch");
-  RAFT_EXPECTS(metadata.base_links_bytes == metadata.n_rows * metadata.base_link_row_bytes,
-               "Layered HNSW base links section size mismatch");
-  RAFT_EXPECTS(metadata.upper_nodes_bytes == metadata.upper_nodes_count * sizeof(uint32_t),
-               "Layered HNSW upper node section size mismatch");
-  RAFT_EXPECTS(
-    metadata.upper_links_bytes == metadata.upper_nodes_count * metadata.upper_link_row_bytes,
-    "Layered HNSW upper link section size mismatch");
-  RAFT_EXPECTS(metadata.base_degree <= metadata.maxM0,
-               "Layered HNSW base degree (%zu) exceeds maxM0 (%zu)",
-               metadata.base_degree,
-               metadata.maxM0);
 
   RAFT_LOG_INFO("Layered HNSW load: dataset header validated in %ld ms (%s)",
                 dataset_open_elapsed_ms,
@@ -2659,19 +2789,8 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
     }
   };
 
-  const auto levels_start_time = std::chrono::steady_clock::now();
-  std::vector<uint8_t> levels_u8(metadata.n_rows);
-  cuvs::util::read_large_file(artifact_fd, levels_u8.data(), metadata.levels_bytes, levels_offset);
+  auto& levels_u8 = view.levels;
   log_deserialize_progress(metadata.levels_bytes);
-  const auto max_level_in_levels = *std::max_element(levels_u8.begin(), levels_u8.end());
-  RAFT_EXPECTS(static_cast<int>(max_level_in_levels) == metadata.maxlevel,
-               "Layered HNSW levels max level (%d) does not match artifact maxlevel (%d)",
-               static_cast<int>(max_level_in_levels),
-               metadata.maxlevel);
-  const auto levels_elapsed_ms = elapsed_ms_since(levels_start_time);
-  RAFT_LOG_INFO("Layered HNSW load: levels read in %ld ms (%.2f MiB)",
-                levels_elapsed_ms,
-                static_cast<double>(metadata.levels_bytes) / (1024.0 * 1024.0));
 
   const auto allocation_start_time = std::chrono::steady_clock::now();
   auto hnsw_index =
@@ -2882,6 +3001,683 @@ auto deserialize_layered_hnswlib(raft::resources const& res,
   RAFT_LOG_INFO("Layered HNSW load: total deserialize completed in %ld ms",
                 elapsed_ms_since(total_start_time));
   return hnsw_index;
+}
+
+// Disk-to-disk materialization: layered HNSW artifact -> standard hnswlib index file.
+// Constants/offsets shared by the materialization helpers.
+struct hnswlib_materialize_layout {
+  size_t n_rows                = 0;
+  size_t dim                   = 0;
+  size_t base_link_row_bytes   = 0;
+  size_t upper_link_row_bytes  = 0;
+  size_t size_data_per_element = 0;
+  size_t offset_data           = 0;
+  size_t label_offset          = 0;
+  size_t data_size             = 0;
+  // Output file offsets.
+  size_t base_region_offset  = 0;
+  size_t upper_region_offset = 0;
+  // Artifact payload offsets.
+  size_t base_nodes_offset  = 0;
+  size_t base_links_offset  = 0;
+  size_t upper_nodes_offset = 0;
+  size_t upper_links_offset = 0;
+};
+
+class scoped_directory_cleanup {
+ public:
+  explicit scoped_directory_cleanup(std::filesystem::path path) : path_{std::move(path)} {}
+  scoped_directory_cleanup(const scoped_directory_cleanup&)            = delete;
+  scoped_directory_cleanup& operator=(const scoped_directory_cleanup&) = delete;
+  ~scoped_directory_cleanup()
+  {
+    std::error_code ec;
+    std::filesystem::remove_all(path_, ec);
+  }
+
+ private:
+  std::filesystem::path path_;
+};
+
+// Routes fixed-size, ID-keyed records into per-bucket temporary files and replays them per bucket.
+// Used to reorder the (small) base/upper topology under a bounded host-memory budget while keeping
+// all disk access sequential.
+struct id_record_spiller {
+  std::filesystem::path dir;
+  size_t rows_per_bucket;
+  size_t num_buckets;
+  size_t record_bytes;
+  size_t buffer_cap;
+  std::vector<cuvs::util::file_descriptor> fds;
+  std::vector<size_t> offsets;
+  std::vector<std::vector<char>> buffers;
+  // One mutex per bucket so distinct buckets can be appended concurrently (add() is called from
+  // parallel scatter threads); same-bucket appends serialize on their own mutex.
+  std::vector<std::mutex> bucket_mutexes;
+
+  id_record_spiller(std::filesystem::path dir_,
+                    size_t num_buckets_,
+                    size_t rows_per_bucket_,
+                    size_t record_bytes_,
+                    size_t total_buffer_budget)
+    : dir(std::move(dir_)),
+      rows_per_bucket(rows_per_bucket_),
+      num_buckets(num_buckets_),
+      record_bytes(record_bytes_),
+      offsets(num_buckets_, 0),
+      buffers(num_buckets_),
+      bucket_mutexes(num_buckets_)
+  {
+    std::filesystem::create_directories(dir);
+    fds.reserve(num_buckets);
+    for (size_t b = 0; b < num_buckets; ++b) {
+      fds.emplace_back((dir / ("bucket_" + std::to_string(b) + ".tmp")).string(),
+                       O_CREAT | O_RDWR | O_TRUNC,
+                       0644);
+    }
+    // Floor the per-bucket buffer so a tiny budget (many buckets) still batches many records per
+    // flush instead of degrading into one write syscall per record. This may exceed the nominal
+    // budget for pathologically small budgets, but keeps disk I/O coarse-grained and sequential.
+    constexpr size_t kMinRecordsPerFlush = 256;
+    const size_t even_share              = total_buffer_budget / std::max<size_t>(1, num_buckets);
+    buffer_cap                           = std::max(record_bytes * kMinRecordsPerFlush, even_share);
+  }
+
+  id_record_spiller(const id_record_spiller&)            = delete;
+  id_record_spiller& operator=(const id_record_spiller&) = delete;
+  id_record_spiller(id_record_spiller&&)                 = delete;
+  id_record_spiller& operator=(id_record_spiller&&)      = delete;
+
+  ~id_record_spiller() noexcept
+  {
+    fds.clear();
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
+  }
+
+  void flush(size_t b)
+  {
+    if (buffers[b].empty()) { return; }
+    cuvs::util::write_large_file(fds[b], buffers[b].data(), buffers[b].size(), offsets[b]);
+    offsets[b] += buffers[b].size();
+    buffers[b].clear();
+  }
+
+  void add(size_t bucket, const void* record)
+  {
+    std::lock_guard<std::mutex> guard(bucket_mutexes[bucket]);
+    auto& buf = buffers[bucket];
+    if (buf.size() + record_bytes > buffer_cap) { flush(bucket); }
+    const auto* p = reinterpret_cast<const char*>(record);
+    buf.insert(buf.end(), p, p + record_bytes);
+  }
+
+  void finish_writes()
+  {
+    for (size_t b = 0; b < num_buckets; ++b) {
+      flush(b);
+    }
+  }
+
+  template <class F>
+  void replay(size_t b, std::vector<char>& chunk, F&& consume)
+  {
+    const size_t total          = offsets[b];
+    const size_t recs_per_chunk = std::max<size_t>(1, (size_t{64} << 20) / record_bytes);
+    chunk.resize(recs_per_chunk * record_bytes);
+    size_t read_off = 0;
+    while (read_off < total) {
+      const size_t bytes = std::min(chunk.size(), total - read_off);
+      cuvs::util::read_large_file(fds[b], chunk.data(), bytes, read_off);
+      const size_t nrec = bytes / record_bytes;
+      for (size_t r = 0; r < nrec; ++r) {
+        consume(chunk.data() + r * record_bytes);
+      }
+      read_off += bytes;
+    }
+  }
+};
+
+// Streams the base topology (base_nodes + base_links) in artifact (ACE) order, invoking
+// `cb(original_id, link_row_ptr)` for each row. When `parallel_threads > 1` the callback is invoked
+// concurrently and must be thread-safe for distinct IDs.
+template <typename IdxT, class F>
+void scatter_layered_base_links(const cuvs::util::file_descriptor& artifact_fd,
+                                const hnswlib_materialize_layout& layout,
+                                int parallel_threads,
+                                F&& cb)
+{
+  const size_t n_rows = layout.n_rows;
+  const size_t row    = layout.base_link_row_bytes;
+  const size_t batch  = std::max<size_t>(1, (size_t{64} << 20) / (sizeof(IdxT) + row));
+  std::vector<IdxT> node_buf(batch);
+  std::vector<char> link_buf(batch * row);
+  for (size_t s = 0; s < n_rows; s += batch) {
+    const size_t cur = std::min(batch, n_rows - s);
+    cuvs::util::read_large_file(artifact_fd,
+                                node_buf.data(),
+                                cur * sizeof(IdxT),
+                                layout.base_nodes_offset + s * sizeof(IdxT));
+    cuvs::util::read_large_file(
+      artifact_fd, link_buf.data(), cur * row, layout.base_links_offset + s * row);
+    bool invalid = false;
+    if (parallel_threads > 1) {
+#pragma omp parallel for num_threads(parallel_threads) reduction(|| : invalid)
+      for (int64_t k = 0; k < static_cast<int64_t>(cur); ++k) {
+        const size_t id = static_cast<size_t>(node_buf[k]);
+        if (id >= n_rows) {
+          invalid = true;
+          continue;
+        }
+        cb(id, link_buf.data() + static_cast<size_t>(k) * row);
+      }
+    } else {
+      for (size_t k = 0; k < cur; ++k) {
+        const size_t id = static_cast<size_t>(node_buf[k]);
+        if (id >= n_rows) {
+          invalid = true;
+          break;
+        }
+        cb(id, link_buf.data() + k * row);
+      }
+    }
+    RAFT_EXPECTS(!invalid, "Invalid base-layer node id in layered HNSW artifact");
+  }
+}
+
+// Streams the upper layers, invoking `cb(original_id, level, link_row_ptr)` for every promoted row.
+template <class F>
+void scatter_layered_upper_links(const cuvs::util::file_descriptor& artifact_fd,
+                                 const hnswlib_materialize_layout& layout,
+                                 const std::vector<layered_hnsw_layer_info>& layers,
+                                 const std::vector<uint8_t>& levels_u8,
+                                 F&& cb)
+{
+  const size_t urow   = layout.upper_link_row_bytes;
+  const size_t n_rows = layout.n_rows;
+  for (const auto& layer : layers) {
+    const size_t rc = layer.row_count;
+    if (rc == 0) { continue; }
+    const size_t batch = std::max<size_t>(1, (size_t{64} << 20) / (sizeof(uint32_t) + urow));
+    std::vector<uint32_t> nodes(std::min(batch, rc));
+    std::vector<char> links(std::min(batch, rc) * urow);
+    for (size_t s = 0; s < rc; s += batch) {
+      const size_t cur = std::min(batch, rc - s);
+      cuvs::util::read_large_file(
+        artifact_fd,
+        nodes.data(),
+        cur * sizeof(uint32_t),
+        layout.upper_nodes_offset + (layer.node_offset + s) * sizeof(uint32_t));
+      cuvs::util::read_large_file(artifact_fd,
+                                  links.data(),
+                                  cur * urow,
+                                  layout.upper_links_offset + (layer.link_offset + s) * urow);
+      for (size_t r = 0; r < cur; ++r) {
+        const size_t id = static_cast<size_t>(nodes[r]);
+        RAFT_EXPECTS(id < n_rows, "Invalid upper-layer node id in layered HNSW artifact");
+        RAFT_EXPECTS(layer.level <= static_cast<size_t>(levels_u8[id]),
+                     "Layered HNSW artifact references a node at an invalid upper level");
+        cb(id, layer.level, links.data() + r * urow);
+      }
+    }
+  }
+}
+
+// Emits the level-0 region `[link block | vector | label]` per ID, in increasing ID order, reading
+// the dataset sequentially and writing the output sequentially. `row_ptr(id)` returns a pointer to
+// the ID's level-0 link block in a caller-owned, bounded buffer.
+template <class DatasetBatch, class RowPtr>
+void emit_hnswlib_base_records(const npy_file& dataset_file,
+                               const cuvs::util::file_descriptor& output_fd,
+                               const hnswlib_materialize_layout& layout,
+                               int num_threads,
+                               size_t id_begin,
+                               size_t id_end,
+                               std::vector<char>& out_buffer,
+                               DatasetBatch& dataset_batch,
+                               RowPtr&& row_ptr)
+{
+  const size_t spe            = layout.size_data_per_element;
+  const size_t row            = layout.base_link_row_bytes;
+  const size_t data_size      = layout.data_size;
+  const size_t out_batch_rows = static_cast<size_t>(dataset_batch.extent(0));
+  for (size_t s = id_begin; s < id_end; s += out_batch_rows) {
+    const size_t cur = std::min(out_batch_rows, id_end - s);
+    cuvs::util::read_large_file(dataset_file.fd,
+                                dataset_batch.data_handle(),
+                                cur * data_size,
+                                dataset_file.header_size + s * data_size);
+#pragma omp parallel for num_threads(num_threads)
+    for (int64_t k = 0; k < static_cast<int64_t>(cur); ++k) {
+      const size_t id = s + static_cast<size_t>(k);
+      char* rec       = out_buffer.data() + static_cast<size_t>(k) * spe;
+      std::memcpy(rec, row_ptr(id), row);
+      std::memcpy(rec + layout.offset_data,
+                  dataset_batch.data_handle() + static_cast<size_t>(k) * layout.dim,
+                  data_size);
+      const hnswlib::labeltype label = static_cast<hnswlib::labeltype>(id);
+      std::memcpy(rec + layout.label_offset, &label, sizeof(label));
+    }
+    cuvs::util::write_large_file(
+      output_fd, out_buffer.data(), cur * spe, layout.base_region_offset + s * spe);
+  }
+}
+
+// Phase 1 + 2: reorder the base topology to original-ID order and emit the level-0 region.
+template <typename T, typename IdxT>
+void materialize_hnswlib_base_region(const cuvs::util::file_descriptor& artifact_fd,
+                                     const npy_file& dataset_file,
+                                     const cuvs::util::file_descriptor& output_fd,
+                                     const layered_hnsw_file_metadata& metadata,
+                                     const hnswlib_materialize_layout& layout,
+                                     size_t budget_bytes,
+                                     int num_threads,
+                                     const std::filesystem::path& tmp_dir)
+{
+  const size_t n_rows = layout.n_rows;
+  const size_t row    = layout.base_link_row_bytes;
+
+  const size_t out_batch_rows =
+    std::max<size_t>(1, (size_t{64} << 20) / layout.size_data_per_element);
+  auto dataset_batch = raft::make_host_matrix<T, int64_t>(static_cast<int64_t>(out_batch_rows),
+                                                          static_cast<int64_t>(metadata.dim));
+  std::vector<char> out_buffer(out_batch_rows * layout.size_data_per_element);
+
+  // Tracks that every original ID in [0, n_rows) is produced exactly once by the reorder. The
+  // section-size invariant (validated in Phase 0) guarantees exactly n_rows base-node records, so
+  // a malformed artifact with a missing/duplicate ID would otherwise leave a zero-initialized link
+  // row in the output and silently corrupt the graph; catch it instead of shipping a bad index.
+  std::vector<uint8_t> seen(n_rows, 0);
+  auto verify_full_coverage = [&]() {
+    const auto covered = static_cast<size_t>(std::count(seen.begin(), seen.end(), uint8_t{1}));
+    RAFT_EXPECTS(covered == n_rows,
+                 "Layered HNSW base nodes cover %zu of %zu original ids (missing or duplicate ids)",
+                 covered,
+                 n_rows);
+  };
+
+  const auto base_start_time = std::chrono::steady_clock::now();
+  // Single in-memory pass when the whole base topology fits the budget (no temporary files).
+  if (budget_bytes >= metadata.base_links_bytes) {
+    std::vector<char> ordered_base(metadata.base_links_bytes);
+    scatter_layered_base_links<IdxT>(artifact_fd, layout, 1, [&](size_t id, const char* link_row) {
+      std::memcpy(ordered_base.data() + id * row, link_row, row);
+      seen[id] = 1;
+    });
+    verify_full_coverage();
+    emit_hnswlib_base_records(dataset_file,
+                              output_fd,
+                              layout,
+                              num_threads,
+                              0,
+                              n_rows,
+                              out_buffer,
+                              dataset_batch,
+                              [&](size_t id) { return ordered_base.data() + id * row; });
+    RAFT_LOG_INFO("hnswlib materialize: base region written (single-pass) in %ld ms (%.2f GiB)",
+                  elapsed_ms_since(base_start_time),
+                  to_gib(layout.size_data_per_element * n_rows));
+    return;
+  }
+
+  // Bucketed reorder through temporary files for a hard memory budget.
+  const size_t record_bytes = sizeof(IdxT) + row;
+  size_t rows_per_bucket    = std::max<size_t>(1, budget_bytes / record_bytes);
+  rows_per_bucket           = std::min(rows_per_bucket, n_rows);
+  const size_t num_buckets  = (n_rows + rows_per_bucket - 1) / rows_per_bucket;
+  RAFT_LOG_INFO(
+    "hnswlib materialize: base region uses %zu buckets (rows/bucket=%zu, budget=%.2f GiB)",
+    num_buckets,
+    rows_per_bucket,
+    to_gib(budget_bytes));
+
+  id_record_spiller spiller(
+    tmp_dir / "base", num_buckets, rows_per_bucket, record_bytes, budget_bytes / 2);
+  // The spiller's per-bucket mutexes make add() safe under the parallel scatter; each thread stages
+  // the record in its own (thread_local) buffer before the routed append.
+  scatter_layered_base_links<IdxT>(artifact_fd, layout, 1, [&](size_t id, const char* link_row) {
+    thread_local std::vector<char> rec;
+    rec.resize(record_bytes);
+    const IdxT id32 = static_cast<IdxT>(id);
+    std::memcpy(rec.data(), &id32, sizeof(IdxT));
+    std::memcpy(rec.data() + sizeof(IdxT), link_row, row);
+    spiller.add(id / rows_per_bucket, rec.data());
+    seen[id] = 1;
+  });
+  spiller.finish_writes();
+  verify_full_coverage();
+
+  std::vector<char> bucket_rows;
+  std::vector<char> chunk;
+  for (size_t b = 0; b < num_buckets; ++b) {
+    const size_t id_begin = b * rows_per_bucket;
+    const size_t id_end   = std::min(n_rows, id_begin + rows_per_bucket);
+    const size_t rib      = id_end - id_begin;
+    bucket_rows.assign(rib * row, 0);
+    spiller.replay(b, chunk, [&](const char* r) {
+      IdxT id32;
+      std::memcpy(&id32, r, sizeof(IdxT));
+      const size_t id = static_cast<size_t>(id32);
+      std::memcpy(bucket_rows.data() + (id - id_begin) * row, r + sizeof(IdxT), row);
+    });
+    emit_hnswlib_base_records(
+      dataset_file,
+      output_fd,
+      layout,
+      num_threads,
+      id_begin,
+      id_end,
+      out_buffer,
+      dataset_batch,
+      [&](size_t id) { return bucket_rows.data() + (id - id_begin) * row; });
+  }
+  RAFT_LOG_INFO("hnswlib materialize: base region written (%zu buckets) in %ld ms (%.2f GiB)",
+                num_buckets,
+                elapsed_ms_since(base_start_time),
+                to_gib(layout.size_data_per_element * n_rows));
+}
+
+// Phase 3: transpose the upper layers into per-element link lists and emit the upper region.
+inline void materialize_hnswlib_upper_region(const cuvs::util::file_descriptor& artifact_fd,
+                                             const cuvs::util::file_descriptor& output_fd,
+                                             const layered_hnsw_file_metadata& metadata,
+                                             const hnswlib_materialize_layout& layout,
+                                             const std::vector<uint8_t>& levels_u8,
+                                             size_t budget_bytes,
+                                             const std::filesystem::path& tmp_dir)
+{
+  const size_t n_rows         = layout.n_rows;
+  const size_t urow           = layout.upper_link_row_bytes;
+  const auto upper_start_time = std::chrono::steady_clock::now();
+
+  // Sequential writer over the (variable-length) upper region.
+  size_t write_off = layout.upper_region_offset;
+  std::vector<char> out_buffer;
+  out_buffer.reserve((size_t{64} << 20) + urow + sizeof(int));
+  auto flush_out = [&]() {
+    if (out_buffer.empty()) { return; }
+    cuvs::util::write_large_file(output_fd, out_buffer.data(), out_buffer.size(), write_off);
+    write_off += out_buffer.size();
+    out_buffer.clear();
+  };
+  auto append_element = [&](size_t level, const char* rows) {
+    const int link_list_size = level > 0 ? static_cast<int>(level * urow) : 0;
+    const auto* p            = reinterpret_cast<const char*>(&link_list_size);
+    out_buffer.insert(out_buffer.end(), p, p + sizeof(int));
+    if (level > 0) { out_buffer.insert(out_buffer.end(), rows, rows + level * urow); }
+    if (out_buffer.size() >= (size_t{64} << 20)) { flush_out(); }
+  };
+
+  const size_t fits_budget = metadata.upper_links_bytes + (n_rows + 1) * sizeof(size_t);
+  if (metadata.upper_links_bytes == 0 || fits_budget <= budget_bytes) {
+    // Pack all upper rows in original-ID order, then stream them out.
+    std::vector<size_t> packed_start(n_rows + 1, 0);
+    for (size_t i = 0; i < n_rows; ++i) {
+      packed_start[i + 1] = packed_start[i] + static_cast<size_t>(levels_u8[i]);
+    }
+    RAFT_EXPECTS(packed_start[n_rows] == metadata.upper_nodes_count,
+                 "Layered HNSW upper rows (%zu) do not match upper_nodes_count (%zu)",
+                 packed_start[n_rows],
+                 metadata.upper_nodes_count);
+    std::vector<char> packed(metadata.upper_links_bytes);
+    scatter_layered_upper_links(artifact_fd,
+                                layout,
+                                metadata.layers,
+                                levels_u8,
+                                [&](size_t id, size_t level, const char* link_row) {
+                                  const size_t dst_row = packed_start[id] + (level - 1);
+                                  std::memcpy(packed.data() + dst_row * urow, link_row, urow);
+                                });
+    size_t cursor = 0;
+    for (size_t id = 0; id < n_rows; ++id) {
+      const size_t level = static_cast<size_t>(levels_u8[id]);
+      append_element(level, level > 0 ? packed.data() + cursor * urow : nullptr);
+      cursor += level;
+    }
+    flush_out();
+    RAFT_LOG_INFO("hnswlib materialize: upper region written (single-pass) in %ld ms (%.2f GiB)",
+                  elapsed_ms_since(upper_start_time),
+                  to_gib(metadata.upper_links_bytes));
+    return;
+  }
+
+  // Bucketed upper transpose for a hard memory budget.
+  const size_t budget_half = std::max<size_t>(1, budget_bytes / 2);
+  size_t num_buckets =
+    std::max<size_t>(1, (metadata.upper_links_bytes + budget_half - 1) / budget_half);
+  size_t rows_per_bucket = std::max<size_t>(1, (n_rows + num_buckets - 1) / num_buckets);
+  num_buckets            = (n_rows + rows_per_bucket - 1) / rows_per_bucket;
+  RAFT_LOG_INFO("hnswlib materialize: upper region uses %zu buckets (rows/bucket=%zu)",
+                num_buckets,
+                rows_per_bucket);
+
+  const size_t record_bytes = 2 * sizeof(uint32_t) + urow;  // [id][level][row]
+  id_record_spiller spiller(
+    tmp_dir / "upper", num_buckets, rows_per_bucket, record_bytes, budget_half);
+  std::vector<char> rec(record_bytes);
+  scatter_layered_upper_links(artifact_fd,
+                              layout,
+                              metadata.layers,
+                              levels_u8,
+                              [&](size_t id, size_t level, const char* link_row) {
+                                const uint32_t id32 = static_cast<uint32_t>(id);
+                                const uint32_t lv32 = static_cast<uint32_t>(level);
+                                std::memcpy(rec.data(), &id32, sizeof(uint32_t));
+                                std::memcpy(rec.data() + sizeof(uint32_t), &lv32, sizeof(uint32_t));
+                                std::memcpy(rec.data() + 2 * sizeof(uint32_t), link_row, urow);
+                                spiller.add(id / rows_per_bucket, rec.data());
+                              });
+  spiller.finish_writes();
+
+  std::vector<char> chunk;
+  for (size_t b = 0; b < num_buckets; ++b) {
+    const size_t id_begin = b * rows_per_bucket;
+    const size_t id_end   = std::min(n_rows, id_begin + rows_per_bucket);
+    const size_t rib      = id_end - id_begin;
+    std::vector<size_t> local_start(rib + 1, 0);
+    for (size_t i = 0; i < rib; ++i) {
+      local_start[i + 1] = local_start[i] + static_cast<size_t>(levels_u8[id_begin + i]);
+    }
+    std::vector<char> packed(local_start[rib] * urow);
+    spiller.replay(b, chunk, [&](const char* r) {
+      uint32_t id32 = 0;
+      uint32_t lv32 = 0;
+      std::memcpy(&id32, r, sizeof(uint32_t));
+      std::memcpy(&lv32, r + sizeof(uint32_t), sizeof(uint32_t));
+      const size_t local   = static_cast<size_t>(id32) - id_begin;
+      const size_t dst_row = local_start[local] + (static_cast<size_t>(lv32) - 1);
+      std::memcpy(packed.data() + dst_row * urow, r + 2 * sizeof(uint32_t), urow);
+    });
+    size_t cursor = 0;
+    for (size_t i = 0; i < rib; ++i) {
+      const size_t level = static_cast<size_t>(levels_u8[id_begin + i]);
+      append_element(level, level > 0 ? packed.data() + cursor * urow : nullptr);
+      cursor += level;
+    }
+  }
+  flush_out();
+  RAFT_LOG_INFO("hnswlib materialize: upper region written (%zu buckets) in %ld ms (%.2f GiB)",
+                num_buckets,
+                elapsed_ms_since(upper_start_time),
+                to_gib(metadata.upper_links_bytes));
+}
+
+// Materialize a layered HNSW artifact + dataset into a standard hnswlib index file on disk, using
+// bounded host memory and sequential disk I/O.
+template <typename T, typename IdxT = uint32_t>
+void materialize_layered_to_hnswlib_on_disk(raft::resources const& res,
+                                            const cuvs::util::file_descriptor& artifact_fd,
+                                            const cuvs::neighbors::hnsw::materialize_params& params,
+                                            const std::string& layered_artifact_path,
+                                            const std::string& output_path,
+                                            int dim,
+                                            cuvs::distance::DistanceType metric)
+{
+  static_assert(std::is_same_v<IdxT, uint32_t>, "Layered HNSW artifacts store ids as uint32_t");
+  common::nvtx::range<common::nvtx::domain::cuvs> fun_scope("hnsw::materialize_to_hnswlib");
+  const auto total_start_time = std::chrono::steady_clock::now();
+
+  // ---- Phase 0: read and validate the artifact header, descriptors and levels ----
+  // Shared with the in-memory deserialize path so the format/offset arithmetic and every
+  // size-invariant check live in one place; this also bounds the buffer allocations below.
+  auto view =
+    read_and_validate_layered_artifact<T>(artifact_fd, layered_artifact_path, dim, metric);
+  auto& metadata                = view.metadata;
+  auto& levels_u8               = view.levels;
+  const auto base_nodes_offset  = view.base_nodes_offset;
+  const auto base_links_offset  = view.base_links_offset;
+  const auto upper_nodes_offset = view.upper_nodes_offset;
+  const auto upper_links_offset = view.upper_links_offset;
+  RAFT_EXPECTS(!params.dataset_path.empty(),
+               "Layered HNSW materialization requires materialize_params.dataset_path");
+
+  const size_t n_rows = metadata.n_rows;
+
+  // Validate the dataset header.
+  auto dataset_file = open_layered_dataset_file<T>(params.dataset_path);
+  validate_npy_file<T>(dataset_file, params.dataset_path, "Layered HNSW dataset");
+  RAFT_EXPECTS(dataset_file.shape.size() == 2 && dataset_file.shape[0] == n_rows &&
+                 dataset_file.shape[1] == metadata.dim,
+               "Layered HNSW dataset shape mismatch: artifact rows=%zu dim=%zu, dataset path=%s",
+               n_rows,
+               metadata.dim,
+               params.dataset_path.c_str());
+
+  // Retrieve the hnswlib layout constants from a dummy (single-element) index.
+  auto hnsw_index = std::make_unique<index_impl<T>>(dim, metric, HnswHierarchy::CPU);
+  auto appr_algo  = std::make_unique<hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::type>>(
+    hnsw_index->get_space(), 1, metadata.M, metadata.ef_construction);
+  const size_t data_size = static_cast<size_t>(dim) * sizeof(T);
+  RAFT_EXPECTS(appr_algo->size_links_level0_ == metadata.base_link_row_bytes,
+               "Layered HNSW base link row size mismatch");
+  RAFT_EXPECTS(appr_algo->size_links_per_element_ == metadata.upper_link_row_bytes,
+               "Layered HNSW upper link row size mismatch");
+  RAFT_EXPECTS(appr_algo->maxM0_ == metadata.maxM0 && appr_algo->maxM_ == metadata.maxM,
+               "Layered HNSW M parameter mismatch");
+  RAFT_EXPECTS(appr_algo->data_size_ == data_size, "Layered HNSW data size mismatch");
+  RAFT_EXPECTS(appr_algo->offsetData_ == appr_algo->size_links_level0_,
+               "Unexpected hnswlib data offset");
+  RAFT_EXPECTS(appr_algo->label_offset_ == appr_algo->size_links_level0_ + data_size,
+               "Unexpected hnswlib label offset");
+
+  // ---- Output layout ----
+  const auto native_header = make_hnswlib_native_header(appr_algo->offsetLevel0_,
+                                                        n_rows,
+                                                        appr_algo->size_data_per_element_,
+                                                        appr_algo->label_offset_,
+                                                        appr_algo->offsetData_,
+                                                        metadata.maxlevel,
+                                                        metadata.enterpoint_node,
+                                                        metadata.maxM,
+                                                        metadata.maxM0,
+                                                        metadata.M,
+                                                        metadata.mult,
+                                                        metadata.ef_construction);
+  hnswlib_materialize_layout layout;
+  layout.n_rows                = n_rows;
+  layout.dim                   = metadata.dim;
+  layout.base_link_row_bytes   = metadata.base_link_row_bytes;
+  layout.upper_link_row_bytes  = metadata.upper_link_row_bytes;
+  layout.size_data_per_element = appr_algo->size_data_per_element_;
+  layout.offset_data           = appr_algo->offsetData_;
+  layout.label_offset          = appr_algo->label_offset_;
+  layout.data_size             = data_size;
+  layout.base_region_offset    = native_header.size();
+  layout.base_nodes_offset     = base_nodes_offset;
+  layout.base_links_offset     = base_links_offset;
+  layout.upper_nodes_offset    = upper_nodes_offset;
+  layout.upper_links_offset    = upper_links_offset;
+
+  const size_t base_region_bytes = n_rows * layout.size_data_per_element;
+  layout.upper_region_offset     = layout.base_region_offset + base_region_bytes;
+
+  size_t upper_region_bytes = 0;
+  for (size_t i = 0; i < n_rows; ++i) {
+    upper_region_bytes += sizeof(int);
+    const size_t level = static_cast<size_t>(levels_u8[i]);
+    if (level > 0) { upper_region_bytes += level * layout.upper_link_row_bytes; }
+  }
+  const size_t final_size = layout.upper_region_offset + upper_region_bytes;
+
+  exclusive_hnsw_temp_file output(output_path);
+  cuvs::util::file_descriptor output_fd(output.temporary_path(), O_RDWR);
+  cuvs::util::preallocate_file(output_fd, final_size);
+  cuvs::util::write_large_file(output_fd, native_header.data(), native_header.size(), 0);
+  RAFT_LOG_INFO(
+    "hnswlib materialize: writing index (rows=%zu dim=%zu, output=%.2f GiB, dataset=%s)",
+    n_rows,
+    metadata.dim,
+    to_gib(final_size),
+    params.dataset_path.c_str());
+
+  auto num_threads =
+    params.num_threads == 0 ? cuvs::core::omp::get_max_threads() : params.num_threads;
+  // max_host_memory_gb <= 0 => no host-memory cap: both regions take their single in-memory pass
+  // and create no temporary files. Otherwise reserve headroom for the fixed-size streaming I/O
+  // buffers (dataset batch, output buffer, per-call scatter read buffers, each ~64 MiB) so peak
+  // host memory stays close to the requested budget rather than overshooting it by the buffer
+  // overhead.
+  size_t budget_bytes = std::numeric_limits<size_t>::max();
+  if (params.max_host_memory_gb > 0.0) {
+    const size_t requested =
+      std::max<size_t>(1, static_cast<size_t>(params.max_host_memory_gb * (size_t{1} << 30)));
+    constexpr size_t kStreamingBufferReserve = size_t{4} * (size_t{64} << 20);  // ~256 MiB
+    budget_bytes = requested > kStreamingBufferReserve ? requested - kStreamingBufferReserve
+                                                       : std::max<size_t>(1, requested / 2);
+  }
+
+  std::filesystem::path tmp_dir = output.temporary_path();
+  tmp_dir += ".materialize_tmp";
+  scoped_directory_cleanup workspace_cleanup(tmp_dir);
+
+  materialize_hnswlib_base_region<T, IdxT>(
+    artifact_fd, dataset_file, output_fd, metadata, layout, budget_bytes, num_threads, tmp_dir);
+  materialize_hnswlib_upper_region(
+    artifact_fd, output_fd, metadata, layout, levels_u8, budget_bytes, tmp_dir);
+
+  output_fd.close();
+  output.publish_replace();
+
+  RAFT_LOG_INFO("hnswlib materialize: completed in %ld ms (output %.2f GiB)",
+                elapsed_ms_since(total_start_time),
+                to_gib(final_size));
+}
+
+// Dispatch using the external dataset dtype. The layered artifact records the graph-construction
+// dtype, which may differ when a quantized graph is materialized with the original vectors.
+inline void materialize_layered_to_hnswlib_on_disk_dispatch(
+  raft::resources const& res,
+  const cuvs::neighbors::hnsw::materialize_params& params,
+  const std::string& layered_artifact_path,
+  const std::string& output_path,
+  int dim,
+  cuvs::distance::DistanceType metric)
+{
+  RAFT_EXPECTS(!params.dataset_path.empty(),
+               "Layered HNSW materialization requires materialize_params.dataset_path");
+  cuvs::util::file_descriptor artifact_fd(layered_artifact_path, O_RDONLY);
+  const auto dtype = layered_dataset_dtype(params.dataset_path);
+  switch (dtype) {
+    case layered_hnsw_dtype::float32:
+      materialize_layered_to_hnswlib_on_disk<float>(
+        res, artifact_fd, params, layered_artifact_path, output_path, dim, metric);
+      break;
+    case layered_hnsw_dtype::float16:
+      materialize_layered_to_hnswlib_on_disk<half>(
+        res, artifact_fd, params, layered_artifact_path, output_path, dim, metric);
+      break;
+    case layered_hnsw_dtype::uint8:
+      materialize_layered_to_hnswlib_on_disk<uint8_t>(
+        res, artifact_fd, params, layered_artifact_path, output_path, dim, metric);
+      break;
+    case layered_hnsw_dtype::int8:
+      materialize_layered_to_hnswlib_on_disk<int8_t>(
+        res, artifact_fd, params, layered_artifact_path, output_path, dim, metric);
+      break;
+    default:
+      RAFT_FAIL("Unsupported layered HNSW dataset dtype or filename: %s",
+                params.dataset_path.c_str());
+  }
 }
 
 template <typename T>

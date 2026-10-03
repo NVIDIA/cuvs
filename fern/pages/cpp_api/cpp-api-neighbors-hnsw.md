@@ -1102,3 +1102,61 @@ index<int8_t>** index);
 **Returns**
 
 `void`
+
+## Materialize a layered HNSW artifact into an hnswlib index
+
+<a id="neighbors-hnsw-materialize-params"></a>
+### neighbors::hnsw::materialize_params
+
+Parameters for materializing a layered HNSW artifact into an hnswlib index on disk.
+
+```cpp
+struct materialize_params {
+  std::string dataset_path;
+  double max_host_memory_gb;
+  int num_threads;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `dataset_path` | `std::string` | Local dataset path holding the original-ID-ordered vectors used to build the artifact.<br /><br />Supported formats match layered deserialization: `.npy` and ANN benchmark `*.bin` files with a `[uint32 rows, uint32 cols]` header (`.fbin`, `.f16bin`, `.u8bin`, `.i8bin`). |
+| `max_host_memory_gb` | `double` | Upper bound on host memory (in GiB) used for the base-topology reorder buffer.<br /><br />When `&lt;= 0`, the whole base topology is reordered in a single in-memory pass (no temporary files). When set, the base topology is reordered through bucketed temporary files so that peak host memory stays close to this budget, at the cost of writing and re-reading the (small) base-topology section once. |
+| `num_threads` | `int` | Number of host threads to use. When `0`, the maximum number of threads is used. |
+
+<a id="neighbors-hnsw-materialize-to-hnswlib"></a>
+### neighbors::hnsw::materialize_to_hnswlib
+
+Materialize a layered HNSW artifact into a standard hnswlib index file on disk.
+
+```cpp
+void materialize_to_hnswlib(raft::resources const& res,
+const materialize_params& params,
+const std::string& layered_artifact_path,
+const std::string& output_path,
+int dim,
+cuvs::distance::DistanceType metric);
+```
+
+Materializes a `GRAPH_ONLY` artifact (graph topology only, stored in ACE order) plus a local dataset into a standard hnswlib index file, without ever holding the full materialized index in host memory. The materialization reorders the base topology from ACE order to original-id order and interleaves the vectors, emitting the output with sequential disk IO. The resulting file is compatible with the original hnswlib library (`loadIndex`) and can be read back through `cuvs::neighbors::hnsw::deserialize` with `hierarchy == HnswHierarchy::CPU`.
+
+The element data type (`float`, `half`, `uint8_t` or `int8_t`) is inferred from the external dataset, so materialization supports an original dataset dtype that differs from the graph's construction dtype.
+
+Usage example:
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | `raft::resources const&` | raft resources |
+| `params` | in | [`const materialize_params&`](/api-reference/cpp-api-neighbors-hnsw#neighbors-hnsw-materialize-params) | materialization parameters (dataset path, host-memory budget, threads) |
+| `layered_artifact_path` | in | `const std::string&` | path to the layered HNSW artifact |
+| `output_path` | in | `const std::string&` | path to the hnswlib index file to write |
+| `dim` | in | `int` | dimensions of the training dataset |
+| `metric` | in | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | distance metric. Supported metrics ("L2Expanded", "InnerProduct") |
+
+**Returns**
+
+`void`
