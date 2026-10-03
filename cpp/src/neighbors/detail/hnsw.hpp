@@ -2095,7 +2095,7 @@ from_cagra(raft::resources const& res,
     // gather points from dataset to form query set on host
     auto host_query_set = raft::make_host_matrix<T, int64_t>(num_pts, dim);
     // TODO: Use `raft::matrix::gather` when available as a public API
-    // Issue: https://github.com/rapidsai/raft/issues/2572
+    // Issue: https://github.com/NVIDIA/raft/issues/2572
 #pragma omp parallel for num_threads(num_threads)
     for (auto i = start_idx; i < end_idx; i++) {
       auto pt_id = order[i];

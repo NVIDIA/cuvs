@@ -351,7 +351,7 @@ void GramMatrixBase<math_t>::linear(raft::resources const& handle,
   math_t beta  = 0.0;
   if (is_row_major) {
     // #TODO: Use mdspan-based API when stride-capable
-    // https://github.com/rapidsai/raft/issues/875
+    // https://github.com/NVIDIA/raft/issues/875
     raft::linalg::gemm(handle,
                        true,
                        false,
@@ -369,7 +369,7 @@ void GramMatrixBase<math_t>::linear(raft::resources const& handle,
                        raft::resource::get_cuda_stream(handle).get());
   } else {
     // #TODO: Use mdspan-based API when stride-capable
-    // https://github.com/rapidsai/raft/issues/875
+    // https://github.com/NVIDIA/raft/issues/875
     raft::linalg::gemm(handle,
                        false,
                        true,

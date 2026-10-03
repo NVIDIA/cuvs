@@ -26,7 +26,7 @@ Performance-critical changes require [proper benchmarks](/developer-guide/coding
 
 1. Read the project's [README.md](https://github.com/nvidia/cuvs)
     to learn how to setup the development environment
-2. Find an issue to work on. The best way is to look for the [good first issue](https://github.com/rapidsai/CUVS/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
+2. Find an issue to work on. The best way is to look for the [good first issue](https://github.com/NVIDIA/cuvs/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
     or [help wanted](https://github.com/nvidia/cuvs/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22) labels
 3. Comment on the issue saying you are going to work on it
 4. Code! Make sure to update unit tests!
@@ -76,7 +76,7 @@ You can skip these checks with `git commit --no-verify` or with the short versio
 ### Seasoned developers
 
 Once you have gotten your feet wet and are more comfortable with the code, you
-can look at the prioritized issues of our next release in our [project boards](https://github.com/rapidsai/CUVS/projects).
+can look at the prioritized issues of our next release in our [project boards](https://github.com/NVIDIA/cuvs/projects).
 
 > **Pro Tip:** Always look at the release board with the highest number for
 issues to work on. This is where RAPIDS developers also focus their efforts.

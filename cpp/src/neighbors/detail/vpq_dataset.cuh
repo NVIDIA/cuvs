@@ -28,7 +28,7 @@
 #include <raft/util/vectorized.cuh>
 #include <raft/util/warp_primitives.cuh>
 
-// A temporary stub till https://github.com/rapidsai/raft/pull/2077 is re-merged
+// A temporary stub till https://github.com/NVIDIA/raft/pull/2077 is re-merged
 namespace cuvs::util {
 
 /**
