@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -6,8 +6,35 @@ import cupy as cp
 import numpy as np
 import pytest
 
+from pylibraft.common.cai_wrapper import wrap_array
+
+from cuvs.common.cydlpack import _dlpack_device_id
 from cuvs.common.device_tensor_view import DeviceTensorView
 from cuvs.tests.ann_utils import generate_data
+
+
+def has_multiple_gpus():
+    try:
+        return cp.cuda.runtime.getDeviceCount() > 1
+    except Exception:
+        return False
+
+
+requires_multiple_gpus = pytest.mark.skipif(
+    not has_multiple_gpus(), reason="Multi-GPU tests require multiple GPUs"
+)
+
+
+def test_dlpack_device_id_for_host_array():
+    ary = np.empty((4,), dtype=np.float32)
+    assert _dlpack_device_id(wrap_array(ary)) == 0
+
+
+@requires_multiple_gpus
+def test_dlpack_device_id_matches_cuda_array_device():
+    with cp.cuda.Device(1):
+        ary = cp.empty((4,), dtype=cp.float32)
+        assert _dlpack_device_id(wrap_array(ary)) == 1
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.int8, np.int32])

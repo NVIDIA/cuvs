@@ -1,11 +1,17 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
 
 import numpy as np
 
+from cuda.bindings.cyruntime cimport (
+    cudaError,
+    cudaError_t,
+    cudaPointerAttributes,
+    cudaPointerGetAttributes,
+)
 from libc cimport stdlib
 from libc.stdint cimport uintptr_t
 
@@ -57,12 +63,36 @@ def dl_data_type_to_numpy(DLDataType dtype):
         raise ValueError(f"unknown DLDataTypeCode.code: {dtype.code}")
 
 
+cdef int _cuda_pointer_device_id(uintptr_t tensor_ptr) except *:
+    cdef cudaPointerAttributes attributes
+    cdef cudaError_t status = cudaPointerGetAttributes(
+        &attributes, <const void*>tensor_ptr
+    )
+    if status != cudaError.cudaSuccess:
+        raise ValueError(
+            f"Unable to determine CUDA device for array pointer: {status}"
+        )
+    return attributes.device
+
+
+cdef int _dlpack_device_id_c(ary) except *:
+    cdef uintptr_t tensor_ptr = <uintptr_t>ary.ai_["data"][0]
+    if ary.from_cai:
+        return _cuda_pointer_device_id(tensor_ptr)
+    return 0
+
+
+def _dlpack_device_id(ary):
+    return _dlpack_device_id_c(ary)
+
+
 cdef DLManagedTensor* dlpack_c(ary):
     # todo(dgd): add checking options/parameters
     cdef DLDeviceType dev_type
     cdef DLDevice dev
     cdef DLDataType dtype
     cdef DLTensor tensor
+    cdef uintptr_t tensor_ptr = <uintptr_t>ary.ai_["data"][0]
     cdef DLManagedTensor* dlm = \
         <DLManagedTensor*>stdlib.malloc(sizeof(DLManagedTensor))
 
@@ -72,7 +102,7 @@ cdef DLManagedTensor* dlpack_c(ary):
         dev_type = DLDeviceType.kDLCPU
 
     dev.device_type = dev_type
-    dev.device_id = 0
+    dev.device_id = _dlpack_device_id_c(ary)
 
     # todo (dgd): change to nice dict
     if ary.dtype == np.float32:
@@ -116,9 +146,6 @@ cdef DLManagedTensor* dlpack_c(ary):
 
     for i in range(ndim):
         shape[i] = ary.shape[i]
-
-    cdef uintptr_t tensor_ptr
-    tensor_ptr = <uintptr_t>ary.ai_["data"][0]
 
     tensor.data = <void*> tensor_ptr
     tensor.device = dev
