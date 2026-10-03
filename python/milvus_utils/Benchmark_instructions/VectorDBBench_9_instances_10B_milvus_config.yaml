@@ -1,0 +1,40 @@
+milvusdiskann:
+  skip_search_serial: false
+  case_type: PerformanceCustomDataset
+  custom_case_name: Falcon10B_637Seg_15M_nprob_18_4QN
+  custom_dataset_dim: 1024
+  custom_dataset_dir: /opt/falcon10b/1kqueries
+  custom_dataset_file_count: 1
+  custom_dataset_metric_type: L2
+  custom_dataset_name: falcon10b
+  custom_dataset_size: 9600000000
+  drop_old: false
+  load: false
+  password: try
+  k: 10
+  num_concurrency: 9
+  concurrency_duration: 30
+  beamwidth: 1
+
+  uri: http://192.x.x.x:19530
+milvusaisaq:
+  skip_search_serial: false
+  case_type: PerformanceCustomDataset
+  custom_case_name: Falcon10B_637Seg_15M_nprob_18_4QN
+  custom_dataset_dim: 1024
+  custom_dataset_dir: /opt/falcon10b/1kqueries
+  custom_dataset_file_count: 1
+  custom_dataset_metric_type: L2
+  custom_dataset_name: falcon10b
+  custom_dataset_size: 9600000000
+  drop_old: false
+  load: false
+  password: try
+  k: 10
+  num_concurrency: 9
+  concurrency_duration: 30
+  beamwidth: 1
+  vectors_beamwidth: 1
+  pq_read_page_cache_size: 5242880
+  uri: http://192.x.x.x:19530
+
