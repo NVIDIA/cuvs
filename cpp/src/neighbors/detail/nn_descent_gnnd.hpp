@@ -23,7 +23,6 @@ namespace cuvs::neighbors::nn_descent::detail {
 using DistData_t = float;
 constexpr int DEGREE_ON_DEVICE{32};
 constexpr int SEGMENT_SIZE{32};
-constexpr int counter_interval{100};
 template <typename Index_t>
 struct InternalID_t;
 
@@ -61,7 +60,7 @@ struct BuildConfig {
   size_t internal_node_degree{0};
   // If internal_node_degree == 0, the value of node_degree will be assigned to it
   size_t max_iterations{50};
-  float termination_threshold{0.0001};
+  float termination_threshold{0.001};
   size_t output_graph_degree{32};
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
   cuvs::neighbors::nn_descent::DIST_COMP_DTYPE dist_comp_dtype{
@@ -185,7 +184,7 @@ struct CUVS_EXPORT GnndGraph {
   void update_graph(const InternalID_t<Index_t>* new_neighbors,
                     const DistData_t* new_dists,
                     const size_t width,
-                    std::atomic<int64_t>& update_counter);
+                    size_t& update_counter);
   void sort_lists();
   void clear();
   ~GnndGraph();
@@ -215,6 +214,7 @@ class CUVS_EXPORT GNND {
   ~GNND()    = default;
   using ID_t = InternalID_t<Index_t>;
   void reset(raft::resources const& res);
+  [[nodiscard]] auto num_iterations() const noexcept -> size_t { return num_iterations_; }
 
  private:
   void add_reverse_edges(Index_t* graph_ptr,
@@ -236,10 +236,11 @@ class CUVS_EXPORT GNND {
 
   BuildConfig build_config_;
   GnndGraph<Index_t> graph_;
-  std::atomic<int64_t> update_counter_;
+  size_t update_counter_;
 
   size_t nrow_;
   size_t ndim_;
+  size_t num_iterations_{0};
 
   using input_t = std::remove_const_t<Data_t>;
 

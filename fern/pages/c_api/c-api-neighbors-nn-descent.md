@@ -58,7 +58,7 @@ struct cuvsNNDescentIndexParams {
 | `graph_degree` | `size_t` | For an input dataset of dimensions (N, D), determines the final dimensions of the all-neighbors knn graph which turns out to be of dimensions (N, graph_degree) |
 | `intermediate_graph_degree` | `size_t` | Internally, nn-descent builds an all-neighbors knn graph of dimensions (N, intermediate_graph_degree) before selecting the final `graph_degree` neighbors. It's recommended that `intermediate_graph_degree` &gt;= 1.5 * graph_degree |
 | `max_iterations` | `size_t` | The number of iterations that nn-descent will refine the graph for. More iterations produce a better quality graph at cost of performance |
-| `termination_threshold` | `float` | The delta at which nn-descent will terminate its iterations |
+| `termination_threshold` | `float` | NN-descent terminates when the number of graph updates in an iteration is less than `termination_threshold * graph_degree * dataset_size`. Set to `0.0` to disable early termination.<br />Defaults to `0.001`. |
 | `return_distances` | `bool` | Boolean to decide whether to return distances array |
 | `dist_comp_dtype` | [`cuvsNNDescentDistCompDtype`](/api-reference/c-api-neighbors-nn-descent#cuvsnndescentdistcompdtype) | dtype to use for distance computation.<br />Defaults to `NND_DIST_COMP_AUTO` which automatically determines the best dtype for distance computation based on the dataset dimensions.<br />Use `NND_DIST_COMP_FP32` for better precision at the cost of performance and memory usage. This option is only valid when data type is fp32.<br />Use `NND_DIST_COMP_FP16` for better performance and memory usage at the cost of precision. |
 
