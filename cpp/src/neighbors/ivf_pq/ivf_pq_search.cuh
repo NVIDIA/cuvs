@@ -68,7 +68,8 @@ void select_clusters(raft::resources const& handle,
                      cuvs::distance::DistanceType metric,
                      const T* queries,              // [n_queries, dim]
                      const float* cluster_centers,  // [n_lists, dim_ext]
-                     rmm::device_async_resource_ref mr)
+                     rmm::device_async_resource_ref mr,
+                     raft::matrix::SelectAlgo select_algo)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "ivf_pq::search::select_clusters(n_probes = %u, n_queries = %u, n_lists = %u, dim = %u)",
@@ -163,7 +164,10 @@ void select_clusters(raft::resources const& handle,
     std::nullopt,
     raft::make_device_matrix_view<float, int64_t>(cluster_dists.data(), n_queries, n_probes),
     raft::make_device_matrix_view<uint32_t, int64_t>(clusters_to_probe, n_queries, n_probes),
-    true);
+    true,
+    false,
+    // Radix select, chosen above k = 256, settles ties by atomic arrival order.
+    select_algo);
 }
 
 template <typename T>
@@ -178,7 +182,8 @@ void select_clusters(raft::resources const& handle,
                      cuvs::distance::DistanceType metric,
                      const T* queries,               // [n_queries, dim]
                      const int8_t* cluster_centers,  // [n_lists, dim_ext]
-                     rmm::device_async_resource_ref mr)
+                     rmm::device_async_resource_ref mr,
+                     raft::matrix::SelectAlgo select_algo)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "ivf_pq::search::select_clusters(n_probes = %u, n_queries = %u, n_lists = %u, dim = %u)",
@@ -251,7 +256,10 @@ void select_clusters(raft::resources const& handle,
     std::nullopt,
     raft::make_device_matrix_view<dist_type, int64_t>(cluster_dists.data(), n_queries, n_probes),
     raft::make_device_matrix_view<uint32_t, int64_t>(clusters_to_probe, n_queries, n_probes),
-    true);
+    true,
+    false,
+    // Radix select, chosen above k = 256, settles ties by atomic arrival order.
+    select_algo);
 }
 
 template <typename T>
@@ -266,7 +274,8 @@ void select_clusters(raft::resources const& handle,
                      cuvs::distance::DistanceType metric,
                      const T* queries,             // [n_queries, dim]
                      const half* cluster_centers,  // [n_lists, dim_ext]
-                     rmm::device_async_resource_ref mr)
+                     rmm::device_async_resource_ref mr,
+                     raft::matrix::SelectAlgo select_algo)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "ivf_pq::search::select_clusters(n_probes = %u, n_queries = %u, n_lists = %u, dim = %u)",
@@ -335,7 +344,10 @@ void select_clusters(raft::resources const& handle,
     std::nullopt,
     raft::make_device_matrix_view<dist_type, int64_t>(cluster_dists.data(), n_queries, n_probes),
     raft::make_device_matrix_view<uint32_t, int64_t>(clusters_to_probe, n_queries, n_probes),
-    true);
+    true,
+    false,
+    // Radix select, chosen above k = 256, settles ties by atomic arrival order.
+    select_algo);
 }
 
 /**
@@ -430,6 +442,7 @@ void ivfpq_search_worker(raft::resources const& handle,
                          float* distances,                   // [n_queries, topK]
                          float scaling_factor,
                          double preferred_shmem_carveout,
+                         raft::matrix::SelectAlgo select_algo,
                          IvfSampleFilterT sample_filter)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
@@ -650,7 +663,8 @@ void ivfpq_search_worker(raft::resources const& handle,
     raft::make_device_matrix_view<uint32_t, int64_t>(neighbors_uint32, n_queries, topK),
     true,
     false,
-    cuvs::selection::SelectAlgo::kAuto,
+    // Radix select, chosen above k = 256, settles ties by atomic arrival order.
+    select_algo,
     num_samples_vector);
 
   // Postprocessing
@@ -988,7 +1002,8 @@ inline void search(raft::resources const& handle,
                                index.metric(),
                                queries + static_cast<size_t>(dim) * offset_q,
                                get_centers<value_type, IdxT>(handle, index).data_handle(),
-                               mr);
+                               mr,
+                               params.select_algo);
       },
       gemm_queries);
 
@@ -1041,6 +1056,7 @@ inline void search(raft::resources const& handle,
                       distances + uint64_t(k) * (offset_q + offset_b),
                       utils::config<T>::kDivisor / utils::config<float>::kDivisor,
                       params.preferred_shmem_carveout,
+                      params.select_algo,
                       sample_filter);
     }
   }
