@@ -6,6 +6,60 @@ slug: api-reference/python-api-neighbors-cagra
 
 _Python module: `cuvs.neighbors.cagra`_
 
+## TieredGraphParams
+
+`@dataclass(frozen=True)`
+
+```python
+class TieredGraphParams
+```
+
+Experimental GPU/CPU graph layout and grouping settings.
+
+``device_graph_budget_bytes`` covers packed graph bytes only; zero stores
+all edges on the host. It excludes vectors, queues, and build workspaces.
+``node_per_cacheline`` is in [1, 64] with grouping and [1, 32] without it.
+``grouping_enabled=False`` selects the rank-only layout.
+
+``n_bits=0`` chooses min(24, max(4, align_up_4(ceil(log2(N))))).
+Explicit widths are in [1, 32]. ``n_groups=0`` chooses one group if IDs
+fit, otherwise ceil(N * (1 + balance_tolerance) / 2**n_bits), using the
+resolved width. At most 65,536 groups are supported; each k-means node
+has at most 16 children. ``balance_tolerance`` must be in (0, 1), and
+hard ID capacity still applies.
+
+``training_rows=0`` shares a 160,000-row training budget by subtree leaf
+count, bounded by 256 to 10,000 rows per child and actual node size.
+``assignment_batch_rows=0`` targets a 256 MiB vector buffer; distance,
+label, and host capacity-repair storage are additional.
+``kmeans_n_iters`` must be positive. ``validate`` checks encoded edges.
+
+Build-time ``num_seeds=0`` disables medoid generation.
+``seed_training_rows=0`` selects an automatic sampling limit; ``seed``
+deterministically rotates the uniform k-means training sample.
+
+## TieredSearchParams
+
+`@dataclass(frozen=True)`
+
+```python
+class TieredSearchParams
+```
+
+Experimental host queue and cross-edge synchronization settings.
+
+``num_seeds`` limits stored medoid seeds used per query and cannot exceed
+the index's stored seed count; zero uses random initialization.
+``sync_window_scale`` scales the deferred-cross-edge synchronization
+window. ``sync_drop_threshold`` is the parent-position drop that forces
+synchronization of a submitted request.
+
+``num_queues`` must be positive. ``empty_pause`` counts CPU pause
+instructions after an empty poll; zero disables this pause.
+``collect_statistics`` enables aggregate queue/poll counters.
+``keep_pollers_running=True`` keeps workers active between calls and
+consumes CPU while the index is idle. The index retains queue state.
+
 ## AceParams
 
 ```python
@@ -134,6 +188,7 @@ cdef class Index
 | `trained` | property |
 | `dim` | property |
 | `graph_degree` | property |
+| `graph_storage` | property |
 | `dtype` | property |
 | `dataset` | property |
 | `graph` | property |
@@ -154,6 +209,12 @@ def dim(self)
 
 ```python
 def graph_degree(self)
+```
+
+### graph_storage
+
+```python
+def graph_storage(self)
 ```
 
 ### dtype
@@ -194,11 +255,13 @@ Parameters to build index for CAGRA nearest neighbor search
 | `ivf_pq_search_params` | `cuvs.neighbors.ivf_pq.SearchParams, optional` | Parameters for IVF-PQ search. If provided, it will be used for searching the graph. |
 | `ace_params` | `AceParams, optional` | Parameters for ACE algorithm. If provided, it will be used for building the graph with ACE partitioning. |
 | `refinement_rate` | `float, default = 1.0` |  |
+| `graph_storage` | `{"device", "tiered"}, default "device"` | Experimental "tiered" storage places packed local edges on the GPU and the remaining edges on the host. Requires a library built with FlowANN. |
+| `tiered` | `TieredGraphParams, optional` | Graph memory budget and grouping settings for tiered storage. |
 
 **Constructor**
 
 ```python
-def __init__(self, *, metric="sqeuclidean", intermediate_graph_degree=128, graph_degree=64, build_algo="ivf_pq", nn_descent_niter=20, ivf_pq_build_params: ivf_pq.IndexParams = None, ivf_pq_search_params: ivf_pq.SearchParams = None, ace_params: AceParams = None, refinement_rate: float = 1.0)
+def __init__(self, *, metric="sqeuclidean", intermediate_graph_degree=128, graph_degree=64, build_algo="ivf_pq", nn_descent_niter=20, ivf_pq_build_params: ivf_pq.IndexParams = None, ivf_pq_search_params: ivf_pq.SearchParams = None, ace_params: AceParams = None, refinement_rate: float = 1.0, graph_storage="device", tiered=None)
 ```
 
 **Members**
@@ -287,7 +350,7 @@ CAGRA search parameters
 **Constructor**
 
 ```python
-def __init__(self, *, max_queries=0, itopk_size=64, max_iterations=0, algo="auto", team_size=0, search_width=1, min_iterations=0, thread_block_size=0, hashmap_mode="auto", hashmap_min_bitlen=0, hashmap_max_fill_rate=0.5, num_random_samplings=1, rand_xor_mask=0x128394, persistent=False, persistent_lifetime=None, persistent_device_usage=None )
+def __init__(self, *, max_queries=0, itopk_size=64, max_iterations=0, algo="auto", team_size=0, search_width=1, min_iterations=0, thread_block_size=0, hashmap_mode="auto", hashmap_min_bitlen=0, hashmap_max_fill_rate=0.5, num_random_samplings=1, rand_xor_mask=0x128394, persistent=False, persistent_lifetime=None, persistent_device_usage=None, tiered=None )
 ```
 
 **Members**
@@ -398,7 +461,7 @@ def rand_xor_mask(self)
 `@auto_sync_resources`
 
 ```python
-def build(IndexParams index_params, dataset, resources=None)
+def build(IndexParams index_params, dataset, resources=None, *, compression=None)
 ```
 
 Build the CAGRA index from the dataset for efficient search.
@@ -407,8 +470,9 @@ The build performs two different steps- first an intermediate knn-graph is
 constructed, then it's optimized it to create the final graph. The
 index_params object controls the node degree of these graphs.
 
-It is required that both the dataset and the optimized graph fit the
-GPU memory.
+For device graph storage, both the dataset and optimized graph must fit
+GPU memory. Tiered storage uses its graph budget for packed resident edges.
+Construction still requires memory for the complete intermediate graph.
 
 Note: When using ACE (Augmented Core Extraction) build algorithm, the
 dataset must be in host memory (CPU). The ACE algorithm is designed for
@@ -425,6 +489,7 @@ The following distance metrics are supported:
 | --- | --- | --- |
 | `index_params` | `IndexParams object` |  |
 | `dataset` | `CUDA array interface compliant matrix shape (n_samples, dim), or Dataset` | Supported dtype [float, half, int8, uint8] **Note:** For ACE build algorithm, the dataset MUST be in host memory. Use NumPy arrays or call .get() on CuPy arrays before passing. A ``Dataset`` with ``layout == "pq"`` builds an iterative CAGRA-Q index and requires ``metric="sqeuclidean"`` plus ``build_algo="iterative_cagra_search"``. |
+| `compression` | `object, optional` | VPQ parameters for an owning tiered VPQ-F16 index. Requires host input and graph_storage="tiered". The parameters have the same attributes as those accepted by make_device_pq_dataset. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**

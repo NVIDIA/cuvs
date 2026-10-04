@@ -261,7 +261,9 @@ if(CUVS_ENABLE_FLOWANN_SEARCH)
       neighbors/ann_cagra/flowann_serialize.cu
   )
   if(CUVS_ENABLE_FLOWANN_BUILD)
-    list(APPEND CUVS_FLOWANN_TEST_SOURCES neighbors/ann_cagra/flowann_build.cu)
+    list(APPEND CUVS_FLOWANN_TEST_SOURCES neighbors/ann_cagra/flowann_build.cu
+         neighbors/ann_cagra/cagra_tiered.cu
+    )
   endif()
   ConfigureTest(
     NAME NEIGHBORS_FLOWANN_TEST
@@ -282,8 +284,7 @@ if(CUVS_ENABLE_FLOWANN_SEARCH)
   )
   set_tests_properties(
     NEIGHBORS_FLOWANN_COLD_START_TEST
-    PROPERTIES TIMEOUT 45
-               ENVIRONMENT "CUDA_MODULE_LOADING=LAZY;CUDA_MODULE_DATA_LOADING=LAZY"
+    PROPERTIES TIMEOUT 45 ENVIRONMENT "CUDA_MODULE_LOADING=LAZY;CUDA_MODULE_DATA_LOADING=LAZY"
   )
 endif()
 

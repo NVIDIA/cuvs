@@ -47,6 +47,9 @@ from cuvs.common.dataset cimport (
     cuvsDataset_t,
     cuvsDatasetDestroy,
     cuvsDatasetMakeStandardView,
+    cuvsPqParams_t,
+    cuvsPqParamsCreate,
+    cuvsPqParamsDestroy,
     make_device_padded_dataset_handle,
 )
 
@@ -54,6 +57,8 @@ from cuvs.common.dataset import make_device_padded_dataset
 from cuvs.common.exceptions import check_cuvs
 from cuvs.neighbors import ivf_pq
 from cuvs.neighbors.filters import no_filter
+
+from .tiered import TieredGraphParams, TieredSearchParams
 
 
 cdef class AceParams:
@@ -216,6 +221,11 @@ cdef class IndexParams:
         Parameters for ACE algorithm. If provided, it will be used for
         building the graph with ACE partitioning.
     refinement_rate: float, default = 1.0
+    graph_storage : {"device", "tiered"}, default "device"
+        Experimental "tiered" storage places packed local edges on the GPU and
+        the remaining edges on the host. Requires a library built with FlowANN.
+    tiered : TieredGraphParams, optional
+        Graph memory budget and grouping settings for tiered storage.
 
     """
 
@@ -238,10 +248,36 @@ cdef class IndexParams:
                  ivf_pq_build_params: ivf_pq.IndexParams = None,
                  ivf_pq_search_params: ivf_pq.SearchParams = None,
                  ace_params: AceParams = None,
-                 refinement_rate: float = 1.0):
+                 refinement_rate: float = 1.0,
+                 graph_storage="device",
+                 tiered=None):
         # Declare cdef variables at the top of the function
         cdef cuvsIvfPqParams_t ivf_pq_params_ptr
         cdef cuvsAceParams_t new_ace_params
+
+        if graph_storage not in ("device", "tiered"):
+            raise ValueError("graph_storage must be 'device' or 'tiered'")
+        if graph_storage == "device" and tiered is not None:
+            raise ValueError("tiered options require graph_storage='tiered'")
+        self.params.graph_storage = (cuvsCagraGraphStorage.CUVS_CAGRA_GRAPH_TIERED
+                                     if graph_storage == "tiered" else
+                                     cuvsCagraGraphStorage.CUVS_CAGRA_GRAPH_DEVICE)
+        if tiered is not None:
+            if not isinstance(tiered, TieredGraphParams):
+                raise TypeError("tiered must be TieredGraphParams or None")
+            self.params.tiered.device_graph_budget_bytes = tiered.device_graph_budget_bytes
+            self.params.tiered.node_per_cacheline = tiered.node_per_cacheline
+            self.params.tiered.grouping_enabled = tiered.grouping_enabled
+            self.params.tiered.n_groups = tiered.n_groups
+            self.params.tiered.n_bits = tiered.n_bits
+            self.params.tiered.balance_tolerance = tiered.balance_tolerance
+            self.params.tiered.training_rows = tiered.training_rows
+            self.params.tiered.assignment_batch_rows = tiered.assignment_batch_rows
+            self.params.tiered.kmeans_n_iters = tiered.kmeans_n_iters
+            self.params.tiered.validate = tiered.validate
+            self.params.tiered.num_seeds = tiered.num_seeds
+            self.params.tiered.seed_training_rows = tiered.seed_training_rows
+            self.params.tiered.seed = tiered.seed
 
         self.params.metric = <cuvsDistanceType>DISTANCE_TYPES[metric]
         self.params.intermediate_graph_degree = intermediate_graph_degree
@@ -378,6 +414,12 @@ cdef class Index:
         check_cuvs(cuvsCagraIndexGetGraphDegree(self.index, &degree))
         return degree
 
+    @property
+    def graph_storage(self):
+        cdef cuvsCagraGraphStorage storage
+        check_cuvs(cuvsCagraIndexGetGraphStorage(self.index, &storage))
+        return "tiered" if storage == cuvsCagraGraphStorage.CUVS_CAGRA_GRAPH_TIERED else "device"
+
     def __len__(self):
         cdef int64_t size
         check_cuvs(cuvsCagraIndexGetSize(self.index, &size))
@@ -450,7 +492,7 @@ cdef _attach_device_padded_from_dlpack(
 
 
 @auto_sync_resources
-def build(IndexParams index_params, dataset, resources=None):
+def build(IndexParams index_params, dataset, resources=None, *, compression=None):
     """
     Build the CAGRA index from the dataset for efficient search.
 
@@ -458,8 +500,9 @@ def build(IndexParams index_params, dataset, resources=None):
     constructed, then it's optimized it to create the final graph. The
     index_params object controls the node degree of these graphs.
 
-    It is required that both the dataset and the optimized graph fit the
-    GPU memory.
+    For device graph storage, both the dataset and optimized graph must fit
+    GPU memory. Tiered storage uses its graph budget for packed resident edges.
+    Construction still requires memory for the complete intermediate graph.
 
     Note: When using ACE (Augmented Core Extraction) build algorithm, the
     dataset must be in host memory (CPU). The ACE algorithm is designed for
@@ -480,6 +523,10 @@ def build(IndexParams index_params, dataset, resources=None):
         A ``Dataset`` with ``layout == "pq"`` builds an iterative CAGRA-Q
         index and requires ``metric="sqeuclidean"`` plus
         ``build_algo="iterative_cagra_search"``.
+    compression : object, optional
+        VPQ parameters for an owning tiered VPQ-F16 index. Requires host input
+        and graph_storage="tiered". The parameters have the same attributes as
+        those accepted by make_device_pq_dataset.
     {resources_docstring}
 
     Returns
@@ -520,6 +567,37 @@ def build(IndexParams index_params, dataset, resources=None):
     cdef cydlpack.DLManagedTensor* dataset_dlpack = NULL
     cdef Dataset padded
     cdef Dataset dataset_obj
+    cdef cuvsPqParams_t pq_params = NULL
+
+    if compression is not None:
+        if params.graph_storage != cuvsCagraGraphStorage.CUVS_CAGRA_GRAPH_TIERED:
+            raise ValueError("compressed build requires graph_storage='tiered'")
+        if isinstance(dataset, Dataset):
+            dataset_obj = dataset
+        else:
+            dataset_ai = wrap_array(dataset)
+            _check_input_array(dataset_ai, [np.dtype('float32'), np.dtype('float16'),
+                                            np.dtype('byte'), np.dtype('ubyte')])
+            dataset_dlpack = cydlpack.dlpack_c(dataset_ai)
+            dataset_obj = Dataset()
+            check_cuvs(cuvsDatasetMakeStandardView(
+                res, dataset_dlpack, &dataset_obj.dataset))
+        check_cuvs(cuvsPqParamsCreate(&pq_params))
+        try:
+            pq_params.pq_bits = compression.pq_bits
+            pq_params.pq_dim = compression.pq_dim
+            pq_params.vq_n_centers = compression.vq_n_centers
+            pq_params.kmeans_n_iters = compression.kmeans_n_iters
+            pq_params.vq_kmeans_trainset_fraction = compression.vq_kmeans_trainset_fraction
+            pq_params.pq_kmeans_trainset_fraction = compression.pq_kmeans_trainset_fraction
+            with cuda_interruptible():
+                check_cuvs(cuvsCagraBuildCompressed(
+                    res, params, pq_params, dataset_obj.dataset, idx.index))
+        finally:
+            check_cuvs(cuvsPqParamsDestroy(pq_params))
+        idx.trained = True
+        idx.active_index_type = np.dtype(dl_data_type_to_numpy(idx.index.dtype)).name
+        return idx
 
     if isinstance(dataset, Dataset):
         dataset_obj = dataset
@@ -536,7 +614,8 @@ def build(IndexParams index_params, dataset, resources=None):
             if dataset_obj.layout == "pq":
                 _keep_dataset_alive(idx, dataset_obj)
                 idx._dataset_source = None
-            elif not is_ace_build:
+            elif (not is_ace_build and params.graph_storage !=
+                  cuvsCagraGraphStorage.CUVS_CAGRA_GRAPH_TIERED):
                 if (dataset_obj.layout == "padded" and
                         dataset_obj.memory_type == "device" and
                         dataset_obj.is_owning):
@@ -584,6 +663,10 @@ def build(IndexParams index_params, dataset, resources=None):
                 idx.active_index_type = dataset_ai.dtype.name
                 _keep_dataset_alive(idx, padded, dataset)
 
+    if params.graph_storage == cuvsCagraGraphStorage.CUVS_CAGRA_GRAPH_TIERED:
+        # The CAGRA index owns the reordered dataset; release the temporary input copy.
+        idx._dataset_owner = None
+        idx._dataset_source = None
     return idx
 
 
@@ -713,8 +796,21 @@ cdef class SearchParams:
                  rand_xor_mask=0x128394,
                  persistent=False,
                  persistent_lifetime=None,
-                 persistent_device_usage=None
+                 persistent_device_usage=None,
+                 tiered=None
                  ):
+        self.params.use_tiered_params = tiered is not None
+        if tiered is not None:
+            if not isinstance(tiered, TieredSearchParams):
+                raise TypeError("tiered must be TieredSearchParams or None")
+            self.params.tiered.num_seeds = tiered.num_seeds
+            self.params.tiered.sync_window_scale = tiered.sync_window_scale
+            self.params.tiered.sync_drop_threshold = tiered.sync_drop_threshold
+            self.params.tiered.num_queues = tiered.num_queues
+            self.params.tiered.empty_pause = tiered.empty_pause
+            self.params.tiered.collect_statistics = tiered.collect_statistics
+            self.params.tiered.keep_pollers_running = tiered.keep_pollers_running
+
         self.params.max_queries = max_queries
         self.params.itopk_size = itopk_size
         self.params.max_iterations = max_iterations
@@ -1024,7 +1120,7 @@ def load(index, filename, out_dataset=None, resources=None):
             c_filename.c_str(),
             idx.index,
             &dataset_obj.dataset))
-        idx._dataset_owner = dataset_obj
+        idx._dataset_owner = dataset_obj if dataset_obj.dataset != NULL else None
     else:
         raise TypeError("out_dataset must be a Dataset or None")
     idx.trained = True

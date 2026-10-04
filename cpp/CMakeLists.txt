@@ -1533,6 +1533,7 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/brute_force_serialize.cu
     src/neighbors/cagra.cpp
     $<$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>:src/neighbors/flowann.cu>
+    $<$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>:src/neighbors/cagra_tiered.cu>
     $<$<BOOL:${CUVS_ENABLE_FLOWANN_BUILD}>:src/neighbors/flowann_build.cu>
     $<$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>:src/neighbors/flowann_queue.cpp>
     ${cagra_build_inst_files}
@@ -1829,6 +1830,7 @@ SECTIONS
 
   if(CUVS_ENABLE_FLOWANN_SEARCH AND CUVS_BUILD_FLOWANN_BENCHMARKS)
     add_executable(FLOWANN_BENCHMARK ../examples/cpp/src/flowann_benchmark.cu)
+    target_include_directories(FLOWANN_BENCHMARK PRIVATE "${CUVS_SOURCE_DIR}/src")
     set_target_properties(
       FLOWANN_BENCHMARK
       PROPERTIES CXX_STANDARD 20
@@ -1856,6 +1858,7 @@ SECTIONS
   endif()
   if(CUVS_ENABLE_FLOWANN_BUILD AND CUVS_BUILD_FLOWANN_BENCHMARKS)
     add_executable(FLOWANN_BUILD_BENCHMARK ../examples/cpp/src/flowann_build_benchmark.cu)
+    target_include_directories(FLOWANN_BUILD_BENCHMARK PRIVATE "${CUVS_SOURCE_DIR}/src")
     set_target_properties(
       FLOWANN_BUILD_BENCHMARK
       PROPERTIES CXX_STANDARD 20

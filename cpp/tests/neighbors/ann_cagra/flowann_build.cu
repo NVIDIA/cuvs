@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cuvs/neighbors/flowann_build.hpp>
+#include <neighbors/detail/flowann/flowann_build.hpp>
 
 #include <neighbors/detail/flowann/build.hpp>
 #include <neighbors/detail/flowann/grouping.hpp>

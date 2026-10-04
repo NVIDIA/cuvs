@@ -9,6 +9,7 @@ from libc.stdint cimport (
     int32_t,
     int64_t,
     uint8_t,
+    uint16_t,
     uint32_t,
     uint64_t,
     uintptr_t,
@@ -17,7 +18,7 @@ from libcpp cimport bool
 
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLDataType, DLManagedTensor
-from cuvs.common.dataset cimport cuvsDataset_t
+from cuvs.common.dataset cimport cuvsDataset_t, cuvsPqParams_t
 from cuvs.distance_type cimport cuvsDistanceType
 from cuvs.neighbors.filters.filters cimport cuvsFilter
 from cuvs.neighbors.ivf_pq.ivf_pq cimport (
@@ -73,6 +74,34 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
         double max_gpu_memory_gb
     ctypedef cuvsAceParams* cuvsAceParams_t
 
+    ctypedef enum cuvsCagraGraphStorage:
+        CUVS_CAGRA_GRAPH_DEVICE
+        CUVS_CAGRA_GRAPH_TIERED
+
+    ctypedef struct cuvsCagraTieredGraphParams:
+        size_t device_graph_budget_bytes
+        uint16_t node_per_cacheline
+        bool grouping_enabled
+        uint32_t n_groups
+        uint16_t n_bits
+        double balance_tolerance
+        size_t training_rows
+        size_t assignment_batch_rows
+        uint32_t kmeans_n_iters
+        bool validate
+        uint32_t num_seeds
+        size_t seed_training_rows
+        uint64_t seed
+
+    ctypedef struct cuvsCagraTieredSearchParams:
+        uint32_t num_seeds
+        float sync_window_scale
+        uint32_t sync_drop_threshold
+        uint32_t num_queues
+        uint32_t empty_pause
+        bool collect_statistics
+        bool keep_pollers_running
+
     ctypedef struct cuvsCagraIndexParams:
         cuvsDistanceType metric
         size_t intermediate_graph_degree
@@ -80,6 +109,8 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
         cuvsCagraGraphBuildAlgo build_algo
         size_t nn_descent_niter
         void* graph_build_params
+        cuvsCagraGraphStorage graph_storage
+        cuvsCagraTieredGraphParams tiered
 
     ctypedef cuvsCagraIndexParams* cuvsCagraIndexParams_t
 
@@ -111,6 +142,8 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
         bool persistent
         float persistent_lifetime
         float persistent_device_usage
+        bool use_tiered_params
+        cuvsCagraTieredSearchParams tiered
 
     ctypedef cuvsCagraSearchParams* cuvsCagraSearchParams_t
 
@@ -138,6 +171,8 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
 
     cuvsError_t cuvsCagraIndexGetDims(cuvsCagraIndex_t index, int64_t* dim)
     cuvsError_t cuvsCagraIndexGetSize(cuvsCagraIndex_t index, int64_t* size)
+    cuvsError_t cuvsCagraIndexGetGraphStorage(cuvsCagraIndex_t index,
+                                            cuvsCagraGraphStorage* storage)
     cuvsError_t cuvsCagraIndexGetGraphDegree(cuvsCagraIndex_t index,
                                              int64_t* degree)
     cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index,
@@ -149,6 +184,12 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
                                cuvsCagraIndexParams_t params,
                                cuvsDataset_t dataset,
                                cuvsCagraIndex_t index)
+
+    cuvsError_t cuvsCagraBuildCompressed(cuvsResources_t res,
+                                        cuvsCagraIndexParams_t params,
+                                        cuvsPqParams_t compression,
+                                        cuvsDataset_t dataset,
+                                        cuvsCagraIndex_t index)
 
     cuvsError_t cuvsCagraSearch(cuvsResources_t res,
                                 cuvsCagraSearchParams* params,

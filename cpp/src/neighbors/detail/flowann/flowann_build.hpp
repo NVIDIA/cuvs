@@ -8,7 +8,7 @@
 #if defined(CUVS_ENABLE_FLOWANN_SEARCH) && defined(CUVS_ENABLE_FLOWANN_BUILD)
 
 #include <cuvs/neighbors/cagra.hpp>
-#include <cuvs/neighbors/flowann.hpp>
+#include <neighbors/detail/flowann/flowann.hpp>
 
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>

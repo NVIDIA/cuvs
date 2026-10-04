@@ -1458,3 +1458,79 @@ $$
 - `result_size = 8,000 B = 0.0076 MB`
 - `workspace_size = query_size + result_size = 0.40 MB`
 - `total search memory ~= 3906.25 + 244.14 + 0.40 = 4150.79 MB`
+
+## Experimental tiered graph storage (FlowANN)
+
+CAGRA can store its graph across GPU and host memory using the FlowANN implementation.
+Enable `CUVS_ENABLE_FLOWANN_SEARCH` and `CUVS_ENABLE_FLOWANN_BUILD` when building cuVS.
+`CUVS_FLOWANN_USE_GDRCOPY` selects GDRCopy or the CUDA-copy transport. These options are
+not required for ordinary CAGRA. The public entry points remain CAGRA's `build`, `search`,
+`serialize`, and `deserialize`; there is no separate public FlowANN index type.
+
+Set `index_params.graph_storage` to `graph_storage_kind::tiered`. The optional
+`tiered_graph_params` controls the resident graph budget, grouping, and seed generation.
+The budget counts packed graph edges, excluding the dataset, queues, and search workspace.
+Zero places all graph edges on the host. Construction still needs memory for the complete
+intermediate graph. Automatic grouping uses hierarchical k-means with capacity repair;
+`n_groups=0` and `n_bits=0` select the existing size-dependent defaults.
+The integrated tiered builder does not support ACE graph construction. Dense C++ builds
+require a device-padded dataset; the compressed overload requires host standard vectors.
+
+```cpp
+cuvs::neighbors::cagra::index_params params;
+params.graph_storage = cuvs::neighbors::cagra::graph_storage_kind::tiered;
+params.tiered.emplace();
+params.tiered->device_graph_budget_bytes = 1ULL << 30;
+// dense_view is a device_padded_dataset_view.
+auto index = cuvs::neighbors::cagra::build(resources, params, dense_view);
+
+cuvs::neighbors::cagra::search_params search_params;
+search_params.itopk_size = 256;
+search_params.max_iterations = 32;
+search_params.tiered.emplace();
+search_params.tiered->keep_pollers_running = true;
+cuvs::neighbors::cagra::search(resources, search_params, index, queries, ids, distances);
+```
+
+The index owns the reordered dataset and its queue runtime. Releasing the build input or moving
+the index does not invalidate that data. Search returns original dataset IDs. Queue workers are
+reused across calls; `keep_pollers_running=true` also keeps the workers active between calls,
+which consumes CPU while the index is idle. Searches on one index are serialized and complete
+before returning. Use the CUDA device on which the index was created.
+
+For VPQ-F16, use the overload `cagra::build(resources, params, vpq_params, host_view)`.
+It builds and groups using the full-precision host vectors, then produces an owning compressed
+index. In Python, pass the same compression parameter object accepted by
+`make_device_pq_dataset` through `cagra.build(..., compression=params)`.
+
+```python
+from cuvs.neighbors import cagra
+
+params = cagra.IndexParams(
+    build_algo="nn_descent",
+    graph_storage="tiered",
+    tiered=cagra.TieredGraphParams(device_graph_budget_bytes=1 << 30),
+)
+index = cagra.build(params, vectors)
+search_params = cagra.SearchParams(
+    itopk_size=256,
+    max_iterations=32,
+    tiered=cagra.TieredSearchParams(keep_pollers_running=True),
+)
+distances, ids = cagra.search(search_params, index, queries, 10)
+cagra.save("tiered.index", index)
+loaded = cagra.Index()
+cagra.load(loaded, "tiered.index")
+```
+
+Tiered serialization stores both the graph and reordered dataset, with a distinct format marker.
+Graph-only serialization is unsupported. The C++ VPQ serialization overload stores the complete
+payload for tiered storage and retains its existing graph-only behavior for ordinary CAGRA-Q.
+A tiered C index owns its loaded dataset internally, so `cuvsCagraDeserializeGraphAndDataset`
+leaves `out_dataset` null. Python `load` needs no separate dataset owner for a tiered file.
+Historical split import remains available inside the native benchmark importer.
+
+Tiered storage does not expose a device adjacency matrix through `graph()`. Dataset replacement,
+extension, merge, multi-partition search, and GPU persistent search are unsupported and report
+errors. Ordinary device graph storage retains the existing defaults and behavior. Rebuild consumers
+against the updated headers: the C/C++ parameter and index layouts have changed.

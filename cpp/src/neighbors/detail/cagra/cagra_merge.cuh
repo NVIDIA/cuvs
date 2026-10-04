@@ -499,6 +499,13 @@ auto merge(raft::resources const& handle,
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> merge_scope(
     "cagra::merge(algo=%d,parts=%zu)", static_cast<int>(merge_params.algo), indices.size());
 
+  RAFT_EXPECTS(params.graph_storage == cagra::graph_storage_kind::device,
+               "Merging into a tiered graph is not supported");
+  for (auto* idx : indices) {
+    RAFT_EXPECTS(idx && idx->graph_storage() == cagra::graph_storage_kind::device,
+                 "Merging tiered graph inputs is not supported");
+  }
+
   RAFT_EXPECTS(merge_params.algo == cagra::merge_algo::AUTO ||
                  merge_params.algo == cagra::merge_algo::FASTENER ||
                  merge_params.algo == cagra::merge_algo::REBUILD,

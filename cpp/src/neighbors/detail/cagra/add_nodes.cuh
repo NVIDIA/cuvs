@@ -357,6 +357,8 @@ void extend_core(raft::resources const& handle,
 {
   static_assert(cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT>,
                 "cagra::extend requires a padded dataset view index type");
+  RAFT_EXPECTS(index.graph_storage() == cagra::graph_storage_kind::device,
+               "Extending a tiered CAGRA graph is not supported");
   RAFT_EXPECTS(!index.dataset_fd().has_value(),
                "Cannot extend a disk-backed CAGRA index. Convert it with "
                "cuvs::neighbors::hnsw::from_cagra() and load it into memory via "

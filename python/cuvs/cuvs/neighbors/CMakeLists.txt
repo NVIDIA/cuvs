@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 #
@@ -16,9 +16,6 @@ add_subdirectory(tiered_index)
 add_subdirectory(mg)
 add_subdirectory(all_neighbors)
 add_subdirectory(vamana)
-if(CUVS_ENABLE_FLOWANN_SEARCH AND CUVS_ENABLE_FLOWANN_BUILD)
-  add_subdirectory(flowann)
-endif()
 
 # Set the list of Cython files to build
 set(cython_sources refine.pyx)

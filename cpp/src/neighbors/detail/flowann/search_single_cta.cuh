@@ -16,7 +16,7 @@
 #include <neighbors/detail/smem_utils.cuh>
 #include <neighbors/ivf_common.cuh>
 
-#include <cuvs/neighbors/flowann.hpp>
+#include <neighbors/detail/flowann/flowann.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>

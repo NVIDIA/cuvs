@@ -1,11 +1,12 @@
+#include <neighbors/detail/flowann/cagra_adapter.hpp>
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cuvs/neighbors/flowann.hpp>
-#include <cuvs/neighbors/flowann_serialize.hpp>
 #include <cuvs/neighbors/refine.hpp>
+#include <neighbors/detail/flowann/flowann.hpp>
+#include <neighbors/detail/flowann/flowann_serialize.hpp>
 
 #include <raft/core/copy.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -484,27 +485,31 @@ auto algorithm_name(cuvs::neighbors::cagra::search_algo algorithm) -> char const
 }
 
 auto run_round(raft::device_resources& resources,
-               flowann::vpq_f16_index<float>& index,
-               flowann::search_context& context,
+               cuvs::neighbors::cagra::device_pq_index<float>& index,
                benchmark_options const& options,
                mapped_matrix_file<float> const* base,
                host_matrix_file<float> const& queries,
                std::optional<host_matrix_file<std::uint32_t>> const& truth) -> round_result
 {
   auto const batch_count = queries.rows / options.batch_size;
-  flowann::search_params params{};
-  params.algo                = options.algorithm;
-  params.team_size           = options.team_size;
-  params.thread_block_size   = options.thread_block_size;
-  params.search_width        = options.search_width;
-  params.itopk_size          = options.itopk_size;
-  params.min_iterations      = options.min_iterations;
-  params.max_iterations      = options.max_iterations;
-  params.max_queries         = options.batch_size;
-  params.num_seeds           = options.num_seeds.value_or(0);
-  params.smem_dtype          = options.smem_dtype;
-  params.sync_window_scale   = options.sync_window_scale;
-  params.sync_drop_threshold = options.sync_drop_threshold;
+  cuvs::neighbors::cagra::search_params params{};
+  params.tiered.emplace();
+  params.tiered->num_queues           = options.num_queues;
+  params.tiered->empty_pause          = options.empty_pause;
+  params.tiered->collect_statistics   = options.collect_statistics;
+  params.tiered->keep_pollers_running = options.use_search_session;
+  params.algo                         = options.algorithm;
+  params.team_size                    = options.team_size;
+  params.thread_block_size            = options.thread_block_size;
+  params.search_width                 = options.search_width;
+  params.itopk_size                   = options.itopk_size;
+  params.min_iterations               = options.min_iterations;
+  params.max_iterations               = options.max_iterations;
+  params.max_queries                  = options.batch_size;
+  params.tiered->num_seeds            = options.num_seeds.value_or(0);
+  params.smem_dtype                   = options.smem_dtype;
+  params.tiered->sync_window_scale    = options.sync_window_scale;
+  params.tiered->sync_drop_threshold  = options.sync_drop_threshold;
 
   auto query_device =
     raft::make_device_matrix<float, int64_t>(resources, options.batch_size, queries.cols);
@@ -538,13 +543,12 @@ auto run_round(raft::device_resources& resources,
     raft::resource::sync_stream(resources);
 
     auto const begin = options.include_query_transfer ? before_upload : clock_type::now();
-    flowann::search(resources,
-                    params,
-                    index,
-                    context,
-                    raft::make_const_mdspan(query_device.view()),
-                    candidates_device.view(),
-                    candidate_distances_device.view());
+    cuvs::neighbors::cagra::search(resources,
+                                   params,
+                                   index,
+                                   raft::make_const_mdspan(query_device.view()),
+                                   candidates_device.view(),
+                                   candidate_distances_device.view());
     auto const after_search = clock_type::now();
 
     raft::copy(
@@ -734,17 +738,10 @@ auto run_benchmark(benchmark_options options) -> int
     options.sync_window_scale,
     options.sync_drop_threshold);
 
-  flowann::queue_params queue_params{};
-  queue_params.num_queues         = options.num_queues;
-  queue_params.empty_pause        = options.empty_pause;
-  queue_params.collect_statistics = options.collect_statistics;
-  flowann::search_context context(bundle.index.cross_graph(), queue_params);
-  std::optional<flowann::search_session> session;
-  if (options.use_search_session) { session.emplace(context); }
+  auto index = cuvs::neighbors::cagra::detail::adopt_tiered(resources, std::move(bundle));
 
   for (std::uint32_t round = 1; round <= options.warmup_rounds; ++round) {
-    auto const result =
-      run_round(resources, bundle.index, context, options, base.get(), queries, truth);
+    auto const result = run_round(resources, index, options, base.get(), queries, truth);
     print_round("WARMUP", round, queries.rows, options, result);
   }
 
@@ -755,8 +752,7 @@ auto run_benchmark(benchmark_options options) -> int
   std::vector<double> recall_values;
   std::vector<double> qps_values;
   for (std::uint32_t round = 1; round <= options.measured_rounds; ++round) {
-    auto const result =
-      run_round(resources, bundle.index, context, options, base.get(), queries, truth);
+    auto const result = run_round(resources, index, options, base.get(), queries, truth);
     print_round("MEASURE", round, queries.rows, options, result);
     search_values.push_back(result.search_ms);
     prep_values.push_back(result.rerank_prep_ms);
@@ -765,7 +761,6 @@ auto run_benchmark(benchmark_options options) -> int
     if (truth) { recall_values.push_back(result.recall); }
     qps_values.push_back(result.qps);
   }
-  session.reset();
 
   std::printf(
     "SUMMARY batch=%u search_median_ms=%.6f rerank_prep_median_ms=%.6f "
@@ -781,7 +776,7 @@ auto run_benchmark(benchmark_options options) -> int
     *std::min_element(search_values.begin(), search_values.end()),
     *std::max_element(search_values.begin(), search_values.end()));
 
-  auto const statistics = context.statistics();
+  auto const statistics = cuvs::neighbors::cagra::detail::tiered_statistics(index);
   std::printf("QUEUE_STATS polls=%llu empty_polls=%llu commands=%llu\n",
               static_cast<unsigned long long>(statistics.polls),
               static_cast<unsigned long long>(statistics.empty_polls),

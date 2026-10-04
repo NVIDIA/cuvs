@@ -6,8 +6,8 @@
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
-#include <cuvs/neighbors/flowann_build.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
+#include <neighbors/detail/flowann/flowann_build.hpp>
 
 #include <neighbors/detail/flowann/build.hpp>
 #include <neighbors/detail/flowann/grouping.hpp>

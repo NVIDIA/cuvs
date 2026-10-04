@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <cuvs/neighbors/flowann.hpp>
+#include <neighbors/detail/flowann/flowann.hpp>
 
 #include <raft/core/detail/macros.hpp>
 

@@ -7,7 +7,7 @@
 
 #ifdef CUVS_ENABLE_FLOWANN_SEARCH
 
-#include <cuvs/neighbors/flowann.hpp>
+#include <neighbors/detail/flowann/flowann.hpp>
 
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>

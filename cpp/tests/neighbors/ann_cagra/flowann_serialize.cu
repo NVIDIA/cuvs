@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cuvs/neighbors/flowann_serialize.hpp>
+#include <neighbors/detail/flowann/flowann_serialize.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
