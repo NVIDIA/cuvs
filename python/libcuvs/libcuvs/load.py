@@ -37,10 +37,12 @@ def load_library():
     try:
         # These libraries  must be loaded before libcuvs because libcuvs
         # references their symbols
+        import libkvikio
         import libraft
         import librmm
         from cuda.pathfinder import load_nvidia_dynamic_lib
 
+        libkvikio.load_library()
         librmm.load_library()
         libraft.load_library()
         load_nvidia_dynamic_lib("nvrtc")

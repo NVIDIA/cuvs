@@ -468,9 +468,9 @@ class KmeansMGNcclTest : public ::testing::TestWithParam<KmeansMGNcclInputs<T>> 
       raft::make_host_scalar_view(&pred_inertia_sg));
 
     ari_vs_ref_ = raft::stats::adjusted_rand_index(
-      d_labels_ref.data(), d_labels_mg.data(), n_samples, sg_stream);
+      d_labels_ref.data(), d_labels_mg.data(), n_samples, sg_stream.get());
     ari_vs_sg_ = raft::stats::adjusted_rand_index(
-      d_labels_sg.data(), d_labels_mg.data(), n_samples, sg_stream);
+      d_labels_sg.data(), d_labels_mg.data(), n_samples, sg_stream.get());
 
     mg_inertia_ = mg_inertia;
     mg_n_iter_  = mg_n_iter;

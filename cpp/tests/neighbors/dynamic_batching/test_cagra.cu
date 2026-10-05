@@ -22,7 +22,7 @@ auto build_cagra_with_dataset(raft::resources const& res,
 {
   auto padded = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
   auto index  = cagra::build(res, params, padded);
-  index.update_device_dataset_same_layout(res, padded);
+  index       = cagra::update_dataset(res, std::move(index), padded);
   return index;
 }
 

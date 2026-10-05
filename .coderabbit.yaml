@@ -67,6 +67,15 @@ reviews:
         - Verify GPU availability checks before tests
         - Check for proper error handling and meaningful error messages
 
+    - path: "cpp/tests/**/*"
+      instructions: |
+        For GTest parameterized test parameter structs:
+        - Flag any `operator<<` overload or `PrintTo` function used to stringify test
+          parameters (i.e. feeds into a GTest test name) that emits `std::endl` or a
+          literal `"\n"`. GTest builds the parameterized test name from this stream
+          output, and a trailing newline breaks exact-match tooling such as
+          `ctest --tests-from-file`. Flag as HIGH priority.
+
 knowledge_base:
   opt_out: false
   code_guidelines:

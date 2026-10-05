@@ -219,7 +219,7 @@ struct search
     SAMPLE_FILTER_T sample_filter)
   {
     auto source_indices_ptr = source_indices.has_value() ? source_indices->data_handle() : nullptr;
-    cudaStream_t stream     = raft::resource::get_cuda_stream(res);
+    cudaStream_t stream     = raft::resource::get_cuda_stream(res).get();
     select_and_run(dataset_desc,
                    graph,
                    source_indices_ptr,
@@ -307,7 +307,7 @@ struct search
     DISTANCE_T* intermediate_distances_ptr,
     SampleFilterT_ sample_filter)
   {
-    cudaStream_t stream = raft::resource::get_cuda_stream(res);
+    cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
     // Scale the cross-CTA traversed hashmap to (num_queries * num_partitions) rows.
     const size_t traversed_hash_size = hashmap::get_size(hash_bitlen);

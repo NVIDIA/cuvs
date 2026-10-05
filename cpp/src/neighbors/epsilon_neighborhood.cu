@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -46,7 +46,7 @@ void compute(raft::resources const& handle,
                                            y.extent(0),
                                            x.extent(1),
                                            eps,
-                                           raft::resource::get_cuda_stream(handle));
+                                           raft::resource::get_cuda_stream(handle).get());
 }
 
 // Explicit template instantiations

@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
@@ -19,7 +20,7 @@ namespace cuvs::neighbors::ivf::detail {
 void sort_cluster_sizes_descending(uint32_t* input,
                                    uint32_t* output,
                                    uint32_t n_lists,
-                                   rmm::cuda_stream_view stream,
+                                   cuda::stream_ref stream,
                                    rmm::device_async_resource_ref tmp_res);
 
 /**
@@ -57,7 +58,7 @@ struct calc_chunk_indices {
                     const uint32_t* clusters_to_probe,
                     uint32_t* chunk_indices,
                     uint32_t* n_samples,
-                    rmm::cuda_stream_view stream);
+                    cuda::stream_ref stream);
   };
 
   static inline auto configure(uint32_t n_probes, uint32_t n_queries) -> configured
@@ -153,19 +154,19 @@ void postprocess_neighbors(IdxT* neighbors_out,                // [n_queries, to
                            uint32_t n_queries,
                            uint32_t n_probes,
                            uint32_t topk,
-                           rmm::cuda_stream_view stream)
+                           cuda::stream_ref stream)
 {
   constexpr int kPNThreads = 256;
   const int pn_blocks      = raft::div_rounding_up_unsafe<size_t>(n_queries * topk, kPNThreads);
   postprocess_neighbors_kernel<kPNThreads, IdxT>
-    <<<pn_blocks, kPNThreads, 0, stream>>>(neighbors_out,
-                                           neighbors_in,
-                                           db_indices,
-                                           clusters_to_probe,
-                                           chunk_indices,
-                                           n_queries,
-                                           n_probes,
-                                           topk);
+    <<<pn_blocks, kPNThreads, 0, stream.get()>>>(neighbors_out,
+                                                 neighbors_in,
+                                                 db_indices,
+                                                 clusters_to_probe,
+                                                 chunk_indices,
+                                                 n_queries,
+                                                 n_probes,
+                                                 topk);
 }
 
 /**

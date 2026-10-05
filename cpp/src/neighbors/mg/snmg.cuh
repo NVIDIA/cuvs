@@ -24,6 +24,8 @@
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
+#include <cuvs/util/file_io.hpp>
+#include <cuvs/util/numpy_dtype.hpp>
 
 #include <fstream>
 
@@ -309,13 +311,13 @@ void sharded_search_with_direct_merge(
                    ncclUint8,
                    from_rank,
                    raft::resource::get_nccl_comm_for_rank(clique, rank),
-                   raft::resource::get_cuda_stream(dev_res));
+                   raft::resource::get_cuda_stream(dev_res).get());
           ncclRecv(in_distances.data_handle() + batch_offset,
                    part_size * sizeof(float),
                    ncclUint8,
                    from_rank,
                    raft::resource::get_nccl_comm_for_rank(clique, rank),
-                   raft::resource::get_cuda_stream(dev_res));
+                   raft::resource::get_cuda_stream(dev_res).get());
         }
         ncclGroupEnd();
         resource::sync_stream(dev_res);
@@ -334,13 +336,13 @@ void sharded_search_with_direct_merge(
                  ncclUint8,
                  raft::resource::get_root_rank(clique),
                  raft::resource::get_nccl_comm_for_rank(clique, rank),
-                 raft::resource::get_cuda_stream(dev_res));
+                 raft::resource::get_cuda_stream(dev_res).get());
         ncclSend(d_distances.data_handle(),
                  part_size * sizeof(float),
                  ncclUint8,
                  raft::resource::get_root_rank(clique),
                  raft::resource::get_nccl_comm_for_rank(clique, rank),
-                 raft::resource::get_cuda_stream(dev_res));
+                 raft::resource::get_cuda_stream(dev_res).get());
         ncclGroupEnd();
         resource::sync_stream(dev_res);
       }
@@ -359,25 +361,36 @@ void sharded_search_with_direct_merge(
                d_trans.view(),
                raft::make_host_vector_view<const searchIdxT>(h_trans.data(), index.num_ranks_));
 
+    // Results from each rank are packed using the current batch size. Use matching logical views
+    // so the final partial batch is merged with the same per-rank stride used above.
+    auto in_distances_batch = raft::make_device_matrix_view<float, int64_t, row_major>(
+      in_distances.data_handle(), index.num_ranks_ * n_rows_of_current_batch, n_neighbors);
+    auto in_neighbors_batch = raft::make_device_matrix_view<const searchIdxT, int64_t, row_major>(
+      in_neighbors.data_handle(), index.num_ranks_ * n_rows_of_current_batch, n_neighbors);
+    auto out_distances_batch = raft::make_device_matrix_view<float, int64_t, row_major>(
+      out_distances.data_handle(), n_rows_of_current_batch, n_neighbors);
+    auto out_neighbors_batch = raft::make_device_matrix_view<searchIdxT, int64_t, row_major>(
+      out_neighbors.data_handle(), n_rows_of_current_batch, n_neighbors);
+
     if (!select_min) {
       raft::linalg::map(root_handle_,
-                        in_distances.view(),
+                        in_distances_batch,
                         raft::mul_const_op<float>(-1),
-                        raft::make_const_mdspan(in_distances.view()));
+                        raft::make_const_mdspan(in_distances_batch));
     }
 
     knn_merge_parts(root_handle_,
-                    in_distances.view(),
-                    in_neighbors.view(),
-                    out_distances.view(),
-                    out_neighbors.view(),
+                    in_distances_batch,
+                    in_neighbors_batch,
+                    out_distances_batch,
+                    out_neighbors_batch,
                     d_trans.view());
 
     if (!select_min) {
       raft::linalg::map(root_handle_,
-                        out_distances.view(),
+                        out_distances_batch,
                         raft::mul_const_op<float>(-1),
-                        raft::make_const_mdspan(out_distances.view()));
+                        raft::make_const_mdspan(out_distances_batch));
     }
 
     raft::copy(
@@ -452,7 +465,7 @@ void sharded_search_with_tree_merge(
                               neighbors_view.data_handle(),
                               translation_offset,
                               part_size,
-                              raft::resource::get_cuda_stream(dev_res));
+                              raft::resource::get_cuda_stream(dev_res).get());
 
       auto d_trans = raft::make_device_vector<searchIdxT>(dev_res, 2);
       raft::matrix::fill(dev_res, d_trans.view(), searchIdxT(0));
@@ -474,13 +487,13 @@ void sharded_search_with_tree_merge(
                      ncclUint8,
                      other_id,
                      raft::resource::get_nccl_comm_for_rank(clique, rank),
-                     raft::resource::get_cuda_stream(dev_res));
+                     raft::resource::get_cuda_stream(dev_res).get());
             ncclRecv(tmp_distances.data_handle() + part_size,
                      part_size * sizeof(float),
                      ncclUint8,
                      other_id,
                      raft::resource::get_nccl_comm_for_rank(clique, rank),
-                     raft::resource::get_cuda_stream(dev_res));
+                     raft::resource::get_cuda_stream(dev_res).get());
             received_something = true;
           }
         } else if (rank % radix == offset)  // This is one of the senders
@@ -491,13 +504,13 @@ void sharded_search_with_tree_merge(
                    ncclUint8,
                    other_id,
                    raft::resource::get_nccl_comm_for_rank(clique, rank),
-                   raft::resource::get_cuda_stream(dev_res));
+                   raft::resource::get_cuda_stream(dev_res).get());
           ncclSend(tmp_distances.data_handle(),
                    part_size * sizeof(float),
                    ncclUint8,
                    other_id,
                    raft::resource::get_nccl_comm_for_rank(clique, rank),
-                   raft::resource::get_cuda_stream(dev_res));
+                   raft::resource::get_cuda_stream(dev_res).get());
         }
         ncclGroupEnd();
 
@@ -741,8 +754,8 @@ void search(const raft::resources& clique,
                                      n_neighbors,
                                      n_batches);
     } else {
+      // Only one rank is available, so process its batches sequentially.
       const int rank = 0;
-#pragma omp parallel for
       for (int64_t batch_idx = 0; batch_idx < n_batches; batch_idx++) {
         int64_t offset                  = batch_idx * n_rows_per_batch;
         int64_t query_offset            = offset * n_cols;
@@ -771,10 +784,9 @@ void serialize(const raft::resources& clique,
                const mg_index<AnnIndexType, T, IdxT>& index,
                const std::string& filename)
 {
-  std::ofstream of(filename, std::ios::out | std::ios::binary);
-  if (!of) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
+  cuvs::util::kvikio_ofstream of(filename);
 
-  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = cuvs::util::detail::numpy_dtype_string<T>();
   dtype_string.resize(4);
   of << dtype_string;
 

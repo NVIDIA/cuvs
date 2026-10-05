@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -25,7 +25,7 @@ public class BruteForceRandomizedIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue(isLinuxAmd64());
+    assumeTrue(isLinuxSupportedArch());
     initializeRandom();
     log.trace("Random context initialized for test.");
     CuVSProvider.provider().enableRMMPooledMemory(10, 60);

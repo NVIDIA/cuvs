@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,12 +9,12 @@
 #include "detail/jit_lto_kernels/interleaved_scan_planner.hpp"
 #include "detail/jit_lto_kernels/kernel_def.hpp"
 #include <cstdint>
-#include <cuvs/detail/jit_lto/NVRTCLTOFragmentCompiler.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/ivf_flat/interleaved_scan_fragments.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
 #include <optional>
+#include <rtcx/nvrtc_lto_fragment_compiler.hpp>
 #include <string>
 #include <type_traits>
 
@@ -25,7 +25,7 @@
 #include <raft/util/cuda_rt_essentials.hpp>  // RAFT_CUDA_TRY
 #include <raft/util/pow2_utils.cuh>
 
-#include <rmm/cuda_stream_view.hpp>
+#include <cuda/stream>
 
 namespace cuvs::neighbors::ivf_flat::detail {
 static constexpr int kThreadsPerBlock = 128;
@@ -151,7 +151,7 @@ void launch_kernel(const index<T, IdxT>& index,
                    uint32_t* neighbors,
                    float* distances,
                    uint32_t& grid_dim_x,
-                   rmm::cuda_stream_view stream,
+                   cuda::stream_ref stream,
                    const std::optional<std::string>& metric_udf)
 {
   RAFT_EXPECTS(Veclen == index.veclen(),
@@ -169,7 +169,7 @@ void launch_kernel(const index<T, IdxT>& index,
     std::string metric_udf_code = metric_udf.value();
     metric_udf_code +=
       experimental::udf::instantiate_udf(type_name<T>(), type_name<AccT>(), Veclen);
-    auto udf_fragment = nvrtc_compiler().compile(metric_udf_code, metric_udf_code);
+    auto udf_fragment = rtcx::nvrtc_compiler().compile(metric_udf_code, metric_udf_code);
     kernel_planner.add_metric_udf_fragment(std::move(udf_fragment));
   } else {
     kernel_planner.add_metric_device_function<DataTag, AccTag, MetricTag, Veclen>();
@@ -218,7 +218,7 @@ void launch_kernel(const index<T, IdxT>& index,
       n_probes,
       smem_size);
     kernel_launcher->dispatch<interleaved_scan_func_t<T, IdxT>>(
-      stream,
+      stream.get(),
       grid_dim,
       block_dim,
       smem_size,
@@ -435,7 +435,7 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
                               uint32_t* neighbors,
                               float* distances,
                               uint32_t& grid_dim_x,
-                              rmm::cuda_stream_view stream,
+                              cuda::stream_ref stream,
                               const std::optional<std::string>& metric_udf)
 {
   const uint32_t n_probes_clamped = std::min(n_probes, index.n_lists());

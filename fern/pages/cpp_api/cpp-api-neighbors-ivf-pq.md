@@ -2519,6 +2519,31 @@ Usage example:
 
 `void`
 
+<a id="neighbors-ivf-pq-helpers-compressed-dataset-size"></a>
+### neighbors::ivf_pq::helpers::compressed_dataset_size
+
+Calculate the size of the compressed dataset.
+
+```cpp
+size_t compressed_dataset_size(raft::resources const& res,
+raft::matrix_extent<int64_t> dataset,
+cuvs::neighbors::ivf_pq::index_params params);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | `raft::resources const&` | raft resource |
+| `dataset` | in | `raft::matrix_extent<int64_t>` | shape of the dataset |
+| `params` |  | `cuvs::neighbors::ivf_pq::index_params` |  |
+
+**Returns**
+
+`size_t`
+
+compressed dataset size in bytes
+
 <a id="neighbors-ivf-pq-helpers-resize-list"></a>
 ### neighbors::ivf_pq::helpers::resize_list
 

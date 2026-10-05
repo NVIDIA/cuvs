@@ -22,29 +22,37 @@ builder pattern: every setter is optional and unset values keep the cuVS C
 library defaults. Values are validated when the builder's `build()` runs,
 returning [`CagraError::Validation`] for out-of-range inputs.
 
+## crate::dataset::\{CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset\}
+
+```rust
+pub use crate::dataset::{CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset};
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:23`_
+
 ## crate::neighbors::filters::\{Bitset, Filter\}
 
 ```rust
 pub use crate::neighbors::filters::{Bitset, Filter};
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:23`_
-
-## index::Index
-
-```rust
-pub use index::Index;
-```
-
 _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:24`_
 
-## params::\{CompressionParams, IndexParams, SearchParams\}
+## index::\{DeserializedIndex, Index\}
 
 ```rust
-pub use params::{CompressionParams, IndexParams, SearchParams};
+pub use index::{DeserializedIndex, Index};
 ```
 
 _Source: `rust/cuvs/src/neighbors/cagra/mod.rs:25`_
+
+## params::\{IndexParams, SearchParams\}
+
+```rust
+pub use params::{IndexParams, SearchParams};
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:26`_
 
 ## GraphBuildAlgo
 
@@ -58,7 +66,7 @@ pub enum GraphBuildAlgo {
 
 Algorithm for building the internal k-NN graph.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:33`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:34`_
 
 ## SearchAlgo
 
@@ -72,7 +80,7 @@ pub enum SearchAlgo {
 
 Search kernel implementation.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:73`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:74`_
 
 ## HashMode
 
@@ -86,7 +94,7 @@ pub enum HashMode {
 
 Hash-table mode used during search.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:109`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:110`_
 
 ## CagraError
 
@@ -100,4 +108,4 @@ pub enum CagraError {
 
 Error type for CAGRA operations.
 
-_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:141`_
+_Source: `rust/cuvs/src/neighbors/cagra/mod.rs:142`_
