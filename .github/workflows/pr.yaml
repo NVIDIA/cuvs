@@ -124,58 +124,33 @@ jobs:
           - '!ci/validate_wheel.sh'
           - '!thirdparty/LICENSES/**'
         test_cpp:
-          - '**'
+          - '.github/workflows/pr.yaml'
+          - 'RAPIDS_BRANCH'
+          - 'VERSION'
+          - 'build.sh'
+          - 'c/**'
+          - 'ci/build_cpp.sh'
+          - 'ci/get_test_data.sh'
+          - 'ci/test_cpp.sh'
+          - 'cmake/**'
+          - 'conda/recipes/libcuvs/**'
+          - 'cpp/**'
+          - 'dependencies.yaml'
           - '!**/*/REVIEW_GUIDELINES.md'
-          - '!.coderabbit.yaml'
-          - '!.devcontainer/**'
-          - '!.github/CODEOWNERS'
-          - '!.github/ISSUE_TEMPLATE/**'
-          - '!.github/PULL_REQUEST_TEMPLATE.md'
-          - '!.github/copy-pr-bot.yaml'
-          - '!.github/labeler.yml'
-          - '!.github/ops-bot.yaml'
-          - '!.github/release.yml'
-          - '!.github/workflows/build.yaml'
-          - '!.github/workflows/check-c-abi.yaml'
-          - '!.github/workflows/labeler.yml'
-          - '!.github/workflows/publish-rust.yaml'
-          - '!.github/workflows/security-suite.yml'
-          - '!.github/workflows/store-c-abi-baseline.yaml'
-          - '!.github/workflows/test.yaml'
-          - '!.github/workflows/trigger-breaking-change-alert.yaml'
-          - '!.github/workflows/update-c-abi-baseline.yaml'
-          - '!.pre-commit-config.yaml'
-          - '!.shellcheckrc'
-          - '!.yamllint.yaml'
-          - '!Dockerfile'
-          - '!README.md'
-          - '!SECURITY.md'
-          - '!ci/build_docs.sh'
-          - '!ci/build_go.sh'
-          - '!ci/build_java.sh'
-          - '!ci/build_lucene.sh'
-          - '!ci/build_python.sh'
-          - '!ci/build_rust.sh'
-          - '!ci/build_wheel*.sh'
-          - '!ci/check_style.sh'
-          - '!ci/release/update-version.sh'
-          - '!ci/run_cuvs_pytests.sh'
-          - '!ci/test_java.sh'
-          - '!ci/test_lucene.sh'
-          - '!ci/test_python.sh'
-          - '!ci/test_wheel_cuvs.sh'
-          - '!ci/validate_wheel.sh'
-          - '!docs/**'
-          - '!examples/go/**'
-          - '!examples/java/**'
-          - '!fern/**'
-          - '!go/**'
-          - '!img/**'
-          - '!java/**'
-          - '!notebooks/**'
-          - '!python/**'
-          - '!rust/**'
-          - '!thirdparty/LICENSES/**'
+          - '!cpp/doxygen/**'
+        test_standalone_c:
+          - '.github/workflows/pr.yaml'
+          - 'RAPIDS_BRANCH'
+          - 'VERSION'
+          - 'build.sh'
+          - 'c/**'
+          - 'ci/standalone_c/**'
+          - 'ci/test_standalone_c.sh'
+          - 'cmake/**'
+          - 'cpp/**'
+          - 'dependencies.yaml'
+          - '!**/*/REVIEW_GUIDELINES.md'
+          - '!cpp/doxygen/**'
         test_java:
           - '**'
           - '!**/*/REVIEW_GUIDELINES.md'
@@ -521,6 +496,36 @@ jobs:
     with:
       build_type: pull-request
       script: "ci/test_cpp.sh ${{ matrix.shard }} ${{ matrix.num_shards }}"
+      cache-paths: .cache/cuda-jit
+      cache-key-prefix: libcuvs-cudajit-v1
+      # Caches are immutable. Re-key when the JIT-relevant sources change so a completed run can
+      # save newly compiled entries; restore a compatible earlier archive first.
+      cache-key-files: |
+        cpp/CMakeLists.txt
+        cpp/cmake/**
+        cpp/include/cuvs/detail/jit_lto/**
+        cpp/src/detail/jit_lto/**
+        cpp/src/distance/detail/pairwise_matrix/jit_lto_kernels/**
+        cpp/src/neighbors/detail/cagra/jit_lto_kernels/**
+        cpp/src/neighbors/detail/jit_lto_kernels/**
+        cpp/src/neighbors/ivf_flat/detail/jit_lto_kernels/**
+        cpp/src/neighbors/ivf_pq/detail/jit_lto_kernels/**
+        cpp/src/neighbors/ivf_rabitq/jit_lto_kernels/**
+        cpp/src/neighbors/ivf_sq/detail/jit_lto_kernels/**
+        cpp/tests/**
+        dependencies.yaml
+      # The CUDA driver's JIT cache is independent of the Python interpreter used to run C++ tests.
+      cache-key-matrix-fields: |
+        CUDA_VER
+        ARCH
+        LINUX_VER
+        GPU
+        DRIVER
+        DEPENDENCIES
+      # PRs restore a compatible main cache but do not create merge-ref-scoped entries.
+      cache-read-only: true
+      cache-environment: |
+        CUDA_CACHE_PATH=.cache/cuda-jit
   conda-cpp-checks:
     needs: conda-cpp-build
     permissions:
@@ -617,7 +622,7 @@ jobs:
     permissions:
       contents: read
     uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_standalone_c
     with:
       build_type: pull-request
       matrix_name: conda-cpp-build

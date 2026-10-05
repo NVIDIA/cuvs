@@ -344,7 +344,7 @@ RAFT_KERNEL add_rev_edges_kernel(const Index_t* graph,
     if (idx_in_rev_list >= num_samples) {
       atomicExch(&list_sizes[rev_list_id].y, num_samples);
     } else {
-      rev_graph[rev_list_id * num_samples + idx_in_rev_list] = list_id;
+      rev_graph[static_cast<size_t>(rev_list_id) * num_samples + idx_in_rev_list] = list_id;
     }
   }
 }
