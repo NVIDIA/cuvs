@@ -5,6 +5,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -116,7 +118,7 @@ double soar_score(const float* x,
  * the tests below.
  */
 struct SoarFixture {
-  explicit SoarFixture(rmm::cuda_stream_view stream)
+  explicit SoarFixture(cuda::stream_ref stream)
     : dataset(kNRows * kDim, stream),
       centroids(kNClusters * kDim, stream),
       labels(kNRows, stream),
