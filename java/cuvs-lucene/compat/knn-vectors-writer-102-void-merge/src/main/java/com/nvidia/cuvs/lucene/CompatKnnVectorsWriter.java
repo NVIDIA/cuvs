@@ -10,8 +10,11 @@ import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.MergeState;
 
 /**
- * A {@link KnnVectorsWriter} whose merge method has the same signature on every Lucene release.
- * Through Lucene 10.4, {@code mergeOneField} returns nothing.
+ * Base class of the cuvs-lucene writers that hides a signature change in {@link KnnVectorsWriter}.
+ * Through Lucene 10.4, {@code mergeOneField} returns nothing; Lucene 10.5 made it return work to
+ * run after all fields are merged. Each variant of this class overrides the {@code mergeOneField}
+ * of its Lucene release and forwards it to {@code doMergeOneField}, whose signature is the same on
+ * every release, so the shared writers implement {@code doMergeOneField} once.
  */
 abstract class CompatKnnVectorsWriter extends KnnVectorsWriter {
 

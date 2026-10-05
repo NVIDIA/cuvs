@@ -16,8 +16,14 @@ import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.search.knn.TopKnnCollectorManager;
 
 /**
- * A {@link KnnFloatVectorQuery} whose per-segment search has the same signature on every Lucene
- * release. Since Lucene 10.3, the accepted documents come as {@link AcceptDocs}.
+ * Base class of the GPU query, {@code GPUKnnFloatVectorQuery}, that hides a signature change in
+ * {@link KnnFloatVectorQuery}. Since Lucene 10.3, the documents a segment search may return come
+ * to {@code approximateSearch} as {@link AcceptDocs}, where Lucene 10.2 passed {@code Bits}. Each
+ * variant of this class implements the {@code approximateSearch} of its Lucene release with the
+ * collector from {@code newPerLeafCollector}, so the shared query only provides that collector.
+ *
+ * <p>This variant also makes the collector manager non-optimistic, so that Lucene does not repeat
+ * a segment's search; see {@link #getKnnCollectorManager}.
  */
 abstract class CompatKnnFloatVectorQuery extends KnnFloatVectorQuery {
 

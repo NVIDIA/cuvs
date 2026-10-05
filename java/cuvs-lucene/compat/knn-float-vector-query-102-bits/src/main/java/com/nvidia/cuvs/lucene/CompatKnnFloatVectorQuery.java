@@ -14,8 +14,12 @@ import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.util.Bits;
 
 /**
- * A {@link KnnFloatVectorQuery} whose per-segment search has the same signature on every Lucene
- * release. Lucene 10.2 passes the accepted documents as {@link Bits}.
+ * Base class of the GPU query, {@code GPUKnnFloatVectorQuery}, that hides a signature change in
+ * {@link KnnFloatVectorQuery}. Lucene 10.2 passes the documents a segment search may return to
+ * {@code approximateSearch} as {@link Bits}; Lucene 10.3 changed that parameter to
+ * {@code AcceptDocs}. Each variant of this class implements the {@code approximateSearch} of its
+ * Lucene release with the collector from {@code newPerLeafCollector}, so the shared query only
+ * provides that collector.
  */
 abstract class CompatKnnFloatVectorQuery extends KnnFloatVectorQuery {
 

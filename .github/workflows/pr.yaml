@@ -763,7 +763,6 @@ jobs:
       container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
       artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
-      # One target/ per module (lucene-X.Y/, relocation/); the artifact keeps them under those directories.
       file_to_upload: "java/cuvs-lucene/*/target/"
   conda-lucene-tests-other-arch:
     # Verifies that cuvs-lucene, built against the amd64-built cuvs-java jar, also works
@@ -793,6 +792,9 @@ jobs:
     # JDK 21, the oldest JDK it supports, by running its test suite against the amd64-built
     # classes without recompiling -- see ci/test_lucene_jdk21.sh. It runs once, not per CUDA
     # version: it uses no GPU, so the artifacts of any entry of the Java job's matrix will do.
+    # This matters because many applications built on Lucene 10 support JDK 21 as their minimum.
+    # cuvs-lucene only uses the GPU on JDK 22+, but it can't stop such an application from starting
+    # on JDK 21, so there it has to load and fall back to the CPU.
     needs: [conda-java-build-and-tests-matrix, conda-java-build-and-tests, conda-lucene-build-and-tests]
     permissions:
       actions: read

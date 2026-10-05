@@ -202,7 +202,6 @@ jobs:
       container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
       artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
-      # One target/ per module (lucene-X.Y/, relocation/); the artifact keeps them under those directories.
       file_to_upload: "java/cuvs-lucene/*/target/"
   conda-lucene-tests-other-arch:
     # Verifies that cuvs-lucene, built against the amd64-built cuvs-java jar, also works

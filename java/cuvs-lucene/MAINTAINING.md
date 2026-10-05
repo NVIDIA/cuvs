@@ -100,7 +100,8 @@ done
 
 For each new or changed method, decide whether Lucene's default is right for the cuvs-lucene subclass.
 If not, override it in the `Compat*` class of the variant the new release uses, creating a new variant
-if older releases share that one (see how `compat/knn-vectors-reader-103-acceptdocs` overrides `getOffHeapByteSize`). To refresh the class list, run `javap` on the classes in
+if older releases share that one (see how `compat/knn-vectors-reader-103-acceptdocs` overrides
+`getOffHeapByteSize`). To refresh the class list, run `javap` on the classes in
 `lucene-10.6/target/classes/com/nvidia/cuvs/lucene` and collect their `org.apache.lucene` supertypes.
 
 Also read Lucene's `CHANGES.txt` for the release, looking for:

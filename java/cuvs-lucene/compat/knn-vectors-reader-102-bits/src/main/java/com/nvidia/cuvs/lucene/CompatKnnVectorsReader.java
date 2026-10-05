@@ -11,8 +11,12 @@ import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.util.Bits;
 
 /**
- * A {@link KnnVectorsReader} whose search methods have the same signature on every Lucene release.
- * Lucene 10.2 passes the accepted documents as {@link Bits}.
+ * Base class of the GPU search reader, {@code CuVS2510GPUVectorsReader}, that hides a signature
+ * change in {@link KnnVectorsReader}. Lucene 10.2 passes the documents a search may return as
+ * {@link Bits}; Lucene 10.3 changed that parameter to {@code AcceptDocs}. Each variant of this
+ * class overrides the {@code search} methods of its Lucene release and forwards them to
+ * {@code doSearch}, whose signature is the same on every release, so the shared reader implements
+ * {@code doSearch} once.
  */
 abstract class CompatKnnVectorsReader extends KnnVectorsReader {
 
