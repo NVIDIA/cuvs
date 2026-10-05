@@ -50,6 +50,9 @@ void build_clusters(const raft::resources& handle,
                     MappingOpT mapping_op,
                     std::optional<raft::device_vector_view<const MathT>> X_norm)
 {
+  RAFT_EXPECTS(centroids.extent(0) > IndexT{0} && centroids.extent(0) <= X.extent(0),
+               "The number of centroids must be strictly positive and cannot exceed the number of "
+               "training samples");
   RAFT_EXPECTS(X.extent(0) == labels.extent(0),
                "Number of rows in dataset and labels are different");
   auto centers_dim =
@@ -58,8 +61,6 @@ void build_clusters(const raft::resources& handle,
                "Number of features in dataset and centroids are different");
   RAFT_EXPECTS(X.extent(0) <= std::numeric_limits<IndexT>::max() / centers_dim,
                "The chosen index type cannot represent all indices for the given dataset");
-  RAFT_EXPECTS(centroids.extent(0) > 0 && centroids.extent(0) <= X.extent(0),
-               "The number of centroids must be positive and cannot exceed the number of rows");
   RAFT_EXPECTS(!X_norm.has_value() || X_norm->extent(0) == X.extent(0),
                "Number of rows in dataset and norms are different");
   RAFT_EXPECTS(centroids.extent(0) == cluster_sizes.extent(0),
