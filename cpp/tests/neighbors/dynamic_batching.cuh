@@ -18,6 +18,8 @@
 
 #include <cstdint>
 #include <future>
+#include <memory>
+#include <string>
 #include <vector>
 
 namespace cuvs::neighbors::dynamic_batching {
@@ -94,15 +96,40 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
   dynamic_batching::search_params search_params_dynb{};
 
   // indexes
-  std::optional<upstream_type> index_upsm                                  = std::nullopt;
+  std::shared_ptr<upstream_type> index_upsm                                = nullptr;
   std::optional<dynamic_batching::index<data_type, index_type>> index_dynb = std::nullopt;
+
+  /*
+    The upstream index depends only on the dataset (generated from a fixed seed) and the upstream
+    build parameters, which are the same for all parameterizations of a test. Build it once per
+    test and share it between the parameterizations. The dataset it was built from is kept alive
+    with it, because some index types only hold a view of the dataset.
+   */
+  struct upstream_cache {
+    std::string key;
+    std::optional<raft::device_matrix<data_type, int64_t>> dataset = std::nullopt;
+    std::shared_ptr<upstream_type> index                           = nullptr;
+  };
+  static inline upstream_cache cache_{};
+
+  static void TearDownTestSuite() { cache_ = upstream_cache{}; }
 
   void build_all()
   {
     index_dynb.reset();
     index_upsm.reset();
-    index_upsm = UpstreamBuildF(res, build_params_upsm, dataset->view());
-    index_dynb.emplace(res, build_params_dynb, index_upsm.value(), search_params_upsm);
+    auto key = std::string{::testing::UnitTest::GetInstance()->current_test_info()->name()};
+    key      = key.substr(0, key.find('/')) + "/" + std::to_string(ps.n_rows) + "x" +
+          std::to_string(ps.dim) + "/" + std::to_string(static_cast<int>(ps.metric));
+    if (cache_.key != key) {
+      cache_ = upstream_cache{};
+      cache_.index =
+        std::make_shared<upstream_type>(UpstreamBuildF(res, build_params_upsm, dataset->view()));
+      cache_.dataset = std::move(dataset);
+      cache_.key     = key;
+    }
+    index_upsm = cache_.index;
+    index_dynb.emplace(res, build_params_dynb, *index_upsm, search_params_upsm);
   }
 
   void search_all()
@@ -110,7 +137,7 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
     // Search using upstream index - all queries at once
     UpstreamSearchF(res,
                     search_params_upsm,
-                    index_upsm.value(),
+                    *index_upsm,
                     queries->view(),
                     neighbors_upsm->view(),
                     distances_upsm->view(),
