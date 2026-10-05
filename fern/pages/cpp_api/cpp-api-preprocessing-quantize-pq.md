@@ -269,7 +269,7 @@ SrcT const& src)
 
 Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset view exposing `view`, `dim` and `stride`, in which case the logical `dim()` is quantized and the row padding is skipped. The rows may be device-accessible or host-resident. Device-accessible rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension) are passed through to training as they are; a wider row pitch triggers a contiguous dense copy first. Host-resident rows are subsampled for training and encoded in bounded batches, so the dense dataset is never staged on the device in full; they must be tightly packed. Empty sources are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
 
-Typical **CAGRA** usage: build the graph on dense vectors, then attach VPQ for search (metric must remain `L2Expanded` for this path). Train VPQ from the same CAGRA-padded device layout you used for graph build, keep the `device_vpq_dataset` alive, and call `cagra::update_dataset` with a non-owning view.
+Typical **CAGRA-Q** usage: compress the source rows, then build the graph directly from the VPQ dataset (the metric must be `L2Expanded`). Keep the `device_vpq_dataset` alive because the index holds a non-owning view of it.
 
 **Parameters**
 

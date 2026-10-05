@@ -228,6 +228,24 @@ TEST(CagraMemUsage, IterativeEstimateIsSmallerForCompressedDataset)
             device_estimate(res, n_rows, dim, params));
 }
 
+TEST(CagraMemUsage, IterativeEstimateHonorsConfiguredSearchMemory)
+{
+  raft::resources res;
+  constexpr int64_t n_rows = 1000000;
+  constexpr int64_t dim    = 128;
+
+  auto default_params = iterative_params(64, 128);
+  auto tuned_params   = default_params;
+  auto& search =
+    std::get<graph_build_params::iterative_search_params>(tuned_params.graph_build_params);
+  search.algo               = cuvs::neighbors::cagra::search_algo::MULTI_CTA;
+  search.search_width       = 4;
+  search.hashmap_min_bitlen = 20;
+
+  EXPECT_GT(device_estimate(res, n_rows, dim, tuned_params),
+            device_estimate(res, n_rows, dim, default_params));
+}
+
 TEST(CagraMemUsage, IterativeEstimateAcceptsEqualDegrees)
 {
   raft::resources res;
@@ -245,12 +263,13 @@ TEST(CagraMemUsage, IterativeEstimateBoundsMeasuredPeak)
 
   const auto estimated = device_estimate(res, n_rows, dim, params);
 
+  // The dense source is caller-owned and is intentionally outside the build estimate. Track the
+  // resident padded dataset and the build itself, which are the allocations the estimator models.
+  auto dataset = make_clustered(res, n_rows, dim);
+
   size_t measured = 0;
   {
-    // The tracking handle replaces the global device resource, so it has to outlive everything
-    // allocated below; declaration order here gives it exactly that.
     raft::memory_stats_resources tracked{res};
-    auto dataset = make_clustered(tracked, n_rows, dim);
     cuvs::neighbors::test::padded_device_matrix_for_cagra<float> padded(
       tracked, raft::make_const_mdspan(dataset.view()));
     auto built = cagra::build(tracked, params, padded.view);

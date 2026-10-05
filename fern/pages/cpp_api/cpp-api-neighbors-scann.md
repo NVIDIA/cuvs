@@ -20,6 +20,7 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t kmeans_n_iters;
   float partitioning_eta;
   float soar_lambda;
+  uint32_t n_coarse_clusters;
   uint32_t pq_dim;
   uint32_t pq_bits;
   int64_t pq_n_rows_train;
@@ -38,6 +39,7 @@ struct index_params : cuvs::neighbors::index_params {
 | `kmeans_n_iters` | `uint32_t` | the max number of iterations for training the tree structure * |
 | `partitioning_eta` | `float` | the value of eta for AVQ adjustment during partitioning * |
 | `soar_lambda` | `float` | the value of lambda for SOAR spilling * |
+| `n_coarse_clusters` | `uint32_t` | the number of intermediate nodes in a two-level tree. When == 0, only a single level tree with root + leaves if built.<br /><br />Recommend sqrt(n_leaves), for a reasonable trade-off between latency/recall |
 | `pq_dim` | `uint32_t` | the dimension of pq subspaces (must divide dataset dimension)* |
 | `pq_bits` | `uint32_t` | the number of bits for pq codes (must be 4 or 8, for 16 and 256 codes respectively) * |
 | `pq_n_rows_train` | `int64_t` | the number of rows for PQ training (internally capped to 100k) * |
@@ -97,6 +99,304 @@ Dimensionality of the data.
 **Returns**
 
 `uint32_t`
+
+<a id="neighbors-experimental-scann-index-centers"></a>
+### neighbors::experimental::scann::index::centers
+
+The leaf node centers
+
+```cpp
+raft::device_matrix_view<float, IdxT> centers() noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<float, IdxT>`
+
+**Additional overload:** `neighbors::experimental::scann::index::centers`
+
+The const leaf node centers
+
+```cpp
+raft::device_matrix_view<const float, IdxT> centers() const noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<const float, IdxT>`
+
+<a id="neighbors-experimental-scann-index-labels"></a>
+### neighbors::experimental::scann::index::labels
+
+The assignment of dataset vectors to the nearest leaf center
+
+```cpp
+raft::device_vector_view<uint32_t, IdxT> labels() noexcept;
+```
+
+**Returns**
+
+`raft::device_vector_view<uint32_t, IdxT>`
+
+**Additional overload:** `neighbors::experimental::scann::index::labels`
+
+the const assignment of dataset vectors to the nearest leaf center
+
+```cpp
+raft::device_vector_view<const uint32_t, IdxT> labels() const noexcept;
+```
+
+**Returns**
+
+`raft::device_vector_view<const uint32_t, IdxT>`
+
+<a id="neighbors-experimental-scann-index-soar-labels"></a>
+### neighbors::experimental::scann::index::soar_labels
+
+Spilled assignment of dataset vectors to nearest leaf center by
+
+```cpp
+raft::device_vector_view<uint32_t, IdxT> soar_labels() noexcept;
+```
+
+minimizing SOAR loss
+
+**Returns**
+
+`raft::device_vector_view<uint32_t, IdxT>`
+
+**Additional overload:** `neighbors::experimental::scann::index::soar_labels`
+
+const spilled assignment of dataset vectors to nearest leaf center by
+
+```cpp
+raft::device_vector_view<const uint32_t, IdxT> soar_labels() const noexcept;
+```
+
+minimizing SOAR loss
+
+**Returns**
+
+`raft::device_vector_view<const uint32_t, IdxT>`
+
+<a id="neighbors-experimental-scann-index-coarse-centers"></a>
+### neighbors::experimental::scann::index::coarse_centers
+
+coarse kmeans centers for two-level trees
+
+```cpp
+raft::device_matrix_view<float, IdxT> coarse_centers() noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<float, IdxT>`
+
+**Additional overload:** `neighbors::experimental::scann::index::coarse_centers`
+
+const coarse kmeans centers for two-level trees
+
+```cpp
+raft::device_matrix_view<const float, IdxT> coarse_centers() const noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<const float, IdxT>`
+
+<a id="neighbors-experimental-scann-index-coarse-labels"></a>
+### neighbors::experimental::scann::index::coarse_labels
+
+assignment of leaf centers to coarse centers in two-level tree
+
+```cpp
+raft::device_vector_view<uint32_t, IdxT> coarse_labels() noexcept;
+```
+
+**Returns**
+
+`raft::device_vector_view<uint32_t, IdxT>`
+
+**Additional overload:** `neighbors::experimental::scann::index::coarse_labels`
+
+const assignment of leaf centers to coarse centers in two-level tree
+
+```cpp
+raft::device_vector_view<const uint32_t, IdxT> coarse_labels() const noexcept;
+```
+
+**Returns**
+
+`raft::device_vector_view<const uint32_t, IdxT>`
+
+<a id="neighbors-experimental-scann-index-coarse-soar-labels"></a>
+### neighbors::experimental::scann::index::coarse_soar_labels
+
+spilled assignment of leaf centers to coarse centers by minimizing
+
+```cpp
+raft::device_vector_view<uint32_t, IdxT> coarse_soar_labels() noexcept;
+```
+
+SOAR loss in two-level tree
+
+**Returns**
+
+`raft::device_vector_view<uint32_t, IdxT>`
+
+**Additional overload:** `neighbors::experimental::scann::index::coarse_soar_labels`
+
+const spilled assighment of leaf centers to coarse centers by minimizing
+
+```cpp
+raft::device_vector_view<const uint32_t, IdxT> coarse_soar_labels() const noexcept;
+```
+
+SOAR loss in two-level tree
+
+**Returns**
+
+`raft::device_vector_view<const uint32_t, IdxT>`
+
+<a id="neighbors-experimental-scann-index-n-rows"></a>
+### neighbors::experimental::scann::index::n_rows
+
+number of rows in dataset
+
+```cpp
+uint32_t n_rows() const noexcept;
+```
+
+**Returns**
+
+`uint32_t`
+
+<a id="neighbors-experimental-scann-index-n-leaves"></a>
+### neighbors::experimental::scann::index::n_leaves
+
+number of leaf nodes in kmeans tree
+
+```cpp
+uint32_t n_leaves() const noexcept;
+```
+
+**Returns**
+
+`uint32_t`
+
+<a id="neighbors-experimental-scann-index-pq-dim"></a>
+### neighbors::experimental::scann::index::pq_dim
+
+dimension of pq subspaces
+
+```cpp
+uint32_t pq_dim() const noexcept;
+```
+
+**Returns**
+
+`uint32_t`
+
+<a id="neighbors-experimental-scann-index-pq-codebook"></a>
+### neighbors::experimental::scann::index::pq_codebook
+
+const codebook for pq quanization
+
+```cpp
+raft::device_matrix_view<const float, uint32_t, raft::row_major> pq_codebook() const noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<const float, uint32_t, raft::row_major>`
+
+**Additional overload:** `neighbors::experimental::scann::index::pq_codebook`
+
+codebook for pq quantization
+
+```cpp
+raft::device_matrix_view<float, uint32_t, raft::row_major> pq_codebook() noexcept;
+```
+
+**Returns**
+
+`raft::device_matrix_view<float, uint32_t, raft::row_major>`
+
+<a id="neighbors-experimental-scann-index-quantized-residuals"></a>
+### neighbors::experimental::scann::index::quantized_residuals
+
+const pq quantized residuals of dataset vectors
+
+```cpp
+raft::host_matrix_view<const uint8_t, IdxT, raft::row_major> quantized_residuals() const noexcept;
+```
+
+**Returns**
+
+`raft::host_matrix_view<const uint8_t, IdxT, raft::row_major>`
+
+**Additional overload:** `neighbors::experimental::scann::index::quantized_residuals`
+
+pq quanntized residuals of dataset vectors
+
+```cpp
+raft::host_matrix_view<uint8_t, IdxT, raft::row_major> quantized_residuals() noexcept;
+```
+
+**Returns**
+
+`raft::host_matrix_view<uint8_t, IdxT, raft::row_major>`
+
+<a id="neighbors-experimental-scann-index-quantized-soar-residuals"></a>
+### neighbors::experimental::scann::index::quantized_soar_residuals
+
+pq quantized residuals of dataset vectors using SOAR assignment
+
+```cpp
+raft::host_matrix_view<const uint8_t, IdxT, raft::row_major> quantized_soar_residuals()
+const noexcept;
+```
+
+**Returns**
+
+`raft::host_matrix_view<const uint8_t, IdxT, raft::row_major>`
+
+**Additional overload:** `neighbors::experimental::scann::index::quantized_soar_residuals`
+
+const pq quantized residuals of dataset vectors using SOAR assignment
+
+```cpp
+raft::host_matrix_view<uint8_t, IdxT, raft::row_major> quantized_soar_residuals() noexcept;
+```
+
+**Returns**
+
+`raft::host_matrix_view<uint8_t, IdxT, raft::row_major>`
+
+<a id="neighbors-experimental-scann-index-bf16-dataset"></a>
+### neighbors::experimental::scann::index::bf16_dataset
+
+bf16 quantized dataset
+
+```cpp
+raft::host_matrix_view<int16_t, IdxT, raft::row_major> bf16_dataset() noexcept;
+```
+
+**Returns**
+
+`raft::host_matrix_view<int16_t, IdxT, raft::row_major>`
+
+**Additional overload:** `neighbors::experimental::scann::index::bf16_dataset`
+
+const bf16 quantized dataset
+
+```cpp
+raft::host_matrix_view<const int16_t, IdxT, raft::row_major> bf16_dataset() const noexcept;
+```
+
+**Returns**
+
+`raft::host_matrix_view<const int16_t, IdxT, raft::row_major>`
 
 ## ScaNN index build functions
 

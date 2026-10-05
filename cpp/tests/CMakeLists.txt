@@ -12,6 +12,13 @@ enable_testing()
 include(rapids-test)
 rapids_test_init()
 
+# Shared gtest entry point, optionally reporting peak RMM memory usage (see test_main.cpp)
+add_library(cuvs_test_main OBJECT test_main.cpp)
+target_link_libraries(
+  cuvs_test_main PRIVATE rmm::rmm GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+)
+set_target_properties(cuvs_test_main PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
 function(ConfigureTest)
 
   set(options NOCUDA FETCH_CODEBOOKS RUN_SERIAL)
@@ -41,10 +48,11 @@ function(ConfigureTest)
     ${TEST_NAME}
     PRIVATE cuvs
             cuvs::cuvs
+            cuvs_internal
             raft::raft
             rtcx::rtcx
             GTest::gtest
-            GTest::gtest_main
+            cuvs_test_main
             Threads::Threads
             ${CUVS_CTK_MATH_DEPENDENCIES}
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
@@ -114,6 +122,7 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
+target_compile_definitions(NEIGHBORS_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
 
 ConfigureTest(
   NAME NEIGHBORS_TIERED_INDEX_TEST
@@ -142,6 +151,7 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
+target_compile_definitions(CUTILE_SMOKE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
 if(CUVS_CUTILE_ENABLED)
   # These are intentionally library-private implementation symbols. Build the smoke executable with
   # the generated fragment registrations and planner implementation so it can exercise them without
@@ -205,19 +215,28 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME CORE_ROARING_ALLOWLIST_TEST
+  PATH neighbors/roaring_allowlist.cu
+  ADDITIONAL_DEP cuco::cuco
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_TEST_BUGS
   PATH neighbors/ann_cagra/bug_extreme_inputs_oob.cu
        neighbors/ann_cagra/bug_multi_cta_crash.cu
        neighbors/ann_cagra/bug_graph_smaller_than_dataset.cu
        neighbors/ann_cagra/bug_iterative_cagra_build.cu
        neighbors/ann_cagra/bug_issue_93_reproducer.cu
+       neighbors/ann_cagra/bug_issue_2523_hashmap_bitlen.cu
   GPUS 1
   PERCENT 100
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_TEST
-  PATH neighbors/ann_cagra/test_float_uint32_t.cu
+  PATH neighbors/ann_cagra/test_float_uint32_t.cu neighbors/ann_cagra/test_iterative_cagra_q.cu
   GPUS 1
   PERCENT 100
 )
@@ -266,10 +285,18 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_BBQ_UINT32_TEST
+  PATH neighbors/ann_cagra/test_bbq_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_NN_DESCENT_TEST
   PATH neighbors/ann_nn_descent/test_float_uint32_t.cu
        neighbors/ann_nn_descent/test_int8_t_uint32_t.cu
        neighbors/ann_nn_descent/test_uint8_t_uint32_t.cu
+       neighbors/ann_nn_descent/test_bbq_uint32_t.cu
   GPUS 1
   PERCENT 100
 )

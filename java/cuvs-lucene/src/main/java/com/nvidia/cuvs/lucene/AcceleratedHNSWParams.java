@@ -31,10 +31,7 @@ public class AcceleratedHNSWParams {
     CUSTOM
   }
 
-  /*
-   * TODO: Update boundaries for all parameters when a consensus is reached.
-   * Issue: https://github.com/rapidsai/cuvs-lucene/issues/99
-   */
+  // Bounds for the public CAGRA and HNSW build parameters.
   public static final int MIN_WRITER_THREADS = 1;
   public static final int MAX_WRITER_THREADS = 512;
   public static final int MIN_INT_GRAPH_DEG = 2;
@@ -59,7 +56,7 @@ public class AcceleratedHNSWParams {
   public static final int DEFAULT_MAX_CONN = 32;
   public static final int DEFAULT_BEAM_WIDTH = 32;
   public static final CagraGraphBuildAlgo DEFAULT_CAGRA_GRAPH_BUILD_ALGO =
-      CagraGraphBuildAlgo.AUTO_SELECT;
+      CagraGraphBuildAlgo.NN_DESCENT;
   public static final int DEFAULT_NUM_MERGE_WORKERS = 1;
   public static final Strategy DEFAULT_STRATEGY = Strategy.HEURISTIC;
   public static final CuvsDistanceType DEFAULT_CUVS_DISTANCE_TYPE = CuvsDistanceType.L2Expanded;
@@ -97,22 +94,17 @@ public class AcceleratedHNSWParams {
    *
    * @param writerThreads Number of cuVS writer threads to use.
    * @param intermediateGraphDegree The intermediate graph degree while building the CAGRA index.
-   *     Only consulted under the {@link Strategy#CUSTOM} strategy.
-   * @param graphdegree The graph degree to use while building the CAGRA index. Only consulted
-   *     under the {@link Strategy#CUSTOM} strategy.
+   * @param graphdegree The graph degree to use while building the CAGRA index.
    * @param hnswLayers The number of HNSW layers to build in the HNSW index.
    * @param maxConn The max connection parameter used when building HNSW index with the fallback mechanism.
    * @param beamWidth The beam width parameter used when building HNSW index with the fallback mechanism.
-   * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ]. Only
-   *     consulted under the {@link Strategy#CUSTOM} strategy.
+   * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ].
    * @param cuVSIvfPqParams An instance of CuVSIvfPqParams containing IVF_PQ specific parameters.
-   *     Only consulted under the {@link Strategy#CUSTOM} strategy.
    * @param numMergeWorkers The number of merge workers to use with the fallback mechanism.
    * @param mergeExec The instance of {@link ExecutorService} to use with the fallback mechanism.
    * @param strategy either HEURISTIC [Default] that delegates the CAGRA build parameters to cuVS (derived from the HNSW-equivalent maxConn and beamWidth) or CUSTOM that uses the parameters passed through this class.
    * @param cuvsDistanceType the cuvsDistanceType. The default option is L2Expanded.
    * @param nnDescentNumIterations the number of Iterations to run if building with NN_DESCENT.
-   *     Only consulted under the {@link Strategy#CUSTOM} strategy.
    * @param hnswHeuristicType the heuristic cuVS applies when deriving the CAGRA build parameters from maxConn and beamWidth under the HEURISTIC strategy.
    */
   private AcceleratedHNSWParams(
@@ -157,7 +149,7 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the intermediate graph degree. Only consulted under the {@link Strategy#CUSTOM} strategy.
+   * Get the intermediate graph degree
    *
    * @return the graph degree parameter
    */
@@ -166,7 +158,7 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the graph degree. Only consulted under the {@link Strategy#CUSTOM} strategy.
+   * Get the graph degree
    *
    * @return the graph degree parameter
    */
@@ -202,8 +194,7 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the CAGRA graph build algorithm. Only consulted under the {@link Strategy#CUSTOM}
-   * strategy; under {@link Strategy#HEURISTIC} the algorithm is chosen by cuVS.
+   * Get the CAGRA graph build algorithm
    *
    * @return the CAGRA graph build algorithm
    */
@@ -212,8 +203,7 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * Get the instance of {@link CuVSIvfPqParams}. Only consulted under the {@link
-   * Strategy#CUSTOM} strategy.
+   * Get the instance of {@link CuVSIvfPqParams}
    *
    * @return the instance of {@link CuVSIvfPqParams}
    */
@@ -261,8 +251,7 @@ public class AcceleratedHNSWParams {
   }
 
   /**
-   * get the number of Iterations to run if building with NN_DESCENT. Only consulted under the
-   * {@link Strategy#CUSTOM} strategy.
+   * get the number of Iterations to run if building with NN_DESCENT
    *
    * @return the number of iterations for NN_DESCENT
    */
@@ -347,8 +336,7 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the intermediate graph degree to use while building CAGRA index. Only consulted under
-     * the {@link Strategy#CUSTOM} strategy.
+     * Set the intermediate graph degree to use while building CAGRA index
      * Valid range - Minimum: {@value MIN_INT_GRAPH_DEG}, Maximum: {@value MAX_INT_GRAPH_DEG}
      * Default value - {@value DEFAULT_INT_GRAPH_DEGREE}
      *
@@ -361,8 +349,7 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the graph degree to use while building CAGRA index. Only consulted under the {@link
-     * Strategy#CUSTOM} strategy.
+     * Set the graph degree to use while building CAGRA index
      * Valid range - Minimum: {@value MIN_GRAPH_DEG}, Maximum: {@value MAX_GRAPH_DEG}
      * Default value - {@value DEFAULT_GRAPH_DEGREE}
      *
@@ -414,9 +401,8 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the CAGRA graph build algorithm to use. Only consulted under the {@link
-     * Strategy#CUSTOM} strategy; under {@link Strategy#HEURISTIC} the algorithm is chosen by cuVS.
-     * Default value - AUTO_SELECT
+     * Set the CAGRA graph build algorithm to use
+     * Default value - NN_DESCENT
      *
      * @param cagraGraphBuildAlgo
      * @return instance of {@link Builder}
@@ -427,8 +413,7 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the instance of {@link CuVSIvfPqParams}. Only consulted under the {@link
-     * Strategy#CUSTOM} strategy.
+     * Set the instance of {@link CuVSIvfPqParams}
      *
      * @param cuVSIvfPqParams
      * @return instance of {@link Builder}
@@ -491,8 +476,7 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the number of Iterations to run if building with NN_DESCENT. Only consulted under the
-     * {@link Strategy#CUSTOM} strategy.
+     * Set the number of Iterations to run if building with NN_DESCENT
      *
      * Valid range - Minimum: {@value MIN_NN_DESCENT_NUM_ITERATIONS}, Maximum: {@value MAX_NN_DESCENT_NUM_ITERATIONS}
      * Default value - {@value DEFAULT_NN_DESCENT_NUM_ITERATIONS}
@@ -526,66 +510,19 @@ public class AcceleratedHNSWParams {
      * @throws IllegalArgumentException
      */
     private void validate() throws IllegalArgumentException {
-      if (writerThreads < MIN_WRITER_THREADS || writerThreads > MAX_WRITER_THREADS) {
-        throw new IllegalArgumentException(
-            "writerThreads not in valid range. Valid range: ["
-                + MIN_WRITER_THREADS
-                + ", "
-                + MAX_WRITER_THREADS
-                + "]");
-      }
-      if (intermediateGraphDegree < MIN_INT_GRAPH_DEG
-          || intermediateGraphDegree > MAX_INT_GRAPH_DEG) {
-        throw new IllegalArgumentException(
-            "intermediateGraphDegree not in valid range. Valid range: ["
-                + MIN_INT_GRAPH_DEG
-                + ", "
-                + MAX_INT_GRAPH_DEG
-                + "]");
-      }
-      if (graphdegree < MIN_GRAPH_DEG || graphdegree > MAX_GRAPH_DEG) {
-        throw new IllegalArgumentException(
-            "graphdegree not in valid range. Valid range: ["
-                + MIN_GRAPH_DEG
-                + ", "
-                + MAX_GRAPH_DEG
-                + "]");
-      }
-      if (hnswLayers < MIN_HNSW_LAYERS || hnswLayers > MAX_HNSW_LAYERS) {
-        throw new IllegalArgumentException(
-            "hnswLayers not in valid range. Valid range: ["
-                + MIN_HNSW_LAYERS
-                + ", "
-                + MAX_HNSW_LAYERS
-                + "]");
-      }
-      if (maxConn < MIN_MAX_CONN || maxConn > MAX_MAX_CONN) {
-        throw new IllegalArgumentException(
-            "maxConn not in valid range. Valid range: ["
-                + MIN_MAX_CONN
-                + ", "
-                + MAX_MAX_CONN
-                + "]");
-      }
-      if (beamWidth < MIN_BEAM_WIDTH || beamWidth > MAX_BEAM_WIDTH) {
-        throw new IllegalArgumentException(
-            "beamWidth not in valid range. Valid range: ["
-                + MIN_BEAM_WIDTH
-                + ", "
-                + MAX_BEAM_WIDTH
-                + "]");
-      }
+      ParameterValidation.checkRange(
+          "writerThreads", writerThreads, MIN_WRITER_THREADS, MAX_WRITER_THREADS);
+      ParameterValidation.checkRange(
+          "intermediateGraphDegree", intermediateGraphDegree, MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG);
+      ParameterValidation.checkRange("graphdegree", graphdegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
+      ParameterValidation.checkRange("hnswLayers", hnswLayers, MIN_HNSW_LAYERS, MAX_HNSW_LAYERS);
+      ParameterValidation.checkRange("maxConn", maxConn, MIN_MAX_CONN, MAX_MAX_CONN);
+      ParameterValidation.checkRange("beamWidth", beamWidth, MIN_BEAM_WIDTH, MAX_BEAM_WIDTH);
       if (Objects.isNull(cagraGraphBuildAlgo)) {
         throw new IllegalArgumentException("cagraGraphBuildAlgo cannot be null.");
       }
-      if (numMergeWorkers < MIN_NUM_MERGE_WORKERS || numMergeWorkers > MAX_NUM_MERGE_WORKERS) {
-        throw new IllegalArgumentException(
-            "numMergeWorkers not in valid range. Valid range: ["
-                + MIN_NUM_MERGE_WORKERS
-                + ", "
-                + MAX_NUM_MERGE_WORKERS
-                + "]");
-      }
+      ParameterValidation.checkRange(
+          "numMergeWorkers", numMergeWorkers, MIN_NUM_MERGE_WORKERS, MAX_NUM_MERGE_WORKERS);
       if (Objects.isNull(strategy)) {
         throw new IllegalArgumentException("strategy cannot be null.");
       }
@@ -595,15 +532,11 @@ public class AcceleratedHNSWParams {
       if (Objects.isNull(hnswHeuristicType)) {
         throw new IllegalArgumentException("hnswHeuristicType cannot be null.");
       }
-      if (nnDescentNumIterations < MIN_NN_DESCENT_NUM_ITERATIONS
-          || nnDescentNumIterations > MAX_NN_DESCENT_NUM_ITERATIONS) {
-        throw new IllegalArgumentException(
-            "nnDescentNumIterations not in valid range. Valid range: ["
-                + MIN_NN_DESCENT_NUM_ITERATIONS
-                + ", "
-                + MAX_NN_DESCENT_NUM_ITERATIONS
-                + "]");
-      }
+      ParameterValidation.checkRange(
+          "nnDescentNumIterations",
+          nnDescentNumIterations,
+          MIN_NN_DESCENT_NUM_ITERATIONS,
+          MAX_NN_DESCENT_NUM_ITERATIONS);
     }
 
     /**

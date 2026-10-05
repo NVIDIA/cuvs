@@ -294,7 +294,7 @@ void deserialize(raft::resources const& handle,
                  const std::string& filename,
                  cuvs::neighbors::ivf_rabitq::index<IdxT>* index)
 {
-  index->rabitq_index().load_transposed(filename.c_str());
+  index->rabitq_index().load(filename.c_str());
 }
 
 }  // namespace detail

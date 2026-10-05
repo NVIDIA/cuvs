@@ -21,6 +21,10 @@ rust/              @NVIDIA/cuvs-rust-codeowners
 docs/              @NVIDIA/cuvs-docs-codeowners
 fern/              @NVIDIA/cuvs-docs-codeowners
 
+# The API reference pages are generated so they should be
+# reviewed by the corresponding language code owners.
+fern/pages/*_api/
+
 #cmake code owners
 CMakeLists.txt                  @NVIDIA/cuvs-cmake-codeowners
 **/cmake/                       @NVIDIA/cuvs-cmake-codeowners

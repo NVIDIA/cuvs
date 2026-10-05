@@ -8,6 +8,7 @@
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 
+#include <cuda/stream>
 #include <cuvs/core/bitset.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/ivf_flat.hpp>
@@ -515,7 +516,7 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnIvfFlatInputs<IdxT> ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;

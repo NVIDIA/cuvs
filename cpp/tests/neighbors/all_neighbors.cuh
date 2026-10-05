@@ -10,6 +10,7 @@
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 #include <cstddef>
+#include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/all_neighbors.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
@@ -162,22 +163,29 @@ void get_graphs(raft::resources& handle,
     auto distances_allNN_view =
       raft::make_host_matrix_view<DistanceT, IdxT>(distances_allNN.data(), ps.n_rows, ps.k);
 
-    all_neighbors::build(
-      handle,
-      params,
-      raft::make_const_mdspan(database_h.view()),
-      indices_allNN_view,
-      std::make_optional(distances_allNN_view),
-      ps.mutual_reach
-        ? std::make_optional(raft::make_host_vector<DistanceT, IdxT>(ps.n_rows).view())
-        : std::nullopt);
+    auto core_distances = ps.mutual_reach
+                            ? std::make_optional(raft::make_host_vector<DistanceT, IdxT>(ps.n_rows))
+                            : std::nullopt;
+
+    all_neighbors::build(handle,
+                         params,
+                         raft::make_const_mdspan(database_h.view()),
+                         indices_allNN_view,
+                         std::make_optional(distances_allNN_view),
+                         core_distances.has_value()
+                           ? std::make_optional(core_distances.value().view())
+                           : std::nullopt);
   } else {
     rmm::device_uvector<DistanceT> distances_allNN_dev(queries_size, cuda_stream);
     rmm::device_uvector<IdxT> indices_allNN_dev(queries_size, cuda_stream);
+    auto core_distances =
+      ps.mutual_reach ? std::make_optional(raft::make_device_vector<DistanceT>(handle, ps.n_rows))
+                      : std::nullopt;
 
     if (ps.data_on_host) {
       auto database_h = raft::make_host_matrix<DataT, IdxT>(ps.n_rows, ps.dim);
       raft::copy(database_h.data_handle(), database.data(), ps.n_rows * ps.dim, cuda_stream);
+      raft::resource::sync_stream(handle);
 
       all_neighbors::build(
         handle,
@@ -185,9 +193,8 @@ void get_graphs(raft::resources& handle,
         raft::make_const_mdspan(database_h.view()),
         raft::make_device_matrix_view<IdxT>(indices_allNN_dev.data(), ps.n_rows, ps.k),
         raft::make_device_matrix_view<DistanceT>(distances_allNN_dev.data(), ps.n_rows, ps.k),
-        ps.mutual_reach
-          ? std::make_optional(raft::make_device_vector<DistanceT>(handle, ps.n_rows).view())
-          : std::nullopt);
+        core_distances.has_value() ? std::make_optional(core_distances.value().view())
+                                   : std::nullopt);
 
     } else {
       all_neighbors::build(
@@ -196,9 +203,8 @@ void get_graphs(raft::resources& handle,
         raft::make_device_matrix_view<const DataT, IdxT>(database.data(), ps.n_rows, ps.dim),
         raft::make_device_matrix_view<IdxT>(indices_allNN_dev.data(), ps.n_rows, ps.k),
         raft::make_device_matrix_view<DistanceT>(distances_allNN_dev.data(), ps.n_rows, ps.k),
-        ps.mutual_reach
-          ? std::make_optional(raft::make_device_vector<DistanceT>(handle, ps.n_rows).view())
-          : std::nullopt);
+        core_distances.has_value() ? std::make_optional(core_distances.value().view())
+                                   : std::nullopt);
     }
 
     raft::copy(indices_allNN.data(), indices_allNN_dev.data(), queries_size, cuda_stream);
@@ -259,7 +265,7 @@ class AllNeighborsTest : public ::testing::TestWithParam<AllNeighborsInputs> {
 
  private:
   raft::device_resources_snmg handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AllNeighborsInputs ps;
   rmm::device_uvector<DataT> database;
 };

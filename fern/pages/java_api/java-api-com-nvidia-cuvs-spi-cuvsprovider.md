@@ -211,6 +211,16 @@ Creates a new CagraIndex Builder.
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:135`_
 
+### newVamanaIndexBuilder
+
+```java
+VamanaIndex.Builder newVamanaIndexBuilder(CuVSResources cuVSResources) throws UnsupportedOperationException
+```
+
+Creates a new VamanaIndex Builder.
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:139`_
+
 ### newHnswIndexBuilder
 
 ```java
@@ -219,7 +229,7 @@ HnswIndex.Builder newHnswIndexBuilder(CuVSResources cuVSResources) throws Unsupp
 
 Creates a new HnswIndex Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:139`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:143`_
 
 ### hnswIndexFromCagra
 
@@ -246,7 +256,7 @@ A new HNSW index
 | --- | --- |
 | `Throwable` | if an error occurs during conversion |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:150`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:154`_
 
 ### hnswIndexBuild
 
@@ -274,7 +284,7 @@ A new HNSW index ready for search
 | --- | --- |
 | `Throwable` | if an error occurs during building |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:161`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:165`_
 
 ### newTieredIndexBuilder
 
@@ -284,7 +294,7 @@ TieredIndex.Builder newTieredIndexBuilder(CuVSResources cuVSResources) throws Un
 
 Creates a new TieredIndex Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:165`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:169`_
 
 ### isCagraPaddedDataset
 
@@ -317,7 +327,7 @@ true when the rows are already padded the way CAGRA requires
 | --- | --- |
 | `UnsupportedOperationException` | if this provider cannot answer |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:182`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:186`_
 
 ### mergeCagraIndexes
 
@@ -347,7 +357,7 @@ A new merged CAGRA index
 | --- | --- |
 | `Throwable` | if an error occurs during the merge operation |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:198`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:202`_
 
 ### newFilterBitsetHandle
 
@@ -364,7 +374,7 @@ Per-partition bit offsets are recomputed inside cuVS from the index sizes.
 | --- | --- |
 | `combinedLongs` | packed bitset words for a single partition |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:207`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:211`_
 
 ### searchCagraMultiPartition
 
@@ -390,7 +400,7 @@ Searches multiple CAGRA index partitions for the global top-k nearest neighbors 
 | --- | --- |
 | `Throwable` | if an error occurs during the search |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:220`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:224`_
 
 ### gpuInfoProvider
 
@@ -400,7 +410,7 @@ GPUInfoProvider gpuInfoProvider()
 
 Returns a `GPUInfoProvider` to query the system for GPU related information
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:229`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:233`_
 
 ### enableRMMPooledMemory
 
@@ -412,13 +422,6 @@ Switch RMM allocations (used internally by various cuVS algorithms and by the de
 `CuVSDeviceMatrix`) to use pooled memory.
 This operation has a global effect, and will affect all resources on the current device.
 
-Ownership: this and the other `enableRMM*`/`resetRMMPooledMemory` methods are
-not called automatically by any cuVS/cuvs-lucene class. Because the effect is global to the
-current device, it is application code's responsibility to call one of them, if desired, once
-during startup/initialization — before any GPU resource is created — rather than have an
-individual class call it lazily on first use, which cannot be made race-free against
-concurrent construction of that class from multiple threads.
-
 **Parameters**
 
 | Name | Description |
@@ -426,7 +429,7 @@ concurrent construction of that class from multiple threads.
 | `initialPoolSizePercent` | The initial pool size, in percentage of the total GPU memory |
 | `maxPoolSizePercent` | The maximum pool size, in percentage of the total GPU memory |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:250`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:247`_
 
 ### enableRMMManagedPooledMemory
 
@@ -438,8 +441,6 @@ Switch RMM allocations (used internally by various cuVS algorithms and by the de
 `CuVSDeviceMatrix`) to use pooled memory.
 This operation has a global effect, and will affect all resources on the current device.
 
-Ownership: see `#enableRMMPooledMemory`.
-
 **Parameters**
 
 | Name | Description |
@@ -447,7 +448,7 @@ Ownership: see `#enableRMMPooledMemory`.
 | `initialPoolSizePercent` | The initial pool size, in percentage of the total GPU memory |
 | `maxPoolSizePercent` | The maximum pool size, in percentage of the total GPU memory |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:262`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:257`_
 
 ### enableRMMAsyncMemory
 
@@ -462,9 +463,7 @@ on deallocation. This is especially beneficial when multiple CAGRA searches run 
 on separate CUDA streams, because internal workspace allocations no longer serialize kernel
 launches. This operation has a global effect and will affect all resources on the current device.
 
-Ownership: see `#enableRMMPooledMemory`.
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:274`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:267`_
 
 ### resetRMMPooledMemory
 
@@ -474,9 +473,7 @@ void resetRMMPooledMemory()
 
 Disables pooled memory on the current device, reverting back to the default setting.
 
-Ownership: see `#enableRMMPooledMemory`.
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:281`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:270`_
 
 ### provider
 
@@ -486,7 +483,7 @@ static CuVSProvider provider()
 
 Retrieves the system-wide provider.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:284`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:273`_
 
 ### cagraIndexParamsFromHnswParams
 
@@ -516,7 +513,7 @@ may be shifted along the curve right or left. See the heuristics descriptions fo
 
 A new CAGRA index parameters object
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:304`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:293`_
 
 ### cagraIndexParamsFromDataset
 
@@ -540,6 +537,6 @@ Create CAGRA index parameters heuristically tuned for a dataset.
 
 A new CAGRA index parameters object
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:322`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:311`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:18`_

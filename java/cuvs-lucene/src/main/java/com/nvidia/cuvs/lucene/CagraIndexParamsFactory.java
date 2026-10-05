@@ -75,8 +75,7 @@ public class CagraIndexParamsFactory {
       AcceleratedHNSWParams acceleratedHNSWParams, long rows, long dimension) {
     if (acceleratedHNSWParams.getStrategy().equals(AcceleratedHNSWParams.Strategy.HEURISTIC)) {
       // Delegate the derivation of the graph degrees, build algorithm and its parameters to cuVS,
-      // expressed in terms of the HNSW-equivalent maxConn/beamWidth. cagraGraphBuildAlgo is not
-      // consulted here; it only applies under CUSTOM.
+      // expressed in terms of the HNSW-equivalent maxConn/beamWidth.
       CagraIndexParams derived =
           CagraIndexParams.fromHnswParams(
               rows,
@@ -85,9 +84,9 @@ public class CagraIndexParamsFactory {
               acceleratedHNSWParams.getBeamWidth(),
               acceleratedHNSWParams.getHnswHeuristicType(),
               acceleratedHNSWParams.getCuvsDistanceType());
-      // TODO: fromHnswParams has no writerThreads argument, so its result carries the cuVS
-      // default (not a heuristic value). We can rebuild the CagraIndexParams with the
-      // caller-supplied writerThreads for now but should fix this in cuVS in the future.
+      // TODO: fromHnswParams has no writerThreads argument, so its result carries the cuVS default
+      // (not a heuristic value). We can rebuild the CagraIndexParams with the caller-supplied
+      // writerThreads for now but should fix this in cuVS in the future.
       return new CagraIndexParams.Builder()
           .withGraphDegree(derived.getGraphDegree())
           .withIntermediateGraphDegree(derived.getIntermediateGraphDegree())
@@ -98,7 +97,6 @@ public class CagraIndexParamsFactory {
           .withNumWriterThreads(acceleratedHNSWParams.getWriterThreads())
           .build();
     }
-    // CUSTOM: forward the caller's algorithm and the parameters it consumes.
     return new CagraIndexParams.Builder()
         .withGraphDegree(acceleratedHNSWParams.getGraphdegree())
         .withIntermediateGraphDegree(acceleratedHNSWParams.getIntermediateGraphDegree())

@@ -162,12 +162,13 @@ size_t search_plan_mem_usage(cuvs::neighbors::cagra::search_params params,
                              size_t dataset_size,
                              size_t index_size)
 {
-  // The iterative build always searches with max_queries = kIterativeBuildChunkSize, which is far
-  // above the occupancy threshold of the AUTO heuristic, so the algorithm is decided by itopk
-  // alone.
+  // The iterative build fixes max_queries at kIterativeBuildChunkSize, well above the AUTO
+  // occupancy threshold. Persistent AUTO is forced to SINGLE_CTA; otherwise itopk selects AUTO.
   const bool multi_cta =
     params.algo == cuvs::neighbors::cagra::search_algo::MULTI_CTA ||
-    (params.algo == cuvs::neighbors::cagra::search_algo::AUTO && itopk_size > 512);
+    (!params.persistent && params.algo == cuvs::neighbors::cagra::search_algo::AUTO &&
+     itopk_size > 512);
+  const bool multi_kernel = params.algo == cuvs::neighbors::cagra::search_algo::MULTI_KERNEL;
 
   constexpr size_t kMultiCtaItopkSize = 32;
 
@@ -197,9 +198,41 @@ size_t search_plan_mem_usage(cuvs::neighbors::cagra::search_params params,
     }
     return bitlen;
   };
+  auto topk_workspace_allocation = [&](size_t num_elements) {
+    constexpr size_t kTopkThreads   = 1024;
+    constexpr size_t kTopkStateBits = 8;
+    size_t state_bytes              = raft::div_rounding_up_safe(
+                           raft::div_rounding_up_safe(num_elements, kTopkThreads), kTopkStateBits) *
+                         kTopkThreads * max_queries;
+    const size_t helper_result =
+      std::max<size_t>(1, raft::round_up_safe<size_t>(state_bytes, size_t{128}));
+    // The current search implementation passes this byte count as the element count of a
+    // device_uvector<uint32_t>, so mirror that 4x allocation exactly.
+    return helper_result * sizeof(uint32_t);
+  };
 
   // num_executed_iterations, allocated for every non-persistent plan.
-  size_t dev = max_queries * sizeof(uint32_t);
+  size_t dev = params.persistent ? 0 : max_queries * sizeof(uint32_t);
+
+  if (multi_kernel) {
+    // MULTI_KERNEL always owns its global result buffers and hash table. Use the normal-hash
+    // footprint as a conservative bound when AUTO/SMALL selects a shared-memory hash.
+    const size_t bitlen =
+      hash_bitlen(11, itopk_size + search_width * graph_degree * max_iterations);
+    dev += index_size * max_queries * (size_t{1} << bitlen);
+    const size_t result_buffer_size     = itopk_size + search_width * graph_degree;
+    const size_t result_allocation_size = result_buffer_size + itopk_size;
+    dev += result_allocation_size * max_queries * (index_size + sizeof(float));
+    dev += max_queries * search_width * index_size;  // parent_node_list
+    dev += max_queries * sizeof(uint32_t);           // topk_hint
+    dev += sizeof(uint32_t);                         // terminate_flag
+    dev += topk_workspace_allocation(result_buffer_size);
+    if (itopk_size > 1024) {
+      // select_k may materialize contiguous input/output buffers for the strided layout.
+      dev += max_queries * (result_buffer_size + itopk_size) * (index_size + sizeof(float));
+    }
+    return dev;
+  }
 
   if (!multi_cta) {
     // AUTO and SMALL hash modes keep the visited-node table in shared memory, so nothing is
@@ -225,13 +258,9 @@ size_t search_plan_mem_usage(cuvs::neighbors::cagra::search_params params,
   dev += index_size * max_queries * (size_t{1} << bitlen);  // hashmap
   // intermediate_indices / intermediate_distances
   dev += num_intermediate * max_queries * (index_size + sizeof(float));
-  // topk_workspace: one state byte per 8 candidates per thread of a 1024-thread block
-  // (_cuann_find_topk_bufferSize).
-  constexpr size_t kTopkThreads   = 1024;
-  constexpr size_t kTopkStateBits = 8;
-  dev += raft::div_rounding_up_safe(raft::div_rounding_up_safe(num_intermediate, kTopkThreads),
-                                    kTopkStateBits) *
-         kTopkThreads * max_queries;
+  // _cuann_find_topk_bufferSize returns bytes, which the current implementation uses as
+  // a device_uvector<uint32_t> element count.
+  dev += topk_workspace_allocation(num_intermediate);
   return dev;
 }
 
@@ -348,7 +377,7 @@ inline std::pair<size_t, size_t> nn_descent_build_mem_usage(raft::resources cons
 inline std::pair<size_t, size_t> iterative_build_mem_usage(
   raft::matrix_extent<int64_t> dataset,
   cudaDataType_t dtype,
-  cuvs::neighbors::graph_build_params::iterative_search_params,
+  cuvs::neighbors::graph_build_params::iterative_search_params iter_params,
   size_t graph_degree,
   size_t intermediate_graph_degree,
   bool guarantee_connectivity,
@@ -367,21 +396,18 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
   // The search may return the query node itself, hence the extra column.
   const size_t topk = intermediate_graph_degree + 1;
 
-  // The dataset stays resident on the device for the whole build: either VPQ-compressed, or padded
-  // to CAGRA's row alignment.
+  // The resident dataset is either VPQ-compressed or padded to CAGRA row alignment. VPQ
+  // queries are reconstructed one chunk at a time into a padded scratch matrix; dense queries are
+  // already CAGRA-aligned and searched in place.
+  const size_t stride =
+    cuvs::neighbors::cagra_required_row_width(static_cast<uint32_t>(dim), dtype_size);
   size_t dataset_dev;
-  size_t query_scratch;
+  size_t query_scratch = 0;
   if (compression.has_value()) {
-    dataset_dev = vpq_dataset_size(dataset, compression.value());
-    // Queries are reconstructed from the codes one chunk at a time rather than materialized for
-    // the whole dataset.
-    query_scratch = chunk * dim * dtype_size;
+    dataset_dev   = vpq_dataset_size(dataset, compression.value());
+    query_scratch = chunk * stride * dtype_size;
   } else {
-    const size_t stride =
-      cuvs::neighbors::cagra_required_row_width(static_cast<uint32_t>(dim), dtype_size);
     dataset_dev = n_rows * stride * dtype_size;
-    // Padded rows are depadded into a per-chunk scratch buffer before being used as queries.
-    query_scratch = stride == dim ? 0 : chunk * dim * dtype_size;
   }
 
   // Search results for one chunk, live for the whole loop.
@@ -395,15 +421,25 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
   const size_t graph_dev = n_rows * graph_degree * kIndexSize;  // dev_graph / dev_output_graph
   const size_t knn_dev   = n_rows * topk * kIndexSize;          // dev_knn_graph
 
-  // The final iteration searches a graph_degree graph, requests topk neighbors and derives its
-  // internal topk from that.
-  // On main, iterative_search_params is the common graph-build marker rather than a configurable
-  // CAGRA search parameter object. Mirror iterative_build_graph, which starts from the normal
-  // CAGRA search defaults and then sets the per-iteration batch and top-k values.
-  cuvs::neighbors::cagra::search_params search_params;
-  search_params.max_queries = chunk;
-  const size_t search_dev =
-    search_plan_mem_usage(search_params, chunk, topk + 32, graph_degree, n_rows, kIndexSize);
+  // Evaluate every distinct search shape in the build loop. Custom itopk_size applies to the
+  // growing (small-degree) iterations; full-size and final iterations derive their own itopk.
+  auto search_usage = [&](size_t stage_itopk, size_t stage_graph_degree) {
+    cuvs::neighbors::cagra::search_params search_params = iter_params;
+    search_params.max_queries                           = chunk;
+    search_params.itopk_size                            = stage_itopk;
+    return search_plan_mem_usage(
+      search_params, chunk, stage_itopk, stage_graph_degree, n_rows, kIndexSize);
+  };
+  const size_t small_graph_degree = std::max(graph_degree / 2, std::min(graph_degree, size_t{24}));
+  const size_t growing_itopk      = iter_params.itopk_size > 0
+                                      ? iter_params.itopk_size
+                                      : std::max(small_graph_degree + 32, size_t{128});
+  const size_t full_itopk         = iter_params.itopk_size > 0 && graph_degree == small_graph_degree
+                                      ? iter_params.itopk_size
+                                      : std::max(graph_degree + 32, size_t{128});
+  const size_t search_dev         = std::max({search_usage(growing_itopk, small_graph_degree),
+                                              search_usage(full_itopk, graph_degree),
+                                              search_usage(topk + 32, graph_degree)});
 
   auto [host_workspace_size, gpu_workspace_size, host_ws_fixed, gpu_ws_fixed] =
     optimize_workspace_size(n_rows,
@@ -418,10 +454,8 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
   // scratch is not part of that: search_and_optimize holds it at function scope, so it is still
   // alive while optimize runs.
   //
-  // Two transients are left out. The dataset copy made by make_device_padded_dataset briefly
-  // coexists with its source, and cagra::search re-pads a query chunk when its rows are not
-  // CAGRA-aligned; both are caller-owned or chunk-sized, and counting them would inflate the
-  // estimate enough to push callers to an out-of-core build unnecessarily.
+  // The caller-owned source that may briefly coexist while constructing the resident padded or
+  // compressed dataset is outside this build estimate.
   size_t total_dev = dataset_dev + results_dev + graph_dev + knn_dev + query_scratch +
                      std::max(search_dev, gpu_workspace_size);
 
