@@ -81,6 +81,8 @@
 - Missing validation of numerical correctness
 - **Using external datasets** (tests must not depend on external resources; use synthetic data or bundled datasets)
 - **Trailing newline in GTest parameterized test names** (`operator<<` overloads or `PrintTo` functions used to stringify test parameters must not emit `std::endl` or `"\n"`; GTest uses the stream output to build the test name, and a trailing newline breaks exact-match tooling like `ctest --tests-from-file`)
+- **Combinatorial test-space explosion hurting CI time** (new or extended `itertools::product<>` parameter lists that multiply independent axes, or add large sizes where a small one reaches the same code path; only flag when the added cost is substantial, e.g. a new axis or value multiplies expensive index/graph builds)
+- **Test parameters that are always skipped or dead** (combinations the test body skips at runtime, or struct fields that are never set to more than one value; exclude them at input-generation time and document why)
 
 ## MEDIUM Issues (Comment Selectively)
 
@@ -97,7 +99,8 @@
 5. **API stability**: Breaking changes to C++ APIs?
 6. **Data layout**: Row/column major handled correctly?
 7. **Stream lifecycle**: Are CUDA streams explicitly created/destroyed for concurrent operations?
-8. **Ask, don't tell**: "Have you considered X?" not "You should do X"
+8. **Test cost**: Do new/extended test inputs justify their CI runtime? (see "Test Parameter Space Bloat" below)
+9. **Ask, don't tell**: "Have you considered X?" not "You should do X"
 
 ## Quality Threshold
 
@@ -269,6 +272,20 @@ cudaStreamCreate(&per_device_stream);
 - Accumulation without compensation (Kahan summation)
 - Unsafe type casting (double→float)
 
+### 5. Test Parameter Space Bloat
+**Pattern**: Test inputs grow CI time without adding coverage
+
+**Red flags**:
+- Full `product<>` over axes that don't interact (e.g. graph build algo × search algo, data location × `n_rows` × `dim` × degree); expensive builds repeat for every combination
+- Large sizes (`dim`, `n_rows`) used to test alignment/boundary behavior that a size just off the boundary would reach (e.g. `dim` 34/35/36 instead of 2050+ for vector-width trailing loads)
+- Dense runs of nearby values (`{1, 3, 5, 7, 8, 17, ...}`) that exercise the same path
+- Scale axes fully crossed instead of sampled (prefer min / max / ~diagonal, or Low/Med/High suites)
+- Host/device data-movement variants crossed with every size instead of a small dedicated suite
+- Expensive graph/index build algorithm used in sweeps that are not about that algorithm (prefer the cheapest, e.g. IVF_PQ, when sweeping search parameters)
+- Parameter combinations that are skipped at runtime, or knobs that are always `nullopt`/a single value
+
+**Guidance**: Ask what each added axis or value covers that existing cases do not. Suggest splitting independent axes into separate `product<>` calls with the others held fixed. Do not flag small, cheap tests.
+
 ---
 
 ## Code Review Checklists
@@ -307,6 +324,12 @@ cudaStreamCreate(&per_device_stream);
 - [ ] Is numerical correctness validated?
 - [ ] Are edge cases tested (empty, single element, extreme values)?
 - [ ] If an `operator<<`/`PrintTo` is used to name parameterized GTest cases, does it avoid `std::endl`/`"\n"` (a trailing newline in the generated name breaks `ctest --tests-from-file` exact matching)?
+- [ ] Does each new parameter axis/value cover behavior no existing case covers (purpose stated in a comment)?
+- [ ] Are independent axes swept separately (not one full `product<>`), especially where each case does an expensive index/graph build?
+- [ ] Are sizes the smallest that reach the target code path (boundary-adjacent values rather than large ones)?
+- [ ] Are scale axes (`n_rows`, `dim`, degree) sampled (min/max/~diagonal or Low/Med/High) rather than fully crossed?
+- [ ] Are data-movement (host/device) variants in a small dedicated suite rather than crossed with every size?
+- [ ] Are combinations that the test skips at runtime, and never-varied parameters, excluded at generation time (with a comment explaining why)?
 
 ---
 

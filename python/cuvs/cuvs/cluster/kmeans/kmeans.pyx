@@ -87,7 +87,11 @@ cdef class KMeansParams:
         at once). Only used by the batched (host-data) code path. Reducing
         device_buffer_samples can help reduce GPU memory pressure but increases
         overhead as the number of times centroid adjustments are computed
-        increases.
+        increases. Multiple batches use one input buffer without a stream pool
+        and two when an auxiliary stream enables transfer/compute overlap.
+        Each input buffer uses approximately
+        ``device_buffer_samples * n_features * X.dtype.itemsize`` bytes,
+        excluding algorithm workspaces and optional sample-weight buffers.
 
         Default: 0 (process all data at once).
     hierarchical : bool
@@ -217,6 +221,15 @@ def fit(
     controlled by ``params.device_buffer_samples``. For large host datasets, consider
     reducing ``device_buffer_samples`` to reduce GPU memory usage.
 
+    Multiple host batches use one input buffer by default. Configure
+    ``resources.set_stream_pool(1)`` to enable double-buffering and
+    transfer/compute overlap; without it, fitting is correct but serialized.
+    Pinned host memory is crucial for OOC performance: pageable or unregistered
+    memory-mapped input degrades throughput rapidly.
+
+    A memory pool is optional but recommended, especially across repeated
+    fits. Configure both pools before calling ``fit``.
+
     Parameters
     ----------
 
@@ -263,9 +276,17 @@ def fit(
     Host-data (batched) example:
 
     >>> import numpy as np
-    >>> X_host = np.random.random((10_000_000, 128)).astype(np.float32)
+    >>> import cupyx
+    >>> from cuvs.common import Resources
+    >>> X_host = cupyx.empty_pinned((10_000_000, 128), dtype=np.float32)
+    >>> _ = np.random.default_rng().random(
+    ...     X_host.shape, dtype=np.float32, out=X_host)
     >>> params = KMeansParams(n_clusters=1000, device_buffer_samples=1_000_000)
-    >>> centroids, inertia, n_iter = fit(params, X_host)
+    >>> resources = Resources()
+    >>> resources.set_memory_pool(80)  # Percentage of currently free device memory
+    >>> resources.set_stream_pool(1)   # Enables H2D/compute overlap
+    >>> centroids, inertia, n_iter = fit(params, X_host, resources=resources)
+    >>> resources.sync()
     """
 
     is_host = isinstance(X, np.ndarray) or (
