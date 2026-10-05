@@ -282,8 +282,9 @@ class l2_sqrt_expanded_distances_t : public l2_expanded_distances_t<value_idx, v
       this->config_->handle,
       raft::make_device_vector_view<value_t, int64_t>(out_dists, n),
       [] __device__(value_t input) {
-        int neg = input < 0 ? -1 : 1;
-        return raft::sqrt(abs(input) * neg);
+        // The expanded form can give a slightly negative value for a point
+        // and itself. sqrt of that would be NaN.
+        return input > value_t{0} ? raft::sqrt(input) : value_t{0};
       },
       raft::make_const_mdspan(raft::make_device_vector_view<const value_t, int64_t>(out_dists, n)));
   }
