@@ -158,7 +158,7 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
                                 cuvsFilter filter)
     cuvsError_t cuvsCagraUpdateDataset(
         cuvsResources_t res,
-        cuvsDataset_t device_padded_dataset,
+        cuvsDataset_t dataset,
         cuvsCagraIndex_t index)
 
     cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,

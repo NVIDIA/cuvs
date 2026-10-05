@@ -630,7 +630,7 @@ void assign_bucket(raft::resources const& res,
 
     // Gather the batch's tile rows and leader vectors
     int point_blocks = strided_grid_size(static_cast<int64_t>(batch_size * point_elements));
-    manyway_gather_tile_points_kernel<<<point_blocks, THREADS_PER_BLOCK, 0, stream>>>(
+    manyway_gather_tile_points_kernel<<<point_blocks, THREADS_PER_BLOCK, 0, stream.get()>>>(
       dataset.data_handle(),
       dim,
       row_stride,
@@ -642,7 +642,7 @@ void assign_bucket(raft::resources const& res,
     RAFT_CUDA_TRY(cudaGetLastError());
 
     int leader_blocks = strided_grid_size(static_cast<int64_t>(batch_size * leader_elements));
-    manyway_gather_tile_leaders_kernel<<<leader_blocks, THREADS_PER_BLOCK, 0, stream>>>(
+    manyway_gather_tile_leaders_kernel<<<leader_blocks, THREADS_PER_BLOCK, 0, stream.get()>>>(
       dataset.data_handle(),
       dim,
       row_stride,
@@ -954,7 +954,7 @@ auto build_leaf_neighbors(raft::resources const& res,
     size_t batch_size = std::min(batch_capacity, leaves.starts_host.size() - leaf_offset);
     int gather_blocks =
       strided_grid_size(static_cast<int64_t>(batch_size * vector_elements_per_leaf));
-    manyway_gather_leaf_vectors_kernel<<<gather_blocks, THREADS_PER_BLOCK, 0, stream>>>(
+    manyway_gather_leaf_vectors_kernel<<<gather_blocks, THREADS_PER_BLOCK, 0, stream.get()>>>(
       dataset.data_handle(),
       input_dimension,
       row_stride,
@@ -1102,7 +1102,7 @@ auto build(raft::resources const& res,
 
   split_context context(res, rows, dim);
   int norm_blocks = static_cast<int>((rows + ROW_WARPS_PER_BLOCK - 1) / ROW_WARPS_PER_BLOCK);
-  manyway_l2_norms_kernel<<<norm_blocks, ROW_WARPS_PER_BLOCK * raft::WarpSize, 0, stream>>>(
+  manyway_l2_norms_kernel<<<norm_blocks, ROW_WARPS_PER_BLOCK * raft::WarpSize, 0, stream.get()>>>(
     dataset.data_handle(), rows, dim, dataset.extent(1), context.norms.data_handle());
   RAFT_CUDA_TRY(cudaGetLastError());
 

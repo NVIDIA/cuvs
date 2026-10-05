@@ -4,14 +4,32 @@
 #
 # cython: language_level=3
 
-from libcpp cimport bool
 from libc.stdint cimport uint32_t
+from libcpp cimport bool
 
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLDataType, DLManagedTensor
 
 
+cdef extern from "cuvs/neighbors/cagra.h" nogil:
+    ctypedef struct cuvsCagraCompressionParams:
+        uint32_t pq_bits
+        uint32_t pq_dim
+        uint32_t vq_n_centers
+        uint32_t kmeans_n_iters
+        double vq_kmeans_trainset_fraction
+        double pq_kmeans_trainset_fraction
+
+
 cdef extern from "cuvs/core/dataset.h" nogil:
+    ctypedef cuvsCagraCompressionParams cuvsPqParams
+    ctypedef cuvsPqParams* cuvsPqParams_t
+
+    cuvsError_t cuvsPqParamsCreate(
+        cuvsPqParams_t* params)
+    cuvsError_t cuvsPqParamsDestroy(
+        cuvsPqParams_t params)
+
     ctypedef enum cuvsDatasetLayout_t:
         CUVS_DATASET_LAYOUT_STANDARD
         CUVS_DATASET_LAYOUT_PADDED
@@ -25,17 +43,6 @@ cdef extern from "cuvs/core/dataset.h" nogil:
         pass
     ctypedef cuvsDataset* cuvsDataset_t
 
-    cdef struct cuvsPqParams:
-        uint32_t pq_bits
-        uint32_t pq_dim
-        uint32_t vq_n_centers
-        uint32_t kmeans_n_iters
-        double vq_kmeans_trainset_fraction
-        double pq_kmeans_trainset_fraction
-    ctypedef cuvsPqParams* cuvsPqParams_t
-
-    cuvsError_t cuvsPqParamsCreate(cuvsPqParams_t* params)
-    cuvsError_t cuvsPqParamsDestroy(cuvsPqParams_t params)
     cuvsError_t cuvsDatasetCreate(cuvsDataset_t* dataset)
 
     cuvsError_t cuvsDatasetMakePadded(cuvsResources_t res,
@@ -51,10 +58,11 @@ cdef extern from "cuvs/core/dataset.h" nogil:
                                             DLManagedTensor* dataset,
                                             cuvsDataset_t* standard_dataset)
 
-    cuvsError_t cuvsDatasetMakePq(
+    cuvsError_t cuvsDatasetMakePQ(
         cuvsResources_t res,
         cuvsPqParams_t params,
         cuvsDataset_t dataset,
+        cuvsDatasetMemType_t target_mem_type,
         cuvsDataset_t* pq_dataset)
 
     cuvsError_t cuvsDatasetDestroy(cuvsDataset_t dataset)

@@ -70,11 +70,17 @@ cache:
       - cuda-version =${{ cuda_version }}
       - cmake ${{ cmake_version }}
       - ninja
+      - python
+      - if: cuda_major == "13"
+        then:
+          - cutile-python
+          - cuda-tileiras
       - ${{ stdlib("c") }}
     host:
       - libnvjitlink-dev
       - librmm =${{ minor_version }}
       - libraft-headers =${{ minor_version }}
+      - libkvikio =${{ minor_version }}
       - nccl ${{ nccl_version }}
       - cuda-version =${{ cuda_version }}
       - cuda-cudart-dev
@@ -174,6 +180,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
@@ -189,6 +196,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - cuda-nvrtc
         - nccl
         - libcublas
@@ -236,6 +244,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - cuda-version =${{ cuda_version }}
         - cuda-cudart-dev
@@ -251,6 +260,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - libraft-headers =${{ minor_version }}
         - librmm =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - cuda-nvrtc
         - nccl
         - libcublas
@@ -392,6 +402,11 @@ outputs:
         - cuda-version =${{ cuda_version }}
         - cmake ${{ cmake_version }}
         - ninja
+        - python
+        - if: cuda_major == "13"
+          then:
+            - cutile-python
+            - cuda-tileiras
         - ${{ stdlib("c") }}
       host:
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}

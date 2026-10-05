@@ -8,7 +8,7 @@ set -e -u -o pipefail
 ARGS="$*"
 NUMARGS=$#
 
-VERSION="26.10.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
+VERSION="26.12.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
 GROUP_ID="com.nvidia.cuvs.lucene"
 
 function hasArg {
@@ -50,3 +50,9 @@ fi
 
 mvn install:install-file -Dfile=./target/cuvs-lucene-$VERSION.jar -DgroupId=$GROUP_ID -DartifactId=cuvs-lucene -Dversion=$VERSION -Dpackaging=jar
 cp pom.xml ./target/
+
+# Build the cuvs-lucene examples against the jar just installed above, to catch drift between the
+# examples and the cuvs-lucene API.
+if hasArg --build-java-examples; then
+    mvn -f "${REPODIR}/examples/java/cuvs-lucene/pom.xml" package
+fi

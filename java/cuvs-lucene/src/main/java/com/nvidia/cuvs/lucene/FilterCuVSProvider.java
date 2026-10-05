@@ -22,9 +22,11 @@ import com.nvidia.cuvs.HnswIndex;
 import com.nvidia.cuvs.HnswIndexParams;
 import com.nvidia.cuvs.MultiPartitionSearchResults;
 import com.nvidia.cuvs.TieredIndex;
+import com.nvidia.cuvs.VamanaIndex;
 import com.nvidia.cuvs.spi.CuVSProvider;
 import java.lang.invoke.MethodHandle;
 import java.nio.file.Path;
+import java.util.BitSet;
 import java.util.List;
 import java.util.logging.Level;
 
@@ -59,6 +61,12 @@ class FilterCuVSProvider implements CuVSProvider {
   }
 
   @Override
+  public VamanaIndex.Builder newVamanaIndexBuilder(CuVSResources cuVSResources)
+      throws UnsupportedOperationException {
+    return delegate.newVamanaIndexBuilder(cuVSResources);
+  }
+
+  @Override
   public FilterBitsetHandle newFilterBitsetHandle(long[] combinedLongs) {
     return delegate.newFilterBitsetHandle(combinedLongs);
   }
@@ -80,9 +88,14 @@ class FilterCuVSProvider implements CuVSProvider {
     return delegate.newHnswIndexBuilder(cuVSResources);
   }
 
+  /**
+   * Delegates rather than inheriting the default, which refuses what it cannot honour. The two
+   * narrower overloads route here, so this is the only one that has to be forwarded.
+   */
   @Override
-  public CagraIndex mergeCagraIndexes(CagraIndex[] arg0) throws Throwable {
-    return delegate.mergeCagraIndexes(arg0);
+  public CagraIndex mergeCagraIndexes(CagraIndex[] arg0, CagraIndexParams arg1, BitSet arg2)
+      throws Throwable {
+    return delegate.mergeCagraIndexes(arg0, arg1, arg2);
   }
 
   @Override

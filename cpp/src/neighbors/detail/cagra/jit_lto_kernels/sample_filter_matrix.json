@@ -1,5 +1,5 @@
 {
-  "filter_name": ["none", "bitset", "bloom_filter"],
+  "filter_name": ["none", "bitset", "bloom_filter", "roaring"],
   "_bitset": [
     {
       "bitset_type": "uint32_t",

@@ -83,14 +83,13 @@ public long getM()
 ```
 
 Gets the HNSW M parameter: number of bi-directional links per node
-(used when building with ACE). graph_degree = m * 2,
-intermediate_graph_degree = m * 3.
+used to derive the internal graph build parameters for GPU construction.
 
 **Returns**
 
 the M parameter
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:133`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:132`_
 
 ### getMetric
 
@@ -104,7 +103,7 @@ Gets the distance metric type.
 
 the metric type
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:142`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:141`_
 
 ### getAceParams
 
@@ -112,7 +111,8 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:142`
 public HnswAceParams getAceParams()
 ```
 
-Gets the ACE parameters for building HNSW index using ACE algorithm.
+Gets the optional ACE parameters for explicit out-of-core graph construction. When not set, the
+graph build algorithm is selected automatically.
 
 **Returns**
 
@@ -159,20 +159,19 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:202`
 public Builder withEfConstruction(int efConstruction)
 ```
 
-Sets the size of the candidate list during hierarchy construction when
-hierarchy is `CPU`.
+Sets the maximum candidate list size used during index construction.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
-| `efConstruction` | the size of the candidate list during hierarchy construction when hierarchy is `CPU` |
+| `efConstruction` | the maximum candidate list size used during construction |
 
 **Returns**
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:215`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:213`_
 
 ### withNumThreads
 
@@ -193,7 +192,7 @@ is `CPU`.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:227`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:225`_
 
 ### withVectorDimension
 
@@ -213,7 +212,7 @@ Sets the vector dimension
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:238`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:236`_
 
 ### withM
 
@@ -221,9 +220,8 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:238`
 public Builder withM(long m)
 ```
 
-Sets the HNSW M parameter: number of bi-directional links per node
-(used when building with ACE). graph_degree = m * 2,
-intermediate_graph_degree = m * 3.
+Sets the HNSW M parameter: number of bi-directional links per node used to derive the internal
+graph build parameters for GPU construction.
 
 **Parameters**
 
@@ -235,7 +233,7 @@ intermediate_graph_degree = m * 3.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:251`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:248`_
 
 ### withMetric
 
@@ -255,7 +253,7 @@ Sets the distance metric type.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:262`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:259`_
 
 ### withAceParams
 
@@ -263,7 +261,8 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:262`
 public Builder withAceParams(HnswAceParams aceParams)
 ```
 
-Sets the ACE parameters for building HNSW index using ACE algorithm.
+Sets optional ACE parameters for explicit out-of-core graph construction. When not set, the
+graph build algorithm is selected automatically.
 
 **Parameters**
 
@@ -275,7 +274,7 @@ Sets the ACE parameters for building HNSW index using ACE algorithm.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:273`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:271`_
 
 ### build
 
@@ -289,6 +288,6 @@ Builds an instance of `HnswIndexParams`.
 
 an instance of `HnswIndexParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:283`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:281`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndexParams.java:12`_

@@ -7,15 +7,6 @@
 import numpy as np
 
 from cuvs.common cimport cydlpack
-from cuvs.common.dataset cimport (
-    Dataset,
-    cuvsPqParams,
-    cuvsPqParamsCreate,
-    cuvsPqParamsDestroy,
-    cuvsDatasetMakeStandardView,
-    cuvsDatasetMakePq,
-)
-
 from pylibraft.common import auto_convert_output, device_ndarray
 from pylibraft.common.cai_wrapper import wrap_array
 
@@ -31,29 +22,26 @@ PQ_KMEANS_TYPES = {
 PQ_KMEANS_NAMES = {v: k for k, v in PQ_KMEANS_TYPES.items()}
 
 
-cdef class PqParams:
-    """Parameters for creating a PQ-compressed dataset."""
+cdef class PQDatasetParams:
+    """Parameters for creating a PQ dataset."""
 
-    cdef cuvsPqParams* params
-
-    def __cinit__(self):
-        self.params = NULL
-        check_cuvs(cuvsPqParamsCreate(&self.params))
-
-    def __dealloc__(self):
-        if self.params != NULL:
-            cuvsPqParamsDestroy(self.params)
+    cdef public uint32_t pq_bits
+    cdef public uint32_t pq_dim
+    cdef public uint32_t vq_n_centers
+    cdef public uint32_t kmeans_n_iters
+    cdef public double vq_kmeans_trainset_fraction
+    cdef public double pq_kmeans_trainset_fraction
 
     def __init__(self, *, pq_bits=8, pq_dim=0, vq_n_centers=0,
                  kmeans_n_iters=25, vq_kmeans_trainset_fraction=0.0,
                  pq_kmeans_trainset_fraction=0.0):
-        self.params.pq_bits = pq_bits
-        self.params.pq_dim = pq_dim
-        self.params.vq_n_centers = vq_n_centers
-        self.params.kmeans_n_iters = kmeans_n_iters
-        self.params.vq_kmeans_trainset_fraction = \
+        self.pq_bits = pq_bits
+        self.pq_dim = pq_dim
+        self.vq_n_centers = vq_n_centers
+        self.kmeans_n_iters = kmeans_n_iters
+        self.vq_kmeans_trainset_fraction = \
             vq_kmeans_trainset_fraction
-        self.params.pq_kmeans_trainset_fraction = \
+        self.pq_kmeans_trainset_fraction = \
             pq_kmeans_trainset_fraction
 
 cdef class QuantizerParams:
@@ -411,29 +399,3 @@ def inverse_transform(Quantizer quantizer, codes, output=None, vq_labels=None, r
                                                     vq_labels_dlpack))
 
     return output
-
-
-@auto_sync_resources
-def make_pq_dataset(PqParams params, dataset, resources=None):
-    """Create an owning device PQ dataset for iterative CAGRA-Q."""
-    cdef Dataset dense
-    cdef Dataset pq = Dataset()
-    cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
-    cdef cydlpack.DLManagedTensor* dataset_dlpack = NULL
-
-    if isinstance(dataset, Dataset):
-        dense = dataset
-    else:
-        dataset_ai = wrap_array(dataset)
-        _check_input_array(
-            dataset_ai,
-            [np.dtype("float32"), np.dtype("float16"),
-             np.dtype("int8"), np.dtype("uint8")])
-        dataset_dlpack = cydlpack.dlpack_c(dataset_ai)
-        dense = Dataset()
-        check_cuvs(cuvsDatasetMakeStandardView(
-            res, dataset_dlpack, &dense.dataset))
-
-    check_cuvs(cuvsDatasetMakePq(
-        res, params.params, dense.dataset, &pq.dataset))
-    return pq

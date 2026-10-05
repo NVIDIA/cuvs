@@ -17,24 +17,21 @@ pub struct Index<'d> {
 }
 ```
 
-A CAGRA approximate nearest neighbor index.
-
-The lifetime `'d` ties this index to the underlying dataset,
-passed at construction time. The C library may store a non-owning view
-of properly aligned device-resident data, so the dataset must outlive
-the index. When an index is deserialized from disk, the data is
-self-contained and its lifetime is `'static`.
+A CAGRA approximate nearest neighbor index borrowing caller-owned dataset storage.
 
 **Methods**
 
 | Name | Source |
 | --- | --- |
-| `build` | `rust/cuvs/src/neighbors/cagra/index.rs:45` |
-| `search` | `rust/cuvs/src/neighbors/cagra/index.rs:77` |
-| `search_filtered` | `rust/cuvs/src/neighbors/cagra/index.rs:97` |
-| `serialize` | `rust/cuvs/src/neighbors/cagra/index.rs:174` |
-| `serialize_to_hnswlib` | `rust/cuvs/src/neighbors/cagra/index.rs:198` |
-| `deserialize` | `rust/cuvs/src/neighbors/cagra/index.rs:214` |
+| `build` | `rust/cuvs/src/neighbors/cagra/index.rs:70` |
+| `build_from_dataset` | `rust/cuvs/src/neighbors/cagra/index.rs:80` |
+| `update_dataset` | `rust/cuvs/src/neighbors/cagra/index.rs:105` |
+| `search` | `rust/cuvs/src/neighbors/cagra/index.rs:134` |
+| `search_filtered` | `rust/cuvs/src/neighbors/cagra/index.rs:154` |
+| `serialize` | `rust/cuvs/src/neighbors/cagra/index.rs:195` |
+| `serialize_to_hnswlib` | `rust/cuvs/src/neighbors/cagra/index.rs:215` |
+| `deserialize_graph` | `rust/cuvs/src/neighbors/cagra/index.rs:220` |
+| `deserialize_graph_and_dataset` | `rust/cuvs/src/neighbors/cagra/index.rs:233` |
 
 ### build
 
@@ -51,7 +48,35 @@ Builds a CAGRA index over `dataset` for efficient search.
 view of it, so the returned [`Index`] borrows `dataset` for `'d` and
 cannot outlive it.
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:45`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:70`_
+
+### build_from_dataset
+
+```rust
+pub fn build_from_dataset<'a, D>(
+res: &Resources,
+params: &IndexParams,
+dataset: &'a D,
+) -> Result<Index<'a>>
+where
+D: CuvsDataset + ?Sized,
+```
+
+Build from an owning dataset or non-owning dataset view.
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:80`_
+
+### update_dataset
+
+```rust
+pub fn update_dataset<'a, D>(self, res: &Resources, dataset: &'a D) -> Result<Index<'a>>
+where
+D: CuvsDataset + ?Sized,
+```
+
+Attach a device-padded dataset and return a search-ready index borrowing it.
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:105`_
 
 ### search
 
@@ -78,7 +103,7 @@ implement [`AsDlTensor`] /
 `n_queries × k`) receives the neighbor indices and `distances` their
 distances; both are written in place.
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:77`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:134`_
 
 ### search_filtered
 
@@ -100,7 +125,7 @@ D: AsDlTensorMut + ?Sized,
 
 Searches the index with a row-level bitset filter.
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:97`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:154`_
 
 ### serialize
 
@@ -123,30 +148,11 @@ Experimental, both the API and the serialization format are subject to change.
 * `filename` - The file path for saving the index
 * `include_dataset` - Whether to write out the dataset to the file
 
-#### Example:
-```no_run
-use cuvs::Resources;
-use cuvs::neighbors::cagra::{Index, IndexParams};
+Deserialize a graph-only file with [`Index::deserialize_graph`], or
+recreate the serialized dataset's residency and layout with
+[`Index::deserialize_graph_and_dataset`].
 
-fn serialize_example() -> Result<(), Box<dyn std::error::Error>> {
-let res = Resources::new()?;
-
-// Build an index (using some dataset)
-let build_params = IndexParams::builder().build()?;
-// let index = Index::build(&res, &build_params, &dataset)?;
-
-// Save the index to disk (including the dataset)
-// index.serialize(&res, "/path/to/index.bin", true)?;
-
-// Later, load the index from disk
-let loaded_index = Index::deserialize(&res, "/path/to/index.bin")?;
-
-// The loaded index can be used for search just like the original
-Ok(())
-}
-```
-
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:174`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:195`_
 
 ### serialize_to_hnswlib
 
@@ -166,23 +172,161 @@ Experimental, both the API and the serialization format are subject to change.
 * `res` - Resources to use
 * `filename` - The file path for saving the index
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:198`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:215`_
 
-### deserialize
+### deserialize_graph
 
 ```rust
-pub fn deserialize<P: AsRef<Path>>(res: &Resources, filename: P) -> Result<Index<'static>>
+pub fn deserialize_graph<P: AsRef<Path>>(
+res: &Resources,
+filename: P,
+) -> Result<DeserializedIndex<Dataset>>
 ```
 
-Load a CAGRA index from file.
+Load only the graph, ignoring any dataset stored in the file.
 
-Experimental, both the API and the serialization format are subject to change.
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:220`_
 
-#### Arguments
+### deserialize_graph_and_dataset
 
-* `res` - Resources to use
-* `filename` - The path of the file that stores the index
+```rust
+pub fn deserialize_graph_and_dataset<P: AsRef<Path>>(
+res: &Resources,
+filename: P,
+) -> Result<DeserializedIndex<Dataset>>
+```
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:214`_
+Load the graph and recreate its serialized dataset allocation.
 
-_Source: `rust/cuvs/src/neighbors/cagra/index.rs:27`_
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:233`_
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:47`_
+
+## DeserializedIndex
+
+```rust
+#[derive(Debug)]
+pub struct DeserializedIndex<D> {
+    /* private fields */
+}
+```
+
+A deserialized CAGRA index and the optional dataset storage it views.
+
+A file serialized without vectors yields `dataset == None` and must have
+matching storage attached before search. Field order is significant: the
+native index is destroyed before its dataset owner.
+
+**Methods**
+
+| Name | Source |
+| --- | --- |
+| `dataset` | `rust/cuvs/src/neighbors/cagra/index.rs:254` |
+| `has_dataset` | `rust/cuvs/src/neighbors/cagra/index.rs:259` |
+| `serialize` | `rust/cuvs/src/neighbors/cagra/index.rs:264` |
+| `serialize_to_hnswlib` | `rust/cuvs/src/neighbors/cagra/index.rs:274` |
+| `update_dataset` | `rust/cuvs/src/neighbors/cagra/index.rs:279` |
+| `search` | `rust/cuvs/src/neighbors/cagra/index.rs:304` |
+| `search_filtered` | `rust/cuvs/src/neighbors/cagra/index.rs:325` |
+
+### dataset
+
+```rust
+pub fn dataset(&self) -> Option<&D>
+```
+
+Borrow the dataset owner when the serialized file included vectors.
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:254`_
+
+### has_dataset
+
+```rust
+pub fn has_dataset(&self) -> bool
+```
+
+Whether the serialized file included vector storage.
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:259`_
+
+### serialize
+
+```rust
+pub fn serialize<P: AsRef<Path>>(
+&self,
+res: &Resources,
+filename: P,
+include_dataset: bool,
+) -> Result<()>
+```
+
+Save this index to file.
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:264`_
+
+### serialize_to_hnswlib
+
+```rust
+pub fn serialize_to_hnswlib<P: AsRef<Path>>(&self, res: &Resources, filename: P) -> Result<()>
+```
+
+Save this index to file in the cuVS hnswlib format.
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:274`_
+
+### update_dataset
+
+```rust
+pub fn update_dataset<'a, T>(self, res: &Resources, dataset: &'a T) -> Result<Index<'a>>
+where
+T: CuvsDataset + ?Sized,
+```
+
+Replace the deserialized storage with a caller-owned device-padded view.
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:279`_
+
+### search
+
+```rust
+pub fn search<Q, N, D>(
+&self,
+res: &Resources,
+params: &SearchParams,
+queries: &Q,
+neighbors: &mut N,
+distances: &mut D,
+) -> Result<()>
+where
+Q: AsDlTensor + ?Sized,
+N: AsDlTensorMut + ?Sized,
+D: AsDlTensorMut + ?Sized,
+```
+
+Search an index whose deserialized owner is device-padded.
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:304`_
+
+### search_filtered
+
+```rust
+pub fn search_filtered<Q, N, D>(
+&self,
+res: &Resources,
+params: &SearchParams,
+queries: &Q,
+neighbors: &mut N,
+distances: &mut D,
+filter: &Filter<'_, Bitset>,
+) -> Result<()>
+where
+Q: AsDlTensor + ?Sized,
+N: AsDlTensorMut + ?Sized,
+D: AsDlTensorMut + ?Sized,
+```
+
+Search a padded deserialized index with a row-level bitset filter.
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:325`_
+
+_Source: `rust/cuvs/src/neighbors/cagra/index.rs:58`_

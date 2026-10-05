@@ -59,6 +59,8 @@ enum class init_method {
 
 Hyper-parameters for the Gaussian mixture EM solver.
 
+All defaults match scikit-learn's ``GaussianMixture`` so that results are directly comparable out of the box.
+
 ```cpp
 struct params {
   int n_components;
@@ -136,6 +138,8 @@ When `warm_start` is true the incoming ``weights`` / ``means`` / ``covariances``
 
 **Additional overload:** `cluster::gmm::fit`
 
+Fit a Gaussian mixture with the EM algorithm.
+
 ```cpp
 void fit(raft::resources const& handle,
 const params& params,
@@ -151,6 +155,8 @@ raft::host_scalar_view<int> n_iter,
 raft::host_scalar_view<bool> converged,
 bool warm_start = false);
 ```
+
+Double-precision overload; see the single-precision overload for details.
 
 **Parameters**
 
@@ -207,6 +213,8 @@ raft::device_vector_view<int, int64_t> labels);
 
 **Additional overload:** `cluster::gmm::predict`
 
+Hard component labels (argmax responsibility) for new data.
+
 ```cpp
 void predict(raft::resources const& handle,
 const params& params,
@@ -216,6 +224,8 @@ raft::device_matrix_view<const double, int64_t> means,
 raft::device_vector_view<const double, int64_t> precisions_chol,
 raft::device_vector_view<int, int64_t> labels);
 ```
+
+Double-precision overload; see the single-precision overload for details.
 
 **Parameters**
 
@@ -266,6 +276,8 @@ raft::device_matrix_view<float, int64_t> resp);
 
 **Additional overload:** `cluster::gmm::predict_proba`
 
+Posterior responsibilities for new data.
+
 ```cpp
 void predict_proba(raft::resources const& handle,
 const params& params,
@@ -275,6 +287,8 @@ raft::device_matrix_view<const double, int64_t> means,
 raft::device_vector_view<const double, int64_t> precisions_chol,
 raft::device_matrix_view<double, int64_t> resp);
 ```
+
+Double-precision overload; see the single-precision overload for details.
 
 **Parameters**
 
@@ -325,6 +339,8 @@ raft::device_vector_view<float, int64_t> log_prob_norm);
 
 **Additional overload:** `cluster::gmm::score_samples`
 
+Per-sample log-likelihood log p(x_i) for new data.
+
 ```cpp
 void score_samples(raft::resources const& handle,
 const params& params,
@@ -334,6 +350,8 @@ raft::device_matrix_view<const double, int64_t> means,
 raft::device_vector_view<const double, int64_t> precisions_chol,
 raft::device_vector_view<double, int64_t> log_prob_norm);
 ```
+
+Double-precision overload; see the single-precision overload for details.
 
 **Parameters**
 

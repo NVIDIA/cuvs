@@ -51,7 +51,7 @@ inline int64_t cov_len(covariance_type ct, int d, int K)
 template <typename T>
 class GMMTest : public ::testing::TestWithParam<GMMInputs<T>> {
  protected:
-  GMMTest() : stream(raft::resource::get_cuda_stream(handle)) {}
+  GMMTest() : stream(raft::resource::get_cuda_stream(handle).get()) {}
 
   void basicTest()
   {
@@ -239,7 +239,7 @@ std::pair<raft::device_matrix<T, int64_t>, raft::device_vector<int, int>> make_g
                                    n,
                                    d,
                                    K,
-                                   raft::resource::get_cuda_stream(handle),
+                                   raft::resource::get_cuda_stream(handle).get(),
                                    true,
                                    nullptr,
                                    nullptr,
@@ -305,7 +305,7 @@ TEST(GMMExtra, InitMethods)
     ASSERT_TRUE(std::isfinite(lb)) << "init " << (int)im;
     if (im == init_method::KMeans || im == init_method::KMeansPlusPlus) {
       double ari =
-        raft::stats::adjusted_rand_index(yref.data_handle(), labels.data_handle(), n, stream);
+        raft::stats::adjusted_rand_index(yref.data_handle(), labels.data_handle(), n, stream.get());
       raft::resource::sync_stream(handle, stream);
       ASSERT_GT(ari, 0.95) << "init " << (int)im;
     }
@@ -608,7 +608,7 @@ TEST(GMMExtra, IllDefinedCovarianceThrows)
 
   // All points identical -> any component covariance collapses to zero.
   auto X = raft::make_device_matrix<float, int64_t>(handle, n, d);
-  RAFT_CUDA_TRY(cudaMemsetAsync(X.data_handle(), 0, sizeof(float) * (size_t)n * d, stream));
+  RAFT_CUDA_TRY(cudaMemsetAsync(X.data_handle(), 0, sizeof(float) * (size_t)n * d, stream.get()));
 
   int64_t cn   = cov_len(covariance_type::FULL, d, K);
   auto weights = raft::make_device_vector<float, int64_t>(handle, K);

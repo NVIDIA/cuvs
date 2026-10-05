@@ -256,7 +256,7 @@ TEST_F(CagraQSerializeTest, RoundTripsThroughAFileWithItsDataset)
   std::stringstream stored;
   cagra::serialize(res_, stored, idx);
 
-  vpq_f16_index<float> restored{res_};
+  device_pq_index<float> restored{res_};
   std::unique_ptr<vpq_dataset_t> owner;
   cagra::deserialize(res_, stored, &restored, &owner);
 
@@ -291,7 +291,7 @@ TEST_F(CagraQSerializeTest, LoadsGraphWithoutDatasetAndAllowsReattachment)
   std::stringstream stored;
   cagra::serialize(res_, stored, idx);
 
-  vpq_f16_index<float> restored{res_};
+  device_pq_index<float> restored{res_};
   cagra::deserialize(res_, stored, &restored, nullptr);
 
   EXPECT_EQ(restored.size(), idx.size());
@@ -308,7 +308,7 @@ TEST_F(CagraQSerializeTest, SerializesTheGraphAloneWhenAsked)
   std::stringstream stored;
   cagra::serialize(res_, stored, idx, /* include_dataset */ false);
 
-  vpq_f16_index<float> restored{res_};
+  device_pq_index<float> restored{res_};
   std::unique_ptr<vpq_dataset_t> owner;
   cagra::deserialize(res_, stored, &restored, &owner);
 

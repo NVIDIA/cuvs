@@ -30,7 +30,7 @@ Gets the number of partitions for ACE partitioned build.
 
 the number of partitions
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:37`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:41`_
 
 ### getBuildDir
 
@@ -44,7 +44,7 @@ Gets the directory to store ACE build artifacts.
 
 the build directory path
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:46`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:50`_
 
 ### isUseDisk
 
@@ -58,7 +58,7 @@ Gets whether disk-based storage is enabled for ACE build.
 
 true if disk mode is enabled
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:55`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:59`_
 
 ### getMaxHostMemoryGb
 
@@ -72,7 +72,7 @@ Gets the maximum host memory limit in GiB.
 
 the max host memory limit (0 means use available memory)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:64`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:68`_
 
 ### getMaxGpuMemoryGb
 
@@ -86,7 +86,7 @@ Gets the maximum GPU memory limit in GiB.
 
 the max GPU memory limit (0 means use available memory)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:73`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:77`_
 
 ### Builder
 
@@ -96,7 +96,7 @@ public Builder()
 
 Constructs this Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:106`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:110`_
 
 ### withNpartitions
 
@@ -129,7 +129,7 @@ constraints and a warning will be issued.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:127`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:131`_
 
 ### withBuildDir
 
@@ -150,7 +150,7 @@ Used when useDisk is true or when the graph does not fit in memory.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:139`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:143`_
 
 ### withUseDisk
 
@@ -171,7 +171,7 @@ When true, enables disk-based operations for memory-efficient graph construction
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:151`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:155`_
 
 ### withMaxHostMemoryGb
 
@@ -194,7 +194,7 @@ Useful for testing or when running alongside other memory-intensive processes.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:165`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:169`_
 
 ### withMaxGpuMemoryGb
 
@@ -217,7 +217,7 @@ Useful for testing or when running alongside other memory-intensive processes.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:179`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:183`_
 
 ### build
 
@@ -231,6 +231,6 @@ Builds an instance of `HnswAceParams`.
 
 an instance of `HnswAceParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:189`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:193`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswAceParams.java:16`_
