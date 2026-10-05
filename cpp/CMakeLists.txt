@@ -1177,9 +1177,8 @@ if(NOT BUILD_CPU_ONLY)
       KERNEL_PYTHON "smoke_kernel.py"
       EXPORT_SCRIPT "export_smoke.py"
       OUTPUT_DIRECTORY "${cutile_smoke_generated_dir}"
-      MATRIX_JSON_FILE "${cutile_smoke_dir}/cutile_smoke_matrix.json"
-      PYTHON "${cutile_python}"
-      BIN2C "${cutile_bin2c}"
+      MATRIX_JSON_FILE "${cutile_smoke_dir}/cutile_smoke_matrix.json" PYTHON "${cutile_python}"
+                                                                      BIN2C "${cutile_bin2c}"
       FRAGMENT_TAG_FORMAT_CUBIN
         "cuvs::detail::jit_lto::fragment_tag_cutile_smoke_add_cubin<cuvs::detail::jit_lto::@arch_tag@>"
       FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>"
@@ -1201,8 +1200,7 @@ if(NOT BUILD_CPU_ONLY)
       EXPORT_SCRIPT "export_fused_1nn.py"
       OUTPUT_DIRECTORY "${cutile_fused_1nn_generated_dir}"
       MATRIX_JSON_FILE "${fused_1nn_cutile_dir}/fused_1nn_cutile_matrix.json"
-      PYTHON "${cutile_python}"
-      BIN2C "${cutile_bin2c}"
+                       PYTHON "${cutile_python}" BIN2C "${cutile_bin2c}"
       FRAGMENT_TAG_FORMAT_CUBIN
         "cuvs::distance::detail::fragment_tag_fused_1nn_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@, cuvs::detail::jit_lto::@arch_tag@>"
       FRAGMENT_TAG_HEADER_FILES

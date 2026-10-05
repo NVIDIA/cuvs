@@ -53,10 +53,9 @@ function(_cutile_detect)
   )
   if(NOT import_result EQUAL 0)
     message(
-      STATUS
-        "cuTile disabled: cuda.tile (cuTile Python) is not importable by ${python}. "
-        "Install cutile-python and cuda-tileiras (conda), or cuda-tile[tileiras] (pip).\n"
-        "Import error: ${import_error}"
+      STATUS "cuTile disabled: cuda.tile (cuTile Python) is not importable by ${python}. "
+             "Install cutile-python and cuda-tileiras (conda), or cuda-tile[tileiras] (pip).\n"
+             "Import error: ${import_error}"
     )
     return()
   endif()
@@ -70,7 +69,11 @@ endfunction()
 # Returns whether cuTile can be built, and the python interpreter and bin2c to build it with, in the
 # named output variables. The toolchain is only probed on the first call.
 function(cuvs_cutile_setup enabled_var python_var bin2c_var)
-  get_property(probed GLOBAL PROPERTY CUVS_CUTILE_ENABLED SET)
+  get_property(
+    probed GLOBAL
+    PROPERTY CUVS_CUTILE_ENABLED
+    SET
+  )
   if(NOT probed)
     _cutile_detect()
   endif()
@@ -238,9 +241,7 @@ function(generate_cutile_kernels source_list_var)
       OUTPUT_DIRECTORY "${_CUTILE_OUTPUT_DIRECTORY}"
       FRAGMENT_TAG_FORMAT_CUBIN "${_CUTILE_FRAGMENT_TAG_FORMAT_CUBIN}"
       FRAGMENT_TAG_HEADER_FILES ${_CUTILE_FRAGMENT_TAG_HEADER_FILES}
-      MATRIX_JSON_ENTRY "${matrix_json_entry}"
-      PYTHON "${_CUTILE_PYTHON}"
-      BIN2C "${_CUTILE_BIN2C}"
+      MATRIX_JSON_ENTRY "${matrix_json_entry}" PYTHON "${_CUTILE_PYTHON}" BIN2C "${_CUTILE_BIN2C}"
     )
   endforeach()
 
