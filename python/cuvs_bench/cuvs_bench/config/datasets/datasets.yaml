@@ -140,3 +140,11 @@
   query_file: deep-100M/query.public.10K.fbin
   groundtruth_neighbors_file: deep-100M/groundtruth.public.10K.ibin
   distance: euclidean
+
+- name: openai-5m-binary
+  dims: 1536
+  base_file: openai-5m-binary/base.u8bin
+  query_file: openai-5m-binary/query.u8bin
+  groundtruth_neighbors_file: openai-5m-binary/groundtruth.neighbors.ibin
+  groundtruth_distances_file: openai-5m-binary/groundtruth.distances.fbin
+  distance: bitwise_hamming

@@ -166,6 +166,10 @@ class CppGoogleBenchmarkBackend(BenchmarkBackend):
                 dataset_config["groundtruth_neighbors_file"] = (
                     dataset.groundtruth_neighbors_file
                 )
+            if dataset.groundtruth_distances_file:
+                dataset_config["groundtruth_distances_file"] = (
+                    dataset.groundtruth_distances_file
+                )
 
             # Build index list from ALL IndexConfig objects (matches runners.py)
             index_list = [
@@ -413,6 +417,10 @@ class CppGoogleBenchmarkBackend(BenchmarkBackend):
             if dataset.groundtruth_neighbors_file:
                 dataset_config["groundtruth_neighbors_file"] = (
                     dataset.groundtruth_neighbors_file
+                )
+            if dataset.groundtruth_distances_file:
+                dataset_config["groundtruth_distances_file"] = (
+                    dataset.groundtruth_distances_file
                 )
 
             # Build index list from ALL IndexConfig objects (matches runners.py)

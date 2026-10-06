@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -7,14 +7,20 @@
 #include "ann_types.hpp"
 #include "blob.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
 #include <mutex>
 #include <optional>
 #include <random>
+#include <stdexcept>
 #include <string>
 #include <thread>
+#include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
+#include <vector>
 
 namespace cuvs::bench {
 
@@ -41,8 +47,9 @@ struct ground_truth_map {
 
   explicit ground_truth_map(std::string file_name,
                             uint32_t n_queries,
+                            std::optional<std::string> distances_file_name,
                             std::optional<blob<bitset_carrier_type>>& filter_bitset)
-    : gt_maps_(n_queries)
+    : gt_maps_(n_queries), filtered_(filter_bitset.has_value())
   {
     // Eagerly iterate over and optionally filter the ground truth set to build gt_maps_ for up to
     // kMaxQueriesForRecall queries
@@ -58,8 +65,28 @@ struct ground_truth_map {
 
     */
     auto ground_truth_set = blob<T>(file_name);
-    max_k_                = ground_truth_set.n_cols();
-    auto filter           = [&](T i) -> bool {
+    if (ground_truth_set.n_rows() != n_queries) {
+      throw std::invalid_argument(
+        "Ground truth neighbor row count (" + std::to_string(ground_truth_set.n_rows()) +
+        ") does not match the query row count (" + std::to_string(n_queries) + ")");
+    }
+    max_k_ = ground_truth_set.n_cols();
+
+    if (distances_file_name.has_value()) {
+      auto ground_truth_distances = blob<float>(*distances_file_name);
+      if (ground_truth_distances.n_rows() != n_queries ||
+          ground_truth_distances.n_cols() != max_k_) {
+        throw std::invalid_argument(
+          "Ground truth distance shape [" + std::to_string(ground_truth_distances.n_rows()) + ", " +
+          std::to_string(ground_truth_distances.n_cols()) +
+          "] does not match the ground truth neighbor shape [" + std::to_string(n_queries) + ", " +
+          std::to_string(max_k_) + "]");
+      }
+      auto* distances = ground_truth_distances.data();
+      gt_distances_.emplace(distances, distances + size_t{n_queries} * max_k_);
+    }
+
+    auto filter = [&](T i) -> bool {
       if (!filter_bitset.has_value()) { return true; }
       // bitset is `32 = bitset_carrier_type * 8` times more dense than the data
       // use bitwise arithmetic to get the `row_id` and correct bit pos in the `word`
@@ -117,6 +144,8 @@ struct ground_truth_map {
 
   [[nodiscard]] auto max_k() const -> uint32_t { return max_k_; }
 
+  [[nodiscard]] auto has_distances() const -> bool { return gt_distances_.has_value(); }
+
   template <typename index_type>
   [[nodiscard]] auto count_matches(size_t query_idx, const index_type* candidates, uint32_t k) const
     -> std::pair<size_t, size_t>
@@ -135,11 +164,86 @@ struct ground_truth_map {
     return {matching, total};
   }
 
+  template <typename index_type>
+  [[nodiscard]] auto count_tie_aware_matches(size_t query_idx,
+                                             const index_type* candidates,
+                                             const float* candidate_distances,
+                                             uint32_t k) const -> std::pair<size_t, size_t>
+  {
+    if (!gt_distances_.has_value()) {
+      throw std::logic_error("Tie-aware recall requires ground truth distances");
+    }
+    if (query_idx >= gt_maps_.size() || gt_maps_[query_idx].empty()) return {0, 0};
+    if (k == 0 || k > max_k_) {
+      throw std::invalid_argument("Tie-aware recall k must be in [1, ground truth width]");
+    }
+
+    const auto& query_gt        = gt_maps_[query_idx];
+    const auto distance_at_rank = [&](size_t rank) {
+      return (*gt_distances_)[query_idx * size_t{max_k_} + rank];
+    };
+
+    const size_t total = std::min<size_t>(k, query_gt.size());
+    float boundary_distance;
+    if (filtered_) {
+      // Filtering can remove some of the first k ground-truth ids. Select the kth remaining
+      // distance from every id available in the ground-truth row.
+      std::vector<float> valid_distances;
+      valid_distances.reserve(query_gt.size());
+      for (const auto& entry : query_gt) {
+        valid_distances.push_back(distance_at_rank(static_cast<size_t>(entry.second)));
+      }
+      const size_t boundary_pos = total - 1;
+      std::nth_element(
+        valid_distances.begin(), valid_distances.begin() + boundary_pos, valid_distances.end());
+      boundary_distance = valid_distances[boundary_pos];
+    } else {
+      boundary_distance = distance_at_rank(total - 1);
+    }
+
+    size_t strict_count = 0;
+    for (const auto& entry : query_gt) {
+      if (distance_at_rank(static_cast<size_t>(entry.second)) < boundary_distance) {
+        ++strict_count;
+      }
+    }
+    strict_count                = std::min(strict_count, total);
+    const size_t boundary_quota = total - strict_count;
+
+    size_t strict_matches   = 0;
+    size_t boundary_matches = 0;
+    std::unordered_set<index_type> seen;
+    seen.reserve(k);
+    for (uint32_t i = 0; i < k; ++i) {
+      const auto candidate = candidates[i];
+      if constexpr (std::is_signed_v<index_type>) {
+        if (candidate < 0) { continue; }
+      }
+      if (!seen.insert(candidate).second) { continue; }
+
+      const auto found = query_gt.find(candidate);
+      if (found != query_gt.end()) {
+        const auto actual_distance = distance_at_rank(static_cast<size_t>(found->second));
+        if (actual_distance < boundary_distance) {
+          ++strict_matches;
+        } else if (actual_distance == boundary_distance) {
+          ++boundary_matches;
+        }
+      } else if (candidate_distances[i] == boundary_distance) {
+        ++boundary_matches;
+      }
+    }
+
+    return {strict_matches + std::min(boundary_matches, boundary_quota), total};
+  }
+
  private:
   // Hash maps of {id, neighbor_rank} for up to kMaxQueriesForRecall queries in the ground truth set
   // e.g. gt_maps_[i][j] = k means that for the i-th query in the ground truth set, the neighbor
   // with idx j is the k-th nearest. Note that the nearest neighbor rank starts from 0.
   std::vector<std::unordered_map<T, T>> gt_maps_;
+  bool filtered_;
+  std::optional<std::vector<float>> gt_distances_;
   uint32_t max_k_ = 0;  // number of nearest neighbors in the ground truth
 };
 
@@ -179,6 +283,7 @@ struct dataset {
           std::string query_file,
           std::string distance,
           std::optional<std::string> groundtruth_neighbors_file,
+          std::optional<std::string> groundtruth_distances_file,
           std::optional<double> filtering_rate = std::nullopt)
     : name_{std::move(name)},
       distance_{std::move(distance)},
@@ -203,8 +308,10 @@ struct dataset {
     }
 
     if (groundtruth_neighbors_file.has_value()) {
-      ground_truth_map_.emplace(ground_truth_map<IdxT>{
-        groundtruth_neighbors_file.value(), query_set_.n_rows(), filter_bitset_});
+      ground_truth_map_.emplace(ground_truth_map<IdxT>{groundtruth_neighbors_file.value(),
+                                                       query_set_.n_rows(),
+                                                       std::move(groundtruth_distances_file),
+                                                       filter_bitset_});
     }
   }
 

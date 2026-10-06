@@ -355,10 +355,11 @@ void bench_search(::benchmark::State& state,
     // gt_maps[i] is a hash map of {id, neighbor_rank} for query i
     const auto& gt_maps = dataset->gt_maps();
     result_buf.transfer_data(MemoryType::kHost, current_algo_props->query_memory_type);
-    auto* neighbors_host    = reinterpret_cast<index_type*>(result_buf.data(MemoryType::kHost));
-    std::size_t rows        = std::min(queries_processed, query_set_size);
-    std::size_t match_count = 0;
-    std::size_t total_count = 0;
+    auto* neighbors_host = reinterpret_cast<index_type*>(result_buf.data(MemoryType::kHost));
+    auto* distances_host = reinterpret_cast<float*>(neighbors_host + result_elem_count);
+    std::size_t rows     = std::min(queries_processed, query_set_size);
+
+    const bool tie_aware = gt_maps->has_distances();
 
     // Map result-buffer row -> original query index using the same stride as the
     // timed search loop. Parallelize once over all `rows` (not once per search
@@ -384,13 +385,27 @@ void bench_search(::benchmark::State& state,
     recall_workers.reserve(num_helper_threads);
     std::vector<std::size_t> local_match_count(num_workers, 0);
     std::vector<std::size_t> local_total_count(num_workers, 0);
+    std::vector<std::size_t> local_id_match_count(num_workers, 0);
+    std::vector<std::size_t> local_id_total_count(num_workers, 0);
 
     auto recall_range = [&](size_t start, size_t end, int tid) {
       for (size_t i_out_idx = start; i_out_idx < end; ++i_out_idx) {
-        auto* candidates       = neighbors_host + i_out_idx * k;
-        auto [matching, total] = gt_maps->count_matches(orig_query_idx(i_out_idx), candidates, k);
-        local_match_count[tid] += matching;
-        local_total_count[tid] += total;
+        const auto query_idx = orig_query_idx(i_out_idx);
+        auto* candidates     = neighbors_host + i_out_idx * k;
+        if (tie_aware) {
+          auto* candidate_distances    = distances_host + i_out_idx * k;
+          auto [id_matching, id_total] = gt_maps->count_matches(query_idx, candidates, k);
+          auto [matching, total] =
+            gt_maps->count_tie_aware_matches(query_idx, candidates, candidate_distances, k);
+          local_id_match_count[tid] += id_matching;
+          local_id_total_count[tid] += id_total;
+          local_match_count[tid] += matching;
+          local_total_count[tid] += total;
+        } else {
+          auto [matching, total] = gt_maps->count_matches(query_idx, candidates, k);
+          local_match_count[tid] += matching;
+          local_total_count[tid] += total;
+        }
       }
     };
 
@@ -407,10 +422,25 @@ void bench_search(::benchmark::State& state,
     for (auto& worker : recall_workers) {
       worker.join();
     }
-    match_count = std::accumulate(local_match_count.begin(), local_match_count.end(), size_t{0});
-    total_count = std::accumulate(local_total_count.begin(), local_total_count.end(), size_t{0});
 
-    double actual_recall = static_cast<double>(match_count) / static_cast<double>(total_count);
+    const auto match_count =
+      std::accumulate(local_match_count.begin(), local_match_count.end(), size_t{0});
+    const auto total_count =
+      std::accumulate(local_total_count.begin(), local_total_count.end(), size_t{0});
+    const double actual_recall =
+      total_count == 0 ? 0.0 : static_cast<double>(match_count) / static_cast<double>(total_count);
+
+    if (tie_aware) {
+      const auto id_match_count =
+        std::accumulate(local_id_match_count.begin(), local_id_match_count.end(), size_t{0});
+      const auto id_total_count =
+        std::accumulate(local_id_total_count.begin(), local_id_total_count.end(), size_t{0});
+      const double id_recall = id_total_count == 0 ? 0.0
+                                                   : static_cast<double>(id_match_count) /
+                                                       static_cast<double>(id_total_count);
+      state.counters.insert({"IDRecall", {id_recall, benchmark::Counter::kAvgThreads}});
+    }
+
     /* NOTE: recall in the throughput mode & filtering
 
     When filtering is enabled, `total_count` may vary between individual threads, but we still take
@@ -538,6 +568,7 @@ void dispatch_benchmark(std::string cmdline,
   auto base_file     = dataset_conf.base_file;
   auto query_file    = dataset_conf.query_file;
   auto gt_file       = dataset_conf.groundtruth_neighbors_file;
+  auto gt_dist_file  = dataset_conf.groundtruth_distances_file;
   auto dataset =
     std::make_shared<bench::dataset<T>>(dataset_conf.name,
                                         base_file,
@@ -546,6 +577,7 @@ void dispatch_benchmark(std::string cmdline,
                                         query_file,
                                         dataset_conf.distance,
                                         gt_file,
+                                        gt_dist_file,
                                         search_mode ? dataset_conf.filtering_rate : std::nullopt);
   ::benchmark::AddCustomContext("dataset", dataset_conf.name);
   ::benchmark::AddCustomContext("distance", dataset_conf.distance);

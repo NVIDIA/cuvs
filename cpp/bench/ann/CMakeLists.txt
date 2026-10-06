@@ -22,6 +22,9 @@ option(CUVS_ANN_BENCH_USE_FAISS_CPU_FLAT "Include faiss' cpu brute-force algorit
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_FLAT "Include faiss' cpu ivf flat algorithm in benchmark"
        ON
 )
+option(CUVS_ANN_BENCH_USE_FAISS_CPU_BINARY_IVF_FLAT
+       "Include faiss' cpu binary ivf flat algorithm in benchmark" ON
+)
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_PQ "Include faiss' cpu ivf pq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_RABITQ
        "Include faiss' cpu ivf rabitq algorithm in benchmark" ON
@@ -325,6 +328,32 @@ if(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_FLAT)
   ConfigureAnnBench(
     NAME FAISS_CPU_IVF_FLAT PATH src/faiss/faiss_cpu_benchmark.cpp LINKS ${CUVS_FAISS_TARGETS}
   )
+endif()
+
+if(CUVS_ANN_BENCH_USE_FAISS_CPU_BINARY_IVF_FLAT)
+  ConfigureAnnBench(
+    NAME FAISS_CPU_BINARY_IVF_FLAT PATH src/faiss/faiss_cpu_binary_ivf_flat_benchmark.cpp LINKS
+    ${CUVS_FAISS_TARGETS}
+  )
+endif()
+
+if(BUILD_TESTS AND CUVS_ANN_BENCH_USE_FAISS_CPU_BINARY_IVF_FLAT)
+  add_executable(FAISS_CPU_BINARY_IVF_FLAT_BENCH_TEST tests/faiss_cpu_binary_ivf_flat_test.cpp)
+  target_link_libraries(
+    FAISS_CPU_BINARY_IVF_FLAT_BENCH_TEST
+    PRIVATE GTest::gtest_main ${CUVS_FAISS_TARGETS} nlohmann_json::nlohmann_json Threads::Threads
+            $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX> $<TARGET_NAME_IF_EXISTS:conda_env>
+  )
+  if(NOT BUILD_CPU_ONLY)
+    target_link_libraries(FAISS_CPU_BINARY_IVF_FLAT_BENCH_TEST PRIVATE CUDA::cudart_static rmm::rmm)
+  endif()
+  set_target_properties(
+    FAISS_CPU_BINARY_IVF_FLAT_BENCH_TEST PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON
+  )
+  target_compile_options(
+    FAISS_CPU_BINARY_IVF_FLAT_BENCH_TEST PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:${CUVS_CXX_FLAGS}>"
+  )
+  add_test(NAME FAISS_CPU_BINARY_IVF_FLAT_BENCH_TEST COMMAND FAISS_CPU_BINARY_IVF_FLAT_BENCH_TEST)
 endif()
 
 if(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_PQ)

@@ -22,6 +22,9 @@ faiss_cpu_flat:
 faiss_cpu_ivf_flat:
   executable: FAISS_CPU_IVF_FLAT_ANN_BENCH
   requires_gpu: false
+faiss_cpu_binary_ivf_flat:
+  executable: FAISS_CPU_BINARY_IVF_FLAT_ANN_BENCH
+  requires_gpu: false
 faiss_cpu_ivf_pq:
   executable: FAISS_CPU_IVF_PQ_ANN_BENCH
   requires_gpu: false
