@@ -69,12 +69,11 @@ IdxT centers_dim(IdxT dim, bool is_packed_binary)
   }
 }
 
-template <typename MathT, typename IdxT>
-MathT packed_row_norm(IdxT dim, cuvs::distance::DistanceType metric)
+inline void validate_packed_binary_metric(const cuvs::cluster::kmeans::balanced_params& params)
 {
-  // L2 uses the squared norm; cosine uses the Euclidean norm.
-  return metric == cuvs::distance::DistanceType::CosineExpanded ? std::sqrt(static_cast<MathT>(dim))
-                                                                : static_cast<MathT>(dim);
+  RAFT_EXPECTS(
+    !params.is_packed_binary || params.metric != cuvs::distance::DistanceType::CosineExpanded,
+    "CosineExpanded is not supported for packed binary input");
 }
 
 /**
@@ -706,7 +705,7 @@ void predict(const raft::resources& handle,
     raft::matrix::fill(
       handle,
       raft::make_device_matrix_view<MathT, IdxT>(cur_dataset_norm.data(), max_minibatch_size, 1),
-      packed_row_norm<MathT>(transformed_dim, params.metric));
+      static_cast<MathT>(transformed_dim));
   }
   const auto native_centers_size =
     native_half ? static_cast<std::size_t>(n_clusters) * static_cast<std::size_t>(dim) : 0;
@@ -1428,10 +1427,10 @@ auto build_fine_clusters(const raft::resources& handle,
         params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
         params.metric == cuvs::distance::DistanceType::CosineExpanded) {
       if (params.is_packed_binary) {
-        // Expanded bits have a constant metric-specific row norm.
+        // Expanded bits have a constant squared row norm.
         raft::matrix::fill(handle,
                            raft::make_device_matrix_view<MathT, IdxT>(mc_trainset_norm, k, 1),
-                           packed_row_norm<MathT>(transformed_dim, params.metric));
+                           static_cast<MathT>(transformed_dim));
       } else {
         thrust::gather(raft::resource::get_thrust_policy(handle),
                        mc_trainset_ids,
@@ -1542,12 +1541,14 @@ void build_hierarchical(const raft::resources& handle,
                      device_memory);
     }
     dataset_norm = dataset_norm_buf.data();
-  } else if (params.is_packed_binary) {
+  } else if (params.is_packed_binary &&
+             (params.metric == cuvs::distance::DistanceType::L2Expanded ||
+              params.metric == cuvs::distance::DistanceType::L2SqrtExpanded)) {
     dataset_norm_buf.resize(n_rows, stream);
     raft::matrix::fill(
       handle,
       raft::make_device_matrix_view<MathT, IdxT>(dataset_norm_buf.data(), n_rows, 1),
-      packed_row_norm<MathT>(transformed_dim, params.metric));
+      static_cast<MathT>(transformed_dim));
     dataset_norm = dataset_norm_buf.data();
   }
 

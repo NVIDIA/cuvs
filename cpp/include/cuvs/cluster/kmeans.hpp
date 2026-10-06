@@ -226,6 +226,7 @@ struct balanced_params : base_params {
    *   - Output centroids dimension is expanded (packed_dim * 8)
    *   - The metric operates on the expanded floating-point vectors (for example L2Expanded),
    *     not on the packed bytes; BitwiseHamming is not a balanced k-means training metric.
+   *   - CosineExpanded is not supported.
    */
   bool is_packed_binary = false;
 };
@@ -732,7 +733,8 @@ void fit(const raft::resources& handle,
  * @note When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,
  * and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are
  * expanded least-significant bit first to {-1, +1}; the selected metric operates
- * on those expanded vectors. With the flag disabled, uint8_t values are numeric.
+ * on those expanded vectors. CosineExpanded is not supported in packed binary mode.
+ * With the flag disabled, uint8_t values are numeric.
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>
@@ -1235,7 +1237,8 @@ void predict(const raft::resources& handle,
  * @note When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,
  * and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are
  * expanded least-significant bit first to {-1, +1}; the selected metric operates
- * on those expanded vectors. With the flag disabled, uint8_t values are numeric.
+ * on those expanded vectors. CosineExpanded is not supported in packed binary mode.
+ * With the flag disabled, uint8_t values are numeric.
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>

@@ -73,6 +73,7 @@ void fit(const raft::resources& handle,
          MappingOpT mapping_op                                = raft::identity_op(),
          std::optional<raft::host_scalar_view<MathT>> inertia = std::nullopt)
 {
+  cuvs::cluster::kmeans::detail::validate_packed_binary_metric(params);
   auto centers_dim =
     cuvs::cluster::kmeans::detail::centers_dim<DataT>(X.extent(1), params.is_packed_binary);
   RAFT_EXPECTS(centers_dim == centroids.extent(1),
@@ -136,6 +137,7 @@ void predict(const raft::resources& handle,
              raft::device_vector_view<LabelT, IndexT> labels,
              MappingOpT mapping_op = raft::identity_op())
 {
+  cuvs::cluster::kmeans::detail::validate_packed_binary_metric(params);
   RAFT_EXPECTS(X.extent(0) == labels.extent(0),
                "Number of rows in dataset and labels are different");
   auto centers_dim =

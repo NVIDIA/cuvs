@@ -399,7 +399,6 @@ TEST(KmeansBalancedBinary, PredictMatchesExpandedInput)
     raft::update_device(C.data_handle(), centers.data(), centers.size(), stream);
     for (auto metric : {cuvs::distance::DistanceType::L2Expanded,
                         cuvs::distance::DistanceType::L2SqrtExpanded,
-                        cuvs::distance::DistanceType::CosineExpanded,
                         cuvs::distance::DistanceType::InnerProduct}) {
       SCOPED_TRACE(int(metric));
       cuvs::cluster::kmeans::balanced_params params;
@@ -510,7 +509,7 @@ TEST(KmeansBalancedBinary, FitAndPredictRecoverPackedClusters)
   }
 }
 
-TEST(KmeansBalancedBinary, RejectsInvalidPackedTypeDimensionsAndOverflow)
+TEST(KmeansBalancedBinary, RejectsInvalidPackedInputs)
 {
   raft::resources handle;
   cuvs::cluster::kmeans::balanced_params params;
@@ -530,6 +529,13 @@ TEST(KmeansBalancedBinary, RejectsInvalidPackedTypeDimensionsAndOverflow)
   const auto overflowing_rows =
     raft::make_device_matrix_view<const uint8_t, int64_t>(nullptr, max_index / 24 + 1, 3);
   EXPECT_THROW(cuvs::cluster::kmeans::fit(handle, params, overflowing_rows, expanded_centers),
+               raft::logic_error);
+  params.metric = cuvs::distance::DistanceType::CosineExpanded;
+  EXPECT_THROW(cuvs::cluster::kmeans::fit(handle, params, X, expanded_centers), raft::logic_error);
+  const auto const_expanded_centers =
+    raft::make_device_matrix_view<const float, int64_t>(nullptr, 2, 24);
+  const auto labels = raft::make_device_vector_view<uint32_t, int64_t>(nullptr, 16);
+  EXPECT_THROW(cuvs::cluster::kmeans::predict(handle, params, X, const_expanded_centers, labels),
                raft::logic_error);
 }
 

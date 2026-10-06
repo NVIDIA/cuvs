@@ -50,6 +50,7 @@ void build_clusters(const raft::resources& handle,
                     MappingOpT mapping_op,
                     std::optional<raft::device_vector_view<const MathT>> X_norm)
 {
+  cuvs::cluster::kmeans::detail::validate_packed_binary_metric(params);
   RAFT_EXPECTS(centroids.extent(0) > IndexT{0},
                "The number of centroids must be strictly positive");
   RAFT_EXPECTS(X.extent(0) == labels.extent(0),
