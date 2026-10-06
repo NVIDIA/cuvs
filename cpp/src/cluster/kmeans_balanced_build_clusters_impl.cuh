@@ -50,8 +50,9 @@ void build_clusters(const raft::resources& handle,
                     MappingOpT mapping_op,
                     std::optional<raft::device_vector_view<const MathT>> X_norm)
 {
-  RAFT_EXPECTS(centroids.extent(0) > IndexT{0},
-               "The number of centroids must be strictly positive");
+  RAFT_EXPECTS(centroids.extent(0) > IndexT{0} && centroids.extent(0) <= X.extent(0),
+               "The number of centroids must be strictly positive and cannot exceed the number of "
+               "training samples");
   RAFT_EXPECTS(X.extent(0) == labels.extent(0),
                "Number of rows in dataset and labels are different");
   RAFT_EXPECTS(X.extent(1) == centroids.extent(1),
