@@ -37,7 +37,7 @@ function(_cutile_detect)
   find_program(
     CUVS_CUTILE_BIN2C
     NAMES bin2c
-    PATHS ${CUDAToolkit_BIN_DIR}
+    PATHS ${CUDAToolkit_BIN_DIR} REQUIRED
   )
   if(NOT CUVS_CUTILE_BIN2C)
     message(STATUS "cuTile disabled: bin2c not found in ${CUDAToolkit_BIN_DIR}.")
@@ -219,8 +219,8 @@ function(generate_cutile_kernels source_list_var)
 
   set_property(
     DIRECTORY
-    PROPERTY CMAKE_CONFIGURE_DEPENDS "${_CUTILE_MATRIX_JSON_FILE}"
     APPEND
+    PROPERTY CMAKE_CONFIGURE_DEPENDS "${_CUTILE_MATRIX_JSON_FILE}"
   )
   file(MAKE_DIRECTORY "${_CUTILE_OUTPUT_DIRECTORY}")
 
