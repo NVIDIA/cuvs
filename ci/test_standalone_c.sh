@@ -39,6 +39,25 @@ if [[ -z "${C_API_LIBRARY}" ]]; then
   exit 1
 fi
 
+# this script runs in environments without a CTK installed, system-install one
+rapids-logger "Installing CUDA toolkit"
+
+# CTK packages are suffixed like '*-13-3'
+CTK_PACKAGE_SUFFIX="$(echo "${RAPIDS_CUDA_VERSION}" | cut -d. -f1,2 | tr '.' '-')"
+if command -v dnf >/dev/null; then
+  dnf install \
+    -y \
+    --setopt=install_weak_deps=False \
+    "cuda-toolkit-${CTK_PACKAGE_SUFFIX}"
+else
+  apt-get update
+  DEBIAN_FRONTEND=noninteractive \
+    apt-get install \
+      -y \
+      --no-install-recommends \
+      "cuda-toolkit-${CTK_PACKAGE_SUFFIX}"
+fi
+
 C_API_SMOKE_TEST="${INSTALL_PREFIX}/bin/cuvs_c_dlsym_smoke"
 "${CC:-cc}" -std=c11 -Wall -Wextra -Werror \
   "${SCRIPT_DIR}/standalone_c/dlsym_smoke.c" -ldl -o "${C_API_SMOKE_TEST}"
