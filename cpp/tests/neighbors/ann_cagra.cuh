@@ -1802,14 +1802,15 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
-  // Corner cases for small datasets
+  // Corner cases for small datasets. IVF-PQ is excluded because its 8-bit codebook for these
+  // dimensions requires at least 256 training rows.
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {2},
     {3, 6, 31, 32, 64, 101},
     {1, 10},
     {2},   // k
     {32},  // degree
-    {graph_build_algo::IVF_PQ, graph_build_algo::NN_DESCENT},
+    {graph_build_algo::NN_DESCENT},
     {search_algo::SINGLE_CTA, search_algo::MULTI_CTA, search_algo::MULTI_KERNEL},
     {0},  // query size
     {0},
@@ -1935,7 +1936,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying host_dataset, ivf_pq_search_refine_ratio
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {100},
+    {600},  // The 55/45 merge split must leave at least 256 rows for each 8-bit PQ codebook.
     {32},
     {16},
     {32},  // degree
