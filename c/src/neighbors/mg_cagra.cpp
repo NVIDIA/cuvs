@@ -229,7 +229,8 @@ void _mg_update_dataset(cuvsResources_t res,
       using padded_ann_t   = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
       auto* standard_index = reinterpret_cast<mg_cagra_index_t<T, standard_ann_t>*>(box->index_ptr);
       auto* padded_index   = new mg_cagra_index_t<T, padded_ann_t>(
-        cuvs::neighbors::cagra::attach_dataset(*res_ptr, *standard_index, padded_view));
+        cuvs::neighbors::cagra::update_dataset(
+          *res_ptr, std::move(*standard_index), padded_view));
       auto* padded_box =
         make_mg_cagra_box<T, padded_ann_t>(padded_index, mg_cagra_dataset_layout::device_padded);
       destroy_mg_cagra_c_api_box(index->addr);
@@ -237,8 +238,7 @@ void _mg_update_dataset(cuvsResources_t res,
     } else if (box->layout == mg_cagra_dataset_layout::device_padded) {
       using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
       auto* padded_index = reinterpret_cast<mg_cagra_index_t<T, padded_ann_t>*>(box->index_ptr);
-      cuvs::neighbors::cagra::update_device_dataset_same_layout(
-        *res_ptr, *padded_index, padded_view);
+      cuvs::neighbors::cagra::update_dataset(*res_ptr, *padded_index, padded_view);
     } else {
       RAFT_FAIL("cuvsMultiGpuCagraUpdateDataset: unsupported index dataset layout");
     }
@@ -581,7 +581,7 @@ extern "C" cuvsError_t cuvsMultiGpuCagraDeserialize(cuvsResources_t res,
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_deser(float{});
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') && dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_deser(half{});
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
@@ -627,7 +627,7 @@ extern "C" cuvsError_t cuvsMultiGpuCagraDistribute(cuvsResources_t res,
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_distribute(float{});
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') && dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_distribute(half{});
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {

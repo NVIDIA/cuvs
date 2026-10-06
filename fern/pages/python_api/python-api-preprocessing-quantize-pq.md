@@ -166,6 +166,20 @@ def use_vq(self)
 def use_subspaces(self)
 ```
 
+## PQDatasetParams
+
+```python
+cdef class PQDatasetParams
+```
+
+Parameters for creating a PQ dataset.
+
+**Constructor**
+
+```python
+def __init__(self, *, pq_bits=8, pq_dim=0, vq_n_centers=0, kmeans_n_iters=25, vq_kmeans_trainset_fraction=0.0, pq_kmeans_trainset_fraction=0.0)
+```
+
 ## build
 
 `@auto_sync_resources`

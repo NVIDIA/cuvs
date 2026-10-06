@@ -120,7 +120,7 @@ RAFT_KERNEL merge_subgraphs_kernel(IdxT* cluster_data_indices,
         // to each other after sorting by distances. Thus, for now we sweep a neighboring window of
         // size 4 or sweep the entire row to check for duplicates, and keep the first occurrence
         // only.
-        // related issue: https://github.com/rapidsai/cuvs/issues/1056
+        // related issue: https://github.com/nvidia/cuvs/issues/1056
         // uniqueMask[colId] = static_cast<int16_t>(blockValues[colId] != blockValues[colId - 1]);
 
         int is_unique = 1;
@@ -197,7 +197,7 @@ void merge_subgraphs(raft::resources const& res,
   {
     if (num_elems <= 128) {
       merge_subgraphs_kernel<IdxT, 32, 4, SweepAll>
-        <<<num_data_in_cluster, 32, sharedMemSize, raft::resource::get_cuda_stream(res)>>>(
+        <<<num_data_in_cluster, 32, sharedMemSize, raft::resource::get_cuda_stream(res).get()>>>(
           inverted_indices_d,
           k,
           num_data_in_cluster,
@@ -208,7 +208,7 @@ void merge_subgraphs(raft::resources const& res,
           select_min);
     } else if (num_elems <= 512) {
       merge_subgraphs_kernel<IdxT, 128, 4, SweepAll>
-        <<<num_data_in_cluster, 128, sharedMemSize, raft::resource::get_cuda_stream(res)>>>(
+        <<<num_data_in_cluster, 128, sharedMemSize, raft::resource::get_cuda_stream(res).get()>>>(
           inverted_indices_d,
           k,
           num_data_in_cluster,
@@ -219,7 +219,7 @@ void merge_subgraphs(raft::resources const& res,
           select_min);
     } else if (num_elems <= 1024) {
       merge_subgraphs_kernel<IdxT, 128, 8, SweepAll>
-        <<<num_data_in_cluster, 128, sharedMemSize, raft::resource::get_cuda_stream(res)>>>(
+        <<<num_data_in_cluster, 128, sharedMemSize, raft::resource::get_cuda_stream(res).get()>>>(
           inverted_indices_d,
           k,
           num_data_in_cluster,
@@ -230,7 +230,7 @@ void merge_subgraphs(raft::resources const& res,
           select_min);
     } else if (num_elems <= 2048) {
       merge_subgraphs_kernel<IdxT, 256, 8, SweepAll>
-        <<<num_data_in_cluster, 256, sharedMemSize, raft::resource::get_cuda_stream(res)>>>(
+        <<<num_data_in_cluster, 256, sharedMemSize, raft::resource::get_cuda_stream(res).get()>>>(
           inverted_indices_d,
           k,
           num_data_in_cluster,

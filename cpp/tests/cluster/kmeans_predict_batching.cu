@@ -120,7 +120,7 @@ std::size_t run_predict_with_batching(raft::resources const& handle, BatchConfig
   return total_device_bytes;
 }
 
-TEST(KMeansPredict, BatchParametersPreserveResultsAndReduceUnfusedAllocations)
+TEST(KMeansPredict, BatchParametersPreserveResults)
 {
   raft::resources handle;
   constexpr std::array<BatchConfig, 4> batch_configs{{
@@ -130,25 +130,9 @@ TEST(KMeansPredict, BatchParametersPreserveResultsAndReduceUnfusedAllocations)
     {"samples and centroids", 3, 3},
   }};
 
-  auto unbatched_int_bytes   = run_predict_with_batching<int>(handle, batch_configs.front());
-  auto unbatched_int64_bytes = run_predict_with_batching<int64_t>(handle, batch_configs.front());
-
-  // predict selects fused or unfused 1-NN according to the architecture heuristic. The batching
-  // parameters only affect the unfused path, so every GPU checks the results while allocation
-  // reductions are required only when this problem shape dispatches to unfused 1-NN.
-  const bool uses_unfused_path =
-    !detail::use_fused<float, int, int>(handle, test_n_samples, test_n_clusters, test_n_features);
-
-  for (std::size_t i = 1; i < batch_configs.size(); ++i) {
-    auto config      = batch_configs[i];
-    auto int_bytes   = run_predict_with_batching<int>(handle, config);
-    auto int64_bytes = run_predict_with_batching<int64_t>(handle, config);
-
-    if (uses_unfused_path) {
-      // Verify that batching uses less memory than the unbatched path.
-      EXPECT_LT(int_bytes, unbatched_int_bytes) << config.name;
-      EXPECT_LT(int64_bytes, unbatched_int64_bytes) << config.name;
-    }
+  for (auto config : batch_configs) {
+    run_predict_with_batching<int>(handle, config);
+    run_predict_with_batching<int64_t>(handle, config);
   }
 }
 

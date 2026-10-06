@@ -111,7 +111,9 @@ DLManagedTensor* core_distances,
 float alpha);
 ```
 
-The function automatically detects whether the dataset is host-resident or device-resident and calls the appropriate implementation. For host datasets, it partitions data into `n_clusters` clusters and assigns each row to `overlap_factor` nearest clusters. For device datasets, `n_clusters` must be 1 (no batching); `overlap_factor` is ignored. Outputs always reside in device memory.
+The function automatically detects whether the dataset is host-resident or device-resident and calls the appropriate implementation. For host datasets, it partitions data into `n_clusters` clusters and assigns each row to `overlap_factor` nearest clusters. For device datasets, `n_clusters` must be 1 (no batching); `overlap_factor` is ignored.
+
+Output memory space: a host dataset supports host- or device-resident outputs; a device dataset requires device-resident outputs. All provided outputs must share the same memory space.
 
 **Parameters**
 
@@ -120,9 +122,9 @@ The function automatically detects whether the dataset is host-resident or devic
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | Can be a SNMG multi-GPU resources (`cuvsResources_t`) or single-GPU resources |
 | `params` | in | [`cuvsAllNeighborsIndexParams_t`](/api-reference/c-api-neighbors-all-neighbors#cuvsallneighborsindexparams) | Build parameters (see cuvsAllNeighborsIndexParams) |
 | `dataset` | in | `DLManagedTensor*` | 2D tensor [num_rows x dim] on host or device (auto-detected) |
-| `indices` | out | `DLManagedTensor*` | 2D tensor [num_rows x k] on device (int64) |
-| `distances` | out | `DLManagedTensor*` | Optional 2D tensor [num_rows x k] on device (float32); can be NULL |
-| `core_distances` | out | `DLManagedTensor*` | Optional 1D tensor [num_rows] on device (float32); can be NULL |
+| `indices` | out | `DLManagedTensor*` | 2D tensor [num_rows x k] (int64), host or device |
+| `distances` | out | `DLManagedTensor*` | Optional 2D tensor [num_rows x k] (float32), host or device; can be NULL |
+| `core_distances` | out | `DLManagedTensor*` | Optional 1D tensor [num_rows] (float32), host or device; can be NULL |
 | `alpha` | in | `float` | Mutual-reachability scaling; used only when core_distances is provided |
 
 **Returns**

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -49,7 +49,7 @@ struct params {
  * @{
  */
 
-// TODO: int64_t nnz support (see https://github.com/rapidsai/cuvs/issues/1484)
+// TODO: int64_t nnz support (see https://github.com/nvidia/cuvs/issues/1484)
 
 /**
  * @brief Perform spectral clustering on a connectivity graph

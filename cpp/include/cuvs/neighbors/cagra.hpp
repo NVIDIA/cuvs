@@ -5,42 +5,164 @@
 
 #pragma once
 
-#include "common.hpp"
 #include <cuvs/core/bitset.hpp>
+#include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
+#include <cuvs/preprocessing/quantize/bbq.hpp>
 #include <cuvs/util/file_io.hpp>
+
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
-#include <raft/core/host_device_accessor.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/mdspan.hpp>
 #include <raft/core/mdspan_types.hpp>
 #include <raft/core/numpy_serializer.hpp>
-#include <raft/core/resource/stream_view.hpp>
-#include <raft/core/serialize.hpp>
-
-#include <fcntl.h>
-#include <filesystem>
-#include <fstream>
 #include <raft/core/resources.hpp>
 #include <raft/util/integer_utils.hpp>
-#include <rmm/cuda_stream_view.hpp>
 
-#include <cuvs/core/export.hpp>
+#include <fcntl.h>
 #include <memory>
-#include <numeric>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
+namespace cagra {
+
+/**
+ * @defgroup cagra_cpp_search_params CAGRA index search parameters
+ * @{
+ */
+
+enum class search_algo {
+  /** For large batch sizes. */
+  SINGLE_CTA = 0,
+  /** For small batch sizes. */
+  MULTI_CTA    = 1,
+  MULTI_KERNEL = 2,
+  AUTO         = 100
+};
+
+enum class hash_mode { HASH = 0, SMALL = 1, AUTO = 100 };
+
+enum class internal_dtype { F16 = 0, E5M2 = 1 };
+
+struct search_params : cuvs::neighbors::search_params {
+  /** Maximum number of queries to search at the same time (batch size). Auto select when 0.*/
+  size_t max_queries = 0;
+
+  /** Number of intermediate search results retained during the search.
+   *
+   *  This is the main knob to adjust trade off between accuracy and search speed.
+   *  Higher values improve the search accuracy.
+   */
+  size_t itopk_size = 64;
+
+  /** Upper limit of search iterations. Auto select when 0.*/
+  size_t max_iterations = 0;
+
+  // In the following we list additional search parameters for fine tuning.
+  // Reasonable default values are automatically chosen.
+
+  /** Which search implementation to use. */
+  search_algo algo = search_algo::AUTO;
+
+  /** Number of threads used to calculate a single distance. 4, 8, 16, or 32. */
+  size_t team_size = 0;
+
+  /** Number of graph nodes to select as the starting point for the search in each iteration. aka
+   * search width?*/
+  size_t search_width = 1;
+  /** Lower limit of search iterations. */
+  size_t min_iterations = 0;
+
+  /** Thread block size. 0, 64, 128, 256, 512, 1024. Auto selection when 0. */
+  size_t thread_block_size = 0;
+  /** Hashmap type. Auto selection when AUTO. */
+  hash_mode hashmap_mode = hash_mode::AUTO;
+  /** Lower limit of hashmap bit length. More than 8. */
+  size_t hashmap_min_bitlen = 0;
+  /** Upper limit of hashmap fill rate. More than 0.1, less than 0.9.*/
+  float hashmap_max_fill_rate = 0.5;
+
+  /** Number of iterations of initial random seed node selection. 1 or more. */
+  uint32_t num_random_samplings = 1;
+  /** Bit mask used for initial random seed node selection. */
+  uint64_t rand_xor_mask = 0x128394;
+
+  /** Whether to use the persistent version of the kernel (only SINGLE_CTA is supported a.t.m.) */
+  bool persistent = false;
+  /** Persistent kernel: time in seconds before the kernel stops if no requests received. */
+  float persistent_lifetime = 2;
+  /**
+   * Set the fraction of maximum grid size used by persistent kernel.
+   * Value 1.0 means the kernel grid size is maximum possible for the selected device.
+   * The value must be greater than 0.0 and not greater than 1.0.
+   *
+   * One may need to run other kernels alongside this persistent kernel. This parameter can
+   * be used to reduce the grid size of the persistent kernel to leave a few SMs idle.
+   * Note: running any other work on GPU alongside with the persistent kernel makes the setup
+   * fragile.
+   *   - Running another kernel in another thread usually works, but no progress guaranteed
+   *   - Any CUDA allocations block the context (this issue may be obscured by using pools)
+   *   - Memory copies to not-pinned host memory may block the context
+   *
+   * Even when we know there are no other kernels working at the same time, setting
+   * kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care.
+   * If you suspect this is an issue, you can reduce this number to ~0.9 without a significant
+   * impact on the throughput.
+   */
+  float persistent_device_usage = 1.0;
+
+  // `filtering_rate` is inherited from `cuvs::neighbors::search_params`. CAGRA uses it to size
+  // `itopk_size`. When it is negative, CAGRA derives the rate from the filter where possible; for
+  // `filtering::udf_filter` it uses `udf_filter::filtering_rate`, and if both values are negative
+  // it assumes 0.0 because a UDF's selectivity cannot be inferred from the source string.
+
+  /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
+   * supports FP8. **/
+  internal_dtype smem_dtype = internal_dtype::F16;
+};
+
+/**
+ * @}
+ */
+
+}  // namespace cagra
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs
+
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
 namespace graph_build_params {
-using iterative_search_params = cuvs::neighbors::search_params;
+/**
+ * Parameters for the iterative CAGRA graph build algorithm.
+ *
+ * Inherits from cagra::search_params so that all search tuning knobs
+ * (search_width, max_iterations, itopk_size, etc.) are available for
+ * controlling the search-and-optimize loop during graph construction.
+ * The defaults are tuned for the build loop (e.g. search_width=1,
+ * max_iterations=8) and may differ from the regular search defaults.
+ *
+ */
+struct iterative_search_params : cuvs::neighbors::cagra::search_params {
+  iterative_search_params()
+  {
+    this->search_width   = 1;
+    this->max_iterations = 8;
+    // itopk_size controls the search during the *growing* iterations of the build loop.
+    // 0 (default) means auto-select per iteration (max(graph_degree + 32, 128)); a nonzero
+    // value overrides it for the growing iterations. The final iteration always uses a fixed
+    // itopk tied to the output topk, regardless of this value.
+    this->itopk_size = 0;
+  }
+};
 
 /** Specialized parameters for ACE (Augmented Core Extraction) graph build */
 struct ace_params {
@@ -74,7 +196,10 @@ struct ace_params {
    *
    * Used when `use_disk` is true or when the graph does not fit in host and GPU
    * memory. This should be the fastest disk in the system and hold enough space
-   * for twice the dataset, final graph, and label mapping.
+   * for twice the dataset, final graph, and label mapping. The directory may
+   * already exist, but ACE's named artifacts must not already exist. Simultaneous
+   * builds must use different directories. On failure, ACE removes only artifacts
+   * it created and never deletes unrelated directory contents.
    */
   std::string build_dir = "/tmp/ace_build";
   /**
@@ -203,16 +328,15 @@ struct index_params : cuvs::neighbors::index_params {
    * as the index is used. A device-backed index is ready to search immediately; a host-backed index
    * retains the dataset for operations such as serialization but is not searchable.
    *  - `false` means `build` only builds the graph and the caller is expected to attach a dataset
-   * separately via `cuvs::neighbors::cagra::index::update_device_dataset_same_layout` before
-   * searching.
+   * separately via `cuvs::neighbors::cagra::update_dataset` before searching.
    *
    * Unlike the legacy behavior, no copy of the dataset is made: the index always stores a view.
    * Setting `attach_dataset_on_build = false` is useful when the caller needs to apply specific
    * memory placement or transformation (e.g. moving to managed memory) before attaching.
    *
-   * Host indexes are not directly searchable. Call `attach_dataset` with a user-provided
-   * device-padded dataset view to obtain a search-ready `device_padded_index`. Disk-based ACE
-   * builds manage file-backed dataset state separately and ignore this flag.
+   * Host indexes are not directly searchable. Call the type-changing `update_dataset` with a
+   * user-provided device-padded dataset view to obtain a search-ready `device_padded_index`.
+   * Disk-based ACE builds manage file-backed dataset state separately and ignore this flag.
    *
    * @code{.cpp}
    *   auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host_matrix.view());
@@ -222,7 +346,7 @@ struct index_params : cuvs::neighbors::index_params {
    *   auto index = cagra::build(res, index_params, dataset->as_dataset_view());
    *   // ASSERT(index.size() == 0);  // no dataset yet
    *   // Attach with a view (storage owned by `dataset`).
-   *   index.update_device_dataset_same_layout(res, dataset->as_dataset_view());
+   *   index = cagra::update_dataset(res, std::move(index), dataset->as_dataset_view());
    *   cagra::search(res, search_params, index, queries, neighbors, distances);
    * @endcode
    */
@@ -316,106 +440,6 @@ struct index_params : cuvs::neighbors::index_params {
  */
 
 /**
- * @defgroup cagra_cpp_search_params CAGRA index search parameters
- * @{
- */
-
-enum class search_algo {
-  /** For large batch sizes. */
-  SINGLE_CTA = 0,
-  /** For small batch sizes. */
-  MULTI_CTA    = 1,
-  MULTI_KERNEL = 2,
-  AUTO         = 100
-};
-
-enum class hash_mode { HASH = 0, SMALL = 1, AUTO = 100 };
-
-enum class internal_dtype { F16 = 0, E5M2 = 1 };
-
-struct search_params : cuvs::neighbors::search_params {
-  /** Maximum number of queries to search at the same time (batch size). Auto select when 0.*/
-  size_t max_queries = 0;
-
-  /** Number of intermediate search results retained during the search.
-   *
-   *  This is the main knob to adjust trade off between accuracy and search speed.
-   *  Higher values improve the search accuracy.
-   */
-  size_t itopk_size = 64;
-
-  /** Upper limit of search iterations. Auto select when 0.*/
-  size_t max_iterations = 0;
-
-  // In the following we list additional search parameters for fine tuning.
-  // Reasonable default values are automatically chosen.
-
-  /** Which search implementation to use. */
-  search_algo algo = search_algo::AUTO;
-
-  /** Number of threads used to calculate a single distance. 4, 8, 16, or 32. */
-  size_t team_size = 0;
-
-  /** Number of graph nodes to select as the starting point for the search in each iteration. aka
-   * search width?*/
-  size_t search_width = 1;
-  /** Lower limit of search iterations. */
-  size_t min_iterations = 0;
-
-  /** Thread block size. 0, 64, 128, 256, 512, 1024. Auto selection when 0. */
-  size_t thread_block_size = 0;
-  /** Hashmap type. Auto selection when AUTO. */
-  hash_mode hashmap_mode = hash_mode::AUTO;
-  /** Lower limit of hashmap bit length. More than 8. */
-  size_t hashmap_min_bitlen = 0;
-  /** Upper limit of hashmap fill rate. More than 0.1, less than 0.9.*/
-  float hashmap_max_fill_rate = 0.5;
-
-  /** Number of iterations of initial random seed node selection. 1 or more. */
-  uint32_t num_random_samplings = 1;
-  /** Bit mask used for initial random seed node selection. */
-  uint64_t rand_xor_mask = 0x128394;
-
-  /** Whether to use the persistent version of the kernel (only SINGLE_CTA is supported a.t.m.) */
-  bool persistent = false;
-  /** Persistent kernel: time in seconds before the kernel stops if no requests received. */
-  float persistent_lifetime = 2;
-  /**
-   * Set the fraction of maximum grid size used by persistent kernel.
-   * Value 1.0 means the kernel grid size is maximum possible for the selected device.
-   * The value must be greater than 0.0 and not greater than 1.0.
-   *
-   * One may need to run other kernels alongside this persistent kernel. This parameter can
-   * be used to reduce the grid size of the persistent kernel to leave a few SMs idle.
-   * Note: running any other work on GPU alongside with the persistent kernel makes the setup
-   * fragile.
-   *   - Running another kernel in another thread usually works, but no progress guaranteed
-   *   - Any CUDA allocations block the context (this issue may be obscured by using pools)
-   *   - Memory copies to not-pinned host memory may block the context
-   *
-   * Even when we know there are no other kernels working at the same time, setting
-   * kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care.
-   * If you suspect this is an issue, you can reduce this number to ~0.9 without a significant
-   * impact on the throughput.
-   */
-  float persistent_device_usage = 1.0;
-
-  // `filtering_rate` is inherited from `cuvs::neighbors::search_params`. CAGRA uses it to size
-  // `itopk_size`; supplying a non-negative value avoids a per-search popcount + host sync on the
-  // `bitset_filter` path. For `filtering::udf_filter`, CAGRA falls back to
-  // `udf_filter::filtering_rate` when this value is negative. If both are negative, CAGRA assumes
-  // 0.0 because a UDF's selectivity cannot be inferred from the source string.
-
-  /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
-   * supports FP8. **/
-  internal_dtype smem_dtype = internal_dtype::F16;
-};
-
-/**
- * @}
- */
-
-/**
  * @defgroup cagra_cpp_extend_params CAGRA index extend parameters
  * @{
  */
@@ -435,12 +459,6 @@ struct extend_params {
 static_assert(std::is_aggregate_v<index_params>);
 static_assert(std::is_aggregate_v<search_params>);
 
-template <typename T,
-          typename IdxT,
-          cuvs::neighbors::ann_dataset_view DatasetViewT =
-            cuvs::neighbors::device_padded_dataset_view<T, int64_t>>
-struct index;
-
 /**
  * @defgroup cagra_cpp_index CAGRA index type
  * @{
@@ -457,7 +475,9 @@ struct index;
  * @tparam DatasetViewT concrete non-owning dataset view type stored by the index
  *
  */
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T,
+          typename IdxT,
+          ann_dataset_view DatasetViewT = device_padded_dataset_view<T, int64_t>>
 struct CUVS_EXPORT index : cuvs::neighbors::index {
   using index_params_type  = cagra::index_params;
   using search_params_type = cagra::search_params;
@@ -479,8 +499,8 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** Total length of the index (number of vectors). */
   [[nodiscard]] constexpr inline auto size() const noexcept -> IdxT
   {
+    if (dataset_fd_.has_value() || graph_fd_.has_value()) { return n_rows_; }
     auto data_rows = dataset_.n_rows();
-    if (dataset_fd_.has_value()) { return n_rows_; }
     return data_rows > 0 ? data_rows : graph_view_.extent(0);
   }
 
@@ -492,7 +512,14 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** Graph degree */
   [[nodiscard]] constexpr inline auto graph_degree() const noexcept -> uint32_t
   {
-    return dataset_fd_.has_value() ? graph_degree_ : graph_view_.extent(1);
+    return graph_fd_.has_value() ? graph_degree_ : graph_view_.extent(1);
+  }
+
+  /** Number of rows represented by the graph. */
+  [[nodiscard]] constexpr inline auto graph_size() const noexcept -> IdxT
+  {
+    return graph_fd_.has_value() ? static_cast<IdxT>(n_rows_)
+                                 : static_cast<IdxT>(graph_view_.extent(0));
   }
 
   /** Non-owning dataset binding stored by the index. */
@@ -554,8 +581,8 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** \endcond */
 
   /** Construct a graph-only index with a zero-row dataset view placeholder. */
-  index(raft::resources const& res,
-        cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded)
+  explicit index(raft::resources const& res,
+                 cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded)
     requires(cuvs::neighbors::ann_dataset_view<DatasetViewT, int64_t>)
     : cuvs::neighbors::index(),
       metric_(metric),
@@ -619,19 +646,26 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     raft::resource::sync_stream(res);
   }
 
-  /**
-   * Replace the dataset with a new `dataset_view`.
-   *
-   * The index stores a copy of the view handle only (not the vector storage). The caller must
-   * keep the underlying device data alive. Clears precomputed norms.
-   */
-  void update_device_dataset_same_layout(raft::resources const& res, DatasetViewT const& dataset)
-    requires cuvs::neighbors::is_device_dataset_view_v<DatasetViewT>
+  /* Construct an index with a new dataset type by moving the old index and passing in a new
+   * dataset*/
+  template <ann_dataset_view SrcDatasetViewT>
+  index(raft::resources const& res, index<T, IdxT, SrcDatasetViewT>&& other, DatasetViewT dataset)
+    : metric_(other.metric_),
+      graph_(std::move(other.graph_)),
+      graph_view_(other.graph_view_),
+      dataset_(dataset),
+      source_indices_(std::move(other.source_indices_)),
+      dataset_norms_(std::nullopt),
+      graph_fd_(std::move(other.graph_fd_)),
+      mapping_fd_(std::move(other.mapping_fd_)),
+      n_rows_(other.n_rows_),
+      dim_(other.dim_),
+      graph_degree_(other.graph_degree_)
   {
-    dataset_ = dataset;
-    dataset_norms_.reset();
-    if (metric() == cuvs::distance::DistanceType::CosineExpanded) {
-      if (dataset_.n_rows() > 0) { compute_dataset_norms_(res); }
+    if constexpr (is_device_dataset_view_v<DatasetViewT>) {
+      if (metric() == cuvs::distance::DistanceType::CosineExpanded) {
+        if (dataset_.n_rows() > 0) { compute_dataset_norms_(res); }
+      }
     }
   }
 
@@ -646,6 +680,16 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     raft::device_matrix_view<const graph_index_type, int64_t, raft::row_major> knn_graph)
   {
     graph_view_ = knn_graph;
+  }
+
+  /**
+   * Replace the graph by taking ownership of an existing device matrix.
+   */
+  void update_graph(raft::resources const&,
+                    raft::device_matrix<graph_index_type, int64_t, raft::row_major>&& knn_graph)
+  {
+    graph_      = std::move(knn_graph);
+    graph_view_ = graph_.view();
   }
 
   /**
@@ -845,6 +889,9 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   }
 
  private:
+  template <typename, typename, ann_dataset_view>
+  friend struct index;
+
   friend struct detail::fd_transfer;
 
   [[nodiscard]] inline auto steal_dataset_fd_() noexcept
@@ -900,19 +947,23 @@ using device_standard_index =
 template <typename T, typename IdxT = uint32_t>
 using host_standard_index = index<T, IdxT, cuvs::neighbors::host_standard_dataset_view<T, int64_t>>;
 
-/** CAGRA index with a device-resident VPQ dataset (f16 codebook vectors). */
-template <typename T, typename IdxT = uint32_t>
-using vpq_f16_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
+/** CAGRA index with a device-resident VPQ dataset. */
+template <typename T, typename IdxT = uint32_t, typename CodebookT = half>
+using device_pq_index =
+  index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<CodebookT, int64_t>>;
 
-/** CAGRA index with a device-resident VPQ dataset (f32 codebook vectors). */
+/** CAGRA index with a device-resident BBQ-quantized dataset. */
 template <typename T, typename IdxT = uint32_t>
-using vpq_f32_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<float, int64_t>>;
+using device_bbq_index = index<T, IdxT, cuvs::neighbors::device_bbq_dataset_view<T, int64_t>>;
 
 /** Index type returned by `cagra::build(res, params, dataset_view)`. */
 template <typename DatasetViewT>
-using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
-                            uint32_t,
-                            cuvs::neighbors::dataset_view_type_t<DatasetViewT>>;
+using cagra_index_t =
+  std::conditional_t<cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>,
+                     device_pq_index<float>,
+                     index<cuvs::neighbors::cagra_view_element_type_t<DatasetViewT>,
+                           uint32_t,
+                           cuvs::neighbors::dataset_view_type_t<DatasetViewT>>>;
 
 /**
  * @}
@@ -924,10 +975,11 @@ using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetVi
  */
 
 /**
- * @brief Build the index from a `dataset_view` (device padded/standard or host padded/standard).
+ * @brief Build the index from a `dataset_view`.
  *
- * VPQ-compressed device views are rejected: dense graph construction requires uncompressed data.
- * Use a separate VPQ index workflow after building the graph from an uncompressed dataset.
+ * Dense device/host views support the usual graph-build algorithms. A device VPQ view with FP16
+ * codebooks is built with iterative CAGRA search and must use L2Expanded, 8-bit PQ codes, and a
+ * supported PQ subvector length.
  *
  * When `index_params.attach_dataset_on_build = true` (the default), a dense `dataset` view is
  * stored in the returned index as a **non-owning view** — no copy is made. The caller must keep the
@@ -937,14 +989,39 @@ using cagra_index_t = index<cuvs::neighbors::cagra_view_element_type_t<DatasetVi
  * When `index_params.attach_dataset_on_build = false`, only the search graph is built and the
  * returned index holds no dataset.
  *
- * An index backed by a host view cannot be searched. Call `attach_dataset` with a user-provided
- * device-padded dataset view to obtain a search-ready `device_padded_index`.
+ * An index backed by a host view cannot be searched. Call the type-changing `update_dataset` with
+ * a user-provided device-padded dataset view to obtain a search-ready `device_padded_index`.
  *
  * Note: disk-based ACE builds (`ace_params::use_disk = true`) always set a file-descriptor
  * dataset internally (also host-typed); `attach_dataset_on_build` is ignored there too.
+ *
+ * Note: Iterative graph construction requires device-resident input. Dense datasets must be a
+ * device-padded dataset view. Iterative CAGRA-Q accepts a device-resident VPQ dataset.
+ * Host datasets are not supported by iterative construction.
  */
 // Concrete non-template overloads for all supported build dataset view types.
 // This keeps the public header explicit and stable while implementation remains shared internally.
+/**
+ * @brief Build directly from a device VPQ dataset view with FP16 codebooks.
+ *
+ * A VPQ input can only use iterative CAGRA graph construction. When `graph_build_params` is
+ * `std::monostate`, iterative construction is selected automatically; explicitly selecting another
+ * graph builder is an error. The metric must be `L2Expanded`, PQ codes must be 8-bit, and the PQ
+ * subvector length must be 2, 4, or 8.
+ *
+ * The returned index accepts float queries and stores a non-owning copy of `dataset` when
+ * `attach_dataset_on_build` is true. The owning `device_vpq_dataset` must outlive the index.
+ *
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device VPQ dataset view
+ * @return built `index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>`
+ */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>;
+
 /**
  * @brief Build from a device padded dataset view (`float`).
  * @param[in] res raft resources
@@ -1136,6 +1213,49 @@ auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const& dataset)
   -> cuvs::neighbors::cagra::host_standard_index<uint8_t, uint32_t>;
+
+/**
+ * @brief Build from a device BBQ-quantized dataset view.
+ *
+ * The kNN graph is built from the quantized codes alone, so the uncompressed vectors are never
+ * needed and peak memory is driven by the code size. Only nn-descent graph construction is
+ * available (IVF-PQ, iterative CAGRA search, and ACE all read uncompressed vectors), and the
+ * metric must be one of L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct and must match
+ * the metric the quantizer corrections were generated for.
+ *
+ * The returned index cannot be searched: CAGRA has no BBQ search kernels. Call the type-changing
+ * `update_dataset` with an uncompressed device-padded dataset to search the resulting graph.
+ *
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device BBQ dataset view [n_rows, dim]
+ * @return built `device_bbq_index<float, uint32_t>`
+ */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>;
+
+/** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
+
+/** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
+
+/** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset) */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> const& dataset)
+  -> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
 
 /**
  * @}
@@ -1489,7 +1609,7 @@ void search(raft::resources const& res,
             const cuvs::neighbors::filtering::base_filter& sample_filter =
               cuvs::neighbors::filtering::none_sample_filter{});
 
-// vpq_f16_index overloads (uint32_t neighbor indices)
+// FP16-codebook VPQ index overloads (uint32_t neighbor indices)
 /**
  * @brief Search ANN using the constructed index.
  *
@@ -1497,7 +1617,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with uint32_t
+ * @param[in] index pre-built VPQ index with FP16 codebooks and uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1509,7 +1629,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<float, uint32_t>& index,
+            const cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1523,7 +1643,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with uint32_t
+ * @param[in] index pre-built VPQ index with FP16 codebooks and uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1535,7 +1655,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<half, uint32_t>& index,
+            const cuvs::neighbors::cagra::device_pq_index<half, uint32_t, half>& index,
             raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1549,7 +1669,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with uint32_t
+ * @param[in] index pre-built VPQ index with FP16 codebooks and uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1561,7 +1681,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<int8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::device_pq_index<int8_t, uint32_t, half>& index,
             raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1575,7 +1695,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with uint32_t
+ * @param[in] index pre-built VPQ index with FP16 codebooks and uint32_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1587,14 +1707,14 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<uint8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::device_pq_index<uint8_t, uint32_t, half>& index,
             raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
             const cuvs::neighbors::filtering::base_filter& sample_filter =
               cuvs::neighbors::filtering::none_sample_filter{});
 
-// vpq_f16_index overloads (int64_t neighbor indices)
+// FP16-codebook VPQ index overloads (int64_t neighbor indices)
 /**
  * @brief Search ANN using the constructed index.
  *
@@ -1602,7 +1722,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with int64_t
+ * @param[in] index pre-built VPQ index with FP16 codebooks and int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1614,7 +1734,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<float, uint32_t>& index,
+            const cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>& index,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1628,7 +1748,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with int64_t
+ * @param[in] index pre-built VPQ index with FP16 codebooks and int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1640,7 +1760,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<half, uint32_t>& index,
+            const cuvs::neighbors::cagra::device_pq_index<half, uint32_t, half>& index,
             raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1654,7 +1774,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with int64_t
+ * @param[in] index pre-built VPQ index with FP16 codebooks and int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1666,7 +1786,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<int8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::device_pq_index<int8_t, uint32_t, half>& index,
             raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -1680,7 +1800,7 @@ void search(raft::resources const& res,
  *
  * @param[in] res raft resources
  * @param[in] params configure the search
- * @param[in] index pre-built vpq_f16_index (CAGRA-Q, VPQ f16-compressed dataset) with int64_t
+ * @param[in] index pre-built VPQ index with FP16 codebooks and int64_t
  * neighbor indices
  * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
  * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
@@ -1692,233 +1812,7 @@ void search(raft::resources const& res,
  */
 void search(raft::resources const& res,
             cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f16_index<uint8_t, uint32_t>& index,
-            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-// vpq_f32_index overloads (uint32_t neighbor indices)
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<float, uint32_t>& index,
-            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<half, uint32_t>& index,
-            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<int8_t, uint32_t>& index,
-            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with uint32_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<uint8_t, uint32_t>& index,
-            raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<uint32_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-// vpq_f32_index overloads (int64_t neighbor indices)
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<float, uint32_t>& index,
-            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<half, uint32_t>& index,
-            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<int8_t, uint32_t>& index,
-            raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries,
-            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
-            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
-
-/**
- * @brief Search ANN using the constructed index.
- *
- * See the [cagra::build](#cagra::build) documentation for a usage example.
- *
- * @param[in] res raft resources
- * @param[in] params configure the search
- * @param[in] index pre-built vpq_f32_index (CAGRA-Q, VPQ f32-compressed dataset) with int64_t
- * neighbor indices
- * @param[in] queries a device matrix view to a row-major matrix [n_queries, index.dim()]
- * @param[out] neighbors a device matrix view to the indices of the neighbors in the source dataset
- * [n_queries, k]
- * @param[out] distances a device matrix view to the distances to the selected neighbors [n_queries,
- * k]
- * @param[in] sample_filter an optional device filter function object that greenlights samples
- * for a given query. (none_sample_filter for no filtering).
- *
- * @note FP32 VPQ search is declared for ABI stability but fails at runtime until implemented.
- */
-void search(raft::resources const& res,
-            cuvs::neighbors::cagra::search_params const& params,
-            const cuvs::neighbors::cagra::vpq_f32_index<uint8_t, uint32_t>& index,
+            const cuvs::neighbors::cagra::device_pq_index<uint8_t, uint32_t, half>& index,
             raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
@@ -2248,7 +2142,7 @@ void search(
  * @{
  */
 
-/** Dense dataset storage kind recorded in a serialized CAGRA index. */
+/** Dataset storage kind recorded in a serialized CAGRA index. */
 enum class serialized_dataset_kind : std::uint32_t {
   /** The serialized index does not contain a dataset payload. */
   none = 0,
@@ -2267,9 +2161,8 @@ inline constexpr int cagra_serialization_version = 6;
 
 // Serialize and deserialize are overloaded for device/host and padded/standard dense indexes.
 // They use the same strided dataset payload; the serialized dataset kind selects the matching
-// owning dataset type during deserialization. To support a new dataset kind (e.g. vpq_f16_index),
-// add matching overloads here and a corresponding deserialize_<kind> in
-// detail/dataset_serialize.hpp (dense views use serialize_cagra_dense_dataset).
+// owning dataset type during deserialization. To support a new dataset kind, add matching
+// overloads here and a corresponding deserialize_<kind> in detail/dataset_serialize.hpp.
 
 /**
  * Save the index to file.
@@ -2819,6 +2712,144 @@ void deserialize(raft::resources const& handle,
                  cuvs::neighbors::cagra::device_standard_index<uint8_t>* index,
                  std::unique_ptr<cuvs::neighbors::device_standard_dataset<uint8_t, int64_t>>*
                    out_dataset = nullptr);
+
+/* FP16-codebook device_pq_index graph-only overloads (CAGRA-Q).
+ *
+ * These overloads persist the graph and index metadata, but not the attached PQ dataset. Attach a
+ * compatible dataset with `update_dataset` after deserialization before searching.
+ */
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_pq_index<float>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_pq_index<float>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_pq_index<float>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_pq_index<float>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_pq_index<half>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_pq_index<half>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_pq_index<half>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_pq_index<half>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index);
+
+/* device_bbq_index graph-only overloads (CAGRA + BBQ).
+ *
+ * These overloads persist the graph and index metadata, but not the attached BBQ dataset
+ * Attach a compatible dataset with `update_dataset` after deserialization before searching.
+ */
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<float>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<float>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<float>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<float>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<half>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<half>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<half>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<half>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<int8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<int8_t>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<int8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<int8_t>* index);
+
+void serialize(raft::resources const& handle,
+               const std::string& filename,
+               const cuvs::neighbors::cagra::device_bbq_index<uint8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 const std::string& filename,
+                 cuvs::neighbors::cagra::device_bbq_index<uint8_t>* index);
+
+void serialize(raft::resources const& handle,
+               std::ostream& os,
+               const cuvs::neighbors::cagra::device_bbq_index<uint8_t>& index);
+
+void deserialize(raft::resources const& handle,
+                 std::istream& is,
+                 cuvs::neighbors::cagra::device_bbq_index<uint8_t>* index);
 
 /** @copydoc serialize */
 void serialize(raft::resources const& handle,
@@ -3425,16 +3456,76 @@ void serialize_to_hnswlib(
  * @{
  */
 
-/** @brief Merge multiple CAGRA indices into a single index.
+enum class merge_algo {
+  /** Select Fastener when its complete preflight succeeds, otherwise preserve rebuild behavior. */
+  AUTO,
+  /** Require Fastener and reject unsupported configurations. */
+  FASTENER,
+  /** Concatenate datasets and rebuild the graph. */
+  REBUILD,
+};
+
+/** C++ controls for physical CAGRA index merge. */
+struct merge_params {
+  merge_algo algo        = merge_algo::AUTO;
+  uint32_t levels        = 2;
+  uint32_t root_fanout   = 2;
+  uint32_t lower_fanout  = 3;
+  double leader_fraction = 0.02;
+  uint32_t max_leaders   = 1024;
+  uint32_t leaf_size     = 256;
+  uint32_t leaf_degree   = 4;
+};
+
+/** @brief Merge multiple physical CAGRA indices into one.
+ *
+ * The overload without `merge_params` uses `merge_algo::AUTO`. AUTO runs Fastener only after a
+ * non-mutating preflight validates every input and option; otherwise it calls the existing rebuild
+ * implementation. REBUILD always preserves every input dataset.
+ *
+ * Fastener supports unfiltered, uncompressed `float`, `half`, `int8_t`, and `uint8_t`
+ * indices using L2Expanded and `uint32_t` graph IDs. Fastener uses `root_fanout` at the first
+ * split and `lower_fanout` at every later split. Fanouts from 1 through 32, leader fractions in
+ * (0, 1], leader caps through 8192, leaf sizes from 1 through 256, and leaf degrees from 1
+ * through 8 are supported. The configured spill width times `leaf_degree` must not exceed 255.
+ * `index_params::graph_degree` is the final output degree.
+ *
+ * Fastener copies the input datasets into `merged_dataset` and never mutates the input indices.
+ * The caller owns `merged_dataset` and must keep it alive for the lifetime of the returned index,
+ * which holds only a view of it.
  *
  * @note This API only supports physical merge (`merge_strategy = MERGE_STRATEGY_PHYSICAL`).
- * All input indices must use the same `DatasetViewT` (dense padded or standard device views).
+ * All input indices must use the same `DatasetViewT` (dense padded or standard device views),
+ * and must share one row stride.
+ *
+ * @param[in] res RAFT resources used for the merge.
+ * @param[in] params Parameters for the returned CAGRA index.
+ * @param[in] indices CAGRA indices to merge.
+ * @param[in] merged_dataset Caller-owned storage for the consolidated dataset. Must have one row
+ * per retained vector after applying `row_filter`, and the same dimension and stride as the input
+ * datasets.
+ * @param[in] row_filter Optional row filter. Any filter selects rebuild in AUTO and is rejected by
+ * explicit FASTENER.
+ * @return The merged physical CAGRA index.
  */
 template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
            DatasetViewT merged_dataset,
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
+
+/** @copydoc merge
+ * @param[in] merge_params Parameters for the merge, including the algorithm selection.
+ */
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
+           DatasetViewT merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params,
            const cuvs::neighbors::filtering::base_filter& row_filter =
              cuvs::neighbors::filtering::none_sample_filter{})
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
@@ -3554,57 +3645,54 @@ auto build(const raft::resources& clique,
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
 
 /**
- * @brief Convert a standard MG CAGRA index into a padded MG CAGRA index for search.
+ * @brief Consume a standard MG CAGRA index and attach a padded dataset for search.
  *
- * This returns a new padded index because standard and padded MG indexes have different C++ types.
+ * This moves each rank-local CAGRA graph into the returned padded MG index.
  */
-auto attach_dataset(
+auto update_dataset(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&
-    idx,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>&& idx,
   cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& padded_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>;
 
-auto attach_dataset(
+auto update_dataset(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&
-    idx,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>&& idx,
   cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& padded_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>;
 
-auto attach_dataset(
+auto update_dataset(
   const raft::resources& clique,
-  const cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&
-    idx,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>&& idx,
   cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& padded_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>;
 
-auto attach_dataset(
+auto update_dataset(
   const raft::resources& clique,
-  const cuvs::neighbors::
-    mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>& idx,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>&&
+    idx,
   cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& padded_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
 
 /**
  * @brief Update an existing padded MG CAGRA index with a padded dataset of the same layout.
  */
-void update_device_dataset_same_layout(
+void update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>& idx,
   cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& padded_dataset);
 
-void update_device_dataset_same_layout(
+void update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>& idx,
   cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& padded_dataset);
 
-void update_device_dataset_same_layout(
+void update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>& idx,
   cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& padded_dataset);
 
-void update_device_dataset_same_layout(
+void update_dataset(
   const raft::resources& clique,
   cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>& idx,
   cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& padded_dataset);
@@ -4471,35 +4559,6 @@ struct fd_transfer {
   }
 };
 
-/**
- * @brief Copy a host-resident CAGRA index graph into a new device-resident index (graph only).
- *
- * @internal
- */
-template <typename T, typename IdxT, typename HostViewT>
-  requires cuvs::neighbors::is_host_dataset_view_v<HostViewT>
-auto convert_host_to_device_index(raft::resources const& res, index<T, IdxT, HostViewT> const& src)
-  -> index<T, IdxT, cuvs::neighbors::device_counterpart_t<HostViewT>>
-{
-  using DeviceViewT    = cuvs::neighbors::device_counterpart_t<HostViewT>;
-  using GraphIndexType = typename index<T, IdxT, HostViewT>::graph_index_type;
-  index<T, IdxT, DeviceViewT> out(res, src.metric());
-  if (src.graph().size() > 0) {
-    // The graph lives in device memory owned by `src`. `update_graph(device_view)` would only
-    // store a view (no ownership transfer), leaving `out` with a dangling pointer once `src`
-    // is destroyed.  Copy device→host→device so that `out` owns its graph memory.
-    auto graph_host =
-      raft::make_host_matrix<GraphIndexType, int64_t>(src.graph().extent(0), src.graph().extent(1));
-    raft::copy(graph_host.data_handle(),
-               src.graph().data_handle(),
-               src.graph().size(),
-               raft::resource::get_cuda_stream(res));
-    raft::resource::sync_stream(res);
-    out.update_graph(res, raft::make_const_mdspan(graph_host.view()));  // host overload: copies H→D
-  }
-  return out;
-}
-
 }  // namespace detail
 
 /**
@@ -4523,76 +4582,299 @@ auto convert_standard_to_padded_index(
   RAFT_EXPECTS(padded_dataset.n_rows() == standard_idx.size(),
                "Padded dataset row count must match the index size");
 
-  device_padded_index<T, IdxT> out(res, standard_idx.metric());
-  if (standard_idx.graph().extent(0) > 0) {
-    using GraphIndexType =
-      typename index<T, IdxT, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>::
-        graph_index_type;
-    auto graph_host = raft::make_host_matrix<GraphIndexType, int64_t>(
-      standard_idx.graph().extent(0), standard_idx.graph().extent(1));
+  using GraphIndexType =
+    typename index<T, IdxT, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>::
+      graph_index_type;
+  auto graph_host = raft::make_host_matrix<GraphIndexType, int64_t>(standard_idx.graph().extent(0),
+                                                                    standard_idx.graph().extent(1));
+  if (standard_idx.graph().size() > 0) {
     raft::copy(graph_host.data_handle(),
                standard_idx.graph().data_handle(),
                standard_idx.graph().size(),
                raft::resource::get_cuda_stream(res));
     raft::resource::sync_stream(res);
-    out.update_graph(res, raft::make_const_mdspan(graph_host.view()));
   }
+  device_padded_index<T, IdxT> out(
+    res, standard_idx.metric(), padded_dataset, raft::make_const_mdspan(graph_host.view()));
   if (standard_idx.source_indices().has_value()) {
     out.update_source_indices(res, standard_idx.source_indices().value());
   }
-  out.update_device_dataset_same_layout(res, padded_dataset);
   return out;
 }
 
-/**
- * @brief Attach a device-padded dataset and return a search-ready padded-device index.
- *
- * The dataset is provided by the caller and must already be device-padded.
- *
- * For host/standard index layouts, this function converts to and returns a new
- * `device_padded_index<T, IdxT>`.
- *
- * If `idx` is already a `device_padded_index`, call `idx.update_device_dataset_same_layout(res,
- * device_padded_dataset)` directly to avoid an unnecessary copy path.
- *
- * @param[in] res                     RAFT resources
- * @param[in] idx                     CAGRA index in any host/device + standard/padded layout
- * @param[in] device_padded_dataset   caller-owned device-padded dataset view
- * @return search-ready padded-device CAGRA index
- */
-template <typename T, typename IdxT, typename IndexViewT>
-  requires cuvs::neighbors::ann_dataset_view<IndexViewT>
-auto attach_dataset(
+auto update_dataset(
   raft::resources const& res,
-  index<T, IdxT, IndexViewT> const& idx,
-  cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& device_padded_dataset)
-  -> device_padded_index<T, IdxT>
-{
-  RAFT_EXPECTS(device_padded_dataset.n_rows() == idx.size(),
-               "Padded dataset row count must match the index size");
+  index<float, uint32_t, host_standard_dataset_view<float, int64_t>>&& cagra_index,
+  device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, host_standard_dataset_view<half, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, host_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, host_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<float, uint32_t, host_standard_dataset_view<float, int64_t>>&& cagra_index,
+  device_standard_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_standard_dataset_view<float, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, host_standard_dataset_view<half, int64_t>>&& cagra_index,
+                    device_standard_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_standard_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, host_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_standard_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, host_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_standard_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<float, uint32_t, host_padded_dataset_view<float, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, host_padded_dataset_view<half, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, host_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, host_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<float, uint32_t, device_standard_dataset_view<float, int64_t>>&& cagra_index,
+  device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<half, uint32_t, device_standard_dataset_view<half, int64_t>>&& cagra_index,
+  device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
 
-  if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<IndexViewT>) {
-    auto dev_std = detail::convert_host_to_device_index(res, idx);
-    return convert_standard_to_padded_index(res, dev_std, device_padded_dataset);
-  } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<IndexViewT>) {
-    auto dev_pad = detail::convert_host_to_device_index(res, idx);
-    dev_pad.update_device_dataset_same_layout(res, device_padded_dataset);
-    return dev_pad;
-  } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<IndexViewT>) {
-    return convert_standard_to_padded_index(res, idx, device_padded_dataset);
-  } else if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<IndexViewT>) {
-    RAFT_LOG_WARN(
-      "cagra::attach_dataset called with an already device-padded index. "
-      "To avoid an unnecessary index copy, call "
-      "index.update_device_dataset_same_layout(res, device_padded_dataset) "
-      "directly on the original index.");
-    RAFT_FAIL(
-      "cagra::attach_dataset: device_padded_index input is not supported in this overload. "
-      "Call index.update_device_dataset_same_layout(res, device_padded_dataset) directly.");
-  } else {
-    static_assert(!sizeof(IndexViewT), "Unsupported CAGRA index dataset view type");
-  }
-}
+auto update_dataset(
+  raft::resources const& res,
+  index<float, uint32_t, device_standard_dataset_view<float, int64_t>>&& cagra_index,
+  device_standard_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_standard_dataset_view<float, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<half, uint32_t, device_standard_dataset_view<half, int64_t>>&& cagra_index,
+  device_standard_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_standard_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_standard_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_standard_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<float, uint32_t, device_padded_dataset_view<float, int64_t>>&& cagra_index,
+  device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, device_padded_dataset_view<half, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<float, uint32_t, host_standard_dataset_view<float, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, host_standard_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, host_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, host_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<float, uint32_t, host_padded_dataset_view<float, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, host_padded_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, host_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, host_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<float, uint32_t, device_standard_dataset_view<float, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<half, uint32_t, device_standard_dataset_view<half, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, device_standard_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_standard_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<float, uint32_t, device_padded_dataset_view<float, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, device_padded_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+auto update_dataset(raft::resources const& res,
+                    index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<float, uint32_t, device_bbq_dataset_view<float, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<float, int64_t> dataset)
+  -> index<float, uint32_t, device_padded_dataset_view<float, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, device_bbq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_padded_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<int8_t, uint32_t, device_bbq_dataset_view<int8_t, int64_t>>&& cagra_index,
+                    device_padded_dataset_view<int8_t, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_padded_dataset_view<int8_t, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_bbq_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_padded_dataset_view<uint8_t, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_padded_dataset_view<uint8_t, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<float, uint32_t, device_bbq_dataset_view<float, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<float, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<half, uint32_t, device_bbq_dataset_view<half, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<half, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(raft::resources const& res,
+                    index<int8_t, uint32_t, device_bbq_dataset_view<int8_t, int64_t>>&& cagra_index,
+                    device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<int8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
+
+auto update_dataset(
+  raft::resources const& res,
+  index<uint8_t, uint32_t, device_bbq_dataset_view<uint8_t, int64_t>>&& cagra_index,
+  device_vpq_dataset_view<half, int64_t> dataset)
+  -> index<uint8_t, uint32_t, device_vpq_dataset_view<half, int64_t>>;
 
 }  // namespace cagra
 }  // namespace neighbors
@@ -4637,7 +4919,7 @@ std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
 /**
  * @brief Optimize a KNN graph into a CAGRA graph.
  *
- * This function optimizes a k-NN graph to create a CAGRA graph.
+ * This function optimizes a host-side k-NN graph to create a CAGRA graph.
  * The input/output graphs must be on host memory.
  *
  * Usage example:
@@ -4652,10 +4934,39 @@ std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
  * @param[in] handle RAFT resources
  * @param[in] knn_graph Input KNN graph on host [n_rows, k_in]
  * @param[out] new_graph Output CAGRA graph on host [n_rows, k_out]
+ * @param[in] guarantee_connectivity Run the MST pass so the pruned graph is guaranteed
+ *            to be connected
  */
 void optimize(raft::resources const& handle,
               raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
-              raft::host_matrix_view<uint32_t, int64_t, raft::row_major> new_graph);
+              raft::host_matrix_view<uint32_t, int64_t, raft::row_major> new_graph,
+              bool guarantee_connectivity = false);
+
+/**
+ * @brief Optimize a KNN graph into a CAGRA graph.
+ *
+ * This function optimizes a device-side k-NN graph to create a CAGRA graph.
+ * The input/output graphs must be on device memory.
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   raft::resources res;
+ *   auto d_knn = raft::make_device_matrix<uint32_t, int64_t>(res, N, K_in);
+ *   // Fill d_knn with the KNN graph
+ *   auto d_out = raft::make_device_matrix<uint32_t, int64_t>(res, N, K_out);
+ *   cuvs::neighbors::cagra::helpers::optimize(res, d_knn.view(), d_out.view());
+ * @endcode
+ *
+ * @param[in] handle RAFT resources
+ * @param[in] knn_graph Input KNN graph on device [n_rows, k_in]
+ * @param[out] new_graph Output CAGRA graph on device [n_rows, k_out]
+ * @param[in] guarantee_connectivity Run the MST pass so the pruned graph is guaranteed
+ *            to be connected
+ */
+void optimize(raft::resources const& handle,
+              raft::device_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
+              raft::device_matrix_view<uint32_t, int64_t, raft::row_major> new_graph,
+              bool guarantee_connectivity = false);
 
 }  // namespace helpers
 }  // namespace cagra

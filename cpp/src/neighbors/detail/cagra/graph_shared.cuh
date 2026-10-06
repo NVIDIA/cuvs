@@ -4,9 +4,12 @@
  */
 #pragma once
 
+#include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/host_mdspan.hpp>
 #include <raft/core/resources.hpp>
 
 #include <cuda_fp16.h>
@@ -18,14 +21,14 @@ namespace cuvs::neighbors::cagra::detail::graph {
 // kern_sort capacity is WarpSize * numElementsPerThread; largest specialization uses 32.
 inline constexpr uint64_t kMaxSortDegree = 32 * 32;
 
-#define CUVS_DECL_CAGRA_GRAPH_SORT(DataT)                  \
-  void launch_sort_knn_graph(raft::resources const& res,   \
-                             cuvs::distance::DistanceType, \
-                             DataT const* dataset,         \
-                             uint32_t dataset_size,        \
-                             uint32_t dataset_dim,         \
-                             uint32_t* knn_graph,          \
-                             uint32_t graph_degree)
+#define CUVS_DECL_CAGRA_GRAPH_SORT(DataT)                              \
+  CUVS_EXPORT void launch_sort_knn_graph(raft::resources const& res,   \
+                                         cuvs::distance::DistanceType, \
+                                         DataT const* dataset,         \
+                                         uint32_t dataset_size,        \
+                                         uint32_t dataset_dim,         \
+                                         uint32_t* knn_graph,          \
+                                         uint32_t graph_degree)
 
 CUVS_DECL_CAGRA_GRAPH_SORT(float);
 CUVS_DECL_CAGRA_GRAPH_SORT(half);
@@ -34,9 +37,23 @@ CUVS_DECL_CAGRA_GRAPH_SORT(uint8_t);
 
 #undef CUVS_DECL_CAGRA_GRAPH_SORT
 
+#define CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(DataT)                         \
+  CUVS_EXPORT void sort_knn_graph_bbq(                                \
+    raft::resources const& res,                                       \
+    cuvs::distance::DistanceType metric,                              \
+    cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset, \
+    raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph)
+
+CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(float);
+CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(half);
+CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(int8_t);
+CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(uint8_t);
+
+#undef CUVS_DECL_CAGRA_GRAPH_SORT_BBQ
+
 /** Run the existing CAGRA optimizer through one compiled instantiation instead of rematerializing
  *  its reverse-graph, prune, merge, and MST kernels in every Fastener dtype TU. */
-void optimize_device_graph(
+CUVS_EXPORT void optimize_device_graph(
   raft::resources const& res,
   raft::device_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph,
   raft::device_matrix_view<uint32_t, int64_t, raft::row_major> output_graph,

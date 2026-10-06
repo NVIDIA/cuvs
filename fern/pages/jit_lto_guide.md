@@ -479,7 +479,7 @@ extern "C" __global__ void search_kernel(
 
 Fragment tags register the compiled fatbins so they can be loaded at runtime. They are used to help the linker find and include the relevant fatbins at build time. When calling `generate_jit_lto_kernels()`, we pass a `FRAGMENT_TAG_FORMAT` argument, which constructs the tag type from the given placeholders, and a `FRAGMENT_TAG_HEADER_FILES` argument, which specifies one or more header files that the fragment tags come from. The JIT+LTO system will then automatically generate and compile a `.cpp` file that registers the fragment using the provided tag.
 
-**Important**: When requesting fragments from the `AlgorithmPlanner`, we use **tags** (like `tag_f`, `tag_h`) instead of real types (like `float`, `__half`) in the `add_static_fragment` template parameters. This avoids including heavy headers that define the actual types, significantly improving compilation times. The tags are lightweight empty structs that serve only as compile-time identifiers.
+**Important**: When requesting fragments from the `rtcx::algorithm_planner`, we use **tags** (like `tag_f`, `tag_h`) instead of real types (like `float`, `__half`) in the `add_static_fragment` template parameters. This avoids including heavy headers that define the actual types, significantly improving compilation times. The tags are lightweight empty structs that serve only as compile-time identifiers.
 
 **`registration_tags.hpp`**
 
@@ -523,18 +523,18 @@ The planner is responsible for:
 ```cpp
 #pragma once
 
-#include <cuvs/detail/jit_lto/AlgorithmPlanner.hpp>
-#include <cuvs/detail/jit_lto/FragmentEntry.hpp>
+#include <rtcx/algorithm_planner.hpp>
+#include <rtcx/fragment_entry.hpp>
 #include <cuvs/detail/jit_lto/MakeFragmentKey.hpp>
 #include <cuvs/detail/jit_lto/registration_tags.hpp>
 #include <memory>
 #include <string>
 
-struct SearchPlanner : AlgorithmPlanner {
-  inline static LauncherJitCache launcher_jit_cache{};
+struct SearchPlanner : rtcx::algorithm_planner {
+  inline static rtcx::launcher_jit_cache launcher_jit_cache{};
 
   SearchPlanner()
-    : AlgorithmPlanner("search_kernel", launcher_jit_cache)
+    : rtcx::algorithm_planner("search_kernel", launcher_jit_cache)
   {
   }
 
@@ -557,12 +557,12 @@ struct SearchPlanner : AlgorithmPlanner {
   }
 
   // Same as add_fragment(std::move(fragment)); distinct names are for readability at call sites.
-  void add_metric_udf_fragment(std::unique_ptr<UDFFatbinFragment> fragment)
+  void add_metric_udf_fragment(std::unique_ptr<rtcx::udf_fatbin_fragment> fragment)
   {
     add_fragment(std::move(fragment));
   }
 
-  void add_filter_udf_fragment(std::unique_ptr<UDFFatbinFragment> fragment)
+  void add_filter_udf_fragment(std::unique_ptr<rtcx::udf_fatbin_fragment> fragment)
   {
     add_fragment(std::move(fragment));
   }
@@ -886,7 +886,8 @@ planner.add_search_function<data_tag, out_tag, idx_tag, Optimized, Veclen>();
 if constexpr (std::is_same_v<metric_tag, tag_metric_custom_udf>) {
   std::string metric_udf_code = my_l2_udf();
   metric_udf_code += instantiate_compute_distance_udf(type_name<T>());
-  planner.add_metric_udf_fragment(nvrtc_compiler().compile(metric_udf_code, metric_udf_code));
+  planner.add_metric_udf_fragment(
+    rtcx::nvrtc_compiler().compile(metric_udf_code, metric_udf_code));
 } else {
   planner.add_compute_distance_device_function<metric_tag, data_tag>();
 }
@@ -894,7 +895,8 @@ if constexpr (std::is_same_v<metric_tag, tag_metric_custom_udf>) {
 if constexpr (std::is_same_v<filter_tag, tag_filter_custom_udf>) {
   std::string filter_udf_code = my_pass_filter_udf();
   filter_udf_code += instantiate_apply_filter_udf(type_name<IdxT>());
-  planner.add_filter_udf_fragment(nvrtc_compiler().compile(filter_udf_code, filter_udf_code));
+  planner.add_filter_udf_fragment(
+    rtcx::nvrtc_compiler().compile(filter_udf_code, filter_udf_code));
 } else {
   planner.add_filter_device_function<filter_tag, idx_tag>();
 }
@@ -915,7 +917,7 @@ Use `DistanceType::MetricUdf` / `FilterType::FilterUdf` only when you want the N
 ### Fragment Tags
 
 Fragment tags uniquely identify fragments. They're simple lightweight types that are passed as the
-sole template parameter to `StaticFatbinFragmentEntry`:
+sole template parameter to `rtcx::static_fatbin_fragment_entry`:
 
 ```cpp
 template <typename OutT>
@@ -924,11 +926,11 @@ struct fragment_tag_get_score {};
 
 Fragment tags may themselves take template parameters in order to uniquely identify them. Typically, one fragment tag template will correspond to a single function, and a fragment tag template specialization will correspond to a function specialization.
 
-When a fatbin is compiled and embedded in C++ code, a translation unit specializes `StaticFatbinFragmentEntry`
+When a fatbin is compiled and embedded in C++ code, a translation unit specializes `rtcx::static_fatbin_fragment_entry`
 to specify its `data` and `length` static fields:
 
 ```cpp
-using _FragmentEntry = StaticFatbinFragmentEntry<fragment_tag_get_score<uint32_t>>;
+using _FragmentEntry = rtcx::static_fatbin_fragment_entry<fragment_tag_get_score<uint32_t>>;
 
 template <>
 const uint8_t* const _FragmentEntry::data = embedded_fatbin;
@@ -937,7 +939,7 @@ template <>
 const size_t _FragmentEntry::length = sizeof(embedded_fatbin);
 ```
 
-Then, an `AlgorithmPlanner` can call `add_static_fragment()` with the fragment tag (NOT the `StaticFatbinFragmentEntry`
+Then, an `rtcx::algorithm_planner` can call `add_static_fragment()` with the fragment tag (NOT the `rtcx::static_fatbin_fragment_entry`
 specialization) as the sole template parameter:
 
 ```cpp
@@ -964,9 +966,9 @@ struct tag_l {};  // int64_t
 
 These tags are used in `registerAlgorithm<>()` to create a hierarchical organization of fragments.
 
-### AlgorithmLauncher
+### `rtcx::algorithm_launcher`
 
-The `AlgorithmLauncher` is the runtime handle for a linked kernel. It:
+The `rtcx::algorithm_launcher` is the runtime handle for a linked kernel. It:
 - Holds a `cudaKernel_t` handle to the linked kernel
 - Provides `call()` and `call_cooperative()` methods to launch the kernel
 - Manages the lifetime of the `cudaLibrary_t` that contains the kernel
@@ -981,7 +983,7 @@ The `AlgorithmLauncher` is the runtime handle for a linked kernel. It:
 
 4. **Type Safety**: Use registration tags to provide compile-time type safety and avoid runtime string mismatches.
 
-5. **Caching**: Each planner type should hold a static `LauncherJitCache` and pass it to `AlgorithmPlanner`; `get_launcher()` then reuses linked kernels for the same fragment key within that cache.
+5. **Caching**: Each planner type should hold a static `rtcx::launcher_jit_cache` and pass it to `rtcx::algorithm_planner`; `get_launcher()` then reuses linked kernels for the same fragment key within that cache.
 
 ## Example: IVF Flat
 
@@ -997,7 +999,7 @@ IVF Flat uses JIT LTO with:
 
 To integrate JIT LTO kernels into the CMake build system, add calls to `generate_jit_lto_kernels()` in your main `CMakeLists.txt` file (typically in `cpp/CMakeLists.txt`).
 
-The `generate_jit_lto_kernels()` function (defined in `cmake/modules/generate_jit_lto_kernels.cmake`) takes:
+The `generate_jit_lto_kernels()` function (defined in librtcx under `cmake/modules/generate_jit_lto_kernels.cmake`) takes:
 - `NAME_FORMAT`: Format string for generated kernel names (using `@variable@` syntax)
 - `MATRIX_JSON_FILE`: Path to the JSON matrix file
 - `KERNEL_INPUT_FILE`: Path to the `.cu.in` template

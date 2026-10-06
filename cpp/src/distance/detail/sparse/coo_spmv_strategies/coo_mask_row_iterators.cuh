@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -118,8 +118,7 @@ class chunked_mask_row_it : public mask_row_it<value_idx> {
   {
     auto policy = rmm::exec_policy(stream);
 
-    constexpr value_idx first_element = 0;
-    n_chunks_per_row.set_element_async(0, first_element, stream);
+    n_chunks_per_row.set_element_to_zero_async(0, stream);
     n_chunks_per_row_functor chunk_functor(indptr, row_chunk_size);
     thrust::transform(
       policy, mask_row_idx, mask_row_idx + n_rows, n_chunks_per_row.begin() + 1, chunk_functor);

@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -243,7 +243,7 @@ class TestCppBackendBuildSearch:
             # Search with empty indexes list
             result = backend.search(
                 dataset=dataset, indexes=[], k=10, batch_size=1000
-            )
+            )[0]
 
             assert result.success is True
             assert result.metadata.get("skipped") is True
@@ -351,7 +351,7 @@ class TestCppBackendBuildSearch:
                 k=10,
                 batch_size=1000,
                 dry_run=True,
-            )
+            )[0]
 
             assert result.success is True
             assert result.metadata.get("dry_run") is True

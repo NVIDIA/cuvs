@@ -1,12 +1,12 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # This script is inspired by
 # 1: https://github.com/erikbern/ann-benchmarks/blob/main/plot.py
 # 2: https://github.com/erikbern/ann-benchmarks/blob/main/ann_benchmarks/plotting/utils.py  # noqa: E501
 # 3: https://github.com/erikbern/ann-benchmarks/blob/main/ann_benchmarks/plotting/metrics.py  # noqa: E501
-# License: https://github.com/rapidsai/cuvs/blob/main/thirdparty/LICENSES/LICENSE.ann-benchmark # noqa: E501
+# License: https://github.com/nvidia/cuvs/blob/main/thirdparty/LICENSES/LICENSE.ann-benchmark # noqa: E501
 
 import itertools
 import os

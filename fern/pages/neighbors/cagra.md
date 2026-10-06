@@ -110,8 +110,8 @@ fn build_cagra_index(dataset: &ndarray::Array2<f32>) -> Result<Index> {
 package main
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/cagra"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/cagra"
 )
 
 func buildCagraIndex(dataset cuvs.Tensor[float32]) (*cagra.CagraIndex, error) {
@@ -222,8 +222,8 @@ index = cagra.extend(cagra.ExtendParams(), index, extended, new_start_row)
 package main
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/cagra"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/cagra"
 )
 
 func extendCagraIndex(
@@ -996,6 +996,38 @@ If `search_params::filtering_rate` is negative, CAGRA uses `udf_filter::filterin
 | `graph_build_params` | `std::monostate` | Parameters for the initial graph builder. The default lets NVIDIA cuVS choose a heuristic; explicit options include IVF-PQ, NN-Descent, ACE, and iterative-search graph build parameters. |
 | `guarantee_connectivity` | `False` | Uses a degree-constrained minimum spanning tree to guarantee the initial kNN graph is connected. This can improve recall on some datasets. |
 | `attach_dataset_on_build` | `True` | Keeps the dataset attached to the index after build. Set to `False` when serializing or converting to another graph format right after build. |
+
+### Merge parameters
+
+CAGRA can physically merge multiple indexes by either rebuilding the graph over the combined dataset or using Fastener to construct cross-index graph edges. Start with `algo = AUTO`. It selects Fastener when the input indexes and parameters pass its preflight checks, and otherwise preserves the existing rebuild behavior. Use `FASTENER` only when an unsupported configuration or allocation failure should be reported instead of falling back to a rebuild.
+
+The default values are the recommended starting point, chosen to be fast while reducing recall by less than 1% on a set of test datasets relative to rebuilding. Fastener is built around recursively partitioning the combined dataset and spilling points to their top `fanout` partitions at each level: `root_fanout` controls the first level, `lower_fanout` controls later levels, and `levels` controls the number of partitioning levels. The other parameters control how many ways a partition is split at each level (`leader_fraction`/`max_leaders`), the maximum size of the partitions (`leaf_size`) which are then queried for `leaf_degree` intra-partition near neighbors.
+
+| Name | Default | Description |
+| --- | --- | --- |
+| `algo` | `AUTO` | Merge implementation. `AUTO` uses Fastener when preflight succeeds and otherwise rebuilds; `FASTENER` requires the Fastener path; `REBUILD` always concatenates the datasets and rebuilds the graph. |
+| `levels` | `2` | Number of recursive partitioning levels. More levels create finer partitions but multiply the number of leaf occurrences and candidate edges. |
+| `root_fanout` | `2` | Number of child partitions created at the first level. Increasing it can improve cross-index coverage, at the cost of additional partition memberships and scaffold work. |
+| `lower_fanout` | `3` | Number of child partitions created at each level after the first. Its cost compounds when `levels` is greater than two. |
+| `leader_fraction` | `0.02` | Fraction of each parent partition sampled as leaders, before applying the fanout minimum and `max_leaders` cap. More leaders refine the partition assignment but increase temporary memory and GEMM work. |
+| `max_leaders` | `1024` | Maximum leaders sampled from one parent partition. Increase this only when large or diverse partitions benefit from finer assignment; larger values increase assignment memory and computation. |
+| `leaf_size` | `256` | Maximum rows processed together when constructing cross-index neighbors inside a leaf. Smaller leaves reduce pairwise work and temporary memory, but may provide fewer useful cross-index candidates. |
+| `leaf_degree` | `4` | Cross-index neighbors contributed by each leaf occurrence. Larger values provide more candidates to graph optimization, while increasing the intermediate graph width and optimization work. |
+
+Two useful starting configurations:
+
+| Profile | `levels` | `root_fanout` | `lower_fanout` | `leader_fraction` | `max_leaders` | `leaf_size` | `leaf_degree` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Default | `2` | `2` | `3` | `0.02` | `1024` | `256` | `4` |
+| Higher-quality | `2` | `4` | `2` | `0.01` | `1024` | `256` | `4` |
+
+The total number of leaf occurrences per row is
+
+```text
+root_fanout * lower_fanout^(levels - 1)
+```
+
+The product of that value and `leaf_degree` must not exceed `255`. Fanouts must be between `1` and `32`, `leader_fraction` must be in `(0, 1]`, `max_leaders` must be between the configured fanouts and `8192`, `leaf_size` must be between `1` and `256`, and `leaf_degree` must be between `1` and `8`.
 
 ### Search parameters
 

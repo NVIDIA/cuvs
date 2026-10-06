@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -274,8 +274,8 @@ class SearchResult:
     algorithm : str
         Algorithm name
     search_params : List[Dict[str, Any]]
-        List of search parameter combinations used (e.g., [{"nprobe": 1}, {"nprobe": 5}])
-        All are batched into one C++ command (matches runners.py behavior)
+        Search parameter combinations represented by this result. Backends
+        normally return one result per combination.
     latency_percentiles : Optional[Dict[str, float]]
         Latency percentiles in milliseconds (p50, p95, p99)
     gpu_time_seconds : Optional[float]
@@ -421,7 +421,7 @@ class BenchmarkBackend(ABC):
         force: bool = False,
         search_threads: Optional[int] = None,
         dry_run: bool = False,
-    ) -> SearchResult:
+    ) -> List[SearchResult]:
         """
         Search for nearest neighbors using the built indexes.
 
@@ -452,8 +452,11 @@ class BenchmarkBackend(ABC):
 
         Returns
         -------
-        SearchResult
-            Search timing, results, and recall metrics
+        List[SearchResult]
+            One or more search result objects. Backends normally return one
+            result per independently measurable search point, but may return
+            an aggregate result when their native output remains authoritative
+            (for example, the C++ Google Benchmark backend).
 
         Raises
         ------

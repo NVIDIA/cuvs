@@ -4,7 +4,7 @@ package ivf_flat
 import "C"
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
+	cuvs "github.com/nvidia/cuvs/go"
 )
 
 type SearchParams struct {

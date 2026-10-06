@@ -12,14 +12,14 @@
 
 ## Useful Resources
 
-- [Documentation](https://docs.rapids.ai/api/cuvs/nightly/): Library documentation.
-- [Build and Install Guide](https://docs.rapids.ai/api/cuvs/nightly/build): Instructions for installing and building cuVS.
-- [Getting Started Guide](https://docs.rapids.ai/api/cuvs/nightly/getting_started): Guide to getting started with cuVS.
-- [Code Examples](https://github.com/rapidsai/cuvs/tree/HEAD/examples): Self-contained Code Examples.
-- [API Reference Documentation](https://docs.rapids.ai/api/cuvs/nightly/api_docs): API Documentation.
+- [Documentation](https://docs.nvidia.com/cuvs): Library documentation.
+- [Build and Install Guide](https://docs.nvidia.com/cuvs/installation): Instructions for installing and building cuVS.
+- [Getting Started Guide](https://docs.nvidia.com/cuvs/getting-started): Guide to getting started with cuVS.
+- [Code Examples](https://github.com/nvidia/cuvs/tree/HEAD/examples): Self-contained Code Examples.
+- [API Reference Documentation](https://docs.nvidia.com/cuvs/api_reference): API Documentation.
 - [RAPIDS Community](https://rapids.ai/community.html): Get help, contribute, and collaborate.
-- [GitHub repository](https://github.com/rapidsai/cuvs): Download the cuVS source code.
-- [Issue tracker](https://github.com/rapidsai/cuvs/issues): Report issues or request features.
+- [GitHub repository](https://github.com/nvidia/cuvs): Download the cuVS source code.
+- [Issue tracker](https://github.com/nvidia/cuvs/issues): Report issues or request features.
 
 ## What is cuVS?
 
@@ -84,6 +84,10 @@ cuVS comes with pre-built packages that can be installed through [conda](https:/
 
 Please see the [Build and Install Guide](https://docs.rapids.ai/api/cuvs/nightly/build/) for more information on installing the available cuVS packages and building from source.
 
+### Standalone C library (Docker)
+
+To build the standalone C library tarball (`libcuvs_c.tar.gz`) for use in your own C/C++ projects, see **[Building the standalone C library with Docker](https://docs.nvidia.com/cuvs/installation#build-the-standalone-c-library-with-docker)**.
+
 ## Getting Started
 
 The following code snippets train an approximate nearest neighbors index for the CAGRA algorithm in the various different languages supported by cuVS.
@@ -114,7 +118,7 @@ cagra::index_params index_params;
 auto index = cagra::build(res, index_params, dataset);
 ```
 
-For more code examples of the C++ APIs, including drop-in Cmake project templates, please refer to the [C++ examples](https://github.com/rapidsai/cuvs/tree/HEAD/examples) directory in the codebase.
+For more code examples of the C++ APIs, including drop-in Cmake project templates, please refer to the [C++ examples](https://github.com/nvidia/cuvs/tree/HEAD/examples) directory in the codebase.
 
 ### C API
 
@@ -143,7 +147,7 @@ cuvsCagraIndexParamsDestroy(index_params);
 cuvsResourcesDestroy(res);
 ```
 
-For more code examples of the C APIs, including drop-in Cmake project templates, please refer to the [C examples](https://github.com/rapidsai/cuvs/tree/main/examples/c)
+For more code examples of the C APIs, including drop-in Cmake project templates, please refer to the [C examples](https://github.com/nvidia/cuvs/tree/main/examples/c)
 
 ### Rust API
 
@@ -190,6 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+For more code examples of the Rust APIs, including a drop-in project templates, please refer to the [Rust examples](https://github.com/nvidia/cuvs/tree/main/examples/rust).
 
 ## Contributing
 
