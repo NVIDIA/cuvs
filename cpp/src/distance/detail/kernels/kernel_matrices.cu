@@ -15,6 +15,18 @@
 
 namespace cuvs::distance::kernels {
 
+/** base^exponent for an integer exponent, evaluated in math_t.
+ * Above 2^24 a float exponent is always even, so restore the sign an odd exponent gives a
+ * negative base.
+ */
+template <typename math_t, typename exp_t>
+__device__ __forceinline__ math_t pow_int_exponent(math_t base, exp_t exponent)
+{
+  math_t r = pow(base, static_cast<math_t>(exponent));
+  if ((exponent & 1) && signbit(base) && !signbit(r) && !isnan(r)) { r = -r; }
+  return r;
+}
+
 /** Epiloge function for polynomial kernel without padding.
  * Calculates output = (gain*in + offset)^exponent
  * @param inout device vector in column major format, size [len]
@@ -29,7 +41,7 @@ RAFT_KERNEL polynomial_kernel_nopad(
 {
   for (size_t tid = threadIdx.x + blockIdx.x * blockDim.x; tid < len;
        tid += blockDim.x * gridDim.x) {
-    inout[tid] = pow(gain * inout[tid] + offset, (math_t)exponent);
+    inout[tid] = pow_int_exponent(gain * inout[tid] + offset, exponent);
   }
 }
 
@@ -51,7 +63,7 @@ RAFT_KERNEL polynomial_kernel(
        tidy += blockDim.y * gridDim.y)
     for (size_t tidx = threadIdx.x + blockIdx.x * blockDim.x; tidx < rows;
          tidx += blockDim.x * gridDim.x) {
-      inout[tidx + tidy * ld] = pow(gain * inout[tidx + tidy * ld] + offset, (math_t)exponent);
+      inout[tidx + tidy * ld] = pow_int_exponent(gain * inout[tidx + tidy * ld] + offset, exponent);
     }
 }
 
