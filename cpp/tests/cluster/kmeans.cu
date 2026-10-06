@@ -4,6 +4,7 @@
  */
 
 #include "../../src/cluster/detail/kmeans_batch_loader.cuh"
+#include "../../src/cluster/detail/kmeans_common.cuh"
 #include "../test_utils.cuh"
 #include "kmeans_test_blobs.cuh"
 
@@ -13,6 +14,7 @@
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
+#include <raft/core/resource/multi_gpu.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/stats/adjusted_rand_index.cuh>
 #include <raft/util/cuda_utils.cuh>
@@ -23,7 +25,12 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <limits>
 #include <optional>
+#include <type_traits>
 #include <vector>
 
 namespace cuvs {
@@ -715,6 +722,365 @@ INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
 INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
                         KmeansFitBatchedTestD,
                         ::testing::ValuesIn(batched_inputsd2));
+
+// ============================================================================
+// Byte-input KMeans fit tests
+// ============================================================================
+
+namespace {
+
+struct byte_fit_result {
+  std::vector<float> centroids;
+  float inertia{};
+  int64_t n_iter{};
+};
+
+template <typename ByteT>
+constexpr float byte_divisor()
+{
+  static_assert(std::is_same_v<ByteT, int8_t> || std::is_same_v<ByteT, uint8_t>);
+  return std::is_same_v<ByteT, int8_t> ? 128.0f : 256.0f;
+}
+
+template <typename ByteT>
+std::vector<ByteT> make_byte_fit_input()
+{
+  // Interleave the two well-separated clusters so every outer batch exercises both signs/ranges.
+  // There are 11 rows, so a four-row device buffer also exercises a three-row final batch.
+  const std::vector<int> values = [] {
+    if constexpr (std::is_same_v<ByteT, int8_t>) {
+      return std::vector<int>{-120, -110, -100, 72,  80,  88,  -112, -104, -96, 80,  88,
+                              96,   -104, -98,  -88, 88,  96,  104,  -96,  -90, -80, 96,
+                              104,  112,  -88,  -82, -72, 104, 112,  120,  112, 120, 127};
+    } else {
+      return std::vector<int>{8,   16,  24, 200, 208, 216, 16,  24,  32,  208, 216,
+                              224, 24,  32, 40,  216, 224, 232, 32,  40,  48,  224,
+                              232, 240, 40, 48,  56,  232, 240, 248, 240, 248, 255};
+    }
+  }();
+
+  std::vector<ByteT> input(values.size());
+  std::transform(values.begin(), values.end(), input.begin(), [](int value) {
+    return static_cast<ByteT>(value);
+  });
+  return input;
+}
+
+template <typename ByteT>
+class KmeansByteFitTest : public ::testing::Test {
+ protected:
+  static constexpr int64_t n_samples  = 11;
+  static constexpr int64_t n_features = 3;
+  static constexpr int64_t n_clusters = 2;
+  static constexpr int64_t batch_rows = 4;
+
+  void SetUp() override
+  {
+    h_byte_input = make_byte_fit_input<ByteT>();
+    h_float_input.resize(h_byte_input.size());
+    std::transform(
+      h_byte_input.begin(), h_byte_input.end(), h_float_input.begin(), [](ByteT value) {
+        return static_cast<float>(value) / byte_divisor<ByteT>();
+      });
+
+    // Positive, nonuniform and fractional weights force genuinely fractional output centroids.
+    h_weights = {0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f, 2.25f, 2.5f, 2.75f, 3.25f};
+    if constexpr (std::is_same_v<ByteT, int8_t>) {
+      h_initial_centroids = {-0.91f, -0.83f, -0.76f, 0.79f, 0.85f, 0.92f};
+      EXPECT_LT(*std::min_element(h_byte_input.begin(), h_byte_input.end()), ByteT{0});
+    } else {
+      h_initial_centroids = {0.07f, 0.13f, 0.19f, 0.83f, 0.89f, 0.95f};
+      EXPECT_GT(*std::max_element(h_byte_input.begin(), h_byte_input.end()), ByteT{240});
+    }
+  }
+
+  cuvs::cluster::kmeans::params make_params(cuvs::cluster::kmeans::params::InitMethod init) const
+  {
+    cuvs::cluster::kmeans::params params;
+    params.n_clusters            = n_clusters;
+    params.init                  = init;
+    params.max_iter              = 30;
+    params.tol                   = 1e-7;
+    params.n_init                = 1;
+    params.rng_state.seed        = 73;
+    params.oversampling_factor   = 0;
+    params.device_buffer_samples = batch_rows;
+    return params;
+  }
+
+  byte_fit_result fit_float_reference(const cuvs::cluster::kmeans::params& params, bool weighted)
+  {
+    auto stream      = raft::resource::get_cuda_stream(handle);
+    auto d_centroids = raft::make_device_matrix<float, int64_t>(handle, n_clusters, n_features);
+    raft::copy(
+      d_centroids.data_handle(), h_initial_centroids.data(), h_initial_centroids.size(), stream);
+
+    std::optional<raft::host_vector_view<const float, int64_t>> weights = std::nullopt;
+    if (weighted) {
+      weights = raft::make_host_vector_view<const float, int64_t>(h_weights.data(), n_samples);
+    }
+
+    byte_fit_result result;
+    cuvs::cluster::kmeans::fit(handle,
+                               params,
+                               raft::make_host_matrix_view<const float, int64_t>(
+                                 h_float_input.data(), n_samples, n_features),
+                               weights,
+                               d_centroids.view(),
+                               raft::make_host_scalar_view<float>(&result.inertia),
+                               raft::make_host_scalar_view<int64_t>(&result.n_iter));
+
+    result.centroids.resize(h_initial_centroids.size());
+    raft::copy(result.centroids.data(), d_centroids.data_handle(), result.centroids.size(), stream);
+    raft::resource::sync_stream(handle);
+    return result;
+  }
+
+  byte_fit_result fit_byte_host(const cuvs::cluster::kmeans::params& params, bool weighted)
+  {
+    auto stream      = raft::resource::get_cuda_stream(handle);
+    auto d_centroids = raft::make_device_matrix<float, int64_t>(handle, n_clusters, n_features);
+    raft::copy(
+      d_centroids.data_handle(), h_initial_centroids.data(), h_initial_centroids.size(), stream);
+
+    std::optional<raft::host_vector_view<const float, int64_t>> weights = std::nullopt;
+    if (weighted) {
+      weights = raft::make_host_vector_view<const float, int64_t>(h_weights.data(), n_samples);
+    }
+
+    byte_fit_result result;
+    cuvs::cluster::kmeans::fit(
+      handle,
+      params,
+      raft::make_host_matrix_view<const ByteT, int64_t>(h_byte_input.data(), n_samples, n_features),
+      weights,
+      d_centroids.view(),
+      raft::make_host_scalar_view<float>(&result.inertia),
+      raft::make_host_scalar_view<int64_t>(&result.n_iter));
+
+    result.centroids.resize(h_initial_centroids.size());
+    raft::copy(result.centroids.data(), d_centroids.data_handle(), result.centroids.size(), stream);
+    raft::resource::sync_stream(handle);
+    return result;
+  }
+
+  byte_fit_result fit_byte_device(const cuvs::cluster::kmeans::params& params, bool weighted)
+  {
+    auto stream      = raft::resource::get_cuda_stream(handle);
+    auto d_input     = raft::make_device_matrix<ByteT, int64_t>(handle, n_samples, n_features);
+    auto d_weights   = raft::make_device_vector<float, int64_t>(handle, weighted ? n_samples : 0);
+    auto d_centroids = raft::make_device_matrix<float, int64_t>(handle, n_clusters, n_features);
+    raft::copy(d_input.data_handle(), h_byte_input.data(), h_byte_input.size(), stream);
+    raft::copy(
+      d_centroids.data_handle(), h_initial_centroids.data(), h_initial_centroids.size(), stream);
+
+    std::optional<raft::device_vector_view<const float, int64_t>> weights = std::nullopt;
+    if (weighted) {
+      raft::copy(d_weights.data_handle(), h_weights.data(), h_weights.size(), stream);
+      weights = raft::make_const_mdspan(d_weights.view());
+    }
+
+    byte_fit_result result;
+    cuvs::cluster::kmeans::fit(handle,
+                               params,
+                               raft::make_const_mdspan(d_input.view()),
+                               weights,
+                               d_centroids.view(),
+                               raft::make_host_scalar_view<float>(&result.inertia),
+                               raft::make_host_scalar_view<int64_t>(&result.n_iter));
+
+    result.centroids.resize(h_initial_centroids.size());
+    raft::copy(result.centroids.data(), d_centroids.data_handle(), result.centroids.size(), stream);
+    raft::resource::sync_stream(handle);
+    return result;
+  }
+
+  void expect_result_near(const byte_fit_result& expected,
+                          const byte_fit_result& actual,
+                          const cuvs::cluster::kmeans::params& params)
+  {
+    ASSERT_EQ(expected.centroids.size(), actual.centroids.size());
+    auto expected_centroids = expected.centroids;
+    auto actual_centroids   = actual.centroids;
+    if (expected_centroids[0] > expected_centroids[n_features]) {
+      std::swap_ranges(expected_centroids.begin(),
+                       expected_centroids.begin() + n_features,
+                       expected_centroids.begin() + n_features);
+    }
+    if (actual_centroids[0] > actual_centroids[n_features]) {
+      std::swap_ranges(actual_centroids.begin(),
+                       actual_centroids.begin() + n_features,
+                       actual_centroids.begin() + n_features);
+    }
+    for (std::size_t i = 0; i < expected_centroids.size(); ++i) {
+      EXPECT_NEAR(actual_centroids[i], expected_centroids[i], 2e-5f) << "centroid element " << i;
+    }
+    EXPECT_NEAR(
+      actual.inertia, expected.inertia, std::max(2e-6f, std::abs(expected.inertia) * 2e-4f));
+    if (params.max_iter == 0) {
+      EXPECT_EQ(actual.n_iter, 0);
+    } else {
+      EXPECT_GE(actual.n_iter, 1);
+      EXPECT_LE(actual.n_iter, params.max_iter);
+    }
+  }
+
+  bool has_fractional_byte_coordinate(const byte_fit_result& result) const
+  {
+    return std::any_of(result.centroids.begin(), result.centroids.end(), [](float value) {
+      const float byte_coordinate = value * byte_divisor<ByteT>();
+      return std::abs(byte_coordinate - std::round(byte_coordinate)) > 1e-3f;
+    });
+  }
+
+  raft::resources handle;
+  std::vector<ByteT> h_byte_input;
+  std::vector<float> h_float_input;
+  std::vector<float> h_weights;
+  std::vector<float> h_initial_centroids;
+};
+
+using KmeansByteTypes = ::testing::Types<int8_t, uint8_t>;
+TYPED_TEST_SUITE(KmeansByteFitTest, KmeansByteTypes);
+
+TYPED_TEST(KmeansByteFitTest, ArrayHostAndDeviceMatchNormalizedFloat)
+{
+  auto params = this->make_params(cuvs::cluster::kmeans::params::Array);
+  for (bool weighted : {false, true}) {
+    SCOPED_TRACE(weighted ? "nonuniform weights" : "unweighted");
+    const auto expected = this->fit_float_reference(params, weighted);
+    const auto host     = this->fit_byte_host(params, weighted);
+    const auto device   = this->fit_byte_device(params, weighted);
+    this->expect_result_near(expected, host, params);
+    this->expect_result_near(expected, device, params);
+    if (weighted) {
+      EXPECT_TRUE(this->has_fractional_byte_coordinate(host));
+      EXPECT_TRUE(this->has_fractional_byte_coordinate(device));
+    }
+  }
+}
+
+TYPED_TEST(KmeansByteFitTest, FixedSeedInitializersMatchNormalizedFloat)
+{
+  for (auto init :
+       {cuvs::cluster::kmeans::params::Random, cuvs::cluster::kmeans::params::KMeansPlusPlus}) {
+    SCOPED_TRACE(init == cuvs::cluster::kmeans::params::Random ? "Random" : "KMeansPlusPlus");
+    auto params = this->make_params(init);
+    // Stop after seeding so the comparison validates the sampled and mapped
+    // initialization rows rather than only the converged solution.
+    params.max_iter = 0;
+    // An explicit init_size may exceed the steady-state batch while remaining bounded by n_samples.
+    if (init == cuvs::cluster::kmeans::params::KMeansPlusPlus) { params.init_size = 7; }
+    const auto expected = this->fit_float_reference(params, false);
+    const auto host     = this->fit_byte_host(params, false);
+    const auto device   = this->fit_byte_device(params, false);
+    this->expect_result_near(expected, host, params);
+    this->expect_result_near(expected, device, params);
+  }
+}
+
+TYPED_TEST(KmeansByteFitTest, DefaultKMeansPlusPlusSampleIsBoundedByBatch)
+{
+  auto default_params       = this->make_params(cuvs::cluster::kmeans::params::KMeansPlusPlus);
+  default_params.max_iter   = 0;
+  default_params.init_size  = 0;
+  auto explicit_params      = default_params;
+  explicit_params.init_size = std::min<int64_t>(
+    {3 * TestFixture::n_clusters, TestFixture::n_samples, TestFixture::batch_rows});
+
+  const auto expected = this->fit_float_reference(explicit_params, false);
+  const auto host     = this->fit_byte_host(default_params, false);
+  const auto device   = this->fit_byte_device(default_params, false);
+  this->expect_result_near(expected, host, default_params);
+  this->expect_result_near(expected, device, default_params);
+}
+
+TYPED_TEST(KmeansByteFitTest, ScalableKMeansPlusPlusMatchesNormalizedFloat)
+{
+  auto params                = this->make_params(cuvs::cluster::kmeans::params::KMeansPlusPlus);
+  params.oversampling_factor = 2.0;
+  params.init_size           = 7;
+  params.max_iter            = 0;
+
+  const auto expected = this->fit_float_reference(params, false);
+  const auto host     = this->fit_byte_host(params, false);
+  const auto device   = this->fit_byte_device(params, false);
+  this->expect_result_near(expected, host, params);
+  this->expect_result_near(expected, device, params);
+}
+
+TYPED_TEST(KmeansByteFitTest, ZeroDeviceBufferUsesAutomaticSizing)
+{
+  auto params                  = this->make_params(cuvs::cluster::kmeans::params::Array);
+  params.device_buffer_samples = 0;
+
+  const auto expected = this->fit_float_reference(params, true);
+  const auto host     = this->fit_byte_host(params, true);
+  const auto device   = this->fit_byte_device(params, true);
+  this->expect_result_near(expected, host, params);
+  this->expect_result_near(expected, device, params);
+}
+
+TYPED_TEST(KmeansByteFitTest, RejectsMultiGpuHandle)
+{
+  raft::resources multi_gpu_handle;
+  (void)raft::resource::get_multi_gpu_resource(multi_gpu_handle);
+
+  auto d_centroids = raft::make_device_matrix<float, int64_t>(
+    this->handle, TestFixture::n_clusters, TestFixture::n_features);
+  float inertia  = 0.0f;
+  int64_t n_iter = 0;
+  auto params    = this->make_params(cuvs::cluster::kmeans::params::Array);
+
+  EXPECT_THROW(cuvs::cluster::kmeans::fit(
+                 multi_gpu_handle,
+                 params,
+                 raft::make_host_matrix_view<const TypeParam, int64_t>(
+                   this->h_byte_input.data(), TestFixture::n_samples, TestFixture::n_features),
+                 std::optional<raft::host_vector_view<const float, int64_t>>{std::nullopt},
+                 d_centroids.view(),
+                 raft::make_host_scalar_view<float>(&inertia),
+                 raft::make_host_scalar_view<int64_t>(&n_iter)),
+               raft::logic_error);
+}
+
+TEST(KmeansBatchSizingTest, UsesEightyPercentWithCap)
+{
+  using cuvs::cluster::kmeans::detail::kmeans_workspace_budget;
+  constexpr std::size_t mib = std::size_t{1} << 20;
+  EXPECT_EQ(kmeans_workspace_budget(100 * mib), 80 * mib);
+  EXPECT_EQ(kmeans_workspace_budget(1024 * mib), 512 * mib);
+  EXPECT_EQ(kmeans_workspace_budget(std::numeric_limits<std::size_t>::max()), 512 * mib);
+}
+
+TEST(KmeansBatchSizingTest, RoundsAndClampsSyntheticBudgets)
+{
+  using cuvs::cluster::kmeans::detail::kmeans_batch_rows_from_budget;
+  constexpr int64_t n_rows            = 1000;
+  constexpr std::size_t bytes_per_row = 100;
+
+  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 199 * bytes_per_row, bytes_per_row), 192);
+  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 63 * bytes_per_row, bytes_per_row), 1);
+  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 64 * bytes_per_row, bytes_per_row), 64);
+  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 65 * bytes_per_row, bytes_per_row), 64);
+  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 0, bytes_per_row), 1);
+  EXPECT_EQ(kmeans_batch_rows_from_budget(int64_t{50}, 1000 * bytes_per_row, bytes_per_row), 50);
+  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 1, std::size_t{0}), n_rows);
+  EXPECT_EQ(kmeans_batch_rows_from_budget(int64_t{0}, 1, bytes_per_row), 0);
+}
+
+TEST(KmeansBatchSizingTest, ExplicitOverrideBypassesBudget)
+{
+  using cuvs::cluster::kmeans::detail::resolve_kmeans_batch_rows;
+  constexpr int64_t n_rows            = 1000;
+  constexpr std::size_t bytes_per_row = 100;
+
+  EXPECT_EQ(resolve_kmeans_batch_rows(n_rows, int64_t{37}, 0, bytes_per_row), 37);
+  EXPECT_EQ(resolve_kmeans_batch_rows(n_rows, int64_t{2000}, 0, bytes_per_row), n_rows);
+  EXPECT_EQ(resolve_kmeans_batch_rows(n_rows, int64_t{0}, 199 * bytes_per_row, bytes_per_row), 192);
+}
+
+}  // namespace
 
 class KmeansBatchLoaderTest : public ::testing::TestWithParam<bool> {};
 
