@@ -8,7 +8,10 @@ import static com.nvidia.cuvs.lucene.TestUtils.generateDataset;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.TreeMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
@@ -118,6 +121,7 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
 
     Query query = new KnnFloatVectorQuery("vector", queryVector, topK);
     ScoreDoc[] hits = searcher.search(query, topK).scoreDocs;
+    List<Integer> acceptableIds = calculateAcceptableNeighbors(queryVector, topK, dataset);
 
     // Verify we get exactly TOP_K results
     assertEquals("Should return exactly " + topK + " results", topK, hits.length);
@@ -133,10 +137,12 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
           expectedScore,
           hit.score,
           expectedScore * 1e-4f);
+      assertTrue(
+          "Result " + id + " was not among the closest " + (topK * 3) + " documents",
+          acceptableIds.contains(id));
       log.log(Level.FINE, "Document ID: " + id + ", Score: " + hit.score);
     }
 
-    // HNSW search is approximate, so exact Euclidean top-k membership is not guaranteed.
     log.log(Level.FINE, "Alternating document test passed with " + hits.length + " results");
   }
 
@@ -164,5 +170,26 @@ public class TestCuVSAcceleratedHNSWGaps extends LuceneTestCase {
     log.log(
         Level.FINE,
         "Filtered alternating document test passed with " + filteredHits.length + " results");
+  }
+
+  private static List<Integer> calculateAcceptableNeighbors(
+      float[] query, int topK, float[][] dataset) {
+    Map<Integer, Double> distances = new TreeMap<>();
+
+    // Only even-numbered documents have vectors.
+    for (int i = 0; i < dataset.length; i += 2) {
+      double distance = 0;
+      for (int j = 0; j < query.length; j++) {
+        distance += (query[j] - dataset[i][j]) * (query[j] - dataset[i][j]);
+      }
+      distances.put(i, distance);
+    }
+
+    // HNSW search is approximate, so accept results within three times the requested K.
+    return distances.entrySet().stream()
+        .sorted(Map.Entry.comparingByValue())
+        .limit(topK * 3L)
+        .map(Map.Entry::getKey)
+        .toList();
   }
 }
