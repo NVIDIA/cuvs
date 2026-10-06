@@ -342,16 +342,22 @@ void mnmg_fit(
     }
   }
 
-  auto batch_mr          = raft::resource::get_large_workspace_resource_ref(dev_res);
-  auto batch_copy_stream = cuvs::spatial::knn::detail::utils::get_prefetch_stream(dev_res).first;
+  auto batch_mr = raft::resource::get_large_workspace_resource_ref(dev_res);
+  auto [batch_copy_stream, enable_prefetch] =
+    cuvs::spatial::knn::detail::utils::get_prefetch_stream(dev_res);
+  const std::size_t recycle_offset = enable_prefetch ? 2 : 1;
 
   data_batch_loader_t data_batches(
-    dev_res, X_parts, device_buffer_samples, batch_copy_stream, batch_mr);
+    dev_res, X_parts, device_buffer_samples, batch_copy_stream, batch_mr, enable_prefetch);
   std::optional<host_batch_loader_t> weight_batches;
   if constexpr (!data_on_device) {
     if (sample_weights) {
-      weight_batches.emplace(
-        dev_res, weight_inputs, device_buffer_samples, batch_copy_stream, batch_mr);
+      weight_batches.emplace(dev_res,
+                             weight_inputs,
+                             device_buffer_samples,
+                             batch_copy_stream,
+                             batch_mr,
+                             enable_prefetch);
       RAFT_EXPECTS(weight_batches->num_batches() == data_batches.num_batches(),
                    "KMeans data and weight batches do not align");
     }
@@ -476,8 +482,9 @@ void mnmg_fit(
             L2NormBatch.data_handle(), current_batch_size);
         }
 
-        // During cold fill, enqueue the first real consumer before the second H2D. Once both slots
-        // are active this is a no-op; recycle() keeps the copy stream one batch ahead thereafter.
+        // During two-buffer cold fill, enqueue the first real consumer before the second H2D. Once
+        // both slots are active, or in single-buffer mode, this is a no-op; recycle() advances the
+        // copy stream thereafter.
         prefetch_batch((batch_pos + 1) % data_batches.num_batches());
 
         cuvs::cluster::kmeans::detail::process_batch<DataT, IndexT>(
@@ -498,7 +505,7 @@ void mnmg_fit(
           batch_workspace,
           batch_cost.view());
 
-        const auto next_batch_pos = (batch_pos + 2) % data_batches.num_batches();
+        const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
         data_batches.recycle(data_batch, next_batch_pos);
         if (weight_batch.has_value()) { weight_batches->recycle(*weight_batch, next_batch_pos); }
       }
@@ -597,9 +604,9 @@ void mnmg_fit(
                         stream);
 
       const bool needs_future_batch =
-        batch_pos + 2 < data_batches.num_batches() || seed_iter + 1 < n_init;
+        batch_pos + recycle_offset < data_batches.num_batches() || seed_iter + 1 < n_init;
       if (needs_future_batch) {
-        const auto next_batch_pos = (batch_pos + 2) % data_batches.num_batches();
+        const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
         data_batches.recycle(data_batch, next_batch_pos);
         if (weight_batch.has_value()) { weight_batches->recycle(*weight_batch, next_batch_pos); }
       } else {

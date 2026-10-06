@@ -175,8 +175,8 @@ TEST(RoaringAllowlist, StreamOrderedConstructionSupportsEventHandoff)
   rmm::cuda_stream consume_stream;
   raft::device_resources build_res;
   raft::device_resources consume_res;
-  raft::resource::set_cuda_stream(build_res, build_stream.view());
-  raft::resource::set_cuda_stream(consume_res, consume_stream.view());
+  raft::resource::set_cuda_stream(build_res, build_stream);
+  raft::resource::set_cuda_stream(consume_res, consume_stream);
 
   auto allowlist = from_ids(build_res, 1000, {900, 100, 300, 200});
 
