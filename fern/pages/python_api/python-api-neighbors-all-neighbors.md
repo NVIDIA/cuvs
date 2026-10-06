@@ -100,9 +100,9 @@ vectors in the dataset.
 | `dataset` | `array_like` | Training dataset to build the k-NN graph for. Can be provided on host (for multi-GPU build) or device (for single-GPU build). Host vs device location is automatically detected. Supported dtype: float32 |
 | `k` | `int` | Number of nearest neighbors to find for each point |
 | `params` | `AllNeighborsParams` | Parameters object containing all build settings including algorithm choice and algorithm-specific parameters. |
-| `indices` | `array_like, optional` | Optional output buffer for indices [num_rows x k] on device (int64). If not provided, will be allocated automatically. |
-| `distances` | `array_like, optional` | Optional output buffer for distances [num_rows x k] on device (float32) |
-| `core_distances` | `array_like, optional` | Optional output buffer for core distances [num_rows] on device (float32). Requires distances parameter to be provided. |
+| `indices` | `array_like, optional` | Optional output buffer for indices [num_rows x k] (int64), on host or device. If not provided, will be allocated automatically (on device, unless the other provided outputs are on host). A host dataset supports host or device outputs; a device dataset requires device outputs. All provided outputs must share the same memory space. |
+| `distances` | `array_like, optional` | Optional output buffer for distances [num_rows x k] (float32), on host or device. |
+| `core_distances` | `array_like, optional` | Optional output buffer for core distances [num_rows] (float32), on host or device. Requires distances parameter to be provided. |
 | `alpha` | `float, default=1.0` | Mutual-reachability scaling; used only when core_distances is provided |
 | `resources` | `Resources or MultiGpuResources, optional` | CUDA resources to use for the operation. If not provided, a default Resources object will be created. Use MultiGpuResources to enable multi-GPU execution across multiple devices. |
 
@@ -110,6 +110,6 @@ vectors in the dataset.
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `indices` | `array_like` | k-NN indices for each point [num_rows x k], always on device. If indices buffer was provided, returns the same array filled with results. |
+| `indices` | `array_like` | k-NN indices for each point [num_rows x k], on the same memory space as the outputs (device by default). If an indices buffer was provided, returns the same array filled with results. |
 | `distances` | `array_like or None` | k-NN distances if distances buffer was provided, None otherwise |
 | `core_distances` | `array_like or None` | Core distances if core_distances buffer was provided, None otherwise |

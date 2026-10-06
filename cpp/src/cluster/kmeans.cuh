@@ -9,7 +9,6 @@
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
-#include <raft/core/kvp.hpp>
 #include <raft/core/mdarray.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/comms.hpp>
@@ -25,13 +24,6 @@ namespace cuvs::cluster::kmeans {
  */
 template <typename DataT, typename IndexT>
 using SamplingOp = cuvs::cluster::kmeans::detail::SamplingOp<DataT, IndexT>;
-
-/**
- * Functor used to extract the index from a KeyValue pair
- * storing both index and a distance.
- */
-template <typename IndexT, typename DataT>
-using KeyValueIndexOp = cuvs::cluster::kmeans::detail::KeyValueIndexOp<IndexT, DataT>;
 
 /**
  * @brief Find clusters with k-means algorithm.
@@ -294,19 +286,22 @@ void cluster_cost(raft::resources const& handle,
  * @param[in]  batch_samples        batch size for input data samples
  * @param[in]  batch_centroids      batch size for input centroids
  * @param[in]  workspace            Temporary workspace buffer which can get resized
+ * @param[in]  backend              Requested top-1 NN backend
  *
  */
 template <typename DataT, typename IndexT>
-void min_cluster_distance(raft::resources const& handle,
-                          raft::device_matrix_view<const DataT, IndexT> X,
-                          raft::device_matrix_view<DataT, IndexT> centroids,
-                          raft::device_vector_view<DataT, IndexT> minClusterDistance,
-                          raft::device_vector_view<DataT, IndexT> L2NormX,
-                          rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
-                          cuvs::distance::DistanceType metric,
-                          int batch_samples,
-                          int batch_centroids,
-                          rmm::device_uvector<char>& workspace)
+void min_cluster_distance(
+  raft::resources const& handle,
+  raft::device_matrix_view<const DataT, IndexT> X,
+  raft::device_matrix_view<DataT, IndexT> centroids,
+  raft::device_vector_view<DataT, IndexT> minClusterDistance,
+  raft::device_vector_view<DataT, IndexT> L2NormX,
+  rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
+  cuvs::distance::DistanceType metric,
+  int batch_samples,
+  int batch_centroids,
+  rmm::device_uvector<char>& workspace,
+  cuvs::distance::detail::Top1nnBackend backend = cuvs::distance::detail::Top1nnBackend::Auto)
 {
   cuvs::cluster::kmeans::detail::minClusterDistanceCompute<DataT, IndexT>(handle,
                                                                           X,
@@ -317,7 +312,8 @@ void min_cluster_distance(raft::resources const& handle,
                                                                           metric,
                                                                           batch_samples,
                                                                           batch_centroids,
-                                                                          workspace);
+                                                                          workspace,
+                                                                          backend);
 }
 
 /**
@@ -366,7 +362,8 @@ void cluster_cost(
     metric,
     n_samples,
     n_clusters,
-    workspace);
+    workspace,
+    cuvs::distance::detail::Top1nnBackend::Stable);
 
   if (sample_weight.has_value()) {
     raft::linalg::map(handle,
@@ -406,57 +403,6 @@ void cluster_cost(
   cuvs::cluster::kmeans::cluster_cost(handle, X, centroids, device_cost.view(), sample_weight);
   raft::copy(handle, cost, raft::make_const_mdspan(device_cost.view()));
   raft::resource::sync_stream(handle);
-}
-
-/**
- * @brief Calculates a <key, value> pair for every sample in input 'X' where key is an
- * index of one of the 'centroids' (index of the nearest centroid) and 'value'
- * is the distance between the sample and the 'centroid[key]'
- *
- * @tparam DataT the type of data used for weights, distances.
- * @tparam IndexT the type of data used for indexing.
- *
- * @param[in]  handle                The raft handle
- * @param[in]  X                     The data in row-major format
- *                                   [dim = n_samples x n_features]
- * @param[in]  centroids             Centroids data
- *                                   [dim = n_cluster x n_features]
- * @param[out] minClusterAndDistance Distance vector that contains for every sample, the nearest
- *                                   centroid and it's distance
- *                                   [dim = n_samples]
- * @param[in]  L2NormX               L2 norm of X : ||x||^2
- *                                   [dim = n_samples]
- * @param[out] L2NormBuf_OR_DistBuf  Resizable buffer to store L2 norm of centroids or distance
- *                                   matrix
- * @param[in] metric                 distance metric
- * @param[in] batch_samples          batch size of data samples
- * @param[in] batch_centroids        batch size of centroids
- * @param[in] workspace              Temporary workspace buffer which can get resized
- *
- */
-template <typename DataT, typename IndexT>
-void min_cluster_and_distance(
-  raft::resources const& handle,
-  raft::device_matrix_view<const DataT, IndexT> X,
-  raft::device_matrix_view<const DataT, IndexT> centroids,
-  raft::device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT> minClusterAndDistance,
-  raft::device_vector_view<DataT, IndexT> L2NormX,
-  rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
-  cuvs::distance::DistanceType metric,
-  int batch_samples,
-  int batch_centroids,
-  rmm::device_uvector<char>& workspace)
-{
-  cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(handle,
-                                                                             X,
-                                                                             centroids,
-                                                                             minClusterAndDistance,
-                                                                             L2NormX,
-                                                                             L2NormBuf_OR_DistBuf,
-                                                                             metric,
-                                                                             batch_samples,
-                                                                             batch_centroids,
-                                                                             workspace);
 }
 
 /**

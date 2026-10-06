@@ -277,23 +277,20 @@ void deserialize(const raft::resources& handle,
 {
   std::lock_guard lock(*interface.mutex_);
 
-  std::ifstream is(filename, std::ios::in | std::ios::binary);
-  if (!is) { RAFT_FAIL("Cannot open file %s", filename.c_str()); }
-
   if constexpr (std::is_same<AnnIndexType, ivf_flat::index<T, IdxT>>::value) {
     ivf_flat::index<T, IdxT> idx(handle);
-    ivf_flat::deserialize(handle, is, &idx);
+    ivf_flat::deserialize(handle, filename, &idx);
     resource::sync_stream(handle);
     interface.index_.emplace(std::move(idx));
   } else if constexpr (std::is_same<AnnIndexType, ivf_pq::index<IdxT>>::value) {
     ivf_pq::index<IdxT> idx(handle);
-    ivf_pq::deserialize(handle, is, &idx);
+    ivf_pq::deserialize(handle, filename, &idx);
     resource::sync_stream(handle);
     interface.index_.emplace(std::move(idx));
   } else if constexpr (std::is_same<AnnIndexType, cagra::device_padded_index<T, IdxT>>::value) {
     cagra::device_padded_index<T, IdxT> idx(handle);
     std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> out_dataset;
-    cagra::deserialize(handle, is, &idx, &out_dataset);
+    cagra::deserialize(handle, filename, &idx, &out_dataset);
     interface.cagra_owned_padded_dataset_.reset();
     interface.cagra_owned_standard_dataset_.reset();
     if (out_dataset) { interface.cagra_owned_padded_dataset_ = std::move(out_dataset); }
@@ -302,15 +299,13 @@ void deserialize(const raft::resources& handle,
   } else if constexpr (std::is_same<AnnIndexType, cagra::device_standard_index<T, IdxT>>::value) {
     cagra::device_standard_index<T, IdxT> idx(handle);
     std::unique_ptr<cuvs::neighbors::device_standard_dataset<T, int64_t>> out_dataset;
-    cagra::deserialize(handle, is, &idx, &out_dataset);
+    cagra::deserialize(handle, filename, &idx, &out_dataset);
     interface.cagra_owned_padded_dataset_.reset();
     interface.cagra_owned_standard_dataset_.reset();
     if (out_dataset) { interface.cagra_owned_standard_dataset_ = std::move(out_dataset); }
     resource::sync_stream(handle);
     interface.index_.emplace(std::move(idx));
   }
-
-  is.close();
 }
 
 };  // namespace cuvs::neighbors

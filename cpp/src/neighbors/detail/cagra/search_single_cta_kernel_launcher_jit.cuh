@@ -84,6 +84,8 @@ std::uint64_t cagra_sample_filter_type_id(const SampleFilterT& sample_filter)
     return 3;
   } else if constexpr (is_bloom_filter<DecayedFilter>::value) {
     return 2;
+  } else if constexpr (is_roaring_bitmap_filter<DecayedFilter>::value) {
+    return 4;
   } else if constexpr (is_bitset_filter<DecayedFilter>::value) {
     return 1;
   } else if constexpr (requires { sample_filter.filter; }) {
@@ -709,6 +711,7 @@ struct alignas(kCacheLineBytes) persistent_runner_jit_t : public persistent_runn
       small_hash_reset_interval_u32,  // Cast size_t to uint32_t
       query_id_offset,                // Offset to add to query_id when calling filter
       dev_desc,
+      static_cast<IndexT>(graph.extent(0)),
       filter_payload);
 
     last_touch.store(std::chrono::system_clock::now(), std::memory_order_relaxed);

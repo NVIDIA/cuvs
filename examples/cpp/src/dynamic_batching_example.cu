@@ -57,8 +57,9 @@ struct cuda_work_completion_promise {
   cuda_work_completion_promise(const raft::resources& res)
   {
     auto* promise = new std::promise<void>;
-    RAFT_CUDA_TRY(cudaLaunchHostFunc(
-      raft::resource::get_cuda_stream(res), completion_callback, reinterpret_cast<void*>(promise)));
+    RAFT_CUDA_TRY(cudaLaunchHostFunc(raft::resource::get_cuda_stream(res).get(),
+                                     completion_callback,
+                                     reinterpret_cast<void*>(promise)));
     value_ = promise->get_future();
   }
 

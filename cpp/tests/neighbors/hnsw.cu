@@ -8,6 +8,7 @@
 #include "cagra_padded_build_helpers.cuh"
 
 #include <cstdint>
+#include <cuda/stream>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/hnsw.hpp>
 #include <raft/core/host_mdspan.hpp>
@@ -159,7 +160,7 @@ class AnnHNSWTest : public ::testing::TestWithParam<AnnHNSWInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnHNSWInputs ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> queries;

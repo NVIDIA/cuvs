@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -35,7 +35,7 @@ value_t _silhouette_score(
                                   labels.data_handle(),
                                   n_unique_labels,
                                   silhouette_score_per_sample_ptr,
-                                  raft::resource::get_cuda_stream(handle),
+                                  raft::resource::get_cuda_stream(handle).get(),
                                   metric);
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,8 @@ namespace cuvs::neighbors::ivf_rabitq {
 
 using f32_f32_i64 = ivf_rabitq_test<float, float, int64_t>;
 
+TEST_BUILD_SEARCH(f32_f32_i64)
+TEST_BUILD_HOST_INPUT_SEARCH(f32_f32_i64)
 TEST_BUILD_SERIALIZE_SEARCH(f32_f32_i64)
 TEST_BUILD_HOST_INPUT_SERIALIZE_SEARCH(f32_f32_i64)
 TEST_BUILD_FORCED_STREAMING(f32_f32_i64)

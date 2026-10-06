@@ -181,6 +181,9 @@ Build the multi-GPU CAGRA index from the dataset for efficient search.
 
 ```python
 >>> import numpy as np
+>>> from pylibraft.common import device_ndarray
+>>> from cuvs.common import make_device_padded_dataset
+>>> from cuvs.neighbors import cagra as sg_cagra
 >>> from cuvs.neighbors.mg import cagra
 >>> n_samples = 50000
 >>> n_features = 50
@@ -191,6 +194,9 @@ Build the multi-GPU CAGRA index from the dataset for efficient search.
 ...     np.float32)
 >>> build_params = cagra.IndexParams(metric="sqeuclidean")
 >>> index = cagra.build(build_params, dataset)
+>>> device_dataset = device_ndarray(dataset)
+>>> padded_dataset = make_device_padded_dataset(device_dataset)
+>>> _ = cagra.update_dataset(index, padded_dataset)
 >>> distances, neighbors = cagra.search(cagra.SearchParams(),
 ...                                         index, dataset, k)
 >>> # Results are already in host memory (NumPy arrays)
@@ -285,6 +291,18 @@ Search the multi-GPU CAGRA index for the k-nearest neighbors of each query.
 ...                                         index, queries, k)
 >>> # Results are already in host memory (NumPy arrays)
 ```
+
+## update_dataset
+
+`@auto_sync_multi_gpu_resources`
+
+```python
+def update_dataset(Index index, padded_dataset, resources=None)
+```
+
+Update a multi-GPU CAGRA index with a padded dataset.
+
+Accepts a ``Dataset`` or array.
 
 ## save
 

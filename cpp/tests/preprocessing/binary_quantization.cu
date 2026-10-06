@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -42,7 +42,7 @@ class BinaryQuantizationTest : public ::testing::TestWithParam<BinaryQuantizatio
  public:
   BinaryQuantizationTest()
     : params_(::testing::TestWithParam<BinaryQuantizationInputs<T>>::GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       input_(0, stream)
   {
   }
@@ -63,8 +63,9 @@ class BinaryQuantizationTest : public ::testing::TestWithParam<BinaryQuantizatio
       params.threshold = params_.threshold;
 
       const auto col_quantized = raft::div_rounding_up_safe(cols_, 8);
-      auto quantized_input_h   = raft::make_host_matrix<QuantI, int64_t>(rows_, cols_);
-      auto quantized_input_d   = raft::make_device_matrix<QuantI, int64_t>(handle, rows_, cols_);
+      auto quantized_input_h   = raft::make_host_matrix<QuantI, int64_t>(rows_, col_quantized);
+      auto quantized_input_d =
+        raft::make_device_matrix<QuantI, int64_t>(handle, rows_, col_quantized);
 
       cuvs::preprocessing::quantize::binary::quantizer<T> quantizer(handle);
       if (train_host_) {
@@ -80,7 +81,7 @@ class BinaryQuantizationTest : public ::testing::TestWithParam<BinaryQuantizatio
 
       ASSERT_TRUE(devArrMatchHost(quantized_input_h.data_handle(),
                                   quantized_input_d.data_handle(),
-                                  input_.size(),
+                                  quantized_input_h.size(),
                                   cuvs::Compare<QuantI>(),
                                   stream));
     }
