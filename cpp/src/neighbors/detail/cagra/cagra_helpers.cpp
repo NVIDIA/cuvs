@@ -115,12 +115,13 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
   return std::make_tuple(total_host, total_dev, total_host_fixed, total_dev_fixed);
 }
 
-size_t vpq_dataset_size(raft::matrix_extent<int64_t> dataset,
+size_t vpq_dataset_size(size_t uncompressed_dataset_rows,
+                        size_t uncompressed_dataset_cols,
                         cuvs::neighbors::vpq_params params,
                         size_t codebook_element_size)
 {
-  const size_t n_rows = dataset.extent(0);
-  const size_t dim    = dataset.extent(1);
+  const size_t n_rows = uncompressed_dataset_rows;
+  const size_t dim    = uncompressed_dataset_cols;
 
   // Mirror detail::fill_missing_params_heuristics for the fields that affect the footprint.
   const size_t pq_bits = params.pq_bits == 0 ? 8 : params.pq_bits;
@@ -404,7 +405,7 @@ inline std::pair<size_t, size_t> iterative_build_mem_usage(
   size_t dataset_dev;
   size_t query_scratch = 0;
   if (compression.has_value()) {
-    dataset_dev   = vpq_dataset_size(dataset, compression.value());
+    dataset_dev   = vpq_dataset_size(n_rows, dim, compression.value());
     query_scratch = chunk * stride * dtype_size;
   } else {
     dataset_dev = n_rows * stride * dtype_size;

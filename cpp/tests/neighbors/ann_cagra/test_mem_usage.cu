@@ -116,8 +116,7 @@ TEST(CagraMemUsage, VpqDatasetSizeMatchesCompressedDataset)
     res, params, raft::make_const_mdspan(dataset.view()));
   raft::resource::sync_stream(res);
 
-  EXPECT_EQ(helpers::vpq_dataset_size(extents_of(n_rows, dim), params),
-            compressed_bytes(compressed));
+  EXPECT_EQ(helpers::vpq_dataset_size(n_rows, dim, params), compressed_bytes(compressed));
 }
 
 TEST(CagraMemUsage, VpqDatasetSizeResolvesUnsetParams)
@@ -136,8 +135,7 @@ TEST(CagraMemUsage, VpqDatasetSizeResolvesUnsetParams)
     res, params, raft::make_const_mdspan(dataset.view()));
   raft::resource::sync_stream(res);
 
-  EXPECT_EQ(helpers::vpq_dataset_size(extents_of(n_rows, dim), params),
-            compressed_bytes(compressed));
+  EXPECT_EQ(helpers::vpq_dataset_size(n_rows, dim, params), compressed_bytes(compressed));
 }
 
 // ---------------------------------------------------------------------------
