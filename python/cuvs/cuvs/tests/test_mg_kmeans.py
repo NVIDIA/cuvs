@@ -218,3 +218,10 @@ def test_mg_kmeans_input_validation():
             sample_weights=cp.ones(X.shape[0], dtype=cp.float32),
             resources=resources,
         )
+
+
+def test_mg_stream_pool_setter():
+    device_ids = [0, 1] if has_gpus(2) else [0]
+    resources = MultiGpuResources(device_ids=device_ids)
+    resources.set_stream_pool(2)
+    resources.sync()

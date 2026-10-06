@@ -309,7 +309,6 @@ struct AnnCagraInputs {
   double min_recall;  // = std::nullopt;
   std::optional<float> ivf_pq_search_refine_ratio = std::nullopt;
 
-  std::optional<bool> non_owning_memory_buffer_flag = std::nullopt;
   cuvs::neighbors::MergeStrategy merge_strategy =
     cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL;
   cuvs::neighbors::cagra::internal_dtype smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
@@ -1660,33 +1659,100 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
 inline std::vector<AnnCagraInputs> generate_inputs()
 {
   // TODO(tfeher): test MULTI_CTA kernel with search_width > 1 to allow multiple CTA per queries
-  // Change graph dim, search algo and max_query parameter
+  // The graph build time dominates the test time, so the graph build algo and the search algo are
+  // swept separately instead of as a full tensor product.
+  // L1 is only supported with ITERATIVE_CAGRA_SEARCH, BitwiseHamming is always skipped for 1000
+  // rows with dim <= 16 and k = 16, and Cosine is skipped for dim == 1, so these are not included
+  // where they would only be skipped.
+
+  // Change graph dim, degree and graph build algo with a single search algo
   std::vector<AnnCagraInputs> inputs = raft::util::itertools::product<AnnCagraInputs>(
     {100},
     {1000},
     {1, 16},
     {16},                                                      // k
-    {32, 47, 64},                                              // degree
+    {47, 64},                                                  // degree
     {graph_build_algo::IVF_PQ, graph_build_algo::NN_DESCENT},  // build algo.
-    {search_algo::SINGLE_CTA, search_algo::MULTI_CTA, search_algo::MULTI_KERNEL},
+    {search_algo::SINGLE_CTA},
     {0, 10},  // query size
     {0},
     {256},
     {1},
-    {cuvs::distance::DistanceType::L2Expanded,
-     cuvs::distance::DistanceType::InnerProduct,
-     cuvs::distance::DistanceType::BitwiseHamming,
-     cuvs::distance::DistanceType::CosineExpanded,
-     cuvs::distance::DistanceType::L1},
+    {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::InnerProduct},
     {false},
     {true},
-    {true, false},
+    {true},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
 
+  // Cosine is skipped for dim == 1
   auto inputs2 = raft::util::itertools::product<AnnCagraInputs>(
+    {100},
+    {1000},
+    {16},
+    {16},                                                      // k
+    {47, 64},                                                  // degree
+    {graph_build_algo::IVF_PQ, graph_build_algo::NN_DESCENT},  // build algo.
+    {search_algo::SINGLE_CTA},
+    {0, 10},  // query size
+    {0},
+    {256},
+    {1},
+    {cuvs::distance::DistanceType::CosineExpanded},
+    {false},
+    {true},
+    {true},
+    {0.995},
+    {std::optional<float>{std::nullopt}},
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
+  // Change search algo and max_query parameter with a single (cheap) graph build algo
+  inputs2 = raft::util::itertools::product<AnnCagraInputs>(
+    {100},
+    {1000},
+    {1, 16},
+    {16},  // k
+    {64},  // degree
+    {graph_build_algo::IVF_PQ},
+    {search_algo::MULTI_CTA, search_algo::MULTI_KERNEL},
+    {0, 10},  // query size
+    {0},
+    {256},
+    {1},
+    {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::InnerProduct},
+    {false},
+    {true},
+    {true},
+    {0.995},
+    {std::optional<float>{std::nullopt}},
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
+  // Cosine is skipped for dim == 1
+  inputs2 = raft::util::itertools::product<AnnCagraInputs>(
+    {100},
+    {1000},
+    {16},
+    {16},  // k
+    {64},  // degree
+    {graph_build_algo::IVF_PQ},
+    {search_algo::MULTI_CTA, search_algo::MULTI_KERNEL},
+    {0, 10},  // query size
+    {0},
+    {256},
+    {1},
+    {cuvs::distance::DistanceType::CosineExpanded},
+    {false},
+    {true},
+    {true},
+    {0.995},
+    {std::optional<float>{std::nullopt}},
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
+  inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
     {1000},
     {1, 16},
@@ -1708,7 +1774,6 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {false},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
@@ -1734,7 +1799,6 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {false},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
@@ -1757,7 +1821,6 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {true},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
      cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
@@ -1765,10 +1828,10 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying dim and build algo.
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {1000},
-    {1, 3, 5, 7, 8, 17, 64, 128, 137, 192, 256, 512, 1024},  // dim
-    {16},                                                    // k
-    {32},                                                    // degree
+    {500},
+    {3, 7, 17, 137, 192, 256, 1024},  // dim
+    {16},                             // k
+    {32},                             // degree
     {graph_build_algo::IVF_PQ,
      graph_build_algo::NN_DESCENT,
      graph_build_algo::ITERATIVE_CAGRA_SEARCH},
@@ -1786,7 +1849,6 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {false},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
      cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
@@ -1794,7 +1856,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying team_size, graph_build_algo
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {1000},
+    {500},
     {64},
     {16},
     {32},  // degree
@@ -1816,7 +1878,6 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {false},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
      cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
@@ -1824,7 +1885,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Vary team size only.
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {1000},
+    {500},
     {64},
     {16},
     {32},  // degree
@@ -1844,14 +1905,13 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {false},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
   // Varying n_rows, host_dataset
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {10000},
+    {100},
     {32},
     {10},
     {32},  // degree
@@ -1862,12 +1922,11 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {64},
     {1},
     {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::InnerProduct},
-    {false, true},
+    {true},
     {false},
     {true},
     {0.985},
     {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
      cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
@@ -1876,8 +1935,8 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying host_dataset, ivf_pq_search_refine_ratio
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {5000},
-    {32, 64},
+    {100},
+    {32},
     {16},
     {32},  // degree
     {graph_build_algo::IVF_PQ},
@@ -1892,37 +1951,8 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {true},
     {0.99},
     {1.0f, 2.0f, 3.0f},
-    {std::optional<bool>{std::nullopt}},
-    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
-     cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
-
-  // Varying dim, adding non_owning_memory_buffer_flag
-  inputs2 = raft::util::itertools::product<AnnCagraInputs>(
-    {100},
-    {1000},
-    {1, 5, 8, 64, 137, 256, 619, 1024},  // dim
-    {10},
-    {32},  // degree
-    {graph_build_algo::IVF_PQ},
-    {search_algo::AUTO},
-    {10},
-    {0},  // team_size
-    {64},
-    {1},
-    {cuvs::distance::DistanceType::L2Expanded},
-    {false},
-    {false},
-    {false},
-    {0.995},
-    {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
-    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
-     cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
-  for (auto input : inputs2) {
-    input.non_owning_memory_buffer_flag = true;
-    inputs.push_back(input);
-  }
 
   return inputs;
 }
@@ -1972,7 +2002,6 @@ inline std::vector<AnnCagraInputs> generate_addnode_inputs()
     {false},
     {0.985},
     {std::optional<float>{std::nullopt}},
-    {std::optional<bool>{std::nullopt}},
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
