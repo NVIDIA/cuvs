@@ -37,7 +37,7 @@ function(_cutile_detect)
   find_program(
     CUVS_CUTILE_BIN2C
     NAMES bin2c
-    PATHS ${CUDAToolkit_BIN_DIR} REQUIRED
+    PATHS ${CUDAToolkit_BIN_DIR} NO_DEFAULT_PATH
   )
   if(NOT CUVS_CUTILE_BIN2C)
     message(STATUS "cuTile disabled: bin2c not found in ${CUDAToolkit_BIN_DIR}.")
