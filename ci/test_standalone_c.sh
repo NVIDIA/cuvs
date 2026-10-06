@@ -44,18 +44,21 @@ rapids-logger "Installing CUDA toolkit"
 
 # CTK packages are suffixed like '*-13-3'
 CTK_PACKAGE_SUFFIX="$(echo "${RAPIDS_CUDA_VERSION}" | cut -d. -f1,2 | tr '.' '-')"
+CUDA_MAJOR_MINOR="$(echo "${RAPIDS_CUDA_VERSION}" | cut -d. -f1,2)"
 if command -v dnf >/dev/null; then
   dnf install \
     -y \
     --setopt=install_weak_deps=False \
-    "cuda-toolkit-${CTK_PACKAGE_SUFFIX}"
+    "cuda-toolkit-${CTK_PACKAGE_SUFFIX}" \
+    "libnccl-*+cuda${CUDA_MAJOR_MINOR}*"
 else
   apt-get update
   DEBIAN_FRONTEND=noninteractive \
     apt-get install \
       -y \
       --no-install-recommends \
-      "cuda-toolkit-${CTK_PACKAGE_SUFFIX}"
+      "cuda-toolkit-${CTK_PACKAGE_SUFFIX}" \
+      "libnccl2=*+cuda${CUDA_MAJOR_MINOR}"
 fi
 
 C_API_SMOKE_TEST="${INSTALL_PREFIX}/bin/cuvs_c_dlsym_smoke"
