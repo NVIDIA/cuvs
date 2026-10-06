@@ -332,8 +332,7 @@ endif()
 
 if(CUVS_ANN_BENCH_USE_FAISS_CPU_BINARY_IVF)
   ConfigureAnnBench(
-    NAME FAISS_CPU_BINARY_IVF PATH src/faiss/faiss_cpu_benchmark.cpp LINKS
-    ${CUVS_FAISS_TARGETS}
+    NAME FAISS_CPU_BINARY_IVF PATH src/faiss/faiss_cpu_benchmark.cpp LINKS ${CUVS_FAISS_TARGETS}
   )
 endif()
 
