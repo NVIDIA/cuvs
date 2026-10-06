@@ -1829,7 +1829,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
   // Varying dim and build algo.
   inputs2 = raft::util::itertools::product<AnnCagraInputs>(
     {100},
-    {600},
+    {500},
     {3, 7, 17, 137, 192, 256, 1024},  // dim
     {16},                             // k
     {32},                             // degree
