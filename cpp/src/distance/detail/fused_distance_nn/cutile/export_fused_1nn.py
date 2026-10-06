@@ -147,7 +147,7 @@ def _kernel_signature(
     matrix = _cuvs_matrix_constraint(
         elem,
         index_dtype=idx_dtype,
-        require_tma_friendly_pitch=matrix_layout == "strict",
+        require_tma_friendly_pitch=matrix_layout in ("strict", "high_dim"),
         require_ldgsts_friendly_shape=(
             matrix_layout == "strict" and gpu_code in ("sm_80", "sm_86")
         ),
@@ -202,7 +202,11 @@ def export_binary(
     gpu_code: str,
     matrix_layout: str = "strict",
     occupancy: int | None = None,
+    num_ctas: int | None = None,
 ) -> str:
+    # TODO (huuanhhuyn) Support Rubin
+    if matrix_layout == "high_dim" and (num_ctas is None or num_ctas <= 1):
+        raise ValueError("high_dim exports must specify num_ctas > 1")
     kernel = make_kernel(
         data_type,
         metric,
@@ -213,6 +217,7 @@ def export_binary(
         gpu_code=gpu_code,
         matrix_layout=matrix_layout,
         occupancy=occupancy,
+        num_ctas=num_ctas,
     )
     signature = _kernel_signature(
         data_type,
@@ -253,10 +258,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--matrix-layout",
-        choices=("strict", "relaxed"),
+        choices=("strict", "relaxed", "high_dim"),
         default="strict",
     )
     parser.add_argument("--occupancy", type=int)
+    parser.add_argument("--num-ctas", type=int)
     args = parser.parse_args()
 
     export_binary(
@@ -270,6 +276,7 @@ def main() -> int:
         gpu_code=args.gpu_code,
         matrix_layout=args.matrix_layout,
         occupancy=args.occupancy,
+        num_ctas=args.num_ctas,
     )
     return 0
 

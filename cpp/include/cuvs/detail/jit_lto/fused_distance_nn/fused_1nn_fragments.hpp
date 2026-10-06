@@ -9,6 +9,7 @@ namespace cuvs::distance::detail {
 
 struct cutile_abi_strict {};
 struct cutile_abi_relaxed {};
+struct cutile_abi_high_dim {};  // when K and N exceed per-arch thresholds and on strict ABI
 
 template <int TileM, int TileN, int TileK>
 struct cutile_tile_config {

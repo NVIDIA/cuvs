@@ -115,6 +115,9 @@ function(_cutile_make_python_args output_var)
   if(DEFINED occupancy AND NOT "${occupancy}" STREQUAL "")
     list(APPEND _python_args --occupancy "${occupancy}")
   endif()
+  if(DEFINED num_ctas AND NOT "${num_ctas}" STREQUAL "")
+    list(APPEND _python_args --num-ctas "${num_ctas}")
+  endif()
   set(${output_var}
       "${_python_args}"
       PARENT_SCOPE

@@ -317,6 +317,15 @@ const std::vector<NNInputs<IdxT>> input_fp32_fused = [] {
                     uint64_t(31415926),
                     0.1,
                     cuvs::distance::detail::Top1nnBackend::Cutile});
+  // High-dimensional tile, strict ABI
+  inputs.push_back({128,
+                    2000,
+                    2048,
+                    DistanceType::L2Expanded,
+                    false,
+                    uint64_t(31415926),
+                    0.1,
+                    cuvs::distance::detail::Top1nnBackend::Cutile});
 #endif
   return inputs;
 }();
@@ -593,6 +602,33 @@ const std::vector<NNInputs<IdxT>> input_fp16_cutile = {
    false,
    uint64_t(31415926),
    0.1,
+   cuvs::distance::detail::Top1nnBackend::Auto},
+  // High-dimensional tile cases: k=2048 crosses the sm_90 FP16 threshold (1536).
+  // k divisible by 8 → strict ABI; k=2049 is not, → relaxed ABI.
+  // FP16 accumulates in FP32, so error is smaller than FP32 TF32; tolerance is still generous.
+  {64,
+   2048,
+   2048,
+   DistanceType::L2Expanded,
+   false,
+   uint64_t(31415926),
+   2.0,
+   cuvs::distance::detail::Top1nnBackend::Cutile},
+  {64,
+   2048,
+   2049,
+   DistanceType::CosineExpanded,
+   false,
+   uint64_t(31415926),
+   2.0,
+   cuvs::distance::detail::Top1nnBackend::Cutile},
+  {64,
+   2048,
+   2048,
+   DistanceType::L2Expanded,
+   false,
+   uint64_t(31415926),
+   2.0,
    cuvs::distance::detail::Top1nnBackend::Auto},
 };
 
