@@ -8,6 +8,8 @@
 #include <raft/core/numpy_serializer.hpp>
 #include <raft/core/serialize.hpp>
 
+#include <cuvs/util/numpy_dtype.hpp>
+
 #include <algorithm>
 #include <cstring>
 #include <istream>
@@ -330,14 +332,7 @@ std::pair<file_descriptor, size_t> create_numpy_file(const std::string& path,
   file_descriptor fd(path, flags, 0644);
 
   try {
-    // Build header
-    const auto dtype                              = raft::numpy_serializer::get_numpy_dtype<T>();
-    const bool fortran_order                      = false;
-    const raft::numpy_serializer::header_t header = {dtype, fortran_order, shape};
-
-    std::stringstream ss;
-    raft::numpy_serializer::write_header(ss, header);
-    std::string header_str = ss.str();
+    std::string header_str = detail::make_numpy_header_string<T>(shape);
 
     RAFT_EXPECTS((kNumpyDataAlignment & (kNumpyDataAlignment - 1)) == 0,
                  "kNumpyDataAlignment must be a power of two");

@@ -65,6 +65,11 @@ final class UnsupportedProvider implements CuVSProvider {
   }
 
   @Override
+  public VamanaIndex.Builder newVamanaIndexBuilder(CuVSResources cuVSResources) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
   public HnswIndex hnswIndexFromCagra(HnswIndexParams hnswParams, CagraIndex cagraIndex)
       throws Throwable {
     throw new UnsupportedOperationException(reasons);

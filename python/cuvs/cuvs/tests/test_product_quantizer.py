@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -10,6 +10,24 @@ from pylibraft.common import device_ndarray
 from cuvs.preprocessing.quantize import pq
 from cuvs.neighbors import brute_force
 from cuvs.tests.ann_utils import calc_recall, generate_data
+
+
+def test_pq_dataset_params():
+    params = pq.PQDatasetParams(
+        pq_bits=7,
+        pq_dim=16,
+        vq_n_centers=32,
+        kmeans_n_iters=10,
+        vq_kmeans_trainset_fraction=0.25,
+        pq_kmeans_trainset_fraction=0.5,
+    )
+
+    assert params.pq_bits == 7
+    assert params.pq_dim == 16
+    assert params.vq_n_centers == 32
+    assert params.kmeans_n_iters == 10
+    assert params.vq_kmeans_trainset_fraction == 0.25
+    assert params.pq_kmeans_trainset_fraction == 0.5
 
 
 @pytest.mark.parametrize("n_rows", [700, 1000])

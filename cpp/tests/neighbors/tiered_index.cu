@@ -7,6 +7,7 @@
 #include "ann_utils.cuh"
 
 #include <cstdint>
+#include <cuda/stream>
 #include <cuvs/neighbors/tiered_index.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -220,7 +221,7 @@ class ANNTieredIndexTest : public ::testing::TestWithParam<AnnTieredIndexInputs>
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnTieredIndexInputs ps;
   rmm::device_uvector<value_type> database;
   rmm::device_uvector<value_type> queries;

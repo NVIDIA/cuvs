@@ -209,6 +209,23 @@ const auto inputsf_i32 = get_kmeans_balanced_inputs<float, int>();
 const auto inputsf_i64 = get_kmeans_balanced_inputs<float, int64_t>();
 // const auto inputsd_i64 = get_kmeans_balanced_inputs<double, int64_t>();
 const auto inputsf_cosine_i32 = get_kmeans_balanced_cosine_inputs<float, int>();
+const std::vector<KmeansBalancedInputs<float, int64_t>> inputsh_i64 = [] {
+  KmeansBalancedInputs<float, int64_t> l2{};
+  l2.n_rows               = 1000;
+  l2.n_cols               = 32;
+  l2.n_clusters           = 5;
+  l2.kb_params.n_iters    = 20;
+  l2.kb_params.metric     = cuvs::distance::DistanceType::L2Expanded;
+  l2.tol                  = 0.001f;
+  auto cosine             = l2;
+  cosine.kb_params.metric = cuvs::distance::DistanceType::CosineExpanded;
+  return std::vector<KmeansBalancedInputs<float, int64_t>>{l2, cosine};
+}();
+
+struct half_to_float {
+  raft::cast_op<half> reverse_op{};
+  RAFT_INLINE_FUNCTION float operator()(half value) const { return static_cast<float>(value); }
+};
 
 #define KB_TEST(test_type, test_name, test_inputs)         \
   typedef RAFT_DEPAREN(test_type) test_name;               \
@@ -268,6 +285,10 @@ struct i2f_scaler {
 
   RAFT_INLINE_FUNCTION auto operator()(const DataT& x) const { return op(x); };
 };
+
+KB_TEST((KmeansBalancedTest<half, float, uint32_t, int64_t, half_to_float, true>),
+        KmeansBalancedTestHFU32I64_SEP,
+        inputsh_i64);
 
 KB_TEST((KmeansBalancedTest<int8_t, float, uint32_t, int, i2f_scaler<int8_t, float>, false>),
         KmeansBalancedTestFI8U32I32,

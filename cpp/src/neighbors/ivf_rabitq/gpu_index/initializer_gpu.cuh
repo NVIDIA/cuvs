@@ -13,6 +13,7 @@
 
 #include <cuvs/util/file_io.hpp>
 
+#include <cuda/stream>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -81,7 +82,7 @@ class InitializerGPU {
   size_t D;                        // Dimension
   size_t K;                        // Num of Centroids
   raft::resources const& handle_;  // reusable resource handle
-  rmm::cuda_stream_view stream_ =
+  cuda::stream_ref stream_ =
     raft::resource::get_cuda_stream(handle_);  // CUDA stream obtained from handle_
 };
 

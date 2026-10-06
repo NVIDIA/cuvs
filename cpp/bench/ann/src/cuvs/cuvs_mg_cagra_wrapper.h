@@ -56,7 +56,7 @@ class cuvs_mg_cagra : public algo<T>, public algo_gpu {
   [[nodiscard]] auto get_sync_stream() const noexcept -> cudaStream_t override
   {
     auto stream = raft::resource::get_cuda_stream(clique_);
-    return stream;
+    return stream.get();
   }
 
   // to enable dataset access from GPU memory

@@ -15,7 +15,7 @@
 
 #include "../../test_utils.cuh"
 
-#include "../../../src/cluster/single_linkage.cuh"
+#include "../../../src/neighbors/detail/knn_graph.cuh"
 #include "../../../src/sparse/neighbors/cross_component_nn.cuh"
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -387,8 +387,6 @@ class ConnectComponentsEdgesTest
   void basicTest()
   {
     raft::resources handle;
-
-    auto stream = raft::resource::get_cuda_stream(handle);
 
     params = ::testing::TestWithParam<
       ConnectComponentsMutualReachabilityInputs<value_t, value_idx>>::GetParam();

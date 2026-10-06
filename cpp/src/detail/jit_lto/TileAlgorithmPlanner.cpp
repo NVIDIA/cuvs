@@ -85,8 +85,6 @@ std::string TileAlgorithmPlanner::get_planner_key(
   for (const auto& fragment : cubin_fragments_) {
     key += fragment->get_key();
   }
-  if (tileir_fragment_) { key += tileir_fragment_->get_key(); }
-
   if (capabilities != nullptr) {
     key += ":device=" + std::to_string(capabilities->device);
     key += ":cc=" + std::to_string(capabilities->cc_major) + "." +
@@ -96,9 +94,8 @@ std::string TileAlgorithmPlanner::get_planner_key(
       key += ":cubin=" + std::to_string(fragment->get_cc_major()) + "." +
              std::to_string(fragment->get_cc_minor());
     } else {
-      key += ":tileir";
+      key += ":unavailable";
     }
-    key += ":driver=" + std::to_string(capabilities->driver_version);
   }
   return key;
 }
@@ -113,13 +110,7 @@ CutileTileConfig TileAlgorithmPlanner::tile_config() const
     }
   }
 
-  if (tileir_fragment_) { return tile_config_from_fragment(tileir_fragment_.get(), entrypoint_); }
-
-  if (!cubin_fragments_.empty()) {
-    return tile_config_from_fragment(cubin_fragments_.front().get(), entrypoint_);
-  }
-
-  RAFT_FAIL("cuTile planner '%s' has no registered fragments", entrypoint_.c_str());
+  RAFT_FAIL("cuTile planner '%s' has no compatible cubin", entrypoint_.c_str());
 }
 
 std::shared_ptr<rtcx::algorithm_launcher> TileAlgorithmPlanner::build(
@@ -127,8 +118,7 @@ std::shared_ptr<rtcx::algorithm_launcher> TileAlgorithmPlanner::build(
 {
   if (capabilities == nullptr) { return nullptr; }
 
-  auto image = cuvs::detail::jit_lto::resolve_cutile_module_image(
-    *capabilities, cubin_fragments_, tileir_fragment_.get());
+  auto image = cuvs::detail::jit_lto::resolve_cutile_module_image(*capabilities, cubin_fragments_);
   if (!image) { return nullptr; }
 
   return cuvs::detail::jit_lto::try_load_cutile_launcher(*image, entrypoint_);

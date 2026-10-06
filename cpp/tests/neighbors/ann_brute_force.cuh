@@ -11,6 +11,7 @@
 
 #include <cuvs/neighbors/brute_force.hpp>
 
+#include <cuda/stream>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 
@@ -158,7 +159,7 @@ class AnnBruteForceTest : public ::testing::TestWithParam<AnnBruteForceInputs<Id
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnBruteForceInputs<IdxT> ps;
   rmm::device_uvector<DataT> database;
   rmm::device_uvector<DataT> search_queries;

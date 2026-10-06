@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -205,6 +205,13 @@ class CUVS_EXPORT GNND {
              bool return_distances,
              DistData_t* output_distances,
              DistEpilogue_t dist_epilogue = DistEpilogue_t{});
+
+  template <typename DistEpilogue_t = raft::identity_op>
+  void build(cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
+             Index_t* output_graph,
+             bool return_distances,
+             DistData_t* output_distances,
+             DistEpilogue_t dist_epilogue = DistEpilogue_t{});
   ~GNND()    = default;
   using ID_t = InternalID_t<Index_t>;
   void reset(raft::resources const& res);
@@ -218,6 +225,12 @@ class CUVS_EXPORT GNND {
 
   template <typename DistEpilogue_t>
   void local_join(cudaStream_t stream = 0, DistEpilogue_t dist_epilogue = DistEpilogue_t{});
+
+  template <typename DistEpilogue_t>
+  void local_join(
+    cudaStream_t stream,
+    cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
+    DistEpilogue_t dist_epilogue = DistEpilogue_t{});
 
   raft::resources const& res;
 
