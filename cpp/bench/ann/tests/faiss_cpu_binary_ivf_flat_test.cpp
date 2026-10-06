@@ -3,12 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "../src/common/training_sample.hpp"
 #include "../src/faiss/faiss_cpu_binary_ivf_flat_wrapper.h"
 
 #include <gtest/gtest.h>
 
-#include <algorithm>
 #include <bit>
 #include <cstddef>
 #include <cstdint>
@@ -26,10 +24,10 @@ TEST(FaissCpuBinaryIvfFlat, ExhaustiveSearchReturnsExactHammingDistances)
   }
 
   faiss_cpu_binary_ivf_flat::build_param build_param;
-  build_param.nlist                         = 4;
-  build_param.niter                         = 5;
-  build_param.build_threads                 = 2;
-  build_param.max_train_points_per_centroid = 32;
+  build_param.nlist                   = 4;
+  build_param.niter                   = 5;
+  build_param.build_threads           = 2;
+  build_param.max_points_per_centroid = 32;
 
   faiss_cpu_binary_ivf_flat index(Metric::kBitwiseHamming, 1, build_param);
   index.build(dataset.data(), dataset.size());
@@ -75,16 +73,6 @@ TEST(FaissCpuBinaryIvfFlat, ValidatesMetricAndProbeCount)
   search_param.k         = 1;
   search_param.n_queries = 1;
   EXPECT_THROW(index.set_search_param(search_param, nullptr), std::invalid_argument);
-}
-
-TEST(TrainingSample, IsDeterministicAndSupportsAllRows)
-{
-  const auto first  = uniform_sample_ids(100, 16, 42);
-  const auto second = uniform_sample_ids(100, 16, 42);
-  EXPECT_EQ(first, second);
-  EXPECT_EQ(first.size(), 16);
-  EXPECT_TRUE(std::is_sorted(first.begin(), first.end()));
-  EXPECT_EQ(training_sample_size(100, 4, 1'000), 100);
 }
 
 }  // namespace

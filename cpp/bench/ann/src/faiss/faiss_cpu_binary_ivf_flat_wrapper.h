@@ -5,7 +5,6 @@
 #pragma once
 
 #include "../common/ann_types.hpp"
-#include "../common/training_sample.hpp"
 
 #include <faiss/IndexBinaryFlat.h>
 #include <faiss/IndexBinaryIVF.h>
@@ -18,7 +17,6 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
@@ -38,8 +36,6 @@ class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
     int max_points_per_centroid         = 64;
     int build_threads                   = omp_get_max_threads();
     std::size_t coarse_query_batch_size = 512;
-    std::optional<std::size_t> max_train_points_per_centroid;
-    std::uint64_t sampling_seed = 42;
   };
 
   struct search_param : public search_param_base {
@@ -80,25 +76,9 @@ class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
       throw std::overflow_error("Faiss Binary IVF dataset size exceeds faiss::idx_t");
     }
 
-    const auto sample_size =
-      build_params_.max_train_points_per_centroid.has_value()
-        ? training_sample_size(
-            nrow, build_params_.nlist, *build_params_.max_train_points_per_centroid)
-        : nrow;
-    std::vector<uint8_t> training_sample;
-    const auto* training_data = dataset;
-    if (sample_size < nrow) {
-      training_sample = make_training_sample(dataset,
-                                             nrow,
-                                             static_cast<std::size_t>(this->dim_),
-                                             sample_size,
-                                             build_params_.sampling_seed);
-      training_data   = training_sample.data();
-    }
-
-    initialize_index(sample_size);
+    initialize_index();
     omp_thread_scope thread_scope(build_params_.build_threads);
-    index_->train(static_cast<faiss::idx_t>(sample_size), training_data);
+    index_->train(static_cast<faiss::idx_t>(nrow), dataset);
     if (!index_->is_trained) { throw std::runtime_error("Faiss Binary IVF training failed"); }
     index_->add(static_cast<faiss::idx_t>(nrow), dataset);
   }
@@ -246,27 +226,18 @@ class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
     if (build_params_.coarse_query_batch_size == 0) {
       throw std::invalid_argument("coarse_query_batch_size must be positive");
     }
-    if (build_params_.max_train_points_per_centroid == 0) {
-      throw std::invalid_argument("max_train_points_per_centroid must be positive");
-    }
   }
 
-  void initialize_index(std::size_t training_rows)
+  void initialize_index()
   {
     auto new_quantizer              = std::make_shared<faiss::IndexBinaryFlat>(binary_dimension_);
     new_quantizer->query_batch_size = build_params_.coarse_query_batch_size;
 
     auto new_index = std::make_shared<faiss::IndexBinaryIVF>(
       new_quantizer.get(), binary_dimension_, build_params_.nlist);
-    new_index->cp.niter = build_params_.niter;
-    new_index->cp.seed  = build_params_.seed;
-    const auto required_points_per_centroid =
-      (training_rows + build_params_.nlist - 1) / build_params_.nlist;
-    if (required_points_per_centroid > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
-      throw std::overflow_error("Faiss training sample exceeds clustering parameter range");
-    }
-    new_index->cp.max_points_per_centroid = std::max(
-      build_params_.max_points_per_centroid, static_cast<int>(required_points_per_centroid));
+    new_index->cp.niter                   = build_params_.niter;
+    new_index->cp.seed                    = build_params_.seed;
+    new_index->cp.max_points_per_centroid = build_params_.max_points_per_centroid;
     configure_search(*new_index);
 
     // Destroy an old borrowed-quantizer index before releasing the quantizer it points to.

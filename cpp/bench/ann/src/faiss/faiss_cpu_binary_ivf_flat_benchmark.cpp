@@ -25,10 +25,6 @@ void parse_build_param(const nlohmann::json& conf, faiss_cpu_binary_ivf_flat::bu
   if (conf.contains("coarse_query_batch_size")) {
     param.coarse_query_batch_size = conf.at("coarse_query_batch_size");
   }
-  if (conf.contains("max_train_points_per_centroid")) {
-    param.max_train_points_per_centroid = conf.at("max_train_points_per_centroid");
-  }
-  if (conf.contains("sampling_seed")) { param.sampling_seed = conf.at("sampling_seed"); }
 }
 
 void parse_search_param(const nlohmann::json& conf, faiss_cpu_binary_ivf_flat::search_param& param)
