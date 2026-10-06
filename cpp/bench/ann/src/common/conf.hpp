@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -39,7 +39,6 @@ class configuration {
     std::string query_file;
     std::string distance;
     std::optional<std::string> groundtruth_neighbors_file{std::nullopt};
-    std::optional<std::string> groundtruth_distances_file{std::nullopt};
 
     // data type of input dataset, possible values ["float", "int8", "uint8"]
     std::string dtype;
@@ -94,10 +93,6 @@ class configuration {
     if (conf.contains("groundtruth_neighbors_file")) {
       dataset_conf_.groundtruth_neighbors_file =
         combine_path(data_prefix, conf.at("groundtruth_neighbors_file"));
-    }
-    if (conf.contains("groundtruth_distances_file")) {
-      dataset_conf_.groundtruth_distances_file =
-        combine_path(data_prefix, conf.at("groundtruth_distances_file"));
     }
     if (conf.contains("subset_first_row")) {
       dataset_conf_.subset_first_row = conf.at("subset_first_row");

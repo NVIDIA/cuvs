@@ -146,5 +146,4 @@
   base_file: openai-5m-binary/base.u8bin
   query_file: openai-5m-binary/query.u8bin
   groundtruth_neighbors_file: openai-5m-binary/groundtruth.neighbors.ibin
-  groundtruth_distances_file: openai-5m-binary/groundtruth.distances.fbin
   distance: bitwise_hamming

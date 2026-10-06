@@ -6,12 +6,10 @@
 Unit tests for the C++ Google Benchmark backend.
 """
 
-import json
-import tempfile
-from pathlib import Path
-
-import numpy as np
 import pytest
+import numpy as np
+from pathlib import Path
+import tempfile
 
 from cuvs_bench.backends import (
     Dataset,
@@ -306,82 +304,6 @@ class TestCppBackendBuildSearch:
 
         finally:
             temp_exec.unlink(missing_ok=True)
-
-    def test_search_passes_groundtruth_distances_file(
-        self, tmp_path, monkeypatch
-    ):
-        """Test that the C++ config receives optional ground-truth distances."""
-        executable = tmp_path / "benchmark"
-        executable.touch()
-        executable.chmod(0o755)
-
-        backend = CppGoogleBenchmarkBackend(
-            {
-                "name": "test_backend",
-                "executable_path": str(executable),
-                "data_prefix": str(tmp_path),
-                "dataset": "binary-test",
-                "output_filename": (
-                    "faiss_cpu_binary_ivf_flat,test",
-                    "faiss_cpu_binary_ivf_flat,test,k10,bs1",
-                ),
-            }
-        )
-        dataset = Dataset(
-            name="binary-test",
-            base_file="binary-test/base.u8bin",
-            query_file="binary-test/query.u8bin",
-            groundtruth_neighbors_file="binary-test/groundtruth.neighbors.ibin",
-            groundtruth_distances_file="binary-test/groundtruth.distances.fbin",
-            distance_metric="bitwise_hamming",
-        )
-        indexes = [
-            IndexConfig(
-                name="faiss_cpu_binary_ivf_flat.nlist16",
-                algo="faiss_cpu_binary_ivf_flat",
-                build_param={"nlist": 16},
-                search_params=[{"nprobe": 1}],
-                file=str(tmp_path / "binary-test" / "index" / "ivf-flat"),
-            )
-        ]
-        captured_config = {}
-
-        def fake_run(command, **kwargs):
-            with open(command[-1]) as config_file:
-                captured_config.update(json.load(config_file))
-            output_arg = next(
-                arg for arg in command if arg.startswith("--benchmark_out=")
-            )
-            output_path = Path(output_arg.split("=", 1)[1])
-            output_path.write_text(
-                json.dumps(
-                    {
-                        "context": {},
-                        "benchmarks": [
-                            {
-                                "name": indexes[0].name,
-                                "real_time": 1.0,
-                                "Recall": 1.0,
-                                "items_per_second": 1.0,
-                                "Latency": 1.0,
-                            }
-                        ],
-                    }
-                )
-            )
-
-        monkeypatch.setattr(
-            "cuvs_bench.backends.cpp_gbench.subprocess.run", fake_run
-        )
-
-        result = backend.search(
-            dataset=dataset, indexes=indexes, k=10, batch_size=1
-        )
-
-        assert result[0].success
-        assert captured_config["dataset"]["groundtruth_distances_file"] == (
-            dataset.groundtruth_distances_file
-        )
 
     def test_search_dry_run(self):
         """Test search dry run mode."""
