@@ -4917,16 +4917,14 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(
  * The footprint is the sum of the VQ codebook, the PQ codebook and the encoded rows. Parameters
  * left at 0 are resolved with the same heuristics that `vpq_build` applies.
  *
- * @param[in] uncompressed_dataset_rows number of rows in the uncompressed dataset
- * @param[in] uncompressed_dataset_cols number of columns in the uncompressed dataset
+ * @param[in] uncompressed_dataset_shape shape of the uncompressed dataset
  * @param[in] params VPQ compression parameters
  * @param[in] codebook_element_size size in bytes of a codebook element (2 for the f16 codebooks
  *            used by CAGRA-Q)
  *
  * @return compressed dataset size in bytes
  */
-size_t vpq_dataset_size(size_t uncompressed_dataset_rows,
-                        size_t uncompressed_dataset_cols,
+size_t vpq_dataset_size(raft::matrix_extent<int64_t> uncompressed_dataset_shape,
                         cuvs::neighbors::vpq_params params,
                         size_t codebook_element_size = 2);
 
