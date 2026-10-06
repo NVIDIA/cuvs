@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "../src/faiss/faiss_cpu_binary_ivf_flat_wrapper.h"
+#include "../src/faiss/faiss_cpu_binary_ivf_wrapper.h"
 
 #include <gtest/gtest.h>
 
@@ -16,20 +16,19 @@
 namespace cuvs::bench {
 namespace {
 
-TEST(FaissCpuBinaryIvfFlat, ExhaustiveSearchReturnsExactHammingDistances)
+TEST(FaissCpuBinaryIvf, ExhaustiveSearchReturnsExactHammingDistances)
 {
   std::vector<std::uint8_t> dataset(256);
   for (std::size_t i = 0; i < dataset.size(); ++i) {
     dataset[i] = static_cast<std::uint8_t>(i);
   }
 
-  faiss_cpu_binary_ivf_flat::build_param build_param;
+  faiss_cpu_binary_ivf::build_param build_param;
   build_param.nlist                   = 4;
   build_param.niter                   = 5;
-  build_param.build_threads           = 2;
   build_param.max_points_per_centroid = 32;
 
-  faiss_cpu_binary_ivf_flat index(Metric::kBitwiseHamming, 1, build_param);
+  faiss_cpu_binary_ivf index(Metric::kBitwiseHamming, 1, build_param);
   index.build(dataset.data(), dataset.size());
 
   const std::vector<std::uint8_t> queries{0x00, 0xff};
@@ -37,10 +36,8 @@ TEST(FaissCpuBinaryIvfFlat, ExhaustiveSearchReturnsExactHammingDistances)
   std::vector<algo_base::index_type> neighbors(queries.size() * k);
   std::vector<float> distances(queries.size() * k);
 
-  faiss_cpu_binary_ivf_flat::search_param search_param;
-  search_param.nprobe    = build_param.nlist;
-  search_param.k         = k;
-  search_param.n_queries = queries.size();
+  faiss_cpu_binary_ivf::search_param search_param;
+  search_param.nprobe = build_param.nlist;
   index.set_search_param(search_param, nullptr);
   index.search(queries.data(), queries.size(), k, neighbors.data(), distances.data());
 
@@ -60,18 +57,15 @@ TEST(FaissCpuBinaryIvfFlat, ExhaustiveSearchReturnsExactHammingDistances)
   }
 }
 
-TEST(FaissCpuBinaryIvfFlat, ValidatesMetricAndProbeCount)
+TEST(FaissCpuBinaryIvf, ValidatesMetricAndProbeCount)
 {
-  faiss_cpu_binary_ivf_flat::build_param build_param;
+  faiss_cpu_binary_ivf::build_param build_param;
   build_param.nlist = 2;
-  EXPECT_THROW(faiss_cpu_binary_ivf_flat(Metric::kEuclidean, 1, build_param),
-               std::invalid_argument);
+  EXPECT_THROW(faiss_cpu_binary_ivf(Metric::kEuclidean, 1, build_param), std::invalid_argument);
 
-  faiss_cpu_binary_ivf_flat index(Metric::kBitwiseHamming, 1, build_param);
-  faiss_cpu_binary_ivf_flat::search_param search_param;
-  search_param.nprobe    = 3;
-  search_param.k         = 1;
-  search_param.n_queries = 1;
+  faiss_cpu_binary_ivf index(Metric::kBitwiseHamming, 1, build_param);
+  faiss_cpu_binary_ivf::search_param search_param;
+  search_param.nprobe = 3;
   EXPECT_THROW(index.set_search_param(search_param, nullptr), std::invalid_argument);
 }
 

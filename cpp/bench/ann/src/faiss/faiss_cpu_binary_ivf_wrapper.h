@@ -10,8 +10,6 @@
 #include <faiss/IndexBinaryIVF.h>
 #include <faiss/index_io.h>
 
-#include <omp.h>
-
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -25,7 +23,7 @@
 namespace cuvs::bench {
 
 /** CPU Faiss Binary IVF benchmark wrapper for byte-packed binary vectors. */
-class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
+class faiss_cpu_binary_ivf final : public algo<uint8_t> {
  public:
   using search_param_base = typename algo<uint8_t>::search_param;
 
@@ -34,17 +32,14 @@ class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
     int niter                           = 25;
     int seed                            = 42;
     int max_points_per_centroid         = 64;
-    int build_threads                   = omp_get_max_threads();
     std::size_t coarse_query_batch_size = 512;
   };
 
   struct search_param : public search_param_base {
-    std::size_t nprobe    = 1;
-    std::size_t k         = 0;
-    std::size_t n_queries = 0;
+    std::size_t nprobe = 1;
   };
 
-  faiss_cpu_binary_ivf_flat(Metric metric, int packed_dim, const build_param& params)
+  faiss_cpu_binary_ivf(Metric metric, int packed_dim, const build_param& params)
     : algo<uint8_t>(metric, packed_dim),
       build_params_(params),
       binary_dimension_(to_binary_dimension(packed_dim))
@@ -55,7 +50,7 @@ class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
     validate_build_params();
   }
 
-  faiss_cpu_binary_ivf_flat(const faiss_cpu_binary_ivf_flat& other)
+  faiss_cpu_binary_ivf(const faiss_cpu_binary_ivf& other)
     : algo<uint8_t>(other.metric_, other.dim_),
       build_params_(other.build_params_),
       binary_dimension_(other.binary_dimension_),
@@ -77,7 +72,6 @@ class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
     }
 
     initialize_index();
-    omp_thread_scope thread_scope(build_params_.build_threads);
     index_->train(static_cast<faiss::idx_t>(nrow), dataset);
     if (!index_->is_trained) { throw std::runtime_error("Faiss Binary IVF training failed"); }
     index_->add(static_cast<faiss::idx_t>(nrow), dataset);
@@ -92,12 +86,8 @@ class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
     if (binary_param.nprobe == 0 || binary_param.nprobe > nlist) {
       throw std::invalid_argument("nprobe must be in [1, nlist]");
     }
-    if (binary_param.k == 0 || binary_param.n_queries == 0) {
-      throw std::invalid_argument("k and n_queries must be positive");
-    }
     search_params_.nprobe    = binary_param.nprobe;
     search_params_.max_codes = 0;
-    distance_scratch_.resize(checked_result_count(binary_param.n_queries, binary_param.k));
   }
 
   void search(const uint8_t* queries,
@@ -167,24 +157,10 @@ class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
   {
     // The index and quantizer are read-only during search and can be shared. Search parameters and
     // the integer-distance scratch buffer remain private to each benchmark thread.
-    return std::make_unique<faiss_cpu_binary_ivf_flat>(*this);
+    return std::make_unique<faiss_cpu_binary_ivf>(*this);
   }
 
  private:
-  class omp_thread_scope {
-   public:
-    explicit omp_thread_scope(int n_threads) : previous_threads_(omp_get_max_threads())
-    {
-      omp_set_num_threads(n_threads);
-    }
-    ~omp_thread_scope() { omp_set_num_threads(previous_threads_); }
-    omp_thread_scope(const omp_thread_scope&)                    = delete;
-    auto operator=(const omp_thread_scope&) -> omp_thread_scope& = delete;
-
-   private:
-    int previous_threads_;
-  };
-
   static auto to_binary_dimension(int packed_dim) -> faiss::idx_t
   {
     if (packed_dim <= 0) {
@@ -219,9 +195,6 @@ class faiss_cpu_binary_ivf_flat final : public algo<uint8_t> {
     if (build_params_.niter <= 0) { throw std::invalid_argument("niter must be positive"); }
     if (build_params_.max_points_per_centroid <= 0) {
       throw std::invalid_argument("max_points_per_centroid must be positive");
-    }
-    if (build_params_.build_threads <= 0) {
-      throw std::invalid_argument("build_threads must be positive");
     }
     if (build_params_.coarse_query_batch_size == 0) {
       throw std::invalid_argument("coarse_query_batch_size must be positive");

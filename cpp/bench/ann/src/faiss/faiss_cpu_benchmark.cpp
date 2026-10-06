@@ -4,6 +4,7 @@
  */
 
 #include "../common/ann_types.hpp"
+#include "faiss_cpu_binary_ivf_wrapper.h"
 #include "faiss_cpu_wrapper.h"
 
 #include <algorithm>
@@ -76,6 +77,19 @@ void parse_build_param(const nlohmann::json& conf,
   }
 }
 
+void parse_build_param(const nlohmann::json& conf, faiss_cpu_binary_ivf::build_param& param)
+{
+  param.nlist = conf.at("nlist");
+  if (conf.contains("niter")) { param.niter = conf.at("niter"); }
+  if (conf.contains("seed")) { param.seed = conf.at("seed"); }
+  if (conf.contains("max_points_per_centroid")) {
+    param.max_points_per_centroid = conf.at("max_points_per_centroid");
+  }
+  if (conf.contains("coarse_query_batch_size")) {
+    param.coarse_query_batch_size = conf.at("coarse_query_batch_size");
+  }
+}
+
 template <typename T>
 void parse_search_param(const nlohmann::json& conf,
                         typename cuvs::bench::faiss_cpu<T>::search_param& param)
@@ -96,6 +110,11 @@ void parse_search_param(const nlohmann::json& conf,
   }
   if (conf.contains("bounded_queue")) { p.bounded_queue = conf.at("bounded_queue"); }
   param.p = p;
+}
+
+void parse_search_param(const nlohmann::json& conf, faiss_cpu_binary_ivf::search_param& param)
+{
+  param.nprobe = conf.at("nprobe");
 }
 
 template <typename T, template <typename> class Algo>
@@ -132,7 +151,13 @@ auto create_algo(const std::string& algo_name,
     }
   }
 
-  if constexpr (std::is_same_v<T, uint8_t>) {}
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (algo_name == "faiss_cpu_binary_ivf") {
+      faiss_cpu_binary_ivf::build_param param;
+      parse_build_param(conf, param);
+      a = std::make_unique<faiss_cpu_binary_ivf>(parse_metric(distance), dim, param);
+    }
+  }
 
   if (!a) { throw std::runtime_error("invalid algo: '" + algo_name + "'"); }
 
@@ -143,20 +168,27 @@ template <typename T>
 auto create_search_param(const std::string& algo_name, const nlohmann::json& conf)
   -> std::unique_ptr<typename cuvs::bench::algo<T>::search_param>
 {
-  if (algo_name == "faiss_cpu_ivf_flat" || algo_name == "faiss_cpu_ivf_pq" ||
-      algo_name == "faiss_cpu_ivf_rabitq" || algo_name == "faiss_cpu_ivf_sq") {
-    auto param = std::make_unique<typename cuvs::bench::faiss_cpu<T>::search_param>();
-    parse_search_param<T>(conf, *param);
-    return param;
-  } else if (algo_name == "faiss_cpu_flat") {
-    auto param = std::make_unique<typename cuvs::bench::faiss_cpu<T>::search_param>();
-    return param;
-  } else if (algo_name == "faiss_cpu_hnsw_flat") {
-    auto param = std::make_unique<typename cuvs::bench::faiss_cpu_hnsw_flat<T>::search_param>();
-    parse_search_param<T>(conf, *param);
-    return param;
+  if constexpr (std::is_same_v<T, float>) {
+    if (algo_name == "faiss_cpu_ivf_flat" || algo_name == "faiss_cpu_ivf_pq" ||
+        algo_name == "faiss_cpu_ivf_rabitq" || algo_name == "faiss_cpu_ivf_sq") {
+      auto param = std::make_unique<typename cuvs::bench::faiss_cpu<T>::search_param>();
+      parse_search_param<T>(conf, *param);
+      return param;
+    } else if (algo_name == "faiss_cpu_flat") {
+      return std::make_unique<typename cuvs::bench::faiss_cpu<T>::search_param>();
+    } else if (algo_name == "faiss_cpu_hnsw_flat") {
+      auto param = std::make_unique<typename cuvs::bench::faiss_cpu_hnsw_flat<T>::search_param>();
+      parse_search_param<T>(conf, *param);
+      return param;
+    }
   }
-  // else
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (algo_name == "faiss_cpu_binary_ivf") {
+      auto param = std::make_unique<faiss_cpu_binary_ivf::search_param>();
+      parse_search_param(conf, *param);
+      return param;
+    }
+  }
   throw std::runtime_error("invalid algo: '" + algo_name + "'");
 }
 
