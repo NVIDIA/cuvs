@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # cuvs empty project template build script
@@ -11,30 +11,31 @@ set -e
 NUMARGS=$#
 ARGS=$*
 
-function hasArg {
-    (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " $1 ")
+function has_arg {
+    local arg="$1"
+    (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " ${arg} ")
 }
 
-if hasArg clean; then
+if has_arg clean; then
   rm -rf c/build
   rm -rf cpp/build
   exit 0
 fi
 
-function gpuArch {
+function gpu_arch {
 
-    if hasArg --allgpuarch && [[ -n $(echo "$ARGS" | { grep -E "\-\-gpu\-arch" || true; } ) ]]; then
-        echo "Error: Cannot specify both --gpu-arch and --allgpuarch"
-        echo "Use either:"
-        echo "  --gpu-arch=\"80-real;90-real\"    (for specific architectures)"
-        echo "  --allgpuarch        (for all supported architectures)"
+    if has_arg --allgpuarch && [[ -n $(echo "$ARGS" | { grep -E "\-\-gpu\-arch" || true; } ) ]]; then
+        echo "Error: Cannot specify both --gpu-arch and --allgpuarch" >&2
+        echo "Use either:" >&2
+        echo "  --gpu-arch=\"80-real;90-real\"    (for specific architectures)" >&2
+        echo "  --allgpuarch        (for all supported architectures)" >&2
         exit 1
     fi
 
     if [[ $(echo "$ARGS" | { grep -Eo "\-\-gpu\-arch" || true; } | wc -l ) -gt 1 ]]; then
-        echo "Error: Multiple --gpu-arch options were provided. Please combine architectures into a single option."
-        echo "Instead of: --gpu-arch=80-real --gpu-arch=90-real"
-        echo "Use:       --gpu-arch=\"80-real;90-real\""
+        echo "Error: Multiple --gpu-arch options were provided. Please combine architectures into a single option." >&2
+        echo "Instead of: --gpu-arch=80-real --gpu-arch=90-real" >&2
+        echo "Use:       --gpu-arch=\"80-real;90-real\"" >&2
         exit 1
     fi
 
@@ -48,7 +49,7 @@ function gpuArch {
     fi
 
     # Handle --allgpuarch
-    if hasArg --allgpuarch; then
+    if has_arg --allgpuarch; then
         echo "RAPIDS"
         return
     fi
@@ -64,7 +65,7 @@ CUVS_REPO_REL=""
 EXTRA_CMAKE_ARGS=()
 
 
-CUVS_CMAKE_CUDA_ARCHITECTURES=$(gpuArch)
+CUVS_CMAKE_CUDA_ARCHITECTURES=$(gpu_arch)
 case ${CUVS_CMAKE_CUDA_ARCHITECTURES} in
     "RAPIDS") echo "Building for *ALL* supported GPU architectures..." ;;
     "NATIVE") echo "Building for the architecture of the GPU in the system..." ;;

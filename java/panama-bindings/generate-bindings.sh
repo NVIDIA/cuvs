@@ -20,9 +20,9 @@ case "${ARCH}" in
     ;;
 esac
 TARGET_DIR="targets/${CUDA_TARGET_ARCH}/include"
-if [ -n "${CONDA_PREFIX:-}" ] && [ -d "${CONDA_PREFIX}/${TARGET_DIR}" ]; then
+if [[ -n "${CONDA_PREFIX:-}" && -d "${CONDA_PREFIX}/${TARGET_DIR}" ]]; then
   CUDA_INCLUDE_DIR="${CONDA_PREFIX}/${TARGET_DIR}"
-elif [ -d "/usr/local/cuda/${TARGET_DIR}" ]; then
+elif [[ -d "/usr/local/cuda/${TARGET_DIR}" ]]; then
   CUDA_INCLUDE_DIR="/usr/local/cuda/${TARGET_DIR}"
 else
   echo "Couldn't find a suitable CUDA include directory."

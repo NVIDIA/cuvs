@@ -26,7 +26,7 @@ java_sources_modified() {
 }
 
 if ! command -v mvn >/dev/null 2>&1; then
-  if [ "${CI:-false}" = "true" ]; then
+  if [[ "${CI:-false}" = "true" ]]; then
     echo "spotless-fmt: 'mvn' is required in CI but was not found on PATH." >&2
     exit 1
   fi

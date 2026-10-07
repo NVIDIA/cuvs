@@ -23,7 +23,7 @@ case "${ARCH}" in
   *) CONDA_ARCH="${ARCH}" ;;
 esac
 
-if [ -e "/opt/conda/etc/profile.d/conda.sh" ]; then
+if [[ -e "/opt/conda/etc/profile.d/conda.sh" ]]; then
   . /opt/conda/etc/profile.d/conda.sh
 fi
 

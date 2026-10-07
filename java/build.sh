@@ -20,7 +20,7 @@ ARCH=$(uname -m)
 
 BUILD_PROFILE="$ARCH-cuda$CUDA_MAJOR_VERSION"
 
-if [ -z "${CMAKE_PREFIX_PATH:=}" ]; then
+if [[ -z "${CMAKE_PREFIX_PATH:=}" ]]; then
   CMAKE_PREFIX_PATH="$(pwd)/../cpp/build"
   export CMAKE_PREFIX_PATH
 fi
@@ -31,17 +31,18 @@ cmake --build ./internal/build
 # Regenerate the Panama FFM API bindings from the current C headers
 ./panama-bindings/generate-bindings.sh
 
-function hasArg {
-    (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " $1 ")
+function has_arg {
+    local arg="$1"
+    (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " ${arg} ")
 }
 
 MAVEN_VERIFY_ARGS=()
-if ! hasArg --run-java-tests; then
+if ! has_arg --run-java-tests; then
   MAVEN_VERIFY_ARGS=("-DskipTests")
 fi
 
 # Build the java layer
-if [ -z ${LD_LIBRARY_PATH+x} ]
+if [[ -z ${LD_LIBRARY_PATH+x} ]]
 then export LD_LIBRARY_PATH=$CMAKE_PREFIX_PATH
 else export LD_LIBRARY_PATH=$CMAKE_PREFIX_PATH:${LD_LIBRARY_PATH}
 fi
@@ -54,6 +55,6 @@ mvn clean verify "${MAVEN_VERIFY_ARGS[@]}" -P "$BUILD_PROFILE" \
 
 # Build the cuvs-java examples against the jar just installed above, to catch drift between the
 # examples and the cuvs-java API.
-if hasArg --build-java-examples; then
+if has_arg --build-java-examples; then
   mvn -f ../../examples/java/cuvs-java/pom.xml package
 fi

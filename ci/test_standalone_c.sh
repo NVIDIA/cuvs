@@ -12,8 +12,8 @@ INSTALL_PREFIX="${PWD}/libcuvs_c_install"
 mkdir -p "${INSTALL_PREFIX}"
 
 # Download the standalone C library artifact
-if [ -z "$1" ]; then
-  echo "Error: name of the standalone C library artifact is missing"
+if [[ -z "$1" ]]; then
+  echo "Error: name of the standalone C library artifact is missing" >&2
   exit 1
 fi
 

@@ -83,7 +83,7 @@ if ! cmake --install cpp/build \
 fi
 
 # need to install the tests
-if [ "${BUILD_C_LIB_TESTS}" != "OFF" ]; then
+if [[ "${BUILD_C_LIB_TESTS}" != "OFF" ]]; then
       cmake --install c/build --prefix c/build/install --component testing
 fi
 

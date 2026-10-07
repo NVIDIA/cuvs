@@ -18,7 +18,7 @@ if [[ "${1:-}" == "--run-java-tests" ]]; then
   EXTRA_BUILD_ARGS+=("--run-java-tests")
 fi
 
-if [ -e "/opt/conda/etc/profile.d/conda.sh" ]; then
+if [[ -e "/opt/conda/etc/profile.d/conda.sh" ]]; then
   . /opt/conda/etc/profile.d/conda.sh
 fi
 
