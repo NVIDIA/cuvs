@@ -205,9 +205,13 @@ struct search_plan_impl : public search_plan_impl_base {
         constexpr size_t mc_itopk_size  = 32;
         const size_t minimum_depth      = 16;
         const auto effective_itopk_size = raft::ceildiv(itopk_size, mc_itopk_size) * mc_itopk_size;
+        // In multi-CTA algo, search_width and itopk are both knobs on num_ctas
         const auto num_ctas = max(search_width, raft::ceildiv(effective_itopk_size, mc_itopk_size));
 
+        // Shrink max_iterations when num_ctas is large. In multi-CTA algo, larger num_ctas implies
+        // both more width and depth
         _max_iterations = minimum_depth + raft::ceildiv(mc_itopk_size - minimum_depth, num_ctas);
+        // Compensate for the difficult case of large topk
         _max_iterations += raft::ceildiv(static_cast<size_t>(topk), mc_itopk_size) - 1;
       } else {
         _max_iterations = itopk_size / search_width;
