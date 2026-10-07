@@ -1053,31 +1053,20 @@ TEST(KmeansBatchSizingTest, UsesEightyPercentWithCap)
   EXPECT_EQ(kmeans_workspace_budget(std::numeric_limits<std::size_t>::max()), 512 * mib);
 }
 
-TEST(KmeansBatchSizingTest, RoundsAndClampsSyntheticBudgets)
-{
-  using cuvs::cluster::kmeans::detail::kmeans_batch_rows_from_budget;
-  constexpr int64_t n_rows            = 1000;
-  constexpr std::size_t bytes_per_row = 100;
-
-  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 199 * bytes_per_row, bytes_per_row), 192);
-  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 63 * bytes_per_row, bytes_per_row), 1);
-  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 64 * bytes_per_row, bytes_per_row), 64);
-  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 65 * bytes_per_row, bytes_per_row), 64);
-  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 0, bytes_per_row), 1);
-  EXPECT_EQ(kmeans_batch_rows_from_budget(int64_t{50}, 1000 * bytes_per_row, bytes_per_row), 50);
-  EXPECT_EQ(kmeans_batch_rows_from_budget(n_rows, 1, std::size_t{0}), n_rows);
-  EXPECT_EQ(kmeans_batch_rows_from_budget(int64_t{0}, 1, bytes_per_row), 0);
-}
-
-TEST(KmeansBatchSizingTest, ExplicitOverrideBypassesBudget)
+TEST(KmeansBatchSizingTest, ResolvesAutomaticAndExplicitSizes)
 {
   using cuvs::cluster::kmeans::detail::resolve_kmeans_batch_rows;
   constexpr int64_t n_rows            = 1000;
   constexpr std::size_t bytes_per_row = 100;
 
+  EXPECT_EQ(resolve_kmeans_batch_rows(n_rows, int64_t{0}, 250 * bytes_per_row, bytes_per_row), 192);
+  EXPECT_EQ(resolve_kmeans_batch_rows(n_rows, int64_t{0}, 63 * bytes_per_row, bytes_per_row), 1);
+  EXPECT_EQ(
+    resolve_kmeans_batch_rows(int64_t{50}, int64_t{0}, 1000 * bytes_per_row, bytes_per_row), 50);
+  EXPECT_EQ(resolve_kmeans_batch_rows(n_rows, int64_t{0}, 1, std::size_t{0}), n_rows);
+  EXPECT_EQ(resolve_kmeans_batch_rows(int64_t{0}, int64_t{0}, 1, bytes_per_row), 0);
   EXPECT_EQ(resolve_kmeans_batch_rows(n_rows, int64_t{37}, 0, bytes_per_row), 37);
   EXPECT_EQ(resolve_kmeans_batch_rows(n_rows, int64_t{2000}, 0, bytes_per_row), n_rows);
-  EXPECT_EQ(resolve_kmeans_batch_rows(n_rows, int64_t{0}, 199 * bytes_per_row, bytes_per_row), 192);
 }
 
 }  // namespace

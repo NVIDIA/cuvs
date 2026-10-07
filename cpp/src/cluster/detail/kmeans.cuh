@@ -305,17 +305,16 @@ void kmeansPlusPlus(raft::resources const& handle,
   }  /// <<<< Step-5 >>>
 }
 
-template <typename InputT,
-          typename MathT,
-          typename IndexT,
-          typename InputAccessor,
-          typename WeightAccessor>
+template <typename InputT, typename MathT, typename IndexT, typename Accessor>
 void kmeans_fit(
   raft::resources const& handle,
   const cuvs::cluster::kmeans::params& pams,
-  raft::mdspan<const InputT, raft::matrix_extent<IndexT>, raft::row_major, InputAccessor> X,
-  std::optional<
-    raft::mdspan<const MathT, raft::vector_extent<IndexT>, raft::layout_right, WeightAccessor>>
+  raft::mdspan<const InputT, raft::matrix_extent<IndexT>, raft::row_major, Accessor> X,
+  std::optional<raft::mdspan<
+    const MathT,
+    raft::vector_extent<IndexT>,
+    raft::layout_right,
+    raft::host_device_accessor<cuda::std::default_accessor<const MathT>, Accessor::mem_type>>>
     sample_weight,
   raft::device_matrix_view<MathT, IndexT> centroids,
   raft::host_scalar_view<MathT> inertia,
@@ -591,8 +590,7 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
  * @tparam InputT   Input data type
  * @tparam MathT    Weight, centroid, and distance type
  * @tparam IndexT   Index type
- * @tparam InputAccessor  Input accessor policy (host or device); deduced from X
- * @tparam WeightAccessor Weight accessor policy; deduced from sample_weight
+ * @tparam Accessor Accessor policy (host or device)
  *
  * @param[in]     handle        The raft handle.
  * @param[in]     pams          Parameters for the KMeans model.
@@ -610,17 +608,16 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
  * @param[out]    n_iter        Number of iterations run for the best
  *                              initialization.
  */
-template <typename InputT,
-          typename MathT,
-          typename IndexT,
-          typename InputAccessor,
-          typename WeightAccessor>
+template <typename InputT, typename MathT, typename IndexT, typename Accessor>
 void kmeans_fit(
   raft::resources const& handle,
   const cuvs::cluster::kmeans::params& pams,
-  raft::mdspan<const InputT, raft::matrix_extent<IndexT>, raft::row_major, InputAccessor> X,
-  std::optional<
-    raft::mdspan<const MathT, raft::vector_extent<IndexT>, raft::layout_right, WeightAccessor>>
+  raft::mdspan<const InputT, raft::matrix_extent<IndexT>, raft::row_major, Accessor> X,
+  std::optional<raft::mdspan<
+    const MathT,
+    raft::vector_extent<IndexT>,
+    raft::layout_right,
+    raft::host_device_accessor<cuda::std::default_accessor<const MathT>, Accessor::mem_type>>>
     sample_weight,
   raft::device_matrix_view<MathT, IndexT> centroids,
   raft::host_scalar_view<MathT> inertia,
@@ -687,7 +684,7 @@ void kmeans_fit(
 
     device_buffer_samples = resolve_kmeans_batch_rows(static_cast<IndexT>(n_samples),
                                                       device_buffer_samples,
-                                                      kmeans_workspace_budget(handle),
+                                                      raft::resource::get_workspace_free_bytes(handle),
                                                       bytes_per_row);
   }
 

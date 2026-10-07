@@ -197,9 +197,17 @@ auto calc_minibatch_size(const raft::resources& handle,
   // If we need to convert to MathT, space required for the converted batch.
   if (!needs_conversion) { mem_per_row += sizeof(MathT) * dim; }
 
-  // Keep the workspace policy in sync with regular Lloyd k-means.
-  const auto minibatch_size =
-    kmeans_batch_rows_from_budget(n_rows, kmeans_workspace_budget(handle), mem_per_row);
+  // Heuristic: calculate the minibatch size in order to use at most 80% or 512MB workspace memory.
+  // We go below 1GB here as the allocation is mostly done in a single chunk which
+  // is problematic if e.g. a pool allocator manages its own chunks <= 1GB.
+  const auto free_ws_size = raft::resource::get_workspace_free_bytes(handle);
+  const auto available_ws_size =
+    std::min<size_t>((free_ws_size * size_t{8}) / size_t{10}, size_t{1} << 29);
+
+  IdxT minibatch_size = std::max<IdxT>(IdxT{1}, static_cast<IdxT>(available_ws_size / mem_per_row));
+
+  minibatch_size = raft::round_down_safe<IdxT>(minibatch_size, IdxT{64});
+  minibatch_size = std::min<IdxT>(minibatch_size, n_rows);
   return std::make_tuple(minibatch_size, mem_per_row);
 }
 

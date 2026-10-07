@@ -60,53 +60,33 @@
 
 namespace cuvs::cluster::kmeans::detail {
 
-/** Workspace budget shared by regular and balanced k-means batching. */
+/** Limit automatic batching to 80% of free workspace or 512 MiB. */
 constexpr auto kmeans_workspace_budget(std::size_t free_bytes) -> std::size_t
 {
   constexpr std::size_t max_workspace_bytes = std::size_t{1} << 29;
-  const auto eighty_percent                 = (free_bytes / std::size_t{10}) * std::size_t{8} +
-                              ((free_bytes % std::size_t{10}) * std::size_t{8}) / std::size_t{10};
-  return std::min(eighty_percent, max_workspace_bytes);
+  if (free_bytes >= max_workspace_bytes + max_workspace_bytes / 4) {
+    return max_workspace_bytes;
+  }
+  return free_bytes * 4 / 5;
 }
 
-/**
- * Convert a workspace budget and per-row estimate into a bounded batch size.
- *
- * The candidate is rounded down to a 64-row boundary, then clamped to at
- * least one row so very small budgets and datasets still make progress.
- */
-template <typename IndexT>
-constexpr auto kmeans_batch_rows_from_budget(IndexT n_rows,
-                                             std::size_t available_bytes,
-                                             std::size_t bytes_per_row) -> IndexT
-{
-  if (n_rows <= IndexT{0}) { return IndexT{0}; }
-  if (bytes_per_row == 0) { return n_rows; }
-
-  constexpr auto max_index   = static_cast<std::size_t>(std::numeric_limits<IndexT>::max());
-  const auto candidate_size  = std::min(available_bytes / bytes_per_row, max_index);
-  IndexT candidate           = std::max<IndexT>(IndexT{1}, static_cast<IndexT>(candidate_size));
-  constexpr IndexT alignment = IndexT{64};
-  candidate                  = candidate - candidate % alignment;
-  candidate                  = std::max<IndexT>(IndexT{1}, candidate);
-  return std::min(candidate, n_rows);
-}
-
-/** Resolve an explicit batch limit or fall back to workspace-based sizing. */
 template <typename IndexT>
 constexpr auto resolve_kmeans_batch_rows(IndexT n_rows,
                                          IndexT requested_rows,
-                                         std::size_t available_bytes,
+                                         std::size_t free_bytes,
                                          std::size_t bytes_per_row) -> IndexT
 {
   if (n_rows <= IndexT{0}) { return IndexT{0}; }
   if (requested_rows > IndexT{0}) { return std::min(requested_rows, n_rows); }
-  return kmeans_batch_rows_from_budget(n_rows, available_bytes, bytes_per_row);
-}
+  if (bytes_per_row == 0) { return n_rows; }
 
-inline auto kmeans_workspace_budget(raft::resources const& handle) -> std::size_t
-{
-  return kmeans_workspace_budget(raft::resource::get_workspace_free_bytes(handle));
+  constexpr auto max_index = static_cast<std::size_t>(std::numeric_limits<IndexT>::max());
+  const auto candidate_size =
+    std::min(kmeans_workspace_budget(free_bytes) / bytes_per_row, max_index);
+  IndexT candidate           = std::max<IndexT>(IndexT{1}, static_cast<IndexT>(candidate_size));
+  constexpr IndexT alignment = IndexT{64};
+  candidate                  = candidate - candidate % alignment;
+  return std::min(std::max<IndexT>(IndexT{1}, candidate), n_rows);
 }
 
 template <typename DataT, typename IndexT>

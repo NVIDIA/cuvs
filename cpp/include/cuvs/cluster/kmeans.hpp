@@ -124,53 +124,30 @@ struct params : base_params {
   int batch_centroids = 0;
 
   /**
-   * Number of samples to randomly draw for the KMeansPlusPlus initialization
-   * step. A random subset of this size is used for centroid seeding.
+   * Number of samples used for KMeansPlusPlus initialization. This applies to
+   * host floating-point input and to byte input in either memory location;
+   * device floating-point input always uses the full dataset.
    *
-   * For floating-point input, this applies only when the dataset is on host;
-   * device data uses the full dataset and ignores this parameter.
+   * Zero uses `min(3 * n_clusters, n_samples)`; byte input also limits the
+   * default to the effective batch size.
    *
-   * For `int8_t` and `uint8_t` input, a positive value is the number of byte
-   * rows sampled and converted to float for initialization, for either host-
-   * or device-resident input. When set to 0, byte input uses
-   * `min(3 * n_clusters, n_samples, effective_batch_rows)`, where the byte-input
-   * batch size may have been selected automatically.
-   *
-   * When set to 0 (default), floating-point host data uses
-   * `min(3 * n_clusters, n_samples)` as a default.
-   *
-   * In Batched multi-GPU host-data fits, the effective KMeansPlusPlus initialization
-   * sample is materialized on device on every rank. Every rank must have enough
-   * GPU memory for this sample, and rank 0 must also have enough GPU memory for
-   * the seeding workspace.
+   * In batched multi-GPU host-data fits, every device must hold the sample,
+   * and rank 0 must also hold the seeding workspace.
    *
    * Default: 0.
    */
   int64_t init_size = 0;
 
   /**
-   * Number of samples to process per GPU batch. For floating-point input this
-   * controls host-resident fits; when set to 0, all samples are processed at
-   * once, and device-resident floating-point fits ignore this parameter.
+   * Number of samples to process per GPU batch. This applies to host
+   * floating-point input and to byte input in either memory location. Zero
+   * processes all host floating-point rows at once and automatically sizes byte
+   * batches; device floating-point input ignores this parameter.
    *
-   * For `int8_t` and `uint8_t` input, a positive value is an explicit batch
-   * limit for both host- and device-resident input. When set to 0, the batch
-   * size is selected automatically from the available workspace so byte rows
-   * can be converted into one reusable float buffer without materializing a
-   * full floating-point copy of the dataset. Automatic sizing budgets the
-   * smaller of 80% of free workspace and 512 MiB, rounds down to a 64-row
-   * boundary when possible, and clamps the result to the sample count.
+   * Host input is double-buffered when the handle has an auxiliary stream.
+   * In floating-point multi-GPU mode this is a per-rank batch size, clamped to
+   * the local sample count. Byte-input Lloyd k-means is single-GPU only.
    *
-   * Host inputs spanning multiple batches are double-buffered when the handle has an auxiliary
-   * stream, and use one buffer otherwise. Budget about
-   * `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer,
-   * plus algorithm workspaces. Sample weights require the same number of additional buffers
-   * with `device_buffer_samples * sizeof(value_type)` bytes each.
-   *
-   * In floating-point multi-GPU mode this is a per-rank batch size: each rank processes up
-   * to this many local samples per batch, clamped to that rank's local sample
-   * count. This is ignored by floating-point device-data overloads. Byte-input
-   * regular Lloyd k-means supports single-GPU handles only.
    * Default: 0.
    */
   int64_t device_buffer_samples = 0;
@@ -567,44 +544,19 @@ void fit(raft::resources const& handle,
          raft::host_scalar_view<int64_t> n_iter);
 
 /**
- * @brief Find clusters with regular Lloyd k-means from byte-encoded input.
+ * @brief Find clusters with Lloyd k-means from byte input.
  *
- * These overloads support single-GPU training from host- or device-resident
- * `int8_t` and `uint8_t` matrices. Input values are normalized into float32
- * while each bounded batch is processed: `int8_t` values are divided by 128
- * and `uint8_t` values are divided by 256. Steady-state fitting and default
- * initialization do not replace the original byte matrix with a full-size
- * float copy.
+ * Supports host- and device-resident `int8_t` and `uint8_t` input on one
+ * GPU. Values are converted by batches to float32 and divided by 128 or 256,
+ * respectively. Weights, centroids, and inertia are float32; caller-provided
+ * centroids must use the normalized float space.
  *
- * Sample weights, centroids, and inertia are float32. With
- * `InitMethod::Array`, the input centroids must already be expressed in the
- * normalized float space. `InitMethod::Random` samples byte rows and converts
- * only those rows. `InitMethod::KMeansPlusPlus` converts a bounded random
- * sample; a positive `params.init_size` selects its size and may intentionally
- * request a larger (including full-dataset) initialization buffer, while the
- * default is `min(3 * n_clusters, n_samples, effective_batch_rows)`.
- *
- * A positive `params.device_buffer_samples` is the maximum number of byte rows
- * converted in one batch for either memory location. Zero selects a batch size
- * automatically using at most the smaller of 80% of free workspace and
- * 512 MiB; the result is rounded down to a 64-row boundary when possible and
- * clamped to `[1, n_samples]`. Multi-GPU and communications-backed handles are
- * not supported by these overloads.
- *
- * @param[in]     handle        Single-GPU RAFT resources.
- * @param[in]     params        Parameters for KMeans model.
- * @param[in]     X             Row-major byte-encoded training instances.
- *                              [dim = n_samples x n_features]
- * @param[in]     sample_weight Optional float32 weights for each observation.
- *                              The weights are not normalized with X.
- *                              [len = n_samples]
- * @param[inout]  centroids     Float32 centroids in normalized input space.
- *                              On input, used when `params.init` is
- *                              `InitMethod::Array`; on output, contains the
- *                              fitted centers.
- *                              [dim = n_clusters x n_features]
- * @param[out]    inertia       Float32 sum of squared distances in normalized
- *                              input space.
+ * @param[in]     handle        RAFT resources.
+ * @param[in]     params        K-means parameters.
+ * @param[in]     X             Row-major input. [n_samples x n_features]
+ * @param[in]     sample_weight Optional weights. [n_samples]
+ * @param[inout]  centroids     Initial and fitted centroids.
+ * @param[out]    inertia       Sum of squared distances.
  * @param[out]    n_iter        Number of iterations run.
  */
 void fit(raft::resources const& handle,
