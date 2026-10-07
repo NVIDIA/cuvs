@@ -473,7 +473,7 @@ public class AcceleratedHNSWUtils {
    */
   public static int[][] writeGraph(GPUBuiltHnswGraph graph, IndexOutput vectorIndex)
       throws IOException {
-    return writeGraph(graph, vectorIndex, AcceleratedHNSWParams.DEFAULT_GRAPH_THREADS);
+    return writeGraph(graph, vectorIndex, /* graphThreads= */ 1);
   }
 
   static int[][] writeGraph(GPUBuiltHnswGraph graph, IndexOutput vectorIndex, int graphThreads)

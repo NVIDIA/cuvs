@@ -18,6 +18,7 @@ import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_NN_DESCENT_NU
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_NUM_MERGE_WORKERS;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_STRATEGY;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_WRITER_THREADS;
+import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DISABLED_GRAPH_COPY_MEMORY_BUDGET_BYTES;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.MAX_BEAM_WIDTH;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.MAX_GRAPH_DEG;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.MAX_GRAPH_THREADS;
@@ -36,6 +37,7 @@ import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.MIN_MAX_CONN;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.MIN_NN_DESCENT_NUM_ITERATIONS;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.MIN_NUM_MERGE_WORKERS;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.MIN_WRITER_THREADS;
+import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES;
 import static java.lang.Integer.MAX_VALUE;
 import static java.lang.Integer.MIN_VALUE;
 
@@ -60,6 +62,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
     assertEquals(DEFAULT_BEAM_WIDTH, params.getBeamWidth());
     assertEquals(DEFAULT_GRAPH_DEGREE, params.getGraphdegree());
     assertEquals(DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES, params.getGraphCopyMemoryBudgetBytes());
+    assertEquals(16, DEFAULT_GRAPH_THREADS);
     assertEquals(DEFAULT_GRAPH_THREADS, params.getGraphThreads());
     assertEquals(DEFAULT_HNSW_LAYERS, params.getHnswLayers());
     assertEquals(DEFAULT_INT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
@@ -230,9 +233,15 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
   @Test
   public void testAcceleratedHNSWParamsGraphCopyMemoryBudget() {
     assertEquals(
-        0L,
+        UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES,
         new AcceleratedHNSWParams.Builder()
-            .withGraphCopyMemoryBudgetBytes(0)
+            .withGraphCopyMemoryBudgetBytes(UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES)
+            .build()
+            .getGraphCopyMemoryBudgetBytes());
+    assertEquals(
+        DISABLED_GRAPH_COPY_MEMORY_BUDGET_BYTES,
+        new AcceleratedHNSWParams.Builder()
+            .withGraphCopyMemoryBudgetBytes(DISABLED_GRAPH_COPY_MEMORY_BUDGET_BYTES)
             .build()
             .getGraphCopyMemoryBudgetBytes());
     assertEquals(
@@ -243,7 +252,13 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
             .getGraphCopyMemoryBudgetBytes());
     assertThrows(
         IllegalArgumentException.class,
-        () -> new AcceleratedHNSWParams.Builder().withGraphCopyMemoryBudgetBytes(-1).build());
+        () -> new AcceleratedHNSWParams.Builder().withGraphCopyMemoryBudgetBytes(-2).build());
+    assertThrows(
+        IllegalArgumentException.class,
+        () ->
+            new AcceleratedHNSWParams.Builder()
+                .withGraphCopyMemoryBudgetBytes(Long.MIN_VALUE)
+                .build());
   }
 
   @Test

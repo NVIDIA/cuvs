@@ -8,6 +8,8 @@ import com.nvidia.cuvs.CuVSMatrix;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.IOContext;
@@ -28,11 +30,12 @@ public class TestParallelGraphSerialization extends LuceneTestCase {
   public void parallelSerializationMatchesSerial() throws Exception {
     try (CuVSMatrix matrix = IntGraphTestMatrix.random(NUM_NODES, DEGREE, 2);
         Directory dir = new ByteBuffersDirectory()) {
-      GPUBuiltHnswGraph serialGraph = newSingleLayerGraph(matrix);
+      SerialRecordingGraph serialGraph = new SerialRecordingGraph(matrix);
       IntGraphTestMatrix.ParallelExecutionProbe executionProbe =
           new IntGraphTestMatrix.ParallelExecutionProbe();
       GPUBuiltHnswGraph parallelGraph = new RecordingGraph(matrix, executionProbe);
       assertSerialAndParallelMatch(serialGraph, parallelGraph, dir);
+      assertEquals(1, serialGraph.threadCount());
       assertTrue(executionProbe.threadCount() > 1);
     }
   }
@@ -99,7 +102,9 @@ public class TestParallelGraphSerialization extends LuceneTestCase {
     }
     int[][] parallelOffsets;
     try (IndexOutput out = dir.createOutput("parallel", IOContext.DEFAULT)) {
-      parallelOffsets = AcceleratedHNSWUtils.writeGraph(parallelGraph, out, GRAPH_THREADS);
+      parallelOffsets =
+          AcceleratedHNSWUtils.writeGraph(
+              parallelGraph, out, AcceleratedHNSWParams.DEFAULT_GRAPH_THREADS);
     }
 
     assertEquals(serialOffsets.length, parallelOffsets.length);
@@ -107,11 +112,6 @@ public class TestParallelGraphSerialization extends LuceneTestCase {
       assertArrayEquals(serialOffsets[level], parallelOffsets[level]);
     }
     assertArrayEquals(readAllBytes(dir, "serial"), readAllBytes(dir, "parallel"));
-  }
-
-  private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency) {
-    return new GPUBuiltHnswGraph(
-        NUM_NODES, /* dimensions= */ 4, Arrays.asList((int[]) null), List.of(layer0Adjacency));
   }
 
   private static byte[] readAllBytes(Directory dir, String name) throws Exception {
@@ -135,6 +135,24 @@ public class TestParallelGraphSerialization extends LuceneTestCase {
     public NeighborArray getNeighbors(int level, int node) {
       executionProbe.recordExecution();
       return super.getNeighbors(level, node);
+    }
+  }
+
+  private static final class SerialRecordingGraph extends GPUBuiltHnswGraph {
+    private final Set<Thread> threads = ConcurrentHashMap.newKeySet();
+
+    SerialRecordingGraph(CuVSMatrix layer0Adjacency) {
+      super(NUM_NODES, /* dimensions= */ 4, Arrays.asList((int[]) null), List.of(layer0Adjacency));
+    }
+
+    @Override
+    public NeighborArray getNeighbors(int level, int node) {
+      threads.add(Thread.currentThread());
+      return super.getNeighbors(level, node);
+    }
+
+    int threadCount() {
+      return threads.size();
     }
   }
 

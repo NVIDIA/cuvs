@@ -52,7 +52,9 @@ public class AcceleratedHNSWParams {
   public static final int MAX_NN_DESCENT_NUM_ITERATIONS = 100;
 
   public static final int DEFAULT_WRITER_THREADS = 1;
-  public static final int DEFAULT_GRAPH_THREADS = 1;
+  public static final int DEFAULT_GRAPH_THREADS = 16;
+  public static final long UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES = -1L;
+  public static final long DISABLED_GRAPH_COPY_MEMORY_BUDGET_BYTES = 0L;
   public static final long DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES = 24L << 30;
   public static final int DEFAULT_INT_GRAPH_DEGREE = 128;
   public static final int DEFAULT_GRAPH_DEGREE = 64;
@@ -395,7 +397,9 @@ public class AcceleratedHNSWParams {
      * fallback instead. This setting does not cap the heap-backed Lucene graph, which is allocated
      * by both the serial and parallel paths, and it is not a guarantee of physical memory
      * availability or a process-wide limit. A value of {@code 0} disables the temporary copy while
-     * preserving the serial fallback. The default is 24 GiB ({@code 24L << 30} bytes).
+     * preserving the serial fallback. A value of {@code -1} removes the copy ceiling; reservations
+     * remain accounted, and an unlimited policy cannot overlap a different active policy. Values
+     * less than {@code -1} are rejected. The default is 24 GiB ({@code 24L << 30} bytes).
      *
      * @param graphCopyMemoryBudgetBytes graph-copy memory budget in bytes
      * @return instance of {@link Builder}
@@ -584,8 +588,9 @@ public class AcceleratedHNSWParams {
           "writerThreads", writerThreads, MIN_WRITER_THREADS, MAX_WRITER_THREADS);
       ParameterValidation.checkRange(
           "graphThreads", graphThreads, MIN_GRAPH_THREADS, MAX_GRAPH_THREADS);
-      if (graphCopyMemoryBudgetBytes < 0) {
-        throw new IllegalArgumentException("graphCopyMemoryBudgetBytes must be non-negative.");
+      if (graphCopyMemoryBudgetBytes < UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES) {
+        throw new IllegalArgumentException(
+            "graphCopyMemoryBudgetBytes must be -1 (unlimited) or non-negative.");
       }
       ParameterValidation.checkRange(
           "intermediateGraphDegree", intermediateGraphDegree, MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG);

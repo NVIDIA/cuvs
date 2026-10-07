@@ -14,6 +14,8 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.util.hnsw.HnswGraph;
@@ -49,10 +51,21 @@ public class TestParallelGraphMaterialization extends LuceneTestCase {
   @Test
   public void overflowingDeviceShapeUsesSerialFallback() throws Exception {
     int[][] adjacency = IntGraphTestMatrix.randomRows(NUM_NODES, 1, 0);
-    try (CuVSMatrix matrix = new IntGraphTestMatrix.DeviceMatrix(adjacency, Long.MAX_VALUE)) {
+    Set<Thread> sourceReadThreads = ConcurrentHashMap.newKeySet();
+    try (CuVSMatrix matrix =
+        new IntGraphTestMatrix.DeviceMatrix(adjacency, Long.MAX_VALUE) {
+          @Override
+          public RowView getRow(long row) {
+            sourceReadThreads.add(Thread.currentThread());
+            return super.getRow(row);
+          }
+        }) {
       GPUBuiltHnswGraph graph = newSingleLayerGraph(matrix, GRAPH_THREADS);
-      assertEquals(NUM_NODES, graph.size());
+      for (int node = 0; node < NUM_NODES; node++) {
+        assertArrayEquals(adjacency[node], arcsOf(graph, 0, node));
+      }
     }
+    assertEquals(1, sourceReadThreads.size());
   }
 
   @Test
@@ -211,8 +224,15 @@ public class TestParallelGraphMaterialization extends LuceneTestCase {
   public void configuredBudgetControlsWhetherDeviceCopyRuns() throws Exception {
     int[][] sourceRows = IntGraphTestMatrix.randomRows(NUM_NODES, DEGREE, 5);
     AtomicInteger copyCount = new AtomicInteger();
+    Set<Thread> sourceReadThreads = ConcurrentHashMap.newKeySet();
     CuVSDeviceMatrix source =
         new IntGraphTestMatrix.DeviceMatrix(sourceRows, DEGREE) {
+          @Override
+          public RowView getRow(long row) {
+            sourceReadThreads.add(Thread.currentThread());
+            return super.getRow(row);
+          }
+
           @Override
           public void toHost(CuVSHostMatrix target) {
             copyCount.incrementAndGet();
@@ -221,20 +241,60 @@ public class TestParallelGraphMaterialization extends LuceneTestCase {
     long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(NUM_NODES, DEGREE);
     GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
 
-    GPUBuiltHnswGraph.materializeDeviceAdjacency(
-        source,
-        NUM_NODES,
-        GRAPH_THREADS,
-        budget,
-        requiredCopyBytes - 1,
-        () -> new IntGraphTestMatrix.TrackingHostMatrix(new AtomicInteger(), null));
+    NeighborArray[] disabledResult =
+        GPUBuiltHnswGraph.materializeDeviceAdjacency(
+            source,
+            NUM_NODES,
+            GRAPH_THREADS,
+            budget,
+            AcceleratedHNSWParams.DISABLED_GRAPH_COPY_MEMORY_BUDGET_BYTES,
+            TestParallelGraphMaterialization::failUnexpectedHostCopyAllocation);
+    assertAdjacencyEquals(sourceRows, disabledResult);
     assertEquals(0, copyCount.get());
+    assertEquals(1, sourceReadThreads.size());
+
+    sourceReadThreads.clear();
+    NeighborArray[] insufficientResult =
+        GPUBuiltHnswGraph.materializeDeviceAdjacency(
+            source,
+            NUM_NODES,
+            GRAPH_THREADS,
+            budget,
+            requiredCopyBytes - 1,
+            TestParallelGraphMaterialization::failUnexpectedHostCopyAllocation);
+    assertAdjacencyEquals(sourceRows, insufficientResult);
+    assertEquals(0, copyCount.get());
+    assertEquals(1, sourceReadThreads.size());
 
     CuVSHostMatrix hostCopy =
         new IntGraphTestMatrix.TrackingHostMatrix(sourceRows, new AtomicInteger(), null, null);
     GPUBuiltHnswGraph.materializeDeviceAdjacency(
         source, NUM_NODES, GRAPH_THREADS, budget, requiredCopyBytes, () -> hostCopy);
     assertEquals(1, copyCount.get());
+
+    CuVSHostMatrix unlimitedHostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(sourceRows, new AtomicInteger(), null, null);
+    GPUBuiltHnswGraph.materializeDeviceAdjacency(
+        source,
+        NUM_NODES,
+        GRAPH_THREADS,
+        budget,
+        AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES,
+        () -> unlimitedHostCopy);
+    assertEquals(2, copyCount.get());
+  }
+
+  private static CuVSHostMatrix failUnexpectedHostCopyAllocation() {
+    throw new AssertionError("denied device adjacency must not allocate a host copy");
+  }
+
+  private static void assertAdjacencyEquals(int[][] expectedRows, NeighborArray[] actualNeighbors) {
+    assertEquals(expectedRows.length, actualNeighbors.length);
+    for (int node = 0; node < expectedRows.length; node++) {
+      assertArrayEquals(
+          expectedRows[node],
+          Arrays.copyOf(actualNeighbors[node].nodes(), actualNeighbors[node].size()));
+    }
   }
 
   private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency, int numThreads)

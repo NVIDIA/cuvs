@@ -131,11 +131,47 @@ public class TestGraphCopyMemoryBudget extends LuceneTestCase {
     try (GraphCopyMemoryBudget.Reservation ignored =
         budget.tryReserve(300, 1, largeCeiling).orElseThrow()) {
       assertTrue(budget.tryReserve(100, 1, smallCeiling).isEmpty());
+      assertTrue(
+          budget
+              .tryReserve(100, 1, AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES)
+              .isEmpty());
+    }
+
+    try (GraphCopyMemoryBudget.Reservation first =
+            budget
+                .tryReserve(100, 1, AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES)
+                .orElseThrow();
+        GraphCopyMemoryBudget.Reservation second =
+            budget
+                .tryReserve(300, 1, AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES)
+                .orElseThrow()) {
+      assertTrue(budget.tryReserve(100, 1, smallCeiling).isEmpty());
     }
 
     try (GraphCopyMemoryBudget.Reservation ignored =
         budget.tryReserve(100, 1, smallCeiling).orElseThrow()) {
-      // Releasing all reservations resets the active ceiling.
+      // Releasing all unlimited reservations resets the active policy.
+    }
+  }
+
+  @Test
+  public void unlimitedReservationsFailClosedOnAccountingOverflow() {
+    long rows = Integer.MAX_VALUE;
+    long columns = 1_000_000_000L;
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(rows, columns);
+    assertTrue(requiredCopyBytes > Long.MAX_VALUE / 2);
+
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget
+            .tryReserve(
+                rows, columns, AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES)
+            .orElseThrow()) {
+      assertTrue(
+          budget
+              .tryReserve(
+                  rows, columns, AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES)
+              .isEmpty());
     }
   }
 
@@ -172,6 +208,7 @@ public class TestGraphCopyMemoryBudget extends LuceneTestCase {
     assertTrue(budget.tryReserve(1, 0, Long.MAX_VALUE).isEmpty());
     assertTrue(budget.tryReserve(-1, 1, Long.MAX_VALUE).isEmpty());
     assertTrue(budget.tryReserve(1, -1, Long.MAX_VALUE).isEmpty());
-    assertTrue(budget.tryReserve(1, 1, -1).isEmpty());
+    assertTrue(budget.tryReserve(1, 1, -2).isEmpty());
+    assertTrue(budget.tryReserve(1, 1, Long.MIN_VALUE).isEmpty());
   }
 }

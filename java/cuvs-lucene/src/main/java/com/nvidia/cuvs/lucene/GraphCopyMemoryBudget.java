@@ -8,10 +8,11 @@ import java.util.Optional;
 
 /** Coordinates temporary native graph copies across concurrent segment flushes. */
 final class GraphCopyMemoryBudget {
+  private static final long NO_ACTIVE_BUDGET_BYTES = Long.MIN_VALUE;
   private static final GraphCopyMemoryBudget SHARED = new GraphCopyMemoryBudget();
 
   private long reservedCopyBytes;
-  private long activeBudgetBytes = -1;
+  private long activeBudgetBytes = NO_ACTIVE_BUDGET_BYTES;
 
   static GraphCopyMemoryBudget shared() {
     return SHARED;
@@ -20,24 +21,32 @@ final class GraphCopyMemoryBudget {
   /**
    * Tries to reserve the raw INT32 payload of one temporary device-to-host adjacency copy.
    * Reservations are shared by callers in this class loader. Overlapping reservations must use
-   * the same configured ceiling; a caller with a different ceiling is denied until the active
-   * reservations are released. This keeps one caller from silently raising another caller's
-   * active aggregate ceiling.
+   * the same configured budget; a caller with a different budget is denied until the active
+   * reservations are released. A budget of {@code -1} is unlimited, but its reservations remain
+   * accounted and cannot overlap a finite policy. This keeps one caller from silently replacing
+   * another caller's active policy.
    */
   synchronized Optional<Reservation> tryReserve(
       long rows, long columns, long configuredBudgetBytes) {
     long requiredCopyBytes = requiredCopyBytes(rows, columns);
-    if (requiredCopyBytes < 0 || configuredBudgetBytes < 0) {
+    if (requiredCopyBytes < 0
+        || configuredBudgetBytes < AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES) {
       return Optional.empty();
     }
-    if (requiredCopyBytes > configuredBudgetBytes) {
+    boolean unlimited =
+        configuredBudgetBytes == AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES;
+    if (!unlimited && requiredCopyBytes > configuredBudgetBytes) {
       return Optional.empty();
     }
     if (reservedCopyBytes != 0 && activeBudgetBytes != configuredBudgetBytes) {
       return Optional.empty();
     }
-    if (reservedCopyBytes > configuredBudgetBytes
-        || requiredCopyBytes > configuredBudgetBytes - reservedCopyBytes) {
+    if (requiredCopyBytes > Long.MAX_VALUE - reservedCopyBytes) {
+      return Optional.empty();
+    }
+    if (!unlimited
+        && (reservedCopyBytes > configuredBudgetBytes
+            || requiredCopyBytes > configuredBudgetBytes - reservedCopyBytes)) {
       return Optional.empty();
     }
     if (reservedCopyBytes == 0) {
@@ -65,7 +74,7 @@ final class GraphCopyMemoryBudget {
     }
     reservedCopyBytes -= reservation.copyBytes;
     if (reservedCopyBytes == 0) {
-      activeBudgetBytes = -1;
+      activeBudgetBytes = NO_ACTIVE_BUDGET_BYTES;
     }
     reservation.released = true;
   }
