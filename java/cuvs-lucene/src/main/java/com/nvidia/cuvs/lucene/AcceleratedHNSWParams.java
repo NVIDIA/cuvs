@@ -101,8 +101,9 @@ public class AcceleratedHNSWParams {
    * @param writerThreads Number of native cuVS writer threads to use.
    * @param graphThreads Maximum threads per HNSW graph materialization or serialization operation,
    *     including the calling thread.
-   * @param graphCopyMemoryBudgetBytes Per-operation ceiling for the raw temporary host adjacency
-   *     copy used by parallel device-graph materialization.
+   * @param graphCopyMemoryBudgetBytes Configured ceiling for raw temporary host adjacency copies
+   *     used by parallel device-graph materialization. Equal configurations share aggregate
+   *     reservations in this class loader.
    * @param intermediateGraphDegree The intermediate graph degree while building the CAGRA index.
    * @param graphdegree The graph degree to use while building the CAGRA index.
    * @param hnswLayers The number of HNSW layers to build in the HNSW index.
