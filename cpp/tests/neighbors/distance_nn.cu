@@ -317,10 +317,19 @@ const std::vector<NNInputs<IdxT>> input_fp32_fused = [] {
                     uint64_t(31415926),
                     0.1,
                     cuvs::distance::detail::Top1nnBackend::Cutile});
-  // High-dimensional tile, strict ABI
+  // High-dimensional tile, strict ABI, should be selected on all archs with a high-dim tile.
   inputs.push_back({128,
                     2000,
-                    2048,
+                    3072,
+                    DistanceType::L2Expanded,
+                    false,
+                    uint64_t(31415926),
+                    0.1,
+                    cuvs::distance::detail::Top1nnBackend::Cutile});
+  // large K and N but falls into relaxed ABI tile
+  inputs.push_back({128,
+                    2000,
+                    3071,
                     DistanceType::L2Expanded,
                     false,
                     uint64_t(31415926),
@@ -603,34 +612,24 @@ const std::vector<NNInputs<IdxT>> input_fp16_cutile = {
    uint64_t(31415926),
    0.1,
    cuvs::distance::detail::Top1nnBackend::Auto},
-  // k=2048 and n=2048 reach the FP16 high-dim thresholds on every arch with a high-dim tile.
-  // k=2048 is a multiple of 8, so it selects the high-dim tile. k=2049 is not, so it falls back
-  // to the relaxed tile even though it is above the thresholds.
-  // FP16 accumulates in FP32, so error is smaller than FP32 TF32; tolerance is still generous.
+  // High-dimensional tile, strict ABI, should be selected on all archs with a high-dim tile.
   {64,
-   2048,
-   2048,
+   2000,
+   3072,
    DistanceType::L2Expanded,
    false,
    uint64_t(31415926),
-   2.0,
+   0.1,
    cuvs::distance::detail::Top1nnBackend::Cutile},
+  // large K and N but falls into relaxed ABI tile
   {64,
-   2048,
-   2049,
-   DistanceType::CosineExpanded,
-   false,
-   uint64_t(31415926),
-   2.0,
-   cuvs::distance::detail::Top1nnBackend::Cutile},
-  {64,
-   2048,
-   2048,
+   2000,
+   3071,
    DistanceType::L2Expanded,
    false,
    uint64_t(31415926),
-   2.0,
-   cuvs::distance::detail::Top1nnBackend::Auto},
+   0.1,
+   cuvs::distance::detail::Top1nnBackend::Cutile},
 };
 
 using NNTest_fp16_fused = NNTest<half, float, int32_t, ImplType::fused>;
