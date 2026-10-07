@@ -423,7 +423,7 @@ raft::device_matrix_view<float, int64_t> centroids,
 std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 ```
 
-**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. With the flag disabled, uint8_t values are numeric.
+**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. CosineExpanded is not supported in packed binary mode.<br />With the flag disabled, uint8_t values are numeric.
 
 **Parameters**
 
@@ -710,7 +710,7 @@ raft::device_matrix_view<const float, int64_t> centroids,
 raft::device_vector_view<uint32_t, int64_t> labels);
 ```
 
-**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. With the flag disabled, uint8_t values are numeric.
+**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. CosineExpanded is not supported in packed binary mode.<br />With the flag disabled, uint8_t values are numeric.
 
 **Parameters**
 
