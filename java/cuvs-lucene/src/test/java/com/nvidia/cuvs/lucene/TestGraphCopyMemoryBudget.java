@@ -26,6 +26,7 @@ public class TestGraphCopyMemoryBudget extends LuceneTestCase {
     long deep100MRequired = GraphCopyMemoryBudget.requiredCopyBytes(100_000_000L, 32);
     long jasper10MRequired = GraphCopyMemoryBudget.requiredCopyBytes(10_000_000L, 32);
 
+    assertEquals(42L << 30, defaultBudget);
     assertEquals(12_800_000_000L, deep100MRequired);
     assertEquals(1_280_000_000L, jasper10MRequired);
     assertTrue(deep100MRequired < defaultBudget);
@@ -97,6 +98,29 @@ public class TestGraphCopyMemoryBudget extends LuceneTestCase {
       release.countDown();
       executor.shutdownNow();
       assertTrue(executor.awaitTermination(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+    }
+  }
+
+  @Test
+  public void overlappingReservationsCannotMixConfiguredCeilings() {
+    long smallCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(100, 1);
+    long largeCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(300, 1);
+    long smallCeiling = 2 * smallCopyBytes;
+    long largeCeiling = 2 * largeCopyBytes;
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget.tryReserve(100, 1, smallCeiling).orElseThrow()) {
+      assertTrue(budget.tryReserve(300, 1, largeCeiling).isEmpty());
+    }
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget.tryReserve(300, 1, largeCeiling).orElseThrow()) {
+      assertTrue(budget.tryReserve(100, 1, smallCeiling).isEmpty());
+    }
+
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget.tryReserve(100, 1, smallCeiling).orElseThrow()) {
+      // Releasing all reservations resets the active ceiling.
     }
   }
 

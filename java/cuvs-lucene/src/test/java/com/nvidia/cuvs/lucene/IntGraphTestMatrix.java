@@ -124,7 +124,7 @@ class IntGraphTestMatrix implements CuVSMatrix {
     }
   }
 
-  static final class TrackingHostMatrix extends IntGraphTestMatrix implements CuVSHostMatrix {
+  static class TrackingHostMatrix extends IntGraphTestMatrix implements CuVSHostMatrix {
     private final AtomicInteger closeCount;
     private final RuntimeException closeFailure;
     private final ParallelExecutionProbe executionProbe;

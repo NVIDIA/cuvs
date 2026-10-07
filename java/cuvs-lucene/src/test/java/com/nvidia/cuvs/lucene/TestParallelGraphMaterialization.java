@@ -9,6 +9,7 @@ import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 import com.nvidia.cuvs.CuVSDeviceMatrix;
 import com.nvidia.cuvs.CuVSHostMatrix;
 import com.nvidia.cuvs.CuVSMatrix;
+import com.nvidia.cuvs.RowView;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -76,6 +77,95 @@ public class TestParallelGraphMaterialization extends LuceneTestCase {
     assertSame(copyFailure, thrown);
     assertEquals(1, hostCloseCount.get());
     assertArrayEquals(new Throwable[] {closeFailure}, thrown.getSuppressed());
+  }
+
+  @Test
+  public void hostAllocationFailureReleasesCopyReservation() {
+    int[][] rows = new int[][] {{0}};
+    CuVSDeviceMatrix source = new IntGraphTestMatrix.DeviceMatrix(rows, 1);
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(1, 1);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+    RuntimeException allocationFailure = new RuntimeException("allocation failed");
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                GPUBuiltHnswGraph.materializeDeviceAdjacency(
+                    source,
+                    1,
+                    GRAPH_THREADS,
+                    budget,
+                    requiredCopyBytes,
+                    () -> {
+                      throw allocationFailure;
+                    }));
+
+    assertSame(allocationFailure, thrown);
+    assertBudgetIsReusable(budget, requiredCopyBytes);
+  }
+
+  @Test
+  public void copyFailureClosesHostAndReleasesCopyReservation() {
+    int[][] rows = new int[][] {{0}};
+    RuntimeException copyFailure = new RuntimeException("copy failed");
+    AtomicInteger hostCloseCount = new AtomicInteger();
+    CuVSDeviceMatrix source =
+        new IntGraphTestMatrix.DeviceMatrix(rows, 1) {
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            throw copyFailure;
+          }
+        };
+    CuVSHostMatrix hostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(rows, hostCloseCount, null, null);
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(1, 1);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                GPUBuiltHnswGraph.materializeDeviceAdjacency(
+                    source, 1, GRAPH_THREADS, budget, requiredCopyBytes, () -> hostCopy));
+
+    assertSame(copyFailure, thrown);
+    assertEquals(1, hostCloseCount.get());
+    assertBudgetIsReusable(budget, requiredCopyBytes);
+  }
+
+  @Test
+  public void parallelFillFailureClosesHostAndReleasesCopyReservation() {
+    int[][] rows = new int[][] {{0}};
+    RuntimeException fillFailure = new RuntimeException("fill failed");
+    AtomicInteger hostCloseCount = new AtomicInteger();
+    CuVSDeviceMatrix source =
+        new IntGraphTestMatrix.DeviceMatrix(rows, 1) {
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            // The fake host matrix already contains the copied row.
+          }
+        };
+    CuVSHostMatrix hostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(rows, hostCloseCount, null, null) {
+          @Override
+          public RowView getRow(long row) {
+            throw fillFailure;
+          }
+        };
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(1, 1);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                GPUBuiltHnswGraph.materializeDeviceAdjacency(
+                    source, 1, GRAPH_THREADS, budget, requiredCopyBytes, () -> hostCopy));
+
+    assertSame(fillFailure, thrown);
+    assertEquals(1, hostCloseCount.get());
+    assertBudgetIsReusable(budget, requiredCopyBytes);
   }
 
   @Test
@@ -155,6 +245,13 @@ public class TestParallelGraphMaterialization extends LuceneTestCase {
         Arrays.asList((int[]) null),
         List.of(layer0Adjacency),
         numThreads);
+  }
+
+  private static void assertBudgetIsReusable(GraphCopyMemoryBudget budget, long requiredCopyBytes) {
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget.tryReserve(1, 1, requiredCopyBytes).orElseThrow()) {
+      // The failed materialization released its reservation.
+    }
   }
 
   private static void assertGraphsEqual(HnswGraph a, HnswGraph b) throws Exception {

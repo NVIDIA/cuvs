@@ -11,6 +11,7 @@ final class GraphCopyMemoryBudget {
   private static final GraphCopyMemoryBudget SHARED = new GraphCopyMemoryBudget();
 
   private long reservedCopyBytes;
+  private long activeBudgetBytes = -1;
 
   static GraphCopyMemoryBudget shared() {
     return SHARED;
@@ -18,9 +19,10 @@ final class GraphCopyMemoryBudget {
 
   /**
    * Tries to reserve the raw INT32 payload of one temporary device-to-host adjacency copy.
-   * Reservations are shared by callers in this class loader. Each attempt supplies its own
-   * ceiling, so applications that require one classloader-wide ceiling must configure the same
-   * value for every accelerated-HNSW codec in that class loader.
+   * Reservations are shared by callers in this class loader. Overlapping reservations must use
+   * the same configured ceiling; a caller with a different ceiling is denied until the active
+   * reservations are released. This keeps one caller from silently raising another caller's
+   * active aggregate ceiling.
    */
   synchronized Optional<Reservation> tryReserve(
       long rows, long columns, long configuredBudgetBytes) {
@@ -28,9 +30,18 @@ final class GraphCopyMemoryBudget {
     if (requiredCopyBytes < 0 || configuredBudgetBytes < 0) {
       return Optional.empty();
     }
+    if (requiredCopyBytes > configuredBudgetBytes) {
+      return Optional.empty();
+    }
+    if (reservedCopyBytes != 0 && activeBudgetBytes != configuredBudgetBytes) {
+      return Optional.empty();
+    }
     if (reservedCopyBytes > configuredBudgetBytes
         || requiredCopyBytes > configuredBudgetBytes - reservedCopyBytes) {
       return Optional.empty();
+    }
+    if (reservedCopyBytes == 0) {
+      activeBudgetBytes = configuredBudgetBytes;
     }
     reservedCopyBytes += requiredCopyBytes;
     return Optional.of(new Reservation(this, requiredCopyBytes));
@@ -53,6 +64,9 @@ final class GraphCopyMemoryBudget {
       return;
     }
     reservedCopyBytes -= reservation.copyBytes;
+    if (reservedCopyBytes == 0) {
+      activeBudgetBytes = -1;
+    }
     reservation.released = true;
   }
 

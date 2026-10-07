@@ -388,13 +388,14 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the per-operation ceiling for the raw temporary host adjacency copy used by parallel
-     * device-graph materialization. Concurrent copies in the same class loader share reservations;
-     * applications that require one ceiling across codecs should configure the same value for each
-     * codec. This setting does not cap the heap-backed Lucene graph, which is allocated by both the
-     * serial and parallel paths, and it is not a guarantee of physical memory availability. A value
-     * of {@code 0} disables the temporary copy while preserving the serial fallback. Default value
-     * - {@value DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES} bytes.
+     * Set the ceiling for the raw temporary host adjacency copy used by parallel device-graph
+     * materialization. Copies with the same ceiling share aggregate reservations in this class
+     * loader. A copy with a different ceiling cannot overlap those reservations and uses the serial
+     * fallback instead. This setting does not cap the heap-backed Lucene graph, which is allocated
+     * by both the serial and parallel paths, and it is not a guarantee of physical memory
+     * availability or a process-wide limit. A value of {@code 0} disables the temporary copy while
+     * preserving the serial fallback. Default value - {@value
+     * DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES} bytes.
      *
      * @param graphCopyMemoryBudgetBytes graph-copy memory budget in bytes
      * @return instance of {@link Builder}
