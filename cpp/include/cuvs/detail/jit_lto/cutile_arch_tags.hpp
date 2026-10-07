@@ -9,7 +9,6 @@
 #define CUVS_CUTILE_ENABLED 0
 #endif
 
-// sm_110 (Rubin) needs cuTile >= 13.4. Controlled by the CUVS_CUTILE_ENABLE_SM110 CMake option.
 #ifndef CUVS_CUTILE_SM110_ENABLED
 #define CUVS_CUTILE_SM110_ENABLED 0
 #endif
