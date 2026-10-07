@@ -24,12 +24,22 @@ public class TestGraphCopyMemoryBudget extends LuceneTestCase {
   public void defaultBudgetAdmitsExpectedBenchmarkShapes() {
     long defaultBudget = AcceleratedHNSWParams.DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES;
     long deep100MRequired = GraphCopyMemoryBudget.requiredCopyBytes(100_000_000L, 32);
+    long deep100MFinalDegree48Required = GraphCopyMemoryBudget.requiredCopyBytes(100_000_000L, 48);
+    long deep100MDefaultDegreeRequired = GraphCopyMemoryBudget.requiredCopyBytes(100_000_000L, 64);
+    long deep100MAboveDefaultDegreeRequired =
+        GraphCopyMemoryBudget.requiredCopyBytes(100_000_000L, 65);
     long jasper10MRequired = GraphCopyMemoryBudget.requiredCopyBytes(10_000_000L, 32);
 
-    assertEquals(42L << 30, defaultBudget);
+    assertEquals(24L << 30, defaultBudget);
     assertEquals(12_800_000_000L, deep100MRequired);
+    assertEquals(19_200_000_000L, deep100MFinalDegree48Required);
+    assertEquals(25_600_000_000L, deep100MDefaultDegreeRequired);
+    assertEquals(26_000_000_000L, deep100MAboveDefaultDegreeRequired);
     assertEquals(1_280_000_000L, jasper10MRequired);
     assertTrue(deep100MRequired < defaultBudget);
+    assertTrue(deep100MFinalDegree48Required < defaultBudget);
+    assertTrue(deep100MDefaultDegreeRequired < defaultBudget);
+    assertTrue(deep100MAboveDefaultDegreeRequired > defaultBudget);
     assertTrue(jasper10MRequired < defaultBudget);
 
     GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
@@ -37,6 +47,11 @@ public class TestGraphCopyMemoryBudget extends LuceneTestCase {
         budget.tryReserve(100_000_000L, 32, defaultBudget).orElseThrow()) {
       // The default admits one 100M-by-32 temporary copy.
     }
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget.tryReserve(100_000_000L, 64, defaultBudget).orElseThrow()) {
+      // The default also admits one 100M graph using the stock degree of 64.
+    }
+    assertTrue(budget.tryReserve(100_000_000L, 65, defaultBudget).isEmpty());
   }
 
   @Test

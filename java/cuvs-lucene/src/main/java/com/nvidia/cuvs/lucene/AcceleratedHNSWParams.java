@@ -53,7 +53,7 @@ public class AcceleratedHNSWParams {
 
   public static final int DEFAULT_WRITER_THREADS = 1;
   public static final int DEFAULT_GRAPH_THREADS = 1;
-  public static final long DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES = 42L << 30;
+  public static final long DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES = 24L << 30;
   public static final int DEFAULT_INT_GRAPH_DEGREE = 128;
   public static final int DEFAULT_GRAPH_DEGREE = 64;
   public static final int DEFAULT_HNSW_LAYERS = 1;
@@ -395,8 +395,7 @@ public class AcceleratedHNSWParams {
      * fallback instead. This setting does not cap the heap-backed Lucene graph, which is allocated
      * by both the serial and parallel paths, and it is not a guarantee of physical memory
      * availability or a process-wide limit. A value of {@code 0} disables the temporary copy while
-     * preserving the serial fallback. Default value - {@value
-     * DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES} bytes.
+     * preserving the serial fallback. The default is 24 GiB ({@code 24L << 30} bytes).
      *
      * @param graphCopyMemoryBudgetBytes graph-copy memory budget in bytes
      * @return instance of {@link Builder}
