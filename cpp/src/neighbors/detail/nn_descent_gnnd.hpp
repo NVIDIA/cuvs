@@ -21,8 +21,6 @@
 namespace cuvs::neighbors::nn_descent::detail {
 
 using DistData_t = float;
-constexpr int DEGREE_ON_DEVICE{32};
-constexpr int SEGMENT_SIZE{32};
 constexpr int counter_interval{100};
 template <typename Index_t>
 struct InternalID_t;

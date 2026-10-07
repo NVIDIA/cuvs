@@ -207,6 +207,8 @@ __device__ __forceinline__ void warp_bitonic_sort(T* element_ptr, const int lane
 }
 
 constexpr int NUM_SAMPLES = 32;
+// Width of each row of the device-side kNN graph.
+constexpr int DEGREE_ON_DEVICE{32};
 // For now, the max. number of samples is 32, so the sample cache size is fixed
 // to 64 (32 * 2).
 constexpr int MAX_NUM_BI_SAMPLES        = 64;
@@ -350,19 +352,16 @@ RAFT_KERNEL add_rev_edges_kernel(const Index_t* graph,
 }
 
 template <typename Index_t, typename ID_t = InternalID_t<Index_t>>
-__device__ void insert_to_global_graph(ResultItem<Index_t> elem,
-                                       size_t list_id,
-                                       ID_t* graph,
-                                       DistData_t* dists,
-                                       int node_degree,
-                                       int* locks)
+__device__ void insert_to_global_graph(
+  ResultItem<Index_t> elem, size_t list_id, ID_t* graph, DistData_t* dists, int* locks)
 {
+  constexpr int node_degree = DEGREE_ON_DEVICE;
   int tx                 = threadIdx.x;
   int lane_id            = tx % raft::warp_size();
   size_t global_idx_base = list_id * node_degree;
   if (elem.id() == list_id) return;
 
-  const int num_segments = raft::ceildiv(node_degree, raft::warp_size());
+  constexpr int num_segments = raft::ceildiv(node_degree, raft::warp_size());
 
   int loop_flag = 0;
   do {
@@ -624,7 +623,6 @@ __launch_bounds__(BLOCK_SIZE)
                          const int data_dim,
                          ID_t* graph,
                          DistData_t* dists,
-                         int graph_width,
                          int* locks,
                          DistData_t* l2_norms,
                          cuvs::distance::DistanceType metric,
@@ -761,7 +759,7 @@ __launch_bounds__(BLOCK_SIZE)
     if (idx_in_list >= list_new_size) continue;
     auto min_elem = get_min_item(s_list[idx_in_list], idx_in_list, new_neighbors, s_distances);
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
     }
   }
 
@@ -858,7 +856,7 @@ __launch_bounds__(BLOCK_SIZE)
     }
 
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
     }
   }
 #endif
@@ -889,7 +887,6 @@ __launch_bounds__(BLOCK_SIZE)
                          const int data_dim,
                          ID_t* graph,
                          DistData_t* dists,
-                         int graph_width,
                          int* locks,
                          DistData_t* l2_norms,
                          cuvs::distance::DistanceType metric,
@@ -1032,7 +1029,7 @@ __launch_bounds__(BLOCK_SIZE)
     if (idx_in_list >= list_new_size) continue;
     auto min_elem = get_min_item(s_list[idx_in_list], idx_in_list, new_neighbors, s_distances);
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
     }
   }
 
@@ -1131,7 +1128,7 @@ __launch_bounds__(BLOCK_SIZE)
     }
 
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
     }
   }
 #endif
@@ -1302,7 +1299,6 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              quantizer_view<DataT, int64_t> dataset_query,
                              ID_t* graph,
                              DistData_t* dists,
-                             int graph_width,
                              int* locks,
                              cuvs::distance::DistanceType metric,
                              DistEpilogue_t dist_epilogue)
@@ -1549,7 +1545,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                                  SKEWED_MAX_NUM_BI_SAMPLES,
                                  new_size);
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
     }
   }
 
@@ -1665,7 +1661,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                                  SKEWED_MAX_NUM_BI_SAMPLES,
                                  old_size);
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
     }
   }
 
@@ -1681,7 +1677,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                                  SKEWED_MAX_NUM_BI_SAMPLES,
                                  new_size);
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[list_idx], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[list_idx], graph, dists, locks);
     }
   }
 }
@@ -1732,7 +1728,6 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              const quantizer_view<DataT, int64_t> dataset_query,
                              ID_t* graph,
                              DistData_t* dists,
-                             int graph_width,
                              int* locks,
                              cuvs::distance::DistanceType metric,
                              DistEpilogue_t dist_epilogue)
@@ -1985,7 +1980,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                                  MMA_STORE_STRIDE,
                                  new_size);
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
     }
   }
 
@@ -2006,7 +2001,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                                  MMA_STORE_STRIDE,
                                  old_size);
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
     }
   }
 
@@ -2017,7 +2012,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     auto min_elem      = get_min_item(
       s_list[list_idx], idx_in_list, new_neighbors, s_distances, false, MMA_STORE_STRIDE, new_size);
     if (min_elem.id() < gridDim.x) {
-      insert_to_global_graph(min_elem, s_list[list_idx], graph, dists, graph_width, locks);
+      insert_to_global_graph(min_elem, s_list[list_idx], graph, dists, locks);
     }
   }
 #endif  // (__CUDA_ARCH__ >= 750)
@@ -2444,7 +2439,6 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
                                                                ndim_,
                                                                graph_buffer_.data_handle(),
                                                                dists_buffer_.data_handle(),
-                                                               DEGREE_ON_DEVICE,
                                                                d_locks_.data_handle(),
                                                                l2_norms_.data_handle(),
                                                                build_config_.metric,
@@ -2461,7 +2455,6 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
                                                                ndim_,
                                                                graph_buffer_.data_handle(),
                                                                dists_buffer_.data_handle(),
-                                                               DEGREE_ON_DEVICE,
                                                                d_locks_.data_handle(),
                                                                l2_norms_.data_handle(),
                                                                build_config_.metric,
@@ -2549,7 +2542,6 @@ void GNND<Data_t, Index_t>::local_join(
                                                quantizer_query,
                                                graph_buffer_.data_handle(),
                                                dists_buffer_.data_handle(),
-                                               DEGREE_ON_DEVICE,
                                                d_locks_.data_handle(),
                                                build_config_.metric,
                                                dist_epilogue);
