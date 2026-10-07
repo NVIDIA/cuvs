@@ -1214,7 +1214,49 @@ if(NOT BUILD_CPU_ONLY)
       "<cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>"
       "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
   )
+  cuvs_cutile_setup(CUVS_CUTILE_ENABLED cutile_python cutile_bin2c)
   if(CUVS_CUTILE_ENABLED)
+    set(cutile_smoke_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/jit_lto/cutile_smoke")
+    set(cutile_smoke_generated_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/detail/jit_lto/cutile_smoke"
+    )
+    generate_cutile_kernels(
+      cutile_smoke_files
+      KERNEL_DIR "${cutile_smoke_dir}"
+      KERNEL_BASENAME "cutile_smoke"
+      KERNEL_PYTHON "smoke_kernel.py"
+      EXPORT_SCRIPT "export_smoke.py"
+      OUTPUT_DIRECTORY "${cutile_smoke_generated_dir}"
+      MATRIX_JSON_FILE "${cutile_smoke_dir}/cutile_smoke_matrix.json" PYTHON "${cutile_python}"
+                                                                      BIN2C "${cutile_bin2c}"
+      FRAGMENT_TAG_FORMAT_CUBIN
+        "cuvs::detail::jit_lto::fragment_tag_cutile_smoke_add_cubin<cuvs::detail::jit_lto::@arch_tag@>"
+      FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>"
+                                "<cuvs/detail/jit_lto/cutile_smoke_fragments.hpp>"
+    )
+
+    set(fused_1nn_cutile_dir
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/fused_distance_nn/cutile"
+    )
+    set(cutile_fused_1nn_generated_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/distance/fused_1nn/cutile"
+    )
+    set(cutile_fused_1nn_tiles "${cutile_fused_1nn_generated_dir}/fused_1nn_cutile_tiles.hpp")
+    generate_cutile_kernels(
+      cutile_fused_1nn_files
+      KERNEL_DIR "${fused_1nn_cutile_dir}"
+      KERNEL_BASENAME "fused_1nn"
+      KERNEL_PYTHON "fused_1nn_kernel.py"
+      EXPORT_SCRIPT "export_fused_1nn.py"
+      OUTPUT_DIRECTORY "${cutile_fused_1nn_generated_dir}"
+      MATRIX_JSON_FILE "${fused_1nn_cutile_dir}/fused_1nn_cutile_matrix.json"
+                       PYTHON "${cutile_python}" BIN2C "${cutile_bin2c}"
+      FRAGMENT_TAG_FORMAT_CUBIN
+        "cuvs::distance::detail::fragment_tag_fused_1nn_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@, cuvs::detail::jit_lto::@arch_tag@>"
+      FRAGMENT_TAG_HEADER_FILES
+        "<cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>"
+        "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    )
     generate_string_matrix(
       cutile_fused_1nn_tile_aliases
       MATRIX_JSON_FILE
