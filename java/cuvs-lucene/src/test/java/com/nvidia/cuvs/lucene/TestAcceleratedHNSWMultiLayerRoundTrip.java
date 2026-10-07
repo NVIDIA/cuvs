@@ -100,8 +100,11 @@ public class TestAcceleratedHNSWMultiLayerRoundTrip extends LuceneTestCase {
         assertEquals(3, graph.numLevels());
 
         List<Set<Integer>> nodesByLevel = collectNodes(graph);
-        int expectedLevelOneSize = Math.max(2, VECTOR_COUNT / graph.maxConn());
-        int expectedLevelTwoSize = Math.max(2, expectedLevelOneSize / graph.maxConn());
+        // Upper layers are sampled with ceil(graphDegree / 2), not with the recorded M: that is
+        // raised to the default maxConn (32), which is larger here.
+        int samplingM = Math.ceilDiv(GRAPH_DEGREE, 2);
+        int expectedLevelOneSize = Math.max(2, VECTOR_COUNT / samplingM);
+        int expectedLevelTwoSize = Math.max(2, expectedLevelOneSize / samplingM);
         assertEquals(VECTOR_COUNT, nodesByLevel.get(0).size());
         assertEquals(expectedLevelOneSize, nodesByLevel.get(1).size());
         assertEquals(expectedLevelTwoSize, nodesByLevel.get(2).size());

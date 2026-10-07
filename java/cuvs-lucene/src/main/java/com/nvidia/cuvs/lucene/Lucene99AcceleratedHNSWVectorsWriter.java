@@ -196,7 +196,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
               dataset,
               acceleratedHNSWParams.getHnswLayers(),
               params,
-              QuantizationType.NONE);
+              QuantizationType.NONE,
+              acceleratedHNSWParams.getMaxConn());
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
       int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
@@ -208,7 +209,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
     } catch (Throwable t) {
       throw Utils.handleThrowable(t);
     }
@@ -217,7 +219,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   /** Writes the empty or one-vector representation, if {@code size} is trivial. */
   private boolean writeTrivialField(FieldInfo fieldInfo, int size) throws IOException {
     if (size == 0) {
-      writeEmpty(fieldInfo, hnswMeta);
+      writeEmpty(fieldInfo, hnswMeta, acceleratedHNSWParams.getMaxConn());
       return true;
     }
     if (size == 1) {
@@ -293,7 +295,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
