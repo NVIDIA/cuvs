@@ -16,7 +16,7 @@ import cuvs.distance
 import cuvs.neighbors
 import cuvs.preprocessing.quantize
 
-# Code adapted from https://github.com/rapidsai/cudf/blob/branch-23.02/python/cudf/cudf/tests/test_doctests.py  # noqa
+# Code adapted from https://github.com/NVIDIA/cudf/blob/branch-23.02/python/cudf/cudf/tests/test_doctests.py  # noqa
 
 
 def _name_in_all(parent, name):

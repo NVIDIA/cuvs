@@ -4,7 +4,7 @@ This maven project contains JMH benchmarks for the CAGRA Java API.
 
 ## Prerequisites
 
-- [CuVS libraries](https://docs.rapids.ai/api/cuvs/stable/build/#build-from-source)
+- [CuVS libraries](https://docs.nvidia.com/cuvs/installation#build-from-source)
 - Build the CuVS-Java API (`./build.sh` from the parent directory)
 
 ## Run benchmarks

@@ -6,7 +6,7 @@
 
 # Use RAPIDS_VERSION_MAJOR_MINOR from rapids_config.cmake
 set(KVIKIO_VERSION "${RAPIDS_VERSION_MAJOR_MINOR}")
-set(KVIKIO_FORK "rapidsai")
+set(KVIKIO_FORK "NVIDIA")
 set(KVIKIO_PINNED_TAG "${rapids-cmake-checkout-tag}")
 
 function(find_and_configure_kvikio)

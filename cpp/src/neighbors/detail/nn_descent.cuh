@@ -175,7 +175,7 @@ __device__ __forceinline__ int xor_swap(int x, int mask, int dir)
   return x < y == dir ? y : x;
 }
 
-// TODO: Move to RAFT utils https://github.com/rapidsai/raft/issues/1827
+// TODO: Move to RAFT utils https://github.com/NVIDIA/raft/issues/1827
 __device__ __forceinline__ uint bfe(uint lane_id, uint pos)
 {
   uint res;

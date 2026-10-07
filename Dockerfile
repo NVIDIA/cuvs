@@ -4,7 +4,7 @@
 # syntax=docker/dockerfile:1.5
 
 # ==============================================================================
-# RAPIDS cuVS Docker Image - Vector Search and Clustering on GPU
+# NVIDIA cuVS Docker Image - Vector Search and Clustering on GPU
 #
 # Usage:
 #   docker build -t cuvs:latest .
@@ -32,8 +32,8 @@ RUN echo "  Building cuVS Docker image with:" && \
     echo "   RAPIDS Version: ${RAPIDS_VER}"
 
 # Container metadata
-LABEL maintainer="RAPIDS cuVS Team"
-LABEL description="RAPIDS cuVS - Vector Search and Clustering on GPU"
+LABEL maintainer="NVIDIA cuVS Team"
+LABEL description="NVIDIA cuVS - Vector Search and Clustering on GPU"
 LABEL org.opencontainers.image.source="https://github.com/nvidia/cuvs"
 LABEL org.opencontainers.image.usage="docker run --gpus all -it <image>"
 

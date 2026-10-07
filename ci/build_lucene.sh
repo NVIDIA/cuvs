@@ -8,7 +8,7 @@ set -euo pipefail
 # --run-java-tests flag.
 # TODO: Remove the flag handling when build and test workflows are separated,
 #       and test_lucene.sh no longer calls build_lucene.sh
-#       ref: https://github.com/rapidsai/cuvs/issues/868
+#       ref: https://github.com/NVIDIA/cuvs/issues/868
 EXTRA_BUILD_ARGS=("--build-java-examples")
 CUVS_JAVA_ARTIFACT=""
 for arg in "$@"; do

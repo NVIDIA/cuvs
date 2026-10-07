@@ -18,7 +18,7 @@ export RAPIDS_CUDA_MAJOR
 
 # Forwards the name of the cuvs-java artifact given by the workflow.
 # TODO: switch to installing pre-built artifacts instead of rebuilding in test jobs
-#       ref: https://github.com/rapidsai/cuvs/issues/868
+#       ref: https://github.com/NVIDIA/cuvs/issues/868
 ci/build_lucene.sh "$@" --run-java-tests
 
 rapids-logger "Test script exiting with value: $EXITCODE"

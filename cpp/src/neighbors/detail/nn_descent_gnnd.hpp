@@ -184,7 +184,7 @@ struct CUVS_EXPORT GnndGraph {
             const size_t internal_node_degree,
             const size_t num_samples);
   void init_random_graph();
-  // TODO: Create a generic bloom filter utility https://github.com/rapidsai/raft/issues/1827
+  // TODO: Create a generic bloom filter utility https://github.com/NVIDIA/raft/issues/1827
   // Use Bloom filter to sample "new" neighbors for local joining
   void sample_graph_new(InternalID_t<Index_t>* new_neighbors, const size_t width);
   void sample_graph(bool sample_new);

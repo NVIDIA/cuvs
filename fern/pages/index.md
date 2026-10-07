@@ -6,11 +6,10 @@ NVIDIA cuVS is a GPU-accelerated library for vector search on the GPU. Vector se
 
 ## Useful Resources
 
-[cuvs_reference]: https://docs.rapids.ai/api/cuvs/stable/
+[cuvs_reference]: https://docs.nvidia.com/cuvs
 
 - [Example Notebooks](https://github.com/nvidia/cuvs/tree/HEAD/notebooks): Example notebooks
 - [Code Examples](https://github.com/nvidia/cuvs/tree/HEAD/examples): Self-contained code examples
-- [RAPIDS Community](https://rapids.ai/community.html): Get help, contribute, and collaborate.
 - [GitHub repository](https://github.com/nvidia/cuvs): Download the NVIDIA cuVS source code.
 - [Issue tracker](https://github.com/nvidia/cuvs/issues): Report issues or request features.
 
@@ -60,6 +59,6 @@ In addition to the items above, NVIDIA cuVS shoulders the responsibility of keep
 
 ## NVIDIA cuVS Technology Stack
 
-NVIDIA cuVS is built on top of the [RAPIDS RAFT](https://github.com/rapidsai/raft) library of high performance machine learning primitives and provides all the necessary routines for vector search and clustering on the GPU.
+NVIDIA cuVS is built on top of the [NVIDIA RAFT](https://github.com/NVIDIA/raft) library of high performance machine learning primitives and provides all the necessary routines for vector search and clustering on the GPU.
 
 <img alt="NVIDIA cuVS is built on top of low-level CUDA libraries and provides many important routines that enable vector search and clustering on the GPU" src="/assets/images/tech_stack.png" />

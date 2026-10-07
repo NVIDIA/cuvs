@@ -243,7 +243,7 @@ void InitDataset(const raft::resources& handle,
 
     if (metric == cuvs::distance::DistanceType::InnerProduct) {
       // TODO (enp1s0): Change this once row_normalize supports (u)int8 matrices.
-      // https://github.com/rapidsai/raft/issues/2291
+      // https://github.com/NVIDIA/raft/issues/2291
 
       using ComputeT    = float;
       auto dataset_view = raft::make_device_matrix_view(datatset_ptr, size, dim);

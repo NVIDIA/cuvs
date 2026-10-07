@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.internal.common;
@@ -14,7 +14,7 @@ import java.lang.foreign.MemorySegment;
 
 /**
  * A closeable handle for RMM allocations that can be used with try-with-resources.
- * This class manages the lifecycle of a memory allocation made with RMM (RAPIDS Memory Manager).
+ * This class manages the lifecycle of a memory allocation made with NVIDIA RMM.
  * It ensures that the allocated memory is properly released when no longer needed.
  */
 public class CloseableRMMAllocation implements CloseableHandle {

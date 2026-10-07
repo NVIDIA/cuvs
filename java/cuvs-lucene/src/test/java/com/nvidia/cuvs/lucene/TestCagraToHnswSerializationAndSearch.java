@@ -149,7 +149,7 @@ public class TestCagraToHnswSerializationAndSearch extends LuceneTestCase {
   @Test
   public void testSingleVectorIndex() throws Exception {
     // Test single vector index support with dummy HNSW graph
-    // TODO: This test can be removed once https://github.com/rapidsai/cuvs/pull/1256 is merged
+    // TODO: This test can be removed once https://github.com/NVIDIA/cuvs/pull/1256 is merged
     // and CAGRA natively supports single vector indexes
     Codec codec = new Lucene101AcceleratedHNSWCodec();
 

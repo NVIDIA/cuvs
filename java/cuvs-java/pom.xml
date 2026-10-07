@@ -27,7 +27,7 @@ SPDX-License-Identifier: Apache-2.0
     </licenses>
     <scm>
         <connection>scm:git:https://github.com/nvidia/cuvs.git</connection>
-        <developerConnection>scm:git:git@github.com:rapidsai/cuvs.git</developerConnection>
+        <developerConnection>scm:git:git@github.com:NVIDIA/cuvs.git</developerConnection>
         <tag>HEAD</tag>
         <url>https://github.com/nvidia/cuvs</url>
     </scm>

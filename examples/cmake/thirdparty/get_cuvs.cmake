@@ -1,12 +1,12 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 
 # Use RAPIDS_VERSION_MAJOR_MINOR from cmake/rapids_config.cmake
 set(CUVS_VERSION "${RAPIDS_VERSION_MAJOR_MINOR}")
-set(CUVS_FORK "rapidsai")
+set(CUVS_FORK "NVIDIA")
 set(CUVS_PINNED_TAG "${rapids-cmake-branch}")
 
 function(find_and_configure_cuvs)
