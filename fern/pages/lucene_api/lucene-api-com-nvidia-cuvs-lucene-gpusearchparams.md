@@ -147,8 +147,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUSearchParams.
 public int getBuildQuality()
 ```
 
-Get the build quality handed to cuVS' build heuristic. Only consulted under the \{@link
-Strategy#HEURISTIC\} strategy.
+Get the build quality handed to cuVS' build heuristic. Only consulted under the `Strategy#HEURISTIC` strategy.
 
 **Returns**
 
@@ -163,8 +162,8 @@ public Builder withWriterThreads(int writerThreads)
 ```
 
 Set the number of cuVS writer threads while building the index
-Valid range - Minimum: \{@value MIN_WRITER_THREADS\}, Maximum: \{@value MAX_WRITER_THREADS\}
-Default value - \{@value DEFAULT_WRITER_THREADS\}
+Valid range - Minimum: `MIN_WRITER_THREADS`, Maximum: `MAX_WRITER_THREADS`
+Default value - `DEFAULT_WRITER_THREADS`
 
 **Parameters**
 
@@ -185,8 +184,8 @@ public Builder withIntermediateGraphDegree(int intermediateGraphDegree)
 ```
 
 Set the intermediate graph degree to use while building CAGRA index
-Valid range - Minimum: \{@value MIN_INT_GRAPH_DEG\}, Maximum: \{@value MAX_INT_GRAPH_DEG\}
-Default value - \{@value DEFAULT_INT_GRAPH_DEGREE\}
+Valid range - Minimum: `MIN_INT_GRAPH_DEG`, Maximum: `MAX_INT_GRAPH_DEG`
+Default value - `DEFAULT_INT_GRAPH_DEGREE`
 
 **Parameters**
 
@@ -207,8 +206,8 @@ public Builder withGraphDegree(int graphDegree)
 ```
 
 Set the graph degree to use while building CAGRA index
-Valid range - Minimum: \{@value MIN_GRAPH_DEG\}, Maximum: \{@value MAX_GRAPH_DEG\}
-Default value - \{@value DEFAULT_GRAPH_DEGREE\}
+Valid range - Minimum: `MIN_GRAPH_DEG`, Maximum: `MAX_GRAPH_DEG`
+Default value - `DEFAULT_GRAPH_DEGREE`
 
 **Parameters**
 
@@ -338,8 +337,8 @@ public Builder withNNDescentNumIterations(int nnDescentNumIterations)
 
 Set the number of Iterations to run if building with NN_DESCENT
 
-Valid range - Minimum: \{@value MIN_NN_DESCENT_NUM_ITERATIONS\}, Maximum: \{@value MAX_NN_DESCENT_NUM_ITERATIONS\}
-Default value - \{@value DEFAULT_NN_DESCENT_NUM_ITERATIONS\}
+Valid range - Minimum: `MIN_NN_DESCENT_NUM_ITERATIONS`, Maximum: `MAX_NN_DESCENT_NUM_ITERATIONS`
+Default value - `DEFAULT_NN_DESCENT_NUM_ITERATIONS`
 
 **Parameters**
 
@@ -364,9 +363,9 @@ values trade build cost for graph quality.
 
 Only consulted under the `Strategy#HEURISTIC` strategy.
 
-Valid range - Minimum: \{@value MIN_BUILD_QUALITY\}, unbounded above. cuVS documents any value
+Valid range - Minimum: `MIN_BUILD_QUALITY`, unbounded above. cuVS documents any value
 as valid, with values below 20 being the most practical.
-Default value - \{@value DEFAULT_BUILD_QUALITY\}
+Default value - `DEFAULT_BUILD_QUALITY`
 
 **Parameters**
 

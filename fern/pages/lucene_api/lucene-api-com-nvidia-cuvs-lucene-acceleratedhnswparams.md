@@ -219,8 +219,8 @@ public Builder withWriterThreads(int writerThreads)
 ```
 
 Set the number of cuVS writer threads while building the index
-Valid range - Minimum: \{@value MIN_WRITER_THREADS\}, Maximum: \{@value MAX_WRITER_THREADS\}
-Default value - \{@value DEFAULT_WRITER_THREADS\}
+Valid range - Minimum: `MIN_WRITER_THREADS`, Maximum: `MAX_WRITER_THREADS`
+Default value - `DEFAULT_WRITER_THREADS`
 
 **Parameters**
 
@@ -241,8 +241,8 @@ public Builder withIntermediateGraphDegree(int intermediateGraphDegree)
 ```
 
 Set the intermediate graph degree to use while building CAGRA index
-Valid range - Minimum: \{@value MIN_INT_GRAPH_DEG\}, Maximum: \{@value MAX_INT_GRAPH_DEG\}
-Default value - \{@value DEFAULT_INT_GRAPH_DEGREE\}
+Valid range - Minimum: `MIN_INT_GRAPH_DEG`, Maximum: `MAX_INT_GRAPH_DEG`
+Default value - `DEFAULT_INT_GRAPH_DEGREE`
 
 **Parameters**
 
@@ -263,8 +263,8 @@ public Builder withGraphDegree(int graphDegree)
 ```
 
 Set the graph degree to use while building CAGRA index
-Valid range - Minimum: \{@value MIN_GRAPH_DEG\}, Maximum: \{@value MAX_GRAPH_DEG\}
-Default value - \{@value DEFAULT_GRAPH_DEGREE\}
+Valid range - Minimum: `MIN_GRAPH_DEG`, Maximum: `MAX_GRAPH_DEG`
+Default value - `DEFAULT_GRAPH_DEGREE`
 
 **Parameters**
 
@@ -285,8 +285,8 @@ public Builder withHNSWLayer(int hnswLayers)
 ```
 
 Set the number of HNSW layers to construct while building the HNSW index
-Valid range - Minimum: \{@value MIN_HNSW_LAYERS\}, Maximum: \{@value MAX_HNSW_LAYERS\}
-Default value - \{@value DEFAULT_HNSW_LAYERS\}
+Valid range - Minimum: `MIN_HNSW_LAYERS`, Maximum: `MAX_HNSW_LAYERS`
+Default value - `DEFAULT_HNSW_LAYERS`
 
 **Parameters**
 
@@ -307,8 +307,8 @@ public Builder withMaxConn(int maxConn)
 ```
 
 Set the max connections parameter while building HNSW index with fallback mechanism
-Valid range - Minimum: \{@value MIN_MAX_CONN\}, Maximum: \{@value MAX_MAX_CONN\}
-Default value - \{@value DEFAULT_MAX_CONN\}
+Valid range - Minimum: `MIN_MAX_CONN`, Maximum: `MAX_MAX_CONN`
+Default value - `DEFAULT_MAX_CONN`
 
 **Parameters**
 
@@ -329,8 +329,8 @@ public Builder withBeamWidth(int beamWidth)
 ```
 
 Set the beam width parameter while building HNSW index with fallback mechanism
-Valid range - Minimum: \{@value MIN_BEAM_WIDTH\}, Maximum: \{@value MAX_BEAM_WIDTH\}
-Default value - \{@value DEFAULT_BEAM_WIDTH\}
+Valid range - Minimum: `MIN_BEAM_WIDTH`, Maximum: `MAX_BEAM_WIDTH`
+Default value - `DEFAULT_BEAM_WIDTH`
 
 **Parameters**
 
@@ -392,7 +392,7 @@ public Builder withNumMergeWorkers(int numMergeWorkers)
 ```
 
 Set the number of merge workers to be used with the fallback mechanism
-Default value - \{@value DEFAULT_NUM_MERGE_WORKERS\}
+Default value - `DEFAULT_NUM_MERGE_WORKERS`
 
 **Parameters**
 
@@ -481,8 +481,8 @@ public Builder withNNDescentNumIterations(int nnDescentNumIterations)
 
 Set the number of Iterations to run if building with NN_DESCENT
 
-Valid range - Minimum: \{@value MIN_NN_DESCENT_NUM_ITERATIONS\}, Maximum: \{@value MAX_NN_DESCENT_NUM_ITERATIONS\}
-Default value - \{@value DEFAULT_NN_DESCENT_NUM_ITERATIONS\}
+Valid range - Minimum: `MIN_NN_DESCENT_NUM_ITERATIONS`, Maximum: `MAX_NN_DESCENT_NUM_ITERATIONS`
+Default value - `DEFAULT_NN_DESCENT_NUM_ITERATIONS`
 
 **Parameters**
 

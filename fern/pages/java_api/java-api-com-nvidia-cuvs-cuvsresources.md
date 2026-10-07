@@ -71,7 +71,7 @@ Path tempDirectory()
 ```
 
 The temporary directory to use for intermediate operations.
-Defaults to \{@systemProperty java.io.tmpdir\}.
+Defaults to `java.io.tmpdir`.
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSResources.java:58`_
 
@@ -115,9 +115,7 @@ static CuVSResources create() throws Throwable
 
 Creates a new resources.
 Equivalent to
-\{@code
-create(CuVSProvider.tempDirectory())
-\}
+`create(CuVSProvider.tempDirectory())`
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSResources.java:87`_
 

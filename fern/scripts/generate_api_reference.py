@@ -239,6 +239,7 @@ class JavaDoc:
     params: list[DoxygenParam] = field(default_factory=list)
     returns: str = ""
     throws: list[DoxygenParam] = field(default_factory=list)
+    deprecated: str = ""
 
 
 @dataclass
@@ -4749,10 +4750,12 @@ def parse_javadoc(raw: str) -> JavaDoc:
     summary_lines: list[str] = []
     active: DoxygenParam | None = None
     active_kind = ""
+    # Lines are collected unconverted and each block is converted once complete, because an
+    # inline tag such as {@link ...} may be wrapped across lines.
     for line in lines:
-        stripped = clean_javadoc_text(line.strip())
-        if not stripped:
-            if active is None:
+        stripped = line.strip()
+        if not clean_javadoc_text(stripped):
+            if active is None and active_kind == "":
                 summary_lines.append("")
             continue
         param_match = re.match(r"@param\s+(\w+)\s*(.*)", stripped)
@@ -4777,9 +4780,16 @@ def parse_javadoc(raw: str) -> JavaDoc:
             active = None
             active_kind = "return"
             continue
-        if stripped.startswith("@"):
+        deprecated_match = re.match(r"@deprecated\b\s*(.*)", stripped)
+        if deprecated_match:
+            doc.deprecated = deprecated_match.group(1).strip()
             active = None
-            active_kind = ""
+            active_kind = "deprecated"
+            continue
+        if re.match(r"@\w", stripped):
+            # Another block tag (@since, @see, ...): it and its continuation lines are not shown.
+            active = None
+            active_kind = "skip"
             continue
         if active is not None and active_kind in {"param", "throws"}:
             active.description = append_doxygen_line(
@@ -4787,18 +4797,49 @@ def parse_javadoc(raw: str) -> JavaDoc:
             )
         elif active_kind == "return":
             doc.returns = append_doxygen_line(doc.returns, stripped)
+        elif active_kind == "deprecated":
+            doc.deprecated = append_doxygen_line(doc.deprecated, stripped)
+        elif active_kind == "skip":
+            continue
         else:
             summary_lines.append(stripped)
-    doc.summary = "\n".join(trim_blank_lines(summary_lines)).strip()
+    doc.summary = clean_javadoc_text(
+        "\n".join(trim_blank_lines(summary_lines))
+    )
+    for param in doc.params + doc.throws:
+        param.description = clean_javadoc_text(param.description)
+    doc.returns = clean_javadoc_text(doc.returns)
+    doc.deprecated = clean_javadoc_text(doc.deprecated)
     return doc
 
 
 def clean_javadoc_text(text: str) -> str:
-    text = re.sub(r"\{@code\s+([^}]+)\}", r"`\1`", text)
+    # A tag wrapped across lines keeps its words on one line.
     text = re.sub(
-        r"\{@link\s+([^}\s]+)(?:\s+([^}]+))?\}",
-        lambda m: m.group(2) or f"`{m.group(1)}`",
+        r"\{@code\s+([^}]+)\}",
+        lambda m: f"`{' '.join(m.group(1).split())}`",
         text,
+    )
+    text = re.sub(
+        r"\{@(?:value|systemProperty)\s+#?([^}\s]+)\s*\}",
+        lambda m: f"`{m.group(1)}`",
+        text,
+    )
+    text = re.sub(
+        r"\{@literal\s+([^}]+)\}",
+        lambda m: " ".join(m.group(1).split()),
+        text,
+    )
+    text = re.sub(
+        r"\{@link(?:plain)?\s+([^}\s]+)(?:\s+([^}]+))?\}",
+        lambda m: " ".join(m.group(2).split())
+        if m.group(2)
+        else f"`{m.group(1)}`",
+        text,
+    )
+    # Any other inline tag shows its text.
+    text = re.sub(
+        r"\{@\w+\s+([^}]+)\}", lambda m: " ".join(m.group(1).split()), text
     )
     text = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", text)
     text = re.sub(r"</?p>", "", text)
@@ -4811,6 +4852,8 @@ def render_javadoc(doc: JavaDoc) -> list[str]:
     if doc.summary:
         lines.extend(escape_text(line) for line in doc.summary.splitlines())
         lines.append("")
+    if doc.deprecated:
+        lines.extend([f"**Deprecated:** {escape_text(doc.deprecated)}", ""])
     if doc.params:
         lines.extend(
             ["**Parameters**", "", "| Name | Description |", "| --- | --- |"]
