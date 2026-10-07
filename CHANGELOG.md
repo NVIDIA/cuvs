@@ -1,3 +1,106 @@
+# cuvs 26.10.00 (7 Oct 2026)
+
+### 🚨 Breaking Changes
+* Apply ABI Breaking Changes for KMeans by @tarang-jain in https://github.com/NVIDIA/cuvs/pull/2147
+* Containerize standalone tarball build by @jameslamb in https://github.com/NVIDIA/cuvs/pull/2595
+* Migrate stream APIs from rmm::cuda_stream_view to cuda::stream_ref by @bdice in https://github.com/NVIDIA/cuvs/pull/2521
+* Iterative CAGRA-Q by @irina-resh-nvda in https://github.com/NVIDIA/cuvs/pull/1810
+* FIX IVF-RabitQ: allow searching after building without serialize round-trip by @achirkin in https://github.com/NVIDIA/cuvs/pull/2664
+### 🐛 Bug Fixes
+* Fix missing trailing barrier in ivf_rabitq blockReduceSum by @hhy3 in https://github.com/NVIDIA/cuvs/pull/2322
+* Use ``main`` branch for C ABI baseline by @jrbourbeau in https://github.com/NVIDIA/cuvs/pull/2388
+* Improve C ABI struct change error handling by @jrbourbeau in https://github.com/NVIDIA/cuvs/pull/2386
+* [WIP] Preload cudart before cuvs native library load to prevent downstream class load errors by @rahulgoswami in https://github.com/NVIDIA/cuvs/pull/2376
+* Fix benchmark regressions from #1846 by @achirkin in https://github.com/NVIDIA/cuvs/pull/2384
+* fix knn_merge_parts for inner product by @qwertyforce in https://github.com/NVIDIA/cuvs/pull/2426
+* Fix ``cuvs-bench`` opensearch recall and save results by @jrbourbeau in https://github.com/NVIDIA/cuvs/pull/2369
+* Fix CAGRA-ACE regressions from #1846 by @julianmi in https://github.com/NVIDIA/cuvs/pull/2416
+* Remove unused extend code in cagra by @aamijar in https://github.com/NVIDIA/cuvs/pull/2436
+* Fix batched silhouette score reduction aliasing by @csadorf in https://github.com/NVIDIA/cuvs/pull/2422
+* Align views with partial batch extents for SNMG ANN direct merge by @viclafargue in https://github.com/NVIDIA/cuvs/pull/2441
+* Fix devcontainer cache version updates by @bdice in https://github.com/NVIDIA/cuvs/pull/2479
+* Fix silent brute force fallback at aligned vector dimensions by @imotov in https://github.com/NVIDIA/cuvs/pull/2483
+* Fix intermittent ThreadLeak failures in the concurrent IT tests by @imotov in https://github.com/NVIDIA/cuvs/pull/2499
+* Fix `cuvs` build due to `rmm` and `cuCollections` api changes by @jcrist in https://github.com/NVIDIA/cuvs/pull/2504
+* [CI] Update Convergence Criteria to Fix Flaky KMeans Test by @tarang-jain in https://github.com/NVIDIA/cuvs/pull/2256
+* Keep cufile.log out of the Java source tree by @imotov in https://github.com/NVIDIA/cuvs/pull/2553
+* Match merged vectors by document id, not by ordinal position by @imotov in https://github.com/NVIDIA/cuvs/pull/2556
+* Fix hnswlib cmake download only by @aamijar in https://github.com/NVIDIA/cuvs/pull/2638
+* Fix creation of `hnswlib` target by @KyleFromNVIDIA in https://github.com/NVIDIA/cuvs/pull/2643
+* Lucene: add exact search fallback for very selective filters by @imotov in https://github.com/NVIDIA/cuvs/pull/2612
+* Lucene: Fix GPU search failing on segments with no live vectors by @imotov in https://github.com/NVIDIA/cuvs/pull/2637
+* Disable AnnNNDescentTestUI8_U32 until release/26.10 is complete by @aamijar in https://github.com/NVIDIA/cuvs/pull/2656
+### 📖 Documentation
+* Fix the build_knn_graph sample code by @enp1s0 in https://github.com/NVIDIA/cuvs/pull/2339
+* Adding new docs link(s) to readme. Adding landing page for API refs by @cjnolet in https://github.com/NVIDIA/cuvs/pull/2228
+* Keep the Fern API reference in sync with the sources by @imotov in https://github.com/NVIDIA/cuvs/pull/2547
+* Sync up API docs with code by @imotov in https://github.com/NVIDIA/cuvs/pull/2561
+* Adds a Lucene API section to the Fern docs, generated from java/cuvs-… by @imotov in https://github.com/NVIDIA/cuvs/pull/2580
+* Move Lucene getting-started guide to Fern, expand install and examples by @imotov in https://github.com/NVIDIA/cuvs/pull/2640
+### 🚀 New Features
+* rust: expose cuvsVersionGet via safe Rust by @yan-zaretskiy in https://github.com/NVIDIA/cuvs/pull/2409
+* Fast CAGRA Index Merge by @landrumb in https://github.com/NVIDIA/cuvs/pull/2352
+* Add missing HNSW bindings by @julianmi in https://github.com/NVIDIA/cuvs/pull/2307
+* Generate cubins from `cutile` at build time and embed them in C++ DSO by @divyegala in https://github.com/NVIDIA/cuvs/pull/2548
+* New 1-nn primitive using `cutile` by @divyegala in https://github.com/NVIDIA/cuvs/pull/2552
+* Add HNSW Layered Index Support by @julianmi in https://github.com/NVIDIA/cuvs/pull/2148
+* Roaring Bitmap Filter in CAGRA by @divyegala in https://github.com/NVIDIA/cuvs/pull/2446
+### 🛠️ Improvements
+* java: get nightly test matrix from shared-workflows by @jameslamb in https://github.com/NVIDIA/cuvs/pull/2340
+* Update RAPIDS.cmake to log source of rapids-cmake by @arhag23 in https://github.com/NVIDIA/cuvs/pull/2302
+* perf(brute_force): skip csr_to_coo on inner-product filtered search by @maxwbuckley in https://github.com/NVIDIA/cuvs/pull/2128
+* Remove libclang pin from clang dependency group by @vyasr in https://github.com/NVIDIA/cuvs/pull/2263
+* enforce 'yamllint' checks by @jameslamb in https://github.com/NVIDIA/cuvs/pull/2357
+* Main merge release/26.08 by @cjnolet in https://github.com/NVIDIA/cuvs/pull/2392
+* Brings the Java build in line with other clients. by @imotov in https://github.com/NVIDIA/cuvs/pull/2361
+* Fix forward merge from `26.08` into `main` by @cjnolet in https://github.com/NVIDIA/cuvs/pull/2411
+* ensure nightly builds always produce new packages, expand 'changed-files' lists by @jameslamb in https://github.com/NVIDIA/cuvs/pull/2414
+* Factor CAGRA graph kernels into shared translation unit by @landrumb in https://github.com/NVIDIA/cuvs/pull/2412
+* perf(brute_force): add scatter-gather path and fix filtered-search dispatch thresholds by @maxwbuckley in https://github.com/NVIDIA/cuvs/pull/2321
+* Add cuvs-bench-elastic: HTTP backend for Elasticsearch GPU vector search by @afourniernv in https://github.com/NVIDIA/cuvs/pull/1907
+* Add Gaussian Mixture Models (GMM) by @Intron7 in https://github.com/NVIDIA/cuvs/pull/2248
+* fix(update-version): don't blanket replace the word main with release branch in README.md by @gforsyth in https://github.com/NVIDIA/cuvs/pull/2421
+* wheels: enforce 'abi3audit' checks by @jameslamb in https://github.com/NVIDIA/cuvs/pull/2439
+* Cuvs lucene move by @imotov in https://github.com/NVIDIA/cuvs/pull/2353
+* Use librtcx for JIT-LTO by @arhag23 in https://github.com/NVIDIA/cuvs/pull/2311
+* ci: avoid triggered-by-schedule and triggered-by-merge builds cancelling each other by @jameslamb in https://github.com/NVIDIA/cuvs/pull/2486
+* Make run_spotless.sh more verbose and strict by @imotov in https://github.com/NVIDIA/cuvs/pull/2485
+* `update_dataset` CAGRA by @aamijar in https://github.com/NVIDIA/cuvs/pull/2427
+* Improve the exception message when cuvs-java is not supported by @imotov in https://github.com/NVIDIA/cuvs/pull/2495
+* Add cuVS overview image to docs home page by @cjnolet in https://github.com/NVIDIA/cuvs/pull/2514
+* ACE: Harden npartitions Check by @julianmi in https://github.com/NVIDIA/cuvs/pull/2282
+* CAGRA-ACE: Make Disk Workspaces Transactional and Non-destructive by @julianmi in https://github.com/NVIDIA/cuvs/pull/2336
+* Replace O(N*degree^2) dedup with per-thread bit-packed bitset by @jamxia155 in https://github.com/NVIDIA/cuvs/pull/2437
+* Lucene: preserve throwable types in accelerated vector formats by @shaunakkapur in https://github.com/NVIDIA/cuvs/pull/2515
+* test: isolate library wheel smoke test, add missing 'cuda-pathfinder' dependency for 'libcuvs' by @jameslamb in https://github.com/NVIDIA/cuvs/pull/2524
+* Delete stale Panama bindings instead of generating on top of them by @imotov in https://github.com/NVIDIA/cuvs/pull/2511
+* Add KvikIO to Improve I/O Throughput by @julianmi in https://github.com/NVIDIA/cuvs/pull/2257
+* Dry run: preprocessing::quantize::scalar by @achirkin in https://github.com/NVIDIA/cuvs/pull/2519
+* Fix: reduce recall calculation time at small batch by @sherylll in https://github.com/NVIDIA/cuvs/pull/2513
+* Vamana build optimization set and fp16 support by @bkarsin in https://github.com/NVIDIA/cuvs/pull/2264
+* Enable security scanning via NVIDIA/security-workflows suite by @gmanal in https://github.com/NVIDIA/cuvs/pull/2430
+* Lucene: Merge CAGRA indexes on the GPU instead of rebuilding from vectors by @imotov in https://github.com/NVIDIA/cuvs/pull/2497
+* Adopt CUDA stream compatibility accessors by @bdice in https://github.com/NVIDIA/cuvs/pull/2557
+* Move Java example projects under examples/java/ by @imotov in https://github.com/NVIDIA/cuvs/pull/2543
+* Optimize cuvs-lucene CAGRA_HNSW index build; add example by @jamxia155 in https://github.com/NVIDIA/cuvs/pull/2481
+* Fix CMake discovery for wheel dependencies by @bdice in https://github.com/NVIDIA/cuvs/pull/2565
+* wheels: get 'tileiras' from system install, not 'cuda-toolkit' wheels by @jameslamb in https://github.com/NVIDIA/cuvs/pull/2564
+* [ANN_BENCH] Remove Stream Pool Creation from Individual Wrappers by @tarang-jain in https://github.com/NVIDIA/cuvs/pull/2526
+* Revert "Optimize cuvs-lucene CAGRA_HNSW index build; add example (#2481)" by @imotov in https://github.com/NVIDIA/cuvs/pull/2597
+* Enable ARM (aarch64) support for cuvs-java and cuvs-lucene by @imotov in https://github.com/NVIDIA/cuvs/pull/2541
+* Optimize transfer/compute overlap in out-of-core KMeans by @viclafargue in https://github.com/NVIDIA/cuvs/pull/2538
+* Add support for BBQ compressed datasets in NN-Descent and CAGRA by @lowener in https://github.com/NVIDIA/cuvs/pull/2654
+
+## New Contributors
+* @hhy3 made their first contribution in https://github.com/NVIDIA/cuvs/pull/2322
+* @landrumb made their first contribution in https://github.com/NVIDIA/cuvs/pull/2412
+* @rahulgoswami made their first contribution in https://github.com/NVIDIA/cuvs/pull/2376
+* @afourniernv made their first contribution in https://github.com/NVIDIA/cuvs/pull/1907
+* @sherylll made their first contribution in https://github.com/NVIDIA/cuvs/pull/2513
+* @gmanal made their first contribution in https://github.com/NVIDIA/cuvs/pull/2430
+
+**Full Changelog**: https://github.com/NVIDIA/cuvs/compare/v26.10.00a...release/26.10
+
 # cuvs 26.06.00 (3 Jun 2026)
 
 ### 🚨 Breaking Changes
