@@ -163,8 +163,8 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
     for (int64_t offset = 0; offset < ps.n_queries; offset += get_bs(i++)) {
       auto bs = std::min<int64_t>(get_bs(i), ps.n_queries - offset);
       auto j  = i % ps.max_concurrent_threads;
-      // wait for previous job in the same slot to finish
-      if (i >= ps.max_concurrent_threads) { futures[j].wait(); }
+      // wait for previous job in the same slot to finish (and rethrow its errors)
+      if (i >= ps.max_concurrent_threads) { futures[j].get(); }
       // submit a new job
       futures[j] = std::async(
         std::launch::async,
@@ -183,7 +183,7 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
 
     // finalize all resources
     for (int64_t j = 0; j < ps.max_concurrent_threads && j < i; j++) {
-      futures[j].wait();
+      futures[j].get();
       raft::resource::sync_stream(resource_pool[j]);
     }
     raft::resource::sync_stream(res);
