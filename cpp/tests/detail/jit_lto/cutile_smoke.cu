@@ -40,6 +40,9 @@ std::vector<std::unique_ptr<CubinFragmentEntry>> make_smoke_fragments()
   fragments.emplace_back(std::make_unique<smoke_fragment<cutile_arch_9_0>>());
   fragments.emplace_back(std::make_unique<smoke_fragment<cutile_arch_10_0>>());
   fragments.emplace_back(std::make_unique<smoke_fragment<cutile_arch_12_0>>());
+#if CUVS_CUTILE_SM110_ENABLED
+  fragments.emplace_back(std::make_unique<smoke_fragment<cutile_arch_11_0>>());
+#endif
   return fragments;
 }
 
@@ -50,6 +53,9 @@ void add_smoke_fragments(TileAlgorithmPlanner& planner)
   planner.add_static_fragment<fragment_tag_cutile_smoke_add_cubin<cutile_arch_9_0>>();
   planner.add_static_fragment<fragment_tag_cutile_smoke_add_cubin<cutile_arch_10_0>>();
   planner.add_static_fragment<fragment_tag_cutile_smoke_add_cubin<cutile_arch_12_0>>();
+#if CUVS_CUTILE_SM110_ENABLED
+  planner.add_static_fragment<fragment_tag_cutile_smoke_add_cubin<cutile_arch_11_0>>();
+#endif
 }
 
 }  // namespace
@@ -65,6 +71,12 @@ TEST(CutileSmoke, ResolvesExactArchitectureOrSm89Compatibility)
   EXPECT_EQ(find_compatible_cubin_fragment(9, 1, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(10, 0, fragments), fragments[3].get());
   EXPECT_EQ(find_compatible_cubin_fragment(10, 1, fragments), nullptr);
+#if CUVS_CUTILE_SM110_ENABLED
+  EXPECT_EQ(find_compatible_cubin_fragment(11, 0, fragments), fragments[5].get());
+#else
+  EXPECT_EQ(find_compatible_cubin_fragment(11, 0, fragments), nullptr);
+#endif
+  EXPECT_EQ(find_compatible_cubin_fragment(11, 1, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(12, 0, fragments), fragments[4].get());
   EXPECT_EQ(find_compatible_cubin_fragment(12, 1, fragments), nullptr);
   EXPECT_EQ(find_compatible_cubin_fragment(13, 0, fragments), nullptr);

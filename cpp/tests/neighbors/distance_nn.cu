@@ -603,8 +603,9 @@ const std::vector<NNInputs<IdxT>> input_fp16_cutile = {
    uint64_t(31415926),
    0.1,
    cuvs::distance::detail::Top1nnBackend::Auto},
-  // High-dimensional tile cases: k=2048 crosses the sm_90 FP16 threshold (1536).
-  // k divisible by 8 → strict ABI; k=2049 is not, → relaxed ABI.
+  // k=2048 and n=2048 reach the FP16 high-dim thresholds on every arch with a high-dim tile.
+  // k=2048 is a multiple of 8, so it selects the high-dim tile. k=2049 is not, so it falls back
+  // to the relaxed tile even though it is above the thresholds.
   // FP16 accumulates in FP32, so error is smaller than FP32 TF32; tolerance is still generous.
   {64,
    2048,

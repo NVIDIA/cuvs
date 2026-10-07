@@ -244,6 +244,10 @@ function(generate_cutile_kernels source_list_var)
   # cmake-lint: disable=C0103,E1120
   foreach(i RANGE "${last}")
     string(JSON matrix_json_entry GET "${matrix_product}" "${i}")
+    string(JSON _entry_gpu_code ERROR_VARIABLE _no_gpu_code GET "${matrix_json_entry}" gpu_code)
+    if(NOT _no_gpu_code AND _entry_gpu_code IN_LIST CUVS_CUTILE_EXCLUDED_GPU_CODES)
+      continue()
+    endif()
     process_cutile_matrix_entry(
       "${source_list_var}"
       KERNEL_DIR "${_CUTILE_KERNEL_DIR}"

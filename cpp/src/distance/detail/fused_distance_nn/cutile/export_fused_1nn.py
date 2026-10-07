@@ -204,7 +204,6 @@ def export_binary(
     occupancy: int | None = None,
     num_ctas: int | None = None,
 ) -> str:
-    # TODO (huuanhhuyn) Support Rubin
     if matrix_layout == "high_dim" and (num_ctas is None or num_ctas <= 1):
         raise ValueError("high_dim exports must specify num_ctas > 1")
     kernel = make_kernel(

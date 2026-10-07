@@ -43,6 +43,9 @@ bool should_use_high_dim_tile(IdxT n, IdxT k, int cc_major, int cc_minor)
   } else if (cc_major == 10 && cc_minor == 0) {
     k_thresh = 1536;
     n_thresh = 1000;
+  } else if (cc_major == 11 && cc_minor == 0) {
+    k_thresh = 2048;
+    n_thresh = 1000;
   } else if (cc_major == 12 && cc_minor == 0) {
     // sm_120 FP32 only because FP16 high-dim tile brings negligible speedup
     if (!is_float) { return false; }
@@ -310,13 +313,16 @@ bool is_fused_1nn_tile_available(
     return false;
   }
 
+  constexpr int strict_pitch_elements = 16 / sizeof(DataT);
+  if (k % strict_pitch_elements != 0) {
+    return has_fused_1nn_tile_launcher<DataT, cutile_abi_relaxed>();
+  }
+
+  // High-dim tiles use the strict layout
   if (should_use_high_dim_tile<DataT>(n, k, capabilities.cc_major, capabilities.cc_minor)) {
     return has_fused_1nn_tile_launcher<DataT, cutile_abi_high_dim>();
   }
-
-  constexpr int strict_pitch_elements = 16 / sizeof(DataT);
-  return k % strict_pitch_elements == 0 ? has_fused_1nn_tile_launcher<DataT, cutile_abi_strict>()
-                                        : has_fused_1nn_tile_launcher<DataT, cutile_abi_relaxed>();
+  return has_fused_1nn_tile_launcher<DataT, cutile_abi_strict>();
 }
 
 template <typename DataT, typename IdxT>
@@ -338,16 +344,13 @@ void launch_fused_1nn_tile(raft::resources const& handle,
   validate_fused_1nn_tile_launch(
     nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, index_workspace);
 
-  // Determine which ABI (tile) to use: high-dim tiles take priority when K and N are large enough.
-  cuvs::detail::jit_lto::CutileRuntimeCapabilities capabilities{};
-  const bool have_capabilities =
-    cuvs::detail::jit_lto::query_current_cutile_runtime_capabilities(capabilities);
-  const bool use_high_dim_abi =
-    have_capabilities &&
-    should_use_high_dim_tile<DataT>(n, k, capabilities.cc_major, capabilities.cc_minor);
-
   constexpr int strict_pitch_elements = 16 / sizeof(DataT);
-  const bool use_strict_abi           = !use_high_dim_abi && k % strict_pitch_elements == 0;
+  cuvs::detail::jit_lto::CutileRuntimeCapabilities capabilities{};
+  cuvs::detail::jit_lto::query_current_cutile_runtime_capabilities(capabilities);
+  const bool use_strict_abi = k % strict_pitch_elements == 0;
+  const bool use_high_dim_abi =
+    use_strict_abi &&
+    should_use_high_dim_tile<DataT>(n, k, capabilities.cc_major, capabilities.cc_minor);
 
   if constexpr (std::is_same_v<IdxT, int>) {
     if (use_high_dim_abi) {

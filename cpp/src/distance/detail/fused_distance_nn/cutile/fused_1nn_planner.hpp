@@ -56,6 +56,9 @@ struct Fused1nnTilePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
   void add_entrypoint()
   {
     using cuvs::detail::jit_lto::cutile_arch_10_0;
+#if CUVS_CUTILE_SM110_ENABLED
+    using cuvs::detail::jit_lto::cutile_arch_11_0;
+#endif
     using cuvs::detail::jit_lto::cutile_arch_12_0;
     using cuvs::detail::jit_lto::cutile_arch_8_0;
     using cuvs::detail::jit_lto::cutile_arch_8_6;
@@ -112,14 +115,26 @@ struct Fused1nnTilePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
       fragment_tag_fused_1nn_cubin<DataTag, IndexTag, Tile90, AbiTag, cutile_arch_9_0>>();
     this->add_static_fragment<
       fragment_tag_fused_1nn_cubin<DataTag, IndexTag, Tile100, AbiTag, cutile_arch_10_0>>();
+#if CUVS_CUTILE_SM110_ENABLED
+    using Tile110 =
+      std::conditional_t<is_float,
+                         std::conditional_t<is_relaxed,
+                                            fused_1nn_matrix_tile_f_cutile_arch_11_0_relaxed,
+                                            fused_1nn_matrix_tile_f_cutile_arch_11_0_strict>,
+                         std::conditional_t<is_relaxed,
+                                            fused_1nn_matrix_tile_h_cutile_arch_11_0_relaxed,
+                                            fused_1nn_matrix_tile_h_cutile_arch_11_0_strict>>;
+    this->add_static_fragment<
+      fragment_tag_fused_1nn_cubin<DataTag, IndexTag, Tile110, AbiTag, cutile_arch_11_0>>();
+#endif
     this->add_static_fragment<
       fragment_tag_fused_1nn_cubin<DataTag, IndexTag, Tile120, AbiTag, cutile_arch_12_0>>();
   }
 };
 
 /**
- * Planner for high-dimensional tiles. Only sm_90, sm_100, and sm_120 (FP32 only) have high-dim
- * tiles; other architectures yield try_get_launcher() == nullptr (no matching cubin).
+ * Planner for high-dimensional tiles. Only sm_90, sm_100, sm_110, and sm_120 (FP32 only) have
+ * high-dim tiles; other architectures yield try_get_launcher() == nullptr (no matching cubin).
  *
  * The tile aliases below are generated from the JSON entries with abi_abbrev="hd". sm_80 and sm_86
  * do not have high-dim tiles, so no fragment is registered for them.
@@ -143,12 +158,14 @@ struct Fused1nnTilePlanner<DataT, cutile_abi_high_dim>
   void add_entrypoint()
   {
     using cuvs::detail::jit_lto::cutile_arch_10_0;
+#if CUVS_CUTILE_SM110_ENABLED
+    using cuvs::detail::jit_lto::cutile_arch_11_0;
+#endif
     using cuvs::detail::jit_lto::cutile_arch_12_0;
     using cuvs::detail::jit_lto::cutile_arch_9_0;
 
     constexpr bool is_float = std::is_same_v<DataTag, cuvs::neighbors::detail::tag_f>;
 
-    // sm_90 (H100/H200): both FP32 and FP16 have high-dim tiles.
     if constexpr (is_float) {
       this->add_static_fragment<
         fragment_tag_fused_1nn_cubin<DataTag,
@@ -165,7 +182,6 @@ struct Fused1nnTilePlanner<DataT, cutile_abi_high_dim>
                                      cutile_arch_9_0>>();
     }
 
-    // sm_100 (B100/B200): both FP32 and FP16 have high-dim tiles.
     if constexpr (is_float) {
       this->add_static_fragment<
         fragment_tag_fused_1nn_cubin<DataTag,
@@ -182,7 +198,25 @@ struct Fused1nnTilePlanner<DataT, cutile_abi_high_dim>
                                      cutile_arch_10_0>>();
     }
 
-    // sm_120 (RTX Pro 6000): FP32 only; FP16 crossover is negligible.
+#if CUVS_CUTILE_SM110_ENABLED
+    if constexpr (is_float) {
+      this->add_static_fragment<
+        fragment_tag_fused_1nn_cubin<DataTag,
+                                     IndexTag,
+                                     fused_1nn_matrix_tile_f_cutile_arch_11_0_hd,
+                                     cutile_abi_high_dim,
+                                     cutile_arch_11_0>>();
+    } else {
+      this->add_static_fragment<
+        fragment_tag_fused_1nn_cubin<DataTag,
+                                     IndexTag,
+                                     fused_1nn_matrix_tile_h_cutile_arch_11_0_hd,
+                                     cutile_abi_high_dim,
+                                     cutile_arch_11_0>>();
+    }
+#endif
+
+    // sm_120: FP32 only because FP16 perf gain from high-dim tiles is negligible.
     if constexpr (is_float) {
       this->add_static_fragment<
         fragment_tag_fused_1nn_cubin<DataTag,
