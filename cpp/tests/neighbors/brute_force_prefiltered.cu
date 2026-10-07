@@ -632,7 +632,7 @@ class PrefilteredBruteForceOnBitmapTest
     auto out_idx = raft::make_device_matrix_view<index_t, index_t, raft::row_major>(
       out_idx_d.data(), params.n_queries, params.top_k);
 
-    for (float invalid_rate : {1.0f, 1.5f, 50.0f}) {
+    for (float invalid_rate : {1.0f, 1.5f, 50.0f, std::numeric_limits<float>::quiet_NaN()}) {
       cuvs::neighbors::brute_force::search_params search_params;
       search_params.filtering_rate = invalid_rate;
 

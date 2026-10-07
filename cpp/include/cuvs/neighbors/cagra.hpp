@@ -120,10 +120,15 @@ struct search_params : cuvs::neighbors::search_params {
    */
   float persistent_device_usage = 1.0;
 
-  // `filtering_rate` is inherited from `cuvs::neighbors::search_params`. CAGRA uses it to size
-  // `itopk_size`. When it is negative, CAGRA derives the rate from the filter where possible; for
-  // `filtering::udf_filter` it uses `udf_filter::filtering_rate`, and if both values are negative
-  // it assumes 0.0 because a UDF's selectivity cannot be inferred from the source string.
+  /**
+   * A parameter indicating the rate of nodes to be filtered-out, when filtering is used.
+   * The value must be equal to or greater than 0.0 and less than 1.0. Default value is
+   * negative, in which case the filtering rate is automatically calculated when possible.
+   * For `filtering::udf_filter`, CAGRA uses `udf_filter::filtering_rate` when this value is
+   * negative. If both values are negative, CAGRA assumes 0.0 because a UDF's selectivity cannot be
+   * inferred from the source string.
+   */
+  float filtering_rate = -1.0;
 
   /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
    * supports FP8. **/
