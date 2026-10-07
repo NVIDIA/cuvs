@@ -199,6 +199,20 @@ struct search_plan_impl : public search_plan_impl_base {
 
   void adjust_search_params()
   {
+    if (algo == search_algo::MULTI_CTA && (0.0 < filtering_rate && filtering_rate < 1.0)) {
+      size_t adjusted_itopk_size =
+        (size_t)((float)topk / (1.0 - filtering_rate) +
+                 (float)(itopk_size - topk) / std::sqrt(1.0 - filtering_rate));
+      if (adjusted_itopk_size % 32) { adjusted_itopk_size += 32 - (adjusted_itopk_size % 32); }
+      if (itopk_size < adjusted_itopk_size) {
+        RAFT_LOG_DEBUG(
+          "# internal_topk is increased from %lu to %lu, considering fintering rate %f.",
+          itopk_size,
+          adjusted_itopk_size,
+          filtering_rate);
+        itopk_size = adjusted_itopk_size;
+      }
+    }
     uint32_t _max_iterations = max_iterations;
     if (max_iterations == 0) {
       if (algo == search_algo::MULTI_CTA) {
@@ -227,20 +241,6 @@ struct search_plan_impl : public search_plan_impl_base {
       RAFT_LOG_DEBUG(
         "# max_iterations is increased from %lu to %u.", max_iterations, _max_iterations);
       max_iterations = _max_iterations;
-    }
-    if (algo == search_algo::MULTI_CTA && (0.0 < filtering_rate && filtering_rate < 1.0)) {
-      size_t adjusted_itopk_size =
-        (size_t)((float)topk / (1.0 - filtering_rate) +
-                 (float)(itopk_size - topk) / std::sqrt(1.0 - filtering_rate));
-      if (adjusted_itopk_size % 32) { adjusted_itopk_size += 32 - (adjusted_itopk_size % 32); }
-      if (itopk_size < adjusted_itopk_size) {
-        RAFT_LOG_DEBUG(
-          "# internal_topk is increased from %lu to %lu, considering fintering rate %f.",
-          itopk_size,
-          adjusted_itopk_size,
-          filtering_rate);
-        itopk_size = adjusted_itopk_size;
-      }
     }
     if (itopk_size % 32) {
       uint32_t itopk32 = itopk_size;
