@@ -5,7 +5,6 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.TestUtils.assertVectorsKeepTheirDocuments;
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
 import java.util.List;
@@ -18,21 +17,12 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
-import org.junit.BeforeClass;
-import org.junit.Ignore;
 
 @SuppressSysoutChecks(bugUrl = "")
-public class TestLucene99AcceleratedHNSWVectorsFormat extends BaseKnnVectorsFormatTestCase {
-
-  @BeforeClass
-  public static void beforeClass() {
-    assumeTrue("cuVS is not supported", isSupported());
-  }
+public class TestLucene99AcceleratedHNSWVectorsFormat extends BaseCuVSKnnVectorsFormatTestCase {
 
   @Override
   protected Codec getCodec() {
@@ -98,46 +88,11 @@ public class TestLucene99AcceleratedHNSWVectorsFormat extends BaseKnnVectorsForm
         assertVectorsKeepTheirDocuments(r, "f2", f2);
 
         // opportunistically check boundary condition - search with a 0 topK
-        var topDocs = r.searchNearestVectors("f1", randomVector(384), 0, null, 10);
+        var topDocs =
+            TestLuceneCompat.searchNearestVectors(r, "f1", randomVector(384), 0, null, 10);
         assertEquals(0, topDocs.scoreDocs.length);
         assertEquals(0, topDocs.totalHits.value());
       }
     }
   }
-
-  @Override
-  // Overriding this method from superclass for the tests to only use float vector encoding
-  protected VectorEncoding randomVectorEncoding() {
-    return VectorEncoding.FLOAT32;
-  }
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testByteVectorScorerIteration() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testEmptyByteVectorData() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testMergingWithDifferentByteKnnFields() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testMismatchedFields() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testRandomBytes() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testSortedIndexBytes() {}
 }

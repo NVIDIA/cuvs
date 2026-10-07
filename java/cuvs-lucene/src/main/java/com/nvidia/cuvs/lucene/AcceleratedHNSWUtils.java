@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.IndexOutput;
@@ -36,17 +37,8 @@ public class AcceleratedHNSWUtils {
     NONE
   }
 
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 
   /**
    * Creates a dummy HNSW graph for a single vector.
@@ -54,8 +46,10 @@ public class AcceleratedHNSWUtils {
    */
   public static GPUBuiltHnswGraph createSingleVectorHnswGraph(int size, int dimensions)
       throws Throwable {
-    // Create adjacency list for single node with no neighbors
-    int[][] singleNodeAdjacency = new int[][] {{-1}}; // -1 indicates no neighbors
+    // One node with an empty adjacency row: like Lucene's own writer, the graph records no
+    // neighbors for it. A placeholder neighbor such as -1 would be written to the index, where a
+    // CPU merge takes it for a node ordinal and fails.
+    int[][] singleNodeAdjacency = new int[][] {{}};
 
     // Create CuVSMatrix from the adjacency list
     CuVSMatrix adjacencyMatrix = CuVSMatrix.ofArray(singleNodeAdjacency);
@@ -87,10 +81,15 @@ public class AcceleratedHNSWUtils {
       List<?> vectors,
       int hnswLayers,
       CagraIndexParams params,
-      QuantizationType quantization)
+      QuantizationType quantization,
+      int maxConn)
       throws Throwable {
 
     int M = Math.ceilDiv((int) adjacencyListMatrix.columns(), 2);
+    // HNSW allows maxConn neighbors per node above level 0, half of level 0's 2 * maxConn. A wider
+    // upper-layer row is read fine, but a CPU merge copies it into an array of maxConn + 1 slots
+    // and fails with "No growth is allowed", so build the upper layers with degree maxConn.
+    CagraIndexParams upperLayerParams = CagraIndexParamsFactory.withMaxGraphDegree(params, maxConn);
 
     // Store all layers data
     List<int[]> layerNodes = new ArrayList<>();
@@ -140,7 +139,7 @@ public class AcceleratedHNSWUtils {
         // Build CAGRA graph for this layer
         layerAdjacencies.add(
             buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, 0, params, dimensions, quantization));
+                selectedVectors, selectedNodes, 0, upperLayerParams, dimensions, quantization));
 
       } else {
 
@@ -154,7 +153,12 @@ public class AcceleratedHNSWUtils {
         // Build CAGRA graph for this layer
         layerAdjacencies.add(
             buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, bytesPerVector, params, dimensions, quantization));
+                selectedVectors,
+                selectedNodes,
+                bytesPerVector,
+                upperLayerParams,
+                dimensions,
+                quantization));
       }
 
       // Update for next iteration
@@ -228,6 +232,21 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
+   * Returns the nodes of a graph level in ascending order.
+   *
+   * @param nodesOnLevel iterates over the nodes of one level
+   * @return the sorted nodes
+   */
+  private static int[] getSortedNodes(NodesIterator nodesOnLevel) {
+    int[] sortedNodes = new int[nodesOnLevel.size()];
+    for (int n = 0; nodesOnLevel.hasNext(); n++) {
+      sortedNodes[n] = nodesOnLevel.nextInt();
+    }
+    Arrays.sort(sortedNodes);
+    return sortedNodes;
+  }
+
+  /**
    * Returns a 2D array of offsets (information written while writing the meta info)
    *
    * @param graph instance of GPUBuiltHnswGraph
@@ -242,7 +261,7 @@ public class AcceleratedHNSWUtils {
     int[][] offsets = new int[graph.numLevels()][];
     int[] scratch = new int[graph.maxConn() * 2];
     for (int level = 0; level < graph.numLevels(); level++) {
-      int[] sortedNodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(level));
+      int[] sortedNodes = getSortedNodes(graph.getNodesOnLevel(level));
       offsets[level] = new int[sortedNodes.length];
       int nodeOffsetId = 0;
 
@@ -298,6 +317,7 @@ public class AcceleratedHNSWUtils {
    * @param count the count of vectors
    * @param graph instance of HnswGraph
    * @param graphLevelNodeOffsets graph level node offsets
+   * @param maxConn the configured maxConn, which a CPU writer uses when it merges this segment
    * @throws IOException I/O Exceptions
    */
   public static void writeMeta(
@@ -308,7 +328,8 @@ public class AcceleratedHNSWUtils {
       long vectorIndexLength,
       int count,
       HnswGraph graph,
-      int[][] graphLevelNodeOffsets)
+      int[][] graphLevelNodeOffsets,
+      int maxConn)
       throws IOException {
 
     meta.writeInt(field.number);
@@ -318,10 +339,14 @@ public class AcceleratedHNSWUtils {
     meta.writeVLong(vectorIndexLength);
     meta.writeVInt(field.getVectorDimension());
     meta.writeInt(count);
-    // M = ceil(cagraGraphDegree / 2), derived from the graph being written rather than from a
-    // caller-supplied degree: graph.maxConn() is the widest layer-0 adjacency row, which is the
-    // degree cuVS actually built (it may truncate the requested one for small datasets).
-    meta.writeVInt(graph == null ? 0 : Math.ceilDiv(graph.maxConn(), 2));
+    // The reader sizes its arc buffer as M * 2, so M must cover ceil(cagraGraphDegree / 2), taken
+    // from the graph being written: graph.maxConn() is the widest layer-0 adjacency row, which is
+    // the degree cuVS actually built (it may truncate the requested one for small datasets).
+    // M must not fall below maxConn either: on Lucene 10.4+ a CPU merge sizes the merged graph's
+    // neighbor arrays from the M of its largest source segment but fills them up to 2 * maxConn,
+    // so a smaller M makes the merge throw. Like Lucene, record maxConn even without a graph.
+    int graphM = graph == null ? 0 : Math.ceilDiv(graph.maxConn(), 2);
+    meta.writeVInt(Math.max(maxConn, graphM));
 
     // write graph nodes on each level
     if (graph == null) {
@@ -392,10 +417,12 @@ public class AcceleratedHNSWUtils {
    * Writes an empty meta information for the field.
    *
    * @param fieldInfo instance of FieldInfo
+   * @param maxConn the configured maxConn, recorded as the field's M
    * @throws IOException I/O Exceptions
    */
-  public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op) throws IOException {
-    writeMeta(null, op, fieldInfo, 0, 0, 0, null, null);
+  public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op, int maxConn)
+      throws IOException {
+    writeMeta(null, op, fieldInfo, 0, 0, 0, null, null, maxConn);
   }
 
   /**

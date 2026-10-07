@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.KnnVectorValues;
 import org.apache.lucene.util.InfoStream;
@@ -48,6 +50,24 @@ public class Utils {
       case RuntimeException re -> throw re;
       case null, default -> throw new RuntimeException("UNEXPECTED: exception type", t);
     }
+  }
+
+  /**
+   * Returns Lucene's own HNSW vectors format, configured like the given accelerated one. Used to
+   * build the graph on the CPU when no GPU is available. It writes the same files as the GPU
+   * writers, so the accelerated formats read its segments like their own.
+   *
+   * @param params the accelerated format's parameters
+   * @return the CPU vectors format
+   */
+  static KnnVectorsFormat cpuHnswFormat(AcceleratedHNSWParams params) {
+    int numMergeWorkers = params.getNumMergeWorkers();
+    // Lucene rejects an executor when merging on a single thread.
+    return new Lucene99HnswVectorsFormat(
+        params.getMaxConn(),
+        params.getBeamWidth(),
+        numMergeWorkers,
+        numMergeWorkers > 1 ? params.getMergeExec() : null);
   }
 
   /**

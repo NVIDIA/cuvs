@@ -34,6 +34,11 @@ JAVA_SOURCE_DIRS = [
 ]
 LUCENE_SOURCE_DIRS = [
     REPO_DIR / "java" / "cuvs-lucene" / "src" / "main" / "java",
+    # Codecs introduced by a later Lucene release, which live in that release's module and are
+    # compiled into every later one as well.
+    *sorted(
+        (REPO_DIR / "java" / "cuvs-lucene").glob("lucene-*/src/since/java")
+    ),
 ]
 API_NAV_SECTIONS = [
     ("C API Documentation", "c_api", "c-api-documentation", "C API", "c-api"),
@@ -142,6 +147,12 @@ LUCENE_EXTENSION_POINTS = frozenset(
         "KnnVectorsFormat",
         "KnnVectorsReader",
         "KnnVectorsWriter",
+        # cuvs-lucene's own bases for these, which keep one signature across Lucene releases.
+        "BaseAcceleratedHNSWScalarQuantizedVectorsFormat",
+        "CompatKnnFloatVectorQuery",
+        "CompatKnnVectorsReader",
+        "CompatKnnVectorsWriter",
+        "CuVSFilterCodec",
     }
 )
 JAVA_SUPERTYPE_RE = re.compile(r"\b(?:extends|implements)\s+(?P<name>\w+)")
@@ -3014,7 +3025,7 @@ def generate_lucene_api_pages() -> None:
         title="Lucene API Documentation",
         intro=(
             "These pages are generated from the Java source files in "
-            "`java/cuvs-lucene/src/main`.\n\n"
+            "`java/cuvs-lucene/src/main` and `java/cuvs-lucene/lucene-*/src/since`.\n\n"
             "For an introduction to the codecs, configuration, and tuning, see the "
             "[Lucene Integration](/user-guide/lucene) guide."
         ),
@@ -4749,9 +4760,11 @@ def parse_javadoc(raw: str) -> JavaDoc:
     summary_lines: list[str] = []
     active: DoxygenParam | None = None
     active_kind = ""
+    # Lines are collected unconverted and each block is converted once complete, because an
+    # inline tag such as {@link ...} may be wrapped across lines.
     for line in lines:
-        stripped = clean_javadoc_text(line.strip())
-        if not stripped:
+        stripped = line.strip()
+        if not clean_javadoc_text(stripped):
             if active is None:
                 summary_lines.append("")
             continue
@@ -4789,15 +4802,27 @@ def parse_javadoc(raw: str) -> JavaDoc:
             doc.returns = append_doxygen_line(doc.returns, stripped)
         else:
             summary_lines.append(stripped)
-    doc.summary = "\n".join(trim_blank_lines(summary_lines)).strip()
+    doc.summary = clean_javadoc_text(
+        "\n".join(trim_blank_lines(summary_lines))
+    )
+    for param in doc.params + doc.throws:
+        param.description = clean_javadoc_text(param.description)
+    doc.returns = clean_javadoc_text(doc.returns)
     return doc
 
 
 def clean_javadoc_text(text: str) -> str:
-    text = re.sub(r"\{@code\s+([^}]+)\}", r"`\1`", text)
+    # A tag wrapped across lines keeps its words on one line.
+    text = re.sub(
+        r"\{@code\s+([^}]+)\}",
+        lambda m: f"`{' '.join(m.group(1).split())}`",
+        text,
+    )
     text = re.sub(
         r"\{@link\s+([^}\s]+)(?:\s+([^}]+))?\}",
-        lambda m: m.group(2) or f"`{m.group(1)}`",
+        lambda m: " ".join(m.group(2).split())
+        if m.group(2)
+        else f"`{m.group(1)}`",
         text,
     )
     text = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", text)

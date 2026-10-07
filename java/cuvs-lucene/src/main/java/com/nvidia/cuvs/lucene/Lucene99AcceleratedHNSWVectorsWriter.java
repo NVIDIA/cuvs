@@ -14,6 +14,7 @@ import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_I
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_INDEX_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_NAME;
+import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_VERSION;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.closeCuVSResourcesInstance;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.getCuVSResourcesInstance;
 import static com.nvidia.cuvs.lucene.Utils.createListFromMergedVectors;
@@ -49,13 +50,11 @@ import org.apache.lucene.util.InfoStream;
  *
  * @since 25.10
  */
-public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
+public class Lucene99AcceleratedHNSWVectorsWriter extends CompatKnnVectorsWriter {
 
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(Lucene99AcceleratedHNSWVectorsWriter.class);
   private static final String COMPONENT = "Lucene99AcceleratedHNSWVectorsWriter";
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final Integer VERSION_CURRENT;
 
   private final AcceleratedHNSWParams acceleratedHNSWParams;
   private final FlatVectorsWriter flatVectorsWriter;
@@ -66,15 +65,6 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   private String vemFileName;
   private String vexFileName;
   private boolean finished;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VERSION_CURRENT = LUCENE_PROVIDER.getStaticIntParam("VERSION_CURRENT");
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * Initializes {@link Lucene99AcceleratedHNSWVectorsWriter}
@@ -105,13 +95,13 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       CodecUtil.writeIndexHeader(
           hnswMeta,
           HNSW_META_CODEC_NAME,
-          VERSION_CURRENT,
+          HNSW_VERSION,
           state.segmentInfo.getId(),
           state.segmentSuffix);
       CodecUtil.writeIndexHeader(
           hnswVectorIndex,
           HNSW_INDEX_CODEC_NAME,
-          VERSION_CURRENT,
+          HNSW_VERSION,
           state.segmentInfo.getId(),
           state.segmentSuffix);
       success = true;
@@ -147,7 +137,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    */
   private void writeFieldInternal(FieldInfo fieldInfo, List<float[]> vectors) throws IOException {
     if (vectors.size() == 0) {
-      writeEmpty(fieldInfo, hnswMeta);
+      writeEmpty(fieldInfo, hnswMeta, acceleratedHNSWParams.getMaxConn());
       return;
     }
     if (vectors.size() < 2) {
@@ -179,7 +169,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
               vectors,
               acceleratedHNSWParams.getHnswLayers(),
               params,
-              QuantizationType.NONE);
+              QuantizationType.NONE,
+              acceleratedHNSWParams.getMaxConn());
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
       int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
@@ -191,7 +182,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
       cagraIndex.close();
     } catch (Throwable t) {
       Utils.handleThrowable(t);
@@ -266,7 +258,8 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
@@ -290,7 +283,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    * Write field for merging.
    */
   @Override
-  public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+  protected void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
     vectorBasedMerge(fieldInfo, mergeState);
   }

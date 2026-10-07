@@ -31,6 +31,7 @@ jobs:
       - conda-java-tests-other-arch
       - conda-lucene-build-and-tests
       - conda-lucene-tests-other-arch
+      - conda-lucene-tests-jdk21
       - rust-build-matrix
       - rust-build
       - go-build-matrix
@@ -737,7 +738,7 @@ jobs:
       container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
       artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
-      file_to_upload: "java/cuvs-lucene/target/"
+      file_to_upload: "java/cuvs-lucene/*/target/"
   conda-lucene-tests-other-arch:
     # Verifies that cuvs-lucene, built against the amd64-built cuvs-java jar, also works
     # correctly on every non-amd64 architecture, by running its test suite against the
@@ -761,6 +762,29 @@ jobs:
       arch: "${{ matrix.ARCH }}"
       container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/test_lucene_prebuilt.sh ${{ matrix.ARCH }} cuvs-java-cuda${{ matrix.CUDA_VER }} cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
+  conda-lucene-tests-jdk21:
+    # Verifies that cuvs-lucene, compiled with --release 21, loads and works without the GPU on
+    # JDK 21, the oldest JDK it supports, by running its test suite against the amd64-built
+    # classes without recompiling -- see ci/test_lucene_jdk21.sh. It runs once, not per CUDA
+    # version: it uses no GPU, so the artifacts of any entry of the Java job's matrix will do.
+    # This matters because many applications built on Lucene 10 support JDK 21 as their minimum.
+    # cuvs-lucene only uses the GPU on JDK 22+, but it can't stop such an application from starting
+    # on JDK 21, so there it has to load and fall back to the CPU.
+    needs: [conda-java-build-and-tests-matrix, conda-java-build-and-tests, conda-lucene-build-and-tests]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    with:
+      build_type: pull-request
+      node_type: "cpu8"
+      arch: "amd64"
+      container_image: "rapidsai/ci-conda:26.12-cuda${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix).include[0].CUDA_VER }}-${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix).include[0].LINUX_VER }}-py${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix).include[0].PY_VER }}"
+      script: "ci/test_lucene_jdk21.sh cuvs-java-cuda${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix).include[0].CUDA_VER }} cuvs-lucene-cuda${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix).include[0].CUDA_VER }}"
   rust-build-matrix:
     needs: [conda-cpp-build, changed-files]
     permissions:

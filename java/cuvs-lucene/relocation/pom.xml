@@ -1,0 +1,129 @@
+<!--
+SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+SPDX-License-Identifier: Apache-2.0
+-->
+<!--
+    Until 26.10, cuvs-lucene was published as a single artifact, com.nvidia.cuvs.lucene:cuvs-lucene, built
+    for Lucene 10.2. It is now published once per Lucene minor release (cuvs-lucene-10.2, cuvs-lucene-10.3,
+    ...). This pom is published under the old coordinates and relocates them to cuvs-lucene-10.2, the
+    artifact that matches what the old one supported, so that Maven users who only bump the version keep
+    building and are told what to use instead.
+
+    It deliberately has no parent: it is published as is, and must not refer to the parent pom.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <groupId>com.nvidia.cuvs.lucene</groupId>
+  <artifactId>cuvs-lucene</artifactId>
+  <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
+  <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+  <packaging>pom</packaging>
+  <name>cuvs-lucene</name>
+  <description>
+      Relocated: cuvs-lucene is now published once per Lucene minor release, as cuvs-lucene-10.2,
+      cuvs-lucene-10.3, cuvs-lucene-10.4 and cuvs-lucene-10.5.
+  </description>
+  <url>https://rapids.ai</url>
+
+  <licenses>
+      <license>
+          <name>Apache License, Version 2.0</name>
+          <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+          <distribution>repo</distribution>
+      </license>
+  </licenses>
+  <scm>
+      <connection>scm:git:https://github.com/rapidsai/cuvs.git</connection>
+      <developerConnection>scm:git:git@github.com:rapidsai/cuvs.git</developerConnection>
+      <tag>HEAD</tag>
+      <url>https://github.com/rapidsai/cuvs</url>
+  </scm>
+  <developers>
+      <developer>
+          <id>rapidsai</id>
+          <name>rapidsai</name>
+          <email>cuvs@rapids.ai</email>
+      </developer>
+  </developers>
+
+  <distributionManagement>
+    <relocation>
+      <artifactId>cuvs-lucene-10.2</artifactId>
+      <message>cuvs-lucene is now published once per Lucene minor release: depend on cuvs-lucene-10.2, cuvs-lucene-10.3, cuvs-lucene-10.4 or cuvs-lucene-10.5, matching the Lucene version you use. This relocation points to cuvs-lucene-10.2, which matches the Lucene release the old artifact was built for.</message>
+    </relocation>
+  </distributionManagement>
+
+  <!-- Only for building this module; see the parent pom for why every pom declares the mirror. -->
+  <pluginRepositories>
+      <pluginRepository>
+          <id>gcs-maven-central-mirror</id>
+          <name>GCS Maven Central mirror</name>
+          <url>https://maven-central.storage-download.googleapis.com/maven2/</url>
+          <releases>
+              <enabled>true</enabled>
+          </releases>
+          <snapshots>
+              <enabled>false</enabled>
+          </snapshots>
+      </pluginRepository>
+      <pluginRepository>
+          <id>central</id>
+          <name>Maven Plugin Repository</name>
+          <url>https://repo.maven.apache.org/maven2</url>
+          <releases>
+              <enabled>true</enabled>
+          </releases>
+          <snapshots>
+              <enabled>false</enabled>
+          </snapshots>
+      </pluginRepository>
+  </pluginRepositories>
+
+  <build>
+    <plugins>
+      <plugin>
+        <!--
+            Nothing to format here, but ci/checks/run_spotless.sh runs spotless:apply on the whole
+            reactor, which needs every module to know the plugin.
+        -->
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>2.44.5</version>
+        <configuration>
+          <skip>true</skip>
+        </configuration>
+      </plugin>
+      <plugin>
+        <!--
+            Copies this pom into target/, like the other modules' flattened poms, so that the CI artifact
+            holds everything needed to publish it.
+        -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>copy-pom-to-target</id>
+            <phase>package</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.directory}</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.basedir}</directory>
+                  <includes>
+                    <include>pom.xml</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>
