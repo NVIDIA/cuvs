@@ -65,6 +65,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
   private final List<FieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
   private final GraphProcessingTrace graphProcessingTrace;
+  private final HostInputMemory hostInputMemory;
   private IndexOutput hnswMeta = null;
   private IndexOutput hnswVectorIndex = null;
   private String vemFileName;
@@ -97,6 +98,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
     this.graphProcessingTrace = GraphProcessingTrace.toInfoStream(infoStream, COMPONENT);
+    this.hostInputMemory = new HostInputMemory(infoStream, COMPONENT, state.segmentInfo.name);
     this.acceleratedHNSWParams = acceleratedHNSWParams;
     vemFileName =
         IndexFileNames.segmentFileName(
@@ -155,8 +157,17 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
     if (writeTrivialField(fieldInfo, vectors.size())) {
       return;
     }
-    CuVSMatrix dataset = Utils.createHostFloatMatrix(vectors, fieldInfo.getVectorDimension());
-    writeNonTrivialField(fieldInfo, dataset);
+    hostInputMemory.withMatrix(
+        fieldInfo.name,
+        vectors.size(),
+        fieldInfo.getVectorDimension(),
+        CuVSMatrix.DataType.FLOAT,
+        builder -> {
+          for (float[] vector : vectors) {
+            builder.addVector(vector);
+          }
+          writeNonTrivialField(fieldInfo, builder.build());
+        });
   }
 
   /**
@@ -317,34 +328,35 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
       FloatVectorValues mergedVectors =
           KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
       int dims = fieldInfo.getVectorDimension();
-      CuVSHostMatrix dataset =
-          buildMergedDataset(
-              mergedVectors, size, CuVSMatrix.hostBuilder(size, dims, CuVSMatrix.DataType.FLOAT));
-      writeNonTrivialField(fieldInfo, dataset);
+      hostInputMemory.withMatrix(
+          fieldInfo.name,
+          size,
+          dims,
+          CuVSMatrix.DataType.FLOAT,
+          builder ->
+              writeNonTrivialField(fieldInfo, buildMergedDataset(mergedVectors, size, builder)));
     } catch (Throwable t) {
       Utils.handleThrowable(t);
     }
   }
 
-  /* Replays merged vectors into a builder that remains responsible for storage until build. */
+  /* Borrows a builder from the caller, which owns cleanup on both success and failure. */
   static CuVSHostMatrix buildMergedDataset(
       FloatVectorValues mergedVectors, int expectedSize, CuVSMatrix.Builder<CuVSHostMatrix> builder)
       throws IOException {
-    try (builder) {
-      KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
-      int replayed = 0;
-      for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
-        if (replayed == expectedSize) {
-          throw mergeReplayMismatch(expectedSize, (long) replayed + 1L, true);
-        }
-        builder.addVector(mergedVectors.vectorValue(it.index()));
-        replayed = Math.incrementExact(replayed);
+    KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
+    int replayed = 0;
+    for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
+      if (replayed == expectedSize) {
+        throw mergeReplayMismatch(expectedSize, (long) replayed + 1L, true);
       }
-      if (replayed != expectedSize) {
-        throw mergeReplayMismatch(expectedSize, replayed, false);
-      }
-      return builder.build();
+      builder.addVector(mergedVectors.vectorValue(it.index()));
+      replayed = Math.incrementExact(replayed);
     }
+    if (replayed != expectedSize) {
+      throw mergeReplayMismatch(expectedSize, replayed, false);
+    }
+    return builder.build();
   }
 
   private static IOException mergeReplayMismatch(int expected, long observed, boolean lowerBound) {
@@ -355,11 +367,26 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
             + observed);
   }
 
-  /** Counts the live vectors that the merge iterator will actually yield. */
+  /**
+   * Returns the merged vector count. Deletion-free merges use the merged view's size; merges with
+   * deletions count the iterator's live-vector output.
+   */
   private static int countMergedVectors(FieldInfo fieldInfo, MergeState mergeState)
       throws IOException {
     FloatVectorValues mergedVectors =
         KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(fieldInfo, mergeState);
+    // With no deletions, the merged view's size includes only documents with this vector field.
+    boolean hasDeletions = false;
+    for (var liveDocs : mergeState.liveDocs) {
+      if (liveDocs != null) {
+        hasDeletions = true;
+        break;
+      }
+    }
+    if (!hasDeletions) {
+      return mergedVectors.size();
+    }
+
     int count = 0;
     KnnVectorValues.DocIndexIterator it = mergedVectors.iterator();
     for (int doc = it.nextDoc(); doc != DocIdSetIterator.NO_MORE_DOCS; doc = it.nextDoc()) {
@@ -417,7 +444,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
    */
   @Override
   public long ramBytesUsed() {
-    long total = SHALLOW_RAM_BYTES_USED;
+    long total = SHALLOW_RAM_BYTES_USED + hostInputMemory.ramBytesUsed();
     for (var field : fields) {
       total += field.ramBytesUsed();
     }

@@ -65,6 +65,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
   private final List<FieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
   private final GraphProcessingTrace graphProcessingTrace;
+  private final HostInputMemory hostInputMemory;
   private final AcceleratedHNSWParams acceleratedHNSWParams;
   private IndexOutput hnswMeta = null, hnswVectorIndex = null;
   private boolean finished;
@@ -98,6 +99,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
     this.graphProcessingTrace = GraphProcessingTrace.toInfoStream(infoStream, COMPONENT);
+    this.hostInputMemory = new HostInputMemory(infoStream, COMPONENT, state.segmentInfo.name);
 
     vemFileName =
         IndexFileNames.segmentFileName(
@@ -183,8 +185,17 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
       }
 
       // Create CuVSMatrix with BYTE data type (unsigned bytes)
-      CuVSMatrix dataset = Utils.createHostByteMatrix(unsignedVectors, dimensions);
-      writeNonTrivialField(fieldInfo, dataset);
+      hostInputMemory.withMatrix(
+          fieldInfo.name,
+          size,
+          dimensions,
+          CuVSMatrix.DataType.BYTE,
+          builder -> {
+            for (byte[] vector : unsignedVectors) {
+              builder.addVector(vector);
+            }
+            writeNonTrivialField(fieldInfo, builder.build());
+          });
     } catch (Throwable t) {
       throw Utils.handleThrowable(t);
     }
@@ -405,7 +416,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    */
   @Override
   public long ramBytesUsed() {
-    long total = SHALLOW_RAM_BYTES_USED;
+    long total = SHALLOW_RAM_BYTES_USED + hostInputMemory.ramBytesUsed();
     for (var field : fields) {
       total += field.ramBytesUsed();
     }

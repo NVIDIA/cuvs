@@ -10,6 +10,7 @@ import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
 import com.carrotsearch.randomizedtesting.annotations.Name;
 import com.carrotsearch.randomizedtesting.annotations.ParametersFactory;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -18,6 +19,7 @@ import java.util.Random;
 import java.util.Set;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
+import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
@@ -29,12 +31,15 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReader;
+import org.apache.lucene.index.SegmentReadState;
+import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
+import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.hnsw.HnswGraph;
 
 /** Exercises the native upper-layer path through serialization and CPU search. */
@@ -77,7 +82,7 @@ public class TestAcceleratedHNSWMultiLayerRoundTrip extends LuceneTestCase {
 
     try (Directory directory = newDirectory()) {
       IndexWriterConfig config =
-          newIndexWriterConfig().setCodec(TestUtil.alwaysKnnVectorsFormat(format));
+          newIndexWriterConfig().setCodec(TestUtil.alwaysKnnVectorsFormat(acceleratedOnlyFormat()));
       try (IndexWriter writer = new IndexWriter(directory, config)) {
         for (int id = 0; id < vectors.length; id++) {
           Document document = new Document();
@@ -117,6 +122,32 @@ public class TestAcceleratedHNSWMultiLayerRoundTrip extends LuceneTestCase {
         assertTrue("the entry-node vector must be returned for its own query", foundQueryNode);
       }
     }
+  }
+
+  private KnnVectorsFormat acceleratedOnlyFormat() {
+    return new KnnVectorsFormat(format.getName()) {
+      @Override
+      public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
+        KnnVectorsWriter writer = format.fieldsWriter(state);
+        if (!(writer instanceof Lucene99AcceleratedHNSWVectorsWriter)
+            && !(writer instanceof LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter)
+            && !(writer instanceof LuceneAcceleratedHNSWScalarQuantizedVectorsWriter)) {
+          IOUtils.closeWhileHandlingException(writer);
+          throw new AssertionError("CPU fallback must not satisfy native upper-layer tests");
+        }
+        return writer;
+      }
+
+      @Override
+      public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
+        return format.fieldsReader(state);
+      }
+
+      @Override
+      public int getMaxDimensions(String fieldName) {
+        return format.getMaxDimensions(fieldName);
+      }
+    };
   }
 
   private static List<Set<Integer>> collectNodes(HnswGraph graph) throws Exception {

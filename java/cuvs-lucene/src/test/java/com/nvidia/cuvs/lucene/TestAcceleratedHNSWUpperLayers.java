@@ -4,8 +4,6 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
-
 import com.nvidia.cuvs.CagraIndexParams;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.lucene.AcceleratedHNSWUtils.QuantizationType;
@@ -44,16 +42,5 @@ public class TestAcceleratedHNSWUpperLayers extends LuceneTestCase {
             CagraIndexParams.class,
             QuantizationType.class);
     assertFalse(Modifier.isPublic(matrixOverload.getModifiers()));
-  }
-
-  @Test
-  public void testSingleVectorGraphHasNoNeighbors() throws Throwable {
-    GPUBuiltHnswGraph graph = AcceleratedHNSWUtils.createSingleVectorHnswGraph(1, 32);
-
-    assertEquals(1, graph.numLevels());
-    assertEquals(0, graph.maxConn());
-    assertEquals(0, graph.getNeighbors(0, 0).size());
-    graph.seek(0, 0);
-    assertEquals(NO_MORE_DOCS, graph.nextNeighbor());
   }
 }
