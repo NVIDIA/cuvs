@@ -53,6 +53,7 @@ public class AcceleratedHNSWParams {
 
   public static final int DEFAULT_WRITER_THREADS = 1;
   public static final int DEFAULT_GRAPH_THREADS = 1;
+  public static final long DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES = 42L << 30;
   public static final int DEFAULT_INT_GRAPH_DEGREE = 128;
   public static final int DEFAULT_GRAPH_DEGREE = 64;
   public static final int DEFAULT_HNSW_LAYERS = 1;
@@ -79,6 +80,7 @@ public class AcceleratedHNSWParams {
 
   private final int writerThreads;
   private final int graphThreads;
+  private final long graphCopyMemoryBudgetBytes;
   private final int intermediateGraphDegree;
   private final int graphdegree;
   private final int hnswLayers;
@@ -99,6 +101,8 @@ public class AcceleratedHNSWParams {
    * @param writerThreads Number of native cuVS writer threads to use.
    * @param graphThreads Maximum threads per HNSW graph materialization or serialization operation,
    *     including the calling thread.
+   * @param graphCopyMemoryBudgetBytes Per-operation ceiling for the raw temporary host adjacency
+   *     copy used by parallel device-graph materialization.
    * @param intermediateGraphDegree The intermediate graph degree while building the CAGRA index.
    * @param graphdegree The graph degree to use while building the CAGRA index.
    * @param hnswLayers The number of HNSW layers to build in the HNSW index.
@@ -116,6 +120,7 @@ public class AcceleratedHNSWParams {
   private AcceleratedHNSWParams(
       int writerThreads,
       int graphThreads,
+      long graphCopyMemoryBudgetBytes,
       int intermediateGraphDegree,
       int graphdegree,
       int hnswLayers,
@@ -132,6 +137,7 @@ public class AcceleratedHNSWParams {
     super();
     this.writerThreads = writerThreads;
     this.graphThreads = graphThreads;
+    this.graphCopyMemoryBudgetBytes = graphCopyMemoryBudgetBytes;
     this.intermediateGraphDegree = intermediateGraphDegree;
     this.graphdegree = graphdegree;
     this.hnswLayers = hnswLayers;
@@ -164,6 +170,15 @@ public class AcceleratedHNSWParams {
    */
   public int getGraphThreads() {
     return graphThreads;
+  }
+
+  /**
+   * Get the configured temporary host-copy budget for parallel device-graph materialization.
+   *
+   * @return graph-copy memory budget in bytes
+   */
+  public long getGraphCopyMemoryBudgetBytes() {
+    return graphCopyMemoryBudgetBytes;
   }
 
   /**
@@ -293,6 +308,8 @@ public class AcceleratedHNSWParams {
         + writerThreads
         + ", graphThreads="
         + graphThreads
+        + ", graphCopyMemoryBudgetBytes="
+        + graphCopyMemoryBudgetBytes
         + ", intermediateGraphDegree="
         + intermediateGraphDegree
         + ", graphdegree="
@@ -329,6 +346,7 @@ public class AcceleratedHNSWParams {
 
     private int writerThreads = DEFAULT_WRITER_THREADS;
     private int graphThreads = DEFAULT_GRAPH_THREADS;
+    private long graphCopyMemoryBudgetBytes = DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES;
     private int intermediateGraphDegree = DEFAULT_INT_GRAPH_DEGREE;
     private int graphdegree = DEFAULT_GRAPH_DEGREE;
     private int hnswLayers = DEFAULT_HNSW_LAYERS;
@@ -366,6 +384,23 @@ public class AcceleratedHNSWParams {
      */
     public Builder withGraphThreads(int graphThreads) {
       this.graphThreads = graphThreads;
+      return this;
+    }
+
+    /**
+     * Set the per-operation ceiling for the raw temporary host adjacency copy used by parallel
+     * device-graph materialization. Concurrent copies in the same class loader share reservations;
+     * applications that require one ceiling across codecs should configure the same value for each
+     * codec. This setting does not cap the heap-backed Lucene graph, which is allocated by both the
+     * serial and parallel paths, and it is not a guarantee of physical memory availability. A value
+     * of {@code 0} disables the temporary copy while preserving the serial fallback. Default value
+     * - {@value DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES} bytes.
+     *
+     * @param graphCopyMemoryBudgetBytes graph-copy memory budget in bytes
+     * @return instance of {@link Builder}
+     */
+    public Builder withGraphCopyMemoryBudgetBytes(long graphCopyMemoryBudgetBytes) {
+      this.graphCopyMemoryBudgetBytes = graphCopyMemoryBudgetBytes;
       return this;
     }
 
@@ -548,6 +583,9 @@ public class AcceleratedHNSWParams {
           "writerThreads", writerThreads, MIN_WRITER_THREADS, MAX_WRITER_THREADS);
       ParameterValidation.checkRange(
           "graphThreads", graphThreads, MIN_GRAPH_THREADS, MAX_GRAPH_THREADS);
+      if (graphCopyMemoryBudgetBytes < 0) {
+        throw new IllegalArgumentException("graphCopyMemoryBudgetBytes must be non-negative.");
+      }
       ParameterValidation.checkRange(
           "intermediateGraphDegree", intermediateGraphDegree, MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG);
       ParameterValidation.checkRange("graphdegree", graphdegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
@@ -591,6 +629,7 @@ public class AcceleratedHNSWParams {
       return new AcceleratedHNSWParams(
           writerThreads,
           graphThreads,
+          graphCopyMemoryBudgetBytes,
           intermediateGraphDegree,
           graphdegree,
           hnswLayers,

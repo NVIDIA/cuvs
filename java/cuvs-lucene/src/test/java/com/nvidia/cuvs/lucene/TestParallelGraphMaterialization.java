@@ -97,14 +97,12 @@ public class TestParallelGraphMaterialization extends LuceneTestCase {
             copyCount.incrementAndGet();
           }
         };
-    long requiredHeadroom = GraphCopyMemoryBudget.requiredHeadroom(NUM_NODES, DEGREE);
-    GraphCopyMemoryBudget budget =
-        new GraphCopyMemoryBudget(
-            () -> new GraphCopyMemoryBudget.MemorySnapshot(requiredHeadroom, requiredHeadroom));
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(NUM_NODES, DEGREE);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
 
     NeighborArray[] neighbors =
         GPUBuiltHnswGraph.materializeDeviceAdjacency(
-            source, NUM_NODES, GRAPH_THREADS, budget, () -> hostCopy);
+            source, NUM_NODES, GRAPH_THREADS, budget, requiredCopyBytes, () -> hostCopy);
 
     for (int node = 0; node < NUM_NODES; node++) {
       assertArrayEquals(
@@ -114,9 +112,39 @@ public class TestParallelGraphMaterialization extends LuceneTestCase {
     assertEquals(1, hostCloseCount.get());
     assertTrue(executionProbe.threadCount() > 1);
     try (GraphCopyMemoryBudget.Reservation ignored =
-        budget.tryReserve(NUM_NODES, DEGREE).orElseThrow()) {
+        budget.tryReserve(NUM_NODES, DEGREE, requiredCopyBytes).orElseThrow()) {
       // The first reservation was released after materialization.
     }
+  }
+
+  @Test
+  public void configuredBudgetControlsWhetherDeviceCopyRuns() throws Exception {
+    int[][] sourceRows = IntGraphTestMatrix.randomRows(NUM_NODES, DEGREE, 5);
+    AtomicInteger copyCount = new AtomicInteger();
+    CuVSDeviceMatrix source =
+        new IntGraphTestMatrix.DeviceMatrix(sourceRows, DEGREE) {
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            copyCount.incrementAndGet();
+          }
+        };
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(NUM_NODES, DEGREE);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+
+    GPUBuiltHnswGraph.materializeDeviceAdjacency(
+        source,
+        NUM_NODES,
+        GRAPH_THREADS,
+        budget,
+        requiredCopyBytes - 1,
+        () -> new IntGraphTestMatrix.TrackingHostMatrix(new AtomicInteger(), null));
+    assertEquals(0, copyCount.get());
+
+    CuVSHostMatrix hostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(sourceRows, new AtomicInteger(), null, null);
+    GPUBuiltHnswGraph.materializeDeviceAdjacency(
+        source, NUM_NODES, GRAPH_THREADS, budget, requiredCopyBytes, () -> hostCopy);
+    assertEquals(1, copyCount.get());
   }
 
   private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency, int numThreads)

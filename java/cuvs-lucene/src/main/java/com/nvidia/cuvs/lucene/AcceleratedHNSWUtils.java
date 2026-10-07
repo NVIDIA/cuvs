@@ -114,6 +114,7 @@ public class AcceleratedHNSWUtils {
         params,
         quantization,
         graphThreads,
+        AcceleratedHNSWParams.DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES,
         GraphProcessingTrace.disabled());
   }
 
@@ -126,6 +127,31 @@ public class AcceleratedHNSWUtils {
       CagraIndexParams params,
       QuantizationType quantization,
       int graphThreads,
+      GraphProcessingTrace graphProcessingTrace)
+      throws Throwable {
+    return createMultiLayerHnswGraph(
+        size,
+        dimensions,
+        adjacencyListMatrix,
+        vectors,
+        hnswLayers,
+        params,
+        quantization,
+        graphThreads,
+        AcceleratedHNSWParams.DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES,
+        graphProcessingTrace);
+  }
+
+  private static GPUBuiltHnswGraph createMultiLayerHnswGraph(
+      int size,
+      int dimensions,
+      CuVSMatrix adjacencyListMatrix,
+      List<?> vectors,
+      int hnswLayers,
+      CagraIndexParams params,
+      QuantizationType quantization,
+      int graphThreads,
+      long graphCopyMemoryBudgetBytes,
       GraphProcessingTrace graphProcessingTrace)
       throws Throwable {
 
@@ -216,7 +242,13 @@ public class AcceleratedHNSWUtils {
 
       // The graph eagerly copies all adjacency rows, so generated upper matrices can now close.
       return new GPUBuiltHnswGraph(
-          size, dimensions, layerNodes, layerAdjacencies, graphThreads, graphProcessingTrace);
+          size,
+          dimensions,
+          layerNodes,
+          layerAdjacencies,
+          graphThreads,
+          graphCopyMemoryBudgetBytes,
+          graphProcessingTrace);
     } catch (Throwable t) {
       failure = t;
       throw t;
@@ -272,6 +304,7 @@ public class AcceleratedHNSWUtils {
         params,
         quantization,
         graphThreads,
+        AcceleratedHNSWParams.DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES,
         GraphProcessingTrace.disabled());
   }
 
@@ -283,6 +316,29 @@ public class AcceleratedHNSWUtils {
       CagraIndexParams params,
       QuantizationType quantization,
       int graphThreads,
+      GraphProcessingTrace graphProcessingTrace)
+      throws Throwable {
+    return createMultiLayerHnswGraph(
+        dimensions,
+        adjacencyListMatrix,
+        vectorDataset,
+        hnswLayers,
+        params,
+        quantization,
+        graphThreads,
+        AcceleratedHNSWParams.DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES,
+        graphProcessingTrace);
+  }
+
+  static GPUBuiltHnswGraph createMultiLayerHnswGraph(
+      int dimensions,
+      CuVSMatrix adjacencyListMatrix,
+      CuVSMatrix vectorDataset,
+      int hnswLayers,
+      CagraIndexParams params,
+      QuantizationType quantization,
+      int graphThreads,
+      long graphCopyMemoryBudgetBytes,
       GraphProcessingTrace graphProcessingTrace)
       throws Throwable {
     int size = Math.toIntExact(vectorDataset.size());
@@ -318,6 +374,7 @@ public class AcceleratedHNSWUtils {
         params,
         quantization,
         graphThreads,
+        graphCopyMemoryBudgetBytes,
         graphProcessingTrace);
   }
 

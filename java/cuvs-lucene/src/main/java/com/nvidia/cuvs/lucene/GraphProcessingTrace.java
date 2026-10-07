@@ -51,18 +51,43 @@ final class GraphProcessingTrace {
     if (infoStream == null || !infoStream.isEnabled(component)) {
       return;
     }
+    infoStream.message(component, message(stage, mode, reason, requestedThreads, nodes));
+  }
+
+  void recordCopyAdmission(
+      Mode mode,
+      Reason reason,
+      int requestedThreads,
+      int nodes,
+      long columns,
+      long requiredCopyBytes,
+      long configuredBudgetBytes) {
+    if (infoStream == null || !infoStream.isEnabled(component)) {
+      return;
+    }
     infoStream.message(
         component,
-        "graph-processing stage="
-            + lowerCase(stage)
-            + " mode="
-            + lowerCase(mode)
-            + " reason="
-            + lowerCase(reason)
-            + " requestedThreads="
-            + requestedThreads
-            + " nodes="
-            + nodes);
+        message(Stage.MATERIALIZATION, mode, reason, requestedThreads, nodes)
+            + " columns="
+            + columns
+            + " requiredCopyBytes="
+            + requiredCopyBytes
+            + " configuredBudgetBytes="
+            + configuredBudgetBytes);
+  }
+
+  private static String message(
+      Stage stage, Mode mode, Reason reason, int requestedThreads, int nodes) {
+    return "graph-processing stage="
+        + lowerCase(stage)
+        + " mode="
+        + lowerCase(mode)
+        + " reason="
+        + lowerCase(reason)
+        + " requestedThreads="
+        + requestedThreads
+        + " nodes="
+        + nodes;
   }
 
   private static String lowerCase(Enum<?> value) {

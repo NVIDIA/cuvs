@@ -189,6 +189,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter {
               params,
               QuantizationType.NONE,
               acceleratedHNSWParams.getGraphThreads(),
+              acceleratedHNSWParams.getGraphCopyMemoryBudgetBytes(),
               graphProcessingTrace);
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
       int[][] graphLevelNodeOffsets =

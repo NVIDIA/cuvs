@@ -8,6 +8,7 @@ package com.nvidia.cuvs.lucene;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_BEAM_WIDTH;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_CAGRA_GRAPH_BUILD_ALGO;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_CUVS_DISTANCE_TYPE;
+import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_GRAPH_DEGREE;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_GRAPH_THREADS;
 import static com.nvidia.cuvs.lucene.AcceleratedHNSWParams.DEFAULT_HNSW_LAYERS;
@@ -58,6 +59,7 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
     AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
     assertEquals(DEFAULT_BEAM_WIDTH, params.getBeamWidth());
     assertEquals(DEFAULT_GRAPH_DEGREE, params.getGraphdegree());
+    assertEquals(DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES, params.getGraphCopyMemoryBudgetBytes());
     assertEquals(DEFAULT_GRAPH_THREADS, params.getGraphThreads());
     assertEquals(DEFAULT_HNSW_LAYERS, params.getHnswLayers());
     assertEquals(DEFAULT_INT_GRAPH_DEGREE, params.getIntermediateGraphDegree());
@@ -223,6 +225,25 @@ public class TestAcceleratedHNSWParams extends LuceneTestCase {
           IllegalArgumentException.class,
           () -> new AcceleratedHNSWParams.Builder().withGraphThreads(v).build());
     }
+  }
+
+  @Test
+  public void testAcceleratedHNSWParamsGraphCopyMemoryBudget() {
+    assertEquals(
+        0L,
+        new AcceleratedHNSWParams.Builder()
+            .withGraphCopyMemoryBudgetBytes(0)
+            .build()
+            .getGraphCopyMemoryBudgetBytes());
+    assertEquals(
+        80L << 30,
+        new AcceleratedHNSWParams.Builder()
+            .withGraphCopyMemoryBudgetBytes(80L << 30)
+            .build()
+            .getGraphCopyMemoryBudgetBytes());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new AcceleratedHNSWParams.Builder().withGraphCopyMemoryBudgetBytes(-1).build());
   }
 
   @Test

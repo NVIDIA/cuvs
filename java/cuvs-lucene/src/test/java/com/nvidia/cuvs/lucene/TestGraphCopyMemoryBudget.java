@@ -14,46 +14,53 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.lucene.tests.util.LuceneTestCase;
-import org.apache.lucene.util.RamUsageEstimator;
-import org.apache.lucene.util.hnsw.NeighborArray;
 import org.junit.Test;
 
-/** Behavioral specifications for native graph-copy admission control. */
+/** Behavioral specifications for temporary native graph-copy admission control. */
 public class TestGraphCopyMemoryBudget extends LuceneTestCase {
   private static final long TIMEOUT_SECONDS = 10;
 
   @Test
-  public void reservationsFollowEstimatedPeakAcrossSupportedDegrees() {
-    int rows = 100;
-    for (int degree : new int[] {1, 32, 512}) {
-      long required = GraphCopyMemoryBudget.requiredHeadroom(rows, degree);
-      long adjacencyBytes = (long) rows * degree * Integer.BYTES;
-      long expected =
-          2 * adjacencyBytes
-              + RamUsageEstimator.shallowSizeOf(new NeighborArray[rows])
-              + rows
-                  * (RamUsageEstimator.shallowSizeOfInstance(NeighborArray.class)
-                      + RamUsageEstimator.sizeOf(new int[degree])
-                      + RamUsageEstimator.sizeOf(new float[degree]));
-      assertEquals(expected, required);
-      assertTrue("object layout must be included", required > 4 * adjacencyBytes);
+  public void defaultBudgetAdmitsExpectedBenchmarkShapes() {
+    long defaultBudget = AcceleratedHNSWParams.DEFAULT_GRAPH_COPY_MEMORY_BUDGET_BYTES;
+    long deep100MRequired = GraphCopyMemoryBudget.requiredCopyBytes(100_000_000L, 32);
+    long jasper10MRequired = GraphCopyMemoryBudget.requiredCopyBytes(10_000_000L, 32);
 
-      GraphCopyMemoryBudget exactBudget = budgetWith(required, required);
-      try (GraphCopyMemoryBudget.Reservation ignored = reserve(exactBudget, rows, degree)) {
-        assertTrue(exactBudget.tryReserve(1, 1).isEmpty());
-      }
+    assertEquals(12_800_000_000L, deep100MRequired);
+    assertEquals(1_280_000_000L, jasper10MRequired);
+    assertTrue(deep100MRequired < defaultBudget);
+    assertTrue(jasper10MRequired < defaultBudget);
 
-      GraphCopyMemoryBudget insufficientBudget = budgetWith(required, required - 1);
-      assertTrue(insufficientBudget.tryReserve(rows, degree).isEmpty());
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget.tryReserve(100_000_000L, 32, defaultBudget).orElseThrow()) {
+      // The default admits one 100M-by-32 temporary copy.
     }
   }
 
   @Test
-  public void concurrentReservationsCannotExceedSharedHeadroom() throws Exception {
+  public void reservationsFollowRawInt32PayloadAcrossSupportedDegrees() {
+    int rows = 100;
+    for (int degree : new int[] {1, 32, 512}) {
+      long required = (long) rows * degree * Integer.BYTES;
+      assertEquals(required, GraphCopyMemoryBudget.requiredCopyBytes(rows, degree));
+
+      GraphCopyMemoryBudget exactBudget = new GraphCopyMemoryBudget();
+      try (GraphCopyMemoryBudget.Reservation ignored =
+          exactBudget.tryReserve(rows, degree, required).orElseThrow()) {
+        assertTrue(exactBudget.tryReserve(1, 1, required).isEmpty());
+      }
+
+      assertTrue(new GraphCopyMemoryBudget().tryReserve(rows, degree, required - 1).isEmpty());
+    }
+  }
+
+  @Test
+  public void concurrentReservationsCannotExceedRequestCeiling() throws Exception {
     long rows = 100;
     long degree = 16;
-    long reservationBytes = GraphCopyMemoryBudget.requiredHeadroom(rows, degree);
-    GraphCopyMemoryBudget budget = budgetWith(2 * reservationBytes, 2 * reservationBytes);
+    long reservationBytes = GraphCopyMemoryBudget.requiredCopyBytes(rows, degree);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
     int callers = 8;
     ExecutorService executor = Executors.newFixedThreadPool(callers);
     CountDownLatch start = new CountDownLatch(1);
@@ -68,7 +75,7 @@ public class TestGraphCopyMemoryBudget extends LuceneTestCase {
                 () -> {
                   assertTrue(start.await(TIMEOUT_SECONDS, TimeUnit.SECONDS));
                   Optional<GraphCopyMemoryBudget.Reservation> reservation =
-                      budget.tryReserve(rows, degree);
+                      budget.tryReserve(rows, degree, 2 * reservationBytes);
                   reservation.ifPresent(ignored -> granted.incrementAndGet());
                   attempted.countDown();
                   if (reservation.isPresent()) {
@@ -95,9 +102,10 @@ public class TestGraphCopyMemoryBudget extends LuceneTestCase {
 
   @Test
   public void reservationIsReleasedOnFailureAndCloseIsIdempotent() {
-    long required = GraphCopyMemoryBudget.requiredHeadroom(100, 16);
-    GraphCopyMemoryBudget budget = budgetWith(required, required);
-    GraphCopyMemoryBudget.Reservation failedOperation = reserve(budget, 100, 16);
+    long required = GraphCopyMemoryBudget.requiredCopyBytes(100, 16);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+    GraphCopyMemoryBudget.Reservation failedOperation =
+        budget.tryReserve(100, 16, required).orElseThrow();
     RuntimeException expected = new RuntimeException("expected");
 
     RuntimeException actual =
@@ -111,42 +119,20 @@ public class TestGraphCopyMemoryBudget extends LuceneTestCase {
     assertSame(expected, actual);
     failedOperation.close();
 
-    try (GraphCopyMemoryBudget.Reservation replacement = reserve(budget, 100, 16)) {
-      assertTrue(budget.tryReserve(1, 1).isEmpty());
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget.tryReserve(100, 16, required).orElseThrow()) {
+      assertTrue(budget.tryReserve(1, 1, required).isEmpty());
     }
   }
 
   @Test
-  public void invalidOrUnavailableMemoryInformationFailsClosed() {
-    assertRejected(() -> null);
-    assertRejected(() -> new GraphCopyMemoryBudget.MemorySnapshot(0, 0));
-    assertRejected(() -> new GraphCopyMemoryBudget.MemorySnapshot(1_000, -1));
-    assertRejected(() -> new GraphCopyMemoryBudget.MemorySnapshot(1_000, 1_001));
-    assertRejected(
-        () -> {
-          throw new UnsupportedOperationException("unavailable");
-        });
-
-    GraphCopyMemoryBudget budget =
-        budgetWith(/* totalBytes= */ Long.MAX_VALUE, /* freeBytes= */ Long.MAX_VALUE);
-    assertTrue(budget.tryReserve(Integer.MAX_VALUE, Integer.MAX_VALUE).isEmpty());
-    assertTrue(budget.tryReserve(0, 1).isEmpty());
-    assertTrue(budget.tryReserve(1, 0).isEmpty());
-    assertTrue(budget.tryReserve(-1, 1).isEmpty());
-    assertTrue(budget.tryReserve(1, -1).isEmpty());
-  }
-
-  private static GraphCopyMemoryBudget budgetWith(long totalBytes, long freeBytes) {
-    return new GraphCopyMemoryBudget(
-        () -> new GraphCopyMemoryBudget.MemorySnapshot(totalBytes, freeBytes));
-  }
-
-  private static GraphCopyMemoryBudget.Reservation reserve(
-      GraphCopyMemoryBudget budget, long rows, long columns) {
-    return budget.tryReserve(rows, columns).orElseThrow();
-  }
-
-  private static void assertRejected(GraphCopyMemoryBudget.MemoryProbe probe) {
-    assertTrue(new GraphCopyMemoryBudget(probe).tryReserve(1, 1).isEmpty());
+  public void invalidShapesAndBudgetsFailClosed() {
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+    assertTrue(budget.tryReserve(Integer.MAX_VALUE, Integer.MAX_VALUE, Long.MAX_VALUE).isEmpty());
+    assertTrue(budget.tryReserve(0, 1, Long.MAX_VALUE).isEmpty());
+    assertTrue(budget.tryReserve(1, 0, Long.MAX_VALUE).isEmpty());
+    assertTrue(budget.tryReserve(-1, 1, Long.MAX_VALUE).isEmpty());
+    assertTrue(budget.tryReserve(1, -1, Long.MAX_VALUE).isEmpty());
+    assertTrue(budget.tryReserve(1, 1, -1).isEmpty());
   }
 }

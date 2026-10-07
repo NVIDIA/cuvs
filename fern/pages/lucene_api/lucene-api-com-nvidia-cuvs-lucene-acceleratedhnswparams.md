@@ -41,6 +41,18 @@ HNSW graph processing threads parameter
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:164`_
 
+### getGraphCopyMemoryBudgetBytes
+
+```java
+public long getGraphCopyMemoryBudgetBytes()
+```
+
+Get the configured temporary host-copy budget for parallel device-graph materialization.
+
+**Returns**
+
+graph-copy memory budget in bytes
+
 ### getIntermediateGraphDegree
 
 ```java
@@ -270,6 +282,29 @@ includes the calling thread. Valid range - Minimum: \{@value MIN_GRAPH_THREADS\}
 instance of `Builder`
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:366`_
+
+### withGraphCopyMemoryBudgetBytes
+
+```java
+public Builder withGraphCopyMemoryBudgetBytes(long graphCopyMemoryBudgetBytes)
+```
+
+Set the per-operation ceiling for the raw temporary host adjacency copy used by parallel
+device-graph materialization. Concurrent copies in the same class loader share reservations;
+applications that require one ceiling across codecs should configure the same value for each
+codec. This setting does not cap the heap-backed Lucene graph and is not a guarantee of physical
+memory availability. A value of `0` preserves the serial fallback without making a temporary
+device-to-host graph copy. The default is 42 GiB (`42L << 30` bytes).
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `graphCopyMemoryBudgetBytes` | graph-copy memory budget in bytes |
+
+**Returns**
+
+instance of `Builder`
 
 ### withIntermediateGraphDegree
 

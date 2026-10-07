@@ -4,129 +4,66 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import com.sun.management.OperatingSystemMXBean;
-import java.lang.management.ManagementFactory;
-import java.util.Objects;
 import java.util.Optional;
-import org.apache.lucene.util.RamUsageEstimator;
-import org.apache.lucene.util.hnsw.NeighborArray;
 
 /** Coordinates temporary native graph copies across concurrent segment flushes. */
 final class GraphCopyMemoryBudget {
-  private static final long NEIGHBOR_ARRAY_SHALLOW_BYTES =
-      RamUsageEstimator.shallowSizeOfInstance(NeighborArray.class);
+  private static final GraphCopyMemoryBudget SHARED = new GraphCopyMemoryBudget();
 
-  private static final GraphCopyMemoryBudget SYSTEM =
-      new GraphCopyMemoryBudget(GraphCopyMemoryBudget::readSystemMemory);
+  private long reservedCopyBytes;
 
-  private final MemoryProbe memoryProbe;
-  private long reservedHeadroomBytes;
-
-  GraphCopyMemoryBudget(MemoryProbe memoryProbe) {
-    this.memoryProbe = Objects.requireNonNull(memoryProbe);
-  }
-
-  static GraphCopyMemoryBudget system() {
-    return SYSTEM;
+  static GraphCopyMemoryBudget shared() {
+    return SHARED;
   }
 
   /**
-   * Tries to reserve enough observed free memory for one graph copy and its materialized graph.
-   * Callers in the same class loader share reservations. This is cooperative admission control,
-   * not an operating-system memory guarantee.
+   * Tries to reserve the raw INT32 payload of one temporary device-to-host adjacency copy.
+   * Reservations are shared by callers in this class loader. Each attempt supplies its own
+   * ceiling, so applications that require one classloader-wide ceiling must configure the same
+   * value for every accelerated-HNSW codec in that class loader.
    */
-  synchronized Optional<Reservation> tryReserve(long rows, long columns) {
-    long requiredHeadroom = requiredHeadroom(rows, columns);
-    if (requiredHeadroom < 0) {
+  synchronized Optional<Reservation> tryReserve(
+      long rows, long columns, long configuredBudgetBytes) {
+    long requiredCopyBytes = requiredCopyBytes(rows, columns);
+    if (requiredCopyBytes < 0 || configuredBudgetBytes < 0) {
       return Optional.empty();
     }
-
-    MemorySnapshot memory;
-    try {
-      memory = memoryProbe.read();
-    } catch (RuntimeException unavailable) {
+    if (reservedCopyBytes > configuredBudgetBytes
+        || requiredCopyBytes > configuredBudgetBytes - reservedCopyBytes) {
       return Optional.empty();
     }
-    if (memory == null
-        || memory.totalBytes() <= 0
-        || memory.freeBytes() < 0
-        || memory.freeBytes() > memory.totalBytes()) {
-      return Optional.empty();
-    }
-
-    if (reservedHeadroomBytes > memory.freeBytes()
-        || requiredHeadroom > memory.freeBytes() - reservedHeadroomBytes) {
-      return Optional.empty();
-    }
-    reservedHeadroomBytes += requiredHeadroom;
-    return Optional.of(new Reservation(this, requiredHeadroom));
+    reservedCopyBytes += requiredCopyBytes;
+    return Optional.of(new Reservation(this, requiredCopyBytes));
   }
 
-  /**
-   * Estimates peak allocation from the actual matrix shape and current JVM object layout. Besides
-   * the native host copy and materialized Lucene graph, one adjacency-sized allowance protects
-   * against allocation races and estimation error while the copy is in flight.
-   */
-  static long requiredHeadroom(long rows, long columns) {
+  /** Returns the raw INT32 adjacency payload, or {@code -1} for an invalid/overflowing shape. */
+  static long requiredCopyBytes(long rows, long columns) {
     if (rows <= 0 || rows > Integer.MAX_VALUE || columns <= 0 || columns > Integer.MAX_VALUE) {
       return -1;
     }
     try {
-      long adjacencyBytes = Math.multiplyExact(Math.multiplyExact(rows, columns), Integer.BYTES);
-      long neighborReferences = arraySize(rows, RamUsageEstimator.NUM_BYTES_OBJECT_REF);
-      long nodeIds = arraySize(columns, Integer.BYTES);
-      long scores = arraySize(columns, Float.BYTES);
-      long bytesPerNode = Math.addExact(NEIGHBOR_ARRAY_SHALLOW_BYTES, nodeIds);
-      bytesPerNode = Math.addExact(bytesPerNode, scores);
-      long luceneGraphBytes =
-          Math.addExact(neighborReferences, Math.multiplyExact(rows, bytesPerNode));
-      return Math.addExact(Math.multiplyExact(adjacencyBytes, 2), luceneGraphBytes);
+      return Math.multiplyExact(Math.multiplyExact(rows, columns), Integer.BYTES);
     } catch (ArithmeticException overflow) {
       return -1;
     }
-  }
-
-  private static long arraySize(long length, int bytesPerElement) {
-    long unaligned =
-        Math.addExact(
-            RamUsageEstimator.NUM_BYTES_ARRAY_HEADER, Math.multiplyExact(length, bytesPerElement));
-    long alignment = RamUsageEstimator.NUM_BYTES_OBJECT_ALIGNMENT;
-    long remainder = unaligned % alignment;
-    return remainder == 0 ? unaligned : Math.addExact(unaligned, alignment - remainder);
   }
 
   private synchronized void release(Reservation reservation) {
     if (reservation.released) {
       return;
     }
-    reservedHeadroomBytes -= reservation.headroomBytes;
+    reservedCopyBytes -= reservation.copyBytes;
     reservation.released = true;
   }
 
-  private static MemorySnapshot readSystemMemory() {
-    java.lang.management.OperatingSystemMXBean platformBean =
-        ManagementFactory.getOperatingSystemMXBean();
-    if (platformBean instanceof OperatingSystemMXBean osBean) {
-      return new MemorySnapshot(osBean.getTotalMemorySize(), osBean.getFreeMemorySize());
-    }
-    return null;
-  }
-
-  @FunctionalInterface
-  interface MemoryProbe {
-    MemorySnapshot read();
-  }
-
-  record MemorySnapshot(long totalBytes, long freeBytes) {}
-
   static final class Reservation implements AutoCloseable {
     private final GraphCopyMemoryBudget budget;
-    private final long headroomBytes;
+    private final long copyBytes;
     private boolean released;
 
-    private Reservation(GraphCopyMemoryBudget budget, long headroomBytes) {
+    private Reservation(GraphCopyMemoryBudget budget, long copyBytes) {
       this.budget = budget;
-      this.headroomBytes = headroomBytes;
+      this.copyBytes = copyBytes;
     }
 
     @Override
