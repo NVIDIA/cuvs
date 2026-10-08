@@ -12,12 +12,12 @@ INSTALL_PREFIX="${PWD}/libcuvs_c_install"
 mkdir -p "${INSTALL_PREFIX}"
 
 # Download the standalone C library artifact
-if [ -z "$1" ]; then
-  echo "Error: name of the standalone C library artifact is missing"
-  exit 1
-fi
-
-payload_name="$1"
+case "$(arch)" in
+  x86_64) ARCH="amd64" ;;
+  aarch64) ARCH="arm64" ;;
+  *) ARCH="$(arch)" ;;
+esac
+payload_name="libcuvs_c_${RAPIDS_CUDA_VERSION}_${ARCH}.tar.gz"
 pkg_name="libcuvs_c.tar.gz"
 rapids-logger "Download ${payload_name} artifacts from previous jobs"
 DOWNLOAD_LOCATION=$(rapids-download-from-github "${payload_name}")
