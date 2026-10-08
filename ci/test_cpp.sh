@@ -67,7 +67,7 @@ fi
 # Run libcuvs gtests from libcuvs-tests package
 rapids-logger "Run libcuvs tests (shard ${SHARD} of ${NUM_SHARDS})"
 pushd "$CONDA_PREFIX"/bin/gtests/libcuvs
-ctest -j8 --output-on-failure -I "${SHARD},,${NUM_SHARDS}"
+timeout -v --signal=SIGINT --kill-after=60s 100m ctest -j8 --output-on-failure -I "${SHARD},,${NUM_SHARDS}"
 popd
 
 rapids-logger "Test script exiting with value: $EXITCODE"
