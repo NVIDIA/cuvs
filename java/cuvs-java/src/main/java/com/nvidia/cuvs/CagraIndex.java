@@ -132,7 +132,8 @@ public interface CagraIndex extends AutoCloseable {
   }
 
   /**
-   * Invokes the native destroy_cagra_index to de-allocate the CAGRA index
+   * Invokes the native destroy_cagra_index to de-allocate the CAGRA index. Also attempts to close
+   * any dataset whose ownership transferred to this index during construction.
    */
   @Override
   void close() throws Exception;
@@ -428,10 +429,28 @@ public interface CagraIndex extends AutoCloseable {
     /**
      * Sets the dataset for building the {@link CagraIndex}.
      *
+     * <p>The caller retains ownership until a build that uses this dataset returns successfully.
+     * The returned index then owns the dataset, and the caller must leave it open until the index
+     * is closed. If the build fails or uses another configured input source, ownership remains
+     * with the caller.
+     *
      * @param dataset a {@link CuVSMatrix} object containing the vectors
      * @return an instance of this Builder
      */
     Builder withDataset(CuVSMatrix dataset);
+
+    /**
+     * Builds the graph from one or two encoded BBQ representations. An optional dense dataset
+     * supplied with {@link #withDataset(CuVSMatrix)} is attached before search; otherwise call
+     * {@link CagraIndex#updateDataset(PaddedDatasetView)} or
+     * {@link CagraIndex#updateDataset(PaddedDataset)} before searching.
+     *
+     * <p>The index stores views over the quantizer tensors rather than copying them, so they must
+     * stay open for as long as the index is in use. A dense dataset passed to
+     * {@link #withDataset(CuVSMatrix)} is owned by the index, as it is for a non-BBQ build, and is
+     * closed with it.
+     */
+    Builder withBbqDataset(BbqQuantizer... quantizers);
 
     /**
      * Registers an instance of configured {@link CagraIndexParams} with this

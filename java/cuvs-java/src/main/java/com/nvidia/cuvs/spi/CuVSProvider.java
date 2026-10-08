@@ -136,6 +136,10 @@ public interface CuVSProvider {
   CagraIndex.Builder newCagraIndexBuilder(CuVSResources cuVSResources)
       throws UnsupportedOperationException;
 
+  /** Creates a new VamanaIndex Builder. */
+  VamanaIndex.Builder newVamanaIndexBuilder(CuVSResources cuVSResources)
+      throws UnsupportedOperationException;
+
   /** Creates a new HnswIndex Builder. */
   HnswIndex.Builder newHnswIndexBuilder(CuVSResources cuVSResources)
       throws UnsupportedOperationException;

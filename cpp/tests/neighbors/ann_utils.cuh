@@ -28,6 +28,13 @@
 
 namespace cuvs::neighbors {
 
+/** Compute capability of the current device as major * 10 + minor. */
+inline auto device_compute_capability() -> int
+{
+  auto [major, minor] = raft::getComputeCapability();
+  return major * 10 + minor;
+}
+
 struct print_dtype {
   cudaDataType_t value;
 };
@@ -322,37 +329,36 @@ auto eval_distances(raft::resources const& handle,
                     double eps) -> testing::AssertionResult
 {
   // for each vector, we calculate the actual distance to the k neighbors
+  auto stream     = raft::resource::get_cuda_stream(handle);
+  size_t n_dists  = n_queries * k;
+  auto naive_dist = raft::make_device_vector<DistT, size_t>(handle, n_dists);
+  if (n_dists > 0) {
+    constexpr int block_size = 256;
+    naive_neighbor_distance_kernel<DistT, T, IdxT>
+      <<<raft::ceildiv<size_t>(n_dists, block_size), block_size, 0, stream.get()>>>(
+        naive_dist.data_handle(), x, queries, neighbors, n_queries, k, n_cols, metric);
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+  }
 
+  std::vector<DistT> dist_h(n_dists);
+  std::vector<DistT> naive_dist_h(n_dists);
+  raft::update_host(dist_h.data(), distances, n_dists, stream);
+  raft::update_host(naive_dist_h.data(), naive_dist.data_handle(), n_dists, stream);
+  raft::resource::sync_stream(handle, stream);
+
+  CompareApprox<float> eq_compare(eps);
   for (size_t i = 0; i < n_queries; i++) {
-    auto y          = raft::make_device_matrix<T, IdxT>(handle, k, n_cols);
-    auto naive_dist = raft::make_device_matrix<DistT, IdxT>(handle, 1, k);
+    for (size_t j = 0; j < k; j++) {
+      if (!eq_compare(dist_h[i * k + j], naive_dist_h[i * k + j])) {
+        std::cout << n_rows << "x" << n_cols << ", " << k << std::endl;
+        std::cout << "query " << i << std::endl;
+        raft::print_vector(" indices", neighbors + i * k, k, std::cout);
+        raft::print_vector("n dist", distances + i * k, k, std::cout);
+        raft::print_vector("c dist", naive_dist.data_handle() + i * k, k, std::cout);
 
-    raft::matrix::copy_rows<T, IdxT>(
-      handle,
-      raft::make_device_matrix_view<const T, IdxT>(x, n_rows, n_cols),
-      y.view(),
-      raft::make_device_vector_view<const IdxT, IdxT>(neighbors + i * k, k));
-
-    dim3 block_dim(16, 32, 1);
-    auto grid_y =
-      static_cast<uint16_t>(std::min<size_t>(raft::ceildiv<size_t>(k, block_dim.y), 32768));
-    dim3 grid_dim(raft::ceildiv<size_t>(n_rows, block_dim.x), grid_y, 1);
-
-    naive_distance_kernel<DistT, T, IdxT>
-      <<<grid_dim, block_dim, 0, raft::resource::get_cuda_stream(handle).get()>>>(
-        naive_dist.data_handle(), queries + i * n_cols, y.data_handle(), 1, k, n_cols, metric);
-
-    if (!devArrMatch(distances + i * k,
-                     naive_dist.data_handle(),
-                     naive_dist.size(),
-                     CompareApprox<float>(eps))) {
-      std::cout << n_rows << "x" << n_cols << ", " << k << std::endl;
-      std::cout << "query " << i << std::endl;
-      raft::print_vector(" indices", neighbors + i * k, k, std::cout);
-      raft::print_vector("n dist", distances + i * k, k, std::cout);
-      raft::print_vector("c dist", naive_dist.data_handle(), naive_dist.size(), std::cout);
-
-      return testing::AssertionFailure();
+        return testing::AssertionFailure() << "actual=" << naive_dist_h[i * k + j]
+                                           << " != expected=" << dist_h[i * k + j] << " @" << j;
+      }
     }
   }
   return testing::AssertionSuccess();

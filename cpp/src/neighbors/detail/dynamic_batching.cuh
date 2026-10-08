@@ -22,8 +22,10 @@
 #include <cuda/std/atomic>
 
 #include <chrono>
+#include <exception>
 #include <limits>
 #include <memory>
+#include <tuple>
 #include <variant>
 #include <vector>
 
@@ -335,6 +337,7 @@ struct batch_queue_t {
         raft::make_pinned_vector<cuda::atomic<int32_t, cuda::thread_scope_system>, uint32_t>(
           res, kSize)},
       dispatch_sequence_id_(kSize),
+      failed_sequence_id_(kSize),
       batch_sizes_{
         use_batch_sizes
           ? std::make_optional(
@@ -349,6 +352,9 @@ struct batch_queue_t {
       rem_time_us_(i).store(std::numeric_limits<int32_t>::max(), kMemOrder);
       if (batch_sizes_.has_value()) { batch_sizes_.value()(i).store(0, kMemOrder); }
       dispatch_sequence_id_[i].store(past_seq_id.value, kMemOrder);
+      // kCounterIncrement is odd, hence i + 1 is never a sequence id of slot i and a slot that
+      // has not failed can never match the check in `search`.
+      failed_sequence_id_[i].store(i + 1, kMemOrder);
       tokens_(i).store(make_empty_token(past_seq_id), kMemOrder);
     }
   }
@@ -456,6 +462,18 @@ struct batch_queue_t {
   }
 
   /**
+   * The id of the last batch in this slot whose dispatch failed (the upstream search threw).
+   * The dispatching thread writes it before updating `dispatch_sequence_id`; the other threads in
+   * the batch check it after they observe the dispatch.
+   *
+   * Access pattern: CPU-only.
+   */
+  inline auto failed_sequence_id(seq_order_id id) -> cuda::std::atomic<uint32_t>&
+  {
+    return failed_sequence_id_[cache_friendly_idx(id.value)];
+  }
+
+  /**
    * An `atomicMax` on the queue head in disguise.
    * This makes the given batch slot and all prior slots unreachable (not possible to commit).
    */
@@ -534,6 +552,7 @@ struct batch_queue_t {
     raft::pinned_vector<cuda::atomic<batch_token, cuda::thread_scope_system>, uint32_t> tokens_;
   raft::pinned_vector<cuda::atomic<int32_t, cuda::thread_scope_system>, uint32_t> rem_time_us_;
   std::vector<cuda::std::atomic<uint32_t>> dispatch_sequence_id_;
+  std::vector<cuda::std::atomic<uint32_t>> failed_sequence_id_;
   std::optional<raft::pinned_vector<cuda::atomic<uint32_t, cuda::thread_scope_system>, uint32_t>>
     batch_sizes_;
 
@@ -843,6 +862,16 @@ RAFT_KERNEL scatter_outputs(
  * The search function must be thread-safe. We only have to pay attention to the `mutable` members
  * though, because the function is marked const.
  */
+inline auto validate_sample_filter(cuvs::neighbors::filtering::base_filter const* sample_filter)
+  -> cuvs::neighbors::filtering::base_filter const*
+{
+  RAFT_EXPECTS(
+    sample_filter == nullptr ||
+      sample_filter->get_filter_type() != cuvs::neighbors::filtering::FilterType::Roaring,
+    "dynamic_batching does not support roaring_bitmap_filter; use direct cagra::search instead.");
+  return sample_filter;
+}
+
 template <typename T, typename IdxT>
 class batch_runner {
  public:
@@ -860,7 +889,10 @@ class batch_runner {
                upstream_search_type_const<Upstream, T, IdxT>* upstream_search,
                const cuvs::neighbors::filtering::base_filter* sample_filter)
     : res_{res},
-      upstream_search_{[&upstream_index, upstream_search, upstream_params, sample_filter](
+      upstream_search_{[&upstream_index,
+                        upstream_search,
+                        upstream_params,
+                        sample_filter = validate_sample_filter(sample_filter)](
                          raft::resources const& res,
                          raft::device_matrix_view<const T, int64_t, raft::row_major> queries,
                          raft::device_matrix_view<IdxT, int64_t, raft::row_major> neighbors,
@@ -910,6 +942,14 @@ class batch_runner {
       request_ptrs_{raft::make_pinned_matrix<request_pointers<T, IdxT>, uint32_t>(
         res_, n_queues_, max_batch_size_)}
   {
+    // Unless `conservative_dispatch` is set, the upstream search always runs on all
+    // `max_batch_size` rows of a batch, including the rows no request has filled. Make sure these
+    // rows hold valid (zero) values rather than whatever the allocation contained, which may be
+    // NaNs.
+    RAFT_CUDA_TRY(cudaMemsetAsync(queries_.data_handle(),
+                                  0,
+                                  sizeof(T) * queries_.size(),
+                                  raft::resource::get_cuda_stream(res_).get()));
     RAFT_CUDA_TRY(cudaMemsetAsync(
       kernel_progress_counters_.data_handle(),
       0,
@@ -1068,22 +1108,40 @@ class batch_runner {
         }
         auto batch_neighbors = slice_3d(batch_id, neighbors_, batch_size);
         auto batch_distances = slice_3d(batch_id, distances_, batch_size);
-        upstream_search_(
-          res, slice_3d(batch_id, queries_, batch_size), batch_neighbors, batch_distances);
+        // If the dispatch fails, the other threads in the batch must still be released and the
+        // batch IO buffer returned to the queue; otherwise, they wait for the batch forever.
+        std::exception_ptr dispatch_error = nullptr;
+        try {
+          upstream_search_(
+            res, slice_3d(batch_id, queries_, batch_size), batch_neighbors, batch_distances);
+        } catch (...) {
+          dispatch_error = std::current_exception();
+        }
         auto next_seq_id     = batch_queue_.push();
         auto& next_token_ref = batch_queue_.token(next_seq_id);
-        // next_batch_token);
-        auto bs = dim3(128, 8, 1);
-        scatter_outputs<T, IdxT>
-          <<<1, bs, 0, stream.get()>>>(request_ptrs,
-                                       batch_neighbors,
-                                       batch_distances,
-                                       kernel_progress_counters_.data_handle() + batch_id,
-                                       &next_token_ref,
-                                       batch_queue::make_seq_batch_id(next_seq_id, batch_id));
-        RAFT_CUDA_TRY(cudaEventRecord(completion_events_[batch_id].value(), stream.get()));
+        if (dispatch_error == nullptr) {
+          try {
+            auto bs = dim3(128, 8, 1);
+            scatter_outputs<T, IdxT>
+              <<<1, bs, 0, stream.get()>>>(request_ptrs,
+                                           batch_neighbors,
+                                           batch_distances,
+                                           kernel_progress_counters_.data_handle() + batch_id,
+                                           &next_token_ref,
+                                           batch_queue::make_seq_batch_id(next_seq_id, batch_id));
+            RAFT_CUDA_TRY(cudaEventRecord(completion_events_[batch_id].value(), stream.get()));
+          } catch (...) {
+            dispatch_error = std::current_exception();
+          }
+        }
+        if (dispatch_error != nullptr) {
+          release_failed_batch(stream, batch_id, next_seq_id, next_token_ref);
+          batch_queue_.failed_sequence_id(seq_id).store(seq_id.value,
+                                                        cuda::std::memory_order_relaxed);
+        }
         dispatch_sequence_id_ref.store(seq_id.value, cuda::std::memory_order_release);
         dispatch_sequence_id_ref.notify_all();
+        if (dispatch_error != nullptr) { std::rethrow_exception(dispatch_error); }
 
       } else {
         // Wait till the dispatch_sequence_id counter is updated, which means the event is recorded
@@ -1092,6 +1150,12 @@ class batch_runner {
         while (static_cast<int32_t>(seq_id.value - dispatched_id_observed) > 0) {
           dispatch_sequence_id_ref.wait(dispatched_id_observed, cuda::std::memory_order_relaxed);
           dispatched_id_observed = dispatch_sequence_id_ref.load(cuda::std::memory_order_acquire);
+        }
+        if (batch_queue_.failed_sequence_id(seq_id).load(cuda::std::memory_order_relaxed) ==
+            seq_id.value) {
+          RAFT_FAIL(
+            "dynamic_batching: the upstream search of the batch failed (the error is reported by "
+            "the search call that dispatched the batch).");
         }
         // Now we can safely record the event
         RAFT_CUDA_TRY(cudaStreamWaitEvent(stream.get(), completion_events_[batch_id].value()));
@@ -1131,6 +1195,31 @@ class batch_runner {
     kernel_progress_counters_;
 
   mutable raft::pinned_matrix<request_pointers<T, IdxT>, uint32_t, raft::row_major> request_ptrs_;
+
+  /**
+   * Return the IO buffer of a batch whose dispatch failed to the queue (the scatter kernel does
+   * this after a successful search). Errors are ignored: if the stream is in an error state, the
+   * buffer cannot be used anymore anyway.
+   */
+  void release_failed_batch(
+    cuda::stream_ref stream,
+    uint32_t batch_id,
+    seq_order_id next_seq_id,
+    cuda::atomic<batch_token, cuda::thread_scope_system>& next_token_ref) const
+  {
+    // Wait until the gather kernel no longer uses the batch, then reset its progress counter.
+    std::ignore = cudaStreamSynchronize(stream.get());
+    std::ignore = cudaMemsetAsync(kernel_progress_counters_.data_handle() + batch_id,
+                                  0,
+                                  sizeof(*kernel_progress_counters_.data_handle()),
+                                  stream.get());
+    std::ignore = cudaStreamSynchronize(stream.get());
+    std::ignore = cudaGetLastError();
+    reinterpret_cast<cuda::atomic<uint32_t, cuda::thread_scope_system>*>(
+      &reinterpret_cast<batch_token*>(&next_token_ref)->id())
+      ->store(batch_queue::make_seq_batch_id(next_seq_id, batch_id),
+              cuda::std::memory_order_release);
+  }
 
   /**
    * Try to commit n_queries at most; returns the last observed batch_token (where `size_committed`

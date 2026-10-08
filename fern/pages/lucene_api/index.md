@@ -2,6 +2,8 @@
 
 These pages are generated from the Java source files in `java/cuvs-lucene/src/main`.
 
+For an introduction to the codecs, configuration, and tuning, see the [Lucene Integration](/user-guide/lucene) guide.
+
 ## Common
 
 - [AcceleratedHNSWParams](/api-reference/lucene-api-com-nvidia-cuvs-lucene-acceleratedhnswparams)

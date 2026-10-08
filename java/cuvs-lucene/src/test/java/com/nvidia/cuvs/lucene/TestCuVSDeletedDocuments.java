@@ -24,13 +24,17 @@ import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.Term;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.Query;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.search.TopKnnCollector;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.analysis.MockAnalyzer;
 import org.apache.lucene.tests.analysis.MockTokenizer;
@@ -38,6 +42,7 @@ import org.apache.lucene.tests.index.RandomIndexWriter;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
+import org.apache.lucene.util.Bits;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -317,6 +322,131 @@ public class TestCuVSDeletedDocuments extends LuceneTestCase {
                 + activeDocIds.size()
                 + " active documents");
       }
+    }
+  }
+
+  /**
+   * A segment whose vector-bearing documents are all deleted must contribute zero hits rather than
+   * failing. Such a segment still reaches the reader as long as it keeps at least one live document
+   * without a vector, so Lucene does not drop it. See
+   * <a href="https://github.com/NVIDIA/cuvs/issues/2599">issue 2599</a>: the accepted-ordinal set is
+   * empty, which used to clamp the cuVS top-k to zero and yield a result list with no rows at all.
+   */
+  @Test
+  public void testSearchSegmentWithAllVectorsDeleted() throws IOException {
+
+    final int dimensions = 64;
+    final int liveDocs = 16;
+    final int topK = 5;
+
+    try (Directory directory = newDirectory()) {
+      float[][] dataset = generateDataset(random, liveDocs + 1, dimensions);
+
+      // NoMergePolicy keeps the two commits as two separate segments, so the first one survives as
+      // a leaf with a single, deleted vector.
+      try (IndexWriter writer =
+          new IndexWriter(directory, createWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE))) {
+
+        // Segment 1: one document with a vector (deleted below) and one live document without a
+        // vector, which is what keeps the segment from being dropped once the first is deleted.
+        Document withVector = new Document();
+        withVector.add(new StringField("id", "deleted-vector", Field.Store.YES));
+        withVector.add(
+            new KnnFloatVectorField("vector", dataset[0], VectorSimilarityFunction.EUCLIDEAN));
+        writer.addDocument(withVector);
+
+        Document withoutVector = new Document();
+        withoutVector.add(new StringField("id", "no-vector", Field.Store.YES));
+        writer.addDocument(withoutVector);
+        writer.commit();
+
+        // Segment 2: live vectors, so the query still has something to return.
+        for (int i = 0; i < liveDocs; i++) {
+          Document doc = new Document();
+          doc.add(new StringField("id", "live-" + i, Field.Store.YES));
+          doc.add(
+              new KnnFloatVectorField(
+                  "vector", dataset[i + 1], VectorSimilarityFunction.EUCLIDEAN));
+          writer.addDocument(doc);
+        }
+        writer.commit();
+
+        writer.deleteDocuments(new Term("id", "deleted-vector"));
+        writer.commit();
+      }
+
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        assertTrue("Expected more than one segment", reader.leaves().size() > 1);
+        IndexSearcher searcher = new IndexSearcher(reader);
+        float[] queryVector = generateRandomVector(dimensions, random);
+
+        // KnnFloatVectorQuery always goes through the per-segment reader path, which is where the
+        // empty accepted-ordinal set is handled.
+        assertOnlyLiveHits(
+            reader, searcher.search(new KnnFloatVectorQuery("vector", queryVector, topK), topK));
+
+        // GPUKnnFloatVectorQuery may take either the multi-partition or the per-segment path
+        // depending on whether every segment has a usable CAGRA index; both must behave the same.
+        assertOnlyLiveHits(
+            reader,
+            searcher.search(
+                new GPUKnnFloatVectorQuery("vector", queryVector, topK, null, topK, 1), topK));
+      }
+    }
+  }
+
+  /**
+   * The reader must treat any empty accepted-ordinal set as "no hits", whatever produced it.
+   *
+   * <p>Going through {@link KnnFloatVectorQuery} with an explicit filter cannot reach this state:
+   * Lucene ANDs every user filter with a {@code FieldExistsQuery} on the vector field, so the
+   * accepted set always holds at least one vector-bearing document. This test therefore drives
+   * {@link org.apache.lucene.index.LeafReader#searchNearestVectors} directly with an all-false
+   * {@link Bits}, pinning the reader's own contract independently of the query layer.
+   */
+  @Test
+  public void testSearchWithAcceptDocsMatchingNoVectors() throws IOException {
+
+    final int dimensions = 64;
+    final int vectorDocs = 16;
+    final int topK = 5;
+
+    try (Directory directory = newDirectory()) {
+      float[][] dataset = generateDataset(random, vectorDocs, dimensions);
+
+      try (IndexWriter writer = new IndexWriter(directory, createWriterConfig())) {
+        for (int i = 0; i < vectorDocs; i++) {
+          Document doc = new Document();
+          doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
+          doc.add(
+              new KnnFloatVectorField("vector", dataset[i], VectorSimilarityFunction.EUCLIDEAN));
+          writer.addDocument(doc);
+        }
+        writer.commit();
+      }
+
+      try (DirectoryReader reader = DirectoryReader.open(directory)) {
+        float[] queryVector = generateRandomVector(dimensions, random);
+        for (LeafReaderContext ctx : reader.leaves()) {
+          TopKnnCollector collector = new TopKnnCollector(topK, Integer.MAX_VALUE);
+          ctx.reader()
+              .searchNearestVectors(
+                  "vector", queryVector, collector, new Bits.MatchNoBits(ctx.reader().maxDoc()));
+          assertEquals(
+              "An empty accepted-ordinal set should collect nothing",
+              0,
+              collector.topDocs().scoreDocs.length);
+        }
+      }
+    }
+  }
+
+  /** Asserts every hit comes from a live, vector-bearing document. */
+  private void assertOnlyLiveHits(DirectoryReader reader, TopDocs topDocs) throws IOException {
+    assertTrue("Expected hits from the live segment", topDocs.scoreDocs.length > 0);
+    for (ScoreDoc hit : topDocs.scoreDocs) {
+      String id = reader.storedFields().document(hit.doc).get("id");
+      assertTrue("Unexpected hit: " + id, id.startsWith("live-"));
     }
   }
 

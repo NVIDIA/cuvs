@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -51,36 +51,6 @@ enum Linkage {
  */
 
 /**
- * Simple container object for consolidating linkage results. This closely
- * mirrors the trained instance variables populated in
- * Scikit-learn's AgglomerativeClustering estimator.
- * @tparam idx_t
- */
-template <typename idx_t>
-class single_linkage_output {
- public:
-  idx_t m;
-  idx_t n_clusters;
-
-  idx_t n_leaves;
-  idx_t n_connected_components;
-
-  // TODO: These will be made private in a future release
-  idx_t* labels;    // size: m
-  idx_t* children;  // size: (m-1, 2)
-
-  raft::device_vector_view<idx_t> get_labels()
-  {
-    return raft::make_device_vector_view<idx_t>(labels, m);
-  }
-
-  raft::device_matrix_view<idx_t> get_children()
-  {
-    return raft::make_device_matrix_view<idx_t>(children, m - 1, 2);
-  }
-};
-
-/**
  * @defgroup single_linkage single-linkage clustering APIs
  * @{
  */
@@ -92,17 +62,16 @@ class single_linkage_output {
 
  * @param[in] handle raft handle
  * @param[in] X dense input matrix in row-major layout
- * @param[out] dendrogram output dendrogram (size [n_rows - 1] * 2)
+ * @param[out] dendrogram output dendrogram in row-major layout (size [n_rows - 1] * 2)
  * @param[out] labels output labels vector (size n_rows)
  * @param[in] metric distance metric to use when constructing connectivities graph
  * @param[in] n_clusters number of clusters to assign data samples
  * @param[in] linkage strategy for constructing the linkage. PAIRWISE uses more memory but can be
- faster for
- *                    smaller datasets. KNN_GRAPH allows the memory usage to be controlled (using
- parameter c)
- *                    at the expense of potentially additional minimum spanning tree iterations.
+ faster for smaller datasets. KNN_GRAPH allows the memory usage to be controlled (using
+ parameter c) at the expense of potentially additional minimum spanning tree iterations.
  * @param[in] c a constant used when constructing linkage from knn graph. Allows the indirect
  control of k. The algorithm will set `k = log(n) + c`
+ * @param[out] distances optional output vector of distances between nodes (size [n_rows - 1])
  */
 void single_linkage(
   raft::resources const& handle,
@@ -112,7 +81,8 @@ void single_linkage(
   cuvs::distance::DistanceType metric,
   size_t n_clusters,
   cuvs::cluster::agglomerative::Linkage linkage = cuvs::cluster::agglomerative::Linkage::KNN_GRAPH,
-  std::optional<int> c                          = std::make_optional<int>(DEFAULT_CONST_C));
+  std::optional<int> c                          = std::make_optional<int>(DEFAULT_CONST_C),
+  std::optional<raft::device_vector_view<float, int>> distances = std::nullopt);
 
 namespace helpers {
 

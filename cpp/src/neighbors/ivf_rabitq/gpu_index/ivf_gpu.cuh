@@ -191,8 +191,7 @@ class IVFGPU {
 
   void save(const char* filename) const;
 
-  // load_transposed only applies for new batch index
-  void load_transposed(const char* filename);
+  void load(const char* filename);
 
   // device data getters
   __host__ __device__ uint32_t* get_short_data_device() const noexcept
