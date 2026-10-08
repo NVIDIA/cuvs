@@ -221,6 +221,10 @@ void mnmg_fit(
   rmm::device_uvector<char> assignment_output(0, stream);
   auto minClusterDistance = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto L2NormBatch        = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
+  auto Tf32NormBatch      = raft::make_device_vector<DataT, IndexT>(
+    dev_res,
+    cuvs::cluster::kmeans::detail::kmeans_may_require_tf32_norms_v<DataT> ? alloc_batch_size
+                                                                               : IndexT{0});
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
   rmm::device_uvector<char> workspace(0, stream);
   rmm::device_uvector<char> batch_workspace(0, stream);
@@ -304,8 +308,6 @@ void mnmg_fit(
   auto d_prior_cost = raft::make_device_scalar<DataT>(dev_res, DataT{0});
   auto d_done_flag  = raft::make_device_scalar<int>(dev_res, 0);
   auto h_done_flag  = raft::make_pinned_scalar<int>(dev_res, 0);
-  auto d_norms =
-    raft::make_device_vector<DataT, IndexT>(dev_res, data_on_device ? n_local : IndexT{0});
   bool norms_cached = false;
 
   auto d_scaled_weights = raft::make_device_vector<DataT, IndexT>(
@@ -342,16 +344,34 @@ void mnmg_fit(
     }
   }
 
-  auto batch_mr          = raft::resource::get_large_workspace_resource_ref(dev_res);
-  auto batch_copy_stream = cuvs::spatial::knn::detail::utils::get_prefetch_stream(dev_res).first;
+  auto batch_mr = raft::resource::get_large_workspace_resource_ref(dev_res);
+  auto [batch_copy_stream, enable_prefetch] =
+    cuvs::spatial::knn::detail::utils::get_prefetch_stream(dev_res);
+  const std::size_t recycle_offset = enable_prefetch ? 2 : 1;
 
   data_batch_loader_t data_batches(
-    dev_res, X_parts, device_buffer_samples, batch_copy_stream, batch_mr);
+    dev_res, X_parts, device_buffer_samples, batch_copy_stream, batch_mr, enable_prefetch);
+  constexpr std::size_t norm_alignment = 16;
+  const auto tf32_norm_stride          = static_cast<IndexT>(
+    raft::alignTo(static_cast<std::size_t>(device_buffer_samples), norm_alignment / sizeof(DataT)));
+  const auto tf32_norm_cache_size =
+    data_on_device ? static_cast<IndexT>(tf32_norm_stride * data_batches.num_batches()) : IndexT{0};
+  auto d_norms =
+    raft::make_device_vector<DataT, IndexT>(dev_res, data_on_device ? n_local : IndexT{0});
+  auto d_tf32_norms = raft::make_device_vector<DataT, IndexT>(
+    dev_res,
+    cuvs::cluster::kmeans::detail::kmeans_may_require_tf32_norms_v<DataT> ? tf32_norm_cache_size
+                                                                          : IndexT{0});
+  std::vector<bool> batch_uses_tf32(data_batches.num_batches(), false);
   std::optional<host_batch_loader_t> weight_batches;
   if constexpr (!data_on_device) {
     if (sample_weights) {
-      weight_batches.emplace(
-        dev_res, weight_inputs, device_buffer_samples, batch_copy_stream, batch_mr);
+      weight_batches.emplace(dev_res,
+                             weight_inputs,
+                             device_buffer_samples,
+                             batch_copy_stream,
+                             batch_mr,
+                             enable_prefetch);
       RAFT_EXPECTS(weight_batches->num_batches() == data_batches.num_batches(),
                    "KMeans data and weight batches do not align");
     }
@@ -362,13 +382,46 @@ void mnmg_fit(
     if (weight_batches.has_value()) { weight_batches->prefetch(batch_pos); }
   };
 
-  auto compute_batch_norms = [&](DataT const* batch_data, IndexT batch_size) {
+  auto compute_batch_norms = [&](DataT const* batch_data,
+                                 IndexT batch_size,
+                                 DataT* exact_norms,
+                                 DataT* tf32_norms,
+                                 bool use_tf32_norms) {
     auto batch_view =
       raft::make_device_matrix_view<const DataT, IndexT>(batch_data, batch_size, n_features);
-    auto norm_view =
-      raft::make_device_vector_view<DataT, IndexT>(L2NormBatch.data_handle(), batch_size);
-    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
-      dev_res, batch_view, norm_view);
+    auto norm_view = raft::make_device_vector_view<DataT, IndexT>(exact_norms, batch_size);
+    if constexpr (cuvs::cluster::kmeans::detail::kmeans_may_require_tf32_norms_v<DataT>) {
+      if (use_tf32_norms) {
+        auto tf32_norm_view = raft::make_device_vector_view<float, IndexT>(tf32_norms, batch_size);
+        cuvs::cluster::kmeans::detail::compute_fp32_tf32_norms(
+          dev_res, batch_view, norm_view, tf32_norm_view);
+      } else {
+        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+          dev_res, batch_view, norm_view);
+      }
+    } else {
+      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        dev_res, batch_view, norm_view);
+    }
+  };
+
+  auto assignment_uses_tf32 = [&](DataT const* batch_data, IndexT batch_size) {
+    if constexpr (cuvs::cluster::kmeans::detail::kmeans_may_require_tf32_norms_v<DataT>) {
+      const auto plan = cuvs::cluster::kmeans::detail::probe_kmeans_top_1_nn(
+        dev_res,
+        batch_data,
+        rank_centroids.data_handle(),
+        batch_size,
+        n_clusters,
+        n_features,
+        metric,
+        params.batch_samples,
+        params.batch_centroids,
+        cuvs::distance::detail::Top1nnBackend::Auto);
+      return plan.available && plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32;
+    } else {
+      return false;
+    }
   };
 
   auto prepare_batch_weights =
@@ -460,24 +513,48 @@ void mnmg_fit(
         auto batch_weights_view =
           prepare_batch_weights(part_idx, batch_offset, staged_weights, current_batch_size);
 
-        auto norm_offset = part_offsets[part_idx] + batch_offset;
-        raft::device_vector_view<const DataT, IndexT> L2NormBatch_const;
+        const auto exact_norm_offset =
+          data_on_device ? part_offsets[part_idx] + batch_offset : IndexT{0};
+        const auto tf32_norm_offset =
+          data_on_device ? static_cast<IndexT>(batch_pos) * tf32_norm_stride : IndexT{0};
+        auto* exact_norm_data =
+          data_on_device ? d_norms.data_handle() + exact_norm_offset : L2NormBatch.data_handle();
+        DataT* tf32_norm_data = nullptr;
+        if constexpr (cuvs::cluster::kmeans::detail::kmeans_may_require_tf32_norms_v<DataT>) {
+          tf32_norm_data = data_on_device ? d_tf32_norms.data_handle() + tf32_norm_offset
+                                          : Tf32NormBatch.data_handle();
+        }
+        bool use_tf32_norms = false;
         if constexpr (data_on_device) {
-          auto norm_slice = raft::make_device_vector_view<DataT, IndexT>(
-            d_norms.data_handle() + norm_offset, current_batch_size);
           if (!norms_cached) {
-            raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
-              dev_res, batch_data_view, norm_slice);
+            batch_uses_tf32[batch_pos] =
+              assignment_uses_tf32(data_batch.data(), current_batch_size);
+            compute_batch_norms(data_batch.data(),
+                                current_batch_size,
+                                exact_norm_data,
+                                tf32_norm_data,
+                                batch_uses_tf32[batch_pos]);
           }
-          L2NormBatch_const = raft::make_const_mdspan(norm_slice);
+          use_tf32_norms = batch_uses_tf32[batch_pos];
         } else {
-          compute_batch_norms(data_batch.data(), current_batch_size);
-          L2NormBatch_const = raft::make_device_vector_view<const DataT, IndexT>(
-            L2NormBatch.data_handle(), current_batch_size);
+          use_tf32_norms = assignment_uses_tf32(data_batch.data(), current_batch_size);
+          compute_batch_norms(
+            data_batch.data(), current_batch_size, exact_norm_data, tf32_norm_data, use_tf32_norms);
+        }
+        auto L2NormBatch_const =
+          raft::make_device_vector_view<const DataT, IndexT>(exact_norm_data, current_batch_size);
+        std::optional<raft::device_vector_view<const DataT, IndexT>> Tf32NormBatch_const =
+          std::nullopt;
+        if constexpr (cuvs::cluster::kmeans::detail::kmeans_may_require_tf32_norms_v<DataT>) {
+          if (use_tf32_norms) {
+            Tf32NormBatch_const = raft::make_device_vector_view<const DataT, IndexT>(
+              tf32_norm_data, current_batch_size);
+          }
         }
 
-        // During cold fill, enqueue the first real consumer before the second H2D. Once both slots
-        // are active this is a no-op; recycle() keeps the copy stream one batch ahead thereafter.
+        // During two-buffer cold fill, enqueue the first real consumer before the second H2D. Once
+        // both slots are active, or in single-buffer mode, this is a no-op; recycle() advances the
+        // copy stream thereafter.
         prefetch_batch((batch_pos + 1) % data_batches.num_batches());
 
         cuvs::cluster::kmeans::detail::process_batch<DataT, IndexT>(
@@ -490,6 +567,7 @@ void mnmg_fit(
           iter_params.batch_centroids,
           assignment_output,
           L2NormBatch_const,
+          Tf32NormBatch_const,
           L2NormBuf_OR_DistBuf,
           workspace,
           centroid_sums.view(),
@@ -498,11 +576,11 @@ void mnmg_fit(
           batch_workspace,
           batch_cost.view());
 
-        const auto next_batch_pos = (batch_pos + 2) % data_batches.num_batches();
+        const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
         data_batches.recycle(data_batch, next_batch_pos);
         if (weight_batch.has_value()) { weight_batches->recycle(*weight_batch, next_batch_pos); }
       }
-      norms_cached = true;
+      if constexpr (data_on_device) { norms_cached = true; }
 
       comms.group_start();
       comms.allreduce(
@@ -571,6 +649,29 @@ void mnmg_fit(
       auto batch_data_view          = raft::make_device_matrix_view<const DataT, IndexT>(
         data_batch.data(), current_batch_size, n_features);
 
+      const auto exact_norm_offset =
+        data_on_device ? part_offsets[part_idx] + batch_offset : IndexT{0};
+      const auto tf32_norm_offset =
+        data_on_device ? static_cast<IndexT>(batch_pos) * tf32_norm_stride : IndexT{0};
+      auto* exact_norm_data =
+        data_on_device ? d_norms.data_handle() + exact_norm_offset : L2NormBatch.data_handle();
+      DataT* tf32_norm_data = nullptr;
+      if constexpr (cuvs::cluster::kmeans::detail::kmeans_may_require_tf32_norms_v<DataT>) {
+        tf32_norm_data = data_on_device ? d_tf32_norms.data_handle() + tf32_norm_offset
+                                        : Tf32NormBatch.data_handle();
+      }
+      if constexpr (data_on_device) {
+        if (!norms_cached) {
+          compute_batch_norms(
+            data_batch.data(), current_batch_size, exact_norm_data, tf32_norm_data, false);
+        }
+      } else {
+        compute_batch_norms(
+          data_batch.data(), current_batch_size, exact_norm_data, tf32_norm_data, false);
+      }
+      auto exact_norms =
+        raft::make_device_vector_view<const DataT, IndexT>(exact_norm_data, current_batch_size);
+
       std::optional<raft::device_vector_view<const DataT, IndexT>> batch_sw = std::nullopt;
       if (sample_weights) {
         batch_sw =
@@ -585,10 +686,12 @@ void mnmg_fit(
                                                   batch_data_view,
                                                   rank_centroids_const,
                                                   batch_cost.view(),
-                                                  L2NormBatch.view(),
+                                                  exact_norms,
                                                   minClusterDistance.view(),
                                                   L2NormBuf_OR_DistBuf,
                                                   workspace,
+                                                  iter_params.batch_samples,
+                                                  iter_params.batch_centroids,
                                                   batch_sw);
       raft::linalg::add(clustering_cost.data_handle(),
                         clustering_cost.data_handle(),
@@ -597,9 +700,9 @@ void mnmg_fit(
                         stream);
 
       const bool needs_future_batch =
-        batch_pos + 2 < data_batches.num_batches() || seed_iter + 1 < n_init;
+        batch_pos + recycle_offset < data_batches.num_batches() || seed_iter + 1 < n_init;
       if (needs_future_batch) {
-        const auto next_batch_pos = (batch_pos + 2) % data_batches.num_batches();
+        const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
         data_batches.recycle(data_batch, next_batch_pos);
         if (weight_batch.has_value()) { weight_batches->recycle(*weight_batch, next_batch_pos); }
       } else {

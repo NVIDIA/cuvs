@@ -17,6 +17,9 @@
 
 #include <cuda_fp16.h>
 
+#include <algorithm>
+#include <vector>
+
 namespace cuvs::neighbors::brute_force {
 
 template <typename T>
@@ -243,76 +246,94 @@ class RandomBruteForceKNNTest : public ::testing::TestWithParam<RandomKNNInputs>
   }
 
  protected:
+  // Computes the expanded L2 / cosine distances between the queries A and the database B on the
+  // host, writing a row-major [num_queries, num_db_vecs] matrix to d_vals.
   void cpu_distance(const T* d_A,
                     const T* d_B,
                     DistT* d_vals,
                     bool is_row_major_A,
                     bool is_row_major_B,
-                    bool is_row_major_C,
-                    cudaStream_t stream,
-                    DistT alpha = 1.0,
-                    DistT beta  = 0.0)
+                    cudaStream_t stream)
   {
-    size_t size_A    = params_.num_queries * params_.dim * sizeof(T);
-    size_t size_B    = params_.num_db_vecs * params_.dim * sizeof(T);
-    size_t size_vals = params_.num_queries * params_.num_db_vecs * sizeof(DistT);
+    int64_t const n_queries = params_.num_queries;
+    int64_t const n_db      = params_.num_db_vecs;
+    int64_t const dim       = params_.dim;
 
-    T* h_A        = static_cast<T*>(malloc(size_A));
-    T* h_B        = static_cast<T*>(malloc(size_B));
-    DistT* h_vals = static_cast<DistT*>(malloc(size_vals));
-
-    cudaMemcpyAsync(h_A, d_A, size_A, cudaMemcpyDeviceToHost, stream);
-    cudaMemcpyAsync(h_B, d_B, size_B, cudaMemcpyDeviceToHost, stream);
-    cudaMemcpyAsync(h_vals, d_vals, size_vals, cudaMemcpyDeviceToHost, stream);
+    std::vector<T> h_A(n_queries * dim);
+    std::vector<T> h_B(n_db * dim);
+    cudaMemcpyAsync(h_A.data(), d_A, h_A.size() * sizeof(T), cudaMemcpyDeviceToHost, stream);
+    cudaMemcpyAsync(h_B.data(), d_B, h_B.size() * sizeof(T), cudaMemcpyDeviceToHost, stream);
     cudaStreamSynchronize(stream);
 
-    bool trans_a = is_row_major_A;
-    bool trans_b = is_row_major_B;
-    bool trans_c = is_row_major_C;
+    auto to_dist = [](T v) -> DistT {
+      if constexpr (sizeof(T) == 2) {
+        return __half2float(v);
+      } else {
+        return v;
+      }
+    };
 
-    for (int64_t i = 0; i < params_.num_queries; ++i) {
-      for (int64_t j = 0; j < params_.num_db_vecs; ++j) {
-        DistT sum     = 0;
-        DistT norms_A = 0;
-        DistT norms_B = 0;
+    // Convert the inputs once, storing A as [n_queries, dim] and B as [dim, n_db]. The inner loop
+    // below then runs over contiguous database vectors and vectorizes, while each dot product and
+    // norm is still accumulated over the dimensions in order.
+    std::vector<DistT> A(n_queries * dim);
+    std::vector<DistT> B(dim * n_db);
+    for (int64_t i = 0; i < n_queries; ++i) {
+      for (int64_t l = 0; l < dim; ++l) {
+        A[i * dim + l] = to_dist(h_A[is_row_major_A ? i * dim + l : l * n_queries + i]);
+      }
+    }
+    for (int64_t j = 0; j < n_db; ++j) {
+      for (int64_t l = 0; l < dim; ++l) {
+        B[l * n_db + j] = to_dist(h_B[is_row_major_B ? j * dim + l : l * n_db + j]);
+      }
+    }
 
-        for (int64_t l = 0; l < params_.dim; ++l) {
-          int64_t a_index = trans_a ? i * params_.dim + l : l * params_.num_queries + i;
-          int64_t b_index = trans_b ? j * params_.dim + l : l * params_.num_db_vecs + j;
-          DistT A_v;
-          DistT B_v;
-          if constexpr (sizeof(T) == 2) {
-            A_v = __half2float(h_A[a_index]);
-            B_v = __half2float(h_B[b_index]);
-          } else {
-            A_v = h_A[a_index];
-            B_v = h_B[b_index];
+    std::vector<DistT> norms_A(n_queries, DistT{0});
+    std::vector<DistT> norms_B(n_db, DistT{0});
+    for (int64_t i = 0; i < n_queries; ++i) {
+      for (int64_t l = 0; l < dim; ++l) {
+        norms_A[i] += A[i * dim + l] * A[i * dim + l];
+      }
+    }
+    for (int64_t l = 0; l < dim; ++l) {
+      for (int64_t j = 0; j < n_db; ++j) {
+        norms_B[j] += B[l * n_db + j] * B[l * n_db + j];
+      }
+    }
+
+    std::vector<DistT> h_vals(n_queries * n_db);
+    // Process the database in blocks so that the block of B being reused by every query stays
+    // in cache.
+    constexpr int64_t kBlock = 512;
+    for (int64_t j0 = 0; j0 < n_db; j0 += kBlock) {
+      int64_t const nj = std::min(kBlock, n_db - j0);
+      for (int64_t i = 0; i < n_queries; ++i) {
+        DistT* __restrict__ out = h_vals.data() + i * n_db + j0;
+        std::fill(out, out + nj, DistT{0});
+        for (int64_t l = 0; l < dim; ++l) {
+          DistT const a                 = A[i * dim + l];
+          DistT const* __restrict__ b_l = B.data() + l * n_db + j0;
+          for (int64_t jj = 0; jj < nj; ++jj) {
+            out[jj] += a * b_l[jj];
           }
-
-          sum += A_v * B_v;
-
-          norms_A += A_v * A_v;
-          norms_B += B_v * B_v;
         }
-
-        int64_t c_index = trans_c ? i * params_.num_db_vecs + j : j * params_.num_queries + i;
-
-        h_vals[c_index] = alpha * sum + beta * h_vals[c_index];
-        if (params_.metric == cuvs::distance::DistanceType::L2Expanded) {
-          h_vals[c_index] = DistT(-2.0) * h_vals[c_index] + norms_A + norms_B;
-        } else if (params_.metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
-          h_vals[c_index] = std::sqrt(DistT(-2.0) * h_vals[c_index] + norms_A + norms_B);
-        } else if (params_.metric == cuvs::distance::DistanceType::CosineExpanded) {
-          h_vals[c_index] = DistT(1.0) - h_vals[c_index] / std::sqrt(norms_A * norms_B);
+        for (int64_t jj = 0; jj < nj; ++jj) {
+          DistT const norm_A = norms_A[i];
+          DistT const norm_B = norms_B[j0 + jj];
+          if (params_.metric == cuvs::distance::DistanceType::L2Expanded) {
+            out[jj] = DistT(-2.0) * out[jj] + norm_A + norm_B;
+          } else if (params_.metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+            out[jj] = std::sqrt(DistT(-2.0) * out[jj] + norm_A + norm_B);
+          } else if (params_.metric == cuvs::distance::DistanceType::CosineExpanded) {
+            out[jj] = DistT(1.0) - out[jj] / std::sqrt(norm_A * norm_B);
+          }
         }
       }
     }
-    cudaMemcpyAsync(d_vals, h_vals, size_vals, cudaMemcpyHostToDevice, stream);
+    cudaMemcpyAsync(
+      d_vals, h_vals.data(), h_vals.size() * sizeof(DistT), cudaMemcpyHostToDevice, stream);
     cudaStreamSynchronize(stream);
-
-    free(h_A);
-    free(h_B);
-    free(h_vals);
   }
 
   void testBruteForce()
@@ -335,7 +356,6 @@ class RandomBruteForceKNNTest : public ::testing::TestWithParam<RandomKNNInputs>
                    temp_distances.data(),
                    params_.row_major,
                    params_.row_major,
-                   true,
                    stream_);
     } else {
       if (params_.row_major) {
