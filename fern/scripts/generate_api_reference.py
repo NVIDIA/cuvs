@@ -4756,7 +4756,7 @@ def parse_javadoc(raw: str) -> JavaDoc:
     # inline tag such as {@link ...} may be wrapped across lines.
     for line in lines:
         stripped = line.strip()
-        if not clean_javadoc_text(stripped):
+        if not stripped:
             if active is None and active_kind == "":
                 summary_lines.append("")
             continue
@@ -4852,6 +4852,8 @@ def clean_javadoc_text(text: str) -> str:
     text = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", text)
     text = re.sub(r"</?p>", "", text)
     text = re.sub(r"<[^>]+>", "", text)
+    # Removed HTML can leave doubled spaces; converted tags are still placeholders here.
+    text = re.sub(r"[ \t]{2,}", " ", text)
     text = re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
     return text.strip()
 
