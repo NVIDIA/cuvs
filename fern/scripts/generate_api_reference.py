@@ -239,6 +239,7 @@ class JavaDoc:
     params: list[DoxygenParam] = field(default_factory=list)
     returns: str = ""
     throws: list[DoxygenParam] = field(default_factory=list)
+    deprecated: str = ""
 
 
 @dataclass
@@ -3083,6 +3084,7 @@ def generate_jvm_api_pages(
                     member.doc.summary
                     or member.doc.params
                     or member.doc.returns
+                    or member.doc.deprecated
                 ):
                     lines.append("")
                 lines.extend([f"_Source: `{klass.source}:{member.line}`_", ""])
@@ -3166,18 +3168,21 @@ def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
     members: list[JavaMember] = []
     for match in COMMENT_RE.finditer(text):
         signature, line = java_signature_at(text, match.end())
-        if "(" not in signature:
+        # Annotations stay in the signature on the page, but an argument list
+        # such as @Deprecated(since = "...") must not be taken for the member.
+        declaration = strip_java_annotations(signature)
+        if "(" not in declaration:
             continue
-        if re.search(r"\b(class|interface|enum|record)\b", signature):
+        if re.search(r"\b(class|interface|enum|record)\b", declaration):
             continue
-        if re.search(r"\b(if|for|while|switch|catch)\s*\(", signature):
+        if re.search(r"\b(if|for|while|switch|catch)\s*\(", declaration):
             continue
         # The pages advertise "Public Members"; drop explicitly private ones.
         # Package-private and interface members are left alone because an
         # interface method with no modifier is implicitly public.
-        if re.match(r"\s*private\b", signature):
+        if re.match(r"\s*private\b", declaration):
             continue
-        name_match = re.search(r"([A-Za-z_]\w*)\s*\(", signature)
+        name_match = re.search(r"([A-Za-z_]\w*)\s*\(", declaration)
         if not name_match:
             continue
         name = name_match.group(1)
@@ -3186,6 +3191,13 @@ def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
             JavaMember(name=name, signature=signature, doc=doc, line=line)
         )
     return members
+
+
+def strip_java_annotations(signature: str) -> str:
+    """Returns the declaration that follows the annotations on a member."""
+    while match := re.match(r"@\w+(?:\s*\([^)]*\))?\s*", signature):
+        signature = signature[match.end() :]
+    return signature
 
 
 def clean_doxygen_comment(raw: str) -> str:
@@ -4718,7 +4730,8 @@ def java_signature_at(text: str, start: int) -> tuple[str, int]:
         char = text[idx]
         update_depth(depth, char)
         if char in "{;" and not depth["("] and not depth["["]:
-            signature = text[start:idx].strip()
+            # A line comment after an annotation is not part of the declaration.
+            signature = re.sub(r"//[^\n]*", "", text[start:idx]).strip()
             signature = re.sub(r"\s+", " ", signature)
             return signature, line
         idx += 1
@@ -4745,6 +4758,14 @@ def parse_javadoc(raw: str) -> JavaDoc:
     lines = [
         re.sub(r"^\s*\* ?", "", line).rstrip() for line in body.splitlines()
     ]
+    # Join the inline tags that wrap onto another line, so that each one is
+    # cleaned up as a whole. A <pre>{@code ...} block is left alone: its line
+    # breaks matter, and the code in it can contain braces.
+    lines = re.sub(
+        r"(?<!<pre>)\{@[^}]*\}",
+        lambda m: re.sub(r"\s*\n\s*", " ", m.group(0)),
+        "\n".join(lines),
+    ).splitlines()
     doc = JavaDoc()
     summary_lines: list[str] = []
     active: DoxygenParam | None = None
@@ -4777,9 +4798,16 @@ def parse_javadoc(raw: str) -> JavaDoc:
             active = None
             active_kind = "return"
             continue
-        if stripped.startswith("@"):
+        deprecated_match = re.match(r"@deprecated\s*(.*)", stripped)
+        if deprecated_match:
+            doc.deprecated = deprecated_match.group(1).strip()
             active = None
-            active_kind = ""
+            active_kind = "deprecated"
+            continue
+        if stripped.startswith("@"):
+            # A tag this page doesn't render, along with its continuation lines.
+            active = None
+            active_kind = "ignored"
             continue
         if active is not None and active_kind in {"param", "throws"}:
             active.description = append_doxygen_line(
@@ -4787,16 +4815,20 @@ def parse_javadoc(raw: str) -> JavaDoc:
             )
         elif active_kind == "return":
             doc.returns = append_doxygen_line(doc.returns, stripped)
-        else:
+        elif active_kind == "deprecated":
+            doc.deprecated = append_doxygen_line(doc.deprecated, stripped)
+        elif active_kind != "ignored":
             summary_lines.append(stripped)
     doc.summary = "\n".join(trim_blank_lines(summary_lines)).strip()
     return doc
 
 
 def clean_javadoc_text(text: str) -> str:
-    text = re.sub(r"\{@code\s+([^}]+)\}", r"`\1`", text)
+    text = re.sub(r"\{@code\s+([^}]+?)\s*\}", r"`\1`", text)
+    # A method's parameter list may contain spaces, so it belongs to the
+    # target rather than starting the label.
     text = re.sub(
-        r"\{@link\s+([^}\s]+)(?:\s+([^}]+))?\}",
+        r"\{@link\s+([^}\s(]+(?:\([^)]*\))?)(?:\s+([^}]+))?\}",
         lambda m: m.group(2) or f"`{m.group(1)}`",
         text,
     )
@@ -4808,6 +4840,8 @@ def clean_javadoc_text(text: str) -> str:
 
 def render_javadoc(doc: JavaDoc) -> list[str]:
     lines: list[str] = []
+    if doc.deprecated:
+        lines.extend([f"**Deprecated.** {escape_text(doc.deprecated)}", ""])
     if doc.summary:
         lines.extend(escape_text(line) for line in doc.summary.splitlines())
         lines.append("")

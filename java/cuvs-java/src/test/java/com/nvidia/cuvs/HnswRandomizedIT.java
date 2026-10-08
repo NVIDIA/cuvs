@@ -110,13 +110,13 @@ public class HnswRandomizedIT extends CuVSTestCase {
         }
         index =
             CagraIndex.newBuilder(resources)
-                .withDataset(datasetBuilder.build())
+                .fromDataset(datasetBuilder.build())
                 .withIndexParams(indexParams)
                 .build();
       } else {
         index =
             CagraIndex.newBuilder(resources)
-                .withDataset(vectors)
+                .fromDataset(vectors)
                 .withIndexParams(indexParams)
                 .build();
       }

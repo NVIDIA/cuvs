@@ -53,18 +53,22 @@ public class CagraExample {
       // Create the index with the dataset
       CagraIndex index =
           CagraIndex.newBuilder(resources)
-              .withDataset(vectors)
+              .fromDataset(vectors)
               .withIndexParams(indexParams)
               .build();
 
       // Saving the index on to the disk.
       String indexFileName = UUID.randomUUID().toString() + ".cag";
-      index.serialize(new FileOutputStream(indexFileName));
+      try (FileOutputStream outputStream = new FileOutputStream(indexFileName)) {
+        index.serialize(outputStream);
+      }
 
-      // Loading a CAGRA index from disk.
+      // Loading a CAGRA index from disk. Loading reads the stream but leaves closing it to us.
       File indexFile = new File(indexFileName);
-      InputStream inputStream = new FileInputStream(indexFile);
-      CagraIndex loadedIndex = CagraIndex.newBuilder(resources).from(inputStream).build();
+      CagraIndex loadedIndex;
+      try (InputStream inputStream = new FileInputStream(indexFile)) {
+        loadedIndex = CagraIndex.newBuilder(resources).fromSerialized(inputStream).build();
+      }
 
       // Configure search parameters
       CagraSearchParams searchParams = new CagraSearchParams.Builder().build();
