@@ -47,4 +47,70 @@ public class TestUtilsThrowableHandling extends LuceneTestCase {
 
     assertSame(exception, thrown.getCause());
   }
+
+  @Test
+  public void testOwnedIndexClosesUntransferredDatasetOnce() throws Exception {
+    TrackingCloseable dataset = new TrackingCloseable(null);
+    Utils.OwnedIndex<TrackingCloseable> owned = Utils.ownDataset(dataset);
+
+    owned.close();
+    owned.close();
+
+    assertEquals(1, dataset.closeCount);
+  }
+
+  @Test
+  public void testOwnedIndexClosesTransferredIndexInsteadOfDataset() throws Exception {
+    TrackingCloseable dataset = new TrackingCloseable(null);
+    TrackingCloseable index = new TrackingCloseable(null);
+    Utils.OwnedIndex<TrackingCloseable> owned = Utils.ownDataset(dataset);
+    owned.transferTo(index);
+
+    owned.close();
+
+    assertEquals(1, index.closeCount);
+    assertEquals(0, dataset.closeCount);
+  }
+
+  @Test
+  public void testOwnedIndexPreservesBodyAndCleanupFailures() {
+    IOException bodyFailure = new IOException("body");
+    IOException indexCloseFailure = new IOException("index close");
+    IOException datasetCloseFailure = new IOException("dataset close");
+    TrackingCloseable dataset = new TrackingCloseable(datasetCloseFailure);
+    TrackingCloseable index = new TrackingCloseable(indexCloseFailure);
+
+    IOException thrown =
+        assertThrows(
+            IOException.class,
+            () -> {
+              try (Utils.OwnedIndex<TrackingCloseable> owned = Utils.ownDataset(dataset)) {
+                owned.transferTo(index);
+                throw bodyFailure;
+              }
+            });
+
+    assertSame(bodyFailure, thrown);
+    assertArrayEquals(new Throwable[] {indexCloseFailure}, thrown.getSuppressed());
+    assertArrayEquals(new Throwable[] {datasetCloseFailure}, indexCloseFailure.getSuppressed());
+    assertEquals(1, index.closeCount);
+    assertEquals(1, dataset.closeCount);
+  }
+
+  private static final class TrackingCloseable implements AutoCloseable {
+    private final Exception failure;
+    private int closeCount;
+
+    private TrackingCloseable(Exception failure) {
+      this.failure = failure;
+    }
+
+    @Override
+    public void close() throws Exception {
+      closeCount++;
+      if (failure != null) {
+        throw failure;
+      }
+    }
+  }
 }
