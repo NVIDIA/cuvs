@@ -21,19 +21,13 @@ jobs:
       - conda-cpp-checks
       - conda-python-build
       - conda-python-tests
-      - rocky8-clib-standalone-build-matrix
       - rocky8-clib-standalone-build
-      - rocky8-clib-tests-matrix
       - rocky8-clib-tests
-      - conda-java-build-and-tests-matrix
-      - conda-java-build-and-tests
-      - conda-java-tests-other-arch-matrix
-      - conda-java-tests-other-arch
-      - conda-lucene-build-and-tests
-      - conda-lucene-tests-other-arch
-      - rust-build-matrix
+      - conda-java-build
+      - conda-java-tests
+      - conda-lucene-build
+      - conda-lucene-tests
       - rust-build
-      - go-build-matrix
       - go-build
       - docs-build
       - docs-build-matrix
@@ -73,7 +67,7 @@ jobs:
     steps:
       - name: Get PR Info
         id: get-pr-info
-        uses: nv-gha-runners/get-pr-info@090577647b8ddc4e06e809e264f7881650ecdccf # main
+        uses: nv-gha-runners/get-pr-info@main
       - name: Check if nightly CI is passing
         uses: rapidsai/shared-actions/check_nightly_success/dispatch@main
         with:
@@ -251,7 +245,6 @@ jobs:
           - '!ci/validate_wheel.sh'
           - '!cpp/.clang-format'
           - '!cpp/.clang-tidy'
-          - '!cpp/doxygen/**'
           - '!CODEOWNERS'
           - '!Dockerfile'
           - '!README.md'
@@ -313,7 +306,6 @@ jobs:
           - '!conda/**'
           - '!cpp/.clang-format'
           - '!cpp/.clang-tidy'
-          - '!cpp/doxygen/**'
           - '!docs/**'
           - '!examples/**'
           - '!fern/**'
@@ -569,259 +561,124 @@ jobs:
     with:
       build_type: pull-request
       script: ci/test_python.sh
-  rocky8-clib-standalone-build-matrix:
-    needs: checks
-    permissions:
-      contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
-    with:
-      build_type: pull-request
-      matrix_name: conda-cpp-build
   rocky8-clib-standalone-build:
-    needs: [rocky8-clib-standalone-build-matrix]
-    runs-on: linux-${{ matrix.ARCH }}-cpu16
-    env:
-      RAPIDS_BUILD_TYPE: pull-request
+    needs: checks
     permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.rocky8-clib-standalone-build-matrix.outputs.matrix) }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ inputs.sha || github.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: aws-actions/configure-aws-credentials@cbe3b392738ccf3f987d68400dafcf4b0624a56c # v6.2.4
-        with:
-          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-          role-duration-seconds: 10800
-      - name: Setup sccache-dist
-        uses: rapidsai/shared-actions/setup-sccache-dist@main
-        with:
-          request-timeout: 7140
-      - name: Build standalone C tarball
-        env:
-          CUVS_TARBALL_CUDA_VERSION: ${{ matrix.CUDA_VER }}
-          CUVS_TARBALL_PYTHON_VERSION: ${{ matrix.PY_VER }}
-        run: |
-          ./build.sh tarball --tarball-build-tests
-      - name: Upload artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz
-          path: libcuvs_c.tar.gz
-  rocky8-clib-tests-matrix:
+    uses: ./.github/workflows/clib-build.yaml
+    with:
+      build_type: pull-request
+  rocky8-clib-tests:
     needs: [rocky8-clib-standalone-build, changed-files]
     permissions:
+      actions: read
       contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
+      id-token: write
+      packages: read
+      pull-requests: read
+    uses: ./.github/workflows/matrix-job.yaml
     if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_standalone_c
     with:
       build_type: pull-request
-      matrix_name: conda-cpp-build
-  rocky8-clib-tests:
-    needs: rocky8-clib-tests-matrix
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.rocky8-clib-tests-matrix.outputs.matrix) }}
-    with:
-      build_type: pull-request
-      node_type: ${{ matrix.ARCH == 'amd64' && 'gpu-rtxpro6000-latest-1' || 'gpu-l4-latest-1' }}
-      arch: "${{matrix.arch}}"
-      date: ${{ inputs.date }}_c
-      container_image: "rapidsai/ci-wheel:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      script: "ci/test_standalone_c.sh libcuvs_c_${{ matrix.CUDA_VER }}_${{ matrix.ARCH }}.tar.gz"
-      sha: ${{ inputs.sha }}
-  conda-java-build-and-tests-matrix:
+      container-image-repository: "rapidsai/citestwheel"
+      script: "ci/test_standalone_c.sh"
+  conda-java-build:
     needs: [conda-cpp-build, changed-files]
     permissions:
-      contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
-    with:
-      build_type: pull-request
-      matrix_name: conda-cpp-build
-      matrix_filter: map(select(.ARCH == "amd64"))
-  conda-java-build-and-tests:
-    needs: conda-java-build-and-tests-matrix
-    permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    uses: ./.github/workflows/matrix-job.yaml
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-rtxpro6000-latest-1"
-      arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      script: "ci/test_java.sh"
-      artifact-name: "cuvs-java-cuda${{ matrix.CUDA_VER }}"
+      node_type: cpu8
+      matrix_filter: map(select(.ARCH == "amd64"))
+      script: "ci/build_java.sh"
+      artifact-name-prefix: "cuvs-java"
       file_to_upload: "java/cuvs-java/target/"
-  conda-java-tests-other-arch-matrix:
-    # All architectures the C++ core builds for, except amd64.
-    needs: [conda-cpp-build, changed-files]
-    permissions:
-      contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@release/26.10
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
-    with:
-      build_type: pull-request
-      matrix_name: conda-cpp-build
-      matrix_filter: map(select(.ARCH != "amd64"))
-  conda-java-tests-other-arch:
-    # Verifies that the amd64-built cuvs-java jar (jextract-generated Panama bindings and
-    # all) also works correctly on every non-amd64 architecture, by running its own IT test
-    # suite against the amd64-built classes without recompiling -- see ci/test_java_prebuilt.sh.
-    needs: [conda-java-tests-other-arch-matrix, conda-java-build-and-tests]
+  conda-java-tests:
+    needs: conda-java-build
     permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@release/26.10
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.conda-java-tests-other-arch-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/matrix-job.yaml
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
-      arch: "${{ matrix.ARCH }}"
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      script: "ci/test_java_prebuilt.sh ${{ matrix.ARCH }} cuvs-java-cuda${{ matrix.CUDA_VER }}"
-  conda-lucene-build-and-tests:
-    # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against, and
-    # reuses its matrix so the two always agree on the set of CUDA versions.
-    needs: [conda-java-build-and-tests-matrix, conda-java-build-and-tests]
+      script: "ci/test_java.sh"
+  conda-lucene-build:
+    # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
+    needs: conda-java-build
     permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    uses: ./.github/workflows/matrix-job.yaml
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.conda-java-build-and-tests-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-rtxpro6000-latest-1"
-      arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      script: "ci/test_lucene.sh cuvs-java-cuda${{ matrix.CUDA_VER }}"
-      artifact-name: "cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
+      node_type: cpu8
+      matrix_filter: map(select(.ARCH == "amd64"))
+      script: "ci/build_lucene.sh"
+      artifact-name-prefix: "cuvs-lucene"
       file_to_upload: "java/cuvs-lucene/target/"
-  conda-lucene-tests-other-arch:
-    # Verifies that cuvs-lucene, built against the amd64-built cuvs-java jar, also works
-    # correctly on every non-amd64 architecture, by running its test suite against the
-    # amd64-built classes without recompiling -- see ci/test_lucene_prebuilt.sh. Reuses
-    # conda-java-tests-other-arch-matrix so the two always agree on which architectures to test.
-    needs: [conda-java-tests-other-arch-matrix, conda-java-build-and-tests, conda-lucene-build-and-tests]
+  conda-lucene-tests:
+    needs: conda-lucene-build
     permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@release/26.10
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.conda-java-tests-other-arch-matrix.outputs.matrix) }}
+    uses: ./.github/workflows/matrix-job.yaml
     with:
       build_type: pull-request
-      node_type: "gpu-l4-latest-1"
-      arch: "${{ matrix.ARCH }}"
-      container_image: "rapidsai/ci-conda:26.10-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      script: "ci/test_lucene_prebuilt.sh ${{ matrix.ARCH }} cuvs-java-cuda${{ matrix.CUDA_VER }} cuvs-lucene-cuda${{ matrix.CUDA_VER }}"
-  rust-build-matrix:
-    needs: [conda-cpp-build, changed-files]
-    permissions:
-      contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_rust || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
-    with:
-      build_type: pull-request
-      matrix_name: conda-cpp-build
-      matrix_filter: map(select(.ARCH == "amd64"))
+      script: "ci/test_lucene.sh"
   rust-build:
-    needs: rust-build-matrix
-    permissions:
-      actions: read
-      contents: read
-      id-token: write
-      packages: read
-      pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.rust-build-matrix.outputs.matrix) }}
-    with:
-      build_type: pull-request
-      node_type: "gpu-rtxpro6000-latest-1"
-      arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
-      script: "ci/build_rust.sh"
-  go-build-matrix:
     needs: [conda-cpp-build, changed-files]
     permissions:
+      actions: read
       contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_go || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+      id-token: write
+      packages: read
+      pull-requests: read
+    uses: ./.github/workflows/matrix-job.yaml
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_rust || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
+    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
+    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     with:
       build_type: pull-request
-      matrix_name: conda-cpp-build
       matrix_filter: map(select(.ARCH == "amd64"))
+      script: "ci/build_rust.sh"
   go-build:
-    needs: go-build-matrix
+    needs: [conda-cpp-build, changed-files]
     permissions:
       actions: read
       contents: read
       id-token: write
       packages: read
       pull-requests: read
-    secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    uses: ./.github/workflows/matrix-job.yaml
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_go || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.go-build-matrix.outputs.matrix) }}
     with:
       build_type: pull-request
-      node_type: "gpu-rtxpro6000-latest-1"
-      arch: "amd64"
-      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_go.sh"
   docs-build-matrix:
     permissions:
