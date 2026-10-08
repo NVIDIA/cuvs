@@ -12,12 +12,12 @@ INSTALL_PREFIX="${PWD}/libcuvs_c_install"
 mkdir -p "${INSTALL_PREFIX}"
 
 # Download the standalone C library artifact
-if [ -z "$1" ]; then
-  echo "Error: name of the standalone C library artifact is missing"
-  exit 1
-fi
-
-payload_name="$1"
+case "$(arch)" in
+  x86_64) ARCH="amd64" ;;
+  aarch64) ARCH="arm64" ;;
+  *) ARCH="$(arch)" ;;
+esac
+payload_name="libcuvs_c_${RAPIDS_CUDA_VERSION}_${ARCH}.tar.gz"
 pkg_name="libcuvs_c.tar.gz"
 rapids-logger "Download ${payload_name} artifacts from previous jobs"
 DOWNLOAD_LOCATION=$(rapids-download-from-github "${payload_name}")
@@ -49,7 +49,13 @@ if command -v dnf >/dev/null; then
   dnf install \
     -y \
     --setopt=install_weak_deps=False \
-    "cuda-toolkit-${CTK_PACKAGE_SUFFIX}" \
+    "cuda-nvrtc-${CTK_PACKAGE_SUFFIX}" \
+    "libcublas-${CTK_PACKAGE_SUFFIX}" \
+    "libcufile-${CTK_PACKAGE_SUFFIX}" \
+    "libcurand-${CTK_PACKAGE_SUFFIX}" \
+    "libcusolver-${CTK_PACKAGE_SUFFIX}" \
+    "libcusparse-${CTK_PACKAGE_SUFFIX}" \
+    "libnvjitlink-${CTK_PACKAGE_SUFFIX}" \
     "libnccl-*+cuda${CUDA_MAJOR_MINOR}*"
 else
   apt-get update
@@ -57,7 +63,13 @@ else
     apt-get install \
       -y \
       --no-install-recommends \
-      "cuda-toolkit-${CTK_PACKAGE_SUFFIX}" \
+      "cuda-nvrtc-${CTK_PACKAGE_SUFFIX}" \
+      "libcublas-${CTK_PACKAGE_SUFFIX}" \
+      "libcufile-${CTK_PACKAGE_SUFFIX}" \
+      "libcurand-${CTK_PACKAGE_SUFFIX}" \
+      "libcusolver-${CTK_PACKAGE_SUFFIX}" \
+      "libcusparse-${CTK_PACKAGE_SUFFIX}" \
+      "libnvjitlink-${CTK_PACKAGE_SUFFIX}" \
       "libnccl2=*+cuda${CUDA_MAJOR_MINOR}"
 fi
 

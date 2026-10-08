@@ -71,6 +71,19 @@ resources in a long-lived application. Class-level documentation is in the
 Runnable examples of CAGRA-accelerated HNSW indexing, and of indexing and searching entirely on the GPU with
 `CuVS2510GPUSearchCodec`, are in the [`examples/`](../../examples/java/cuvs-lucene) directory.
 
+### Accelerated HNSW build memory
+
+The float, binary-quantized, and scalar-quantized HNSW writers include their primary native host input
+payload in the codec writer's `ramBytesUsed()` while filling the matrix, building the index, and
+writing its graph. Enable Lucene diagnostics with `IndexWriterConfig.setInfoStream(System.out)` to
+see `primary_host_input_bytes` messages identifying each segment and field's allocation.
+
+This is not a process-memory measurement or an allocation limit. It excludes upper-layer inputs,
+adjacency matrices, GPU workspace, and other temporary build storage. Lucene's public
+`IndexWriter.ramBytesUsed()` uses cached indexing counters and does not automatically observe these
+flush/merge allocations. On cleanup failure, the accounting scope ends without claiming that native
+memory was successfully released. Flush policy, segment-size limits, and index formats are unchanged.
+
 ### Parameter bounds
 
 The public Lucene API rejects out-of-range CAGRA parameters in Java before they reach native CAGRA.
