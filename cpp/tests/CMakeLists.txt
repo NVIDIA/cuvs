@@ -12,6 +12,13 @@ enable_testing()
 include(rapids-test)
 rapids_test_init()
 
+# Shared gtest entry point, optionally reporting peak RMM memory usage (see test_main.cpp)
+add_library(cuvs_test_main OBJECT test_main.cpp)
+target_link_libraries(
+  cuvs_test_main PRIVATE rmm::rmm GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+)
+set_target_properties(cuvs_test_main PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
 function(ConfigureTest)
 
   set(options NOCUDA FETCH_CODEBOOKS RUN_SERIAL)
@@ -45,7 +52,7 @@ function(ConfigureTest)
             raft::raft
             rtcx::rtcx
             GTest::gtest
-            GTest::gtest_main
+            cuvs_test_main
             Threads::Threads
             ${CUVS_CTK_MATH_DEPENDENCIES}
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
@@ -216,13 +223,14 @@ ConfigureTest(
 )
 
 ConfigureTest(
-  NAME NEIGHBORS_ANN_CAGRA_TEST_BUGS
+  NAME NEIGHBORS_ANN_CAGRA_BUGS_TEST
   PATH neighbors/ann_cagra/bug_extreme_inputs_oob.cu
        neighbors/ann_cagra/bug_multi_cta_crash.cu
        neighbors/ann_cagra/bug_graph_smaller_than_dataset.cu
        neighbors/ann_cagra/bug_iterative_cagra_build.cu
        neighbors/ann_cagra/bug_issue_93_reproducer.cu
        neighbors/ann_cagra/bug_issue_2523_hashmap_bitlen.cu
+       neighbors/ann_cagra/bug_nan_queries_multi_kernel.cu
   GPUS 1
   PERCENT 100
 )
@@ -298,7 +306,7 @@ ConfigureTest(
   PATH neighbors/ann_vamana/test_float_uint32_t.cu neighbors/ann_vamana/test_int8_t_uint32_t.cu
        neighbors/ann_vamana/test_uint8_t_uint32_t.cu neighbors/ann_vamana/test_half_uint32_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 10
   FETCH_CODEBOOKS
 )
 
