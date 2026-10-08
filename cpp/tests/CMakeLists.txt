@@ -230,6 +230,7 @@ ConfigureTest(
        neighbors/ann_cagra/bug_iterative_cagra_build.cu
        neighbors/ann_cagra/bug_issue_93_reproducer.cu
        neighbors/ann_cagra/bug_issue_2523_hashmap_bitlen.cu
+       neighbors/ann_cagra/bug_nan_queries_multi_kernel.cu
   GPUS 1
   PERCENT 100
 )
@@ -305,7 +306,7 @@ ConfigureTest(
   PATH neighbors/ann_vamana/test_float_uint32_t.cu neighbors/ann_vamana/test_int8_t_uint32_t.cu
        neighbors/ann_vamana/test_uint8_t_uint32_t.cu neighbors/ann_vamana/test_half_uint32_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 10
   FETCH_CODEBOOKS
 )
 
