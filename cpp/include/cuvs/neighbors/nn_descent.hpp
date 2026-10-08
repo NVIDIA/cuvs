@@ -52,8 +52,9 @@ enum class DIST_COMP_DTYPE { AUTO = 0, FP32 = 1, FP16 = 2 };
  * - `max_iterations`: The number of iterations that nn-descent will refine
  * the graph for. More iterations produce a better quality graph at cost of performance
  * - `termination_threshold`: NN-descent terminates when the number of graph updates in an
- * iteration is less than `termination_threshold * graph_degree * dataset_size`. Set to `0.0`
- * to disable early termination. Defaults to `0.001`.
+ * iteration is less than `termination_threshold * internal_graph_degree * dataset_size`, where
+ * `internal_graph_degree` is the expanded and padded working degree derived from `graph_degree`.
+ * Set to `0.0` to disable early termination. Defaults to `0.001`.
  * - `return_distances`: Boolean to decide whether to return distances array
  * - `dist_comp_dtype`: dtype to use for distance computation. Defaults to `AUTO` which
  * automatically determines the best dtype for distance computation based on the dataset dimensions.

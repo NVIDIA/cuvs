@@ -2741,8 +2741,8 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
                           dists_host_buffer_.data_handle(),
                           DEGREE_ON_DEVICE,
                           update_counter_);
-      converged = update_counter_ <
-                  build_config_.termination_threshold * nrow_ * build_config_.output_graph_degree;
+      converged =
+        update_counter_ < build_config_.termination_threshold * nrow_ * build_config_.node_degree;
     }
     graph_.sample_graph(false);
   };
@@ -2891,8 +2891,8 @@ void GNND<Data_t, Index_t>::build(
                           dists_host_buffer_.data_handle(),
                           DEGREE_ON_DEVICE,
                           update_counter_);
-      converged = update_counter_ <
-                  build_config_.termination_threshold * nrow_ * build_config_.output_graph_degree;
+      converged =
+        update_counter_ < build_config_.termination_threshold * nrow_ * build_config_.node_degree;
     }
     graph_.sample_graph(false);
   };
@@ -3038,6 +3038,16 @@ void build(raft::resources const& res,
                                        idx.metric(),
                                        extended_graph_degree,
                                        graph_degree);
+  RAFT_EXPECTS(
+    static_cast<size_t>(idx.graph().extent(0)) == static_cast<size_t>(dataset.n_rows()) &&
+      static_cast<size_t>(idx.graph().extent(1)) == graph_degree,
+    "The output graph shape must match the dataset size and effective graph degree.");
+  if (idx.distances().has_value()) {
+    RAFT_EXPECTS(
+      static_cast<size_t>(idx.distances()->extent(0)) == static_cast<size_t>(dataset.n_rows()) &&
+        static_cast<size_t>(idx.distances()->extent(1)) == graph_degree,
+      "The output distances shape must match the output graph shape.");
+  }
   auto int_graph =
     raft::make_host_matrix<int, int64_t, raft::row_major>(dataset.n_rows(), extended_graph_degree);
   GNND<const DataT, int> nnd(res, build_config);
@@ -3080,6 +3090,16 @@ void build(raft::resources const& res,
                                        idx.metric(),
                                        extended_graph_degree,
                                        graph_degree);
+  RAFT_EXPECTS(
+    static_cast<size_t>(idx.graph().extent(0)) == static_cast<size_t>(dataset.extent(0)) &&
+      static_cast<size_t>(idx.graph().extent(1)) == graph_degree,
+    "The output graph shape must match the dataset size and effective graph degree.");
+  if (idx.distances().has_value()) {
+    RAFT_EXPECTS(
+      static_cast<size_t>(idx.distances()->extent(0)) == static_cast<size_t>(dataset.extent(0)) &&
+        static_cast<size_t>(idx.distances()->extent(1)) == graph_degree,
+      "The output distances shape must match the output graph shape.");
+  }
 
   auto int_graph =
     raft::make_host_matrix<int, int64_t, raft::row_major>(dataset.extent(0), extended_graph_degree);
@@ -3126,22 +3146,14 @@ index<IdxT> build(raft::resources const& res,
                   const index_params& params,
                   cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset)
 {
-  size_t graph_degree = params.graph_degree;
-  if (params.intermediate_graph_degree < graph_degree) {
-    RAFT_LOG_WARN(
-      "Graph degree (%lu) cannot be larger than intermediate graph degree (%lu), reducing "
-      "graph_degree.",
-      graph_degree,
-      params.intermediate_graph_degree);
-    graph_degree = params.intermediate_graph_degree;
-  }
+  auto effective_params = get_effective_index_params(params, dataset.n_rows());
 
   index<IdxT> idx{res,
                   static_cast<int64_t>(dataset.n_rows()),
-                  static_cast<int64_t>(graph_degree),
-                  params.return_distances,
-                  params.metric};
-  detail::build<DataT, IdxT>(res, params, dataset, idx);
+                  static_cast<int64_t>(effective_params.graph_degree),
+                  effective_params.return_distances,
+                  effective_params.metric};
+  detail::build<DataT, IdxT>(res, effective_params, dataset, idx);
   return idx;
 }
 
@@ -3154,26 +3166,15 @@ index<IdxT> build(
   const index_params& params,
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset)
 {
-  size_t intermediate_degree = params.intermediate_graph_degree;
-  size_t graph_degree        = params.graph_degree;
-
-  if (intermediate_degree < graph_degree) {
-    RAFT_LOG_WARN(
-      "Graph degree (%lu) cannot be larger than intermediate graph degree (%lu), reducing "
-      "graph_degree.",
-      graph_degree,
-      intermediate_degree);
-    graph_degree = intermediate_degree;
-  }
+  auto effective_params =
+    get_effective_index_params(params, static_cast<size_t>(dataset.extent(0)));
 
   index<IdxT> idx{res,
                   dataset.extent(0),
-                  static_cast<int64_t>(graph_degree),
-                  params.return_distances,
-                  params.metric};
-
-  build(res, params, dataset, idx);
-
+                  static_cast<int64_t>(effective_params.graph_degree),
+                  effective_params.return_distances,
+                  effective_params.metric};
+  detail::build<T, IdxT>(res, effective_params, dataset, idx);
   return idx;
 }
 

@@ -61,8 +61,11 @@ cdef class IndexParams:
         More iterations produce a better quality graph at cost of performance
     termination_threshold : float, default = 0.001
         NN-descent terminates when the number of graph updates in an iteration
-        is less than ``termination_threshold * graph_degree * dataset_size``.
-        Set to ``0.0`` to disable early termination.
+        is less than
+        ``termination_threshold * internal_graph_degree * dataset_size``,
+        where ``internal_graph_degree`` is the expanded and padded working
+        degree derived from ``graph_degree``. Set to ``0.0`` to disable early
+        termination.
     return_distances : bool
         Whether to return distances array
     dist_comp_dtype : str, default = "auto"

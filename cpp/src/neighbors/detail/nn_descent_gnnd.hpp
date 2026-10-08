@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 #include <raft/core/detail/macros.hpp>
@@ -352,6 +353,27 @@ class CUVS_EXPORT GNND {
   raft::device_vector<int2, size_t> d_list_sizes_old_;
 };
 
+inline auto get_effective_index_params(const index_params& params, size_t num_rows) -> index_params
+{
+  auto effective_params = params;
+  if (effective_params.intermediate_graph_degree >= num_rows) {
+    RAFT_LOG_WARN(
+      "Intermediate graph degree cannot be larger than number of rows in dataset, reducing it to "
+      "%lu",
+      num_rows - 1);
+    effective_params.intermediate_graph_degree = num_rows - 1;
+  }
+  if (effective_params.intermediate_graph_degree < effective_params.graph_degree) {
+    RAFT_LOG_WARN(
+      "Graph degree (%lu) cannot be larger than intermediate graph degree (%lu), reducing "
+      "graph_degree.",
+      effective_params.graph_degree,
+      effective_params.intermediate_graph_degree);
+    effective_params.graph_degree = effective_params.intermediate_graph_degree;
+  }
+  return effective_params;
+}
+
 inline BuildConfig get_build_config(raft::resources const& res,
                                     const index_params& params,
                                     size_t num_rows,
@@ -375,24 +397,9 @@ inline BuildConfig get_build_config(raft::resources const& res,
   RAFT_EXPECTS(
     metric == params.metric,
     "The metrics set in nn_descent::index_params and nn_descent::index are inconsistent");
-  size_t intermediate_degree = params.intermediate_graph_degree;
-  graph_degree               = params.graph_degree;
-
-  if (intermediate_degree >= num_rows) {
-    RAFT_LOG_WARN(
-      "Intermediate graph degree cannot be larger than number of rows in dataset, reducing it to "
-      "%lu",
-      num_rows - 1);
-    intermediate_degree = num_rows - 1;
-  }
-  if (intermediate_degree < graph_degree) {
-    RAFT_LOG_WARN(
-      "Graph degree (%lu) cannot be larger than intermediate graph degree (%lu), reducing "
-      "graph_degree.",
-      graph_degree,
-      intermediate_degree);
-    graph_degree = intermediate_degree;
-  }
+  auto effective_params      = get_effective_index_params(params, num_rows);
+  size_t intermediate_degree = effective_params.intermediate_graph_degree;
+  graph_degree               = effective_params.graph_degree;
 
   // The elements in each knn-list are partitioned into different buckets, and we need more buckets
   // to mitigate bucket collisions. `intermediate_degree` is OK to larger than
@@ -408,7 +415,7 @@ inline BuildConfig get_build_config(raft::resources const& res,
                            .internal_node_degree  = extended_intermediate_degree,
                            .max_iterations        = params.max_iterations,
                            .termination_threshold = params.termination_threshold,
-                           .output_graph_degree   = params.graph_degree,
+                           .output_graph_degree   = graph_degree,
                            .metric                = params.metric,
                            .dist_comp_dtype       = params.dist_comp_dtype};
   return build_config;
