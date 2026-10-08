@@ -142,7 +142,11 @@ void batched_insert_vamana(
   float alpha        = (float)(params.alpha);
   int visited_size   = params.visited_size;
   int queue_size     = params.queue_size;
-  int reverse_batch  = params.reverse_batchsize;
+
+  // Each reverse-edge batch has one entry per distinct destination node, so it never holds more
+  // than N entries. Clamp the batch size to N so that the reverse-edge buffers
+  // (max_reverse_batch x visited_size) are not sized for rows that are never used.
+  const int max_reverse_batch = static_cast<int>(std::min<int64_t>(params.reverse_batchsize, N));
 
   if ((visited_size & (visited_size - 1)) != 0) {
     RAFT_LOG_WARN("visited_size must be a power of 2, rounding up.");
@@ -198,7 +202,7 @@ void batched_insert_vamana(
   auto s_coords_mem = raft::make_device_mdarray<QueryCoordT>(
     res,
     raft::resource::get_large_workspace_resource_ref(res),
-    raft::make_extents<int64_t>(min(maxBlocks, max(max_batchsize, reverse_batch)),
+    raft::make_extents<int64_t>(min(maxBlocks, max(max_batchsize, max_reverse_batch)),
                                 dim + align_padding));
 
   // Create random permutation for order of node inserts into graph
@@ -250,7 +254,6 @@ void batched_insert_vamana(
 #endif
 
   const int64_t max_total_edges = static_cast<int64_t>(max_batchsize) * degree;
-  const int max_reverse_batch   = params.reverse_batchsize;
   auto large_ws                 = raft::resource::get_large_workspace_resource_ref(res);
 
   auto edge_dist_pair = raft::make_device_mdarray<DistPair<IdxT, accT>>(
@@ -493,7 +496,7 @@ void batched_insert_vamana(
 #endif
 
     // Batch execution of reverse edge creation/application
-    reverse_batch = params.reverse_batchsize;
+    int reverse_batch = max_reverse_batch;
     for (int rev_start = 0; rev_start < (int)unique_dests; rev_start += reverse_batch) {
       if (rev_start + reverse_batch > (int)unique_dests) {
         reverse_batch = (int)unique_dests - rev_start;
