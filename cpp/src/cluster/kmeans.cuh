@@ -313,6 +313,7 @@ void min_cluster_distance(
                                                                           batch_samples,
                                                                           batch_centroids,
                                                                           workspace,
+                                                                          std::nullopt,
                                                                           backend);
 }
 
