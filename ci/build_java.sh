@@ -10,13 +10,7 @@ export SCCACHE_S3_KEY_PREFIX="cuvs-java/${RAPIDS_CONDA_ARCH}/cuda${RAPIDS_CUDA_V
 export SCCACHE_S3_PREPROCESSOR_CACHE_KEY_PREFIX="cuvs-java/${RAPIDS_CONDA_ARCH}/cuda${RAPIDS_CUDA_VERSION%%.*}/maven/preprocessor-cache"
 export SCCACHE_S3_USE_PREPROCESSOR_CACHE_MODE=true
 
-# TODO: Remove this argument-handling when build and test workflows are separated,
-#       and test_java.sh no longer calls build_java.sh
-#       ref: https://github.com/nvidia/cuvs/issues/868
 EXTRA_BUILD_ARGS=("--build-java-examples")
-if [[ "${1:-}" == "--run-java-tests" ]]; then
-  EXTRA_BUILD_ARGS+=("--run-java-tests")
-fi
 
 if [ -e "/opt/conda/etc/profile.d/conda.sh" ]; then
   . /opt/conda/etc/profile.d/conda.sh

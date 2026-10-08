@@ -4,7 +4,6 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.assertIsSupported;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 import static org.junit.Assume.assumeTrue;
@@ -23,6 +22,9 @@ import org.apache.lucene.document.StringField;
 import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
+import org.apache.lucene.index.NoMergePolicy;
+import org.apache.lucene.index.SerialMergeScheduler;
+import org.apache.lucene.index.TieredMergePolicy;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.store.Directory;
@@ -43,6 +45,7 @@ public class TestScalarQuantizedCagraGraph extends LuceneTestCase {
   private static final int DIMENSIONS = 128;
   private static final int DIMENSION_PATTERN_COUNT = 4;
   private static final int TOP_K = 10;
+  // CPU HNSW may be approximate; allow at most two misses while byte-level tests stay exact.
   private static final int MIN_EXACT_NEIGHBORS = 8;
   private static final int CAGRA_GRAPH_DEGREE = 32;
   private static final int CAGRA_INTERMEDIATE_GRAPH_DEGREE = 64;
@@ -50,7 +53,7 @@ public class TestScalarQuantizedCagraGraph extends LuceneTestCase {
 
   @Test
   public void testGpuBuiltScalarHnswRetainsRecallAcrossMerge() throws Exception {
-    requireGpuWhenSelected();
+    assumeTrue("cuVS is not supported", isSupported());
 
     float[][] vectors = vectorsWithNegativeAndMixedSignDimensions();
     RecordingInfoStream buildLog = new RecordingInfoStream();
@@ -67,6 +70,8 @@ public class TestScalarQuantizedCagraGraph extends LuceneTestCase {
             .setCodec(
                 TestUtil.alwaysKnnVectorsFormat(
                     new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat(params)))
+            .setMergePolicy(NoMergePolicy.INSTANCE)
+            .setMergeScheduler(new SerialMergeScheduler())
             .setMaxBufferedDocs(maxBufferedDocsWithoutAutomaticFlush)
             .setRAMBufferSizeMB(IndexWriterConfig.DISABLE_AUTO_FLUSH)
             .setInfoStream(buildLog);
@@ -94,6 +99,7 @@ public class TestScalarQuantizedCagraGraph extends LuceneTestCase {
             "Insufficient scalar GPU writer openings for initial segments: " + buildLog.messages,
             gpuBuildsBeforeMerge >= INITIAL_SEGMENT_COUNT);
 
+        writer.getConfig().setMergePolicy(new TieredMergePolicy());
         writer.forceMerge(MERGED_SEGMENT_COUNT);
         writer.commit();
         assertTrue(
@@ -108,21 +114,14 @@ public class TestScalarQuantizedCagraGraph extends LuceneTestCase {
     }
   }
 
-  private static void requireGpuWhenSelected() {
-    if (Boolean.getBoolean("cuvs.lucene.tests.requireGpu")) {
-      assertIsSupported();
-    } else {
-      assumeTrue("cuVS is not supported", isSupported());
-    }
-  }
-
   private static void assertHnswRecallAgainstExactNeighbors(
       DirectoryReader reader, float[][] vectors) throws Exception {
     IndexSearcher searcher = new IndexSearcher(reader);
     int centerColumn = GRID_COLUMNS / 2;
     int lastRowOfFirstSegmentCenter = DOCUMENTS_PER_SEGMENT - GRID_COLUMNS + centerColumn;
     int firstRowOfSecondSegmentCenter = DOCUMENTS_PER_SEGMENT + centerColumn;
-    // Probe opposite grid corners and adjacent rows across the segment split.
+    // Probe opposite grid corners and adjacent center rows across the segment split. The center
+    // neighborhoods cross the scalar midpoint where signed codes wrapped when read as unsigned.
     for (int queryId :
         new int[] {
           0, lastRowOfFirstSegmentCenter, firstRowOfSecondSegmentCenter, VECTOR_COUNT - 1
@@ -167,6 +166,8 @@ public class TestScalarQuantizedCagraGraph extends LuceneTestCase {
 
   private static float[][] vectorsWithNegativeAndMixedSignDimensions() {
     float[][] vectors = new float[VECTOR_COUNT][DIMENSIONS];
+    // Dominant row and column terms create grid-local neighborhoods; the small cross-axis terms
+    // keep both coordinates represented in each dimension pattern.
     for (int id = 0; id < VECTOR_COUNT; id++) {
       int column = id % GRID_COLUMNS;
       int row = id / GRID_COLUMNS;

@@ -17,6 +17,63 @@
 
 namespace cuvs::neighbors {
 
+/** Distance between two `k`-dimensional vectors `x` and `y`, accumulated sequentially. */
+template <typename EvalT, typename DataT, typename IdxT>
+__device__ EvalT
+naive_distance(const DataT* x, const DataT* y, IdxT k, cuvs::distance::DistanceType metric)
+{
+  EvalT acc   = EvalT(0);
+  EvalT normX = EvalT(0);
+  EvalT normY = EvalT(0);
+  for (IdxT i = 0; i < k; ++i) {
+    auto xv = x[i];
+    auto yv = y[i];
+    switch (metric) {
+      case cuvs::distance::DistanceType::InnerProduct: {
+        acc += static_cast<EvalT>(xv) * static_cast<EvalT>(yv);
+      } break;
+      case cuvs::distance::DistanceType::CosineExpanded: {
+        acc += static_cast<EvalT>(xv) * static_cast<EvalT>(yv);
+        normX += static_cast<EvalT>(xv) * static_cast<EvalT>(xv);
+        normY += static_cast<EvalT>(yv) * static_cast<EvalT>(yv);
+      } break;
+      case cuvs::distance::DistanceType::L2SqrtExpanded:
+      case cuvs::distance::DistanceType::L2SqrtUnexpanded:
+      case cuvs::distance::DistanceType::L2Expanded:
+      case cuvs::distance::DistanceType::L2Unexpanded: {
+        auto diff = static_cast<EvalT>(xv) - static_cast<EvalT>(yv);
+        acc += diff * diff;
+      } break;
+      case cuvs::distance::DistanceType::BitwiseHamming: {
+        if constexpr (std::is_same_v<uint8_t, DataT> || std::is_same_v<int8_t, DataT>) {
+          acc += __popc(static_cast<uint32_t>(xv ^ yv) & 0xff);
+        }
+      } break;
+      case cuvs::distance::DistanceType::L1: {
+        auto diff = static_cast<EvalT>(xv) - static_cast<EvalT>(yv);
+        acc += raft::abs(diff);
+      } break;
+      case cuvs::distance::DistanceType::Linf: {
+        auto diff = static_cast<EvalT>(xv) - static_cast<EvalT>(yv);
+        auto ad   = raft::abs(diff);
+        acc       = (ad > acc) ? ad : acc;
+      } break;
+      default: break;
+    }
+  }
+  switch (metric) {
+    case cuvs::distance::DistanceType::L2SqrtExpanded:
+    case cuvs::distance::DistanceType::L2SqrtUnexpanded: {
+      acc = raft::sqrt(acc);
+    } break;
+    case cuvs::distance::DistanceType::CosineExpanded: {
+      acc = 1 - acc / (raft::sqrt(normX) * raft::sqrt(normY));
+    }
+    default: break;
+  }
+  return acc;
+}
+
 template <typename EvalT, typename DataT, typename IdxT>
 RAFT_KERNEL naive_distance_kernel(EvalT* dist,
                                   const DataT* x,
@@ -30,59 +87,28 @@ RAFT_KERNEL naive_distance_kernel(EvalT* dist,
   if (midx >= m) return;
   IdxT grid_size = IdxT(blockDim.y) * IdxT(gridDim.y);
   for (IdxT nidx = threadIdx.y + blockIdx.y * blockDim.y; nidx < n; nidx += grid_size) {
-    EvalT acc   = EvalT(0);
-    EvalT normX = EvalT(0);
-    EvalT normY = EvalT(0);
-    for (IdxT i = 0; i < k; ++i) {
-      IdxT xidx = i + midx * k;
-      IdxT yidx = i + nidx * k;
-      auto xv   = x[xidx];
-      auto yv   = y[yidx];
-      switch (metric) {
-        case cuvs::distance::DistanceType::InnerProduct: {
-          acc += static_cast<EvalT>(xv) * static_cast<EvalT>(yv);
-        } break;
-        case cuvs::distance::DistanceType::CosineExpanded: {
-          acc += static_cast<EvalT>(xv) * static_cast<EvalT>(yv);
-          normX += static_cast<EvalT>(xv) * static_cast<EvalT>(xv);
-          normY += static_cast<EvalT>(yv) * static_cast<EvalT>(yv);
-        } break;
-        case cuvs::distance::DistanceType::L2SqrtExpanded:
-        case cuvs::distance::DistanceType::L2SqrtUnexpanded:
-        case cuvs::distance::DistanceType::L2Expanded:
-        case cuvs::distance::DistanceType::L2Unexpanded: {
-          auto diff = static_cast<EvalT>(xv) - static_cast<EvalT>(yv);
-          acc += diff * diff;
-        } break;
-        case cuvs::distance::DistanceType::BitwiseHamming: {
-          if constexpr (std::is_same_v<uint8_t, DataT> || std::is_same_v<int8_t, DataT>) {
-            acc += __popc(static_cast<uint32_t>(xv ^ yv) & 0xff);
-          }
-        } break;
-        case cuvs::distance::DistanceType::L1: {
-          auto diff = static_cast<EvalT>(xv) - static_cast<EvalT>(yv);
-          acc += raft::abs(diff);
-        } break;
-        case cuvs::distance::DistanceType::Linf: {
-          auto diff = static_cast<EvalT>(xv) - static_cast<EvalT>(yv);
-          auto ad   = raft::abs(diff);
-          acc       = (ad > acc) ? ad : acc;
-        } break;
-        default: break;
-      }
-    }
-    switch (metric) {
-      case cuvs::distance::DistanceType::L2SqrtExpanded:
-      case cuvs::distance::DistanceType::L2SqrtUnexpanded: {
-        acc = raft::sqrt(acc);
-      } break;
-      case cuvs::distance::DistanceType::CosineExpanded: {
-        acc = 1 - acc / (raft::sqrt(normX) * raft::sqrt(normY));
-      }
-      default: break;
-    }
-    dist[midx * n + nidx] = acc;
+    dist[midx * n + nidx] = naive_distance<EvalT>(x + midx * k, y + nidx * k, k, metric);
   }
+}
+
+/**
+ * For each query `i` and each of its `k` neighbors `j`, compute the distance between
+ * `queries[i]` and `dataset[neighbors[i * k + j]]` (both with `dim` columns).
+ */
+template <typename EvalT, typename DataT, typename IdxT>
+RAFT_KERNEL naive_neighbor_distance_kernel(EvalT* dist,
+                                           const DataT* dataset,
+                                           const DataT* queries,
+                                           const IdxT* neighbors,
+                                           size_t n_queries,
+                                           size_t k,
+                                           size_t dim,
+                                           cuvs::distance::DistanceType metric)
+{
+  size_t idx = size_t(threadIdx.x) + size_t(blockIdx.x) * size_t(blockDim.x);
+  if (idx >= n_queries * k) return;
+  dist[idx] = naive_distance<EvalT>(
+    queries + (idx / k) * dim, dataset + size_t(neighbors[idx]) * dim, dim, metric);
 }
 
 /**
