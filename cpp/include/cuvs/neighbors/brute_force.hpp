@@ -21,6 +21,7 @@ namespace brute_force {
 
 struct index_params : cuvs::neighbors::index_params {};
 
+/** @brief Parameters for brute-force search. */
 struct search_params : cuvs::neighbors::search_params {
   /**
    * A hint for the fraction of entries the filter removes, i.e.
