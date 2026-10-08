@@ -16,7 +16,13 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 
+#include <condition_variable>
+#include <exception>
+#include <functional>
 #include <limits>
+#include <mutex>
+#include <thread>
+#include <utility>
 
 namespace cuvs::neighbors::nn_descent::detail {
 
@@ -189,6 +195,79 @@ struct CUVS_EXPORT GnndGraph {
   void sort_lists();
   void clear();
   ~GnndGraph();
+};
+
+/**
+ * A single long-lived host thread that runs one job at a time.
+ *
+ * Spawning a fresh std::thread per GNND iteration forces libgomp to build a new OpenMP team
+ * (one pthread_create per core) every time, because its worker pool is only reused by the thread
+ * that created it. Keeping one thread alive lets that team be created once and reused.
+ */
+class host_worker {
+ public:
+  host_worker() : thread_(&host_worker::run, this) {}
+  host_worker(const host_worker&)            = delete;
+  host_worker& operator=(const host_worker&) = delete;
+
+  ~host_worker()
+  {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stop_ = true;
+    }
+    cv_.notify_all();
+    thread_.join();  // finishes any job that is still in flight
+  }
+
+  /** Start `job` on the worker thread. The previous job must have been wait()ed on. */
+  void submit(std::function<void()> job)
+  {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      job_  = std::move(job);
+      busy_ = true;
+    }
+    cv_.notify_all();
+  }
+
+  /** Block until the submitted job is done; rethrows any exception it raised. */
+  void wait()
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [this] { return !busy_; });
+    if (error_) { std::rethrow_exception(std::exchange(error_, nullptr)); }
+  }
+
+ private:
+  void run()
+  {
+    std::unique_lock<std::mutex> lock(mutex_);
+    while (true) {
+      cv_.wait(lock, [this] { return busy_ || stop_; });
+      if (!busy_) { return; }  // stop_ requested and nothing pending
+      auto job = std::move(job_);
+      lock.unlock();
+      std::exception_ptr error;
+      try {
+        job();
+      } catch (...) {
+        error = std::current_exception();
+      }
+      lock.lock();
+      error_ = error;
+      busy_  = false;
+      cv_.notify_all();
+    }
+  }
+
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  std::function<void()> job_;
+  std::exception_ptr error_;
+  bool busy_{false};
+  bool stop_{false};
+  std::thread thread_;  // declared last: starts after all other members are initialized
 };
 
 template <typename Data_t = float, typename Index_t = int>
