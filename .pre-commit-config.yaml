@@ -35,11 +35,7 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [types-cachetools]
-        args: ["--config-file=pyproject.toml",
-               "python/cuvs/cuvs",
-               "cpp/cmake/modules",
-               "cpp/tests/python",
-               "ci/checks"]
+        args: ["--config-file=pyproject.toml", "python/cuvs/cuvs", "cpp/cmake/modules", "cpp/tests/python", "ci/checks"]
         pass_filenames: false
   - repo: https://github.com/PyCQA/pydocstyle
     rev: 6.1.1
@@ -212,6 +208,10 @@ repos:
             cpp/src/neighbors/detail/faiss_distance_utils[.]h$
           )
       - id: verify-alpha-spec
+        args:
+          - --fix
+          - --mode
+          - release
       - id: verify-codeowners
         args: [--fix, --org=NVIDIA, --project-prefix=cuvs]
       - id: verify-pyproject-license
@@ -244,6 +244,5 @@ repos:
     rev: v1.24.1
     hooks:
       - id: zizmor
-
 default_language_version:
   python: python3
