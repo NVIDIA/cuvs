@@ -5,12 +5,12 @@
 
 #pragma once
 
-#include <cuvs/detail/jit_lto/AlgorithmPlanner.hpp>
 #include <cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/logger.hpp>
+#include <rtcx/algorithm_planner.hpp>
 
 #include <cstdint>
 #include <memory>
@@ -25,7 +25,7 @@ template <typename DataTag_,
           typename QueryTag_,
           typename CodebookTag_,
           typename SampleFilterJitTag_ = tag_cagra_jit_sample_filter_link_absent>
-struct CagraPlannerBase : AlgorithmPlanner {
+struct CagraPlannerBase : rtcx::algorithm_planner {
   using DataTag            = DataTag_;
   using IndexTag           = IndexTag_;
   using DistanceTag        = DistanceTag_;
@@ -33,8 +33,8 @@ struct CagraPlannerBase : AlgorithmPlanner {
   using CodebookTag        = CodebookTag_;
   using SampleFilterJitTag = SampleFilterJitTag_;
 
-  explicit CagraPlannerBase(std::string entrypoint, LauncherJitCache& jit_cache)
-    : AlgorithmPlanner(std::move(entrypoint), jit_cache)
+  explicit CagraPlannerBase(std::string entrypoint, rtcx::launcher_jit_cache& jit_cache)
+    : rtcx::algorithm_planner(std::move(entrypoint), jit_cache)
   {
   }
 
@@ -385,7 +385,8 @@ struct CagraPlannerBase : AlgorithmPlanner {
       static_cast<unsigned>(dataset_block_dim));
   }
 
-  void add_sample_filter_device_function(std::unique_ptr<UDFFatbinFragment> udf_fragment = nullptr)
+  void add_sample_filter_device_function(
+    std::unique_ptr<rtcx::udf_fatbin_fragment> udf_fragment = nullptr)
   {
     if constexpr (std::is_same_v<SampleFilterJitTag_, tag_cagra_jit_sample_filter_link_absent>) {
       RAFT_EXPECTS(udf_fragment == nullptr, "Unexpected CAGRA sample-filter UDF fragment");

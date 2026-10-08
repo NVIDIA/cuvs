@@ -2,19 +2,23 @@
   "_data": [
     {
       "data_type": "float",
-      "data_abbrev": "f"
+      "data_abbrev": "f",
+      "emit_vpq_build": 1
     },
     {
       "data_type": "half",
-      "data_abbrev": "h"
+      "data_abbrev": "h",
+      "emit_vpq_build": 0
     },
     {
       "data_type": "int8_t",
-      "data_abbrev": "i8"
+      "data_abbrev": "i8",
+      "emit_vpq_build": 0
     },
     {
       "data_type": "uint8_t",
-      "data_abbrev": "u8"
+      "data_abbrev": "u8",
+      "emit_vpq_build": 0
     }
   ],
   "_index": [

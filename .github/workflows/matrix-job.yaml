@@ -1,0 +1,76 @@
+on:
+  workflow_call:
+    inputs:
+      build_type:
+        description: "One of: [branch, nightly, pull-request]"
+        required: true
+        type: string
+      branch:
+        description: "Git branch the workflow run targets. Used to organize artifacts."
+        type: string
+      date:
+        description: "Date (YYYY-MM-DD) this run is for. Used to organize artifacts produced by nightly builds"
+        type: string
+      sha:
+        description: "Full git commit SHA to check out"
+        type: string
+      matrix_filter:
+        description: |
+          jq expression which modifies the conda-cpp-build matrix.
+          Each entry has default 'GPU' (rtxpro6000 on amd64, l4 otherwise) and 'DRIVER' fields that select the runner.
+          For example, 'map(select(.ARCH == "amd64"))' to only run amd64 jobs.
+        type: string
+        default: "."
+      node_type:
+        description: "Runner label suffix, e.g. 'cpu8'. If empty, the GPU runner selected by the matrix entry's 'GPU' and 'DRIVER' fields is used."
+        type: string
+        default: ""
+      container-image-repository:
+        description: "CI image repository without its tag, e.g. 'rapidsai/ci-conda' or 'rapidsai/citestwheel'. The tag is derived from the matrix entry."
+        type: string
+        default: "rapidsai/ci-conda"
+      script:
+        description: "Shell code to be executed in a step."
+        required: true
+        type: string
+      file_to_upload:
+        description: "Path to file(s) to be uploaded as a CI artifact."
+        type: string
+        default: "gh-status.json"
+      artifact-name-prefix:
+        description: "If set, 'file_to_upload' is uploaded as '{prefix}-cuda{CUDA_VER}'."
+        type: string
+        default: ""
+
+permissions:
+  actions: read
+  contents: read
+  id-token: write
+  packages: read
+  pull-requests: read
+
+jobs:
+  compute-matrix:
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
+    with:
+      build_type: ${{ inputs.build_type }}
+      matrix_name: conda-cpp-build
+      matrix_filter: 'map(. + {GPU: (if .ARCH == "amd64" then "rtxpro6000" else "l4" end), DRIVER: "latest"}) | ${{ inputs.matrix_filter }}'
+  run:
+    name: ${{ matrix.CUDA_VER }}, ${{ matrix.PY_VER }}, ${{ matrix.ARCH }}, ${{ matrix.LINUX_VER }}${{ inputs.node_type == '' && format(', {0}, {1}-driver', matrix.GPU, matrix.DRIVER) || '' }}
+    needs: compute-matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    with:
+      build_type: ${{ inputs.build_type }}
+      branch: ${{ inputs.branch }}
+      date: ${{ inputs.date }}
+      sha: ${{ inputs.sha }}
+      arch: ${{ matrix.ARCH }}
+      node_type: ${{ inputs.node_type || format('gpu-{0}-{1}-1', matrix.GPU, matrix.DRIVER) }}
+      container_image: "${{ inputs.container-image-repository }}:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      script: ${{ inputs.script }}
+      file_to_upload: ${{ inputs.file_to_upload }}
+      artifact-name: ${{ inputs.artifact-name-prefix != '' && format('{0}-cuda{1}', inputs.artifact-name-prefix, matrix.CUDA_VER) || 'result' }}

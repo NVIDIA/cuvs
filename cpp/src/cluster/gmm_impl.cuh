@@ -218,7 +218,7 @@ void e_step(raft::resources const& handle,
             T* resp,
             T* log_prob_norm)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   covariance_type ct  = params.cov_type;
 
   if (ct == covariance_type::FULL || (ct == covariance_type::TIED && d > 128)) {
@@ -392,7 +392,7 @@ struct MStepWorkspace {
       dB_ptrs(0, raft::resource::get_cuda_stream(handle)),
       lwork(0)
   {
-    cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+    cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
     covariance_type ct  = params.cov_type;
     ones.resize(n, stream);
     thrust::fill(thrust::cuda::par.on(stream), ones.data(), ones.data() + n, T(1));
@@ -441,7 +441,7 @@ void m_accumulate(raft::resources const& handle,
                   MStepWorkspace<T>& ws,
                   T beta)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   covariance_type ct  = params.cov_type;
   T one               = T(1);
 
@@ -491,7 +491,7 @@ void m_finalize(raft::resources const& handle,
                 T* means,
                 T* covariances)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   covariance_type ct  = params.cov_type;
   T one = T(1), zero = T(0);
   T eps = std::numeric_limits<T>::epsilon();
@@ -563,7 +563,7 @@ void m_cov_full_pass(raft::resources const& handle,
                      MStepWorkspace<T>& ws,
                      T beta)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   T one               = T(1);
   int threads         = 256;
   int blocks          = (int)(((size_t)n * d + threads - 1) / threads);
@@ -598,7 +598,7 @@ void m_finalize_cov_full(raft::resources const& handle,
                          MStepWorkspace<T>& ws,
                          T* covariances)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   T eps               = std::numeric_limits<T>::epsilon();
   detail::m_step_finalize_cov_full_kernel<T>
     <<<dim3(K), dim3(256), 0, stream>>>(ws.N_k.data(), covariances, T(params.reg_covar), eps, d, K);
@@ -611,7 +611,7 @@ template <typename T>
 void precision_cholesky_one(
   raft::resources const& handle, const T* cov, T* prec_chol, int d, MStepWorkspace<T>& ws)
 {
-  cudaStream_t stream       = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream       = raft::resource::get_cuda_stream(handle).get();
   cusolverDnHandle_t solver = raft::resource::get_cusolver_dn_handle(handle);
   cublasHandle_t cublas     = raft::resource::get_cublas_handle(handle);
 
@@ -661,7 +661,7 @@ void precision_cholesky_full_batched(raft::resources const& handle,
                                      int K,
                                      MStepWorkspace<T>& ws)
 {
-  cudaStream_t stream       = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream       = raft::resource::get_cuda_stream(handle).get();
   cusolverDnHandle_t solver = raft::resource::get_cusolver_dn_handle(handle);
   cublasHandle_t cublas     = raft::resource::get_cublas_handle(handle);
 
@@ -715,7 +715,7 @@ void update_precisions(raft::resources const& handle,
                        T* log_det,
                        MStepWorkspace<T>& ws)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   covariance_type ct  = params.cov_type;
   if (ct == covariance_type::FULL) {
     precision_cholesky_full_batched<T>(handle, covariances, prec_chol, d, K, ws);
@@ -763,7 +763,7 @@ void compute_precisions(raft::resources const& handle,
                         int K,
                         T* precisions)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   covariance_type ct  = params.cov_type;
   T one = T(1), zero = T(0);
   if (ct == covariance_type::FULL) {
@@ -797,7 +797,7 @@ void kmeans_assign(raft::resources const& handle,
                    uint64_t init_seed,
                    int* labels_out)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   cuvs::cluster::kmeans::params kp;
   kp.n_clusters = K;
   // KMeansPlusPlus: seeding labels only (max_iter=0, no Lloyd); KMeans: full Lloyd.
@@ -834,7 +834,7 @@ void kmeans_assign(raft::resources const& handle,
 template <typename T>
 T mean_device(raft::resources const& handle, const T* v, int n)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   rmm::device_scalar<T> d_sum(stream);
   raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
     handle,
@@ -864,7 +864,7 @@ void fit_impl(raft::resources const& handle,
               bool& converged,
               bool warm_start)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   int K               = params.n_components;
   covariance_type ct  = params.cov_type;
   size_t cn           = cov_elems(ct, d, K);
@@ -1118,7 +1118,7 @@ void infer(raft::resources const& handle,
            T* resp,
            T* log_prob_norm)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   int K               = params.n_components;
   covariance_type ct  = params.cov_type;
 
@@ -1172,7 +1172,7 @@ void launch_estep_tiled(raft::resources const& handle,
                         int* labels,
                         T* log_prob = nullptr)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   constexpr int FEAT  = 32;
   constexpr int CELL  = (sizeof(T) == 4) ? 64 : 32;
   constexpr int TPB   = 256;
@@ -1204,7 +1204,7 @@ void fused_score(raft::resources const& handle,
                  T* log_prob_norm,
                  int* labels)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   int K               = params.n_components;
   covariance_type ct  = params.cov_type;
 
@@ -1329,7 +1329,7 @@ void predict_impl(raft::resources const& handle,
                   const T* precisions_chol,
                   int* labels)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   rmm::device_uvector<T> lpn(n, stream);
   fused_score<T>(handle, params, X, n, d, weights, means, precisions_chol, lpn.data(), labels);
   raft::resource::sync_stream(handle);
@@ -1346,7 +1346,7 @@ void predict_proba_impl(raft::resources const& handle,
                         const T* precisions_chol,
                         T* resp)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle);
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   rmm::device_uvector<T> lpn(n, stream);
   infer<T>(handle, params, X, n, d, weights, means, precisions_chol, resp, lpn.data());
   raft::resource::sync_stream(handle);

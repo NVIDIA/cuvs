@@ -2,6 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 repos:
+  # Runs first so a leaked credential blocks the commit before any formatter runs.
+  - repo: https://github.com/NVIDIA/security-workflows
+    rev: v0.3.0
+    hooks:
+      - id: secret-scan-trufflehog
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
@@ -51,6 +56,25 @@ repos:
         args: ["-fallback-style=none", "-style=file", "-i"]
   - repo: local
     hooks:
+      - id: fern-api-reference
+        name: fern-api-reference
+        description: 'Regenerate the Fern API reference pages from the sources'
+        entry: python3 fern/scripts/generate_api_reference.py --quiet
+        language: system
+        pass_filenames: false
+        require_serial: true
+        files: |
+          (?x)
+            ^c/include/.*[.](h|hpp)$|
+            ^cpp/include/.*[.](h|hpp|cuh)$|
+            ^python/cuvs/cuvs/.*[.](py|pyx|pxd)$|
+            ^java/cuvs-(java|lucene)/src/main/.*[.]java$|
+            ^rust/cuvs/src/.*[.]rs$|
+            ^go/.*[.]go$|
+            ^fern/scripts/generate_api_reference[.]py$|
+            ^fern/pages/(c|cpp|python|java|lucene|rust|go)_api/.*[.]md$|
+            ^fern/pages/api_reference[.]md$|
+            ^fern/docs[.]yml$
       - id: no-deprecationwarning
         name: no-deprecationwarning
         description: 'Enforce that DeprecationWarning is not introduced (use FutureWarning instead)'
@@ -97,9 +121,10 @@ repos:
         name: spotless-fmt
         entry: ci/checks/run_spotless.sh
         pass_filenames: false
-        files: ^java/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$
+        files: ^(java|examples/java)/(cuvs-java|cuvs-lucene)/([^/]+/)?src/.*\.java$
         exclude: .*/panama/.*
         language: script
+        verbose: true
       - id: clang-format-with-cmake-placeholders
         name: clang-format-with-cmake-placeholders
         entry: python3 ci/checks/clang_format_with_cmake_placeholders.py
@@ -124,8 +149,9 @@ repos:
             ^cpp/cmake/patches/cutlass/build-export[.]patch$|
             ^rust/cuvs-sys/src/bindings[.]rs$
   - repo: https://github.com/rapidsai/pre-commit-hooks
-    rev: v1.6.0
+    rev: v1.7.0
     hooks:
+      - id: verify-dependencies
       - id: verify-copyright
         name: verify-copyright-cuvs
         args: [--fix, --spdx]
@@ -147,7 +173,6 @@ repos:
             ^[.]pre-commit-config[.]yaml$
         exclude: |
           (?x)^(
-            docs/source/sphinxext/github_link[.]py$|
             cpp/cmake/modules/FindAVX[.]cmake$|
             cpp/src/neighbors/detail/faiss_distance_utils[.]h$|
             cpp/src/distance/detail/fused_distance_nn/gemm[.]h$|
@@ -158,13 +183,6 @@ repos:
             cpp/src/distance/detail/fused_distance_nn/predicated_tile_iterator_reduced_vec[.]h$|
             cpp/src/distance/detail/fused_distance_nn/custom_epilogue_with_broadcast[.]h$|
             rust/cuvs-sys/src/bindings[.]rs$
-          )
-      - id: verify-copyright
-        name: verify-copyright-scikit-learn
-        args: [--fix, --spdx, "--spdx-license-identifier=Apache-2.0 AND BSD-3-Clause"]
-        files: |
-          (?x)^(
-            docs/source/sphinxext/github_link[.]py$
           )
       - id: verify-copyright
         name: verify-copyright-cutlass

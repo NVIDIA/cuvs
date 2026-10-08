@@ -21,7 +21,7 @@ template <typename DataTag,
           typename SampleFilterJitTag>
 struct CagraSingleCtaSearchPlanner
   : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag> {
-  static inline LauncherJitCache launcher_jit_cache{};
+  static inline rtcx::launcher_jit_cache launcher_jit_cache{};
 
   CagraSingleCtaSearchPlanner(cuvs::distance::DistanceType /*metric*/,
                               bool /*topk_by_bitonic_sort*/,
@@ -114,7 +114,7 @@ template <typename DataTag,
           typename SampleFilterJitTag>
 struct CagraSingleCtaMpSearchPlanner
   : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag> {
-  static inline LauncherJitCache launcher_jit_cache{};
+  static inline rtcx::launcher_jit_cache launcher_jit_cache{};
 
   CagraSingleCtaMpSearchPlanner(cuvs::distance::DistanceType /*metric*/,
                                 bool /*topk_by_bitonic_sort*/,

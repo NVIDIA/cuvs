@@ -31,7 +31,7 @@ Gets the number of partitions.
 
 the number of partitions
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:92`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:97`_
 
 ### getEfConstruction
 
@@ -45,7 +45,7 @@ Gets the `ef_construction` parameter.
 
 the `ef_construction` parameter
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:101`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:106`_
 
 ### getBuildDir
 
@@ -59,7 +59,7 @@ Gets the build directory path.
 
 the build directory path
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:110`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:115`_
 
 ### isUseDisk
 
@@ -73,7 +73,7 @@ Gets whether disk-based mode is enabled.
 
 true if disk-based mode is enabled
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:119`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:124`_
 
 ### getMaxHostMemoryGb
 
@@ -87,7 +87,7 @@ Gets the maximum host memory limit in GiB.
 
 the max host memory limit (0 means use available memory)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:128`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:133`_
 
 ### getMaxGpuMemoryGb
 
@@ -101,7 +101,7 @@ Gets the maximum GPU memory limit in GiB.
 
 the max GPU memory limit (0 means use available memory)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:137`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:142`_
 
 ### withNpartitions
 
@@ -121,7 +121,7 @@ Sets the number of partitions.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:189`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:194`_
 
 ### withEfConstruction
 
@@ -141,7 +141,7 @@ Sets the ef_construction parameter.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:200`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:205`_
 
 ### withBuildDir
 
@@ -161,7 +161,7 @@ Sets the build directory path.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:211`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:216`_
 
 ### withUseDisk
 
@@ -181,7 +181,7 @@ Sets whether to use disk-based mode.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:222`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:227`_
 
 ### withMaxHostMemoryGb
 
@@ -204,7 +204,7 @@ Useful for testing or when running alongside other memory-intensive processes.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:236`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:241`_
 
 ### withMaxGpuMemoryGb
 
@@ -227,7 +227,7 @@ Useful for testing or when running alongside other memory-intensive processes.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:250`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:255`_
 
 ### build
 
@@ -241,6 +241,6 @@ Builds an instance of `CuVSAceParams`.
 
 an instance of `CuVSAceParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:260`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:265`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CuVSAceParams.java:17`_

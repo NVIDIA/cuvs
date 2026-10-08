@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -7,6 +7,7 @@
 #include "../test_utils.cuh"
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
+#include <cuda/stream>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_rabitq.hpp>
 
@@ -164,7 +165,6 @@ class ivf_rabitq_test : public ::testing::TestWithParam<ivf_rabitq_inputs> {
 
   auto build_with_forced_streaming()
   {
-    tmp_index_file index_file;
     auto ipams = ps.index_params;
     // Force streaming construction even if dataset fits in GPU memory
     ipams.force_streaming = true;
@@ -176,13 +176,7 @@ class ivf_rabitq_test : public ::testing::TestWithParam<ivf_rabitq_inputs> {
     raft::copy(host_database.data_handle(), database.data(), ps.num_db_vecs * ps.dim, stream_);
     auto database_view = raft::make_host_matrix_view<const DataT, IdxT>(
       host_database.data_handle(), ps.num_db_vecs, ps.dim);
-    auto idx_to_serialize = cuvs::neighbors::ivf_rabitq::build(handle_, ipams, database_view);
-
-    // Serialize and deserialize to reorganize data for efficient search
-    cuvs::neighbors::ivf_rabitq::serialize(handle_, index_file.filename, idx_to_serialize);
-    cuvs::neighbors::ivf_rabitq::index<IdxT> deserialized_index(handle_);
-    cuvs::neighbors::ivf_rabitq::deserialize(handle_, index_file.filename, &deserialized_index);
-    return deserialized_index;
+    return cuvs::neighbors::ivf_rabitq::build(handle_, ipams, database_view);
   }
 
   template <typename BuildIndex>
@@ -247,7 +241,7 @@ class ivf_rabitq_test : public ::testing::TestWithParam<ivf_rabitq_inputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   ivf_rabitq_inputs ps;                       // NOLINT
   rmm::device_uvector<DataT> database;        // NOLINT
   rmm::device_uvector<DataT> search_queries;  // NOLINT
@@ -369,8 +363,17 @@ inline auto var_search_mode_1_bit() -> test_cases_t
 
 /* Test instantiations */
 
-// Currently IVF-RaBitQ deserialization reorganizes data for efficient search and is required for
-// producing correct results.
+#define TEST_BUILD_SEARCH(type)                         \
+  TEST_P(type, build_search) /* NOLINT */               \
+  {                                                     \
+    this->run([this]() { return this->build_only(); }); \
+  }
+
+#define TEST_BUILD_HOST_INPUT_SEARCH(type)                         \
+  TEST_P(type, build_host_input_search) /* NOLINT */               \
+  {                                                                \
+    this->run([this]() { return this->build_only_host_input(); }); \
+  }
 
 #define TEST_BUILD_SERIALIZE_SEARCH(type)                    \
   TEST_P(type, build_serialize_search) /* NOLINT */          \

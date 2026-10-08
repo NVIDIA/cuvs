@@ -4,24 +4,8 @@
 
 set -euo pipefail
 
-# Takes the name of the cuvs-java artifact uploaded by the Java job, plus an optional
-# --run-java-tests flag.
-# TODO: Remove the flag handling when build and test workflows are separated,
-#       and test_lucene.sh no longer calls build_lucene.sh
-#       ref: https://github.com/rapidsai/cuvs/issues/868
-EXTRA_BUILD_ARGS=()
-CUVS_JAVA_ARTIFACT=""
-for arg in "$@"; do
-  case "${arg}" in
-    --run-java-tests) EXTRA_BUILD_ARGS+=("${arg}") ;;
-    *) CUVS_JAVA_ARTIFACT="${arg}" ;;
-  esac
-done
-
-if [ -z "${CUVS_JAVA_ARTIFACT}" ]; then
-  echo "Error: name of the cuvs-java artifact is missing" >&2
-  exit 1
-fi
+EXTRA_BUILD_ARGS=("--build-java-examples")
+CUVS_JAVA_ARTIFACT="cuvs-java-cuda${RAPIDS_CUDA_VERSION}"
 
 if [ -e "/opt/conda/etc/profile.d/conda.sh" ]; then
   . /opt/conda/etc/profile.d/conda.sh

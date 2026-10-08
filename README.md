@@ -84,6 +84,10 @@ cuVS comes with pre-built packages that can be installed through [conda](https:/
 
 Please see the [Build and Install Guide](https://docs.rapids.ai/api/cuvs/nightly/build/) for more information on installing the available cuVS packages and building from source.
 
+### Standalone C library (Docker)
+
+To build the standalone C library tarball (`libcuvs_c.tar.gz`) for use in your own C/C++ projects, see **[Building the standalone C library with Docker](https://docs.nvidia.com/cuvs/installation#build-the-standalone-c-library-with-docker)**.
+
 ## Getting Started
 
 The following code snippets train an approximate nearest neighbors index for the CAGRA algorithm in the various different languages supported by cuVS.
@@ -194,7 +198,7 @@ For more code examples of the Rust APIs, including a drop-in project templates, 
 
 ## Contributing
 
-If you are interested in contributing to the cuVS library, please read our [Contributing guidelines](docs/source/contributing.md). Refer to the [Developer Guide](docs/source/developer_guide.md) for details on the developer guidelines, workflows, and principles.
+If you are interested in contributing to the cuVS library, please read our [Contributing guidelines](fern/pages/contributing.md). Refer to the [Developer Guide](fern/pages/developer_guide.md) for details on the developer guidelines, workflows, and principles.
 
 ## References
 

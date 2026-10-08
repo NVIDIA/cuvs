@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -106,7 +106,7 @@ void compress_to_bits(raft::resources const& handle,
 
   dim3 grid(num_SMs * blocks_per_sm);
   dim3 block(128);
-  compress_to_bits_kernel<<<grid, block, 0, stream>>>(in, out);
+  compress_to_bits_kernel<<<grid, block, 0, stream.get()>>>(in, out);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
