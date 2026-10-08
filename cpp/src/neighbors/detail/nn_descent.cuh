@@ -462,7 +462,7 @@ __device__ ResultItem<Index_t> get_min_item(const Index_t id,
   }
   __syncwarp();
   for (int offset = raft::warp_size() >> 1; offset >= 1; offset >>= 1) {
-    float other_idx  = __shfl_down_sync(raft::warp_full_mask(), idx[0], offset);
+    int other_idx    = __shfl_down_sync(raft::warp_full_mask(), idx[0], offset);
     float other_dist = __shfl_down_sync(raft::warp_full_mask(), dist[0], offset);
     if (other_dist < dist[0]) {
       dist[0] = other_dist;
@@ -1650,7 +1650,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   }
   __syncthreads();
 
-  for (int step = 0; step < raft::ceildiv(MAX_NUM_BI_SAMPLES, num_warps); ++step) {
+  for (int step = 0; step < raft::ceildiv(new_size, num_warps); ++step) {
     const int idx_in_list = step * num_warps + tx / raft::warp_size();
     if (idx_in_list >= new_size) continue;
     auto min_elem = get_min_item(s_list[idx_in_list],
@@ -1665,7 +1665,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     }
   }
 
-  for (int step = 0; step < raft::ceildiv(MAX_NUM_BI_SAMPLES, num_warps); ++step) {
+  for (int step = 0; step < raft::ceildiv(old_size, num_warps); ++step) {
     const int idx_in_list = step * num_warps + tx / raft::warp_size();
     if (idx_in_list >= old_size) continue;
     const int list_idx = idx_in_list + MAX_NUM_BI_SAMPLES;
@@ -1990,7 +1990,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   // ---- Phase 2: new x old ----
   run_phase(old_neighbors, old_size, n_tiles == 1);
 
-  for (int step = 0; step < raft::ceildiv(MAX_NUM_BI_SAMPLES, num_warps); ++step) {
+  for (int step = 0; step < raft::ceildiv(new_size, num_warps); ++step) {
     const int idx_in_list = step * num_warps + tx / raft::warp_size();
     if (idx_in_list >= new_size) continue;
     auto min_elem = get_min_item(s_list[idx_in_list],
@@ -2005,7 +2005,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     }
   }
 
-  for (int step = 0; step < raft::ceildiv(MAX_NUM_BI_SAMPLES, num_warps); ++step) {
+  for (int step = 0; step < raft::ceildiv(old_size, num_warps); ++step) {
     const int idx_in_list = step * num_warps + tx / raft::warp_size();
     if (idx_in_list >= old_size) continue;
     const int list_idx = idx_in_list + MAX_NUM_BI_SAMPLES;
