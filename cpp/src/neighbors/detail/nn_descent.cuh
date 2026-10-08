@@ -2734,13 +2734,16 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
     graph_.sample_graph(false);
   };
 
+  // One persistent thread for all iterations so the OpenMP team is created only once.
+  host_worker worker;
+
   for (size_t it = 0; it < build_config_.max_iterations; it++) {
     raft::copy(res, d_list_sizes_new_.view(), graph_.h_list_sizes_new.view());
     raft::copy(res, h_graph_old_.view(), graph_.h_graph_old.view());
     raft::copy(res, d_list_sizes_old_.view(), graph_.h_list_sizes_old.view());
     raft::resource::sync_stream(res);
 
-    std::thread update_and_sample_thread(update_and_sample, it);
+    worker.submit([&update_and_sample, it] { update_and_sample(it); });
 
     RAFT_LOG_DEBUG("# GNND iteration: %lu / %lu", it + 1, build_config_.max_iterations);
 
@@ -2775,7 +2778,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
       THROW("NN_DESCENT cannot be run for __CUDA_ARCH__ < 700");
     }
 
-    update_and_sample_thread.join();
+    worker.wait();
 
     if (update_counter_ == -1) { break; }
     raft::copy(res, graph_host_buffer_.view(), graph_buffer_.view());
@@ -2880,13 +2883,16 @@ void GNND<Data_t, Index_t>::build(
     graph_.sample_graph(false);
   };
 
+  // One persistent thread for all iterations so the OpenMP team is created only once.
+  host_worker worker;
+
   for (size_t it = 0; it < build_config_.max_iterations; ++it) {
     raft::copy(res, d_list_sizes_new_.view(), graph_.h_list_sizes_new.view());
     raft::copy(res, h_graph_old_.view(), graph_.h_graph_old.view());
     raft::copy(res, d_list_sizes_old_.view(), graph_.h_list_sizes_old.view());
     raft::resource::sync_stream(res);
 
-    std::thread update_and_sample_thread(update_and_sample, it);
+    worker.submit([&update_and_sample, it] { update_and_sample(it); });
     RAFT_LOG_DEBUG("# GNND iteration: %lu / %lu", it + 1, build_config_.max_iterations);
 
     static_assert(DEGREE_ON_DEVICE * sizeof(*(dists_buffer_.data_handle())) >=
@@ -2903,7 +2909,7 @@ void GNND<Data_t, Index_t>::build(
                       stream);
 
     local_join(stream, dataset, dist_epilogue);
-    update_and_sample_thread.join();
+    worker.wait();
     if (update_counter_ == -1) { break; }
     raft::copy(res, graph_host_buffer_.view(), graph_buffer_.view());
     raft::copy(res, dists_host_buffer_.view(), dists_buffer_.view());
