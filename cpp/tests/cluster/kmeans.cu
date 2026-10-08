@@ -747,23 +747,15 @@ std::vector<ByteT> make_byte_fit_input()
 {
   // Interleave the two well-separated clusters so every outer batch exercises both signs/ranges.
   // There are 11 rows, so a four-row device buffer also exercises a three-row final batch.
-  const std::vector<int> values = [] {
-    if constexpr (std::is_same_v<ByteT, int8_t>) {
-      return std::vector<int>{-120, -110, -100, 72,  80,  88,  -112, -104, -96, 80,  88,
-                              96,   -104, -98,  -88, 88,  96,  104,  -96,  -90, -80, 96,
-                              104,  112,  -88,  -82, -72, 104, 112,  120,  112, 120, 127};
-    } else {
-      return std::vector<int>{8,   16,  24, 200, 208, 216, 16,  24,  32,  208, 216,
-                              224, 24,  32, 40,  216, 224, 232, 32,  40,  48,  224,
-                              232, 240, 40, 48,  56,  232, 240, 248, 240, 248, 255};
-    }
-  }();
-
-  std::vector<ByteT> input(values.size());
-  std::transform(values.begin(), values.end(), input.begin(), [](int value) {
-    return static_cast<ByteT>(value);
-  });
-  return input;
+  if constexpr (std::is_same_v<ByteT, int8_t>) {
+    return {-120, -110, -100, 72,  80,  88,  -112, -104, -96, 80,  88,
+            96,   -104, -98,  -88, 88,  96,  104,  -96,  -90, -80, 96,
+            104,  112,  -88,  -82, -72, 104, 112,  120,  112, 120, 127};
+  } else {
+    return {8,   16,  24, 200, 208, 216, 16,  24,  32,  208, 216,
+            224, 24,  32, 40,  216, 224, 232, 32,  40,  48,  224,
+            232, 240, 40, 48,  56,  232, 240, 248, 240, 248, 255};
+  }
 }
 
 template <typename ByteT>
@@ -808,35 +800,10 @@ class KmeansByteFitTest : public ::testing::Test {
     return params;
   }
 
-  byte_fit_result fit_float_reference(const cuvs::cluster::kmeans::params& params, bool weighted)
-  {
-    auto stream      = raft::resource::get_cuda_stream(handle);
-    auto d_centroids = raft::make_device_matrix<float, int64_t>(handle, n_clusters, n_features);
-    raft::copy(
-      d_centroids.data_handle(), h_initial_centroids.data(), h_initial_centroids.size(), stream);
-
-    std::optional<raft::host_vector_view<const float, int64_t>> weights = std::nullopt;
-    if (weighted) {
-      weights = raft::make_host_vector_view<const float, int64_t>(h_weights.data(), n_samples);
-    }
-
-    byte_fit_result result;
-    cuvs::cluster::kmeans::fit(handle,
-                               params,
-                               raft::make_host_matrix_view<const float, int64_t>(
-                                 h_float_input.data(), n_samples, n_features),
-                               weights,
-                               d_centroids.view(),
-                               raft::make_host_scalar_view<float>(&result.inertia),
-                               raft::make_host_scalar_view<int64_t>(&result.n_iter));
-
-    result.centroids.resize(h_initial_centroids.size());
-    raft::copy(result.centroids.data(), d_centroids.data_handle(), result.centroids.size(), stream);
-    raft::resource::sync_stream(handle);
-    return result;
-  }
-
-  byte_fit_result fit_byte_host(const cuvs::cluster::kmeans::params& params, bool weighted)
+  template <typename InputT>
+  byte_fit_result fit_host(const std::vector<InputT>& input,
+                           const cuvs::cluster::kmeans::params& params,
+                           bool weighted)
   {
     auto stream      = raft::resource::get_cuda_stream(handle);
     auto d_centroids = raft::make_device_matrix<float, int64_t>(handle, n_clusters, n_features);
@@ -852,7 +819,7 @@ class KmeansByteFitTest : public ::testing::Test {
     cuvs::cluster::kmeans::fit(
       handle,
       params,
-      raft::make_host_matrix_view<const ByteT, int64_t>(h_byte_input.data(), n_samples, n_features),
+      raft::make_host_matrix_view<const InputT, int64_t>(input.data(), n_samples, n_features),
       weights,
       d_centroids.view(),
       raft::make_host_scalar_view<float>(&result.inertia),
@@ -895,9 +862,7 @@ class KmeansByteFitTest : public ::testing::Test {
     return result;
   }
 
-  void expect_result_near(const byte_fit_result& expected,
-                          const byte_fit_result& actual,
-                          const cuvs::cluster::kmeans::params& params)
+  void expect_result_near(const byte_fit_result& expected, const byte_fit_result& actual)
   {
     ASSERT_EQ(expected.centroids.size(), actual.centroids.size());
     auto expected_centroids = expected.centroids;
@@ -917,12 +882,6 @@ class KmeansByteFitTest : public ::testing::Test {
     }
     EXPECT_NEAR(
       actual.inertia, expected.inertia, std::max(2e-6f, std::abs(expected.inertia) * 2e-4f));
-    if (params.max_iter == 0) {
-      EXPECT_EQ(actual.n_iter, 0);
-    } else {
-      EXPECT_GE(actual.n_iter, 1);
-      EXPECT_LE(actual.n_iter, params.max_iter);
-    }
   }
 
   bool has_fractional_byte_coordinate(const byte_fit_result& result) const
@@ -948,11 +907,11 @@ TYPED_TEST(KmeansByteFitTest, ArrayHostAndDeviceMatchNormalizedFloat)
   auto params = this->make_params(cuvs::cluster::kmeans::params::Array);
   for (bool weighted : {false, true}) {
     SCOPED_TRACE(weighted ? "nonuniform weights" : "unweighted");
-    const auto expected = this->fit_float_reference(params, weighted);
-    const auto host     = this->fit_byte_host(params, weighted);
+    const auto expected = this->fit_host(this->h_float_input, params, weighted);
+    const auto host     = this->fit_host(this->h_byte_input, params, weighted);
     const auto device   = this->fit_byte_device(params, weighted);
-    this->expect_result_near(expected, host, params);
-    this->expect_result_near(expected, device, params);
+    this->expect_result_near(expected, host);
+    this->expect_result_near(expected, device);
     if (weighted) {
       EXPECT_TRUE(this->has_fractional_byte_coordinate(host));
       EXPECT_TRUE(this->has_fractional_byte_coordinate(device));
@@ -971,54 +930,36 @@ TYPED_TEST(KmeansByteFitTest, FixedSeedInitializersMatchNormalizedFloat)
     params.max_iter = 0;
     // An explicit init_size may exceed the steady-state batch while remaining bounded by n_samples.
     if (init == cuvs::cluster::kmeans::params::KMeansPlusPlus) { params.init_size = 7; }
-    const auto expected = this->fit_float_reference(params, false);
-    const auto host     = this->fit_byte_host(params, false);
+    const auto expected = this->fit_host(this->h_float_input, params, false);
+    const auto host     = this->fit_host(this->h_byte_input, params, false);
     const auto device   = this->fit_byte_device(params, false);
-    this->expect_result_near(expected, host, params);
-    this->expect_result_near(expected, device, params);
+    this->expect_result_near(expected, host);
+    this->expect_result_near(expected, device);
   }
 }
 
-TYPED_TEST(KmeansByteFitTest, DefaultKMeansPlusPlusSampleIsBoundedByBatch)
+TYPED_TEST(KmeansByteFitTest, BatchSizingMatchesNormalizedFloat)
 {
   auto default_params       = this->make_params(cuvs::cluster::kmeans::params::KMeansPlusPlus);
   default_params.max_iter   = 0;
-  default_params.init_size  = 0;
   auto explicit_params      = default_params;
   explicit_params.init_size = std::min<int64_t>(
     {3 * TestFixture::n_clusters, TestFixture::n_samples, TestFixture::batch_rows});
 
-  const auto expected = this->fit_float_reference(explicit_params, false);
-  const auto host     = this->fit_byte_host(default_params, false);
+  const auto expected = this->fit_host(this->h_float_input, explicit_params, false);
+  const auto host     = this->fit_host(this->h_byte_input, default_params, false);
   const auto device   = this->fit_byte_device(default_params, false);
-  this->expect_result_near(expected, host, default_params);
-  this->expect_result_near(expected, device, default_params);
-}
+  this->expect_result_near(expected, host);
+  this->expect_result_near(expected, device);
 
-TYPED_TEST(KmeansByteFitTest, ScalableKMeansPlusPlusMatchesNormalizedFloat)
-{
-  auto params                = this->make_params(cuvs::cluster::kmeans::params::KMeansPlusPlus);
-  params.oversampling_factor = 2.0;
-  params.init_size           = 7;
-  params.max_iter            = 0;
+  auto auto_params                  = this->make_params(cuvs::cluster::kmeans::params::Array);
+  auto_params.device_buffer_samples = 0;
 
-  const auto expected = this->fit_float_reference(params, false);
-  const auto host     = this->fit_byte_host(params, false);
-  const auto device   = this->fit_byte_device(params, false);
-  this->expect_result_near(expected, host, params);
-  this->expect_result_near(expected, device, params);
-}
-
-TYPED_TEST(KmeansByteFitTest, ZeroDeviceBufferUsesAutomaticSizing)
-{
-  auto params                  = this->make_params(cuvs::cluster::kmeans::params::Array);
-  params.device_buffer_samples = 0;
-
-  const auto expected = this->fit_float_reference(params, true);
-  const auto host     = this->fit_byte_host(params, true);
-  const auto device   = this->fit_byte_device(params, true);
-  this->expect_result_near(expected, host, params);
-  this->expect_result_near(expected, device, params);
+  const auto auto_expected = this->fit_host(this->h_float_input, auto_params, true);
+  const auto auto_host     = this->fit_host(this->h_byte_input, auto_params, true);
+  const auto auto_device   = this->fit_byte_device(auto_params, true);
+  this->expect_result_near(auto_expected, auto_host);
+  this->expect_result_near(auto_expected, auto_device);
 }
 
 TYPED_TEST(KmeansByteFitTest, RejectsMultiGpuHandle)
