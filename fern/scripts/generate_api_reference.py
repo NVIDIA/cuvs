@@ -240,6 +240,8 @@ class JavaDoc:
     returns: str = ""
     throws: list[DoxygenParam] = field(default_factory=list)
     deprecated: str = ""
+    # Whether the comment has an @deprecated tag, which may come without text.
+    is_deprecated: bool = False
 
 
 @dataclass
@@ -4783,6 +4785,7 @@ def parse_javadoc(raw: str) -> JavaDoc:
         deprecated_match = re.match(r"@deprecated\b\s*(.*)", stripped)
         if deprecated_match:
             doc.deprecated = deprecated_match.group(1).strip()
+            doc.is_deprecated = True
             active = None
             active_kind = "deprecated"
             continue
@@ -4814,36 +4817,42 @@ def parse_javadoc(raw: str) -> JavaDoc:
 
 
 def clean_javadoc_text(text: str) -> str:
-    # A tag wrapped across lines keeps its words on one line.
+    # Converted inline tags are held as placeholders until the HTML tags are removed, so that
+    # their text, such as {@code List<String>} or {@literal <T>}, keeps its angle brackets.
+    kept: list[str] = []
+
+    def keep(converted: str) -> str:
+        kept.append(converted)
+        return f"\x00{len(kept) - 1}\x00"
+
+    def words(value: str) -> str:
+        # A tag wrapped across lines keeps its words on one line.
+        return " ".join(value.split())
+
     text = re.sub(
-        r"\{@code\s+([^}]+)\}",
-        lambda m: f"`{' '.join(m.group(1).split())}`",
-        text,
+        r"\{@code\s+([^}]+)\}", lambda m: keep(f"`{words(m.group(1))}`"), text
     )
     text = re.sub(
         r"\{@(?:value|systemProperty)\s+#?([^}\s]+)\s*\}",
-        lambda m: f"`{m.group(1)}`",
+        lambda m: keep(f"`{m.group(1)}`"),
         text,
     )
     text = re.sub(
-        r"\{@literal\s+([^}]+)\}",
-        lambda m: " ".join(m.group(1).split()),
-        text,
+        r"\{@literal\s+([^}]+)\}", lambda m: keep(words(m.group(1))), text
     )
     text = re.sub(
         r"\{@link(?:plain)?\s+([^}\s]+)(?:\s+([^}]+))?\}",
-        lambda m: " ".join(m.group(2).split())
-        if m.group(2)
-        else f"`{m.group(1)}`",
+        lambda m: keep(words(m.group(2)) if m.group(2) else f"`{m.group(1)}`"),
         text,
     )
     # Any other inline tag shows its text.
     text = re.sub(
-        r"\{@\w+\s+([^}]+)\}", lambda m: " ".join(m.group(1).split()), text
+        r"\{@\w+\s+([^}]+)\}", lambda m: keep(words(m.group(1))), text
     )
     text = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", text)
     text = re.sub(r"</?p>", "", text)
     text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
     return text.strip()
 
 
@@ -4854,6 +4863,8 @@ def render_javadoc(doc: JavaDoc) -> list[str]:
         lines.append("")
     if doc.deprecated:
         lines.extend([f"**Deprecated:** {escape_text(doc.deprecated)}", ""])
+    elif doc.is_deprecated:
+        lines.extend(["**Deprecated.**", ""])
     if doc.params:
         lines.extend(
             ["**Parameters**", "", "| Name | Description |", "| --- | --- |"]
@@ -6094,17 +6105,30 @@ def escape_code(value: str) -> str:
     )
 
 
+CODE_SPAN_RE = re.compile(r"(`+)(.+?)\1")
+
+
 def escape_text(value: str) -> str:
-    escaped = (
-        str(value)
-        .replace("|", "\\|")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("{", "\\{")
-        .replace("}", "\\}")
-        .replace("\n", " ")
-    )
-    return restore_math_placeholders(escaped)
+    # MDX shows code spans literally: an entity such as &lt; or a backslash escape inside one
+    # would appear as typed, and angle brackets and braces need no escaping there. The pipe is
+    # still escaped, since a code span inside a table cell would otherwise split the cell.
+    def escape_prose(text: str) -> str:
+        return (
+            text.replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("{", "\\{")
+            .replace("}", "\\}")
+        )
+
+    text = str(value).replace("|", "\\|").replace("\n", " ")
+    parts: list[str] = []
+    end = 0
+    for match in CODE_SPAN_RE.finditer(text):
+        parts.append(escape_prose(text[end : match.start()]))
+        parts.append(match.group(0))
+        end = match.end()
+    parts.append(escape_prose(text[end:]))
+    return restore_math_placeholders("".join(parts))
 
 
 def restore_math_placeholders(value: str) -> str:

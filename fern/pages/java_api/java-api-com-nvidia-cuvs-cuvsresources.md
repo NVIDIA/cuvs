@@ -97,7 +97,7 @@ object; calling it again replaces the pool.
 
 | Name | Description |
 | --- | --- |
-| `initialSizeBytes` | initial pool reservation in bytes; must be `&gt; 0`. Size `initialSizeBytes` to cover the steady-state working set to avoid growth after warmup |
+| `initialSizeBytes` | initial pool reservation in bytes; must be `> 0`. Size `initialSizeBytes` to cover the steady-state working set to avoid growth after warmup |
 
 **Throws**
 
