@@ -223,7 +223,7 @@ ConfigureTest(
 )
 
 ConfigureTest(
-  NAME NEIGHBORS_ANN_CAGRA_TEST_BUGS
+  NAME NEIGHBORS_ANN_CAGRA_BUGS_TEST
   PATH neighbors/ann_cagra/bug_extreme_inputs_oob.cu
        neighbors/ann_cagra/bug_multi_cta_crash.cu
        neighbors/ann_cagra/bug_graph_smaller_than_dataset.cu
