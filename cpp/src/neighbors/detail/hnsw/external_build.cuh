@@ -998,9 +998,9 @@ std::unique_ptr<index<T>> build_external(
               elapsed_milliseconds(load_start, std::chrono::steady_clock::now())};
     };
     std::optional<load_result> loaded;
-    if (plan.partitions > 0) { loaded.emplace(load_partition(0)); }
     for (uint32_t partition = 0; partition < plan.partitions; ++partition) {
-      RAFT_EXPECTS(loaded.has_value(), "External HNSW partition prefetch state is empty");
+      // Without prefetch, load only after the previous iteration released its resident storage.
+      if (!loaded.has_value()) { loaded.emplace(load_partition(partition)); }
       std::future<load_result> next;
       if (plan.queue_depth > 1 && partition + 1 < plan.partitions) {
         next = std::async(std::launch::async, load_partition, partition + 1);
@@ -1114,9 +1114,7 @@ std::unique_ptr<index<T>> build_external(
           elapsed_milliseconds(serialization_start, std::chrono::steady_clock::now());
       }
 
-      if (partition + 1 < plan.partitions) {
-        loaded.emplace(plan.queue_depth > 1 ? next.get() : load_partition(partition + 1));
-      }
+      if (next.valid()) { loaded.emplace(next.get()); }
     }
 
     auto base_commit_start = std::chrono::steady_clock::now();
