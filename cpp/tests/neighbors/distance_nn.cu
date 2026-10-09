@@ -116,6 +116,8 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
       workspace_size = m * n * sizeof(AccT);
     }
 
+    if (backend_unavailable) { GTEST_SKIP() << "Requested top_1_nn path is unavailable"; }
+
     // Reset buffer
     if constexpr (std::is_same_v<OutT, raft::KeyValuePair<IdxT, AccT>>) {
       // OutT is a RAFT KeyValuePair
@@ -138,7 +140,6 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
       handle, ref_out.data_handle(), x.data_handle(), y.data_handle(), m, n, k, sqrt, metric);
 
     if constexpr (impl == ImplType::fused) {
-      if (backend_unavailable) { GTEST_SKIP() << "Requested top_1_nn path is unavailable"; }
       auto run_top_1_nn = [&](auto output) {
         cuvs::distance::top_1_nn<DataT, IdxT>(handle,
                                               output,
@@ -253,7 +254,7 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
   bool backend_unavailable{};
   raft::device_vector<IdxT, IdxT> cutile_idx;
   raft::device_vector<AccT, IdxT> cutile_dist;
-  size_t workspace_size;
+  std::size_t workspace_size{};
 };
 
 template <typename IdxT>
