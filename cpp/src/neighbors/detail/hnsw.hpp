@@ -3039,6 +3039,17 @@ class scoped_directory_cleanup {
   std::filesystem::path path_;
 };
 
+// Reject excessive fan-out instead of enlarging replay buckets beyond their memory allowance.
+inline void validate_materialize_bucket_count(size_t num_buckets)
+{
+  constexpr size_t kMaxBuckets = 512;
+  RAFT_EXPECTS(num_buckets <= kMaxBuckets,
+               "HNSW materialization requires %zu temporary buckets; maximum is %zu. "
+               "Increase max_host_memory_gb.",
+               num_buckets,
+               kMaxBuckets);
+}
+
 // Routes fixed-size, ID-keyed records into per-bucket temporary files and replays them per bucket.
 // Used to reorder the (small) base/upper topology under a bounded host-memory budget while keeping
 // all disk access sequential.
@@ -3325,6 +3336,7 @@ void materialize_hnswlib_base_region(const cuvs::util::file_descriptor& artifact
   size_t rows_per_bucket    = std::max<size_t>(1, budget_bytes / record_bytes);
   rows_per_bucket           = std::min(rows_per_bucket, n_rows);
   const size_t num_buckets  = (n_rows + rows_per_bucket - 1) / rows_per_bucket;
+  validate_materialize_bucket_count(num_buckets);
   RAFT_LOG_INFO(
     "hnswlib materialize: base region uses %zu buckets (rows/bucket=%zu, budget=%.2f GiB)",
     num_buckets,
@@ -3447,6 +3459,7 @@ inline void materialize_hnswlib_upper_region(const cuvs::util::file_descriptor& 
     std::max<size_t>(1, (metadata.upper_links_bytes + budget_half - 1) / budget_half);
   size_t rows_per_bucket = std::max<size_t>(1, (n_rows + num_buckets - 1) / num_buckets);
   num_buckets            = (n_rows + rows_per_bucket - 1) / rows_per_bucket;
+  validate_materialize_bucket_count(num_buckets);
   RAFT_LOG_INFO("hnswlib materialize: upper region uses %zu buckets (rows/bucket=%zu)",
                 num_buckets,
                 rows_per_bucket);

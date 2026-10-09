@@ -1173,6 +1173,21 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
                  std::exception);
     EXPECT_FALSE(std::filesystem::exists(err_out));
 
+    // Reject excessive spill fan-out with an actionable error, rather than failing later with
+    // EMFILE or silently increasing the replay bucket size beyond the memory allowance.
+    hnsw::materialize_params excessive_buckets;
+    excessive_buckets.dataset_path       = dataset_file;
+    excessive_buckets.max_host_memory_gb = 0.000001;
+    try {
+      hnsw::materialize_to_hnswlib(
+        handle_, excessive_buckets, artifact_path, err_out, ps.dim, ps.metric);
+      FAIL() << "Expected excessive materialization bucket count to be rejected";
+    } catch (const std::exception& e) {
+      EXPECT_NE(std::string(e.what()).find("Increase max_host_memory_gb"), std::string::npos)
+        << e.what();
+    }
+    EXPECT_FALSE(std::filesystem::exists(err_out));
+
     hnsw::materialize_params missing_dataset;
     missing_dataset.dataset_path.clear();
     EXPECT_THROW(hnsw::materialize_to_hnswlib(
