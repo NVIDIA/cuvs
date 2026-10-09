@@ -356,9 +356,9 @@ __device__ void insert_to_global_graph(
   ResultItem<Index_t> elem, size_t list_id, ID_t* graph, DistData_t* dists, int* locks)
 {
   constexpr int node_degree = DEGREE_ON_DEVICE;
-  int tx                 = threadIdx.x;
-  int lane_id            = tx % raft::warp_size();
-  size_t global_idx_base = list_id * node_degree;
+  int tx                    = threadIdx.x;
+  int lane_id               = tx % raft::warp_size();
+  size_t global_idx_base    = list_id * node_degree;
   if (elem.id() == list_id) return;
 
   constexpr int num_segments = raft::ceildiv(node_degree, raft::warp_size());
@@ -1842,122 +1842,121 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   // alias_tag: staging skip and b_frag source
   // row_resident: the A operand is already staged from a previous phase, which is only true
   // when the whole row fits one tile (n_tiles == 1) so nothing overwrote it.
-  auto run_phase =
-    [&](const Index_t* col_neighbors, int col_size, bool row_resident) {
-      const bool alias_col = (DocumentLayout == QueryLayout) && (col_neighbors == new_neighbors);
-      wmma::fragment<wmma::accumulator, MMA_M, MMA_N, MMA_K, int> c_frag[SUB_PER_DIM][SUB_PER_DIM];
-      for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-        for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-          wmma::fill_fragment(c_frag[msub][nsub], 0);
-        }
+  auto run_phase = [&](const Index_t* col_neighbors, int col_size, bool row_resident) {
+    const bool alias_col = (DocumentLayout == QueryLayout) && (col_neighbors == new_neighbors);
+    wmma::fragment<wmma::accumulator, MMA_M, MMA_N, MMA_K, int> c_frag[SUB_PER_DIM][SUB_PER_DIM];
+    for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
+      for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
+        wmma::fill_fragment(c_frag[msub][nsub], 0);
       }
+    }
 
-      // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole block starts
-      // past either extent only produces cells the epilogue discards -- skip its MMA and its store.
-      // Staging is cooperative, so this must not skip either __syncthreads() in the step loop.
-      const bool warp_active = warp_id_y * WARP_TILE < new_size && warp_id_x * WARP_TILE < col_size;
+    // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole block starts
+    // past either extent only produces cells the epilogue discards -- skip its MMA and its store.
+    // Staging is cooperative, so this must not skip either __syncthreads() in the step loop.
+    const bool warp_active = warp_id_y * WARP_TILE < new_size && warp_id_x * WARP_TILE < col_size;
 
-      for (int step = 0; step < n_tiles; ++step) {
-        if (!row_resident) {
-          stage_promoted_tile<DocumentLayout, BBQ_ROW_BYTES>(
-            s_row_vec, dataset_document, new_neighbors, new_size, step, doc_row_bytes);
-        }
-        if (!alias_col) {
-          stage_promoted_tile<QueryLayout, BBQ_ROW_BYTES>(
-            s_col_vec, dataset_query, col_neighbors, col_size, step, query_row_bytes);
-        }
-        __syncthreads();
-
-        // a_frag depends only on (msub, kk); b_frag depends only on (nsub, kk) -- load each once
-        // per kk and reuse across the other sub-tile index, instead of reloading redundantly inside
-        // a full msub x nsub x kk cross product.
-        // Deliberately not #pragma unroll'd: full unrolling here keeps more fragment live ranges
-        // simultaneous, driving register pressure up -- letting the compiler pick reduces that at
-        // the cost of some intra-warp ILP.
-        for (int kk = 0; warp_active && kk < K_STEPS_PER_TILE; ++kk) {
-          wmma::fragment<wmma::matrix_a, MMA_M, MMA_N, MMA_K, uint8_t, wmma::row_major>
-            a_frag[SUB_PER_DIM];
-          wmma::fragment<wmma::matrix_b, MMA_M, MMA_N, MMA_K, uint8_t, wmma::col_major>
-            b_frag[SUB_PER_DIM];
-          const auto* col_buf = alias_col ? s_row_vec : s_col_vec;  // compile-time select
-          for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-            const int row0 = warp_id_y * WARP_TILE + msub * MMA_M;
-            wmma::load_matrix_sync(a_frag[msub], s_row_vec[row0] + kk * KSTEP_BYTES, ROW_STRIDE_U8);
-          }
-          for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-            const int col0 = warp_id_x * WARP_TILE + nsub * MMA_N;
-            wmma::load_matrix_sync(b_frag[nsub], col_buf[col0] + kk * KSTEP_BYTES, ROW_STRIDE_U8);
-          }
-          // One scratch fragment per operand, reused across the halves.
-          std::remove_reference_t<decltype(a_frag[0])> a_half[SUB_PER_DIM];
-          std::remove_reference_t<decltype(b_frag[0])> b_half[SUB_PER_DIM];
-          auto accumulate_half = [&](auto high_tag) {
-            constexpr bool High = decltype(high_tag)::value;
-            for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-              select_packed_nibble<High>(a_frag[msub], a_half[msub]);
-            }
-            for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-              select_packed_nibble<High>(b_frag[nsub], b_half[nsub]);
-            }
-            for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-              for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-                wmma::mma_sync(c_frag[msub][nsub], a_half[msub], b_half[nsub], c_frag[msub][nsub]);
-              }
-            }
-          };
-          accumulate_half(std::false_type{});
-          accumulate_half(std::true_type{});
-        }
-        __syncthreads();
+    for (int step = 0; step < n_tiles; ++step) {
+      if (!row_resident) {
+        stage_promoted_tile<DocumentLayout, BBQ_ROW_BYTES>(
+          s_row_vec, dataset_document, new_neighbors, new_size, step, doc_row_bytes);
       }
+      if (!alias_col) {
+        stage_promoted_tile<QueryLayout, BBQ_ROW_BYTES>(
+          s_col_vec, dataset_query, col_neighbors, col_size, step, query_row_bytes);
+      }
+      __syncthreads();
 
-      for (int msub = 0; warp_active && msub < SUB_PER_DIM; ++msub) {
-        const int row0 = warp_id_y * WARP_TILE + msub * MMA_M;
+      // a_frag depends only on (msub, kk); b_frag depends only on (nsub, kk) -- load each once
+      // per kk and reuse across the other sub-tile index, instead of reloading redundantly inside
+      // a full msub x nsub x kk cross product.
+      // Deliberately not #pragma unroll'd: full unrolling here keeps more fragment live ranges
+      // simultaneous, driving register pressure up -- letting the compiler pick reduces that at
+      // the cost of some intra-warp ILP.
+      for (int kk = 0; warp_active && kk < K_STEPS_PER_TILE; ++kk) {
+        wmma::fragment<wmma::matrix_a, MMA_M, MMA_N, MMA_K, uint8_t, wmma::row_major>
+          a_frag[SUB_PER_DIM];
+        wmma::fragment<wmma::matrix_b, MMA_M, MMA_N, MMA_K, uint8_t, wmma::col_major>
+          b_frag[SUB_PER_DIM];
+        const auto* col_buf = alias_col ? s_row_vec : s_col_vec;  // compile-time select
+        for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
+          const int row0 = warp_id_y * WARP_TILE + msub * MMA_M;
+          wmma::load_matrix_sync(a_frag[msub], s_row_vec[row0] + kk * KSTEP_BYTES, ROW_STRIDE_U8);
+        }
         for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
           const int col0 = warp_id_x * WARP_TILE + nsub * MMA_N;
-          wmma::store_matrix_sync(
-            reinterpret_cast<int*>(s_distances) + row0 * MMA_STORE_STRIDE + col0,
-            c_frag[msub][nsub],
-            MMA_STORE_STRIDE,
-            wmma::mem_row_major);
+          wmma::load_matrix_sync(b_frag[nsub], col_buf[col0] + kk * KSTEP_BYTES, ROW_STRIDE_U8);
         }
+        // One scratch fragment per operand, reused across the halves.
+        std::remove_reference_t<decltype(a_frag[0])> a_half[SUB_PER_DIM];
+        std::remove_reference_t<decltype(b_frag[0])> b_half[SUB_PER_DIM];
+        auto accumulate_half = [&](auto high_tag) {
+          constexpr bool High = decltype(high_tag)::value;
+          for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
+            select_packed_nibble<High>(a_frag[msub], a_half[msub]);
+          }
+          for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
+            select_packed_nibble<High>(b_frag[nsub], b_half[nsub]);
+          }
+          for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
+            for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
+              wmma::mma_sync(c_frag[msub][nsub], a_half[msub], b_half[nsub], c_frag[msub][nsub]);
+            }
+          }
+        };
+        accumulate_half(std::false_type{});
+        accumulate_half(std::true_type{});
       }
       __syncthreads();
+    }
 
-      // Converts store_matrix_sync's raw int32 dot products into final float distances, in place
-      // col = i % MAX_NUM_BI_SAMPLES is invariant across a thread's own iterations
-      // (BLOCK_SIZE is a multiple of MAX_NUM_BI_SAMPLES), so this thread's column factors are
-      // fetched once and reused below
-      const int my_col = tx % MAX_NUM_BI_SAMPLES;
-      bbq_dequant_factors my_col_factors{};
-      if (my_col < col_size) {
-        my_col_factors = get_dequant_factors(dataset_query, col_neighbors[my_col]);
+    for (int msub = 0; warp_active && msub < SUB_PER_DIM; ++msub) {
+      const int row0 = warp_id_y * WARP_TILE + msub * MMA_M;
+      for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
+        const int col0 = warp_id_x * WARP_TILE + nsub * MMA_N;
+        wmma::store_matrix_sync(
+          reinterpret_cast<int*>(s_distances) + row0 * MMA_STORE_STRIDE + col0,
+          c_frag[msub][nsub],
+          MMA_STORE_STRIDE,
+          wmma::mem_row_major);
       }
+    }
+    __syncthreads();
 
-      // Cell (row, col) is read (as raw int, via this alias) and written (as the final float) at
-      // the same address by the same thread
-      auto* raw_view            = reinterpret_cast<int*>(s_distances);
-      constexpr int total_cells = MAX_NUM_BI_SAMPLES * MAX_NUM_BI_SAMPLES;
-      for (int i = tx; i < total_cells; i += BLOCK_SIZE) {
-        const int row = i / MAX_NUM_BI_SAMPLES;
-        const int col = i % MAX_NUM_BI_SAMPLES;
-        if (row >= new_size || col >= col_size) continue;
-        const int distance0    = row * MMA_STORE_STRIDE + col;
-        const Index_t doc_id   = new_neighbors[row];
-        const Index_t query_id = col_neighbors[col];
-        const uint32_t raw     = static_cast<uint32_t>(raw_view[distance0]);
-        s_distances[distance0] = bbq_calculate_metric(raw,
-                                                      s_document_factors[row],
-                                                      my_col_factors,
-                                                      dataset_document,
-                                                      dataset_query,
-                                                      metric,
-                                                      dist_epilogue,
-                                                      doc_id,
-                                                      query_id);
-      }
-      __syncthreads();
-    };
+    // Converts store_matrix_sync's raw int32 dot products into final float distances, in place
+    // col = i % MAX_NUM_BI_SAMPLES is invariant across a thread's own iterations
+    // (BLOCK_SIZE is a multiple of MAX_NUM_BI_SAMPLES), so this thread's column factors are
+    // fetched once and reused below
+    const int my_col = tx % MAX_NUM_BI_SAMPLES;
+    bbq_dequant_factors my_col_factors{};
+    if (my_col < col_size) {
+      my_col_factors = get_dequant_factors(dataset_query, col_neighbors[my_col]);
+    }
+
+    // Cell (row, col) is read (as raw int, via this alias) and written (as the final float) at
+    // the same address by the same thread
+    auto* raw_view            = reinterpret_cast<int*>(s_distances);
+    constexpr int total_cells = MAX_NUM_BI_SAMPLES * MAX_NUM_BI_SAMPLES;
+    for (int i = tx; i < total_cells; i += BLOCK_SIZE) {
+      const int row = i / MAX_NUM_BI_SAMPLES;
+      const int col = i % MAX_NUM_BI_SAMPLES;
+      if (row >= new_size || col >= col_size) continue;
+      const int distance0    = row * MMA_STORE_STRIDE + col;
+      const Index_t doc_id   = new_neighbors[row];
+      const Index_t query_id = col_neighbors[col];
+      const uint32_t raw     = static_cast<uint32_t>(raw_view[distance0]);
+      s_distances[distance0] = bbq_calculate_metric(raw,
+                                                    s_document_factors[row],
+                                                    my_col_factors,
+                                                    dataset_document,
+                                                    dataset_query,
+                                                    metric,
+                                                    dist_epilogue,
+                                                    doc_id,
+                                                    query_id);
+    }
+    __syncthreads();
+  };
 
   // Rows are always new_neighbors/document in both phases below, so this runs exactly once -- see
   // the identical staging and rationale in local_join_kernel_bbq_simt.
