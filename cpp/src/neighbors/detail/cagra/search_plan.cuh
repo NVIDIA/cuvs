@@ -199,12 +199,34 @@ struct search_plan_impl : public search_plan_impl_base {
 
   void adjust_search_params()
   {
+    if (algo == search_algo::MULTI_CTA && (0.0 < filtering_rate && filtering_rate < 1.0)) {
+      size_t adjusted_itopk_size =
+        (size_t)((float)topk / (1.0 - filtering_rate) +
+                 (float)(itopk_size - topk) / std::sqrt(1.0 - filtering_rate));
+      if (adjusted_itopk_size % 32) { adjusted_itopk_size += 32 - (adjusted_itopk_size % 32); }
+      if (itopk_size < adjusted_itopk_size) {
+        RAFT_LOG_DEBUG(
+          "# internal_topk is increased from %lu to %lu, considering fintering rate %f.",
+          itopk_size,
+          adjusted_itopk_size,
+          filtering_rate);
+        itopk_size = adjusted_itopk_size;
+      }
+    }
     uint32_t _max_iterations = max_iterations;
     if (max_iterations == 0) {
       if (algo == search_algo::MULTI_CTA) {
-        constexpr uint32_t mc_itopk_size   = 32;
-        constexpr uint32_t mc_search_width = 1;
-        _max_iterations                    = mc_itopk_size / mc_search_width;
+        constexpr size_t mc_itopk_size  = 32;
+        const size_t minimum_depth      = 16;
+        const auto effective_itopk_size = raft::ceildiv(itopk_size, mc_itopk_size) * mc_itopk_size;
+        // In multi-CTA algo, search_width and itopk are both knobs on num_ctas
+        const auto num_ctas = max(search_width, raft::ceildiv(effective_itopk_size, mc_itopk_size));
+
+        // Shrink max_iterations when num_ctas is large. In multi-CTA algo, larger num_ctas implies
+        // both more width and depth
+        _max_iterations = minimum_depth + raft::ceildiv(mc_itopk_size - minimum_depth, num_ctas);
+        // Compensate for the difficult case of large topk
+        _max_iterations += raft::ceildiv(static_cast<size_t>(topk), mc_itopk_size) - 1;
       } else {
         _max_iterations = itopk_size / search_width;
       }
@@ -219,20 +241,6 @@ struct search_plan_impl : public search_plan_impl_base {
       RAFT_LOG_DEBUG(
         "# max_iterations is increased from %lu to %u.", max_iterations, _max_iterations);
       max_iterations = _max_iterations;
-    }
-    if (algo == search_algo::MULTI_CTA && (0.0 < filtering_rate && filtering_rate < 1.0)) {
-      size_t adjusted_itopk_size =
-        (size_t)((float)topk / (1.0 - filtering_rate) +
-                 (float)(itopk_size - topk) / std::sqrt(1.0 - filtering_rate));
-      if (adjusted_itopk_size % 32) { adjusted_itopk_size += 32 - (adjusted_itopk_size % 32); }
-      if (itopk_size < adjusted_itopk_size) {
-        RAFT_LOG_DEBUG(
-          "# internal_topk is increased from %lu to %lu, considering fintering rate %f.",
-          itopk_size,
-          adjusted_itopk_size,
-          filtering_rate);
-        itopk_size = adjusted_itopk_size;
-      }
     }
     if (itopk_size % 32) {
       uint32_t itopk32 = itopk_size;
