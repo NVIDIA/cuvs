@@ -6,6 +6,25 @@ slug: api-reference/cpp-api-neighbors-brute-force
 
 _Source header: `cuvs/neighbors/brute_force.hpp`_
 
+## Types
+
+<a id="neighbors-brute-force-search-params"></a>
+### neighbors::brute_force::search_params
+
+Parameters for brute-force search.
+
+```cpp
+struct search_params : cuvs::neighbors::search_params {
+  float filtering_rate;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `filtering_rate` | `float` | A hint for the fraction of entries the filter removes, i.e. `(n_queries * n_dataset - n_set_bits) / (n_queries * n_dataset)`; for a `bitset_filter` this is `(n_dataset - n_set_bits) / n_dataset`.<br /><br />- Negative (default): the rate is computed from the filter, which runs a popcount kernel and synchronizes the stream on every filtered search.<br />- In `[0.0, 1.0)`: the value is trusted and the popcount is skipped when the dense path is selected. The sparse and gather paths still count the filter, because they need the exact number of passing entries.<br />- Any other value (including NaN) is rejected. |
+
 ## Bruteforce index
 
 <a id="neighbors-brute-force-index"></a>

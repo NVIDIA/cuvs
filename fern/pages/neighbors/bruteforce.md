@@ -542,7 +542,9 @@ SearchResults results = index.search(query);
 
 ### Search parameters
 
-The C++ `brute_force::search_params` struct currently has no tunable fields.
+| Name | Default | Description |
+| --- | --- | --- |
+| `filtering_rate` | `-1.0` | C++ only. Expected fraction of query-vector pairs removed by the filter. Negative values make filtered search count the filter on every call, which launches a GPU reduction and synchronizes the stream. A value in `[0.0, 1.0)` skips that count when the dense path is selected. Other values are rejected. |
 
 Filters are passed as search function arguments in bindings that expose filtered search, not as fields in `brute_force::search_params`.
 

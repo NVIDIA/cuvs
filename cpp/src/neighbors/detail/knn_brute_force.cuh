@@ -734,6 +734,7 @@ void brute_force_search_gathered(
 template <typename T, typename IdxT, typename BitsT, typename DistanceT = float>
 void brute_force_search_filtered(
   raft::resources const& res,
+  const cuvs::neighbors::brute_force::search_params& params,
   const cuvs::neighbors::brute_force::index<T, DistanceT>& idx,
   raft::device_matrix_view<const T, IdxT, raft::row_major> queries,
   const cuvs::neighbors::filtering::base_filter* filter,
@@ -757,6 +758,15 @@ void brute_force_search_filtered(
                                     metric == cuvs::distance::DistanceType::CosineExpanded),
                "Index must has norms when using Euclidean, IP, and Cosine!");
 
+  // Negative means "auto-detect from the filter"; [0.0, 1.0) is trusted as-is. Anything else
+  // (including NaN, which compares false against both bounds) is out of contract.
+  const bool auto_filtering_rate = params.filtering_rate < 0.0f;
+  const bool use_hint            = params.filtering_rate >= 0.0f && params.filtering_rate < 1.0f;
+  RAFT_EXPECTS(auto_filtering_rate || use_hint,
+               "search_params::filtering_rate must be negative (auto-detect) or in [0.0, 1.0), "
+               "got %f",
+               params.filtering_rate);
+
   IdxT n_queries                                     = queries.extent(0);
   IdxT n_dataset                                     = idx.dataset().extent(0);
   IdxT dim                                           = idx.dataset().extent(1);
@@ -769,7 +779,10 @@ void brute_force_search_filtered(
                              const cuvs::core::bitset_view<BitsT, IdxT>>>
     filter_view;
 
-  IdxT nnz_h = 0;
+  IdxT nnz_h         = 0;
+  double selectivity = 0.0;
+  // Whether nnz_h / n_pass came from an actual popcount rather than the filtering_rate hint.
+  bool counted = false;
   // A bitset passes the same rows for every query, so it has a row count; a bitmap passes a
   // different set per query and has none.
   std::optional<IdxT> n_pass;
@@ -780,22 +793,51 @@ void brute_force_search_filtered(
     auto actual_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bitmap_filter<BitsT, int64_t>*>(filter);
     filter_view.emplace(actual_filter->view());
-    nnz_h = actual_filter->view().count(res);
+    if (use_hint) {
+      selectivity = 1.0 - params.filtering_rate;
+    } else {
+      nnz_h       = actual_filter->view().count(res);
+      selectivity = static_cast<double>(nnz_h) /
+                    (static_cast<double>(n_queries) * static_cast<double>(n_dataset));
+      counted = true;
+    }
   } else if (filter_type == cuvs::neighbors::filtering::FilterType::Bitset) {
     auto actual_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<BitsT, int64_t>*>(filter);
     filter_view.emplace(actual_filter->view());
-    n_pass = actual_filter->view().count(res);
-    nnz_h  = n_queries * (*n_pass);
+    if (use_hint) {
+      selectivity = 1.0 - params.filtering_rate;
+      // Path selection also needs a row count; the exact one is only fetched below, and only
+      // if the path it picks turns out to need it.
+      n_pass = static_cast<IdxT>(std::llround(selectivity * static_cast<double>(n_dataset)));
+    } else {
+      n_pass      = actual_filter->view().count(res);
+      nnz_h       = n_queries * (*n_pass);
+      selectivity = static_cast<double>(nnz_h) /
+                    (static_cast<double>(n_queries) * static_cast<double>(n_dataset));
+      counted = true;
+    }
   } else {
     RAFT_FAIL("Unsupported sample filter type");
   }
 
   std::visit([&](const auto& actual_view) { filter_data = actual_view.data(); }, *filter_view);
 
-  const double selectivity =
-    static_cast<double>(nnz_h) / (static_cast<double>(n_queries) * static_cast<double>(n_dataset));
-  const auto path = select_filtered_search_path(n_dataset, dim, selectivity, k, n_pass);
+  auto path = select_filtered_search_path(n_dataset, dim, selectivity, k, n_pass);
+
+  // Only the dense path can run on a hinted selectivity alone: sddmm sizes its CSR from the
+  // exact nnz, and gather sizes the compacted dataset from the exact row count. If we have to
+  // popcount after all, spend the exact numbers on the decision too.
+  if (!counted && path != filtered_search_path::dense) {
+    std::visit([&](const auto& actual_view) { nnz_h = actual_view.count(res); }, *filter_view);
+    if (n_pass) {
+      n_pass = nnz_h;
+      nnz_h  = n_queries * (*n_pass);
+    }
+    selectivity = static_cast<double>(nnz_h) /
+                  (static_cast<double>(n_queries) * static_cast<double>(n_dataset));
+    path = select_filtered_search_path(n_dataset, dim, selectivity, k, n_pass);
+  }
 
   if (path == filtered_search_path::gather) {
     auto bitset_view = std::get<const cuvs::core::bitset_view<BitsT, IdxT>>(*filter_view);
@@ -898,6 +940,7 @@ void brute_force_search_filtered(
 
 template <typename T, typename IdxT, typename DistT, typename LayoutT>
 void search(raft::resources const& res,
+            const cuvs::neighbors::brute_force::search_params& params,
             const cuvs::neighbors::brute_force::index<T, DistT>& idx,
             raft::device_matrix_view<const T, int64_t, LayoutT> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
@@ -918,7 +961,7 @@ void search(raft::resources const& res,
         dynamic_cast<const cuvs::neighbors::filtering::bitmap_filter<uint32_t, int64_t>&>(
           sample_filter_ref);
       return brute_force_search_filtered<T, int64_t, uint32_t, DistT>(
-        res, idx, queries, &sample_filter, neighbors, distances);
+        res, params, idx, queries, &sample_filter, neighbors, distances);
     } catch (const std::bad_cast&) {
     }
 
@@ -927,7 +970,7 @@ void search(raft::resources const& res,
         dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>&>(
           sample_filter_ref);
       return brute_force_search_filtered<T, int64_t, uint32_t, DistT>(
-        res, idx, queries, &sample_filter, neighbors, distances);
+        res, params, idx, queries, &sample_filter, neighbors, distances);
     } catch (const std::bad_cast&) {
       RAFT_FAIL("Unsupported sample filter type");
     }
