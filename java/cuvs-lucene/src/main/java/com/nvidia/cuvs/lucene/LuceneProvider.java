@@ -179,6 +179,9 @@ public class LuceneProvider {
       Constructor<?> luceneFlatVectorsFormatConstructor =
           flatVectorsFormat.getConstructor(FlatVectorsScorer.class);
       return (FlatVectorsFormat) luceneFlatVectorsFormatConstructor.newInstance(scorer);
+    } catch (InvocationTargetException e) {
+      // The constructor itself failed (e.g. an I/O error); rethrow its exception unwrapped.
+      throw Utils.handleThrowable(e.getCause());
     } catch (Exception e) {
       log.log(Level.SEVERE, "Unable to initialize LuceneFlatVectorsFormat: " + e.getMessage());
       throw e;
@@ -191,6 +194,8 @@ public class LuceneProvider {
       Constructor<?> luceneHnswVectorsReaderConstructor =
           hnswVectorsReader.getConstructor(SegmentReadState.class, FlatVectorsReader.class);
       return (KnnVectorsReader) luceneHnswVectorsReaderConstructor.newInstance(state, reader);
+    } catch (InvocationTargetException e) {
+      throw Utils.handleThrowable(e.getCause());
     } catch (Exception e) {
       log.log(Level.SEVERE, "Unable to initialize LuceneHnswVectorsReader: " + e.getMessage());
       throw e;
@@ -217,6 +222,8 @@ public class LuceneProvider {
       return (KnnVectorsWriter)
           luceneHnswVectorsWriterConstructor.newInstance(
               state, maxConn, beamWidth, writer, numMergeWorkers, executor);
+    } catch (InvocationTargetException e) {
+      throw Utils.handleThrowable(e.getCause());
     } catch (Exception e) {
       log.log(Level.SEVERE, "Unable to initialize LuceneHnswVectorsWriter: " + e.getMessage());
       throw e;
@@ -250,6 +257,8 @@ public class LuceneProvider {
       Constructor<?> luceneBinaryQuantizedVectorsFormatConstructor =
           binaryQuantizedVectorsFormat.getConstructor();
       return (FlatVectorsFormat) luceneBinaryQuantizedVectorsFormatConstructor.newInstance();
+    } catch (InvocationTargetException e) {
+      throw Utils.handleThrowable(e.getCause());
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
@@ -265,6 +274,8 @@ public class LuceneProvider {
           hnswBinaryQuantizedVectorsFormat.getConstructor(Integer.TYPE, Integer.TYPE);
       return (FlatVectorsFormat)
           luceneHnswBinaryQuantizedVectorsFormatConstructor.newInstance(maxConn, beamWidth);
+    } catch (InvocationTargetException e) {
+      throw Utils.handleThrowable(e.getCause());
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
@@ -278,6 +289,8 @@ public class LuceneProvider {
       Constructor<?> luceneScalarQuantizedVectorsFormatConstructor =
           scalarQuantizedVectorsFormat.getConstructor();
       return (FlatVectorsFormat) luceneScalarQuantizedVectorsFormatConstructor.newInstance();
+    } catch (InvocationTargetException e) {
+      throw Utils.handleThrowable(e.getCause());
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
@@ -293,6 +306,8 @@ public class LuceneProvider {
           hnswScalarQuantizedVectorsFormat.getConstructor(Integer.TYPE, Integer.TYPE);
       return (FlatVectorsFormat)
           luceneHnswScalarQuantizedVectorsFormatConstructor.newInstance(beamWidth, maxConn);
+    } catch (InvocationTargetException e) {
+      throw Utils.handleThrowable(e.getCause());
     } catch (Exception e) {
       log.log(
           Level.SEVERE,
