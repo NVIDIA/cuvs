@@ -11,6 +11,7 @@
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/memory_type.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/thrust_policy.hpp>
 #include <raft/label/classlabels.cuh>
 #include <raft/linalg/map.cuh>
 #include <raft/matrix/detail/gather.cuh>
@@ -26,7 +27,53 @@
 #include <thrust/device_ptr.h>
 #include <thrust/sort.h>
 
+#include <random>
+
 namespace cuvs::cluster::agglomerative::detail {
+
+/**
+ * Order MST edges by weight and then by a canonical representation of their endpoints.
+ *
+ * RAFT's MST contract does not prescribe the order of the returned COO edges. The host
+ * dendrogram builder, however, is order-sensitive for edges with equal weights. Keep weight as
+ * the primary key and provide a deterministic order inside each equal-weight bucket.
+ */
+struct mst_edge_less {
+  template <typename Tuple1, typename Tuple2>
+  __host__ __device__ bool operator()(Tuple1 const& lhs, Tuple2 const& rhs) const
+  {
+    auto const lhs_weight = cuda::std::get<2>(lhs);
+    auto const rhs_weight = cuda::std::get<2>(rhs);
+    if (lhs_weight < rhs_weight) return true;
+    if (lhs_weight > rhs_weight) return false;
+
+    auto const lhs_src = cuda::std::get<0>(lhs);
+    auto const lhs_dst = cuda::std::get<1>(lhs);
+    auto const rhs_src = cuda::std::get<0>(rhs);
+    auto const rhs_dst = cuda::std::get<1>(rhs);
+
+    auto const lhs_lo = lhs_src < lhs_dst ? lhs_src : lhs_dst;
+    auto const lhs_hi = lhs_src < lhs_dst ? lhs_dst : lhs_src;
+    auto const rhs_lo = rhs_src < rhs_dst ? rhs_src : rhs_dst;
+    auto const rhs_hi = rhs_src < rhs_dst ? rhs_dst : rhs_src;
+
+    if (lhs_lo < rhs_lo) return true;
+    if (lhs_lo > rhs_lo) return false;
+    if (lhs_hi < rhs_hi) return true;
+    if (lhs_hi > rhs_hi) return false;
+    if (lhs_src < rhs_src) return true;
+    if (lhs_src > rhs_src) return false;
+    return lhs_dst < rhs_dst;
+  }
+};
+
+template <typename value_idx, typename value_t>
+void sort_mst_edges(
+  raft::resources const& handle, value_idx* src, value_idx* dst, value_t* weights, size_t n_edges)
+{
+  auto first = thrust::make_zip_iterator(cuda::std::make_tuple(src, dst, weights));
+  thrust::sort(raft::resource::get_thrust_policy(handle), first, first + n_edges, mst_edge_less{});
+}
 
 template <typename value_idx, typename value_t>
 void merge_msts(raft::sparse::solver::Graph_COO<value_idx, value_idx, value_t>& coo1,
@@ -384,8 +431,8 @@ void build_sorted_mst(
                " or increase 'max_iter'",
                max_iter);
 
-  raft::sparse::op::coo_sort_by_weight(
-    mst_coo.src.data(), mst_coo.dst.data(), mst_coo.weights.data(), mst_coo.n_edges, stream.get());
+  sort_mst_edges(
+    handle, mst_coo.src.data(), mst_coo.dst.data(), mst_coo.weights.data(), mst_coo.n_edges);
 
   raft::copy_async(mst_src, mst_coo.src.data(), mst_coo.n_edges, stream.get());
   raft::copy_async(mst_dst, mst_coo.dst.data(), mst_coo.n_edges, stream.get());
