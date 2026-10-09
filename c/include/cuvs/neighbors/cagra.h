@@ -199,6 +199,11 @@ struct cuvsAceParams {
    * Useful for testing or when running alongside other memory-intensive processes.
    */
   double max_gpu_memory_gb;
+  /**
+   * Target number of augmented (spill) copies per input vector.
+   * A value of 0 disables augmentation. The default is 1.0.
+   */
+  double target_alpha;
 };
 
 typedef struct cuvsAceParams* cuvsAceParams_t;

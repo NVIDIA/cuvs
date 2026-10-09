@@ -27,11 +27,12 @@ partition independently.
 | `use_disk` | `bool, default = False (optional)` | Whether to use disk-based storage for ACE build. When true, enables disk-based operations for memory-efficient graph construction. |
 | `max_host_memory_gb` | `float, default = 0 (optional)` | Maximum host memory to use for ACE build in GiB. When set to 0 (default), uses available host memory. Useful for testing or when running alongside other memory-intensive processes. |
 | `max_gpu_memory_gb` | `float, default = 0 (optional)` | Maximum GPU memory to use for ACE build in GiB. When set to 0 (default), uses available GPU memory. Useful for testing or when running alongside other memory-intensive processes. |
+| `target_alpha` | `float, default = 1.0 (optional)` | Target number of augmented copies per input vector. A value of 0 disables augmentation; values above 1 allow multi-partition spills. |
 
 **Constructor**
 
 ```python
-def __init__(self, *, npartitions=0, build_dir="/tmp/hnsw_ace_build", use_disk=False, max_host_memory_gb=0, max_gpu_memory_gb=0)
+def __init__(self, *, npartitions=0, build_dir="/tmp/hnsw_ace_build", use_disk=False, max_host_memory_gb=0, max_gpu_memory_gb=0, target_alpha=1.0)
 ```
 
 **Members**
@@ -43,6 +44,7 @@ def __init__(self, *, npartitions=0, build_dir="/tmp/hnsw_ace_build", use_disk=F
 | `use_disk` | property |
 | `max_host_memory_gb` | property |
 | `max_gpu_memory_gb` | property |
+| `target_alpha` | property |
 
 ### npartitions
 
@@ -72,6 +74,12 @@ def max_host_memory_gb(self)
 
 ```python
 def max_gpu_memory_gb(self)
+```
+
+### target_alpha
+
+```python
+def target_alpha(self)
 ```
 
 ## IndexParams

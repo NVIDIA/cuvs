@@ -2998,6 +2998,7 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
     cagra_ace_params.use_disk           = ace_params.use_disk;
     cagra_ace_params.max_host_memory_gb = ace_params.max_host_memory_gb;
     cagra_ace_params.max_gpu_memory_gb  = ace_params.max_gpu_memory_gb;
+    cagra_ace_params.target_alpha       = ace_params.target_alpha;
     cagra_params.graph_build_params     = cagra_ace_params;
   }
 

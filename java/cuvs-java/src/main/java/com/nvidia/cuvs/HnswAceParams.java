@@ -20,18 +20,21 @@ public class HnswAceParams {
   private boolean useDisk;
   private double maxHostMemoryGb;
   private double maxGpuMemoryGb;
+  private double targetAlpha;
 
   private HnswAceParams(
       long npartitions,
       String buildDir,
       boolean useDisk,
       double maxHostMemoryGb,
-      double maxGpuMemoryGb) {
+      double maxGpuMemoryGb,
+      double targetAlpha) {
     this.npartitions = npartitions;
     this.buildDir = buildDir;
     this.useDisk = useDisk;
     this.maxHostMemoryGb = maxHostMemoryGb;
     this.maxGpuMemoryGb = maxGpuMemoryGb;
+    this.targetAlpha = targetAlpha;
   }
 
   /**
@@ -79,6 +82,15 @@ public class HnswAceParams {
     return maxGpuMemoryGb;
   }
 
+  /**
+   * Gets the target number of augmented copies per input vector.
+   *
+   * @return the target augmentation ratio ({@code 0} disables augmentation)
+   */
+  public double getTargetAlpha() {
+    return targetAlpha;
+  }
+
   @Override
   public String toString() {
     return "HnswAceParams [npartitions="
@@ -91,6 +103,8 @@ public class HnswAceParams {
         + maxHostMemoryGb
         + ", maxGpuMemoryGb="
         + maxGpuMemoryGb
+        + ", targetAlpha="
+        + targetAlpha
         + "]";
   }
 
@@ -104,6 +118,7 @@ public class HnswAceParams {
     private boolean useDisk = false;
     private double maxHostMemoryGb = 0;
     private double maxGpuMemoryGb = 0;
+    private double targetAlpha = 1.0;
 
     /**
      * Constructs this Builder.
@@ -187,12 +202,27 @@ public class HnswAceParams {
     }
 
     /**
+     * Sets the target number of augmented (spill) copies per input vector.
+     *
+     * A value of 0 disables augmentation. Values above 1 allow a vector to spill into multiple
+     * nearby partitions. The default is {@code 1.0}.
+     *
+     * @param targetAlpha the target augmentation ratio
+     * @return an instance of Builder
+     */
+    public Builder withTargetAlpha(double targetAlpha) {
+      this.targetAlpha = targetAlpha;
+      return this;
+    }
+
+    /**
      * Builds an instance of {@link HnswAceParams}.
      *
      * @return an instance of {@link HnswAceParams}
      */
     public HnswAceParams build() {
-      return new HnswAceParams(npartitions, buildDir, useDisk, maxHostMemoryGb, maxGpuMemoryGb);
+      return new HnswAceParams(
+          npartitions, buildDir, useDisk, maxHostMemoryGb, maxGpuMemoryGb, targetAlpha);
     }
   }
 }

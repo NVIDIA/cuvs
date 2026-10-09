@@ -68,6 +68,9 @@ cdef class AceParams:
         Maximum GPU memory to use for ACE build in GiB. When set to 0
         (default), uses available GPU memory. Useful for testing or
         when running alongside other memory-intensive processes.
+    target_alpha : float, default = 1.0 (optional)
+        Target number of augmented copies per input vector. A value of 0
+        disables augmentation; values above 1 allow multi-partition spills.
     """
 
     cdef cuvsHnswAceParams* params
@@ -86,13 +89,15 @@ cdef class AceParams:
                  build_dir="/tmp/hnsw_ace_build",
                  use_disk=False,
                  max_host_memory_gb=0,
-                 max_gpu_memory_gb=0):
+                 max_gpu_memory_gb=0,
+                 target_alpha=1.0):
         self.params.npartitions = npartitions
         self._build_dir_bytes = build_dir.encode('utf-8')
         self.params.build_dir = self._build_dir_bytes
         self.params.use_disk = use_disk
         self.params.max_host_memory_gb = max_host_memory_gb
         self.params.max_gpu_memory_gb = max_gpu_memory_gb
+        self.params.target_alpha = target_alpha
 
     @property
     def npartitions(self):
@@ -115,6 +120,10 @@ cdef class AceParams:
     @property
     def max_gpu_memory_gb(self):
         return self.params.max_gpu_memory_gb
+
+    @property
+    def target_alpha(self):
+        return self.params.target_alpha
 
 
 cdef class IndexParams:

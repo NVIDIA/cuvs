@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -27,6 +27,7 @@ cdef extern from "cuvs/neighbors/hnsw.h" nogil:
         bool use_disk
         double max_host_memory_gb
         double max_gpu_memory_gb
+        double target_alpha
 
     ctypedef cuvsHnswAceParams* cuvsHnswAceParams_t
 
