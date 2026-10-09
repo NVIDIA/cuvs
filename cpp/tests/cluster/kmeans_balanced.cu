@@ -102,6 +102,10 @@ class KmeansBalancedTest : public ::testing::TestWithParam<KmeansBalancedInputs<
     if constexpr (!std::is_same_v<DataT, MathT>) {
       raft::linalg::unaryOp(
         X.data_handle(), blobs.data(), p.n_rows * p.n_cols, op.reverse_op, stream);
+      // Free the MathT staging copy now; keeping it alive during clustering more than
+      // quadruples the peak device memory for the int8 cases.
+      blobs.resize(0, stream);
+      blobs.shrink_to_fit(stream);
     }
 
     d_labels.resize(p.n_rows, stream);
