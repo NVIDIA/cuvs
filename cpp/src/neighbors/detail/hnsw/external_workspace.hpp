@@ -28,9 +28,13 @@
 
 namespace cuvs::neighbors::hnsw::detail::external {
 
-// Reserve the directory atomically so independent automatic builds cannot share an output path.
+// Keep automatic builds on ACE's storage filesystem and reserve each output directory atomically.
 inline std::string create_automatic_build_directory(const std::filesystem::path& parent)
 {
+  RAFT_EXPECTS(!parent.empty(), "ACE build_dir must not be empty");
+  std::error_code error;
+  std::filesystem::create_directories(parent, error);
+  RAFT_EXPECTS(!error, "failed to create automatic ACE storage root: %s", error.message().c_str());
   auto directory = (parent / "cuvs_hnsw_ace_XXXXXX").string();
   RAFT_EXPECTS(::mkdtemp(directory.data()) != nullptr,
                "failed to create automatic ACE build directory: %s",

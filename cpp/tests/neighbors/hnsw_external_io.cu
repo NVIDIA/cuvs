@@ -417,6 +417,40 @@ TEST(HnswExternalWorkspace, AutomaticBuildsPublishIndependentOutputs)
   }
 }
 
+TEST(HnswExternalWorkspace, AutomaticBuildsUseRequestedStorageRoot)
+{
+  temporary_directory directory;
+  auto root = directory.path() / "storage" / "ace";
+  auto first =
+    std::async(std::launch::async, [&] { return create_automatic_build_directory(root); });
+  auto second =
+    std::async(std::launch::async, [&] { return create_automatic_build_directory(root); });
+  std::filesystem::path first_path  = first.get();
+  std::filesystem::path second_path = second.get();
+  EXPECT_NE(first_path, second_path);
+  EXPECT_EQ(first_path.parent_path(), root);
+  EXPECT_EQ(second_path.parent_path(), root);
+
+  auto alias = directory.path() / "fast-disk";
+  std::filesystem::create_directory_symlink(root, alias);
+  std::filesystem::path through_alias = create_automatic_build_directory(alias);
+  EXPECT_EQ(through_alias.parent_path(), alias);
+  EXPECT_EQ(std::filesystem::canonical(through_alias).parent_path(),
+            std::filesystem::canonical(root));
+
+  auto file = directory.path() / "caller-file";
+  {
+    std::ofstream stream(file);
+    stream << "preserve";
+  }
+  EXPECT_THROW(create_automatic_build_directory(file), raft::logic_error);
+  EXPECT_THROW(create_automatic_build_directory({}), raft::logic_error);
+  std::ifstream stream(file);
+  std::string contents;
+  stream >> contents;
+  EXPECT_EQ(contents, "preserve");
+}
+
 TEST(HnswExternalWorkspace, PreservesCallerFilesAndPublishesAtomically)
 {
   temporary_directory directory;
