@@ -3127,6 +3127,8 @@ struct id_record_spiller {
   {
     for (size_t b = 0; b < num_buckets; ++b) {
       flush(b);
+      // Replay no longer needs append buffers; clear() alone retains their capacity.
+      std::vector<char>().swap(buffers[b]);
     }
   }
 
@@ -3420,8 +3422,18 @@ inline void materialize_hnswlib_upper_region(const cuvs::util::file_descriptor& 
     if (out_buffer.size() >= (size_t{64} << 20)) { flush_out(); }
   };
 
+  if (metadata.upper_links_bytes == 0) {
+    // A flat graph needs only zero-length records, not an O(n_rows) offset table.
+    for (size_t id = 0; id < n_rows; ++id) {
+      RAFT_EXPECTS(levels_u8[id] == 0, "Layered HNSW artifact is missing upper links");
+      append_element(0, nullptr);
+    }
+    flush_out();
+    return;
+  }
+
   const size_t fits_budget = metadata.upper_links_bytes + (n_rows + 1) * sizeof(size_t);
-  if (metadata.upper_links_bytes == 0 || fits_budget <= budget_bytes) {
+  if (fits_budget <= budget_bytes) {
     // Pack all upper rows in original-ID order, then stream them out.
     std::vector<size_t> packed_start(n_rows + 1, 0);
     for (size_t i = 0; i < n_rows; ++i) {
@@ -3453,12 +3465,15 @@ inline void materialize_hnswlib_upper_region(const cuvs::util::file_descriptor& 
     return;
   }
 
-  // Bucketed upper transpose for a hard memory budget.
-  const size_t budget_half = std::max<size_t>(1, budget_bytes / 2);
-  size_t num_buckets =
-    std::max<size_t>(1, (metadata.upper_links_bytes + budget_half - 1) / budget_half);
-  size_t rows_per_bucket = std::max<size_t>(1, (n_rows + num_buckets - 1) / num_buckets);
-  num_buckets            = (n_rows + rows_per_bucket - 1) / rows_per_bucket;
+  // Include the local offset table and bound links by the maximum level, so even a bucket
+  // containing all the highest-level nodes fits its replay allowance.
+  const size_t budget_half   = budget_bytes / 2;
+  const size_t max_row_bytes = sizeof(size_t) + static_cast<size_t>(metadata.maxlevel) * urow;
+  RAFT_EXPECTS(budget_half >= sizeof(size_t) + max_row_bytes,
+               "Host-memory budget is too small for an upper-layer reorder bucket. "
+               "Increase max_host_memory_gb.");
+  const size_t rows_per_bucket = std::min(n_rows, (budget_half - sizeof(size_t)) / max_row_bytes);
+  const size_t num_buckets     = 1 + (n_rows - 1) / rows_per_bucket;
   validate_materialize_bucket_count(num_buckets);
   RAFT_LOG_INFO("hnswlib materialize: upper region uses %zu buckets (rows/bucket=%zu)",
                 num_buckets,
