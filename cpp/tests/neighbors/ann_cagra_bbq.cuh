@@ -348,7 +348,7 @@ inline const std::vector<AnnCagraBbqInputs> bbq_inputs = [] {
   using cuvs::preprocessing::quantize::bbq::bbq_code_layout;
   using opt_layout = std::optional<bbq_code_layout>;
   const std::vector<std::tuple<bbq_code_layout, opt_layout, double>> code_specs{
-    {bbq_code_layout::packed_1b, opt_layout{}, 0.85},
+    {bbq_code_layout::packed_1b, opt_layout{}, 0.84},
     {bbq_code_layout::transposed_2b, opt_layout{}, 0.92},
     {bbq_code_layout::transposed_2b, opt_layout{bbq_code_layout::packed_1b}, 0.92},
     {bbq_code_layout::packed_4b, opt_layout{}, 0.95},

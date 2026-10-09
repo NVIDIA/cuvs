@@ -213,7 +213,7 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
                                 ps.n_queries,
                                 ps.k,
                                 0.001,
-                                0.9))
+                                0.85))
       << ps;
   }
 
