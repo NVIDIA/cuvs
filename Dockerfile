@@ -17,7 +17,7 @@
 # Configurable build arguments - override with --build-arg during build
 ARG CUDA_VER=12.9.1
 
-# Python version for the conda environment (supported: 3.12, 3.13)
+# Python version for the conda environment (supported: 3.12, 3.13, 3.14)
 ARG PYTHON_VER=3.12
 
 # RAPIDS/cuVS version
