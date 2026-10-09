@@ -255,6 +255,102 @@ def nn_descent_niter(self)
 def refinement_rate(self)
 ```
 
+## MergeParams
+
+```python
+cdef class MergeParams
+```
+
+Supplemental parameters controlling how physical CAGRA indices are
+merged.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `algo` | `str, default = "auto"` | String denoting the merge algorithm to use.<br />Valid values for algo: ["auto", "fastener", "rebuild"], where<br /><br />- auto will automatically select the merge algorithm<br />- fastener will stitch the input graphs together<br />- rebuild will build the output graph from scratch |
+| `levels` | `int, default = 0` |  |
+| `root_fanout` | `int, default = 0` |  |
+| `lower_fanout` | `int, default = 0` |  |
+| `leader_fraction` | `float, default = 0` |  |
+| `max_leaders` | `int, default = 0` |  |
+| `leaf_size` | `int, default = 0` |  |
+| `leaf_degree` | `int, default = 0` |  |
+
+**Constructor**
+
+```python
+def __init__(self, *, algo="auto", levels=None, root_fanout=None, lower_fanout=None, leader_fraction=None, max_leaders=None, leaf_size=None, leaf_degree=None)
+```
+
+**Members**
+
+| Name | Kind |
+| --- | --- |
+| `get_handle` | method |
+| `algo` | property |
+| `levels` | property |
+| `root_fanout` | property |
+| `lower_fanout` | property |
+| `leader_fraction` | property |
+| `max_leaders` | property |
+| `leaf_size` | property |
+| `leaf_degree` | property |
+
+### get_handle
+
+```python
+def get_handle(self)
+```
+
+### algo
+
+```python
+def algo(self)
+```
+
+### levels
+
+```python
+def levels(self)
+```
+
+### root_fanout
+
+```python
+def root_fanout(self)
+```
+
+### lower_fanout
+
+```python
+def lower_fanout(self)
+```
+
+### leader_fraction
+
+```python
+def leader_fraction(self)
+```
+
+### max_leaders
+
+```python
+def max_leaders(self)
+```
+
+### leaf_size
+
+```python
+def leaf_size(self)
+```
+
+### leaf_degree
+
+```python
+def leaf_degree(self)
+```
+
 ## SearchParams
 
 ```python
@@ -529,6 +625,75 @@ version of cuvs is not guaranteed to work.
 | `filename` | `string` | Name of the file. |
 | `out_dataset` | `Dataset, optional` | Empty dataset populated when the file includes dataset storage. If omitted, only the graph is retained. |
 | `resources` | `cuvs.common.Resources, optional` |  |
+
+## merge
+
+`@auto_sync_resources`
+
+```python
+def merge(IndexParams params, indices, merged_dataset, offsets, merge_params=None, filter=None, resources=None)
+```
+
+Merge multiple CAGRA indices into a single CAGRA index.
+
+The caller owns dataset concatenation. Build a single padded
+``merged_dataset`` containing the concatenation, in ``indices`` order,
+of every input index's dataset (with ``filter`` already applied, if
+any). ``offsets`` gives the row at which each input index's (post
+filter) rows begin in ``merged_dataset``; see
+``merged_dataset_offsets`` for the bitset-filtered case. For an
+unfiltered merge, ``offsets`` is just the cumulative row counts of
+``indices``.
+
+This function only merges the graph and rebinds the output index to
+``merged_dataset``; keep that dataset alive for the resulting index's
+lifetime.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `params` | `IndexParams object` | Parameters for the output (merged) index. |
+| `indices` | `list[Index]` | Input CAGRA indices to merge. |
+| `merged_dataset` | `Dataset or array` | Padded dataset already containing the concatenated (and, if ``filter`` is set, already-filtered) rows of every input index. |
+| `offsets` | `array-like of int64, shape (len(indices) + 1,)` | Per-index starting row within ``merged_dataset``. The last entry must equal ``merged_dataset``'s row count. |
+| `merge_params` | `MergeParams, optional` | Parameters controlling the merge algorithm.<br />Defaults to AUTO. |
+| `filter` | `Optional cuvs.neighbors.filters.Prefilter` | Filter already applied by the caller while building ``merged_dataset``. (default None) |
+| `resources` | `cuvs.common.Resources, optional` |  |
+
+**Returns**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `index` | `cuvs.cagra.Index` |  |
+
+## merged_dataset_offsets
+
+`@auto_sync_resources`
+
+```python
+def merged_dataset_offsets(indices, filter=None, resources=None)
+```
+
+Compute the per-index starting row offsets required by ``merge``.
+
+Only needed when merging with a bitset ``filter``. For an unfiltered
+merge, the offsets are simply the cumulative row counts of ``indices``
+and this function is not required.
+
+**Parameters**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `indices` | `list[Index]` | Input CAGRA indices that will be passed to ``merge``. |
+| `filter` | `Optional cuvs.neighbors.filters.Prefilter` | Filter that will be passed to ``merge``. Only bitset filters (or no filter) are supported. (default None) |
+| `resources` | `cuvs.common.Resources, optional` |  |
+
+**Returns**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `offsets` | `numpy.ndarray of dtype int64, shape (len(indices) + 1,)` |  |
 
 ## save
 

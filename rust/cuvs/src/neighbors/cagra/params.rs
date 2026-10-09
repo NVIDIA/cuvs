@@ -20,7 +20,7 @@ use bon::bon;
 use crate::distance::DistanceType;
 use crate::error::check_cuvs;
 
-use super::{CagraError, GraphBuildAlgo, HashMode, SearchAlgo};
+use super::{CagraError, GraphBuildAlgo, HashMode, MergeAlgo, SearchAlgo};
 
 #[derive(Debug)]
 enum RequestedGraphBuild {
@@ -399,6 +399,93 @@ impl Drop for SearchParams {
 }
 
 // ---------------------------------------------------------------------------
+// MergeParams
+// ---------------------------------------------------------------------------
+
+/// Parameters controlling how physical CAGRA indices are merged.
+///
+/// ```ignore
+/// use cuvs::neighbors::cagra::{MergeAlgo, MergeParams};
+///
+/// let params = MergeParams::builder().algo(MergeAlgo::Fastener).build()?;
+/// ```
+pub struct MergeParams {
+    handle: ffi::cuvsCagraMergeParams_t,
+}
+
+#[bon]
+impl MergeParams {
+    #[builder]
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        algo: Option<MergeAlgo>,
+        levels: Option<u32>,
+        root_fanout: Option<u32>,
+        lower_fanout: Option<u32>,
+        leader_fraction: Option<f64>,
+        max_leaders: Option<u32>,
+        leaf_size: Option<u32>,
+        leaf_degree: Option<u32>,
+    ) -> Result<Self, CagraError> {
+        let params = Self::create_handle()?;
+
+        unsafe {
+            if let Some(v) = algo {
+                (*params.handle).algo = v.into();
+            }
+            if let Some(v) = levels {
+                (*params.handle).levels = v;
+            }
+            if let Some(v) = root_fanout {
+                (*params.handle).root_fanout = v;
+            }
+            if let Some(v) = lower_fanout {
+                (*params.handle).lower_fanout = v;
+            }
+            if let Some(v) = leader_fraction {
+                (*params.handle).leader_fraction = v;
+            }
+            if let Some(v) = max_leaders {
+                (*params.handle).max_leaders = v;
+            }
+            if let Some(v) = leaf_size {
+                (*params.handle).leaf_size = v;
+            }
+            if let Some(v) = leaf_degree {
+                (*params.handle).leaf_degree = v;
+            }
+        }
+
+        Ok(params)
+    }
+}
+
+impl MergeParams {
+    /// Allocate parameters populated with the AUTO-algorithm defaults.
+    fn create_handle() -> Result<Self, CagraError> {
+        let mut handle = ptr::null_mut();
+        check_cuvs(unsafe { ffi::cuvsCagraMergeParamsCreate(&mut handle) })?;
+        Ok(Self { handle })
+    }
+
+    pub(super) fn handle(&self) -> ffi::cuvsCagraMergeParams_t {
+        self.handle
+    }
+}
+
+impl fmt::Debug for MergeParams {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("MergeParams").field(unsafe { &*self.handle }).finish()
+    }
+}
+
+impl Drop for MergeParams {
+    fn drop(&mut self) {
+        let _ = unsafe { ffi::cuvsCagraMergeParamsDestroy(self.handle) };
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -535,6 +622,40 @@ mod tests {
             .build()
             .unwrap_err();
         assert!(err.to_string().contains("512"));
+    }
+
+    #[test]
+    fn merge_params_all_defaults() {
+        let params = MergeParams::builder().build().unwrap();
+        unsafe {
+            assert_eq!((*params.handle).algo, ffi::cuvsCagraMergeAlgo::CUVS_CAGRA_MERGE_AUTO);
+        }
+    }
+
+    #[test]
+    fn merge_params_with_values() {
+        let params = MergeParams::builder()
+            .algo(MergeAlgo::Fastener)
+            .levels(3)
+            .root_fanout(4)
+            .lower_fanout(2)
+            .leader_fraction(0.1)
+            .max_leaders(8)
+            .leaf_size(16)
+            .leaf_degree(32)
+            .build()
+            .unwrap();
+
+        unsafe {
+            assert_eq!((*params.handle).algo, ffi::cuvsCagraMergeAlgo::CUVS_CAGRA_MERGE_FASTENER);
+            assert_eq!((*params.handle).levels, 3);
+            assert_eq!((*params.handle).root_fanout, 4);
+            assert_eq!((*params.handle).lower_fanout, 2);
+            assert_eq!((*params.handle).leader_fraction, 0.1);
+            assert_eq!((*params.handle).max_leaders, 8);
+            assert_eq!((*params.handle).leaf_size, 16);
+            assert_eq!((*params.handle).leaf_degree, 32);
+        }
     }
 
     #[test]

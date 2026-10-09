@@ -87,13 +87,41 @@ final class UnsupportedProvider implements CuVSProvider {
   }
 
   @Override
-  public boolean isCagraPaddedDataset(CuVSMatrix dataset) {
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      CagraIndexParams mergeParams) {
     throw new UnsupportedOperationException(reasons);
   }
 
   @Override
   public CagraIndex mergeCagraIndexes(
-      CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter) {
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      BitSet filter,
+      CagraIndexParams mergeParams) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
+  public long[] cagraMergedDatasetOffsets(CagraIndex[] indexes, BitSet filter) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
+  public CagraIndex.PaddedDataset concatenateCagraDatasets(CagraIndex[] indexes) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  @Override
+  public CagraIndex.PaddedDataset concatenateAndFilterCagraDatasets(
+      CagraIndex[] indexes, BitSet filter) {
+    throw new UnsupportedOperationException(reasons);
+  }
+
+  public boolean isCagraPaddedDataset(CuVSMatrix dataset) {
     throw new UnsupportedOperationException(reasons);
   }
 

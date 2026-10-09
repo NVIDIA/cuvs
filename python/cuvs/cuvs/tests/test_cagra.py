@@ -226,6 +226,77 @@ def test_cagra_build_from_dataset_handle(
     assert distances.shape == (n_queries, k)
 
 
+@pytest.mark.parametrize("n_rows", [1024, 2048])
+@pytest.mark.parametrize("n_cols", [16, 32])
+def test_cagra_merge(n_rows, n_cols):
+    n_queries = 32
+    k = 10
+    dtype = np.float32
+
+    dataset = generate_data((n_rows, n_cols), dtype)
+    split = n_rows // 2
+    dataset_1 = dataset[:split, :]
+    dataset_2 = dataset[split:, :]
+
+    build_params = cagra.IndexParams(metric="sqeuclidean")
+    index_1 = cagra.build(build_params, device_ndarray(dataset_1))
+    index_2 = cagra.build(build_params, device_ndarray(dataset_2))
+
+    # unfiltered merge: offsets are simply the cumulative row counts
+    offsets = np.array(
+        [0, dataset_1.shape[0], dataset_1.shape[0] + dataset_2.shape[0]],
+        dtype=np.int64,
+    )
+
+    merged_dataset = make_device_padded_dataset(
+        device_ndarray(np.concatenate((dataset_1, dataset_2), axis=0))
+    )
+
+    merge_params = cagra.IndexParams(metric="sqeuclidean")
+    merged_index = cagra.merge(
+        merge_params,
+        [index_1, index_2],
+        merged_dataset,
+        offsets,
+    )
+
+    assert merged_index.trained
+    assert len(merged_index) == n_rows
+
+    queries = generate_data((n_queries, n_cols), dtype)
+    queries_device = device_ndarray(queries)
+
+    search_params = cagra.SearchParams()
+    dist_device, idx_device = cagra.search(
+        search_params, merged_index, queries_device, k
+    )
+
+    nn_skl = NearestNeighbors(
+        n_neighbors=k, algorithm="brute", metric="sqeuclidean"
+    )
+    nn_skl.fit(dataset)
+    skl_idx = nn_skl.kneighbors(queries, return_distance=False)
+
+    recall = calc_recall(idx_device.copy_to_host(), skl_idx)
+    assert recall > 0.7
+
+    # also exercise merged_dataset_offsets() for the unfiltered case; it
+    # should reproduce the same cumulative offsets computed above.
+    computed_offsets = cagra.merged_dataset_offsets([index_1, index_2])
+    assert np.array_equal(computed_offsets, offsets)
+
+    # merging with explicit MergeParams (rebuild algo) should also work
+    merged_index_rebuild = cagra.merge(
+        merge_params,
+        [index_1, index_2],
+        merged_dataset,
+        offsets,
+        merge_params=cagra.MergeParams(algo="rebuild"),
+    )
+    assert merged_index_rebuild.trained
+    assert len(merged_index_rebuild) == n_rows
+
+
 @pytest.mark.parametrize("sparsity", [0.2, 0.5, 0.7, 1.0])
 def test_filtered_cagra(sparsity):
     run_filtered_search_test(cagra, sparsity)

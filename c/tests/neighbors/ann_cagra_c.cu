@@ -466,12 +466,27 @@ TEST(CagraC, DatasetContractFailures)
   ASSERT_EQ(cuvsCagraBuild(res, build_params, host_standard_view, host_index_2), CUVS_SUCCESS);
   cuvsCagraIndex_t merge_out;
   ASSERT_EQ(cuvsCagraIndexCreate(&merge_out), CUVS_SUCCESS);
+  // Non-empty so the rejection below is actually the host-index-layout check, not a bounce off an
+  // empty merged_dataset handle.
+  rmm::device_uvector<float> host_merge_dummy_d(16, stream);
+  DLManagedTensor host_merge_dummy_tensor       = device_tensor;
+  host_merge_dummy_tensor.dl_tensor.data        = host_merge_dummy_d.data();
+  int64_t host_merge_dummy_shape[2]             = {8, 2};
+  host_merge_dummy_tensor.dl_tensor.shape       = host_merge_dummy_shape;
   cuvsDataset_t merged_dataset;
-  ASSERT_EQ(cuvsDatasetCreate(&merged_dataset), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsDatasetMakeStandardView(res, &host_merge_dummy_tensor, &merged_dataset),
+            CUVS_SUCCESS);
   cuvsCagraIndex_t host_indices[2] = {host_index, host_index_2};
-  EXPECT_EQ(
-    cuvsCagraMerge(res, build_params, host_indices, 2, filter, merged_dataset, merge_out),
-    CUVS_ERROR);
+  int64_t host_merge_offsets[3]    = {0, 4, 8};
+  EXPECT_EQ(cuvsCagraMerge_v2(res,
+                              build_params,
+                              host_indices,
+                              2,
+                              filter,
+                              merged_dataset,
+                              host_merge_offsets,
+                              merge_out),
+            CUVS_ERROR);
 
   ASSERT_EQ(cuvsCagraExtendParamsDestroy(extend_params), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraSearchParamsDestroy(search_params), CUVS_SUCCESS);
@@ -1039,26 +1054,9 @@ TEST(CagraC, BuildMergeSearch)
   filter.addr = 0;
 
   cuvsCagraIndex_t index_array[2] = {index_main, index_add};
-  cuvsDataset_t merged_dataset;
-  ASSERT_EQ(cuvsDatasetCreate(&merged_dataset), CUVS_SUCCESS);
-  cuvsCagraMergeParams_t merge_params;
-  ASSERT_EQ(cuvsCagraMergeParamsCreate(&merge_params), CUVS_SUCCESS);
-  EXPECT_EQ(merge_params->algo, CUVS_CAGRA_MERGE_AUTO);
-  merge_params->algo = CUVS_CAGRA_MERGE_REBUILD;
-  ASSERT_EQ(cuvsCagraMergeWithParams(
-              res, build_params, merge_params, index_array, 2, filter, merged_dataset, index_merged),
-            CUVS_SUCCESS);
-  {
-    cuvsDatasetMemType_t mem_type{};
-    cuvsDatasetLayout_t layout{};
-    ASSERT_EQ(cuvsDatasetGetMemType(merged_dataset, &mem_type), CUVS_SUCCESS);
-    ASSERT_EQ(cuvsDatasetGetLayout(merged_dataset, &layout), CUVS_SUCCESS);
-    EXPECT_EQ(layout, CUVS_DATASET_LAYOUT_STANDARD);
-    EXPECT_EQ(mem_type, CUVS_DATASET_MEM_TYPE_DEVICE);
-  }
 
-  // Merge of standard-layout device inputs yields a standard index. Under the explicit C API
-  // contract, attach a padded dataset before calling search.
+  // The caller concatenates every input index's dataset itself (main || additional) and passes
+  // that pre-populated buffer plus per-index offsets -- merge() only merges the graph.
   rmm::device_uvector<float> merged_d(14, stream);
   raft::copy(merged_d.data(), main_d.data(), main_d.size(), stream);
   raft::copy(merged_d.data() + main_d.size(), additional_d.data(), additional_d.size(), stream);
@@ -1075,6 +1073,35 @@ TEST(CagraC, BuildMergeSearch)
   merged_dataset_tensor.dl_tensor.shape              = merged_shape;
   merged_dataset_tensor.dl_tensor.strides            = nullptr;
 
+  cuvsDataset_t merged_dataset;
+  ASSERT_EQ(cuvsDatasetMakeStandardView(res, &merged_dataset_tensor, &merged_dataset),
+            CUVS_SUCCESS);
+  int64_t merge_offsets[3] = {0, 4, 7};
+  cuvsCagraMergeParams_t merge_params;
+  ASSERT_EQ(cuvsCagraMergeParamsCreate(&merge_params), CUVS_SUCCESS);
+  EXPECT_EQ(merge_params->algo, CUVS_CAGRA_MERGE_AUTO);
+  merge_params->algo = CUVS_CAGRA_MERGE_REBUILD;
+  ASSERT_EQ(cuvsCagraMergeWithParams_v2(res,
+                                        build_params,
+                                        merge_params,
+                                        index_array,
+                                        2,
+                                        filter,
+                                        merged_dataset,
+                                        merge_offsets,
+                                        index_merged),
+            CUVS_SUCCESS);
+  {
+    cuvsDatasetMemType_t mem_type{};
+    cuvsDatasetLayout_t layout{};
+    ASSERT_EQ(cuvsDatasetGetMemType(merged_dataset, &mem_type), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsDatasetGetLayout(merged_dataset, &layout), CUVS_SUCCESS);
+    EXPECT_EQ(layout, CUVS_DATASET_LAYOUT_STANDARD);
+    EXPECT_EQ(mem_type, CUVS_DATASET_MEM_TYPE_DEVICE);
+  }
+
+  // Merge of standard-layout device inputs yields a standard index. Under the explicit C API
+  // contract, attach a padded dataset before calling search.
   cuvsDataset_t padded_dataset_owner;
   ASSERT_EQ(cuvsDatasetMakePadded(
               res, &merged_dataset_tensor, CUVS_DATASET_MEM_TYPE_DEVICE, &padded_dataset_owner),
@@ -1139,6 +1166,235 @@ TEST(CagraC, BuildMergeSearch)
   cuvsDatasetDestroy(additional_dataset_view);
   cuvsDatasetDestroy(main_dataset_view);
   cuvsDatasetDestroy(merged_dataset);
+  cuvsResourcesDestroy(res);
+}
+
+TEST(CagraC, ConcatenateDatasetsMergeSearch)
+{
+  cuvsResources_t res;
+  cuvsResourcesCreate(&res);
+  cudaStream_t stream;
+  cuvsStreamGet(res, &stream);
+
+  float dataset[7][2] = {{0.74021935f, 0.92099380f},
+                         {0.03902049f, 0.96896291f},
+                         {0.92514056f, 0.44635010f},
+                         {0.12345678f, 0.87654321f},
+                         {0.50112233f, 0.33221100f},
+                         {0.66731918f, 0.10993068f},
+                         {0.77777777f, 0.88888888f}};
+
+  float* main_data_ptr       = &dataset[0][0];
+  float* additional_data_ptr = &dataset[4][0];
+  float* query_data_ptr      = &dataset[6][0];
+
+  rmm::device_uvector<float> main_d(8, stream);
+  rmm::device_uvector<float> additional_d(6, stream);
+  rmm::device_uvector<float> queries_d(2, stream);
+  raft::copy(main_d.data(), main_data_ptr, 8, stream);
+  raft::copy(additional_d.data(), additional_data_ptr, 6, stream);
+  raft::copy(queries_d.data(), query_data_ptr, 2, stream);
+
+  DLManagedTensor main_dataset_tensor;
+  int64_t main_shape[2]                            = {4, 2};
+  main_dataset_tensor.dl_tensor.data               = main_d.data();
+  main_dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
+  main_dataset_tensor.dl_tensor.device.device_id   = 0;
+  main_dataset_tensor.dl_tensor.ndim               = 2;
+  main_dataset_tensor.dl_tensor.dtype.code         = kDLFloat;
+  main_dataset_tensor.dl_tensor.dtype.bits         = 32;
+  main_dataset_tensor.dl_tensor.dtype.lanes        = 1;
+  main_dataset_tensor.dl_tensor.shape              = main_shape;
+  main_dataset_tensor.dl_tensor.strides            = nullptr;
+
+  DLManagedTensor additional_dataset_tensor = main_dataset_tensor;
+  int64_t additional_shape[2]               = {3, 2};
+  additional_dataset_tensor.dl_tensor.data  = additional_d.data();
+  additional_dataset_tensor.dl_tensor.shape = additional_shape;
+
+  DLManagedTensor query_tensor = main_dataset_tensor;
+  int64_t query_shape[2]       = {1, 2};
+  query_tensor.dl_tensor.data  = queries_d.data();
+  query_tensor.dl_tensor.shape = query_shape;
+
+  cuvsCagraIndexParams_t build_params;
+  cuvsCagraIndexParamsCreate(&build_params);
+  cuvsCagraIndex_t index_main, index_add;
+  cuvsCagraIndexCreate(&index_main);
+  cuvsCagraIndexCreate(&index_add);
+  // concatenate_datasets()/concatenate_and_filter_datasets() always produce a padded-layout
+  // output, so build these indices with padded (not standard) datasets to match.
+  cuvsDataset_t main_dataset_view;
+  cuvsDataset_t additional_dataset_view;
+  ASSERT_EQ(cuvsDatasetMakePadded(
+              res, &main_dataset_tensor, CUVS_DATASET_MEM_TYPE_DEVICE, &main_dataset_view),
+            CUVS_SUCCESS);
+  ASSERT_EQ(cuvsDatasetMakePadded(res,
+                                  &additional_dataset_tensor,
+                                  CUVS_DATASET_MEM_TYPE_DEVICE,
+                                  &additional_dataset_view),
+            CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraBuild(res, build_params, main_dataset_view, index_main), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraBuild(res, build_params, additional_dataset_view, index_add), CUVS_SUCCESS);
+
+  cuvsCagraIndex_t index_array[2] = {index_main, index_add};
+
+  cuvsFilter no_filter;
+  no_filter.type = NO_FILTER;
+  no_filter.addr = 0;
+
+  DLManagedTensor neighbors_tensor, distances_tensor;
+  rmm::device_uvector<int64_t> neighbors_d(1, stream);
+  rmm::device_uvector<float> distances_d(1, stream);
+  int64_t neighbors_shape[2]             = {1, 1};
+  int64_t distances_shape[2]             = {1, 1};
+  neighbors_tensor.dl_tensor.data        = neighbors_d.data();
+  neighbors_tensor.dl_tensor.device      = main_dataset_tensor.dl_tensor.device;
+  neighbors_tensor.dl_tensor.ndim        = 2;
+  neighbors_tensor.dl_tensor.dtype.code  = kDLInt;
+  neighbors_tensor.dl_tensor.dtype.bits  = 64;
+  neighbors_tensor.dl_tensor.dtype.lanes = 1;
+  neighbors_tensor.dl_tensor.shape       = neighbors_shape;
+  neighbors_tensor.dl_tensor.strides     = nullptr;
+  distances_tensor.dl_tensor.data        = distances_d.data();
+  distances_tensor.dl_tensor.device      = main_dataset_tensor.dl_tensor.device;
+  distances_tensor.dl_tensor.ndim        = 2;
+  distances_tensor.dl_tensor.dtype.code  = kDLFloat;
+  distances_tensor.dl_tensor.dtype.bits  = 32;
+  distances_tensor.dl_tensor.dtype.lanes = 1;
+  distances_tensor.dl_tensor.shape       = distances_shape;
+  distances_tensor.dl_tensor.strides     = nullptr;
+
+  cuvsCagraSearchParams_t search_params;
+  cuvsCagraSearchParamsCreate(&search_params);
+  (*search_params).itopk_size = 1;
+
+  // --- Unfiltered: cuvsCagraConcatenateDatasets() builds the merged buffer for us. ---
+  cuvsDataset_t concatenated_dataset;
+  ASSERT_EQ(cuvsCagraConcatenateDatasets(res, index_array, 2, no_filter, &concatenated_dataset),
+            CUVS_SUCCESS);
+  {
+    cuvsDatasetMemType_t mem_type{};
+    cuvsDatasetLayout_t layout{};
+    ASSERT_EQ(cuvsDatasetGetMemType(concatenated_dataset, &mem_type), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsDatasetGetLayout(concatenated_dataset, &layout), CUVS_SUCCESS);
+    EXPECT_EQ(layout, CUVS_DATASET_LAYOUT_PADDED);
+    EXPECT_EQ(mem_type, CUVS_DATASET_MEM_TYPE_DEVICE);
+  }
+
+  cuvsCagraIndex_t index_merged;
+  cuvsCagraIndexCreate(&index_merged);
+  int64_t merge_offsets[3] = {0, 4, 7};
+  ASSERT_EQ(cuvsCagraMerge_v2(res,
+                              build_params,
+                              index_array,
+                              2,
+                              no_filter,
+                              concatenated_dataset,
+                              merge_offsets,
+                              index_merged),
+            CUVS_SUCCESS);
+
+  int64_t merged_dim = -1;
+  ASSERT_EQ(cuvsCagraIndexGetDims(index_merged, &merged_dim), CUVS_SUCCESS);
+  EXPECT_EQ(merged_dim, 2);
+
+  ASSERT_EQ(cuvsCagraSearch(res,
+                            search_params,
+                            index_merged,
+                            &query_tensor,
+                            &neighbors_tensor,
+                            &distances_tensor,
+                            no_filter),
+            CUVS_SUCCESS);
+  {
+    int64_t neighbor_host = -1;
+    float distance_host   = 1.0f;
+    raft::copy(&neighbor_host, neighbors_d.data(), 1, stream);
+    raft::copy(&distance_host, distances_d.data(), 1, stream);
+    cudaStreamSynchronize(stream);
+    EXPECT_EQ(neighbor_host, 6);
+    EXPECT_NEAR(distance_host, 0.0f, 1e-6);
+  }
+
+  // --- Filtered: cuvsCagraConcatenateDatasets() + cuvsCagraMergedDatasetOffsets()
+  // together build the merged buffer and its offsets, dropping global row 6 (the query's own
+  // exact match) so the merged index must fall back to a different nearest neighbor. ---
+  rmm::device_uvector<uint32_t> removed_d(1, stream);
+  // Bitset semantics: a SET bit means the row survives. Set bits 0-5, clear bit 6, so only
+  // global row 6 (the query's own exact match) is removed.
+  uint32_t removed_bits = 0b0111111u;
+  raft::copy(removed_d.data(), &removed_bits, 1, stream);
+  DLManagedTensor removed_tensor;
+  removed_tensor.dl_tensor.data               = removed_d.data();
+  removed_tensor.dl_tensor.device.device_type = kDLCUDA;
+  removed_tensor.dl_tensor.device.device_id   = 0;
+  removed_tensor.dl_tensor.ndim               = 1;
+  removed_tensor.dl_tensor.dtype.code         = kDLUInt;
+  removed_tensor.dl_tensor.dtype.bits         = 32;
+  removed_tensor.dl_tensor.dtype.lanes        = 1;
+  int64_t removed_shape[1]                    = {1};
+  removed_tensor.dl_tensor.shape              = removed_shape;
+  removed_tensor.dl_tensor.strides            = nullptr;
+
+  cuvsFilter bitset_filter;
+  bitset_filter.type = BITSET;
+  bitset_filter.addr = (uintptr_t)&removed_tensor;
+
+  int64_t filtered_offsets[3];
+  ASSERT_EQ(
+    cuvsCagraMergedDatasetOffsets(res, index_array, 2, bitset_filter, filtered_offsets),
+    CUVS_SUCCESS);
+  EXPECT_EQ(filtered_offsets[0], 0);
+  EXPECT_EQ(filtered_offsets[2], 6);  // 7 rows minus the 1 removed
+
+  cuvsDataset_t filtered_dataset;
+  ASSERT_EQ(
+    cuvsCagraConcatenateDatasets(res, index_array, 2, bitset_filter, &filtered_dataset),
+    CUVS_SUCCESS);
+
+  cuvsCagraIndex_t index_filtered_merged;
+  cuvsCagraIndexCreate(&index_filtered_merged);
+  ASSERT_EQ(cuvsCagraMerge_v2(res,
+                              build_params,
+                              index_array,
+                              2,
+                              bitset_filter,
+                              filtered_dataset,
+                              filtered_offsets,
+                              index_filtered_merged),
+            CUVS_SUCCESS);
+
+  ASSERT_EQ(cuvsCagraSearch(res,
+                            search_params,
+                            index_filtered_merged,
+                            &query_tensor,
+                            &neighbors_tensor,
+                            &distances_tensor,
+                            no_filter),
+            CUVS_SUCCESS);
+  {
+    int64_t neighbor_host = -1;
+    float distance_host   = -1.0f;
+    raft::copy(&neighbor_host, neighbors_d.data(), 1, stream);
+    raft::copy(&distance_host, distances_d.data(), 1, stream);
+    cudaStreamSynchronize(stream);
+    // Row 6 (the query's exact match) was filtered out, so the nearest neighbor must be a
+    // different, strictly positive-distance row.
+    EXPECT_NE(neighbor_host, 6);
+    EXPECT_GT(distance_host, 1e-6);
+  }
+
+  cuvsCagraSearchParamsDestroy(search_params);
+  cuvsCagraIndexParamsDestroy(build_params);
+  cuvsCagraIndexDestroy(index_filtered_merged);
+  cuvsCagraIndexDestroy(index_merged);
+  cuvsCagraIndexDestroy(index_add);
+  cuvsCagraIndexDestroy(index_main);
+  cuvsDatasetDestroy(filtered_dataset);
+  cuvsDatasetDestroy(concatenated_dataset);
+  cuvsDatasetDestroy(additional_dataset_view);
+  cuvsDatasetDestroy(main_dataset_view);
   cuvsResourcesDestroy(res);
 }
 

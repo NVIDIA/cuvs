@@ -34,6 +34,18 @@ HashmapModeAuto
 
 _Source: `go/cagra/search_params.go:28`_
 
+### MergeAlgo Constants
+
+```go
+const (
+MergeAuto MergeAlgo = iota
+MergeFastener
+MergeRebuild
+)
+```
+
+_Source: `go/cagra/merge_params.go:20`_
+
 ### SearchAlgo Constants
 
 ```go
@@ -99,6 +111,28 @@ type IndexParams struct {
 
 _Source: `go/cagra/index_params.go:12`_
 
+### MergeAlgo
+
+```go
+type MergeAlgo int
+```
+
+Algorithm used to merge physical CAGRA indices.
+
+_Source: `go/cagra/merge_params.go:18`_
+
+### MergeParams
+
+```go
+type MergeParams struct {
+	// contains filtered or unexported fields
+}
+```
+
+Parameters controlling how physical CAGRA indices are merged.
+
+_Source: `go/cagra/merge_params.go:13`_
+
 ### PaddedDataset
 
 ```go
@@ -110,6 +144,19 @@ type PaddedDataset struct {
 Owning padded dataset handle for explicit CAGRA dataset management.
 
 _Source: `go/cagra/cagra.go:20`_
+
+### PaddedDatasetCloser
+
+```go
+type PaddedDatasetCloser interface {
+	PaddedDatasetHandle
+	Close() error
+}
+```
+
+PaddedDatasetCloser is a PaddedDatasetHandle that owns resources needing Close.
+
+_Source: `go/cagra/cagra.go:132`_
 
 ### PaddedDatasetHandle
 
@@ -184,7 +231,7 @@ Builds a new Index from the dataset for efficient search.
 * `dataset` - A row-major Tensor on either the host or device to index
 * `index` - CagraIndex to build
 
-_Source: `go/cagra/cagra.go:226`_
+_Source: `go/cagra/cagra.go:248`_
 
 ### CreateExtendParams
 
@@ -204,7 +251,7 @@ func CreateIndex() (*CagraIndex, error)
 
 Creates a new empty Cagra Index
 
-_Source: `go/cagra/cagra.go:208`_
+_Source: `go/cagra/cagra.go:230`_
 
 ### CreateIndexParams
 
@@ -215,6 +262,16 @@ func CreateIndexParams() (*IndexParams, error)
 Creates a new IndexParams
 
 _Source: `go/cagra/index_params.go:31`_
+
+### CreateMergeParams
+
+```go
+func CreateMergeParams() (*MergeParams, error)
+```
+
+Creates a new MergeParams, populated with AUTO defaults.
+
+_Source: `go/cagra/merge_params.go:33`_
 
 ### CreateSearchParams
 
@@ -242,7 +299,7 @@ Extends the index with a caller-owned pre-concatenated padded dataset.
 * `newStartRow` - Row index where the additional vectors begin (must equal current index size)
 * `index` - CagraIndex to extend
 
-_Source: `go/cagra/cagra.go:277`_
+_Source: `go/cagra/cagra.go:299`_
 
 ### MakePaddedDataset
 
@@ -254,6 +311,19 @@ MakePaddedDataset creates an owning padded dataset from a tensor.
 Memory residency is inferred from the tensor device type.
 
 _Source: `go/cagra/cagra.go:84`_
+
+### MakePaddedDatasetAuto
+
+```go
+func MakePaddedDatasetAuto[T any](Resources cuvs.Resource, dataset *cuvs.Tensor[T]) (PaddedDatasetCloser, error)
+```
+
+MakePaddedDatasetAuto builds a PaddedDatasetCloser from a tensor, choosing the
+non-owning MakePaddedDatasetView when the tensor's row stride is already
+CAGRA-padded (MakePaddedDataset rejects already-aligned sources), and the
+owning MakePaddedDataset otherwise. Mirrors the branch BuildIndex uses.
+
+_Source: `go/cagra/cagra.go:141`_
 
 ### MakePaddedDatasetView
 
@@ -275,7 +345,60 @@ func MakeStandardDatasetView[T any](Resources cuvs.Resource, dataset *cuvs.Tenso
 MakeStandardDatasetView creates a non-owning standard dataset view from a tensor.
 Memory residency is inferred from the tensor.
 
-_Source: `go/cagra/cagra.go:159`_
+_Source: `go/cagra/cagra.go:181`_
+
+### MergeIndex
+
+```go
+func MergeIndex(Resources cuvs.Resource, params *IndexParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error
+```
+
+MergeIndex merges multiple CAGRA indices into output using AUTO merge
+parameters.
+
+#### Arguments
+
+* `Resources` - Resources to use
+* `params` - Parameters for the output index
+* `indices` - Input indices to merge, in the order they were concatenated into mergedDataset
+* `mergedDataset` - Caller-owned padded dataset already containing the concatenation (and,
+if allowList is set, already-filtered rows) of every input index's dataset, in `indices` order
+* `offsets` - Per-index starting row within mergedDataset; len(indices)+1 entries, as returned
+by MergedDatasetOffsets (or the trivial cumulative sizes, if allowList is nil)
+* `allowList` - Row filter already applied by the caller while building mergedDataset, or nil
+* `index` - Output CagraIndex, must be created with CreateIndex before use
+
+_Source: `go/cagra/cagra.go:410`_
+
+### MergeIndexWithParams
+
+```go
+func MergeIndexWithParams(Resources cuvs.Resource, params *IndexParams, mergeParams *MergeParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error
+```
+
+MergeIndexWithParams merges multiple CAGRA indices into output, using
+explicit mergeParams to control the merge algorithm. See MergeIndex for the
+remaining arguments.
+
+_Source: `go/cagra/cagra.go:417`_
+
+### MergedDatasetOffsets
+
+```go
+func MergedDatasetOffsets(Resources cuvs.Resource, indices []*CagraIndex, allowList []uint32) ([]int64, error)
+```
+
+MergedDatasetOffsets computes, for each input index (in order), the row at
+which its (post-filter) rows must start within a caller-built merged dataset
+buffer, for use with MergeIndex/MergeIndexWithParams. The returned slice has
+len(indices)+1 entries; the last entry is the total merged row count.
+
+For an unfiltered merge (allowList == nil) this is just the cumulative sum
+of each index's row count, and calling this function is unnecessary. For a
+filtered merge, this must be called to determine how many rows survive the
+filter for each index.
+
+_Source: `go/cagra/cagra.go:358`_
 
 ### SearchIndex
 
@@ -294,7 +417,7 @@ Perform a Approximate Nearest Neighbors search on the Index
 * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 * `allowList` - List of indices to allow in the search, if nil, no filtering is applied
 
-_Source: `go/cagra/cagra.go:317`_
+_Source: `go/cagra/cagra.go:501`_
 
 ### UpdateDataset
 
@@ -305,7 +428,7 @@ func UpdateDataset(Resources cuvs.Resource, paddedDataset PaddedDatasetHandle, i
 UpdateDataset updates any CAGRA index layout with a caller-provided padded
 dataset or view and leaves the same handle search-ready.
 
-_Source: `go/cagra/cagra.go:189`_
+_Source: `go/cagra/cagra.go:211`_
 
 ## Methods
 
@@ -317,7 +440,7 @@ func (index *CagraIndex) Close() error
 
 Destroys the Cagra Index
 
-_Source: `go/cagra/cagra.go:299`_
+_Source: `go/cagra/cagra.go:483`_
 
 ### ExtendParams.Close
 
@@ -392,6 +515,96 @@ Number of iterations to run if building with NN_DESCENT
 
 _Source: `go/cagra/index_params.go:70`_
 
+### MergeParams.Close
+
+```go
+func (p *MergeParams) Close() error
+```
+
+Destroys MergeParams
+
+_Source: `go/cagra/merge_params.go:101`_
+
+### MergeParams.SetAlgo
+
+```go
+func (p *MergeParams) SetAlgo(algo MergeAlgo) (*MergeParams, error)
+```
+
+Algorithm used to merge the physical CAGRA indices.
+
+_Source: `go/cagra/merge_params.go:47`_
+
+### MergeParams.SetLeaderFraction
+
+```go
+func (p *MergeParams) SetLeaderFraction(leader_fraction float64) (*MergeParams, error)
+```
+
+Fraction of points selected as leaders.
+
+_Source: `go/cagra/merge_params.go:77`_
+
+### MergeParams.SetLeafDegree
+
+```go
+func (p *MergeParams) SetLeafDegree(leaf_degree uint32) (*MergeParams, error)
+```
+
+Degree used within the leaf partitions.
+
+_Source: `go/cagra/merge_params.go:95`_
+
+### MergeParams.SetLeafSize
+
+```go
+func (p *MergeParams) SetLeafSize(leaf_size uint32) (*MergeParams, error)
+```
+
+Size of the leaf partitions.
+
+_Source: `go/cagra/merge_params.go:89`_
+
+### MergeParams.SetLevels
+
+```go
+func (p *MergeParams) SetLevels(levels uint32) (*MergeParams, error)
+```
+
+Number of levels used by the merge algorithm.
+
+_Source: `go/cagra/merge_params.go:59`_
+
+### MergeParams.SetLowerFanout
+
+```go
+func (p *MergeParams) SetLowerFanout(lower_fanout uint32) (*MergeParams, error)
+```
+
+Fanout of the lower levels.
+
+_Source: `go/cagra/merge_params.go:71`_
+
+### MergeParams.SetMaxLeaders
+
+```go
+func (p *MergeParams) SetMaxLeaders(max_leaders uint32) (*MergeParams, error)
+```
+
+Maximum number of leaders.
+
+_Source: `go/cagra/merge_params.go:83`_
+
+### MergeParams.SetRootFanout
+
+```go
+func (p *MergeParams) SetRootFanout(root_fanout uint32) (*MergeParams, error)
+```
+
+Fanout of the root level.
+
+_Source: `go/cagra/merge_params.go:65`_
+
 ### PaddedDataset.Close
 
 ```go
@@ -400,7 +613,7 @@ func (dataset *PaddedDataset) Close() error
 
 Destroys an owning padded dataset handle.
 
-_Source: `go/cagra/cagra.go:132`_
+_Source: `go/cagra/cagra.go:154`_
 
 ### PaddedDatasetView.Close
 
@@ -410,7 +623,7 @@ func (view *PaddedDatasetView) Close() error
 
 Destroys a padded dataset view handle.
 
-_Source: `go/cagra/cagra.go:145`_
+_Source: `go/cagra/cagra.go:167`_
 
 ### SearchParams.Close
 
@@ -562,4 +775,4 @@ func (view *StandardDatasetView) Close() error
 
 Destroys a standard dataset view handle.
 
-_Source: `go/cagra/cagra.go:175`_
+_Source: `go/cagra/cagra.go:197`_
