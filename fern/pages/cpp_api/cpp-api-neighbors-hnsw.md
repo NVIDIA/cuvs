@@ -369,6 +369,8 @@ std::nullopt);
 
 `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()` mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
 
+Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails if that file already exists. Before repeating conversion, move the previous artifact elsewhere or use a fresh graph directory.
+
 Usage example:
 
 **Parameters**
@@ -402,6 +404,8 @@ std::nullopt);
 ```
 
 `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()` mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+
+Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails if that file already exists. Before repeating conversion, move the previous artifact elsewhere or use a fresh graph directory.
 
 Usage example:
 
@@ -437,6 +441,8 @@ std::nullopt);
 
 `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()` mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
 
+Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails if that file already exists. Before repeating conversion, move the previous artifact elsewhere or use a fresh graph directory.
+
 Usage example:
 
 **Parameters**
@@ -471,6 +477,8 @@ std::nullopt);
 
 `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()` mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
 
+Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails if that file already exists. Before repeating conversion, move the previous artifact elsewhere or use a fresh graph directory.
+
 Usage example:
 
 **Parameters**
@@ -503,6 +511,8 @@ When the index has an attached device dataset view, `dataset` may be omitted. Ot
 
 `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()` mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
 
+Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails if that file already exists. Before repeating conversion, move the previous artifact elsewhere or use a fresh graph directory.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
@@ -531,6 +541,8 @@ std::nullopt);
 
 `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()` mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
 
+Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails if that file already exists. Before repeating conversion, move the previous artifact elsewhere or use a fresh graph directory.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
@@ -558,6 +570,8 @@ std::nullopt);
 ```
 
 `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()` mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+
+Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails if that file already exists. Before repeating conversion, move the previous artifact elsewhere or use a fresh graph directory.
 
 **Parameters**
 

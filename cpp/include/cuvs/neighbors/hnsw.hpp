@@ -519,6 +519,10 @@ std::unique_ptr<index<int8_t>> build(
  * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
  * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
  *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails
+ * if that file already exists. Before repeating conversion, move the previous artifact elsewhere
+ * or use a fresh graph directory.
+ *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
@@ -564,6 +568,10 @@ std::unique_ptr<index<float>> from_cagra(
  *
  * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
  * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails
+ * if that file already exists. Before repeating conversion, move the previous artifact elsewhere
+ * or use a fresh graph directory.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
@@ -611,6 +619,10 @@ std::unique_ptr<index<half>> from_cagra(
  * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
  * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
  *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails
+ * if that file already exists. Before repeating conversion, move the previous artifact elsewhere
+ * or use a fresh graph directory.
+ *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
@@ -657,6 +669,10 @@ std::unique_ptr<index<uint8_t>> from_cagra(
  * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
  * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
  *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails
+ * if that file already exists. Before repeating conversion, move the previous artifact elsewhere
+ * or use a fresh graph directory.
+ *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
@@ -694,6 +710,10 @@ std::unique_ptr<index<int8_t>> from_cagra(
  *
  * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
  * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails
+ * if that file already exists. Before repeating conversion, move the previous artifact elsewhere
+ * or use a fresh graph directory.
  */
 std::unique_ptr<index<float>> from_cagra(
   raft::resources const& res,
@@ -732,6 +752,10 @@ std::unique_ptr<index<int8_t>> from_cagra(
  *
  * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
  * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails
+ * if that file already exists. Before repeating conversion, move the previous artifact elsewhere
+ * or use a fresh graph directory.
  */
 std::unique_ptr<index<float>> from_cagra(
   raft::resources const& res,
@@ -770,6 +794,10 @@ std::unique_ptr<index<int8_t>> from_cagra(
  *
  * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
  * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the CAGRA graph and fails
+ * if that file already exists. Before repeating conversion, move the previous artifact elsewhere
+ * or use a fresh graph directory.
  */
 std::unique_ptr<index<float>> from_cagra(
   raft::resources const& res,

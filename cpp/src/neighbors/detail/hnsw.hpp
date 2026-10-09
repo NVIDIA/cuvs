@@ -2389,6 +2389,8 @@ std::unique_ptr<index<T>> from_cagra(
       const auto graph_path = cagra_index.graph_fd()->get_path();
       RAFT_EXPECTS(!graph_path.empty(), "Unable to get graph file path");
       RAFT_EXPECTS(dataset.has_value(), "Layered HNSW requires the original-order host dataset");
+      // Exclusive publication preserves existing artifacts. Repeated conversion requires
+      // moving the previous artifact elsewhere or using a fresh graph directory.
       artifact_path = std::filesystem::path(graph_path).parent_path() / "hnsw_index.cuvs";
     } else {
       directory     = std::make_unique<owned_hnsw_directory>();
