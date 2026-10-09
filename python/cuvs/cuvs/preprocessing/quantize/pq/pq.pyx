@@ -79,8 +79,6 @@ cdef class QuantizerParams:
         specifies the max number of data points to use per VQ cluster.
     """
 
-    cdef cuvsProductQuantizerParams * params
-
     def __cinit__(self):
         check_cuvs(cuvsProductQuantizerParamsCreate(&self.params))
 

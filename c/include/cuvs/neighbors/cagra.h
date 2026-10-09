@@ -123,6 +123,8 @@ struct cuvsCagraCompressionParams {
   double pq_kmeans_trainset_fraction;
 };
 
+typedef struct cuvsCagraCompressionParams* cuvsCagraCompressionParams_t;
+
 struct cuvsIvfPqParams {
   cuvsIvfPqIndexParams_t ivf_pq_build_params;
   cuvsIvfPqSearchParams_t ivf_pq_search_params;
@@ -621,13 +623,16 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManaged
 /**
  * @brief Update a CAGRA index with a device-padded or device-PQ dataset.
  *
- * This is the centralized dataset update operation for C callers. The index's opaque handle is
- * rebound to an index over the supplied dataset layout. Device-padded and device-PQ datasets can
- * be attached to any supported index layout. The caller retains ownership of \p dataset and must
- * keep it alive while \p index uses it.
+ * This is the centralized dataset update/attach operation for C callers.
+ * The index is rebound to the supplied layout. Device-padded and device-PQ
+ * datasets can be attached to any supported index layout.
+ *
+ * Device PQ datasets come from `cuvsDatasetMakePq`. Search requires metric
+ * `L2Expanded`. Caller retains ownership of \p dataset and must keep it
+ * alive while \p index uses it.
  *
  * @param[in] res      cuvsResources_t opaque C handle
- * @param[in] dataset  owning or non-owning device-padded or device-PQ dataset handle
+ * @param[in] dataset  device-padded or owning device PQ dataset handle
  * @param[inout] index CAGRA index handle
  * @return cuvsError_t
  */

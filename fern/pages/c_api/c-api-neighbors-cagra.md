@@ -794,14 +794,16 @@ cuvsDataset_t dataset,
 cuvsCagraIndex_t index);
 ```
 
-This is the centralized dataset update operation for C callers. The index's opaque handle is rebound to an index over the supplied dataset layout. Device-padded and device-PQ datasets can be attached to any supported index layout. The caller retains ownership of `dataset` and must keep it alive while `index` uses it.
+This is the centralized dataset update/attach operation for C callers. The index is rebound to the supplied layout. Device-padded and device-PQ datasets can be attached to any supported index layout.
+
+Device PQ datasets come from `cuvsDatasetMakePq`. Search requires metric `L2Expanded`. Caller retains ownership of `dataset` and must keep it alive while `index` uses it.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `dataset` | in | `cuvsDataset_t` | owning or non-owning device-padded or device-PQ dataset handle |
+| `dataset` | in | `cuvsDataset_t` | device-padded or owning device PQ dataset handle |
 | `index` | inout | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | CAGRA index handle |
 
 **Returns**

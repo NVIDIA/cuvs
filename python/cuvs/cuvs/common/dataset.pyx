@@ -50,6 +50,8 @@ cdef class Dataset:
             return "pq"
         if layout == CUVS_DATASET_LAYOUT_PADDED:
             return "padded"
+        if layout == CUVS_DATASET_LAYOUT_PQ:
+            return "pq"
         return "standard"
 
     @property

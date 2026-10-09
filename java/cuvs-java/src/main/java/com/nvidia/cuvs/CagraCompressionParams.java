@@ -1,11 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
 
 /**
- * Supplemental compression parameters to build CAGRA Index.
+ * Supplemental compression parameters retained for the CAGRA compression API.
  *
  * @since 25.02
  */
