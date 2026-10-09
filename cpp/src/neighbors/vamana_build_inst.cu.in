@@ -1,0 +1,36 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/core/cuda_fp16.hpp>
+
+#include <cuvs/neighbors/vamana.hpp>
+#include <neighbors/vamana.cuh>
+
+namespace {
+
+using data_t  = @data_type@;
+using index_t = uint32_t;
+
+}  // namespace
+
+namespace cuvs::neighbors::vamana {
+
+auto build(raft::resources const& handle,
+           const index_params& params,
+           raft::device_matrix_view<const data_t, int64_t, raft::row_major> dataset)
+  -> index<data_t, index_t>
+{
+  return cuvs::neighbors::vamana::build<data_t, index_t>(handle, params, dataset);
+}
+
+auto build(raft::resources const& handle,
+           const index_params& params,
+           raft::host_matrix_view<const data_t, int64_t, raft::row_major> dataset)
+  -> index<data_t, index_t>
+{
+  return cuvs::neighbors::vamana::build<data_t, index_t>(handle, params, dataset);
+}
+
+}  // namespace cuvs::neighbors::vamana
