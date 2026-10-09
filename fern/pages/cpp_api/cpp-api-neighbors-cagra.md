@@ -31,6 +31,95 @@ enum class search_algo {
 | `MULTI_KERNEL` | `2` |
 | `AUTO` | `100` |
 
+<a id="neighbors-cagra-graph-storage-kind"></a>
+### neighbors::cagra::graph_storage_kind
+
+Graph representation used by a CAGRA index.
+
+```cpp
+enum class graph_storage_kind {
+  device,
+  tiered
+};
+```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `device` | `` |
+| `tiered` | `` |
+
+<a id="neighbors-cagra-tiered-graph-params"></a>
+### neighbors::cagra::tiered_graph_params
+
+Experimental GPU/CPU graph layout. The budget excludes datasets and search workspaces.
+
+```cpp
+struct tiered_graph_params {
+  std::size_t device_graph_budget_bytes;
+  std::uint16_t node_per_cacheline;
+  bool grouping_enabled;
+  std::uint32_t n_groups;
+  std::uint16_t n_bits;
+  double balance_tolerance;
+  std::size_t training_rows;
+  std::size_t assignment_batch_rows;
+  std::uint32_t kmeans_n_iters;
+  bool validate;
+  std::uint32_t num_seeds;
+  std::size_t seed_training_rows;
+  std::uint64_t seed;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `device_graph_budget_bytes` | `std::size_t` | Maximum packed resident graph bytes, excluding datasets and queues. Zero stores all edges on host. |
+| `node_per_cacheline` | `std::uint16_t` | Consecutive nodes per packed row: [1, 64] with grouping, [1, 32] without grouping. |
+| `grouping_enabled` | `bool` | Group and reorder nodes for locality; false retains the rank-only layout. |
+| `n_groups` | `std::uint32_t` | Final group count, at most 65,536. Zero uses one group if IDs fit; otherwise ceil(N * (1 + balance_tolerance) / 2^b). Each k-means node has at most 16 children. |
+| `n_bits` | `std::uint16_t` | Local-ID width. Zero selects min(24, max(4, align_up_4(ceil(log2(N))))). Explicit widths must be in [1, 32]. |
+| `balance_tolerance` | `double` | Allowed relative deviation from average group size, in the open interval (0, 1). Hard ID capacity still applies. |
+| `training_rows` | `std::size_t` | Maximum sample rows per k-means node. Zero shares a 160,000-row budget by subtree leaf count, bounded by 256 to 10,000 rows per child and actual node size. |
+| `assignment_batch_rows` | `std::size_t` | Rows assigned per GPU batch. Zero targets a 256 MiB vector buffer; distance/label buffers and host capacity-repair storage are additional. |
+| `kmeans_n_iters` | `std::uint32_t` | Positive number of balanced k-means training iterations. |
+| `validate` | `bool` | Verify encoded edges after rearrangement; intended for tests and small builds. |
+| `num_seeds` | `std::uint32_t` | Number of medoid seeds generated at build time; zero disables seed generation. |
+| `seed_training_rows` | `std::size_t` | Rows sampled to train seed centroids. Zero selects an automatic limit. |
+| `seed` | `std::uint64_t` | Deterministic seed for rotating the uniform k-means training sample. |
+
+<a id="neighbors-cagra-tiered-search-params"></a>
+### neighbors::cagra::tiered_search_params
+
+Experimental tiered search and reusable host queue settings.
+
+```cpp
+struct tiered_search_params {
+  std::uint32_t num_seeds;
+  float sync_window_scale;
+  std::uint32_t sync_drop_threshold;
+  std::uint32_t num_queues;
+  std::uint32_t empty_pause;
+  bool collect_statistics;
+  bool keep_pollers_running;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `num_seeds` | `std::uint32_t` | Maximum number of stored medoid seeds used per query; zero uses random initialization. |
+| `sync_window_scale` | `float` | Scale for the adaptive deferred-cross-edge synchronization window. |
+| `sync_drop_threshold` | `std::uint32_t` | Parent-position drop that forces synchronization of a submitted cross-edge request. |
+| `num_queues` | `std::uint32_t` | Positive number of independent GPU-to-CPU command queues. |
+| `empty_pause` | `std::uint32_t` | Number of CPU pause instructions after an empty poll; zero disables this pause. |
+| `collect_statistics` | `bool` | Collect aggregate queue and polling counters. |
+| `keep_pollers_running` | `bool` | Keep pollers active between calls for low latency. Consumes host CPU while idle. |
+
 ## CAGRA index build parameters
 
 <a id="neighbors-vpq-params"></a>
@@ -322,10 +411,23 @@ Number of rows represented by the graph.
 
 `IdxT`
 
+<a id="neighbors-cagra-index-graph-storage"></a>
+### neighbors::cagra::index::graph_storage
+
+Return the actual graph representation.
+
+```cpp
+[[nodiscard]] auto graph_storage() const noexcept -> graph_storage_kind;
+```
+
+**Returns**
+
+[`graph_storage_kind`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-graph-storage-kind)
+
 <a id="neighbors-cagra-index-dataset"></a>
 ### neighbors::cagra::index::dataset
 
-Non-owning dataset binding stored by the index.
+Dataset binding; a tiered index owns its reordered dataset internally.
 
 ```cpp
 [[nodiscard]] inline auto dataset() const noexcept -> DatasetViewT const&;
@@ -341,7 +443,7 @@ Non-owning dataset binding stored by the index.
 neighborhood graph [size, graph-degree]
 
 ```cpp
-[[nodiscard]] inline auto graph() const noexcept
+[[nodiscard]] inline auto graph() const
 -> raft::device_matrix_view<const graph_index_type, int64_t, raft::row_major>;
 ```
 

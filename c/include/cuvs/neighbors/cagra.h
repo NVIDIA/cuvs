@@ -203,9 +203,41 @@ struct cuvsAceParams {
 
 typedef struct cuvsAceParams* cuvsAceParams_t;
 
-/**
- * @brief Supplemental parameters to build CAGRA Index
- *
+/** Experimental CAGRA graph storage mode. */
+enum cuvsCagraGraphStorage {
+  CUVS_CAGRA_GRAPH_DEVICE = 0,
+  CUVS_CAGRA_GRAPH_TIERED = 1
+};
+/** Tiered graph settings. The GPU budget covers packed edges only. */
+struct cuvsCagraTieredGraphParams {
+  size_t device_graph_budget_bytes;
+  uint16_t node_per_cacheline;
+  bool grouping_enabled;
+  uint32_t n_groups;
+  uint16_t n_bits;
+  double balance_tolerance;
+  size_t training_rows;
+  size_t assignment_batch_rows;
+  uint32_t kmeans_n_iters;
+  bool validate;
+  uint32_t num_seeds;
+  size_t seed_training_rows;
+  uint64_t seed;
+};
+/** Tiered search settings; queue state is retained by the index. */
+struct cuvsCagraTieredSearchParams {
+  uint32_t num_seeds;
+  float sync_window_scale;
+  uint32_t sync_drop_threshold;
+  uint32_t num_queues;
+  uint32_t empty_pause;
+  bool collect_statistics;
+  bool keep_pollers_running;
+};
+
+/** Supplemental parameters to build a CAGRA index.
+ * Allocate with cuvsCagraIndexParamsCreate(); stack allocation and by-value copies
+ * are not covered by the C ABI stability guarantee.
  */
 struct cuvsCagraIndexParams {
   /** Distance type. */
@@ -225,6 +257,8 @@ struct cuvsCagraIndexParams {
    * - Others: nullptr
    */
   void* graph_build_params;
+  enum cuvsCagraGraphStorage graph_storage;
+  struct cuvsCagraTieredGraphParams tiered;
 };
 
 typedef struct cuvsCagraIndexParams* cuvsCagraIndexParams_t;
@@ -491,6 +525,9 @@ struct cuvsCagraSearchParams {
    * impact on the throughput.
    */
   float persistent_device_usage;
+  /** Enable the tiered settings below. Allocate this struct with cuvsCagraSearchParamsCreate(). */
+  bool use_tiered_params;
+  struct cuvsCagraTieredSearchParams tiered;
 };
 
 typedef struct cuvsCagraSearchParams* cuvsCagraSearchParams_t;
@@ -574,6 +611,10 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetSize(cuvsCagraIndex_t index, int64_t* s
  * @param[out] graph_degree return graph degree
  * @return cuvsError_t
  */
+/** Return the graph representation without exposing tiered storage buffers. */
+CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraphStorage(
+    cuvsCagraIndex_t index, enum cuvsCagraGraphStorage *storage);
+
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraphDegree(cuvsCagraIndex_t index, int64_t* graph_degree);
 
 /**
@@ -711,6 +752,17 @@ CUVS_EXPORT cuvsError_t cuvsCagraBuild(cuvsResources_t res,
                                        cuvsCagraIndexParams_t params,
                                        cuvsDataset_t dataset,
                                        cuvsCagraIndex_t index);
+
+/** Build an owning tiered graph and VPQ-F16 dataset from host standard vectors.
+ * Requires graph_storage=CUVS_CAGRA_GRAPH_TIERED and enabled tiered building.
+ * The caller retains the input; the resulting index owns its reordered
+ * compressed dataset.
+ */
+CUVS_EXPORT cuvsError_t cuvsCagraBuildCompressed(cuvsResources_t res,
+                                                 cuvsCagraIndexParams_t params,
+                                                 cuvsPqParams_t compression,
+                                                 cuvsDataset_t dataset,
+                                                 cuvsCagraIndex_t index);
 
 /**
  * @}
@@ -950,6 +1002,9 @@ CUVS_EXPORT cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res,
  * must point to a null handle on entry; deserialization acts as a factory and transfers ownership
  * of the allocated dataset handle on success. Returns CUVS_ERROR when the file has no dataset; the
  * index and output handle are unchanged on failure.
+ *
+ * For a tiered file the index owns the reordered dataset internally, and out_dataset remains null.
+ * The loaded index is immediately searchable and has no separately owned dataset handle.
  *
  * Experimental, both the API and the serialization format are subject to change.
  *

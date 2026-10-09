@@ -2189,3 +2189,90 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
   }
   cuvsResourcesDestroy(res);
 }
+
+TEST(CagraC, TieredBuildSearchAndLoad) {
+  constexpr int64_t rows = 128, dim = 8;
+  cuvsResources_t res{};
+  ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
+  cudaStream_t stream{};
+  ASSERT_EQ(cuvsStreamGet(res, &stream), CUVS_SUCCESS);
+  cuvsCagraIndexParams_t bp{};
+  ASSERT_EQ(cuvsCagraIndexParamsCreate(&bp), CUVS_SUCCESS);
+  bp->build_algo = NN_DESCENT;
+  bp->graph_degree = 8;
+  bp->intermediate_graph_degree = 16;
+  bp->graph_storage = CUVS_CAGRA_GRAPH_TIERED;
+  bp->tiered.device_graph_budget_bytes = 512;
+  std::vector<float> data(rows * dim);
+  for (int64_t i = 0; i < rows; ++i) {
+    for (int64_t j = 0; j < dim; ++j)
+      data[i * dim + j] = ((i * 31 + j * 5) % 149) * .01f;
+  }
+  int64_t data_shape[]{rows, dim}, query_shape[]{4, dim}, out_shape[]{4, 1};
+  auto tensor = [](void *data, int64_t *shape, DLDeviceType device,
+                   uint8_t dtype) {
+    DLManagedTensor result{};
+    result.dl_tensor.data = data;
+    result.dl_tensor.device = {device, 0};
+    result.dl_tensor.ndim = 2;
+    result.dl_tensor.dtype = {dtype, 32, 1};
+    result.dl_tensor.shape = shape;
+    return result;
+  };
+  auto input = tensor(data.data(), data_shape, kDLCPU, kDLFloat);
+  cuvsDataset_t padded{};
+  ASSERT_EQ(
+      cuvsDatasetMakePadded(res, &input, CUVS_DATASET_MEM_TYPE_DEVICE, &padded),
+      CUVS_SUCCESS);
+  cuvsCagraIndex_t index{};
+  ASSERT_EQ(cuvsCagraIndexCreate(&index), CUVS_SUCCESS);
+#ifdef CUVS_ENABLE_FLOWANN_BUILD
+  ASSERT_EQ(cuvsCagraBuild(res, bp, padded, index), CUVS_SUCCESS);
+  cuvsCagraGraphStorage storage{};
+  ASSERT_EQ(cuvsCagraIndexGetGraphStorage(index, &storage), CUVS_SUCCESS);
+  EXPECT_EQ(storage, CUVS_CAGRA_GRAPH_TIERED);
+  ASSERT_EQ(cuvsDatasetDestroy(padded), CUVS_SUCCESS);
+  padded = nullptr;
+  rmm::device_uvector<float> q(4 * dim, stream), d(4, stream);
+  rmm::device_uvector<uint32_t> n(4, stream);
+  raft::copy(q.data(), data.data(), 4 * dim, stream);
+  auto queries = tensor(q.data(), query_shape, kDLCUDA, kDLFloat);
+  auto neighbors = tensor(n.data(), out_shape, kDLCUDA, kDLUInt);
+  auto distances = tensor(d.data(), out_shape, kDLCUDA, kDLFloat);
+  cuvsCagraSearchParams_t sp{};
+  ASSERT_EQ(cuvsCagraSearchParamsCreate(&sp), CUVS_SUCCESS);
+  sp->algo = SINGLE_CTA;
+  sp->itopk_size = 32;
+  sp->max_iterations = 32;
+  sp->use_tiered_params = true;
+  cuvsFilter no_filter{};
+  no_filter.type = NO_FILTER;
+  auto search = [&] {
+    ASSERT_EQ(cuvsCagraSearch(res, sp, index, &queries, &neighbors, &distances,
+                              no_filter),
+              CUVS_SUCCESS);
+    uint32_t expected[]{0, 1, 2, 3};
+    EXPECT_TRUE(cuvs::devArrMatchHost(expected, n.data(), 4,
+                                      cuvs::Compare<uint32_t>()));
+  };
+  search();
+  auto filename = std::filesystem::temp_directory_path() /
+                  ("cagra-tiered-" + std::to_string(getpid()) + ".bin");
+  ASSERT_EQ(cuvsCagraSerializeGraphAndDataset(res, filename.c_str(), index),
+            CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraIndexDestroy(index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraIndexCreate(&index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraDeserializeGraph(res, filename.c_str(), index),
+            CUVS_SUCCESS);
+  search();
+  std::filesystem::remove(filename);
+  ASSERT_EQ(cuvsCagraSearchParamsDestroy(sp), CUVS_SUCCESS);
+#else
+  EXPECT_EQ(cuvsCagraBuild(res, bp, padded, index), CUVS_ERROR);
+#endif
+  if (padded)
+    EXPECT_EQ(cuvsDatasetDestroy(padded), CUVS_SUCCESS);
+  EXPECT_EQ(cuvsCagraIndexDestroy(index), CUVS_SUCCESS);
+  EXPECT_EQ(cuvsCagraIndexParamsDestroy(bp), CUVS_SUCCESS);
+  EXPECT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
+}

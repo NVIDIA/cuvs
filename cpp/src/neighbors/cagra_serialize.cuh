@@ -159,7 +159,8 @@ namespace cuvs::neighbors::cagra {
                  const std::string& filename,                                                     \
                  const cuvs::neighbors::cagra::device_pq_index<DTYPE, uint32_t, half>& index)     \
   {                                                                                               \
-    cuvs::neighbors::cagra::detail::serialize<DTYPE, uint32_t>(handle, filename, index, false);   \
+    cuvs::neighbors::cagra::detail::serialize<DTYPE, uint32_t>(                                   \
+      handle, filename, index, index.graph_storage() == graph_storage_kind::tiered);              \
   }                                                                                               \
                                                                                                   \
   void deserialize(raft::resources const& handle,                                                 \
@@ -174,7 +175,8 @@ namespace cuvs::neighbors::cagra {
                  std::ostream& os,                                                                \
                  const cuvs::neighbors::cagra::device_pq_index<DTYPE, uint32_t, half>& index)     \
   {                                                                                               \
-    cuvs::neighbors::cagra::detail::serialize<DTYPE, uint32_t>(handle, os, index, false);         \
+    cuvs::neighbors::cagra::detail::serialize<DTYPE, uint32_t>(                                   \
+      handle, os, index, index.graph_storage() == graph_storage_kind::tiered);                    \
   }                                                                                               \
                                                                                                   \
   void deserialize(raft::resources const& handle,                                                 \

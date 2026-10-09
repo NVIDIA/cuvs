@@ -302,6 +302,11 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
   using index_type = cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>;
   using T          = typename index_type::value_type;
   using IdxT       = uint32_t;
+  if (params.graph_storage == graph_storage_kind::tiered) {
+    RAFT_EXPECTS(params.attach_dataset_on_build, "Tiered builds must attach their dataset");
+    return detail::build_tiered(res, params, dataset);
+  }
+  RAFT_EXPECTS(!params.tiered.has_value(), "Tiered options require graph_storage=tiered");
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
   // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
@@ -432,6 +437,10 @@ void search(raft::resources const& res,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
             const cuvs::neighbors::filtering::base_filter& sample_filter_ref)
 {
+  if (auto* tiered = detail::tiered_index_access::get(idx)) {
+    return tiered->search(res, params, queries, neighbors, distances, sample_filter_ref);
+  }
+  RAFT_EXPECTS(!params.tiered.has_value(), "Tiered search options require a tiered index");
   try {
     using none_filter_type    = cuvs::neighbors::filtering::none_sample_filter;
     auto& sample_filter       = dynamic_cast<const none_filter_type&>(sample_filter_ref);
@@ -568,6 +577,12 @@ void search(
   const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets = {})
 {
   RAFT_EXPECTS(!indices.empty(), "At least one index partition must be provided.");
+  RAFT_EXPECTS(!params.tiered.has_value(),
+               "Multi-partition search does not support tiered options");
+  for (auto const* idx : indices) {
+    RAFT_EXPECTS(idx && idx->graph_storage() == graph_storage_kind::device,
+                 "Multi-partition search does not support tiered graph inputs");
+  }
 
   RAFT_EXPECTS(queries.extent(0) == partition_ids.extent(0) &&
                  queries.extent(0) == neighbors.extent(0) &&

@@ -19,7 +19,11 @@ from .cagra import (
     update_dataset,
 )
 
+from .tiered import TieredGraphParams, TieredSearchParams
+
 __all__ = [
+    "TieredGraphParams",
+    "TieredSearchParams",
     "AceParams",
     "Dataset",
     "ExtendParams",
