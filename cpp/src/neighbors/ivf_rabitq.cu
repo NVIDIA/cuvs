@@ -5,6 +5,7 @@
 
 #include "ivf_rabitq/gpu_index/ivf_gpu.cuh"
 #include "ivf_rabitq/gpu_index/searcher_gpu.cuh"
+#include <cuda/memory_resource>
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/neighbors/ivf_rabitq.hpp>
 
@@ -43,10 +44,10 @@ auto build(raft::resources const& handle,
   size_t available_workspace       = raft::resource::get_workspace_free_bytes(handle);
   constexpr size_t kTolerableRatio = 4;
 
-  rmm::device_async_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
+  cuda::mr::device_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
   // If the dataset is small enough to comfortably fit into device memory, put it there.
   // Otherwise, use the managed memory.
-  rmm::device_async_resource_ref big_memory_resource =
+  cuda::mr::device_resource_ref big_memory_resource =
     raft::resource::get_large_workspace_resource_ref(handle);
   if (dataset_bytes * kTolerableRatio < available_workspace) {
     big_memory_resource = device_memory;

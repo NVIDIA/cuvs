@@ -33,9 +33,9 @@
 #include <raft/util/device_atomics.cuh>
 #include <raft/util/integer_utils.hpp>
 
+#include <cuda/memory_resource>
 #include <rmm/device_scalar.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <thrust/gather.h>
 #include <thrust/iterator/transform_iterator.h>
@@ -83,7 +83,7 @@ inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
   const MathT* dataset_norm,
   IdxT n_rows,
   LabelT* labels,
-  rmm::device_async_resource_ref mr)
+  cuda::mr::device_resource_ref mr)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
   switch (params.metric) {
@@ -253,7 +253,7 @@ void calc_centers_and_sizes(const raft::resources& handle,
                             const LabelT* labels,
                             bool reset_counters,
                             MappingOpT mapping_op,
-                            rmm::device_async_resource_ref mr)
+                            cuda::mr::device_resource_ref mr)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
 
@@ -332,7 +332,7 @@ void compute_norm(const raft::resources& handle,
                   IdxT n_rows,
                   MappingOpT mapping_op,
                   FinOpT norm_fin_op,
-                  std::optional<rmm::device_async_resource_ref> mr = std::nullopt)
+                  std::optional<cuda::mr::device_resource_ref> mr = std::nullopt)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("compute_norm");
   auto stream = raft::resource::get_cuda_stream(handle);
@@ -378,7 +378,7 @@ struct predict_core_half_workspace {
                               std::size_t n_clusters,
                               std::size_t max_minibatch_size,
                               cuda::stream_ref stream,
-                              rmm::device_async_resource_ref mr)
+                              cuda::mr::device_resource_ref mr)
     : centers(centers_size, stream, mr),
       centers_norm(n_clusters, stream, mr),
       distances(max_minibatch_size, stream, mr),
@@ -407,7 +407,7 @@ bool predict_core_half(const raft::resources& handle,
                        MappingOpT mapping_op,
                        float* dataset_norm,
                        predict_core_half_workspace& scratch,
-                       std::optional<rmm::device_async_resource_ref> mr)
+                       std::optional<cuda::mr::device_resource_ref> mr)
 {
   const bool native_metric = params.metric == cuvs::distance::DistanceType::L2Expanded ||
                              params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
@@ -527,8 +527,8 @@ void predict(const raft::resources& handle,
              IdxT n_rows,
              LabelT* labels,
              MappingOpT mapping_op,
-             std::optional<rmm::device_async_resource_ref> mr = std::nullopt,
-             const MathT* dataset_norm                        = nullptr)
+             std::optional<cuda::mr::device_resource_ref> mr = std::nullopt,
+             const MathT* dataset_norm                       = nullptr)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
@@ -792,7 +792,7 @@ auto adjust_centers(const raft::resources& handle,
                     MathT centroid_offset,
                     cuvs::cluster::kmeans::balanced_donor_selection donor_selection,
                     MappingOpT mapping_op,
-                    rmm::device_async_resource_ref device_memory) -> bool
+                    cuda::mr::device_resource_ref device_memory) -> bool
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "adjust_centers(%zu, %u)", static_cast<size_t>(n_rows), n_clusters);
@@ -954,7 +954,7 @@ void balancing_em_iters(const raft::resources& handle,
                         MathT balance_lower_tolerance,
                         MathT balance_upper_tolerance,
                         MappingOpT mapping_op,
-                        rmm::device_async_resource_ref device_memory)
+                        cuda::mr::device_resource_ref device_memory)
 {
   RAFT_EXPECTS(balance_lower_tolerance > MathT{0} && balance_lower_tolerance < MathT{1},
                "Balanced k-means lower balance tolerance must be in the range (0, 1)");
@@ -1046,7 +1046,7 @@ void build_clusters(const raft::resources& handle,
                     LabelT* cluster_labels,
                     CounterT* cluster_sizes,
                     MappingOpT mapping_op,
-                    rmm::device_async_resource_ref device_memory,
+                    cuda::mr::device_resource_ref device_memory,
                     const MathT* dataset_norm = nullptr)
 {
   // "randomly" initialize labels
@@ -1187,8 +1187,8 @@ auto build_fine_clusters(const raft::resources& handle,
                          IdxT fine_clusters_nums_max,
                          MathT* cluster_centers,
                          MappingOpT mapping_op,
-                         rmm::device_async_resource_ref managed_memory,
-                         rmm::device_async_resource_ref device_memory) -> IdxT
+                         cuda::mr::device_resource_ref managed_memory,
+                         cuda::mr::device_resource_ref device_memory) -> IdxT
 {
   auto stream = raft::resource::get_cuda_stream(handle);
   rmm::device_uvector<IdxT> mc_trainset_ids_buf(mesocluster_size_max, stream, managed_memory);
@@ -1310,8 +1310,8 @@ void build_hierarchical(const raft::resources& handle,
 
   // TODO: Remove the explicit managed memory- we shouldn't be creating this on the user's behalf.
   rmm::mr::managed_memory_resource managed_memory;
-  rmm::device_async_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
-  auto [max_minibatch_size, mem_per_row]       = calc_minibatch_size<MathT>(
+  cuda::mr::device_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
+  auto [max_minibatch_size, mem_per_row]      = calc_minibatch_size<MathT>(
     handle, n_clusters, n_rows, dim, params.metric, std::is_same_v<T, MathT>);
 
   // Precompute the L2 norm of the dataset if relevant and not yet computed.

@@ -13,6 +13,7 @@
 #include "ivf_pq_contiguous_list_data.cuh"
 #include "ivf_pq_list_data.hpp"
 #include "ivf_pq_process_and_fill_codes.cuh"
+#include <cuda/memory_resource>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
@@ -91,7 +92,7 @@ void select_residuals(raft::resources const& handle,
                       const float* center,           // [dim]
                       const T* dataset,              // [.., dim]
                       const IdxT* row_ids,           // [n_rows]
-                      rmm::device_async_resource_ref device_memory
+                      cuda::mr::device_resource_ref device_memory
 
 )
 {
@@ -147,7 +148,7 @@ void flat_compute_residuals(
   raft::device_matrix_view<const float, uint32_t, raft::row_major> centers,  // [n_lists, dim_ext]
   const T* dataset,                                                          // [n_rows, dim]
   std::variant<uint32_t, const uint32_t*> labels,                            // [n_rows]
-  rmm::device_async_resource_ref device_memory,
+  cuda::mr::device_resource_ref device_memory,
   cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded)
 {
   auto stream  = raft::resource::get_cuda_stream(handle);
@@ -823,7 +824,7 @@ void process_and_fill_codes(raft::resources const& handle,
                             std::variant<IdxT, const IdxT*> src_offset_or_indices,
                             const uint32_t* new_labels,
                             IdxT n_rows,
-                            rmm::device_async_resource_ref mr)
+                            cuda::mr::device_resource_ref mr)
 {
   auto new_vectors_residual =
     raft::make_device_mdarray<float>(handle, mr, raft::make_extents<IdxT>(n_rows, index.rot_dim()));
@@ -1013,8 +1014,8 @@ void extend(raft::resources const& handle,
                   std::is_same_v<T, int8_t>,
                 "Unsupported data type");
 
-  rmm::device_async_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
-  rmm::device_async_resource_ref large_memory =
+  cuda::mr::device_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
+  cuda::mr::device_resource_ref large_memory =
     raft::resource::get_large_workspace_resource_ref(handle);
 
   // Try to allocate an index with the same parameters and the projected new size
@@ -1044,8 +1045,8 @@ void extend(raft::resources const& handle,
   // `large_workspace_resource`, which does not have the explicit allocation limit. The user may opt
   // to populate the `large_workspace_resource` memory resource with managed memory for easier
   // scaling.
-  rmm::device_async_resource_ref labels_mr  = device_memory;
-  rmm::device_async_resource_ref batches_mr = device_memory;
+  cuda::mr::device_resource_ref labels_mr  = device_memory;
+  cuda::mr::device_resource_ref batches_mr = device_memory;
   if (n_rows * (index->dim() * sizeof(T) + index->pq_dim() + sizeof(IdxT) + sizeof(uint32_t)) >
       free_mem) {
     labels_mr = large_memory;
@@ -1285,13 +1286,13 @@ auto build(raft::resources const& handle,
       size_t(n_rows) / std::max<size_t>(params.kmeans_trainset_fraction * n_rows, impl->n_lists()));
     size_t n_rows_train = n_rows / trainset_ratio;
 
-    rmm::device_async_resource_ref device_memory =
+    cuda::mr::device_resource_ref device_memory =
       raft::resource::get_workspace_resource_ref(handle);
 
     // If the trainset is small enough to comfortably fit into device memory, put it there.
     // Otherwise, use the managed memory.
     constexpr size_t kTolerableRatio = 4;
-    rmm::device_async_resource_ref big_memory_resource =
+    cuda::mr::device_resource_ref big_memory_resource =
       raft::resource::get_large_workspace_resource_ref(handle);
     if (sizeof(float) * n_rows_train * impl->dim() * kTolerableRatio <
         raft::resource::get_workspace_free_bytes(handle)) {

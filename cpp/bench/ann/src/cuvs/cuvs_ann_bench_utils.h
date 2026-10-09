@@ -19,6 +19,7 @@
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/util/cudart_utils.hpp>
 
+#include <cuda/memory_resource>
 #include <cuda/stream>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/device_uvector.hpp>
@@ -26,7 +27,6 @@
 #include <rmm/mr/managed_memory_resource.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
-#include <rmm/resource_ref.hpp>
 
 #include <memory>
 #include <type_traits>
@@ -100,10 +100,10 @@ class shared_raft_resources {
 
   ~shared_raft_resources() noexcept { rmm::mr::set_current_device_resource(orig_resource_); }
 
-  auto get_large_memory_resource() noexcept -> rmm::device_async_resource_ref { return large_mr_; }
+  auto get_large_memory_resource() noexcept -> cuda::mr::device_resource_ref { return large_mr_; }
 
  private:
-  cuda::mr::any_resource<cuda::mr::device_accessible> orig_resource_;
+  cuda::mr::any_device_resource orig_resource_;
   large_mr_type large_mr_;
 };
 
@@ -128,7 +128,7 @@ class configured_raft_resources {
         std::make_unique<raft::device_resources>(cuda::stream_ref(get_stream_from_global_pool()))}
   {
     raft::resource::set_large_workspace_resource(
-      *res_, raft::mr::device_resource{shared_res_->get_large_memory_resource()});
+      *res_, cuda::mr::any_device_resource{shared_res_->get_large_memory_resource()});
     raft::resource::set_cuda_stream_pool(*res_, std::make_shared<rmm::cuda_stream_pool>(1));
   }
 

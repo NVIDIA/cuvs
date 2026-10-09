@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
 // TODO: This shouldn't be invoking anything from detail outside of neighbors namespace
+#include <cuda/memory_resource>
 #include <raft/core/copy.cuh>
 #include <raft/core/detail/macros.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -18,7 +19,7 @@
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 #include <rmm/cuda_stream_pool.hpp>
-#include <rmm/resource_ref.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <cuda.h>
 #include <cuda_fp16.h>
@@ -276,7 +277,7 @@ void copy_with_padding(
   raft::resources const& res,
   raft::device_matrix<T, int64_t, raft::row_major>& dst,
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, data_accessor> src,
-  rmm::device_async_resource_ref mr = rmm::mr::get_current_device_resource_ref())
+  cuda::mr::device_resource_ref mr = rmm::mr::get_current_device_resource_ref())
 {
   size_t padded_dim = raft::round_up_safe<size_t>(src.extent(1) * sizeof(T), 16) / sizeof(T);
 
