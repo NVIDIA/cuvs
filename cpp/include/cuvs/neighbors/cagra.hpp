@@ -2159,6 +2159,8 @@ enum class serialized_dataset_kind : std::uint32_t {
   host_padded = 3,
   /** Host-resident dataset using its standard row layout. */
   host_standard = 4,
+  /** Device-resident VPQ-compressed dataset with f16 codebooks (CAGRA-Q). */
+  device_vpq_f16 = 5,
 };
 
 /** Current experimental CAGRA serialization format version. */
@@ -2718,74 +2720,92 @@ void deserialize(raft::resources const& handle,
                  std::unique_ptr<cuvs::neighbors::device_standard_dataset<uint8_t, int64_t>>*
                    out_dataset = nullptr);
 
-/* FP16-codebook device_pq_index graph-only overloads (CAGRA-Q).
+/* FP16-codebook device_pq_index overloads (CAGRA-Q).
  *
- * These overloads persist the graph and index metadata, but not the attached PQ dataset. Attach a
- * compatible dataset with `update_dataset` after deserialization before searching.
+ * The compressed rows may travel with the index so a deserialized index can be searched without
+ * retraining its codebooks. The index holds a non-owning view; when a payload is loaded, keep the
+ * returned owning dataset alive for as long as the index is used. Graph-only files remain supported
+ * and can be made searchable with `update_dataset`.
  */
 void serialize(raft::resources const& handle,
                const std::string& filename,
-               const cuvs::neighbors::cagra::device_pq_index<float>& index);
+               const cuvs::neighbors::cagra::device_pq_index<float>& index,
+               bool include_dataset = true);
 
 void deserialize(raft::resources const& handle,
                  const std::string& filename,
-                 cuvs::neighbors::cagra::device_pq_index<float>* index);
+                 cuvs::neighbors::cagra::device_pq_index<float>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
-               const cuvs::neighbors::cagra::device_pq_index<float>& index);
+               const cuvs::neighbors::cagra::device_pq_index<float>& index,
+               bool include_dataset = true);
 
 void deserialize(raft::resources const& handle,
                  std::istream& is,
-                 cuvs::neighbors::cagra::device_pq_index<float>* index);
+                 cuvs::neighbors::cagra::device_pq_index<float>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
-               const cuvs::neighbors::cagra::device_pq_index<half>& index);
+               const cuvs::neighbors::cagra::device_pq_index<half>& index,
+               bool include_dataset = true);
 
 void deserialize(raft::resources const& handle,
                  const std::string& filename,
-                 cuvs::neighbors::cagra::device_pq_index<half>* index);
+                 cuvs::neighbors::cagra::device_pq_index<half>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
-               const cuvs::neighbors::cagra::device_pq_index<half>& index);
+               const cuvs::neighbors::cagra::device_pq_index<half>& index,
+               bool include_dataset = true);
 
 void deserialize(raft::resources const& handle,
                  std::istream& is,
-                 cuvs::neighbors::cagra::device_pq_index<half>* index);
+                 cuvs::neighbors::cagra::device_pq_index<half>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
-               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index);
+               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index,
+               bool include_dataset = true);
 
 void deserialize(raft::resources const& handle,
                  const std::string& filename,
-                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index);
+                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
-               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index);
+               const cuvs::neighbors::cagra::device_pq_index<int8_t>& index,
+               bool include_dataset = true);
 
 void deserialize(raft::resources const& handle,
                  std::istream& is,
-                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index);
+                 cuvs::neighbors::cagra::device_pq_index<int8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                const std::string& filename,
-               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index);
+               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index,
+               bool include_dataset = true);
 
 void deserialize(raft::resources const& handle,
                  const std::string& filename,
-                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index);
+                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset = nullptr);
 
 void serialize(raft::resources const& handle,
                std::ostream& os,
-               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index);
+               const cuvs::neighbors::cagra::device_pq_index<uint8_t>& index,
+               bool include_dataset = true);
 
 void deserialize(raft::resources const& handle,
                  std::istream& is,
-                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index);
+                 cuvs::neighbors::cagra::device_pq_index<uint8_t>* index,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset = nullptr);
 
 /* device_bbq_index graph-only overloads (CAGRA + BBQ).
  *
@@ -4896,14 +4916,37 @@ namespace helpers {
  * @param[in] intermediate_graph_degree degree of the input graph for the optimization process
  * @param[in] index_size
  * @param[in] mst_optimize whether to use MST optimization
+ * @param[in] device_resident_graphs whether the input and output graphs are already device
+ *            resident. In that case `optimize` reads and writes them in place instead of staging
+ *            them through device buffers, so those staging allocations are left out of the
+ *            estimate.
  * @return tuple of [host_size, device_size, host_fixed_size, device_fixed_size] memory sizes in
  * bytes
  */
-std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows,
-                                                                   size_t graph_degree,
-                                                                   size_t intermediate_degree,
-                                                                   size_t index_size,
-                                                                   bool mst_optimize = false);
+std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(
+  size_t n_rows,
+  size_t graph_degree,
+  size_t intermediate_degree,
+  size_t index_size,
+  bool mst_optimize           = false,
+  bool device_resident_graphs = false);
+
+/**
+ * Calculate the device memory footprint of a VPQ-compressed (CAGRA-Q) dataset.
+ *
+ * The footprint is the sum of the VQ codebook, the PQ codebook and the encoded rows. Parameters
+ * left at 0 are resolved with the same heuristics that `vpq_build` applies.
+ *
+ * @param[in] dataset shape of the uncompressed dataset
+ * @param[in] params VPQ compression parameters
+ * @param[in] codebook_element_size size in bytes of a codebook element (2 for the f16 codebooks
+ *            used by CAGRA-Q)
+ *
+ * @return compressed dataset size in bytes
+ */
+size_t vpq_dataset_size(raft::matrix_extent<int64_t> dataset,
+                        cuvs::neighbors::vpq_params params,
+                        size_t codebook_element_size = 2);
 
 /**
  * Calculate memory usage of CAGRA build.
@@ -4913,13 +4956,17 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
  * @param[in] dtype element type of the dataset
  *            (e.g. `CUDA_R_32F`, `CUDA_R_16F`, `CUDA_R_8I`, `CUDA_R_8U`)
  * @param[in] cparams CAGRA index building parameters
+ * @param[in] compression when set, the build consumes a VPQ-compressed (CAGRA-Q) dataset with
+ *            these parameters rather than the dense dataset described by `dataset` and `dtype`
  *
  * @return pair of [host_size, device_size] memory sizes in bytes
  */
-std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
-                                                raft::matrix_extent<int64_t> dataset,
-                                                cudaDataType_t dtype,
-                                                cuvs::neighbors::cagra::index_params cparams);
+std::pair<size_t, size_t> cagra_build_mem_usage(
+  raft::resources const& res,
+  raft::matrix_extent<int64_t> dataset,
+  cudaDataType_t dtype,
+  cuvs::neighbors::cagra::index_params cparams,
+  std::optional<cuvs::neighbors::vpq_params> compression = std::nullopt);
 
 /**
  * @brief Optimize a KNN graph into a CAGRA graph.

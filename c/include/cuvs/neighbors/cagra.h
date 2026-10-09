@@ -882,14 +882,14 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
  *
  * The index stores a non-owning dataset view. The caller must keep the memory of the dataset
  * backing that view alive while this function runs. Returns CUVS_ERROR without modifying the
- * destination file if the index has no attached dataset. PQ and BBQ datasets are not serialized
- * by this function.
+ * destination file if the index has no attached dataset. PQ datasets are serialized with their
+ * codebooks and encoded rows. BBQ datasets are not serialized by this function.
  *
  * Experimental, both the API and the serialization format are subject to change.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] filename the file name for saving the graph and dataset
- * @param[in] index CAGRA index with an attached host or device dataset
+ * @param[in] index CAGRA index with an attached host, device, or PQ dataset
  */
 CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraphAndDataset(cuvsResources_t res,
                                                           const char* filename,
@@ -943,9 +943,9 @@ CUVS_EXPORT cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res,
  * Load the CAGRA graph and dataset from file.
  *
  * The returned owning dataset preserves the serialized host/device memory type and
- * standard/padded layout. The index stores a non-owning view into it, so the caller must keep the
- * dataset alive while the index uses it and destroy it separately with cuvsDatasetDestroy. Only a
- * device-padded result is immediately searchable through the C API; attach a caller-owned
+ * standard, padded, or PQ layout. The index stores a non-owning view into it, so the caller must
+ * keep the dataset alive while the index uses it and destroy it separately with cuvsDatasetDestroy.
+ * Device-padded and PQ results are immediately searchable through the C API; attach a caller-owned
  * device-padded view with cuvsCagraUpdateDataset for any other kind. The output pointer
  * must point to a null handle on entry; deserialization acts as a factory and transfers ownership
  * of the allocated dataset handle on success. Returns CUVS_ERROR when the file has no dataset; the

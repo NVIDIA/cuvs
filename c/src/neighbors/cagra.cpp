@@ -1124,11 +1124,8 @@ void _serialize(cuvsResources_t res, const char *filename,
                    "cuvsCagraSerializeGraphAndDataset is not supported for BBQ indices");
       cuvs::neighbors::cagra::serialize(*res_ptr, std::string(filename), idx);
     } else if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<index_dataset_view_t>) {
-      RAFT_EXPECTS(
-        !include_dataset,
-        "cuvsCagraSerializeGraphAndDataset is not supported for PQ indices; serialize the PQ "
-        "dataset separately");
-      cuvs::neighbors::cagra::serialize(*res_ptr, std::string(filename), idx);
+      cuvs::neighbors::cagra::serialize(
+        *res_ptr, std::string(filename), idx, include_dataset);
     } else {
       if (include_dataset) {
         RAFT_EXPECTS(
@@ -1183,7 +1180,7 @@ static auto read_serialized_header(cuvsResources_t res, const char *filename)
       "serialization version mismatch, expected %d, got %d",
       cuvs::neighbors::cagra::cagra_serialization_version, version);
   using kind = cuvs::neighbors::cagra::serialized_dataset_kind;
-  RAFT_EXPECTS(dataset_kind_raw <= static_cast<std::uint32_t>(kind::host_standard),
+  RAFT_EXPECTS(dataset_kind_raw <= static_cast<std::uint32_t>(kind::device_vpq_f16),
                "Invalid serialized dataset kind %u in file %s",
                dataset_kind_raw, filename);
   return {output_dtype, static_cast<kind>(dataset_kind_raw)};
@@ -1230,6 +1227,9 @@ void dispatch_serialized_dataset_kind(
       fn.template operator()<
           cuvs::neighbors::device_padded_dataset_view<T, int64_t>>();
       break;
+    case serialized_kind::device_vpq_f16:
+      fn.template operator()<cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>();
+      break;
   }
 }
 
@@ -1265,10 +1265,14 @@ void _deserialize(cuvsResources_t res, const char *filename,
         cuvs::neighbors::is_device_dataset_view_v<view_t>
             ? CUVS_DATASET_MEM_TYPE_DEVICE
             : CUVS_DATASET_MEM_TYPE_HOST;
-    dataset_handle->layout =
-        cuvs::neighbors::is_padded_dataset_view_v<view_t>
-            ? CUVS_DATASET_LAYOUT_PADDED
-            : CUVS_DATASET_LAYOUT_STANDARD;
+    if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<view_t>) {
+      dataset_handle->layout = CUVS_DATASET_LAYOUT_PQ;
+      dataset_handle->dtype  = DLDataType{.code = kDLFloat, .bits = 32, .lanes = 1};
+    } else if constexpr (cuvs::neighbors::is_padded_dataset_view_v<view_t>) {
+      dataset_handle->layout = CUVS_DATASET_LAYOUT_PADDED;
+    } else {
+      dataset_handle->layout = CUVS_DATASET_LAYOUT_STANDARD;
+    }
     dataset_handle->is_owning = true;
   }
 
@@ -2433,9 +2437,14 @@ extern "C" cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res,
                  "cuvsCagraDeserializeGraph: null index handle");
     auto const header = read_serialized_header(res, filename);
     dispatch_serialized_dtype(header.dtype, [&]<typename T>() {
-      using view_t = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
-      _deserialize<T, view_t>(
-          res, filename, index, header.dtype, false, nullptr);
+      using kind = cuvs::neighbors::cagra::serialized_dataset_kind;
+      if (header.dataset_kind == kind::device_vpq_f16) {
+        using view_t = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+        _deserialize<T, view_t>(res, filename, index, header.dtype, false, nullptr);
+      } else {
+        using view_t = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
+        _deserialize<T, view_t>(res, filename, index, header.dtype, false, nullptr);
+      }
     });
   });
 }

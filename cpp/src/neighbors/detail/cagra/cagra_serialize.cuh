@@ -65,6 +65,8 @@ constexpr auto serialized_dataset_kind_for_view() -> cuvs::neighbors::cagra::ser
     return kind::host_padded;
   } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
     return kind::host_standard;
+  } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
+    return kind::device_vpq_f16;
   } else {
     static_assert(sizeof(DatasetViewT) == 0,
                   "serialized_dataset_kind_for_view: unsupported dataset view type");
@@ -74,21 +76,17 @@ constexpr auto serialized_dataset_kind_for_view() -> cuvs::neighbors::cagra::ser
 constexpr bool is_valid_serialized_dataset_kind(std::uint32_t raw)
 {
   using kind = cuvs::neighbors::cagra::serialized_dataset_kind;
-  return raw <= static_cast<std::uint32_t>(kind::host_standard);
+  return raw <= static_cast<std::uint32_t>(kind::device_vpq_f16);
 }
 
-/**
- * Quantized datasets (PQ, BBQ) are owned outside the index and carry codebooks the index file has
- * no representation for, so such indexes serialize the graph alone.
- */
+/** BBQ datasets are externally owned and currently serialize as graph-only indexes. */
 template <typename DatasetViewT>
 inline constexpr bool is_graph_only_dataset_view_v =
-  cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT> ||
   cuvs::neighbors::is_bbq_dataset_view_v<DatasetViewT>;
 
 inline constexpr char const* kGraphOnlyDatasetMessage =
-  "CAGRA indexes with a quantized dataset store only the graph; serialize the quantized dataset "
-  "separately and reattach it with update_dataset()";
+  "CAGRA indexes with a BBQ dataset store only the graph; serialize the BBQ dataset separately "
+  "and reattach it with update_dataset()";
 
 template <typename MdspanT>
 void serialize_index_mdspan(raft::resources const& res, std::ostream& os, MdspanT const& mdspan)
@@ -151,6 +149,8 @@ void serialize(raft::resources const& res,
     RAFT_LOG_DEBUG("Saving CAGRA index with dataset");
     if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>) {
       neighbors::detail::serialize_cagra_dense_dataset<T, int64_t>(res, os, index_.dataset());
+    } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
+      neighbors::detail::serialize_vpq_dataset<half, int64_t>(res, os, index_.dataset().dset());
     } else if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
       RAFT_FAIL(kGraphOnlyDatasetMessage);
     } else {
@@ -599,14 +599,17 @@ void deserialize_impl(
     std::unique_ptr<owner_t> dataset_owner{};
     if (has_dataset) {
       if (out_dataset == nullptr) {
-        if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
-          RAFT_FAIL("cagra::deserialize: quantized index files must contain only the graph");
+        if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
+          [[maybe_unused]] auto discarded =
+            cuvs::neighbors::detail::deserialize_vpq_dataset<half, int64_t>(res, input);
+        } else if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+          RAFT_FAIL("cagra::deserialize: BBQ index files must contain only the graph");
         } else {
           cuvs::neighbors::detail::skip_dense_dataset<T, int64_t>(res, is);
         }
       } else {
         if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
-          RAFT_FAIL("cagra::deserialize: quantized index files must contain only the graph");
+          RAFT_FAIL("cagra::deserialize: BBQ index files must contain only the graph");
         } else {
           auto const expected_kind = serialized_dataset_kind_for_view<DatasetViewT>();
           RAFT_EXPECTS(
@@ -626,6 +629,9 @@ void deserialize_impl(
           } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
             dataset_owner =
               cuvs::neighbors::detail::deserialize_host_standard_dataset<T, int64_t>(res, input);
+          } else if constexpr (cuvs::neighbors::is_device_vpq_f16_dataset_view_v<DatasetViewT>) {
+            dataset_owner =
+              cuvs::neighbors::detail::deserialize_vpq_dataset<half, int64_t>(res, input);
           } else {
             static_assert(sizeof(DatasetViewT) == 0,
                           "deserialize: dataset deserialization is not implemented for this view");

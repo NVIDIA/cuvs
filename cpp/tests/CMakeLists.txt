@@ -252,6 +252,7 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HELPERS_TEST
   PATH neighbors/ann_cagra/test_optimize_uint32_t.cu neighbors/ann_cagra/test_batch_load_iterator.cu
+       neighbors/ann_cagra/test_mem_usage.cu
   GPUS 1
   PERCENT 100
 )
@@ -469,6 +470,7 @@ ConfigureTest(
        preprocessing/binary_quantization.cu
        preprocessing/spectral_embedding.cu
        preprocessing/product_quantization.cu
+       preprocessing/vpq_serialization.cu
        preprocessing/pca.cu
   GPUS 1
   PERCENT 100

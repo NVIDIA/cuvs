@@ -9,7 +9,6 @@
 #include "../../ivf_pq/ivf_pq_fp16_overflow.cuh"
 #include "cagra_search.cuh"
 #include "graph_core.cuh"
-#include <cuvs/preprocessing/quantize/pq.hpp>
 
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>

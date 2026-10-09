@@ -3,12 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../neighbors/detail/dataset_serialize.hpp"
+#include "../../util/serialize_validation.hpp"
 #include "./detail/pq.cuh"
 
 #include <cuvs/preprocessing/quantize/pq.hpp>
 
+#include <raft/core/numpy_serializer.hpp>
 #include <raft/matrix/copy.cuh>
 #include <raft/util/cudart_utils.hpp>
+
+#include <fstream>
+#include <memory>
+#include <string>
 
 namespace cuvs::preprocessing::quantize::pq {
 
@@ -75,6 +82,55 @@ CUVS_INST_VPQ_BUILD(int8_t);
 CUVS_INST_VPQ_BUILD(uint8_t);
 
 #undef CUVS_INST_VPQ_BUILD
+
+void serialize(raft::resources const& res,
+               std::ostream& os,
+               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset)
+{
+  // Same file preamble as cagra::serialize. The nested blob carries only a kind tag and dtype,
+  // matching serialize_cagra_dense_dataset, because a nested blob relies on its enclosing file for
+  // the version; a standalone .vpq has no enclosing file, so the version is written here.
+  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<half>().to_string();
+  dtype_string.resize(4);
+  os << dtype_string;
+  raft::serialize_scalar(res, os, vpq_serialization_version);
+  ::cuvs::neighbors::detail::serialize_vpq_dataset<half, int64_t>(res, os, dataset);
+}
+
+void serialize(raft::resources const& res,
+               const std::string& filename,
+               const cuvs::neighbors::device_vpq_dataset<half, int64_t>& dataset)
+{
+  std::ofstream os(filename, std::ios::out | std::ios::binary | std::ios::trunc);
+  RAFT_EXPECTS(os.good(), "pq::serialize: cannot open %s for writing", filename.c_str());
+  serialize(res, os, dataset);
+}
+
+void deserialize(raft::resources const& res,
+                 std::istream& is,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset)
+{
+  RAFT_EXPECTS(out_dataset != nullptr, "pq::deserialize: out_dataset must not be null");
+  char dtype_string[4];
+  RAFT_EXPECTS(is.read(dtype_string, 4), "pq::deserialize: failed to read the dtype prefix");
+  RAFT_EXPECTS(cuvs::util::validate_serialized_dtype<half>(dtype_string, sizeof(dtype_string)),
+               "pq::deserialize: dtype prefix does not match a VPQ dataset with half codebooks");
+  auto const version = raft::deserialize_scalar<int>(res, is);
+  RAFT_EXPECTS(version == vpq_serialization_version,
+               "pq::deserialize: serialization version mismatch, expected %d, got %d",
+               vpq_serialization_version,
+               version);
+  *out_dataset = ::cuvs::neighbors::detail::deserialize_vpq_dataset<half, int64_t>(res, is);
+}
+
+void deserialize(raft::resources const& res,
+                 const std::string& filename,
+                 std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>* out_dataset)
+{
+  std::ifstream is(filename, std::ios::in | std::ios::binary);
+  RAFT_EXPECTS(is.good(), "pq::deserialize: cannot open %s for reading", filename.c_str());
+  deserialize(res, is, out_dataset);
+}
 
 namespace detail {
 
