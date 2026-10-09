@@ -359,7 +359,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
     for (int p = 0; p < partStart.length; p++) {
       float[][] slice = Arrays.copyOfRange(dataset, partStart[p], partStart[p] + PART_ROWS);
       var index =
-          CagraIndex.newBuilder(resources).withDataset(slice).withIndexParams(indexParams).build();
+          CagraIndex.newBuilder(resources).fromDataset(slice).withIndexParams(indexParams).build();
       // DIM=16 float rows are already aligned, so retain the device matrix behind this view.
       try (var hostDataset = CuVSMatrix.ofArray(slice)) {
         var deviceDataset = hostDataset.toDevice(resources);

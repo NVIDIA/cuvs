@@ -294,7 +294,7 @@ public class AcceleratedHNSWUtils {
     try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(subsetDataset)) {
       CagraIndex subsetIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
-              .withDataset(subsetDataset)
+              .fromDataset(subsetDataset)
               .withIndexParams(params)
               .build();
       ownedIndex.transferTo(subsetIndex);

@@ -254,7 +254,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         CagraIndexParamsFactory.create(gpuSearchParams, dataset.size(), dataset.columns());
     try (CagraIndex index =
             CagraIndex.newBuilder(getCuVSResourcesInstance())
-                .withDataset(dataset)
+                .fromDataset(dataset)
                 .withIndexParams(params)
                 .build();
         var deviceVectors = dataset.toDevice(getCuVSResourcesInstance())) {
