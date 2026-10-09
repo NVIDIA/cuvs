@@ -318,6 +318,24 @@ const std::vector<NNInputs<IdxT>> input_fp32_fused = [] {
                     uint64_t(31415926),
                     0.1,
                     cuvs::distance::detail::Top1nnBackend::Cutile});
+  // High-dimensional tile, strict ABI, should be selected on all archs with a high-dim tile.
+  inputs.push_back({128,
+                    2000,
+                    3072,
+                    DistanceType::L2Expanded,
+                    false,
+                    uint64_t(31415926),
+                    0.1,
+                    cuvs::distance::detail::Top1nnBackend::Cutile});
+  // large K and N but falls into relaxed ABI tile
+  inputs.push_back({128,
+                    2000,
+                    3071,
+                    DistanceType::L2Expanded,
+                    false,
+                    uint64_t(31415926),
+                    0.1,
+                    cuvs::distance::detail::Top1nnBackend::Cutile});
 #endif
   return inputs;
 }();
@@ -595,6 +613,24 @@ const std::vector<NNInputs<IdxT>> input_fp16_cutile = {
    uint64_t(31415926),
    0.1,
    cuvs::distance::detail::Top1nnBackend::Auto},
+  // High-dimensional tile, strict ABI, should be selected on all archs with a high-dim tile.
+  {64,
+   2000,
+   3072,
+   DistanceType::L2Expanded,
+   false,
+   uint64_t(31415926),
+   0.1,
+   cuvs::distance::detail::Top1nnBackend::Cutile},
+  // large K and N but falls into relaxed ABI tile
+  {64,
+   2000,
+   3071,
+   DistanceType::L2Expanded,
+   false,
+   uint64_t(31415926),
+   0.1,
+   cuvs::distance::detail::Top1nnBackend::Cutile},
 };
 
 using NNTest_fp16_fused = NNTest<half, float, int32_t, ImplType::fused>;

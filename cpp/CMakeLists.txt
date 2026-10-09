@@ -1164,6 +1164,14 @@ if(NOT BUILD_CPU_ONLY)
   endblock()
 
   include(cmake/modules/generate_cutile_kernels.cmake)
+  # TODO: Remove the flag and always enable Rubin/sm_110 once cuTile 13.4 is available in cuVS.
+  option(CUVS_CUTILE_ENABLE_SM110 "Embed cuTile kernels for sm_110 (requires cuTile >= 13.4)" OFF)
+  set(CUVS_CUTILE_SM110_ENABLED 0)
+  set(CUVS_CUTILE_EXCLUDED_GPU_CODES "sm_110")
+  if(CUVS_CUTILE_ENABLE_SM110)
+    set(CUVS_CUTILE_SM110_ENABLED 1)
+    set(CUVS_CUTILE_EXCLUDED_GPU_CODES "")
+  endif()
   cuvs_cutile_setup(CUVS_CUTILE_ENABLED cutile_python cutile_bin2c)
   if(CUVS_CUTILE_ENABLED)
     set(cutile_smoke_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/jit_lto/cutile_smoke")
@@ -1572,6 +1580,7 @@ if(NOT BUILD_CPU_ONLY)
   target_compile_definitions(
     cuvs_objs
     PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+            CUVS_CUTILE_SM110_ENABLED=${CUVS_CUTILE_SM110_ENABLED}
             $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:CUVS_BUILD_CAGRA_HNSWLIB>
             $<$<BOOL:${BUILD_MG_ALGOS}>:CUVS_BUILD_MG_ALGOS>
             $<$<BOOL:${CUVS_NVTX}>:NVTX_ENABLED>

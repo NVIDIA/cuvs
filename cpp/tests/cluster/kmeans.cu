@@ -504,7 +504,7 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     cuvs::cluster::kmeans::params p;
     p.n_clusters            = n_clusters;
     p.tol                   = testparams.tol;
-    p.n_init                = 1;
+    p.n_init                = 3;
     p.init                  = cuvs::cluster::kmeans::params::KMeansPlusPlus;
     p.max_iter              = 20;
     p.rng_state.seed        = 1;

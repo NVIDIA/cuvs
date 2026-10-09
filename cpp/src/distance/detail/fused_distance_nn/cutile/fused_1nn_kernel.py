@@ -39,6 +39,7 @@ def make_kernel(
     gpu_code: str = "sm_80",
     matrix_layout: str = "strict",
     occupancy: int | None = None,
+    num_ctas: int | None = None,
 ):
     """Build the flat-reduction runtime-metric cuTile kernel."""
     if data_type not in ("half", "float"):
@@ -47,7 +48,7 @@ def make_kernel(
         raise ValueError(f"Unsupported metric {metric!r}")
     if index_type not in INDEX_TYPES:
         raise ValueError(f"Unsupported index_type {index_type!r}")
-    if matrix_layout not in ("strict", "relaxed"):
+    if matrix_layout not in ("strict", "relaxed", "high_dim"):
         raise ValueError(f"Unsupported matrix_layout {matrix_layout!r}")
 
     acc_dtype = ct.float32
@@ -57,6 +58,8 @@ def make_kernel(
     kernel_options = {}
     if occupancy is not None:
         kernel_options["occupancy"] = ct.ByTarget(**{gpu_code: occupancy})
+    # CTAs per CGA. Omitted means 1 (no clustering); high-dim tiles set it explicitly.
+    kernel_options["num_ctas"] = ct.ByTarget(**{gpu_code: num_ctas or 1})
 
     @ct.kernel(**kernel_options)
     def fused_1nn_kernel(
@@ -189,6 +192,8 @@ def kernel_symbol(
         return base
     if matrix_layout == "relaxed":
         return f"{base}_relaxed"
+    if matrix_layout == "high_dim":
+        return f"{base}_hd"
     raise ValueError(f"Unsupported matrix layout {matrix_layout!r}")
 
 
