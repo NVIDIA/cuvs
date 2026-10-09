@@ -20,6 +20,7 @@
 #include <raft/core/memory_type.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
@@ -50,13 +51,44 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <ctime>
+#include <limits>
 #include <optional>
 #include <random>
 #include <type_traits>
 
 namespace cuvs::cluster::kmeans::detail {
+
+/** Limit automatic batching to 80% of free workspace or 512 MiB. */
+constexpr auto kmeans_workspace_budget(std::size_t free_bytes) -> std::size_t
+{
+  constexpr std::size_t max_workspace_bytes = std::size_t{1} << 29;
+  if (free_bytes >= max_workspace_bytes + max_workspace_bytes / 4) {
+    return max_workspace_bytes;
+  }
+  return free_bytes * 4 / 5;
+}
+
+template <typename IndexT>
+constexpr auto resolve_kmeans_batch_rows(IndexT n_rows,
+                                         IndexT requested_rows,
+                                         std::size_t free_bytes,
+                                         std::size_t bytes_per_row) -> IndexT
+{
+  if (n_rows <= IndexT{0}) { return IndexT{0}; }
+  if (requested_rows > IndexT{0}) { return std::min(requested_rows, n_rows); }
+  if (bytes_per_row == 0) { return n_rows; }
+
+  constexpr auto max_index = static_cast<std::size_t>(std::numeric_limits<IndexT>::max());
+  const auto candidate_size =
+    std::min(kmeans_workspace_budget(free_bytes) / bytes_per_row, max_index);
+  IndexT candidate           = std::max<IndexT>(IndexT{1}, static_cast<IndexT>(candidate_size));
+  constexpr IndexT alignment = IndexT{64};
+  candidate                  = candidate - candidate % alignment;
+  return std::min(std::max<IndexT>(IndexT{1}, candidate), n_rows);
+}
 
 #if defined(CUVS_CUTILE_ENABLED) && CUVS_CUTILE_ENABLED && CUDA_VERSION >= 13000
 template <typename DataT>
