@@ -1,0 +1,338 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package com.nvidia.cuvs.lucene;
+
+import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
+
+import com.nvidia.cuvs.CuVSDeviceMatrix;
+import com.nvidia.cuvs.CuVSHostMatrix;
+import com.nvidia.cuvs.CuVSMatrix;
+import com.nvidia.cuvs.RowView;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import org.apache.lucene.tests.util.LuceneTestCase;
+import org.apache.lucene.util.hnsw.HnswGraph;
+import org.apache.lucene.util.hnsw.HnswGraph.NodesIterator;
+import org.apache.lucene.util.hnsw.NeighborArray;
+import org.junit.Test;
+
+/** Verifies serial and parallel CAGRA-adjacency materialization and host-copy ownership. */
+public class TestParallelGraphMaterialization extends LuceneTestCase {
+
+  private static final int NUM_NODES = GPUBuiltHnswGraph.PARALLEL_MIN_NODES + 1000;
+  private static final int DEGREE = 12;
+  private static final int GRAPH_THREADS = 4;
+
+  @Test
+  public void parallelMaterializationMatchesSerial() throws Exception {
+    int[][] rows = IntGraphTestMatrix.randomRows(NUM_NODES, DEGREE, 1);
+    IntGraphTestMatrix.ParallelExecutionProbe executionProbe =
+        new IntGraphTestMatrix.ParallelExecutionProbe();
+    try (CuVSMatrix serialMatrix = new IntGraphTestMatrix(rows);
+        CuVSMatrix parallelMatrix =
+            new IntGraphTestMatrix.TrackingHostMatrix(
+                rows, new AtomicInteger(), null, executionProbe)) {
+      GPUBuiltHnswGraph serial =
+          new GPUBuiltHnswGraph(
+              NUM_NODES, /* dimensions= */ 4, Arrays.asList((int[]) null), List.of(serialMatrix));
+      GPUBuiltHnswGraph parallel = newSingleLayerGraph(parallelMatrix, GRAPH_THREADS);
+      assertGraphsEqual(serial, parallel);
+      assertTrue(executionProbe.threadCount() > 1);
+    }
+  }
+
+  @Test
+  public void overflowingDeviceShapeUsesSerialFallback() throws Exception {
+    int[][] adjacency = IntGraphTestMatrix.randomRows(NUM_NODES, 1, 0);
+    Set<Thread> sourceReadThreads = ConcurrentHashMap.newKeySet();
+    try (CuVSMatrix matrix =
+        new IntGraphTestMatrix.DeviceMatrix(adjacency, Long.MAX_VALUE) {
+          @Override
+          public RowView getRow(long row) {
+            sourceReadThreads.add(Thread.currentThread());
+            return super.getRow(row);
+          }
+        }) {
+      GPUBuiltHnswGraph graph = newSingleLayerGraph(matrix, GRAPH_THREADS);
+      for (int node = 0; node < NUM_NODES; node++) {
+        assertArrayEquals(adjacency[node], arcsOf(graph, 0, node));
+      }
+    }
+    assertEquals(1, sourceReadThreads.size());
+  }
+
+  @Test
+  public void failedDeviceCopyClosesHostAllocationAndSuppressesCloseFailure() {
+    RuntimeException copyFailure = new RuntimeException("copy failed");
+    RuntimeException closeFailure = new RuntimeException("close failed");
+    AtomicInteger hostCloseCount = new AtomicInteger();
+    CuVSDeviceMatrix source =
+        new IntGraphTestMatrix.DeviceMatrix(new int[][] {{0}}, 1) {
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            throw copyFailure;
+          }
+        };
+    CuVSHostMatrix hostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(hostCloseCount, closeFailure);
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class, () -> GPUBuiltHnswGraph.copyToHost(source, () -> hostCopy));
+
+    assertSame(copyFailure, thrown);
+    assertEquals(1, hostCloseCount.get());
+    assertArrayEquals(new Throwable[] {closeFailure}, thrown.getSuppressed());
+  }
+
+  @Test
+  public void hostAllocationFailureReleasesCopyReservation() {
+    int[][] rows = new int[][] {{0}};
+    CuVSDeviceMatrix source = new IntGraphTestMatrix.DeviceMatrix(rows, 1);
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(1, 1);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+    RuntimeException allocationFailure = new RuntimeException("allocation failed");
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                GPUBuiltHnswGraph.materializeDeviceAdjacency(
+                    source,
+                    1,
+                    GRAPH_THREADS,
+                    budget,
+                    requiredCopyBytes,
+                    () -> {
+                      throw allocationFailure;
+                    }));
+
+    assertSame(allocationFailure, thrown);
+    assertBudgetIsReusable(budget, requiredCopyBytes);
+  }
+
+  @Test
+  public void copyFailureClosesHostAndReleasesCopyReservation() {
+    int[][] rows = new int[][] {{0}};
+    RuntimeException copyFailure = new RuntimeException("copy failed");
+    AtomicInteger hostCloseCount = new AtomicInteger();
+    CuVSDeviceMatrix source =
+        new IntGraphTestMatrix.DeviceMatrix(rows, 1) {
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            throw copyFailure;
+          }
+        };
+    CuVSHostMatrix hostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(rows, hostCloseCount, null, null);
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(1, 1);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                GPUBuiltHnswGraph.materializeDeviceAdjacency(
+                    source, 1, GRAPH_THREADS, budget, requiredCopyBytes, () -> hostCopy));
+
+    assertSame(copyFailure, thrown);
+    assertEquals(1, hostCloseCount.get());
+    assertBudgetIsReusable(budget, requiredCopyBytes);
+  }
+
+  @Test
+  public void parallelFillFailureClosesHostAndReleasesCopyReservation() {
+    int[][] rows = new int[][] {{0}};
+    RuntimeException fillFailure = new RuntimeException("fill failed");
+    AtomicInteger hostCloseCount = new AtomicInteger();
+    CuVSDeviceMatrix source =
+        new IntGraphTestMatrix.DeviceMatrix(rows, 1) {
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            // The fake host matrix already contains the copied row.
+          }
+        };
+    CuVSHostMatrix hostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(rows, hostCloseCount, null, null) {
+          @Override
+          public RowView getRow(long row) {
+            throw fillFailure;
+          }
+        };
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(1, 1);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+
+    RuntimeException thrown =
+        assertThrows(
+            RuntimeException.class,
+            () ->
+                GPUBuiltHnswGraph.materializeDeviceAdjacency(
+                    source, 1, GRAPH_THREADS, budget, requiredCopyBytes, () -> hostCopy));
+
+    assertSame(fillFailure, thrown);
+    assertEquals(1, hostCloseCount.get());
+    assertBudgetIsReusable(budget, requiredCopyBytes);
+  }
+
+  @Test
+  public void admittedDeviceCopyIsMaterializedInParallelAndReleased() throws Exception {
+    int[][] expectedRows = IntGraphTestMatrix.randomRows(NUM_NODES, DEGREE, 3);
+    int[][] wrongSourceRows = new int[NUM_NODES][DEGREE];
+    AtomicInteger hostCloseCount = new AtomicInteger();
+    AtomicInteger copyCount = new AtomicInteger();
+    IntGraphTestMatrix.ParallelExecutionProbe executionProbe =
+        new IntGraphTestMatrix.ParallelExecutionProbe();
+    CuVSHostMatrix hostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(
+            expectedRows, hostCloseCount, null, executionProbe);
+    CuVSDeviceMatrix source =
+        new IntGraphTestMatrix.DeviceMatrix(wrongSourceRows, DEGREE) {
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            assertSame(hostCopy, target);
+            copyCount.incrementAndGet();
+          }
+        };
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(NUM_NODES, DEGREE);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+
+    NeighborArray[] neighbors =
+        GPUBuiltHnswGraph.materializeDeviceAdjacency(
+            source, NUM_NODES, GRAPH_THREADS, budget, requiredCopyBytes, () -> hostCopy);
+
+    for (int node = 0; node < NUM_NODES; node++) {
+      assertArrayEquals(
+          expectedRows[node], Arrays.copyOf(neighbors[node].nodes(), neighbors[node].size()));
+    }
+    assertEquals(1, copyCount.get());
+    assertEquals(1, hostCloseCount.get());
+    assertTrue(executionProbe.threadCount() > 1);
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget.tryReserve(NUM_NODES, DEGREE, requiredCopyBytes).orElseThrow()) {
+      // The first reservation was released after materialization.
+    }
+  }
+
+  @Test
+  public void configuredBudgetControlsWhetherDeviceCopyRuns() throws Exception {
+    int[][] sourceRows = IntGraphTestMatrix.randomRows(NUM_NODES, DEGREE, 5);
+    AtomicInteger copyCount = new AtomicInteger();
+    Set<Thread> sourceReadThreads = ConcurrentHashMap.newKeySet();
+    CuVSDeviceMatrix source =
+        new IntGraphTestMatrix.DeviceMatrix(sourceRows, DEGREE) {
+          @Override
+          public RowView getRow(long row) {
+            sourceReadThreads.add(Thread.currentThread());
+            return super.getRow(row);
+          }
+
+          @Override
+          public void toHost(CuVSHostMatrix target) {
+            copyCount.incrementAndGet();
+          }
+        };
+    long requiredCopyBytes = GraphCopyMemoryBudget.requiredCopyBytes(NUM_NODES, DEGREE);
+    GraphCopyMemoryBudget budget = new GraphCopyMemoryBudget();
+
+    NeighborArray[] disabledResult =
+        GPUBuiltHnswGraph.materializeDeviceAdjacency(
+            source,
+            NUM_NODES,
+            GRAPH_THREADS,
+            budget,
+            AcceleratedHNSWParams.DISABLED_GRAPH_COPY_MEMORY_BUDGET_BYTES,
+            TestParallelGraphMaterialization::failUnexpectedHostCopyAllocation);
+    assertAdjacencyEquals(sourceRows, disabledResult);
+    assertEquals(0, copyCount.get());
+    assertEquals(1, sourceReadThreads.size());
+
+    sourceReadThreads.clear();
+    NeighborArray[] insufficientResult =
+        GPUBuiltHnswGraph.materializeDeviceAdjacency(
+            source,
+            NUM_NODES,
+            GRAPH_THREADS,
+            budget,
+            requiredCopyBytes - 1,
+            TestParallelGraphMaterialization::failUnexpectedHostCopyAllocation);
+    assertAdjacencyEquals(sourceRows, insufficientResult);
+    assertEquals(0, copyCount.get());
+    assertEquals(1, sourceReadThreads.size());
+
+    CuVSHostMatrix hostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(sourceRows, new AtomicInteger(), null, null);
+    GPUBuiltHnswGraph.materializeDeviceAdjacency(
+        source, NUM_NODES, GRAPH_THREADS, budget, requiredCopyBytes, () -> hostCopy);
+    assertEquals(1, copyCount.get());
+
+    CuVSHostMatrix unlimitedHostCopy =
+        new IntGraphTestMatrix.TrackingHostMatrix(sourceRows, new AtomicInteger(), null, null);
+    GPUBuiltHnswGraph.materializeDeviceAdjacency(
+        source,
+        NUM_NODES,
+        GRAPH_THREADS,
+        budget,
+        AcceleratedHNSWParams.UNLIMITED_GRAPH_COPY_MEMORY_BUDGET_BYTES,
+        () -> unlimitedHostCopy);
+    assertEquals(2, copyCount.get());
+  }
+
+  private static CuVSHostMatrix failUnexpectedHostCopyAllocation() {
+    throw new AssertionError("denied device adjacency must not allocate a host copy");
+  }
+
+  private static void assertAdjacencyEquals(int[][] expectedRows, NeighborArray[] actualNeighbors) {
+    assertEquals(expectedRows.length, actualNeighbors.length);
+    for (int node = 0; node < expectedRows.length; node++) {
+      assertArrayEquals(
+          expectedRows[node],
+          Arrays.copyOf(actualNeighbors[node].nodes(), actualNeighbors[node].size()));
+    }
+  }
+
+  private static GPUBuiltHnswGraph newSingleLayerGraph(CuVSMatrix layer0Adjacency, int numThreads)
+      throws IOException {
+    return new GPUBuiltHnswGraph(
+        NUM_NODES,
+        /* dimensions= */ 4,
+        Arrays.asList((int[]) null),
+        List.of(layer0Adjacency),
+        numThreads);
+  }
+
+  private static void assertBudgetIsReusable(GraphCopyMemoryBudget budget, long requiredCopyBytes) {
+    try (GraphCopyMemoryBudget.Reservation ignored =
+        budget.tryReserve(1, 1, requiredCopyBytes).orElseThrow()) {
+      // The failed materialization released its reservation.
+    }
+  }
+
+  private static void assertGraphsEqual(HnswGraph a, HnswGraph b) throws Exception {
+    assertEquals(a.numLevels(), b.numLevels());
+    for (int level = 0; level < a.numLevels(); level++) {
+      int[] nodes = NodesIterator.getSortedNodes(a.getNodesOnLevel(level));
+      for (int node : nodes) {
+        assertArrayEquals(
+            "node " + node + " at level " + level + " has different neighbors",
+            arcsOf(a, level, node),
+            arcsOf(b, level, node));
+      }
+    }
+  }
+
+  private static int[] arcsOf(HnswGraph graph, int level, int node) throws Exception {
+    graph.seek(level, node);
+    List<Integer> arcs = new ArrayList<>();
+    for (int n = graph.nextNeighbor(); n != NO_MORE_DOCS; n = graph.nextNeighbor()) {
+      arcs.add(n);
+    }
+    return arcs.stream().mapToInt(Integer::intValue).toArray();
+  }
+}
