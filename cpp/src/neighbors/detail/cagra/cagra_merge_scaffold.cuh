@@ -1142,7 +1142,7 @@ auto build(raft::resources const& res,
  *
  * The maximum input graph degree defines the base width, allowing partitions with mixed degrees.
  */
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::core::dataset_like DatasetViewT>
 void append_to_input_graphs(
   raft::resources const& res,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,

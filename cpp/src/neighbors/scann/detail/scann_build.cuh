@@ -437,7 +437,8 @@ index<T, IdxT> build(
   // Codebooks from VPQ have the shape [subspace idx, subspace dim, code]
   // This converts the codebook into matrix format for easy interoperability
   // with open-source ScaNN search
-  auto full_codebook_view = pq_quantizer.vpq_codebooks.pq_code_book.view();
+  auto const& vpq         = pq_quantizer.vpq_codebooks.data();
+  auto full_codebook_view = vpq.pq_code_book.view();
 
   raft::linalg::map_offset(
     res,

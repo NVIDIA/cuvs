@@ -151,3 +151,37 @@ dequant_sum_delta from that delta and quantized_component_sums.
 **Returns**
 
 `void`
+
+## Types
+
+<a id="preprocessing-quantize-bbq-bbq-dataset-spec"></a>
+### preprocessing::quantize::bbq::bbq_dataset_spec
+
+BBQ is just another dataset type: it plugs its payloads into the shared `dataset`/
+
+`dataset_view` through a spec, like every other kind does.
+
+```cpp
+template <typename Accessor>
+struct bbq_dataset_spec;
+```
+
+<a id="preprocessing-quantize-bbq-is-bbq-spec"></a>
+### preprocessing::quantize::bbq::is_bbq_spec
+
+Spec predicate for `cuvs::core::dataset_view_has_spec_v`.
+
+```cpp
+template <typename SpecT>
+struct is_bbq_spec;
+```
+
+<a id="preprocessing-quantize-bbq-is-bbq-dataset"></a>
+### preprocessing::quantize::bbq::is_bbq_dataset
+
+True for an owning `dataset&lt;...&gt;` of the BBQ kind.
+
+```cpp
+template <typename DatasetT>
+struct is_bbq_dataset;
+```

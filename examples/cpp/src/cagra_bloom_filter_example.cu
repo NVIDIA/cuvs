@@ -71,7 +71,7 @@ int main()
 
   std::cout << "Building CAGRA index" << std::endl;
   auto padded =
-    cuvs::neighbors::make_device_padded_dataset_view(res, raft::make_const_mdspan(dataset.view()));
+    cuvs::core::make_device_padded_dataset_view(res, raft::make_const_mdspan(dataset.view()));
   auto index = cuvs::neighbors::cagra::build(res, index_params, padded);
   index      = cuvs::neighbors::cagra::update_dataset(res, std::move(index), padded);
 

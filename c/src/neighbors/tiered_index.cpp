@@ -140,8 +140,8 @@ void* _build(cuvsResources_t res, cuvsTieredIndexParams params, DLManagedTensor*
     case CUVS_TIERED_INDEX_ALGO_CAGRA: {
       auto build_params = tiered_index::index_params<cagra::index_params>();
       convert_c_index_params(params, dataset.shape[0], dataset.shape[1], &build_params);
-      if (cuvs::neighbors::matrix_row_width_matches_cagra_required(mds)) {
-        auto padded_view = cuvs::neighbors::make_device_padded_dataset_view(*res_ptr, mds);
+      if (cuvs::core::matrix_has_padded_row_width(mds)) {
+        auto padded_view = cuvs::core::make_device_padded_dataset_view(*res_ptr, mds);
         auto* ptr = new tiered_index::index<cagra::device_padded_index<T, uint32_t>>(
           tiered_index::build(*res_ptr, build_params, padded_view));
         return make_tiered_index_box(

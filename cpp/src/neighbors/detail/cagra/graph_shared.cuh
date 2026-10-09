@@ -37,11 +37,11 @@ CUVS_DECL_CAGRA_GRAPH_SORT(uint8_t);
 
 #undef CUVS_DECL_CAGRA_GRAPH_SORT
 
-#define CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(DataT)                         \
-  CUVS_EXPORT void sort_knn_graph_bbq(                                \
-    raft::resources const& res,                                       \
-    cuvs::distance::DistanceType metric,                              \
-    cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset, \
+#define CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(DataT)                                            \
+  CUVS_EXPORT void sort_knn_graph_bbq(                                                   \
+    raft::resources const& res,                                                          \
+    cuvs::distance::DistanceType metric,                                                 \
+    cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<DataT, int64_t> dataset, \
     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph)
 
 CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(float);

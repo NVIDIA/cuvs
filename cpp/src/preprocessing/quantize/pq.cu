@@ -57,13 +57,13 @@ CUVS_INST_QUANTIZATION(float, uint8_t);
 
 #define CUVS_INST_VPQ_BUILD(T)                                                               \
   auto vpq_build(const raft::resources& res,                                                 \
-                 const cuvs::neighbors::vpq_params& params,                                  \
+                 const cuvs::preprocessing::quantize::pq::vpq_params& params,                \
                  const raft::host_matrix_view<const T, int64_t, raft::row_major>& dataset)   \
   {                                                                                          \
     return detail::vpq_build_half<decltype(dataset)>(res, params, dataset);                  \
   }                                                                                          \
   auto vpq_build(const raft::resources& res,                                                 \
-                 const cuvs::neighbors::vpq_params& params,                                  \
+                 const cuvs::preprocessing::quantize::pq::vpq_params& params,                \
                  const raft::device_matrix_view<const T, int64_t, raft::row_major>& dataset) \
   {                                                                                          \
     return detail::vpq_build_half<decltype(dataset)>(res, params, dataset);                  \
@@ -80,11 +80,12 @@ namespace detail {
 
 template <typename T>
 auto train_from_rows(raft::resources const& res,
-                     cuvs::neighbors::vpq_params const& params,
+                     cuvs::preprocessing::quantize::pq::vpq_params const& params,
                      T const* src_ptr,
                      int64_t n_rows,
                      int64_t dim,
-                     int64_t stride) -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+                     int64_t stride)
+  -> cuvs::preprocessing::quantize::pq::device_vpq_dataset<half, int64_t>
 {
   cudaPointerAttributes ptr_attrs;
   RAFT_CUDA_TRY(cudaPointerGetAttributes(&ptr_attrs, src_ptr));
@@ -114,12 +115,13 @@ auto train_from_rows(raft::resources const& res,
 }
 
 auto vpq_train_from_rows(raft::resources const& res,
-                         cuvs::neighbors::vpq_params const& params,
+                         cuvs::preprocessing::quantize::pq::vpq_params const& params,
                          void const* src_ptr,
                          cudaDataType_t dtype,
                          int64_t n_rows,
                          int64_t dim,
-                         int64_t stride) -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
+                         int64_t stride)
+  -> cuvs::preprocessing::quantize::pq::device_vpq_dataset<half, int64_t>
 {
   switch (dtype) {
     case CUDA_R_32F:

@@ -187,7 +187,8 @@ void build(raft::resources const& res,
 template <typename DataT, typename IdxT = uint32_t>
 auto build(raft::resources const& res,
            index_params const& params,
-           cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset) -> index<IdxT>
+           cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<DataT, int64_t> dataset)
+  -> index<IdxT>
 {
   return detail::build<DataT, IdxT>(res, params, dataset);
 }
@@ -195,7 +196,7 @@ auto build(raft::resources const& res,
 template <typename DataT, typename IdxT = uint32_t>
 void build(raft::resources const& res,
            index_params const& params,
-           cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
+           cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<DataT, int64_t> dataset,
            index<IdxT>& idx)
 {
   detail::build<DataT, IdxT>(res, params, dataset, idx);

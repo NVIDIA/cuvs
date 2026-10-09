@@ -20,7 +20,7 @@
 
 namespace cuvs::neighbors::cagra {
 
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT, class Accessor>
+template <class T, class IdxT, cuvs::core::dataset_like DatasetViewT, class Accessor>
 void add_node_core(
   raft::resources const& handle,
   const cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& idx,
@@ -276,7 +276,7 @@ void add_node_core(
   }
 }
 
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::core::dataset_like DatasetViewT>
 void add_graph_nodes(
   raft::resources const& handle,
   raft::device_matrix_view<const T, int64_t, raft::layout_stride> input_updated_dataset_view,
@@ -301,7 +301,7 @@ void add_graph_nodes(
     updated_graph_view.data_handle(), initial_dataset_size, degree);
   raft::copy(handle, updated_graph_prefix, raft::make_const_mdspan(index.graph()));
 
-  using padded_view_t = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
+  using padded_view_t = cuvs::core::device_padded_dataset_view<T, int64_t>;
   auto zero_row       = raft::make_device_matrix_view<const T, int64_t>(
     static_cast<const T*>(nullptr), int64_t{0}, static_cast<uint32_t>(dim));
   padded_view_t device_empty_dataset_view(zero_row, static_cast<uint32_t>(dim));
@@ -324,7 +324,7 @@ void add_graph_nodes(
 
     // add_node_core() uses CAGRA search internally, which requires a padded device dataset.
     // Keep this path allocation-free by requiring pre-padded chunk views.
-    auto pdv       = cuvs::neighbors::make_device_padded_dataset_view(handle, dataset_view);
+    auto pdv       = cuvs::core::make_device_padded_dataset_view(handle, dataset_view);
     internal_index = cuvs::neighbors::cagra::update_dataset(handle, std::move(internal_index), pdv);
 
     // Note: The graph is copied to the device memory.
@@ -348,14 +348,14 @@ void add_graph_nodes(
   }
 }
 
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::core::dataset_like DatasetViewT>
 void extend_core(raft::resources const& handle,
                  cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index,
                  const cagra::extend_params& params,
-                 cuvs::neighbors::device_padded_dataset_view<T, int64_t> extended_dataset,
+                 cuvs::core::device_padded_dataset_view<T, int64_t> extended_dataset,
                  int64_t new_start_row)
 {
-  static_assert(cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT>,
+  static_assert(cuvs::core::is_padded_dataset_view_v<DatasetViewT>,
                 "cagra::extend requires a padded dataset view index type");
   RAFT_EXPECTS(!index.dataset_fd().has_value(),
                "Cannot extend a disk-backed CAGRA index. Convert it with "
@@ -363,7 +363,7 @@ void extend_core(raft::resources const& handle,
                "cuvs::neighbors::hnsw::deserialize() before calling extend().");
 
   const std::size_t initial_dataset_size = index.size();
-  const auto extended_view               = extended_dataset.view();
+  const auto extended_view               = extended_dataset.as_matrix_view();
   const std::size_t new_dataset_size     = static_cast<std::size_t>(extended_view.extent(0));
   const std::size_t degree               = index.graph_degree();
   const std::size_t dim                  = index.dim();
@@ -385,12 +385,12 @@ void extend_core(raft::resources const& handle,
                dim);
 
   auto const& leaf = index.dataset();
-  if constexpr (cuvs::neighbors::is_empty_dataset_view_v<std::decay_t<decltype(leaf)>>) {
+  if constexpr (cuvs::core::is_empty_dataset_view_v<std::decay_t<decltype(leaf)>>) {
     RAFT_FAIL(
       "cagra::extend only supports an index to which the dataset is attached. Please check if the "
       "index has an empty dataset; attach one with update_dataset before "
       "extend.");
-  } else if constexpr (!cuvs::neighbors::is_padded_dataset_view_v<std::decay_t<decltype(leaf)>>) {
+  } else if constexpr (!cuvs::core::is_padded_dataset_view_v<std::decay_t<decltype(leaf)>>) {
     RAFT_FAIL("cagra::extend only supports an uncompressed padded dataset index");
   } else {
     // Caller owns dataset concatenation. Extend only grows the graph and rebinds the view.

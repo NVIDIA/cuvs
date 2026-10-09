@@ -54,7 +54,7 @@ auto build(raft::resources const& handle,
 
 auto build(raft::resources const& handle,
            const cuvs::neighbors::nn_descent::index_params& params,
-           cuvs::neighbors::device_bbq_dataset_view<data_t, int64_t> dataset,
+           cuvs::preprocessing::quantize::bbq::device_bbq_dataset_view<data_t, int64_t> dataset,
            std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph)
   -> cuvs::neighbors::nn_descent::index<index_t>
 {

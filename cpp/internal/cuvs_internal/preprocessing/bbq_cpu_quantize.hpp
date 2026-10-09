@@ -331,10 +331,11 @@ inline host_quantizer_storage quantize(const float* data,
 template <typename IdxT>
 auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
                                             host_quantizer_storage const& host_storage) ->
-  typename cuvs::neighbors::device_bbq_dataset<float, IdxT>::owning_storage_type
+  typename cuvs::preprocessing::quantize::bbq::device_bbq_dataset<float, IdxT>::data_type::
+    owning_storage_type
 {
-  using device_storage =
-    typename cuvs::neighbors::device_bbq_dataset<float, IdxT>::owning_storage_type;
+  using device_storage = typename cuvs::preprocessing::quantize::bbq::
+    device_bbq_dataset<float, IdxT>::data_type::owning_storage_type;
   auto stream = raft::resource::get_cuda_stream(res);
   device_storage device{res,
                         static_cast<IdxT>(host_storage.codes.extent(0)),
@@ -383,13 +384,13 @@ auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
 template <typename IdxT>
 auto make_device_bbq_dataset(raft::resources const& res,
                              std::vector<host_quantizer_storage> const& host)
-  -> cuvs::neighbors::device_bbq_dataset<float, IdxT>
+  -> cuvs::preprocessing::quantize::bbq::device_bbq_dataset<float, IdxT>
 {
   RAFT_EXPECTS(host.size() != 0, "host BBQ dataset has no storage");
-  cuvs::neighbors::device_bbq_dataset<float, IdxT> device{
+  cuvs::preprocessing::quantize::bbq::device_bbq_dataset<float, IdxT> device{
     copy_bbq_owning_storage_host_to_device<IdxT>(res, host[0])};
   for (std::size_t i = 1; i < host.size(); ++i) {
-    device.add_quantizer(copy_bbq_owning_storage_host_to_device<IdxT>(res, host[i]));
+    device.data().add_quantizer(copy_bbq_owning_storage_host_to_device<IdxT>(res, host[i]));
   }
   return device;
 }
@@ -595,7 +596,7 @@ inline auto quantize_to_device(raft::resources const& res,
                                cuvs::distance::DistanceType metric,
                                bbq_code_layout query_layout,
                                bbq_code_layout doc_layout)
-  -> cuvs::neighbors::device_bbq_dataset<float, int64_t>
+  -> cuvs::preprocessing::quantize::bbq::device_bbq_dataset<float, int64_t>
 {
   validate_layout_pair(query_layout, doc_layout);
   std::vector<host_quantizer_storage> host;
@@ -616,7 +617,7 @@ inline auto quantize_to_device(raft::resources const& res,
                                cuvs::distance::DistanceType metric,
                                std::string_view query_token,
                                std::string_view doc_token)
-  -> cuvs::neighbors::device_bbq_dataset<float, int64_t>
+  -> cuvs::preprocessing::quantize::bbq::device_bbq_dataset<float, int64_t>
 {
   return quantize_to_device(res,
                             rows,

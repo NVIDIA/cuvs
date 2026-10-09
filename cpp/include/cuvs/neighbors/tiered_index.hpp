@@ -98,12 +98,12 @@ auto build(raft::resources const& res,
 auto convert_standard_to_padded_index(
   raft::resources const& res,
   const index<cagra::device_standard_index<float, uint32_t>>& idx,
-  cuvs::neighbors::device_padded_dataset_view<float, int64_t> padded_dataset)
+  cuvs::core::device_padded_dataset_view<float, int64_t> padded_dataset)
   -> index<cagra::device_padded_index<float, uint32_t>>;
 
 auto build(raft::resources const& res,
            const index_params<cagra::index_params>& index_params,
-           cuvs::neighbors::device_padded_dataset_view<float, int64_t> dataset)
+           cuvs::core::device_padded_dataset_view<float, int64_t> dataset)
   -> tiered_index::index<cagra::device_padded_index<float, uint32_t>>;
 
 /** @copydoc build */

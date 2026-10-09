@@ -65,11 +65,11 @@ void cagra_build_into_index(
   raft::resources const& res,
   cagra::index_params const& params,
   std::optional<raft::host_matrix_view<const DataT, int64_t>> ace_host_dataset,
-  cuvs::neighbors::device_padded_dataset_view<DataT, int64_t> const& padded,
+  cuvs::core::device_padded_dataset_view<DataT, int64_t> const& padded,
   cagra::device_padded_index<DataT>& index)
 {
   if (ace_host_dataset.has_value()) {
-    cuvs::neighbors::host_padded_dataset_view<DataT, int64_t> host_view(
+    cuvs::core::host_padded_dataset_view<DataT, int64_t> host_view(
       *ace_host_dataset, static_cast<uint32_t>(ace_host_dataset->extent(1)));
     auto host_idx = cagra::build(res, params, host_view);
     // In-memory ACE returns graph-only; attach device padded storage for search.
@@ -488,7 +488,7 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         }
 
         cagra::device_padded_index<DataT, IdxT> index(handle_);
-        std::unique_ptr<cuvs::neighbors::device_padded_dataset<DataT, int64_t>> loaded_dataset;
+        std::unique_ptr<cuvs::core::device_padded_dataset<DataT, int64_t>> loaded_dataset;
         cagra::deserialize(handle_, index_file.filename, &index, &loaded_dataset);
 
         if (!ps.include_serialized_dataset) {
@@ -1329,8 +1329,8 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
           handle_,
           ps.n_rows - static_cast<int64_t>(test_cagra_sample_filter::offset),
-          static_cast<int64_t>(index0.dataset().stride()));
-        auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
+          static_cast<int64_t>(index0.dataset().as_matrix_view().stride()));
+        auto merged_dataset = cuvs::core::device_padded_dataset<DataT, int64_t>(
           std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
         auto merge_idx = cuvs::neighbors::cagra::merge(
           handle_, index_params, indices, merged_dataset.as_dataset_view(), bitset_filter_obj);
@@ -1575,8 +1575,8 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
           auto const merged_rows =
             static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size());
           auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
-            handle_, merged_rows, static_cast<int64_t>(index0.dataset().stride()));
-          auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
+            handle_, merged_rows, static_cast<int64_t>(index0.dataset().as_matrix_view().stride()));
+          auto merged_dataset = cuvs::core::device_padded_dataset<DataT, int64_t>(
             std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
           auto merged_idx =
             ps.physical_merge_params.has_value()

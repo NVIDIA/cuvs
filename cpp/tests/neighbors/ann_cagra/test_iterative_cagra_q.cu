@@ -37,7 +37,7 @@
 
 namespace cuvs::neighbors::cagra {
 
-using vpq_dataset_t = cuvs::neighbors::device_vpq_dataset<half, int64_t>;
+using vpq_dataset_t = cuvs::preprocessing::quantize::pq::device_vpq_dataset<half, int64_t>;
 
 namespace {
 
@@ -46,7 +46,7 @@ auto compress(const raft::resources& res,
               uint32_t pq_dim,
               uint32_t pq_bits = 8) -> vpq_dataset_t
 {
-  cuvs::neighbors::vpq_params params;
+  cuvs::preprocessing::quantize::pq::vpq_params params;
   params.pq_dim         = pq_dim;
   params.pq_bits        = pq_bits;
   params.vq_n_centers   = 32;
@@ -179,7 +179,7 @@ class CagraQBuildTest : public CagraQCompressedTestBase,
 TEST_P(CagraQBuildTest, BuildsAndSearchesAFreshlyCompressedDataset)
 {
   auto compressed = compress(res_, dataset(), params_.pq_dim);
-  ASSERT_EQ(compressed.pq_len(), static_cast<uint32_t>(params_.dim / params_.pq_dim));
+  ASSERT_EQ(compressed.data().pq_len(), static_cast<uint32_t>(params_.dim / params_.pq_dim));
 
   auto idx = cagra::build(res_, iterative_params(), compressed.as_dataset_view());
   ASSERT_EQ(idx.size(), params_.n_rows);
@@ -272,7 +272,7 @@ TEST_F(CagraQContractTest, RejectsMetricOtherThanL2Expanded)
 TEST_F(CagraQContractTest, RejectsPqBitsOtherThan8)
 {
   auto compressed = compress(res_, dataset(), 32, /* pq_bits */ 6);
-  ASSERT_EQ(compressed.pq_bits(), 6u);
+  ASSERT_EQ(compressed.data().pq_bits(), 6u);
   EXPECT_THROW(cagra::build(res_, iterative_params(), compressed.as_dataset_view()),
                raft::exception);
 }
@@ -280,7 +280,7 @@ TEST_F(CagraQContractTest, RejectsPqBitsOtherThan8)
 TEST_F(CagraQContractTest, RejectsPqLenOutsideSupportedSet)
 {
   auto compressed = compress(res_, dataset(), /* pq_dim */ 4);  // pq_len = 64 / 4 = 16
-  ASSERT_EQ(compressed.pq_len(), 16u);
+  ASSERT_EQ(compressed.data().pq_len(), 16u);
   EXPECT_THROW(cagra::build(res_, iterative_params(), compressed.as_dataset_view()),
                raft::exception);
 }
@@ -293,7 +293,7 @@ TEST_F(CagraQContractTest, RejectsEmptyDataset)
   auto vq_code_book = raft::make_device_matrix<half, uint32_t, raft::row_major>(res_, 1, width);
   auto pq_code_book = raft::make_device_matrix<half, uint32_t, raft::row_major>(res_, 256, 2);
   auto codes = raft::make_device_matrix<uint8_t, int64_t, raft::row_major>(res_, 0, 4 + dim / 2);
-  vpq_dataset_t empty{std::move(vq_code_book), std::move(pq_code_book), std::move(codes)};
+  vpq_dataset_t empty{std::move(codes), std::move(vq_code_book), std::move(pq_code_book)};
   ASSERT_EQ(empty.n_rows(), 0);
 
   EXPECT_THROW(cagra::build(res_, iterative_params(), empty.as_dataset_view()), raft::exception);

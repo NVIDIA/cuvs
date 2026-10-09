@@ -133,7 +133,7 @@ struct index : cuvs::neighbors::index {
   /** Non-owning dataset view stored by the index (full-precision vectors may live in
    * `full_precision_storage_`). */
   [[nodiscard]] inline auto data() const noexcept
-    -> const cuvs::neighbors::device_padded_dataset_view<T, int64_t>&
+    -> const cuvs::core::device_padded_dataset_view<T, int64_t>&
   {
     return dataset_.value();
   }
@@ -204,13 +204,13 @@ struct index : cuvs::neighbors::index {
         dataset.stride(0) > 0 ? static_cast<int64_t>(dataset.stride(0)) : dataset.extent(1);
       auto d_m = raft::make_device_matrix_view<const T, int64_t>(
         dataset.data_handle(), dataset.extent(0), row_stride);
-      use_padded_view = cuvs::neighbors::matrix_row_width_matches_cagra_required(d_m);
+      use_padded_view = cuvs::core::matrix_has_padded_row_width(d_m);
     }
 
     if (use_padded_view) {
-      dataset_ = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
+      dataset_ = cuvs::core::make_device_padded_dataset_view(res, dataset);
     } else {
-      full_precision_storage_ = cuvs::neighbors::make_device_padded_dataset(res, dataset);
+      full_precision_storage_ = cuvs::core::make_device_padded_dataset(res, dataset);
       dataset_                = full_precision_storage_->as_dataset_view();
     }
     update_graph(res, vamana_graph);
@@ -288,8 +288,8 @@ struct index : cuvs::neighbors::index {
   raft::device_matrix<IdxT, int64_t, raft::row_major> graph_;
   raft::device_matrix_view<const IdxT, int64_t, raft::row_major> graph_view_;
   /** Owns CAGRA-padded full-precision device storage for the index dataset view. */
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>> full_precision_storage_;
-  std::optional<cuvs::neighbors::device_padded_dataset_view<T, int64_t>> dataset_;
+  std::unique_ptr<cuvs::core::device_padded_dataset<T, int64_t>> full_precision_storage_;
+  std::optional<cuvs::core::device_padded_dataset_view<T, int64_t>> dataset_;
   raft::device_matrix<uint8_t, int64_t, raft::row_major> quantized_dataset_;
   IdxT medoid_id_;
 };

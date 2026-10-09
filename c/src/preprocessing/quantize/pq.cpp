@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -242,9 +242,10 @@ extern "C" cuvsError_t cuvsProductQuantizerGetPqCodebook(cuvsProductQuantizer_t 
     if (quantizer != nullptr) {
       auto quant_addr = quantizer->addr;
       if (quantizer->dtype.code == kDLFloat && quantizer->dtype.bits == 32) {
-        auto pq_mdspan =
+        auto const& vpq =
           (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))
-            ->vpq_codebooks.pq_code_book.view();
+            ->vpq_codebooks.data();
+        auto pq_mdspan = vpq.pq_code_book.view();
         cuvs::core::to_dlpack(pq_mdspan, pq_codebook);
       } else {
         RAFT_FAIL("Unsupported quantizer dtype: %d and bits: %d",
@@ -264,9 +265,10 @@ extern "C" cuvsError_t cuvsProductQuantizerGetVqCodebook(cuvsProductQuantizer_t 
     if (quantizer != nullptr) {
       auto quant_addr = quantizer->addr;
       if (quantizer->dtype.code == kDLFloat && quantizer->dtype.bits == 32) {
-        auto pq_mdspan =
+        auto const& vpq =
           (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))
-            ->vpq_codebooks.vq_code_book.view();
+            ->vpq_codebooks.data();
+        auto pq_mdspan = vpq.vq_code_book.view();
         cuvs::core::to_dlpack(pq_mdspan, vq_codebook);
       } else {
         RAFT_FAIL("Unsupported quantizer dtype: %d and bits: %d",

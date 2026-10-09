@@ -226,7 +226,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 
       auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
-      auto index_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(index_dataset);
+      auto index_dataset_view = cuvs::core::make_host_standard_dataset_view(index_dataset);
       auto queries            = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
       auto neighbors = raft::make_host_matrix_view<int64_t, int64_t, row_major>(
@@ -248,7 +248,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
         d_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto padded_index_dataset =
-        cuvs::neighbors::make_device_padded_dataset_view(clique_, index_dataset_device);
+        cuvs::core::make_device_padded_dataset_view(clique_, index_dataset_device);
       auto search_index =
         cuvs::neighbors::cagra::update_dataset(clique_, std::move(new_index), padded_index_dataset);
 
@@ -387,7 +387,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       {
         auto index_dataset = raft::make_device_matrix_view<const DataT, int64_t>(
           d_index_dataset.data(), ps.num_db_vecs, ps.dim);
-        auto standard_view = cuvs::neighbors::make_device_standard_dataset_view(index_dataset);
+        auto standard_view = cuvs::core::make_device_standard_dataset_view(index_dataset);
         auto index         = cuvs::neighbors::cagra::build(clique_, index_params, standard_view);
         cuvs::neighbors::cagra::serialize(clique_, index_file.filename, index);
       }
@@ -408,7 +408,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
         d_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto padded_index_dataset =
-        cuvs::neighbors::make_device_padded_dataset_view(clique_, index_dataset_device);
+        cuvs::core::make_device_padded_dataset_view(clique_, index_dataset_device);
       auto search_index = cuvs::neighbors::cagra::update_dataset(
         clique_, std::move(distributed_index), padded_index_dataset);
 
@@ -585,7 +585,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
 
       auto index_dataset = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
         h_index_dataset.data(), ps.num_db_vecs, ps.dim);
-      auto index_dataset_view = cuvs::neighbors::make_host_standard_dataset_view(index_dataset);
+      auto index_dataset_view = cuvs::core::make_host_standard_dataset_view(index_dataset);
       auto small_batch_query  = raft::make_host_matrix_view<const DataT, int64_t, row_major>(
         h_queries.data(), ps.num_queries, ps.dim);
 
@@ -593,7 +593,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
       auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
         d_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto padded_index_dataset =
-        cuvs::neighbors::make_device_padded_dataset_view(clique_, index_dataset_device);
+        cuvs::core::make_device_padded_dataset_view(clique_, index_dataset_device);
       auto search_index =
         cuvs::neighbors::cagra::update_dataset(clique_, std::move(index), padded_index_dataset);
 

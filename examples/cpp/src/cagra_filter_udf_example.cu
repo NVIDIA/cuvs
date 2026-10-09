@@ -146,7 +146,7 @@ int main()
     index_params.intermediate_graph_degree);
 
   std::cout << "Building CAGRA index" << std::endl;
-  auto padded = cuvs::neighbors::make_device_padded_dataset_view(res, dataset.view());
+  auto padded = cuvs::core::make_device_padded_dataset_view(res, dataset.view());
   auto index  = cuvs::neighbors::cagra::build(res, index_params, padded);
   index       = cuvs::neighbors::cagra::update_dataset(res, std::move(index), padded);
 

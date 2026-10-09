@@ -32,21 +32,20 @@
 
 namespace cuvs::neighbors::cagra {
 
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <typename T, typename IdxT, cuvs::core::dataset_like DatasetViewT>
 CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
 {
   // raft::linalg::reduce wants row-major with leading dim = row pitch in elements.
   // Skip norm precomputation for VPQ/empty/non-dense views; CosineExpanded with VPQ is handled
   // (or rejected) on the search path.
-  namespace nb    = cuvs::neighbors;
   bool skip_norms = false;
   std::optional<raft::device_matrix_view<const T, int64_t, raft::row_major>> rm_dataset;
 
-  if constexpr (nb::is_padded_dataset_view_v<DatasetViewT> ||
-                nb::is_standard_dataset_view_v<DatasetViewT>) {
-    rm_dataset = dataset_.view();
-  } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT> ||
-                       nb::is_bbq_dataset_view_v<DatasetViewT>) {
+  if constexpr (cuvs::core::is_padded_dataset_view_v<DatasetViewT> ||
+                cuvs::core::is_standard_dataset_view_v<DatasetViewT>) {
+    rm_dataset = dataset_.as_matrix_view();
+  } else if constexpr (cuvs::preprocessing::quantize::pq::is_vpq_dataset_view_v<DatasetViewT> ||
+                       cuvs::preprocessing::quantize::bbq::is_bbq_dataset_view_v<DatasetViewT>) {
     skip_norms = true;
   }
 
@@ -106,7 +105,7 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
  *   auto optimized_gaph = raft::make_host_matrix<IdxT, IdxT>(dataset.extent(0), 64);
  *   cagra::optimize(res, dataset, knn_graph.view(), optimized_graph.view());
  *   // Construct an index from dataset and optimized knn_graph
- *   auto index = cagra::index<T, IdxT, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+ *   auto index = cagra::index<T, IdxT, cuvs::core::device_padded_dataset_view<T, int64_t>>(
  *     res, build_params.metric(), dataset, optimized_graph.view());
  * @endcode
  *
@@ -210,7 +209,7 @@ void build_knn_graph(
  *   // optimize graph
  *   cagra::optimize(res, dataset, knn_graph.view(), optimized_graph.view());
  *   // Construct an index from dataset and optimized knn_graph
- *   auto index = cagra::index<T, IdxT, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+ *   auto index = cagra::index<T, IdxT, cuvs::core::device_padded_dataset_view<T, int64_t>>(
  *     res, build_params.metric(), dataset, optimized_graph.view());
  * @endcode
  *
@@ -293,10 +292,10 @@ void optimize(
  * device-padded dataset to get a search-ready device index.
  */
 template <typename DatasetViewT>
-  requires(!cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT> &&
-           (cuvs::neighbors::is_device_dataset_view_v<DatasetViewT> ||
-            cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>))
-auto build(raft::resources const& res, const index_params& params, DatasetViewT const& dataset)
+  requires(!cuvs::core::is_empty_dataset_view_v<DatasetViewT> &&
+           (cuvs::core::is_device_dataset_view_v<DatasetViewT> ||
+            cuvs::core::is_host_dataset_view_v<DatasetViewT>))
+auto build(raft::resources const& res, const index_params& params, DatasetViewT const& dataset_view)
   -> cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>
 {
   using index_type = cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>;
@@ -305,10 +304,11 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
 
   // Dense paths build the graph and optionally attach the input dataset view. Host indexes remain
   // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
-  if constexpr (cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>) {
+  if constexpr (cuvs::preprocessing::quantize::bbq::is_device_bbq_dataset_view_v<DatasetViewT>) {
     return cuvs::neighbors::cagra::detail::build_from_bbq_dataset<T, IdxT, DatasetViewT>(
-      res, params, dataset);
-  } else if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
+      res, params, dataset_view);
+  } else if constexpr (cuvs::preprocessing::quantize::pq::is_device_vpq_dataset_view_v<
+                         DatasetViewT>) {
     auto effective_params = params;
     if (std::holds_alternative<std::monostate>(effective_params.graph_build_params)) {
       effective_params.graph_build_params = graph_build_params::iterative_search_params{};
@@ -319,39 +319,41 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
                  "cagra::build: a VPQ dataset requires iterative_search_params graph construction");
     RAFT_EXPECTS(effective_params.metric == cuvs::distance::DistanceType::L2Expanded,
                  "cagra::build: a VPQ dataset supports only L2Expanded distance");
-    RAFT_EXPECTS(dataset.n_rows() > 0, "cagra::build: VPQ dataset must not be empty");
-    RAFT_EXPECTS(dataset.dset().pq_bits() == 8,
+    RAFT_EXPECTS(dataset_view.n_rows() > 0, "cagra::build: VPQ dataset must not be empty");
+    auto const& vpq_view = dataset_view.data();
+    RAFT_EXPECTS(vpq_view.pq_bits() == 8,
                  "cagra::build: VPQ dataset requires pq_bits == 8, got %u",
-                 dataset.dset().pq_bits());
-    auto const pq_len = dataset.dset().pq_len();
+                 vpq_view.pq_bits());
+    auto const pq_len = vpq_view.pq_len();
     RAFT_EXPECTS(pq_len == 2 || pq_len == 4 || pq_len == 8,
                  "cagra::build: VPQ dataset requires pq_len in {2, 4, 8}, got %u",
                  pq_len);
 
     detail::check_graph_degree<T, IdxT>(effective_params.intermediate_graph_degree,
                                         effective_params.graph_degree,
-                                        static_cast<size_t>(dataset.n_rows()));
-    auto cagra_graph = detail::iterative_build_graph<T, IdxT>(res, effective_params, dataset);
+                                        static_cast<size_t>(dataset_view.n_rows()));
+    auto cagra_graph = detail::iterative_build_graph<T, IdxT>(res, effective_params, dataset_view);
 
     index_type idx(res, effective_params.metric);
     idx.update_graph(res, std::move(cagra_graph));
     if (effective_params.attach_dataset_on_build) {
-      idx = cuvs::neighbors::cagra::update_dataset(res, std::move(idx), dataset);
+      idx = cuvs::neighbors::cagra::update_dataset(res, std::move(idx), dataset_view);
     }
     return idx;
-  } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
+  } else if constexpr (cuvs::core::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
     auto idx = cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
-      res, params, dataset);
+      res, params, dataset_view);
     if (params.attach_dataset_on_build) {
-      idx = cuvs::neighbors::cagra::update_dataset(res, std::move(idx), dataset);
+      idx = cuvs::neighbors::cagra::update_dataset(res, std::move(idx), dataset_view);
     }
     return idx;
   } else {
     if (std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params)) {
-      return cuvs::neighbors::cagra::detail::build_ace<T, IdxT, DatasetViewT>(res, params, dataset);
+      return cuvs::neighbors::cagra::detail::build_ace<T, IdxT, DatasetViewT>(
+        res, params, dataset_view);
     }
     return cuvs::neighbors::cagra::detail::build_from_host_matrix<T, IdxT, DatasetViewT>(
-      res, params, dataset);
+      res, params, dataset_view);
   }
 }
 
@@ -398,7 +400,7 @@ template <typename T,
           typename IdxT,
           typename CagraSampleFilterT,
           typename OutputIdxT,
-          cuvs::neighbors::ann_dataset_view DatasetViewT>
+          cuvs::core::dataset_like DatasetViewT>
 void search_with_filtering(raft::resources const& res,
                            const search_params& params,
                            const index<T, IdxT, DatasetViewT>& idx,
@@ -420,10 +422,7 @@ void search_with_filtering(raft::resources const& res,
     res, params, idx, queries, neighbors, distances, sample_filter);
 }
 
-template <typename T,
-          typename IdxT,
-          cuvs::neighbors::ann_dataset_view DatasetViewT,
-          typename OutputIdxT>
+template <typename T, typename IdxT, cuvs::core::dataset_like DatasetViewT, typename OutputIdxT>
 void search(raft::resources const& res,
             const search_params& params,
             const index<T, IdxT, DatasetViewT>& idx,
@@ -519,19 +518,19 @@ void search(raft::resources const& res,
   }
 }
 
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::core::dataset_like DatasetViewT>
 void extend(raft::resources const& handle,
             const cagra::extend_params& params,
-            cuvs::neighbors::device_padded_dataset_view<T, int64_t> extended_dataset,
+            cuvs::core::device_padded_dataset_view<T, int64_t> extended_dataset,
             int64_t new_start_row,
             cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>& index)
 {
-  static_assert(cuvs::neighbors::is_padded_dataset_view_v<DatasetViewT>,
+  static_assert(cuvs::core::is_padded_dataset_view_v<DatasetViewT>,
                 "cagra::extend requires a padded index dataset type");
   extend_core<T, IdxT, DatasetViewT>(handle, index, params, extended_dataset, new_start_row);
 }
 
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::core::dataset_like DatasetViewT>
 cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
   raft::resources const& handle,
   const cagra::index_params& params,
@@ -543,7 +542,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
     handle, params, indices, merged_dataset, row_filter);
 }
 
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+template <class T, class IdxT, cuvs::core::dataset_like DatasetViewT>
 cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
   raft::resources const& handle,
   const cagra::index_params& params,
@@ -622,8 +621,8 @@ void search(
 
 template <typename T,
           typename IdxT,
-          ann_dataset_view SrcDatasetViewT,
-          ann_dataset_view DstDatasetViewT>
+          cuvs::core::dataset_like SrcDatasetViewT,
+          cuvs::core::dataset_like DstDatasetViewT>
 auto update_dataset(raft::resources const& res,
                     index<T, IdxT, SrcDatasetViewT>&& cagra_index,
                     DstDatasetViewT dataset) -> index<T, IdxT, DstDatasetViewT>

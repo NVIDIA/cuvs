@@ -20,7 +20,7 @@ auto build_cagra_with_dataset(raft::resources const& res,
                               raft::device_matrix_view<const T, int64_t, raft::row_major> dataset)
   -> cagra::device_padded_index<T, IdxT>
 {
-  auto padded = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
+  auto padded = cuvs::core::make_device_padded_dataset_view(res, dataset);
   auto index  = cagra::build(res, params, padded);
   index       = cagra::update_dataset(res, std::move(index), padded);
   return index;
