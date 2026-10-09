@@ -2900,6 +2900,10 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
       static_cast<size_t>(external_plan.partitions),
       external_plan.host_peak_bytes / static_cast<double>(uint64_t{1} << 30),
       external_plan.device_peak_bytes / static_cast<double>(uint64_t{1} << 30));
+    if (cagra_ace_selected_for_memory) {
+      ace_params.build_dir =
+        external::create_automatic_build_directory(std::filesystem::temp_directory_path());
+    }
     return external::build_external<T>(res,
                                        params,
                                        dataset,

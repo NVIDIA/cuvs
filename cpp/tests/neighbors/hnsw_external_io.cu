@@ -25,6 +25,7 @@
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iterator>
 #include <limits>
 #include <string>
@@ -327,6 +328,35 @@ TEST(HnswExternalGraph, TranslatesIdsOnDevice)
              raft::make_const_mdspan(device_graph.view()));
   raft::resource::sync_stream(res);
   EXPECT_EQ(graph, (std::array<uint32_t, 5>{10, 30, 20, 40, UINT32_MAX}));
+}
+
+TEST(HnswExternalWorkspace, AutomaticBuildsPublishIndependentOutputs)
+{
+  temporary_directory directory;
+  auto build = [&] {
+    auto path = create_automatic_build_directory(directory.path());
+    external_workspace workspace(path, 17);
+    auto partial   = workspace.create_partial(sizeof(uint32_t));
+    uint32_t value = 42;
+    pwrite_all(partial.get(), &value, sizeof(value), 0);
+    workspace.publish(partial);
+    return workspace.final_path();
+  };
+
+  std::vector<std::filesystem::path> outputs{build(), build()};
+  auto first  = std::async(std::launch::async, build);
+  auto second = std::async(std::launch::async, build);
+  outputs.push_back(first.get());
+  outputs.push_back(second.get());
+  for (size_t i = 0; i < outputs.size(); ++i) {
+    for (size_t j = 0; j < i; ++j) {
+      EXPECT_NE(outputs[i], outputs[j]);
+    }
+    cuvs::util::file_descriptor fd(outputs[i].string(), O_RDONLY);
+    uint32_t value = 0;
+    pread_all(fd.get(), &value, sizeof(value), 0);
+    EXPECT_EQ(value, 42);
+  }
 }
 
 TEST(HnswExternalWorkspace, PreservesCallerFilesAndPublishesAtomically)

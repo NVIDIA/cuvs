@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <fcntl.h>
 #include <filesystem>
@@ -26,6 +27,16 @@
 #include <vector>
 
 namespace cuvs::neighbors::hnsw::detail::external {
+
+// Reserve the directory atomically so independent automatic builds cannot share an output path.
+inline std::string create_automatic_build_directory(const std::filesystem::path& parent)
+{
+  auto directory = (parent / "cuvs_hnsw_ace_XXXXXX").string();
+  RAFT_EXPECTS(::mkdtemp(directory.data()) != nullptr,
+               "failed to create automatic ACE build directory: %s",
+               strerror(errno));
+  return directory;
+}
 
 class external_workspace {
  public:
