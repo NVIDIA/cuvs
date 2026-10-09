@@ -29,7 +29,6 @@ namespace cuvs::neighbors::nn_descent::detail {
 using DistData_t = float;
 constexpr int DEGREE_ON_DEVICE{32};
 constexpr int SEGMENT_SIZE{32};
-constexpr int counter_interval{100};
 template <typename Index_t>
 struct InternalID_t;
 
@@ -67,7 +66,7 @@ struct BuildConfig {
   size_t internal_node_degree{0};
   // If internal_node_degree == 0, the value of node_degree will be assigned to it
   size_t max_iterations{50};
-  float termination_threshold{0.0001};
+  float termination_threshold{0.001};
   size_t output_graph_degree{32};
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
   cuvs::neighbors::nn_descent::DIST_COMP_DTYPE dist_comp_dtype{
@@ -191,7 +190,7 @@ struct CUVS_EXPORT GnndGraph {
   void update_graph(const InternalID_t<Index_t>* new_neighbors,
                     const DistData_t* new_dists,
                     const size_t width,
-                    std::atomic<int64_t>& update_counter);
+                    size_t& update_counter);
   void sort_lists();
   void clear();
   ~GnndGraph();
@@ -294,6 +293,7 @@ class CUVS_EXPORT GNND {
   ~GNND()    = default;
   using ID_t = InternalID_t<Index_t>;
   void reset(raft::resources const& res);
+  [[nodiscard]] auto num_iterations() const noexcept -> size_t { return num_iterations_; }
 
  private:
   void add_reverse_edges(Index_t* graph_ptr,
@@ -315,10 +315,11 @@ class CUVS_EXPORT GNND {
 
   BuildConfig build_config_;
   GnndGraph<Index_t> graph_;
-  std::atomic<int64_t> update_counter_;
+  size_t update_counter_;
 
   size_t nrow_;
   size_t ndim_;
+  size_t num_iterations_{0};
 
   using input_t = std::remove_const_t<Data_t>;
 
@@ -351,6 +352,27 @@ class CUVS_EXPORT GNND {
   raft::device_vector<int2, size_t> d_list_sizes_old_;
 };
 
+inline auto get_effective_index_params(const index_params& params, size_t num_rows) -> index_params
+{
+  auto effective_params = params;
+  if (effective_params.intermediate_graph_degree >= num_rows) {
+    RAFT_LOG_WARN(
+      "Intermediate graph degree cannot be larger than number of rows in dataset, reducing it to "
+      "%lu",
+      num_rows - 1);
+    effective_params.intermediate_graph_degree = num_rows - 1;
+  }
+  if (effective_params.intermediate_graph_degree < effective_params.graph_degree) {
+    RAFT_LOG_WARN(
+      "Graph degree (%lu) cannot be larger than intermediate graph degree (%lu), reducing "
+      "graph_degree.",
+      effective_params.graph_degree,
+      effective_params.intermediate_graph_degree);
+    effective_params.graph_degree = effective_params.intermediate_graph_degree;
+  }
+  return effective_params;
+}
+
 inline BuildConfig get_build_config(raft::resources const& res,
                                     const index_params& params,
                                     size_t num_rows,
@@ -374,24 +396,9 @@ inline BuildConfig get_build_config(raft::resources const& res,
   RAFT_EXPECTS(
     metric == params.metric,
     "The metrics set in nn_descent::index_params and nn_descent::index are inconsistent");
-  size_t intermediate_degree = params.intermediate_graph_degree;
-  graph_degree               = params.graph_degree;
-
-  if (intermediate_degree >= num_rows) {
-    RAFT_LOG_WARN(
-      "Intermediate graph degree cannot be larger than number of rows in dataset, reducing it to "
-      "%lu",
-      num_rows - 1);
-    intermediate_degree = num_rows - 1;
-  }
-  if (intermediate_degree < graph_degree) {
-    RAFT_LOG_WARN(
-      "Graph degree (%lu) cannot be larger than intermediate graph degree (%lu), reducing "
-      "graph_degree.",
-      graph_degree,
-      intermediate_degree);
-    graph_degree = intermediate_degree;
-  }
+  auto effective_params      = get_effective_index_params(params, num_rows);
+  size_t intermediate_degree = effective_params.intermediate_graph_degree;
+  graph_degree               = effective_params.graph_degree;
 
   // The elements in each knn-list are partitioned into different buckets, and we need more buckets
   // to mitigate bucket collisions. `intermediate_degree` is OK to larger than
@@ -407,7 +414,7 @@ inline BuildConfig get_build_config(raft::resources const& res,
                            .internal_node_degree  = extended_intermediate_degree,
                            .max_iterations        = params.max_iterations,
                            .termination_threshold = params.termination_threshold,
-                           .output_graph_degree   = params.graph_degree,
+                           .output_graph_degree   = graph_degree,
                            .metric                = params.metric,
                            .dist_comp_dtype       = params.dist_comp_dtype};
   return build_config;

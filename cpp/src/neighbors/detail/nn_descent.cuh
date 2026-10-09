@@ -2277,9 +2277,10 @@ template <typename Index_t>
 void GnndGraph<Index_t>::update_graph(const InternalID_t<Index_t>* new_neighbors,
                                       const DistData_t* new_dists,
                                       const size_t width,
-                                      std::atomic<int64_t>& update_counter)
+                                      size_t& update_counter)
 {
-#pragma omp parallel for
+  size_t n_updates = 0;
+#pragma omp parallel for reduction(+ : n_updates)
   for (size_t i = 0; i < nrow; i++) {
     for (size_t j = 0; j < width; j++) {
       auto new_neighb_id = new_neighbors[i * width + j];
@@ -2291,9 +2292,10 @@ void GnndGraph<Index_t>::update_graph(const InternalID_t<Index_t>* new_neighbors
       auto dist_list = h_dists.data_handle() + i * node_degree + seg_idx * segment_size;
       int insert_pos =
         insert_to_ordered_list(list, dist_list, segment_size, new_neighb_id, new_dist);
-      if (i % counter_interval == 0 && insert_pos != segment_size) { update_counter++; }
+      if (insert_pos != segment_size) { n_updates++; }
     }
   }
+  update_counter = n_updates;
 }
 
 template <typename Index_t>
@@ -2634,6 +2636,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   graph_.nrow         = nrow;
   graph_.bloom_filter.set_nrow(nrow);
   update_counter_ = 0;
+  num_iterations_ = 0;
   graph_.h_graph  = (InternalID_t<Index_t>*)output_graph;
 
   d_data_ptr_ = nullptr;
@@ -2730,6 +2733,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   graph_.init_random_graph();
   graph_.sample_graph(true);
 
+  bool converged         = false;
   auto update_and_sample = [&](bool update_graph) {
     if (update_graph) {
       update_counter_ = 0;
@@ -2737,10 +2741,8 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
                           dists_host_buffer_.data_handle(),
                           DEGREE_ON_DEVICE,
                           update_counter_);
-      if (update_counter_ < build_config_.termination_threshold * nrow_ *
-                              build_config_.dataset_dim / counter_interval) {
-        update_counter_ = -1;
-      }
+      converged =
+        update_counter_ < build_config_.termination_threshold * nrow_ * build_config_.node_degree;
     }
     graph_.sample_graph(false);
   };
@@ -2749,6 +2751,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   host_worker worker;
 
   for (size_t it = 0; it < build_config_.max_iterations; it++) {
+    num_iterations_ = it + 1;
     raft::copy(res, d_list_sizes_new_.view(), graph_.h_list_sizes_new.view());
     raft::copy(res, h_graph_old_.view(), graph_.h_graph_old.view());
     raft::copy(res, d_list_sizes_old_.view(), graph_.h_list_sizes_old.view());
@@ -2791,7 +2794,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
 
     worker.wait();
 
-    if (update_counter_ == -1) { break; }
+    if (converged) { break; }
     raft::copy(res, graph_host_buffer_.view(), graph_buffer_.view());
     raft::copy(res, dists_host_buffer_.view(), dists_buffer_.view());
     raft::resource::sync_stream(res);
@@ -2873,12 +2876,14 @@ void GNND<Data_t, Index_t>::build(
   graph_.nrow         = nrow_;
   graph_.bloom_filter.set_nrow(nrow_);
   update_counter_ = 0;
+  num_iterations_ = 0;
   graph_.h_graph  = reinterpret_cast<InternalID_t<Index_t>*>(output_graph);
 
   graph_.clear();
   graph_.init_random_graph();
   graph_.sample_graph(true);
 
+  bool converged         = false;
   auto update_and_sample = [&](bool update_graph) {
     if (update_graph) {
       update_counter_ = 0;
@@ -2886,10 +2891,8 @@ void GNND<Data_t, Index_t>::build(
                           dists_host_buffer_.data_handle(),
                           DEGREE_ON_DEVICE,
                           update_counter_);
-      if (update_counter_ < build_config_.termination_threshold * nrow_ *
-                              build_config_.dataset_dim / counter_interval) {
-        update_counter_ = -1;
-      }
+      converged =
+        update_counter_ < build_config_.termination_threshold * nrow_ * build_config_.node_degree;
     }
     graph_.sample_graph(false);
   };
@@ -2898,6 +2901,7 @@ void GNND<Data_t, Index_t>::build(
   host_worker worker;
 
   for (size_t it = 0; it < build_config_.max_iterations; ++it) {
+    num_iterations_ = it + 1;
     raft::copy(res, d_list_sizes_new_.view(), graph_.h_list_sizes_new.view());
     raft::copy(res, h_graph_old_.view(), graph_.h_graph_old.view());
     raft::copy(res, d_list_sizes_old_.view(), graph_.h_list_sizes_old.view());
@@ -2921,7 +2925,7 @@ void GNND<Data_t, Index_t>::build(
 
     local_join(stream, dataset, dist_epilogue);
     worker.wait();
-    if (update_counter_ == -1) { break; }
+    if (converged) { break; }
     raft::copy(res, graph_host_buffer_.view(), graph_buffer_.view());
     raft::copy(res, dists_host_buffer_.view(), dists_buffer_.view());
     raft::resource::sync_stream(res);
@@ -3034,6 +3038,16 @@ void build(raft::resources const& res,
                                        idx.metric(),
                                        extended_graph_degree,
                                        graph_degree);
+  RAFT_EXPECTS(
+    static_cast<size_t>(idx.graph().extent(0)) == static_cast<size_t>(dataset.n_rows()) &&
+      static_cast<size_t>(idx.graph().extent(1)) == graph_degree,
+    "The output graph shape must match the dataset size and effective graph degree.");
+  if (idx.distances().has_value()) {
+    RAFT_EXPECTS(
+      static_cast<size_t>(idx.distances()->extent(0)) == static_cast<size_t>(dataset.n_rows()) &&
+        static_cast<size_t>(idx.distances()->extent(1)) == graph_degree,
+      "The output distances shape must match the output graph shape.");
+  }
   auto int_graph =
     raft::make_host_matrix<int, int64_t, raft::row_major>(dataset.n_rows(), extended_graph_degree);
   GNND<const DataT, int> nnd(res, build_config);
@@ -3076,6 +3090,16 @@ void build(raft::resources const& res,
                                        idx.metric(),
                                        extended_graph_degree,
                                        graph_degree);
+  RAFT_EXPECTS(
+    static_cast<size_t>(idx.graph().extent(0)) == static_cast<size_t>(dataset.extent(0)) &&
+      static_cast<size_t>(idx.graph().extent(1)) == graph_degree,
+    "The output graph shape must match the dataset size and effective graph degree.");
+  if (idx.distances().has_value()) {
+    RAFT_EXPECTS(
+      static_cast<size_t>(idx.distances()->extent(0)) == static_cast<size_t>(dataset.extent(0)) &&
+        static_cast<size_t>(idx.distances()->extent(1)) == graph_degree,
+      "The output distances shape must match the output graph shape.");
+  }
 
   auto int_graph =
     raft::make_host_matrix<int, int64_t, raft::row_major>(dataset.extent(0), extended_graph_degree);
@@ -3122,22 +3146,14 @@ index<IdxT> build(raft::resources const& res,
                   const index_params& params,
                   cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset)
 {
-  size_t graph_degree = params.graph_degree;
-  if (params.intermediate_graph_degree < graph_degree) {
-    RAFT_LOG_WARN(
-      "Graph degree (%lu) cannot be larger than intermediate graph degree (%lu), reducing "
-      "graph_degree.",
-      graph_degree,
-      params.intermediate_graph_degree);
-    graph_degree = params.intermediate_graph_degree;
-  }
+  auto effective_params = get_effective_index_params(params, dataset.n_rows());
 
   index<IdxT> idx{res,
                   static_cast<int64_t>(dataset.n_rows()),
-                  static_cast<int64_t>(graph_degree),
-                  params.return_distances,
-                  params.metric};
-  detail::build<DataT, IdxT>(res, params, dataset, idx);
+                  static_cast<int64_t>(effective_params.graph_degree),
+                  effective_params.return_distances,
+                  effective_params.metric};
+  detail::build<DataT, IdxT>(res, effective_params, dataset, idx);
   return idx;
 }
 
@@ -3150,26 +3166,15 @@ index<IdxT> build(
   const index_params& params,
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset)
 {
-  size_t intermediate_degree = params.intermediate_graph_degree;
-  size_t graph_degree        = params.graph_degree;
-
-  if (intermediate_degree < graph_degree) {
-    RAFT_LOG_WARN(
-      "Graph degree (%lu) cannot be larger than intermediate graph degree (%lu), reducing "
-      "graph_degree.",
-      graph_degree,
-      intermediate_degree);
-    graph_degree = intermediate_degree;
-  }
+  auto effective_params =
+    get_effective_index_params(params, static_cast<size_t>(dataset.extent(0)));
 
   index<IdxT> idx{res,
                   dataset.extent(0),
-                  static_cast<int64_t>(graph_degree),
-                  params.return_distances,
-                  params.metric};
-
-  build(res, params, dataset, idx);
-
+                  static_cast<int64_t>(effective_params.graph_degree),
+                  effective_params.return_distances,
+                  effective_params.metric};
+  detail::build<T, IdxT>(res, effective_params, dataset, idx);
   return idx;
 }
 
