@@ -169,7 +169,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWU
 public static List<byte[]> quantizeFloatVectorsToScalar(List<float[]> floatVectors)
 ```
 
-Scalar quantization.
+Scalar quantization to unsigned 7-bit values stored in Java bytes.
 
 **Parameters**
 

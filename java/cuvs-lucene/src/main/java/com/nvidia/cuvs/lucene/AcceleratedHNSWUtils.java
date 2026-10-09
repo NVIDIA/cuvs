@@ -540,7 +540,7 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
-   * Scalar quantization.
+   * Scalar quantization to unsigned 7-bit values stored in Java bytes.
    *
    * @param floatVectors A list of float vectors
    * @return A list of byte scalar representation for the input vectors
@@ -550,13 +550,14 @@ public class AcceleratedHNSWUtils {
       return new ArrayList<>();
     }
 
+    final int maximumUnsignedSevenBitValue = 127;
     int dimensions = floatVectors.get(0).length;
     int numVectors = floatVectors.size();
 
     float[] minPerDim = new float[dimensions];
     float[] maxPerDim = new float[dimensions];
-    Arrays.fill(minPerDim, Float.MAX_VALUE);
-    Arrays.fill(maxPerDim, Float.MIN_VALUE);
+    Arrays.fill(minPerDim, Float.POSITIVE_INFINITY);
+    Arrays.fill(maxPerDim, Float.NEGATIVE_INFINITY);
 
     for (float[] vector : floatVectors) {
       for (int d = 0; d < dimensions; d++) {
@@ -572,8 +573,8 @@ public class AcceleratedHNSWUtils {
         float range = maxPerDim[d] - minPerDim[d];
         if (range > 0) {
           float normalized = (vector[d] - minPerDim[d]) / range;
-          int quantizedValue = Math.round(normalized * 127.0f) - 64;
-          quantized[d] = (byte) Math.max(-64, Math.min(63, quantizedValue));
+          int quantizedValue = Math.round(normalized * maximumUnsignedSevenBitValue);
+          quantized[d] = (byte) Math.max(0, Math.min(maximumUnsignedSevenBitValue, quantizedValue));
         } else {
           quantized[d] = 0;
         }

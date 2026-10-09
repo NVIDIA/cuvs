@@ -148,18 +148,6 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
     return writer;
   }
 
-  private static byte signedToUnsignedByte(byte signedByte) {
-    return (byte) (signedByte & 0xFF);
-  }
-
-  private static byte[] convertSignedToUnsigned(byte[] signedVector) {
-    byte[] unsignedVector = new byte[signedVector.length];
-    for (int i = 0; i < signedVector.length; i++) {
-      unsignedVector[i] = signedToUnsignedByte(signedVector[i]);
-    }
-    return unsignedVector;
-  }
-
   /**
    * Builds the intermediate CAGRA index and builds and writes the HNSW index.
    *
@@ -167,7 +155,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    * @param vectors quantized vectors
    * @throws IOException
    */
-  private void writeFieldInternal(FieldInfo fieldInfo, List<?> vectors) throws IOException {
+  private void writeFieldInternal(FieldInfo fieldInfo, List<byte[]> vectors) throws IOException {
     int size = vectors.size();
     if (writeTrivialField(fieldInfo, size)) {
       return;
@@ -176,20 +164,14 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
     try {
       int dimensions = fieldInfo.getVectorDimension();
 
-      // Convert 7-bit signed bytes to 8-bit unsigned bytes for cuVS compatibility
-      List<byte[]> unsignedVectors = new ArrayList<>(vectors.size());
-      for (Object signedVector : vectors) {
-        unsignedVectors.add(convertSignedToUnsigned((byte[]) signedVector));
-      }
-
-      // Create CuVSMatrix with BYTE data type (unsigned bytes)
+      // The scalar quantizer already emits nonnegative bytes for cuVS's unsigned BYTE type.
       hostInputMemory.withMatrix(
           fieldInfo.name,
           size,
           dimensions,
           CuVSMatrix.DataType.BYTE,
           builder -> {
-            for (byte[] vector : unsignedVectors) {
+            for (byte[] vector : vectors) {
               builder.addVector(vector);
             }
             writeNonTrivialField(fieldInfo, builder.build());
