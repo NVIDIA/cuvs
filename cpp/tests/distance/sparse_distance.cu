@@ -826,7 +826,22 @@ const std::vector<SparseDistanceInputs<int, float>> inputs_i32_f = {
    {0, 0.333333, 0.333333, 0},
    cuvs::distance::DistanceType::DiceExpanded,
    0.0},
-
+  // Wide sparse inputs select the hash strategy instead of dense shared memory.
+  {1 << 20,
+   {0, 2, 4, 5},
+   {1, 65537, 1, 131073, 65537},
+   {1.0f, 2.0f, 3.0f, 4.0f, 5.0f},
+   {5.0f, 3.0f, 10.0f, 3.0f, 25.0f, 0.0f, 10.0f, 0.0f, 25.0f},
+   cuvs::distance::DistanceType::InnerProduct,
+   0.0},
+  // L1 also exercises the reverse hash lookup for nonzeros missing from the other row.
+  {1 << 20,
+   {0, 2, 4, 5},
+   {1, 65537, 1, 131073, 65537},
+   {1.0f, 2.0f, 3.0f, 4.0f, 5.0f},
+   {0.0f, 8.0f, 4.0f, 8.0f, 0.0f, 12.0f, 4.0f, 12.0f, 0.0f},
+   cuvs::distance::DistanceType::L1,
+   0.0},
 };
 
 typedef SparseDistanceTest<int, float> SparseDistanceTestF;
