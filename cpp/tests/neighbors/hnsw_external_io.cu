@@ -160,6 +160,64 @@ TEST(HnswExternalPlan, PartitionsIncreaseMonotonically)
   EXPECT_THROW(cagra::detail::make_ace_external_plan(input), raft::logic_error);
 }
 
+TEST(HnswExternalPlan, OutputBufferFitsRemainingDeviceMemory)
+{
+  cagra::detail::ace_external_plan_input input;
+  input.rows                   = 1'000'000;
+  input.dim                    = 128;
+  input.element_size           = sizeof(float);
+  input.M                      = 24;
+  input.graph_degree           = 48;
+  input.intermediate_degree    = 72;
+  input.available_host_bytes   = uint64_t{8} << 30;
+  input.available_device_bytes = uint64_t{431} << 20;
+  input.force_disk             = true;
+  const uint64_t initial_rows  = 3 * input.rows;  // Initial two-partition skew estimate.
+  auto [host, device, host_fixed, device_fixed] = cagra::helpers::optimize_workspace_size(
+    initial_rows, input.graph_degree, input.intermediate_degree, input.index_size, false);
+  input.optimize_host_fixed   = host_fixed;
+  input.optimize_device_fixed = device_fixed;
+  input.optimize_host_per_row =
+    cagra::detail::external_div_rounding_up(host - host_fixed, initial_rows);
+  input.optimize_device_per_row =
+    cagra::detail::external_div_rounding_up(device - device_fixed, initial_rows);
+
+  auto plan = cagra::detail::make_ace_external_plan(input);
+  EXPECT_LT(plan.hnsw_output_buffer_bytes, uint64_t{64} << 20);
+  EXPECT_LE(plan.host_peak_bytes, plan.host_budget_bytes);
+  EXPECT_LE(plan.device_peak_bytes, plan.device_budget_bytes);
+}
+
+TEST(HnswExternalPlan, ReservesMinimumBuffersBeforeChoosingPartitions)
+{
+  cagra::detail::ace_external_plan_input input;
+  input.rows                   = 10'000;
+  input.dim                    = 128;
+  input.element_size           = sizeof(float);
+  input.M                      = 24;
+  input.graph_degree           = 48;
+  input.intermediate_degree    = 72;
+  input.force_disk             = true;
+  input.available_host_bytes   = uint64_t{8} << 30;
+  input.available_device_bytes = uint64_t{8} << 30;
+  auto roomy                   = cagra::detail::make_ace_external_plan(input);
+  const uint64_t partition_bytes =
+    roomy.max_occurrences * roomy.device_per_occurrence + roomy.device_fixed_bytes;
+  // Leave less than the minimum graph chunk after two partitions' skew allowance.
+  input.available_device_bytes = partition_bytes * 5 / 4;
+  auto tight                   = cagra::detail::make_ace_external_plan(input);
+  EXPECT_GT(tight.partitions, roomy.partitions);
+  EXPECT_LE(tight.device_peak_bytes, tight.device_budget_bytes);
+
+  input.available_device_bytes = uint64_t{8} << 30;
+  const uint64_t host_partition_bytes =
+    roomy.max_occurrences * roomy.host_per_occurrence + roomy.host_fixed_bytes;
+  input.available_host_bytes = host_partition_bytes * 5 / 4;
+  auto host_tight            = cagra::detail::make_ace_external_plan(input);
+  EXPECT_GT(host_tight.partitions, roomy.partitions);
+  EXPECT_LE(host_tight.host_peak_bytes, host_tight.host_budget_bytes);
+}
+
 TEST(HnswExternalPlan, SampleAndAssignmentRangesAreBoundedAndMonotonic)
 {
   auto sample = cagra::detail::make_external_sample_ranges(10'003, 1'001);

@@ -269,6 +269,16 @@ inline ace_external_plan make_ace_external_plan(const ace_external_plan_input& i
   const uint64_t device_budget = device_limit - device_limit / 5;
   const uint64_t vector_bytes  = external_checked_mul(in.dim, in.element_size, "vector byte size");
 
+  constexpr uint64_t minimum_buffer    = uint64_t{64} << 10;
+  const uint64_t minimum_output_buffer = std::max<uint64_t>(
+    minimum_buffer,
+    external_checked_mul(in.graph_degree, in.index_size, "minimum graph output buffer"));
+  const uint64_t two_output_buffers =
+    external_checked_mul(2, minimum_output_buffer, "minimum output buffers");
+  const uint64_t minimum_host_headroom = std::max(2 * one_mib, two_output_buffers);
+  RAFT_EXPECTS(host_budget >= minimum_host_headroom && device_budget >= minimum_output_buffer,
+               "external HNSW memory cap is too small for bounded I/O buffers");
+
   ace_external_plan out;
   out.host_budget_bytes       = host_budget;
   out.device_budget_bytes     = device_budget;
@@ -341,7 +351,9 @@ inline ace_external_plan make_ace_external_plan(const ace_external_plan_input& i
   };
   update_peaks();
 
-  while ((out.host_peak_bytes > host_budget || out.device_peak_bytes > device_budget) &&
+  // Reserve I/O storage while selecting partitions, including the translated graph on device.
+  while ((out.host_peak_bytes > host_budget - minimum_host_headroom ||
+          out.device_peak_bytes > device_budget - minimum_output_buffer) &&
          out.partitions < maximum_partitions) {
     uint64_t next =
       std::min<uint64_t>(maximum_partitions,
@@ -350,9 +362,9 @@ inline ace_external_plan make_ace_external_plan(const ace_external_plan_input& i
     out.partitions = next;
     update_peaks();
   }
-  RAFT_EXPECTS(out.host_peak_bytes <= host_budget,
+  RAFT_EXPECTS(out.host_peak_bytes <= host_budget - minimum_host_headroom,
                "external HNSW host cap is below the minimum planned partition peak");
-  RAFT_EXPECTS(out.device_peak_bytes <= device_budget,
+  RAFT_EXPECTS(out.device_peak_bytes <= device_budget - minimum_output_buffer,
                "external HNSW device cap is below the minimum planned partition peak");
 
   uint64_t host_headroom = host_budget - out.host_peak_bytes;
@@ -361,19 +373,16 @@ inline ace_external_plan make_ace_external_plan(const ace_external_plan_input& i
   const uint64_t second_partition_host_bytes = external_checked_mul(
     out.max_occurrences, out.host_reader_per_occurrence, "prefetched partition host peak");
   out.queue_depth = 1;
-  if (in.requested_queue_depth > 1 && second_partition_host_bytes <= host_headroom - 2 * one_mib) {
+  if (in.requested_queue_depth > 1 &&
+      second_partition_host_bytes <= host_headroom - minimum_host_headroom) {
     out.queue_depth = 2;
     host_headroom -= second_partition_host_bytes;
   }
-  constexpr uint64_t minimum_buffer = uint64_t{64} << 10;
-  uint64_t minimum_stage_buffer     = std::max<uint64_t>(
+  uint64_t minimum_stage_buffer = std::max<uint64_t>(
     one_mib, external_checked_add(vector_bytes, 2 * sizeof(uint32_t), "minimum stage buffer"));
   uint64_t minimum_preferred_buffer = std::max<uint64_t>(
     minimum_buffer,
     external_checked_add(vector_bytes, 2 * sizeof(uint32_t), "minimum preferred buffer"));
-  uint64_t minimum_output_buffer = std::max<uint64_t>(
-    minimum_buffer,
-    external_checked_mul(in.graph_degree, in.index_size, "minimum graph output buffer"));
   RAFT_EXPECTS(minimum_stage_buffer <= host_budget,
                "external HNSW host cap is too small for one stage record");
   out.staging_buffer_bytes =
@@ -381,14 +390,14 @@ inline ace_external_plan make_ace_external_plan(const ace_external_plan_input& i
   out.preferred_buffer_bytes =
     std::max(minimum_preferred_buffer, std::min<uint64_t>(host_headroom / 8, 64 * one_mib));
   uint64_t concurrent_reader_buffer = out.queue_depth > 1 ? out.preferred_buffer_bytes : 0;
-  uint64_t two_output_buffers =
-    external_checked_mul(2, minimum_output_buffer, "minimum output buffers");
   RAFT_EXPECTS(two_output_buffers <= host_headroom &&
                  concurrent_reader_buffer <= host_headroom - two_output_buffers,
                "external HNSW host cap is too small for bounded I/O buffers");
   out.hnsw_output_buffer_bytes =
     std::max(minimum_output_buffer,
-             std::min<uint64_t>((host_headroom - concurrent_reader_buffer) / 2, 64 * one_mib));
+             std::min<uint64_t>({(host_headroom - concurrent_reader_buffer) / 2,
+                                 64 * one_mib,
+                                 device_budget - out.device_peak_bytes}));
 
   uint64_t centroid_bytes = external_checked_mul(
     out.partitions, external_checked_mul(in.dim, sizeof(float), "centroid row"), "centroid bytes");
