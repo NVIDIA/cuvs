@@ -75,8 +75,11 @@ static_assert(std::is_aggregate_v<index_params>);
 struct search_params : cuvs::neighbors::search_params {
   /** The number of clusters to search. */
   uint32_t n_probes = 20;
-  /** Which k-selection algorithm to use. See `ivf_pq::search_params::select_algo`. */
-  raft::matrix::SelectAlgo select_algo = raft::matrix::SelectAlgo::kAuto;
+  /**
+   * Return the same neighbours for the same index and queries. An equal-distance tie is then
+   * broken on the candidate index instead of on thread timing. This can make the search slower.
+   */
+  bool stable = false;
 };
 
 static_assert(std::is_aggregate_v<search_params>);

@@ -18,6 +18,9 @@ struct tag_metric_cosine {};
 template <int Capacity>
 struct fragment_tag_ivf_sq_scan {};
 
+template <int Capacity>
+struct fragment_tag_ivf_sq_scan_stable {};
+
 template <typename FilterTag>
 struct fragment_tag_ivf_sq_filter {};
 

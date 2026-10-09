@@ -70,6 +70,7 @@ void compute_similarity_run(selected<OutT, LutT> s,
 template <typename OutT, typename LutT, typename FilterT, typename MetricTag, bool IncrementScore>
 auto compute_similarity_select(const cudaDeviceProp& dev_props,
                                bool manage_local_topk,
+                               bool stable,
                                int locality_hint,
                                double preferred_shmem_carveout,
                                uint32_t pq_bits,
@@ -89,6 +90,7 @@ auto compute_similarity_select(const cudaDeviceProp& dev_props,
     compute_similarity_select<OutT, LutT, FilterT, MetricTag, IncrementScore>( \
       const cudaDeviceProp& dev_props,                                         \
       bool manage_local_topk,                                                  \
+      bool stable,                                                             \
       int locality_hint,                                                       \
       double preferred_shmem_carveout,                                         \
       uint32_t pq_bits,                                                        \

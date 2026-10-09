@@ -5,11 +5,22 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace cuvs::neighbors::ivf_sq::detail {
 
 static constexpr int kSqScanThreads = 128;
+
+/** Byte offset of the stable top-k queue buffer, after the three per-dimension float arrays. */
+constexpr inline auto sq_scan_queue_offset(uint32_t dim) -> size_t
+{
+  return (size_t(3) * dim * sizeof(float) + 15) / 16 * 16;
+}
+
+/** Bytes that the stable top-k queue keeps in shared memory during the scan. */
+static constexpr size_t kSqScanQueueBytes =
+  size_t(kSqScanThreads) * (sizeof(float) + sizeof(uint32_t));
 
 // Function-pointer signature for the JIT-LTO scan entrypoint.
 // Must exactly match the extern "C" __global__ ivf_sq_scan(...) signature

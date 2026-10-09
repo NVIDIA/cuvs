@@ -28,23 +28,31 @@ namespace cuvs::neighbors::ivf_sq::detail {
 // All metrics are min-close after finalize_distance (IP is negated; cosine
 // returns 1 - cos_sim; L2 is squared L2), so the warpsort is hardcoded to
 // ascending.
-template <int Capacity>
+template <int Capacity, bool Stable = false>
 struct sq_block_sort {
-  using type = raft::matrix::detail::select::warpsort::block_sort<
-    raft::matrix::detail::select::warpsort::warp_sort_filtered,
-    Capacity,
-    /*Ascending=*/true,
-    float,
-    uint32_t>;
+  using type =
+    std::conditional_t<Stable,
+                       raft::matrix::detail::select::warpsort::block_sort<
+                         raft::matrix::detail::select::warpsort::warp_sort_distributed_ext_stable,
+                         Capacity,
+                         /*Ascending=*/true,
+                         float,
+                         uint32_t>,
+                       raft::matrix::detail::select::warpsort::block_sort<
+                         raft::matrix::detail::select::warpsort::warp_sort_filtered,
+                         Capacity,
+                         /*Ascending=*/true,
+                         float,
+                         uint32_t>>;
 };
 
-template <>
-struct sq_block_sort<0> {
+template <bool Stable>
+struct sq_block_sort<0, Stable> {
   using type = ivf::detail::dummy_block_sort_t<float, uint32_t, /*Ascending=*/true>;
 };
 
-template <int Capacity>
-using sq_block_sort_t = typename sq_block_sort<Capacity>::type;
+template <int Capacity, bool Stable = false>
+using sq_block_sort_t = typename sq_block_sort<Capacity, Stable>::type;
 
 // IVF-SQ scan kernel body with fused in-kernel top-k.
 //
@@ -87,7 +95,7 @@ using sq_block_sort_t = typename sq_block_sort<Capacity>::type;
 //     Reconstructed vector component: s_aux[d] + code*s_sq_scale[d].
 //
 //   After all probes are scanned, the smem is reused for block_sort merge.
-template <int Capacity>
+template <int Capacity, bool Stable = false>
 __device__ __forceinline__ void ivf_sq_scan_impl(const uint8_t* const* data_ptrs,
                                                  const uint32_t* list_sizes,
                                                  const uint32_t* coarse_indices,
@@ -141,8 +149,16 @@ __device__ __forceinline__ void ivf_sq_scan_impl(const uint8_t* const* data_ptrs
   setup_invariant_smem(dim, query, sq_vmin, s_aux, s_query_term);
   __syncthreads();
 
-  using local_topk_t = sq_block_sort_t<Capacity>;
-  local_topk_t queue(k);
+  using local_topk_t = sq_block_sort_t<Capacity, Stable>;
+  // The stable queue keeps its buffer in shared memory, after the per-dimension arrays.
+  auto make_queue = [&]() {
+    if constexpr (Stable && kManageLocalTopK) {
+      return local_topk_t(k, smem_buf + sq_scan_queue_offset(dim));
+    } else {
+      return local_topk_t(k);
+    }
+  };
+  local_topk_t queue = make_queue();
 
   const uint32_t* my_coarse = coarse_indices + query_ix * n_probes;
   const uint32_t* my_chunk  = chunk_indices + query_ix * n_probes;

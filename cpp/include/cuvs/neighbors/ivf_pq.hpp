@@ -212,18 +212,10 @@ struct search_params : cuvs::neighbors::search_params {
    */
   uint32_t max_internal_batch_size = 4096;
   /**
-   * Which k-selection algorithm to use.
-   *
-   * `kAuto` returns a warp-sort selector at or below k = 256 and a radix selector above it. The
-   * radix selector claims each output slot with `atomicAdd`, so thread arrival order decides which
-   * of several equidistant candidates survives and a repeated search can return different
-   * neighbours.
-   *
-   * `kWarpDistributedShmStable` breaks such a tie on the payload index instead. It is valid only
-   * at or below k = 256, because the warp-sort selectors cap at `kMaxCapacity`. Above 256 there is
-   * no reproducible selector.
+   * Return the same neighbours for the same index and queries. An equal-distance tie is then
+   * broken on the candidate index instead of on thread timing. This can make the search slower.
    */
-  raft::matrix::SelectAlgo select_algo = raft::matrix::SelectAlgo::kAuto;
+  bool stable = false;
 };
 /**
  * @}
