@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "gmm_impl.cuh"
+#include "detail/gmm_impl.cuh"
 
 #include <cuvs/cluster/gmm.hpp>
 
