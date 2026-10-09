@@ -495,7 +495,7 @@ Returns an HNSW index from a CAGRA index.
 NOTE: When `index_params.hierarchy` is:
 
 1. `NONE`: This method uses the filesystem to write the CAGRA index in
-`/tmp/&lt;random_number&gt;.bin` before reading it as an hnswlib index, then
+`/tmp/<random_number>.bin` before reading it as an hnswlib index, then
 deleting the temporary file. The returned index is immutable and can only
 be searched by the hnswlib wrapper in cuVS, as the format is not
 compatible with the original hnswlib.
@@ -512,7 +512,7 @@ subject to change.
 | --- | --- | --- |
 | `index_params` | `IndexParams` | Parameters to convert the CAGRA index to HNSW index. |
 | `cagra_index` | `cagra.Index` | Trained CAGRA index. |
-| `temporary_index_path` | `string, default = None` | Path to save the temporary index file. If None, the temporary file will be saved in `/tmp/&lt;random_number&gt;.bin`. |
+| `temporary_index_path` | `string, default = None` | Path to save the temporary index file. If None, the temporary file will be saved in `/tmp/<random_number>.bin`. |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Examples**

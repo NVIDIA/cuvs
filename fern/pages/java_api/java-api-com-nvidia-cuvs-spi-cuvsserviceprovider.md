@@ -10,7 +10,7 @@ _Java package: `com.nvidia.cuvs.spi`_
 public abstract class CuVSServiceProvider
 ```
 
-Service-provider class for \{@linkplain CuVSProvider\}.
+Service-provider class for `CuVSProvider`.
 
 ## Public Members
 

@@ -259,7 +259,7 @@ cuvsError_t cuvsHnswExtendParamsDestroy(cuvsHnswExtendParams_t params);
 
 Convert a CAGRA Index to an HNSW index. NOTE: When hierarchy is:
 
-1. `NONE`: This method uses the filesystem to write the CAGRA index in `/tmp/&lt;random_number&gt;.bin` before reading it as an hnswlib index, then deleting the temporary file. The returned index is immutable and can only be searched by the hnswlib wrapper in cuVS, as the format is not compatible with the original hnswlib.
+1. `NONE`: This method uses the filesystem to write the CAGRA index in `/tmp/<random_number>.bin` before reading it as an hnswlib index, then deleting the temporary file. The returned index is immutable and can only be searched by the hnswlib wrapper in cuVS, as the format is not compatible with the original hnswlib.
 2. `CPU`: The returned index is mutable and can be extended with additional vectors. The serialized index is also compatible with the original hnswlib library.
 
 ```c

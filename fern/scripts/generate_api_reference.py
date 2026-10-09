@@ -239,6 +239,9 @@ class JavaDoc:
     params: list[DoxygenParam] = field(default_factory=list)
     returns: str = ""
     throws: list[DoxygenParam] = field(default_factory=list)
+    deprecated: str = ""
+    # Whether the comment has an @deprecated tag, which may come without text.
+    is_deprecated: bool = False
 
 
 @dataclass
@@ -4749,10 +4752,12 @@ def parse_javadoc(raw: str) -> JavaDoc:
     summary_lines: list[str] = []
     active: DoxygenParam | None = None
     active_kind = ""
+    # Lines are collected unconverted and each block is converted once complete, because an
+    # inline tag such as {@link ...} may be wrapped across lines.
     for line in lines:
-        stripped = clean_javadoc_text(line.strip())
+        stripped = line.strip()
         if not stripped:
-            if active is None:
+            if active is None and active_kind == "":
                 summary_lines.append("")
             continue
         param_match = re.match(r"@param\s+(\w+)\s*(.*)", stripped)
@@ -4777,9 +4782,17 @@ def parse_javadoc(raw: str) -> JavaDoc:
             active = None
             active_kind = "return"
             continue
-        if stripped.startswith("@"):
+        deprecated_match = re.match(r"@deprecated\b\s*(.*)", stripped)
+        if deprecated_match:
+            doc.deprecated = deprecated_match.group(1).strip()
+            doc.is_deprecated = True
             active = None
-            active_kind = ""
+            active_kind = "deprecated"
+            continue
+        if re.match(r"@\w", stripped):
+            # Another block tag (@since, @see, ...): it and its continuation lines are not shown.
+            active = None
+            active_kind = "skip"
             continue
         if active is not None and active_kind in {"param", "throws"}:
             active.description = append_doxygen_line(
@@ -4787,22 +4800,61 @@ def parse_javadoc(raw: str) -> JavaDoc:
             )
         elif active_kind == "return":
             doc.returns = append_doxygen_line(doc.returns, stripped)
+        elif active_kind == "deprecated":
+            doc.deprecated = append_doxygen_line(doc.deprecated, stripped)
+        elif active_kind == "skip":
+            continue
         else:
             summary_lines.append(stripped)
-    doc.summary = "\n".join(trim_blank_lines(summary_lines)).strip()
+    doc.summary = clean_javadoc_text(
+        "\n".join(trim_blank_lines(summary_lines))
+    )
+    for param in doc.params + doc.throws:
+        param.description = clean_javadoc_text(param.description)
+    doc.returns = clean_javadoc_text(doc.returns)
+    doc.deprecated = clean_javadoc_text(doc.deprecated)
     return doc
 
 
 def clean_javadoc_text(text: str) -> str:
-    text = re.sub(r"\{@code\s+([^}]+)\}", r"`\1`", text)
+    # Converted inline tags are held as placeholders until the HTML tags are removed, so that
+    # their text, such as {@code List<String>} or {@literal <T>}, keeps its angle brackets.
+    kept: list[str] = []
+
+    def keep(converted: str) -> str:
+        kept.append(converted)
+        return f"\x00{len(kept) - 1}\x00"
+
+    def words(value: str) -> str:
+        # A tag wrapped across lines keeps its words on one line.
+        return " ".join(value.split())
+
     text = re.sub(
-        r"\{@link\s+([^}\s]+)(?:\s+([^}]+))?\}",
-        lambda m: m.group(2) or f"`{m.group(1)}`",
+        r"\{@code\s+([^}]+)\}", lambda m: keep(f"`{words(m.group(1))}`"), text
+    )
+    text = re.sub(
+        r"\{@(?:value|systemProperty)\s+#?([^}\s]+)\s*\}",
+        lambda m: keep(f"`{m.group(1)}`"),
         text,
+    )
+    text = re.sub(
+        r"\{@literal\s+([^}]+)\}", lambda m: keep(words(m.group(1))), text
+    )
+    text = re.sub(
+        r"\{@link(?:plain)?\s+([^}\s]+)(?:\s+([^}]+))?\}",
+        lambda m: keep(words(m.group(2)) if m.group(2) else f"`{m.group(1)}`"),
+        text,
+    )
+    # Any other inline tag shows its text.
+    text = re.sub(
+        r"\{@\w+\s+([^}]+)\}", lambda m: keep(words(m.group(1))), text
     )
     text = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", text)
     text = re.sub(r"</?p>", "", text)
     text = re.sub(r"<[^>]+>", "", text)
+    # Removed HTML can leave doubled spaces; converted tags are still placeholders here.
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
     return text.strip()
 
 
@@ -4811,6 +4863,10 @@ def render_javadoc(doc: JavaDoc) -> list[str]:
     if doc.summary:
         lines.extend(escape_text(line) for line in doc.summary.splitlines())
         lines.append("")
+    if doc.deprecated:
+        lines.extend([f"**Deprecated:** {escape_text(doc.deprecated)}", ""])
+    elif doc.is_deprecated:
+        lines.extend(["**Deprecated.**", ""])
     if doc.params:
         lines.extend(
             ["**Parameters**", "", "| Name | Description |", "| --- | --- |"]
@@ -6051,17 +6107,30 @@ def escape_code(value: str) -> str:
     )
 
 
+CODE_SPAN_RE = re.compile(r"(`+)(.+?)\1")
+
+
 def escape_text(value: str) -> str:
-    escaped = (
-        str(value)
-        .replace("|", "\\|")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("{", "\\{")
-        .replace("}", "\\}")
-        .replace("\n", " ")
-    )
-    return restore_math_placeholders(escaped)
+    # MDX shows code spans literally: an entity such as &lt; or a backslash escape inside one
+    # would appear as typed, and angle brackets and braces need no escaping there. The pipe is
+    # still escaped, since a code span inside a table cell would otherwise split the cell.
+    def escape_prose(text: str) -> str:
+        return (
+            text.replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("{", "\\{")
+            .replace("}", "\\}")
+        )
+
+    text = str(value).replace("|", "\\|").replace("\n", " ")
+    parts: list[str] = []
+    end = 0
+    for match in CODE_SPAN_RE.finditer(text):
+        parts.append(escape_prose(text[end : match.start()]))
+        parts.append(match.group(0))
+        end = match.end()
+    parts.append(escape_prose(text[end:]))
+    return restore_math_placeholders("".join(parts))
 
 
 def restore_math_placeholders(value: str) -> str:
