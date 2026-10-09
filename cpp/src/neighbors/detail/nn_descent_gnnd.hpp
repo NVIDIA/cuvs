@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <algorithm>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 #include <raft/core/detail/macros.hpp>
