@@ -35,7 +35,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedCodec extends FilterCodec {
 
   public LuceneAcceleratedHNSWScalarQuantizedCodec(AcceleratedHNSWParams acceleratedHNSWParams)
       throws Exception {
-    this(NAME, LuceneProvider.getCodec("101"));
+    super(NAME, LuceneProvider.getCodec("101"));
     initializeFormat(acceleratedHNSWParams);
   }
 
