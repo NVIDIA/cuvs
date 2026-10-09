@@ -54,6 +54,12 @@ struct ComputeSimilarityPlanner : rtcx::algorithm_planner {
     this->add_static_fragment<fragment_tag_compute_distances<OutTag, LutTag, Capacity>>();
   }
 
+  template <typename OutTag, typename LutTag, int Capacity>
+  void add_compute_distances_stable_function()
+  {
+    this->add_static_fragment<fragment_tag_compute_distances_stable<OutTag, LutTag, Capacity>>();
+  }
+
   template <typename OutTag, typename MetricTag>
   void add_get_early_stop_limit_function()
   {

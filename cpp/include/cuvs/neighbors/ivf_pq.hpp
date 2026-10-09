@@ -13,6 +13,7 @@
 #include <raft/core/error.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/mdspan_types.hpp>
+#include <raft/matrix/select_k_types.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/integer_utils.hpp>
 
@@ -210,6 +211,11 @@ struct search_params : cuvs::neighbors::search_params {
    * Set the internal batch size to improve GPU utilization at the cost of larger memory footprint.
    */
   uint32_t max_internal_batch_size = 4096;
+  /**
+   * Return the same neighbours for the same index and queries. An equal-distance tie is then
+   * broken on the candidate index instead of on thread timing. This can make the search slower.
+   */
+  bool stable = false;
 };
 /**
  * @}

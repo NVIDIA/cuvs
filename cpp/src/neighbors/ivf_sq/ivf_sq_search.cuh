@@ -60,10 +60,11 @@ auto RAFT_WEAK_FUNCTION is_local_topk_feasible(uint32_t k) -> bool
 inline size_t sq_scan_smem_size(uint32_t dim) { return 3 * dim * sizeof(float); }
 
 template <int Capacity>
-size_t sq_scan_total_smem(uint32_t dim, uint32_t k)
+size_t sq_scan_total_smem(uint32_t dim, uint32_t k, bool stable)
 {
   size_t scan_smem = sq_scan_smem_size(dim);
   if constexpr (Capacity > 0) {
+    if (stable) { scan_smem = sq_scan_queue_offset(dim) + kSqScanQueueBytes; }
     constexpr int kSubwarpSize = std::min<int>(Capacity, raft::WarpSize);
     int num_subwarps           = kSqScanThreads / kSubwarpSize;
     size_t merge_smem =
@@ -151,7 +152,8 @@ void launch_kernel(const index<CodeT>& idx,
                    uint32_t* out_indices,
                    uint32_t& grid_dim_x,
                    cuda::stream_ref stream,
-                   IvfSampleFilterT sample_filter)
+                   IvfSampleFilterT sample_filter,
+                   bool stable)
 {
   static_assert(std::is_same_v<CodeT, uint8_t>, "IVF-SQ JIT-LTO scan only supports CodeT=uint8_t");
 
@@ -164,7 +166,15 @@ void launch_kernel(const index<CodeT>& idx,
   // time via four device-function fragments (setup_invariant_smem,
   // setup_per_probe_smem, accumulate_distance, finalize_distance).
   IvfSqScanPlanner kernel_planner;
-  kernel_planner.add_entrypoint<Capacity>();
+  if constexpr (Capacity > 0) {
+    if (stable) {
+      kernel_planner.add_entrypoint_stable<Capacity>();
+    } else {
+      kernel_planner.add_entrypoint<Capacity>();
+    }
+  } else {
+    kernel_planner.add_entrypoint<Capacity>();
+  }
   kernel_planner.add_setup_invariant_smem_function<MetricTag>();
   kernel_planner.add_setup_per_probe_smem_function<MetricTag>();
   kernel_planner.add_accumulate_distance_function<MetricTag>();
@@ -186,7 +196,7 @@ void launch_kernel(const index<CodeT>& idx,
     original_nbits = sample_filter.view().get_original_nbits();
   }
 
-  size_t smem = sq_scan_total_smem<Capacity>(dim, k);
+  size_t smem = sq_scan_total_smem<Capacity>(dim, k, stable);
 
   {
     int dev_id;
@@ -292,10 +302,13 @@ void ivf_sq_scan(raft::resources const& handle,
                  uint32_t* out_indices,
                  IvfSampleFilterT sample_filter,
                  uint32_t& grid_dim_x,
-                 cuda::stream_ref stream)
+                 cuda::stream_ref stream,
+                 bool stable)
 {
-  // Determine the fused top-k capacity (0 = disabled / fallback to materialization)
-  int capacity = is_local_topk_feasible(k) ? raft::bound_by_power_of_two(int(k)) : 0;
+  // Determine the fused top-k capacity (0 = disabled / fallback to materialization). The
+  // materializing caller passes max_samples > 0 and needs every distance, whatever k is.
+  int capacity =
+    max_samples == 0 && is_local_topk_feasible(k) ? raft::bound_by_power_of_two(int(k)) : 0;
 
   // Snap to the nearest supported compile-time Capacity value (must be a
   // power of two). Values up to 32 share one instantiation; 64, 128 and 256
@@ -326,7 +339,8 @@ void ivf_sq_scan(raft::resources const& handle,
                                                                                   out_indices,
                                                                                   grid_dim_x,
                                                                                   stream,
-                                                                                  sample_filter);
+                                                                                  sample_filter,
+                                                                                  stable);
     });
   };
 
@@ -353,7 +367,8 @@ void search_impl(raft::resources const& handle,
                  int64_t* neighbors,
                  float* distances,
                  rmm::device_async_resource_ref search_mr,
-                 IvfSampleFilterT sample_filter)
+                 IvfSampleFilterT sample_filter,
+                 bool stable)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
   auto dim    = index.dim();
@@ -480,7 +495,11 @@ void search_impl(raft::resources const& handle,
     raft::make_device_matrix_view<float, int64_t>(coarse_distances_dev.data(), n_queries, n_probes),
     raft::make_device_matrix_view<uint32_t, int64_t>(
       coarse_indices_dev.data(), n_queries, n_probes),
-    coarse_select_min);
+    coarse_select_min,
+    false,
+    cuvs::selection::SelectAlgo::kAuto,
+    std::nullopt,
+    stable);
 
   rmm::device_uvector<uint32_t> num_samples(n_queries, stream, search_mr);
   rmm::device_uvector<uint32_t> chunk_index(n_queries_probes, stream, search_mr);
@@ -511,7 +530,8 @@ void search_impl(raft::resources const& handle,
                 nullptr,
                 sample_filter,
                 grid_dim_x,
-                stream);
+                stream,
+                stable);
     if (grid_dim_x == 0) {
       manage_local_topk = false;
       RAFT_LOG_WARN(
@@ -560,7 +580,8 @@ void search_impl(raft::resources const& handle,
                 idx_out_ptr,
                 sample_filter,
                 grid_dim_x,
-                stream);
+                stream,
+                stable);
 
     // Merge across blocks if needed
     if (grid_dim_x > 1) {
@@ -571,7 +592,11 @@ void search_impl(raft::resources const& handle,
         raft::make_device_matrix_view<const uint32_t, int64_t>(indices_tmp.data(), n_queries, cols),
         raft::make_device_matrix_view<float, int64_t>(distances, n_queries, k),
         raft::make_device_matrix_view<uint32_t, int64_t>(neighbors_uint32_ptr, n_queries, k),
-        /*select_min=*/true);
+        /*select_min=*/true,
+        false,
+        cuvs::selection::SelectAlgo::kAuto,
+        std::nullopt,
+        stable);
     }
   } else {
     // --- Fallback: materialize all distances ---
@@ -611,7 +636,8 @@ void search_impl(raft::resources const& handle,
                 all_indices.data(),
                 sample_filter,
                 gdx,
-                stream);
+                stream,
+                stable);
 
     auto num_samples_view =
       raft::make_device_vector_view<const uint32_t>(num_samples.data(), n_queries);
@@ -627,7 +653,8 @@ void search_impl(raft::resources const& handle,
       /*select_min=*/true,
       false,
       cuvs::selection::SelectAlgo::kAuto,
-      num_samples_view);
+      num_samples_view,
+      stable);
   }
 
   // For IP, the kernel returned negated scores so the warpsort could run
@@ -731,7 +758,8 @@ inline void search_with_filtering(raft::resources const& handle,
                                             neighbors + std::size_t(offset_q) * k,
                                             distances + std::size_t(offset_q) * k,
                                             raft::resource::get_workspace_resource_ref(handle),
-                                            sample_filter);
+                                            sample_filter,
+                                            params.stable);
   }
 }
 

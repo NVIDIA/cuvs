@@ -23,6 +23,7 @@ namespace cuvs::neighbors::ivf_pq::detail {
 template auto compute_similarity_select<out_t, lut_t, filter_t, metric_tag, increment_score>(
   const cudaDeviceProp& dev_props,
   bool manage_local_topk,
+  bool stable,
   int locality_hint,
   double preferred_shmem_carveout,
   uint32_t pq_bits,

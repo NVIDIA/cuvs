@@ -125,7 +125,7 @@ template <typename OutT,
           typename FilterT,
           typename MetricTag,
           bool IncrementScore>
-auto kernel_try_capacity(uint32_t k_max)
+auto kernel_try_capacity(uint32_t k_max, bool stable)
 {
   if constexpr (Capacity > 0) {
     if (k_max == 0 || k_max > Capacity) {
@@ -137,7 +137,7 @@ auto kernel_try_capacity(uint32_t k_max)
                                  0,
                                  FilterT,
                                  MetricTag,
-                                 IncrementScore>(k_max);
+                                 IncrementScore>(k_max, stable);
     }
   }
   if constexpr (Capacity > 1) {
@@ -150,7 +150,7 @@ auto kernel_try_capacity(uint32_t k_max)
                                  (Capacity / 2),
                                  FilterT,
                                  MetricTag,
-                                 IncrementScore>(k_max);
+                                 IncrementScore>(k_max, stable);
     }
   }
 
@@ -168,7 +168,15 @@ auto kernel_try_capacity(uint32_t k_max)
   planner.add_store_calculated_distances_function<out_tag, kManageLocalTopK>();
   planner.add_precompute_base_diff_function<precomp_base_diff_metric_tag>();
   planner.add_create_lut_function<lut_tag, MetricTag, PrecompBaseDiff, PqBits>();
-  planner.add_compute_distances_function<out_tag, lut_tag, Capacity>();
+  if constexpr (Capacity > 0) {
+    if (stable) {
+      planner.add_compute_distances_stable_function<out_tag, lut_tag, Capacity>();
+    } else {
+      planner.add_compute_distances_function<out_tag, lut_tag, Capacity>();
+    }
+  } else {
+    planner.add_compute_distances_function<out_tag, lut_tag, Capacity>();
+  }
   planner.add_get_early_stop_limit_function<out_tag, MetricTag>();
   planner.add_sample_filter_function<filter_tag>();
   planner.add_get_line_width_function<PqBits>();
@@ -184,7 +192,7 @@ template <typename OutT,
           typename FilterT,
           typename MetricTag,
           bool IncrementScore>
-auto get_compute_similarity_launcher(uint32_t pq_bits, uint32_t k_max)
+auto get_compute_similarity_launcher(uint32_t pq_bits, uint32_t k_max, bool stable)
 {
   switch (pq_bits) {
     case 4:
@@ -196,7 +204,7 @@ auto get_compute_similarity_launcher(uint32_t pq_bits, uint32_t k_max)
                                  kMaxCapacity,
                                  FilterT,
                                  MetricTag,
-                                 IncrementScore>(k_max);
+                                 IncrementScore>(k_max, stable);
     case 5:
       return kernel_try_capacity<OutT,
                                  LutT,
@@ -206,7 +214,7 @@ auto get_compute_similarity_launcher(uint32_t pq_bits, uint32_t k_max)
                                  kMaxCapacity,
                                  FilterT,
                                  MetricTag,
-                                 IncrementScore>(k_max);
+                                 IncrementScore>(k_max, stable);
     case 6:
       return kernel_try_capacity<OutT,
                                  LutT,
@@ -216,7 +224,7 @@ auto get_compute_similarity_launcher(uint32_t pq_bits, uint32_t k_max)
                                  kMaxCapacity,
                                  FilterT,
                                  MetricTag,
-                                 IncrementScore>(k_max);
+                                 IncrementScore>(k_max, stable);
     case 7:
       return kernel_try_capacity<OutT,
                                  LutT,
@@ -226,7 +234,7 @@ auto get_compute_similarity_launcher(uint32_t pq_bits, uint32_t k_max)
                                  kMaxCapacity,
                                  FilterT,
                                  MetricTag,
-                                 IncrementScore>(k_max);
+                                 IncrementScore>(k_max, stable);
     case 8:
       return kernel_try_capacity<OutT,
                                  LutT,
@@ -236,7 +244,7 @@ auto get_compute_similarity_launcher(uint32_t pq_bits, uint32_t k_max)
                                  kMaxCapacity,
                                  FilterT,
                                  MetricTag,
-                                 IncrementScore>(k_max);
+                                 IncrementScore>(k_max, stable);
     default: RAFT_FAIL("Invalid pq_bits (%u), the value must be within [4, 8]", pq_bits);
   }
 }
@@ -337,6 +345,7 @@ void compute_similarity_run(selected<OutT, LutT> s,
 template <typename OutT, typename LutT, typename FilterT, typename MetricTag, bool IncrementScore>
 auto compute_similarity_select(const cudaDeviceProp& dev_props,
                                bool manage_local_topk,
+                               bool stable,
                                int locality_hint,
                                double preferred_shmem_carveout,
                                uint32_t pq_bits,
@@ -448,13 +457,13 @@ auto compute_similarity_select(const cudaDeviceProp& dev_props,
   auto topk_or_zero = manage_local_topk ? topk : 0u;
   auto conf_fast =
     get_compute_similarity_launcher<OutT, LutT, true, true, FilterT, MetricTag, IncrementScore>(
-      pq_bits, topk_or_zero);
+      pq_bits, topk_or_zero, stable);
   auto conf_no_basediff =
     get_compute_similarity_launcher<OutT, LutT, false, true, FilterT, MetricTag, IncrementScore>(
-      pq_bits, topk_or_zero);
+      pq_bits, topk_or_zero, stable);
   auto conf_no_smem_lut =
     get_compute_similarity_launcher<OutT, LutT, true, false, FilterT, MetricTag, IncrementScore>(
-      pq_bits, topk_or_zero);
+      pq_bits, topk_or_zero, stable);
   std::array candidates{
     std::make_tuple(
       conf_fast, total_shared_mem_t{ltk_add_mem, ltk_reduce_mem, lut_mem, bdf_mem}, true),

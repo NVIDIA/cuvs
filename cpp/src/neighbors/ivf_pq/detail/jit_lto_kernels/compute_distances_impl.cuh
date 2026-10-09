@@ -12,7 +12,21 @@
 
 namespace cuvs::neighbors::ivf_pq::detail {
 
-template <typename OutT, typename LutT, int Capacity>
+/** The next representable value above `x`. */
+template <typename T>
+__device__ auto next_above(T x) -> T
+{
+  if constexpr (std::is_same_v<T, float>) {
+    return nextafterf(x, raft::upper_bound<float>());
+  } else {
+    uint16_t bits = __half_as_ushort(x);
+    if (bits == 0x7C00u) { return x; }  // +inf
+    if (bits == 0x8000u) { return __ushort_as_half(uint16_t{1}); }
+    return __ushort_as_half(uint16_t((bits & 0x8000u) ? bits - 1 : bits + 1));
+  }
+}
+
+template <typename OutT, typename LutT, int Capacity, bool Stable = false>
 __device__ void compute_distances_impl(const uint32_t* chunk_indices,
                                        float* query_kths,
                                        uint32_t n_probes,
@@ -48,7 +62,7 @@ __device__ void compute_distances_impl(const uint32_t* chunk_indices,
   // so that the warp can achieve the best coalesced read throughput.
   using group_align  = raft::Pow2<kIndexGroupSize>;
   using vec_align    = raft::Pow2<kIndexGroupVecLen>;
-  using local_topk_t = block_sort_t<Capacity, OutT, uint32_t>;
+  using local_topk_t = block_sort_t<Capacity, OutT, uint32_t, Stable>;
 
   uint32_t sample_offset = 0;
   if (probe_ix > 0) { sample_offset = chunk_indices[probe_ix - 1]; }
@@ -62,7 +76,8 @@ __device__ void compute_distances_impl(const uint32_t* chunk_indices,
   constexpr OutT kDummy = raft::upper_bound<OutT>();
   OutT query_kth        = kDummy;
   if constexpr (kManageLocalTopK) { query_kth = OutT(query_kths[query_ix]); }
-  OutT early_stop_limit = get_early_stop_limit(query_kth);
+  // The stable queue keeps a score equal to query_kth, so stop early only above it.
+  OutT early_stop_limit = get_early_stop_limit(Stable ? next_above(query_kth) : query_kth);
 
   // Ensure lut_scores is written by all threads before using it in ivfpq-compute-score
   __threadfence_block();
