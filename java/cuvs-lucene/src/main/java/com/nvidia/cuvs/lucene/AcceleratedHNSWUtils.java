@@ -68,8 +68,8 @@ public class AcceleratedHNSWUtils {
 
   /**
    * Creates up to {@code hnswLayers} total layers. Layer 0 uses the full CAGRA graph. Each upper
-   * layer samples {@code max(2, floor(previousLayerSize / M))} nodes. The value {@code M} is the
-   * ceiling of half the layer-0 graph degree.
+   * layer samples {@code max(2, floor(previousLayerSize / M))} nodes and is built with graph degree
+   * at most {@code M}. The value {@code M} is the ceiling of half the layer-0 graph degree.
    */
   public static GPUBuiltHnswGraph createMultiLayerHnswGraph(
       FieldInfo fieldInfo,
@@ -82,9 +82,17 @@ public class AcceleratedHNSWUtils {
       QuantizationType quantization)
       throws Throwable {
     return createMultiLayerHnswGraph(
-        size, dimensions, adjacencyListMatrix, vectors, hnswLayers, params, quantization);
+        size,
+        dimensions,
+        adjacencyListMatrix,
+        vectors,
+        hnswLayers,
+        params,
+        quantization,
+        Math.ceilDiv((int) adjacencyListMatrix.columns(), 2));
   }
 
+  /** Builds the layers, each upper one with graph degree at most {@code maxUpperLayerDegree}. */
   private static GPUBuiltHnswGraph createMultiLayerHnswGraph(
       int size,
       int dimensions,
@@ -92,10 +100,13 @@ public class AcceleratedHNSWUtils {
       List<?> vectors,
       int hnswLayers,
       CagraIndexParams params,
-      QuantizationType quantization)
+      QuantizationType quantization,
+      int maxUpperLayerDegree)
       throws Throwable {
 
     int M = Math.ceilDiv((int) adjacencyListMatrix.columns(), 2);
+    // Created when the first upper layer is built; see maxUpperLayerDegree.
+    CagraIndexParams upperLayerParams = null;
 
     // Store all layers data
     List<int[]> layerNodes = new ArrayList<>();
@@ -112,6 +123,10 @@ public class AcceleratedHNSWUtils {
 
     try {
       while (layerIndex < hnswLayers && currentLayerSize > 1) {
+        if (upperLayerParams == null) {
+          upperLayerParams =
+              CagraIndexParamsFactory.withMaxGraphDegree(params, maxUpperLayerDegree);
+        }
         // Calculate size for next layer (1/M of current layer)
         int nextLayerSize = Math.max(2, currentLayerSize / M);
         // Select nodes for this layer
@@ -146,7 +161,7 @@ public class AcceleratedHNSWUtils {
           // Build CAGRA graph for this layer
           upperAdjacency =
               buildCagraGraphForSubset(
-                  selectedVectors, selectedNodes, 0, params, dimensions, quantization);
+                  selectedVectors, selectedNodes, 0, upperLayerParams, dimensions, quantization);
 
         } else {
 
@@ -160,7 +175,12 @@ public class AcceleratedHNSWUtils {
           // Build CAGRA graph for this layer
           upperAdjacency =
               buildCagraGraphForSubset(
-                  selectedVectors, selectedNodes, bytesPerVector, params, dimensions, quantization);
+                  selectedVectors,
+                  selectedNodes,
+                  bytesPerVector,
+                  upperLayerParams,
+                  dimensions,
+                  quantization);
         }
 
         try {
@@ -201,6 +221,12 @@ public class AcceleratedHNSWUtils {
   /**
    * Creates a multi-layer HNSW graph from a native matrix without copying the complete dataset to
    * the Java heap. The list view copies only rows selected for an upper layer.
+   *
+   * <p>The upper layers are built with graph degree at most maxConn, the most neighbors HNSW holds
+   * per node above layer 0. Rows wider than that on an upper layer are read fine, but a CPU merge
+   * copies them into arrays of maxConn + 1 slots and fails with "No growth is allowed".
+   *
+   * @param maxConn the HNSW maxConn the segment is written with
    */
   static GPUBuiltHnswGraph createMultiLayerHnswGraph(
       int dimensions,
@@ -208,7 +234,8 @@ public class AcceleratedHNSWUtils {
       CuVSMatrix vectorDataset,
       int hnswLayers,
       CagraIndexParams params,
-      QuantizationType quantization)
+      QuantizationType quantization,
+      int maxConn)
       throws Throwable {
     int size = Math.toIntExact(vectorDataset.size());
     // Matrix columns are the stored width: binary vectors are bit-packed, while scalar and float
@@ -235,7 +262,7 @@ public class AcceleratedHNSWUtils {
           }
         };
     return createMultiLayerHnswGraph(
-        size, dimensions, adjacencyListMatrix, vectors, hnswLayers, params, quantization);
+        size, dimensions, adjacencyListMatrix, vectors, hnswLayers, params, quantization, maxConn);
   }
 
   private static Throwable closeUpperLayerAdjacencies(List<CuVSMatrix> layerAdjacencies) {
@@ -384,7 +411,9 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
-   * Writes the meta information for the index.
+   * Writes the meta information for the index. Deprecated: it records an M that can be smaller
+   * than the maxConn of a CPU writer merging the segment, which makes that merge fail on Lucene
+   * 10.4 and later. Use the overload that also takes maxConn.
    *
    * @param vectorIndex instance of IndexOutput
    * @param meta instance of IndexOutput
@@ -395,7 +424,9 @@ public class AcceleratedHNSWUtils {
    * @param graph instance of HnswGraph
    * @param graphLevelNodeOffsets graph level node offsets
    * @throws IOException I/O Exceptions
+   * @deprecated use the overload that also takes maxConn
    */
+  @Deprecated
   public static void writeMeta(
       IndexOutput vectorIndex,
       IndexOutput meta,
@@ -406,6 +437,43 @@ public class AcceleratedHNSWUtils {
       HnswGraph graph,
       int[][] graphLevelNodeOffsets)
       throws IOException {
+    writeMeta(
+        vectorIndex,
+        meta,
+        field,
+        vectorIndexOffset,
+        vectorIndexLength,
+        count,
+        graph,
+        graphLevelNodeOffsets,
+        0);
+  }
+
+  /**
+   * Writes the meta information for the index.
+   *
+   * @param vectorIndex instance of IndexOutput
+   * @param meta instance of IndexOutput
+   * @param field instance of FieldInfo
+   * @param vectorIndexOffset vector index offset
+   * @param vectorIndexLength vector index length
+   * @param count the count of vectors
+   * @param graph instance of HnswGraph
+   * @param graphLevelNodeOffsets graph level node offsets
+   * @param maxConn the configured maxConn, the smallest M to record
+   * @throws IOException I/O Exceptions
+   */
+  public static void writeMeta(
+      IndexOutput vectorIndex,
+      IndexOutput meta,
+      FieldInfo field,
+      long vectorIndexOffset,
+      long vectorIndexLength,
+      int count,
+      HnswGraph graph,
+      int[][] graphLevelNodeOffsets,
+      int maxConn)
+      throws IOException {
 
     meta.writeInt(field.number);
     meta.writeInt(field.getVectorEncoding().ordinal());
@@ -414,10 +482,14 @@ public class AcceleratedHNSWUtils {
     meta.writeVLong(vectorIndexLength);
     meta.writeVInt(field.getVectorDimension());
     meta.writeInt(count);
-    // M = ceil(cagraGraphDegree / 2), derived from the graph being written rather than from a
-    // caller-supplied degree: graph.maxConn() is the widest layer-0 adjacency row, which is the
-    // degree cuVS actually built (it may truncate the requested one for small datasets).
-    meta.writeVInt(graph == null ? 0 : Math.ceilDiv(graph.maxConn(), 2));
+    // The reader sizes its arc buffer as M * 2, so M must cover ceil(cagraGraphDegree / 2), taken
+    // from the graph being written: graph.maxConn() is the widest layer-0 adjacency row, which is
+    // the degree cuVS actually built (it may truncate the requested one for small datasets).
+    // M must not fall below maxConn either: on Lucene 10.4+ a CPU merge sizes the merged graph's
+    // neighbor arrays from the M of its largest source segment but fills them up to 2 * maxConn,
+    // so a smaller M makes the merge throw. Like Lucene, record maxConn even without a graph.
+    int graphM = graph == null ? 0 : Math.ceilDiv(graph.maxConn(), 2);
+    meta.writeVInt(Math.max(maxConn, graphM));
 
     // write graph nodes on each level
     if (graph == null) {
@@ -485,13 +557,28 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
-   * Writes an empty meta information for the field.
+   * Writes an empty meta information for the field. Deprecated: it records M = 0; use the
+   * overload that also takes maxConn.
    *
    * @param fieldInfo instance of FieldInfo
    * @throws IOException I/O Exceptions
+   * @deprecated use the overload that also takes maxConn
    */
+  @Deprecated
   public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op) throws IOException {
-    writeMeta(null, op, fieldInfo, 0, 0, 0, null, null);
+    writeEmpty(fieldInfo, op, 0);
+  }
+
+  /**
+   * Writes an empty meta information for the field.
+   *
+   * @param fieldInfo instance of FieldInfo
+   * @param maxConn the configured maxConn, recorded as the field's M
+   * @throws IOException I/O Exceptions
+   */
+  public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op, int maxConn)
+      throws IOException {
+    writeMeta(null, op, fieldInfo, 0, 0, 0, null, null, maxConn);
   }
 
   /**

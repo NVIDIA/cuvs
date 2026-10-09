@@ -24,7 +24,7 @@ Get the cuVS writer threads parameter
 
 cuVS writer threads parameter
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:146`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:147`_
 
 ### getIntermediateGraphDegree
 
@@ -38,7 +38,7 @@ Get the intermediate graph degree
 
 the graph degree parameter
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:155`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:156`_
 
 ### getGraphdegree
 
@@ -52,7 +52,7 @@ Get the graph degree
 
 the graph degree parameter
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:164`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:165`_
 
 ### getHnswLayers
 
@@ -66,7 +66,7 @@ Get the number of HNSW layers
 
 the number of HNSW layers
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:173`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:174`_
 
 ### getMaxConn
 
@@ -80,7 +80,7 @@ Get the max connection parameter
 
 the max connection parameter
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:182`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:183`_
 
 ### getBeamWidth
 
@@ -94,7 +94,7 @@ Get the beam width parameter
 
 the beam width parameter
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:191`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:192`_
 
 ### getCagraGraphBuildAlgo
 
@@ -108,7 +108,7 @@ Get the CAGRA graph build algorithm
 
 the CAGRA graph build algorithm
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:200`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:201`_
 
 ### getCuVSIvfPqParams
 
@@ -122,7 +122,7 @@ Get the instance of `CuVSIvfPqParams`
 
 the instance of `CuVSIvfPqParams`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:209`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:210`_
 
 ### getNumMergeWorkers
 
@@ -136,7 +136,7 @@ Get the number of merge workers set to be used in the fallback mechanism
 
 the number of merge workers
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:218`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:219`_
 
 ### getMergeExec
 
@@ -150,7 +150,7 @@ Get the instance of the `ExecutorService` to be used in the fallback mechanism
 
 the instance of the `ExecutorService`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:227`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:228`_
 
 ### getStrategy
 
@@ -167,7 +167,7 @@ When CUSTOM is chosen, the build algorithm and its parameters (either defaults o
 
 get the chosen `Strategy`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:239`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:240`_
 
 ### getCuvsDistanceType
 
@@ -181,7 +181,7 @@ Get the cuvs distance type
 
 the distance type
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:248`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:249`_
 
 ### getNNDescentNumIterations
 
@@ -195,7 +195,7 @@ get the number of Iterations to run if building with NN_DESCENT
 
 the number of iterations for NN_DESCENT
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:257`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:258`_
 
 ### getHnswHeuristicType
 
@@ -210,7 +210,7 @@ beamWidth. Only consulted under the `Strategy#HEURISTIC` strategy.
 
 the `HnswHeuristicType` to hand to cuVS
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:267`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:268`_
 
 ### withWriterThreads
 
@@ -232,7 +232,7 @@ Default value - \{@value DEFAULT_WRITER_THREADS\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:332`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:333`_
 
 ### withIntermediateGraphDegree
 
@@ -254,7 +254,7 @@ Default value - \{@value DEFAULT_INT_GRAPH_DEGREE\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:345`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:346`_
 
 ### withGraphDegree
 
@@ -266,6 +266,10 @@ Set the graph degree to use while building CAGRA index
 Valid range - Minimum: \{@value MIN_GRAPH_DEG\}, Maximum: \{@value MAX_GRAPH_DEG\}
 Default value - \{@value DEFAULT_GRAPH_DEGREE\}
 
+With the CUSTOM strategy, the degree cuVS builds (this value, lowered to the intermediate
+graph degree if that is smaller) must be at most `2 * maxConn`: the graph is written as
+an HNSW graph, which holds at most `2 * maxConn` neighbors per node on level 0.
+
 **Parameters**
 
 | Name | Description |
@@ -276,7 +280,7 @@ Default value - \{@value DEFAULT_GRAPH_DEGREE\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:358`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:363`_
 
 ### withHNSWLayer
 
@@ -298,7 +302,7 @@ Default value - \{@value DEFAULT_HNSW_LAYERS\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:371`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:376`_
 
 ### withMaxConn
 
@@ -306,9 +310,14 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWP
 public Builder withMaxConn(int maxConn)
 ```
 
-Set the max connections parameter while building HNSW index with fallback mechanism
+Set the HNSW max connections parameter (M)
 Valid range - Minimum: \{@value MIN_MAX_CONN\}, Maximum: \{@value MAX_MAX_CONN\}
 Default value - \{@value DEFAULT_MAX_CONN\}
+
+The CPU fallback builds the graph with it, every segment records it as its M, and it
+bounds the GPU-built graph: at most `2 * maxConn` neighbors per node on level 0 (with
+the CUSTOM strategy, the graph degree must not exceed that) and at most `maxConn` on
+the upper layers.
 
 **Parameters**
 
@@ -320,7 +329,7 @@ Default value - \{@value DEFAULT_MAX_CONN\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:384`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:394`_
 
 ### withBeamWidth
 
@@ -342,7 +351,7 @@ Default value - \{@value DEFAULT_BEAM_WIDTH\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:397`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:407`_
 
 ### withCagraGraphBuildAlgo
 
@@ -363,7 +372,7 @@ Default value - NN_DESCENT
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:409`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:419`_
 
 ### withCuVSIvfPqParams
 
@@ -383,7 +392,7 @@ Set the instance of `CuVSIvfPqParams`
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:420`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:430`_
 
 ### withNumMergeWorkers
 
@@ -404,7 +413,7 @@ Default value - \{@value DEFAULT_NUM_MERGE_WORKERS\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:432`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:442`_
 
 ### withMergeExecutorService
 
@@ -425,7 +434,7 @@ Default value an instance with one thread
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:444`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:454`_
 
 ### withStrategy
 
@@ -451,7 +460,7 @@ Default value - HEURISTIC
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:461`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:471`_
 
 ### withCuvsDistanceType
 
@@ -471,7 +480,7 @@ Set the CuvsDistanceType
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:472`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:482`_
 
 ### withNNDescentNumIterations
 
@@ -494,7 +503,7 @@ Default value - \{@value DEFAULT_NN_DESCENT_NUM_ITERATIONS\}
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:486`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:496`_
 
 ### withHnswHeuristicType
 
@@ -518,7 +527,7 @@ the equivalent HNSW graph (graph degree = 2 * maxConn).
 
 instance of `Builder`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:501`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:511`_
 
 ### build
 
@@ -532,6 +541,6 @@ Create an instance of `AcceleratedHNSWParams`
 
 instance of `AcceleratedHNSWParams`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:546`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:584`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWParams.java:17`_

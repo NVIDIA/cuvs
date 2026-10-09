@@ -17,6 +17,7 @@ import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
+import org.apache.lucene.search.TaskExecutor;
 
 /**
  * cuVS based Binary Quantized KnnVectorsFormat for indexing on GPU and searching on the CPU.
@@ -78,16 +79,20 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
       return new LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter(
           state, acceleratedHNSWParams, flatWriter);
     } else {
+      // Builds the graph on the CPU over the flat writer opened above. This format stores
+      // full-precision vectors and quantizes only to build the graph on the GPU, so the CPU graph
+      // is a plain HNSW graph, which the reader below reads.
+      log.log(
+          Level.WARNING,
+          "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
       try {
-        // Fallback to Lucene's Lucene102HnswBinaryQuantizedVectorsFormat format
-        log.log(
-            Level.WARNING,
-            "GPU based indexing not supported, falling back to using the"
-                + " Lucene102HnswBinaryQuantizedVectorsFormat");
-        KnnVectorsFormat fallbackFormat =
-            LUCENE102_PROVIDER.getLuceneHnswBinaryQuantizedVectorsFormatInstance(
-                acceleratedHNSWParams.getMaxConn(), acceleratedHNSWParams.getBeamWidth());
-        return fallbackFormat.fieldsWriter(state);
+        return LUCENE99_PROVIDER.getLuceneHnswVectorsWriterInstance(
+            state,
+            acceleratedHNSWParams.getMaxConn(),
+            acceleratedHNSWParams.getBeamWidth(),
+            flatWriter,
+            acceleratedHNSWParams.getNumMergeWorkers(),
+            new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
       } catch (Exception e) {
         throw Utils.handleThrowable(e);
       }
