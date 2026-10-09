@@ -7,7 +7,6 @@
 #include "../../src/neighbors/detail/knn_brute_force.cuh"
 #include "../../src/neighbors/detail/nn_descent_gnnd.hpp"
 #include "../../src/neighbors/detail/reachability.cuh"
-#include "../test_utils.cuh"
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 
@@ -25,7 +24,6 @@
 
 #include <cstddef>
 #include <iostream>
-#include <string>
 #include <vector>
 
 namespace cuvs::neighbors::nn_descent {
