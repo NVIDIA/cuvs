@@ -719,38 +719,44 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
       cluster_idx++;
     }
 
-    if (batch_vectors == 0) break;  // No more clusters to process
+    // Every cluster fits into a batch (checked above), so each batch makes progress.
+    RAFT_EXPECTS(cluster_idx > batch_start_cluster, "IVF-RaBitQ streaming batch is empty");
 
     // -------------------------
     // 11. Gather and transfer batch data to GPU using reordered PIDs
     // -------------------------
 
-    // First, copy the reordered PIDs for this batch to host (reuse preallocated buffer)
-    raft::copy(batch_pids.data_handle(), d_flat_pids + batch_start_offset, batch_vectors, stream_);
-    raft::resource::sync_stream(handle_);
+    // A batch that only contains empty clusters has no data to transfer, but the clusters still
+    // need their rotated centroids below.
+    if (batch_vectors > 0) {
+      // First, copy the reordered PIDs for this batch to host (reuse preallocated buffer)
+      raft::copy(
+        batch_pids.data_handle(), d_flat_pids + batch_start_offset, batch_vectors, stream_);
+      raft::resource::sync_stream(handle_);
 
-    // Gather data on host using the reordered PIDs (reuse preallocated buffer)
-    // Use OpenMP parallel region to leverage persistent thread pool across batches
+      // Gather data on host using the reordered PIDs (reuse preallocated buffer)
+      // Use OpenMP parallel region to leverage persistent thread pool across batches
 #pragma omp parallel num_threads(num_threads)
-    {
-      size_t tid        = omp_get_thread_num();
-      size_t chunk_size = batch_vectors / num_threads;
-      size_t start      = tid * chunk_size;
-      size_t end        = (tid == num_threads - 1) ? batch_vectors : start + chunk_size;
+      {
+        size_t tid        = omp_get_thread_num();
+        size_t chunk_size = batch_vectors / num_threads;
+        size_t start      = tid * chunk_size;
+        size_t end        = (tid == num_threads - 1) ? batch_vectors : start + chunk_size;
 
-      for (size_t i = start; i < end; ++i) {
-        std::memcpy(&batch_data.data_handle()[i * num_dimensions],
-                    &host_data[batch_pids.data_handle()[i] * num_dimensions],
-                    num_dimensions * sizeof(float));
+        for (size_t i = start; i < end; ++i) {
+          std::memcpy(&batch_data.data_handle()[i * num_dimensions],
+                      &host_data[batch_pids.data_handle()[i] * num_dimensions],
+                      num_dimensions * sizeof(float));
+        }
       }
-    }
-    // OpenMP implicit barrier ensures all threads complete before continuing
+      // OpenMP implicit barrier ensures all threads complete before continuing
 
-    // Transfer batch to GPU (reuse preallocated buffer)
-    raft::copy(d_batch_data.data_handle(),
-               batch_data.data_handle(),
-               batch_vectors * num_dimensions,
-               stream_);
+      // Transfer batch to GPU (reuse preallocated buffer)
+      raft::copy(d_batch_data.data_handle(),
+                 batch_data.data_handle(),
+                 batch_vectors * num_dimensions,
+                 stream_);
+    }
 
     // -------------------------
     // 12. Quantize each cluster in the batch
@@ -758,8 +764,8 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
 
     size_t batch_offset = 0;
     for (size_t c = batch_start_cluster; c < cluster_idx; ++c) {
+      // Empty clusters are quantized too, so that their rotated centroids are initialized.
       size_t cluster_size = h_cluster_meta[c].num;
-      if (cluster_size == 0) continue;
 
       const float* cur_centroid = device_centroids + c * num_dimensions;
       float* cur_rotated_c      = d_rotated_centroids.data_handle() + c * num_padded_dim;

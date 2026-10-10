@@ -12,10 +12,16 @@
 #include "detail/ann_utils.cuh"
 
 #include <raft/core/operators.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/reduce.cuh>
 #include <raft/matrix/sample_rows.cuh>
 #include <raft/util/cudart_utils.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <vector>
 
 namespace cuvs::neighbors::ivf_rabitq {
 
@@ -162,6 +168,70 @@ auto build(raft::resources const& handle,
     } else {
       cuvs::cluster::kmeans::predict(
         handle, kmeans_params, dataset_const_view, centers_const_view, labels_view);
+    }
+    // [DIAGNOSTIC] Report degenerate k-means results (empty or out-of-range lists).
+    {
+      std::vector<uint32_t> h_labels(n_rows);
+      std::vector<float> h_centers(size_t(params.n_lists) * dim);
+      std::vector<T> h_train(size_t(n_rows_train) * dim);
+      raft::copy(h_labels.data(), labels.data(), n_rows, stream);
+      raft::copy(h_centers.data(), cluster_centers.data(), h_centers.size(), stream);
+      raft::copy(h_train.data(), trainset.data_handle(), h_train.size(), stream);
+      raft::resource::sync_stream(handle);
+      std::vector<size_t> sizes(params.n_lists, 0);
+      size_t out_of_range = 0;
+      for (auto l : h_labels) {
+        if (l < params.n_lists) {
+          sizes[l]++;
+        } else {
+          out_of_range++;
+        }
+      }
+      size_t n_empty = std::count(sizes.begin(), sizes.end(), size_t{0});
+      size_t min_sz  = *std::min_element(sizes.begin(), sizes.end());
+      size_t n_nan_c = std::count_if(
+        h_centers.begin(), h_centers.end(), [](float x) { return !std::isfinite(x); });
+      if (dim <= 8 || n_empty > 0 || out_of_range > 0 || n_nan_c > 0)
+        fprintf(stderr,
+                "[RABITQ-DIAG] n_rows=%zu dim=%zu n_lists=%u streaming=%d residency=%d "
+                "on_device=%d min_list=%zu empty_lists=%zu out_of_range_labels=%zu "
+                "nonfinite_centers=%zu\n",
+                size_t(n_rows),
+                size_t(dim),
+                params.n_lists,
+                int(use_streaming),
+                int(dataset_residency),
+                int(dataset_on_device),
+                min_sz,
+                n_empty,
+                out_of_range,
+                n_nan_c);
+      if (n_empty > 0 || out_of_range > 0 || n_nan_c > 0) {
+        float tmin = INFINITY, tmax = -INFINITY;
+        size_t t_nonfinite = 0;
+        for (auto x : h_train) {
+          if (!std::isfinite(float(x))) {
+            t_nonfinite++;
+          } else {
+            tmin = std::min(tmin, float(x));
+            tmax = std::max(tmax, float(x));
+          }
+        }
+        fprintf(stderr,
+                "[RABITQ-DIAG] DEGENERATE: n_train=%zu train_min=%g train_max=%g "
+                "train_nonfinite=%zu\n",
+                n_rows_train,
+                tmin,
+                tmax,
+                t_nonfinite);
+        for (uint32_t c = 0; c < params.n_lists; c++) {
+          fprintf(stderr, "[RABITQ-DIAG]   list %u size=%zu center[0..]=", c, sizes[c]);
+          for (IdxT j = 0; j < std::min<IdxT>(dim, 4); j++) {
+            fprintf(stderr, " %.9g", h_centers[size_t(c) * dim + j]);
+          }
+          fprintf(stderr, "\n");
+        }
+      }
     }
   }
 

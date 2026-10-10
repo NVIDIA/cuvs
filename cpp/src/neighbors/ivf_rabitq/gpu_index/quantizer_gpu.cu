@@ -27,6 +27,7 @@
 #include <cub/device/device_reduce.cuh>
 
 #include <atomic>
+#include <cstdio>
 #include <queue>
 #include <thread>
 
@@ -520,12 +521,28 @@ void data_transformation_batch_opt(const float* d_data,
   // 5. Save the rotated centroid: copy CP into d_rotated_c.
   raft::copy(d_rotated_c, d_CP, D, stream);
 
+  // An empty list only needs its rotated centroid; a launch with zero blocks is invalid.
+  if (num_points == 0) { return; }
+
   // 6. Launch the single FUSED kernel for subtract, normalize, and binarize.
   const unsigned int FusedBlockSize = 256;  // A good default, can be tuned.
   dim3 gridDim(num_points);
   dim3 blockDim(FusedBlockSize);
   size_t sharedMemSize = FusedBlockSize * sizeof(float);
 
+  {  // [DIAGNOSTIC]
+    cudaError_t pre = cudaPeekAtLastError();
+    if (pre != cudaSuccess || num_points == 0 || num_points > (size_t{1} << 31)) {
+      fprintf(stderr,
+              "[RABITQ-DIAG] before subtract_normalize_binarize_Kernel: num_points=%zu D=%zu "
+              "DIM=%zu pending_error=%d (%s)\n",
+              num_points,
+              D,
+              DIM,
+              int(pre),
+              cudaGetErrorName(pre));
+    }
+  }
   subtract_normalize_binarize_Kernel<FusedBlockSize>
     <<<gridDim, blockDim, sharedMemSize, stream.get()>>>(
       d_XP,         // Input: Rotated data
@@ -637,6 +654,9 @@ void DataQuantizerGPU::quantize_batch_opt(const float* d_data,
                                 D,
                                 handle_);
 
+  // An empty list has no codes or factors to compute.
+  if (num_points == 0) { return; }
+
   rabitq_codes_and_factors_fused(d_rotated_c,
                                  d_bin_XP.data_handle(),
                                  d_XP.data_handle(),
@@ -714,12 +734,28 @@ void data_transformation_batch_opt_contiguous(const float* d_contiguous_data,
   // 5. Save the rotated centroid: copy CP into d_rotated_c.
   raft::copy(d_rotated_c, d_CP, D, stream);
 
+  // An empty list only needs its rotated centroid; a launch with zero blocks is invalid.
+  if (num_points == 0) { return; }
+
   // 6. Launch the single FUSED kernel for subtract, normalize, and binarize.
   const unsigned int FusedBlockSize = 256;  // A good default, can be tuned.
   dim3 gridDim(num_points);
   dim3 blockDim(FusedBlockSize);
   size_t sharedMemSize = FusedBlockSize * sizeof(float);
 
+  {  // [DIAGNOSTIC]
+    cudaError_t pre = cudaPeekAtLastError();
+    if (pre != cudaSuccess || num_points == 0 || num_points > (size_t{1} << 31)) {
+      fprintf(stderr,
+              "[RABITQ-DIAG] before subtract_normalize_binarize_Kernel: num_points=%zu D=%zu "
+              "DIM=%zu pending_error=%d (%s)\n",
+              num_points,
+              D,
+              DIM,
+              int(pre),
+              cudaGetErrorName(pre));
+    }
+  }
   subtract_normalize_binarize_Kernel<FusedBlockSize>
     <<<gridDim, blockDim, sharedMemSize, stream.get()>>>(
       d_XP,         // Input: Rotated data
@@ -757,6 +793,9 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
                                            DIM,
                                            D,
                                            handle_);
+
+  // An empty list has no codes or factors to compute.
+  if (num_points == 0) { return; }
 
   rabitq_codes_and_factors_fused(d_rotated_c,
                                  d_bin_XP.data_handle(),
