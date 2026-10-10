@@ -56,6 +56,7 @@ jobs:
   build-details:
     uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
   check-nightly-ci:
+    if: false
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -75,6 +76,7 @@ jobs:
           target-branch: ${{ fromJSON(steps.get-pr-info.outputs.pr-info).base.ref }}
           max-days-without-success: 30
   changed-files:
+    if: false
     needs: telemetry-setup
     permissions:
       actions: read
@@ -431,6 +433,7 @@ jobs:
           - '!rust/**'
           - '!thirdparty/LICENSES/**'
   checks:
+    if: false
     needs: telemetry-setup
     uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
     permissions:
@@ -439,6 +442,7 @@ jobs:
       enable_check_generated_files: false
       ignored_pr_jobs: "telemetry-summarize"
   check-c-abi:
+    if: false
     needs: telemetry-setup
     permissions:
       actions: read
@@ -447,6 +451,7 @@ jobs:
       pull-requests: read
     uses: ./.github/workflows/check-c-abi.yaml
   security-suite:
+    if: false
     permissions:
       actions: read
       contents: read
@@ -454,7 +459,7 @@ jobs:
       security-events: write # publish redacted SARIF to code scanning
     uses: ./.github/workflows/security-suite.yml
   conda-cpp-build:
-    needs: [build-details, checks]
+    needs: [build-details]
     permissions:
       actions: read
       contents: read
@@ -468,7 +473,9 @@ jobs:
       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu16
       script: ci/build_cpp.sh
+      matrix_filter: map(select(.CUDA_VER | startswith("12")))
   conda-cpp-tests:
+    if: false
     needs: [conda-cpp-build, changed-files]
     permissions:
       actions: read
@@ -478,7 +485,6 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     # Split the C++ tests across several jobs for each CUDA/GPU configuration
     strategy:
       fail-fast: false
@@ -519,6 +525,7 @@ jobs:
       cache-environment: |
         CUDA_CACHE_PATH=.cache/cuda-jit
   conda-cpp-checks:
+    if: false
     needs: conda-cpp-build
     permissions:
       actions: read
@@ -532,6 +539,7 @@ jobs:
       symbol_exclusions: (void (thrust::|cub::))
       package_name: libcuvs
   conda-python-build:
+    if: false
     needs: [build-details, conda-cpp-build]
     permissions:
       actions: read
@@ -548,6 +556,7 @@ jobs:
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   conda-python-tests:
+    if: false
     needs: [conda-python-build, changed-files]
     permissions:
       actions: read
@@ -557,11 +566,11 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
     with:
       build_type: pull-request
       script: ci/test_python.sh
   rocky8-clib-standalone-build:
+    if: false
     needs: checks
     permissions:
       actions: read
@@ -573,6 +582,7 @@ jobs:
     with:
       build_type: pull-request
   rocky8-clib-tests:
+    if: false
     needs: [rocky8-clib-standalone-build, changed-files]
     permissions:
       actions: read
@@ -581,13 +591,12 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_standalone_c
     with:
       build_type: pull-request
       container-image-repository: "rapidsai/citestwheel"
       script: "ci/test_standalone_c.sh"
   conda-java-build:
-    needs: [conda-cpp-build, changed-files]
+    needs: [conda-cpp-build]
     permissions:
       actions: read
       contents: read
@@ -595,17 +604,17 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     with:
       build_type: pull-request
       node_type: cpu8
-      matrix_filter: map(select(.ARCH == "amd64"))
+      matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | startswith("12"))))
       script: "ci/build_java.sh"
       artifact-name-prefix: "cuvs-java"
       file_to_upload: "java/cuvs-java/target/"
   conda-java-tests:
+    if: false
     needs: conda-java-build
     permissions:
       actions: read
@@ -632,7 +641,7 @@ jobs:
     with:
       build_type: pull-request
       node_type: cpu8
-      matrix_filter: map(select(.ARCH == "amd64"))
+      matrix_filter: map(select(.ARCH == "amd64" and (.CUDA_VER | startswith("12"))))
       script: "ci/build_lucene.sh"
       artifact-name-prefix: "cuvs-lucene"
       file_to_upload: "java/cuvs-lucene/target/"
@@ -647,8 +656,10 @@ jobs:
     uses: ./.github/workflows/matrix-job.yaml
     with:
       build_type: pull-request
+      matrix_filter: 'map(select(.CUDA_VER | startswith("12"))) | [range(3) as $i | .[] | . + {COPY: $i}]'
       script: "ci/test_lucene.sh"
   rust-build:
+    if: false
     needs: [conda-cpp-build, changed-files]
     permissions:
       actions: read
@@ -657,7 +668,6 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_rust || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     with:
@@ -665,6 +675,7 @@ jobs:
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_rust.sh"
   go-build:
+    if: false
     needs: [conda-cpp-build, changed-files]
     permissions:
       actions: read
@@ -673,7 +684,6 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_go || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
     # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
     # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
     with:
@@ -681,6 +691,7 @@ jobs:
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_go.sh"
   docs-build-matrix:
+    if: false
     permissions:
       contents: read
     uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
@@ -688,6 +699,7 @@ jobs:
       build_type: pull-request
       matrix_name: docs-build
   docs-build:
+    if: false
     needs: [docs-build-matrix]
     permissions:
       actions: read
@@ -697,7 +709,6 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).build_docs
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.docs-build-matrix.outputs.matrix) }}
@@ -708,6 +719,7 @@ jobs:
       container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_docs.sh"
   wheel-build-libcuvs:
+    if: false
     needs: [build-details, checks]
     permissions:
       actions: read
@@ -727,6 +739,7 @@ jobs:
       package-name: libcuvs
       package-type: cpp
   wheel-build-cuvs:
+    if: false
     needs: [build-details, wheel-build-libcuvs]
     permissions:
       actions: read
@@ -746,6 +759,7 @@ jobs:
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
   wheel-tests-cuvs:
+    if: false
     needs: [wheel-build-cuvs, changed-files]
     permissions:
       actions: read
@@ -755,11 +769,11 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels
     with:
       build_type: pull-request
       script: ci/test_wheel_cuvs.sh
   devcontainer:
+    if: false
     permissions:
       actions: read
       contents: read

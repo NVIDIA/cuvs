@@ -98,5 +98,29 @@ pushd java/cuvs-lucene
 mvn --batch-mode test -Dskip.compile=true
 popd
 
+rapids-logger "Repeat the cuvs-lucene tests that intermittently fail with 'Index not found'"
+
+REPEAT_TESTS="TestCuVSGaps,TestCuVSRandomizedVectorSearch,TestCuVSVectorsFormat,TestCuVSDeletedDocuments"
+REPEAT_LOG_DIR="$(mktemp -d)"
+REPEAT_DEADLINE=$((SECONDS + 40 * 60))
+REPEAT_ITERS=0
+REPEAT_FAILED=0
+pushd java/cuvs-lucene
+while [ "${SECONDS}" -lt "${REPEAT_DEADLINE}" ]; do
+  REPEAT_ITERS=$((REPEAT_ITERS + 1))
+  LOG="${REPEAT_LOG_DIR}/repeat-${REPEAT_ITERS}.log"
+  if ! mvn --batch-mode test -Dskip.compile=true -Dtest="${REPEAT_TESTS}" -Dsurefire.failIfNoSpecifiedTests=false > "${LOG}" 2>&1; then
+    REPEAT_FAILED=$((REPEAT_FAILED + 1))
+    echo "=== Iteration ${REPEAT_ITERS} FAILED ==="
+    grep -E "<<< (FAILURE|ERROR)|^[a-zA-Z.]*(Exception|Error)|Index not found|tests.seed|at com.nvidia" "${LOG}" | head -60
+  fi
+done
+popd
+INDEX_NOT_FOUND=$(grep -l "Index not found" "${REPEAT_LOG_DIR}"/repeat-*.log | wc -l || true)
+echo "REPEAT SUMMARY: ${REPEAT_FAILED}/${REPEAT_ITERS} iterations failed; ${INDEX_NOT_FOUND} with 'Index not found'"
+if [ "${REPEAT_FAILED}" -ne 0 ]; then
+  EXITCODE=1
+fi
+
 rapids-logger "Test script exiting with value: $EXITCODE"
 exit ${EXITCODE}

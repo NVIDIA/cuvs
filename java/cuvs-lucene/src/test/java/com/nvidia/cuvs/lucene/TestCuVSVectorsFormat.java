@@ -18,6 +18,7 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.LogDocMergePolicy;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
@@ -42,7 +43,9 @@ public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
   public void testMergeTwoSegsWithASingleDocPerSeg() throws Exception {
     float[][] f = new float[][] {randomVector(384), randomVector(384)};
     try (Directory dir = newDirectory();
-        IndexWriter w = new IndexWriter(dir, newIndexWriterConfig())) {
+        // A random merge policy could merge the two segments before they are checked.
+        IndexWriter w =
+            new IndexWriter(dir, newIndexWriterConfig().setMergePolicy(new LogDocMergePolicy()))) {
       Document doc1 = new Document();
       doc1.add(new StringField("id", "0", Field.Store.YES));
       doc1.add(new KnnFloatVectorField("f", f[0], EUCLIDEAN));
