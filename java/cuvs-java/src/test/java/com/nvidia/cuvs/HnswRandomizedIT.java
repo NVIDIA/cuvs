@@ -62,6 +62,16 @@ public class HnswRandomizedIT extends CuVSTestCase {
     // Generate random query vectors
     float[][] queries = generateData(random, numQueries, dimensions);
 
+    if (datasetSize < 3) {
+      // [DO NOT MERGE] flag the degenerate sizes before a possible native abort
+      System.err.printf(
+          "HNSW-RANDOMIZED tiny dataset: n=%d dim=%d k=%d seed=%s%n",
+          datasetSize,
+          dimensions,
+          topK,
+          com.carrotsearch.randomizedtesting.RandomizedContext.current().getRunnerSeedAsString());
+      System.err.flush();
+    }
     log.debug("Dataset size: {}x{}", datasetSize, dimensions);
     log.debug("Query size: {}x{}", numQueries, dimensions);
     log.debug("TopK: {}", topK);
@@ -156,7 +166,21 @@ public class HnswRandomizedIT extends CuVSTestCase {
 
           log.trace("Index built successfully. Executing search...");
           SearchResults results = hnswIndex.search(hnswQuery);
-          compareResults(results, expected, topK, datasetSize, numQueries);
+          try {
+            compareResults(results, expected, topK, datasetSize, numQueries);
+          } catch (AssertionError e) {
+            log.info(
+                "MISMATCH seed={} n={} dim={} q={} k={} native={}",
+                com.carrotsearch.randomizedtesting.RandomizedContext.current()
+                    .getRunnerSeedAsString(),
+                datasetSize,
+                dimensions,
+                numQueries,
+                topK,
+                useNativeMemoryDataset);
+            logMismatchDiagnostics("hnsw", results, vectors, queries, null, topK);
+            throw e;
+          }
 
           hnswIndex.close();
         }

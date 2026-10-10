@@ -57,16 +57,55 @@ mkdir -p java/cuvs-java/target
 cp -a "${CUVS_JAVA_DIR}/." java/cuvs-java/target/
 
 EXITCODE=0
-trap "EXITCODE=1" ERR
 set +e
 
-rapids-logger "Run cuvs-java IT tests against the amd64-built classes"
-
-# -Dskip.compile activates the pom's "skip-compile" profile, which disables all
-# compilation for this run, forcing test to use amd64-compiled jar instead of
-# local code.
+# [DO NOT MERGE] Reproduce the flaky cuvs-java failures (JVM abort with exit code 134 in
+# HnswRandomizedIT, and CagraRandomizedIT top-k mismatches). Every Maven run is a fresh JVM, so
+# a native abort only ends that run, and the loop goes on.
 pushd java/cuvs-java
-mvn --batch-mode verify -Dskip.compile=true
+LOGDIR="$(mktemp -d)"
+run_it() {
+  local tag=$1 cls=$2 iters=$3
+  local log="${LOGDIR}/${tag}.log"
+  mvn --batch-mode verify -Dskip.compile=true -Dit.test="${cls}" -Dtest=NONE \
+    -Dsurefire.failIfNoSpecifiedTests=false -Dtests.iters="${iters}" > "${log}" 2>&1
+  local rc=$?
+  local summary
+  summary=$(grep -h "Tests run:.*in com" "${log}" | tail -1)
+  echo "RUN ${tag} rc=${rc} ${summary}"
+  if [ ${rc} -ne 0 ]; then
+    EXITCODE=1
+    echo "::group::FAILED ${tag}"
+    grep -h -E "Exit Code|terminate called|what\(\)|\[warning\]|tiny dataset|MISMATCH|DIAG|<<< (FAILURE|ERROR)|AssertionError|Exception|seed#" "${log}" | head -200
+    echo "::endgroup::"
+  else
+    grep -h "tiny dataset" "${log}"
+  fi
+}
+
+rapids-logger "Deterministic reproducer: CAGRA build on a single row"
+run_it single-row CagraSingleRowIT 1
+
+rapids-logger "HnswRandomizedIT loop"
+END=$((SECONDS + 40 * 60))
+N=0
+while [ ${SECONDS} -lt ${END} ]; do
+  N=$((N + 1))
+  run_it "hnsw-${N}" HnswRandomizedIT 10
+done
+
+rapids-logger "CagraRandomizedIT loop"
+END=$((SECONDS + 30 * 60))
+N=0
+while [ ${SECONDS} -lt ${END} ]; do
+  N=$((N + 1))
+  run_it "cagra-${N}" CagraRandomizedIT 2
+done
+
+rapids-logger "Summary"
+grep -h "Tests run:.*in com" "${LOGDIR}"/*.log | sed -E 's/Time elapsed: [0-9.]+ s //' | sort | uniq -c
+grep -l "Exit Code: 134" "${LOGDIR}"/*.log
+grep -h "MISMATCH" "${LOGDIR}"/*.log
 popd
 
 rapids-logger "Test script exiting with value: $EXITCODE"
