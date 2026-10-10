@@ -141,6 +141,7 @@ ConfigureTest(
        cluster/linkage.cu
        cluster/connect_knn.cu
        cluster/spectral.cu
+       cluster/spectral_diag.cu
   GPUS 1
   PERCENT 100
 )
