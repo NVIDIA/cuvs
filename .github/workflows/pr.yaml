@@ -489,7 +489,9 @@ jobs:
       build_type: pull-request
       script: "ci/test_cpp.sh ${{ matrix.shard }} ${{ matrix.num_shards }}"
       cache-paths: .cache/cuda-jit
-      cache-key-prefix: libcuvs-cudajit-v1
+      # One cache per test shard: each shard links a different set of kernels, and with a shared key
+      # only the first shard to finish could save its archive.
+      cache-key-prefix: libcuvs-cudajit-v1-shard${{ matrix.shard }}of${{ matrix.num_shards }}
       # Caches are immutable. Re-key when the JIT-relevant sources change so a completed run can
       # save newly compiled entries; restore a compatible earlier archive first.
       cache-key-files: |
