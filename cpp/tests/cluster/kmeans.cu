@@ -23,6 +23,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <optional>
 #include <vector>
 
@@ -450,6 +451,11 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
                                   CompareApprox<T>(T(1e-2)),
                                   stream.get());
 
+    std::cout << "KMEANS_DIAG " << (std::is_same_v<T, float> ? "f32" : "f64") << " n=" << n_samples
+              << " d=" << n_features << " k=" << params.n_clusters << " ref_n_iter=" << ref_n_iter
+              << " batched_n_iter=" << n_iter
+              << " centroids_match=" << static_cast<bool>(centroids_match) << '\n';
+
     T ref_pred_inertia = 0;
     cuvs::cluster::kmeans::predict(handle,
                                    params,
@@ -492,6 +498,82 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
 
     if (!inertia_match) {
       std::cout << "Inertia mismatch: ref=" << ref_inertia << " batched=" << inertia << '\n';
+    }
+  }
+
+  // Fit the same data from the same initial centroids several times and require bitwise-identical
+  // results, both for device (in-memory) and host (batched) input.
+  void runReproducibleCheck()
+  {
+    int n_samples  = testparams.n_row;
+    int n_features = testparams.n_col;
+    int n_clusters = testparams.n_clusters;
+    auto stream    = raft::resource::get_cuda_stream(handle);
+
+    cuvs::cluster::kmeans::params p;
+    p.n_clusters          = n_clusters;
+    p.tol                 = testparams.tol;
+    p.rng_state.seed      = 1;
+    p.oversampling_factor = 0;
+    p.init                = cuvs::cluster::kmeans::params::Array;
+    p.max_iter            = 20;
+
+    auto d_init = raft::make_device_matrix<T, int>(handle, n_clusters, n_features);
+    raft::random::RngState rng(p.rng_state.seed);
+    raft::random::uniform(handle, rng, d_init.data_handle(), n_clusters * n_features, T(-1), T(1));
+
+    auto d_sw                                                    = d_sw_view();
+    std::optional<raft::host_vector_view<const T, int64_t>> h_sw = std::nullopt;
+    auto h_sample_weight = raft::make_host_vector<T, int64_t>(testparams.weighted ? n_samples : 0);
+    if (testparams.weighted) {
+      std::fill_n(h_sample_weight.data_handle(), n_samples, T(1));
+      h_sw = std::make_optional(raft::make_const_mdspan(h_sample_weight.view()));
+    }
+
+    constexpr int n_runs = 3;
+    for (int host : {0, 1}) {
+      std::vector<std::vector<T>> centroids(n_runs, std::vector<T>(n_clusters * n_features));
+      std::vector<T> inertias(n_runs);
+      std::vector<int64_t> n_iters(n_runs);
+      for (int r = 0; r < n_runs; ++r) {
+        auto d_c = raft::make_device_matrix<T, int>(handle, n_clusters, n_features);
+        raft::copy(d_c.data_handle(), d_init.data_handle(), n_clusters * n_features, stream);
+        T inertia = 0;
+        if (host) {
+          auto pb                  = p;
+          pb.device_buffer_samples = testparams.device_buffer_samples;
+          int64_t n_iter           = 0;
+          cuvs::cluster::kmeans::fit(
+            handle,
+            pb,
+            raft::make_const_mdspan(h_X->view()),
+            h_sw,
+            raft::make_device_matrix_view<T, int64_t>(d_c.data_handle(), n_clusters, n_features),
+            raft::make_host_scalar_view<T>(&inertia),
+            raft::make_host_scalar_view<int64_t>(&n_iter));
+          n_iters[r] = n_iter;
+        } else {
+          int n_iter = 0;
+          cuvs::cluster::kmeans::fit(handle,
+                                     p,
+                                     raft::make_const_mdspan(d_X->view()),
+                                     d_sw,
+                                     d_c.view(),
+                                     raft::make_host_scalar_view<T>(&inertia),
+                                     raft::make_host_scalar_view<int>(&n_iter));
+          n_iters[r] = n_iter;
+        }
+        raft::copy(centroids[r].data(), d_c.data_handle(), n_clusters * n_features, stream);
+        raft::resource::sync_stream(handle, stream);
+        inertias[r] = inertia;
+      }
+      for (int r = 1; r < n_runs; ++r) {
+        EXPECT_EQ(n_iters[0], n_iters[r]) << (host ? "host" : "device") << " run " << r;
+        EXPECT_EQ(inertias[0], inertias[r]) << (host ? "host" : "device") << " run " << r;
+        EXPECT_EQ(
+          0, std::memcmp(centroids[0].data(), centroids[r].data(), centroids[0].size() * sizeof(T)))
+          << (host ? "host" : "device") << " run " << r << ": centroids differ";
+      }
     }
   }
 
@@ -687,9 +769,7 @@ TEST_P(KmeansFitBatchedTestF, Result)
 {
   prepareBlobInputs();
   fitBatchedTest();
-  // AUTO may select cuTile, whose TF32 assignment arithmetic can converge to slightly different
-  // centroid values when accumulation is split into outer host batches. Equivalent assignments and
-  // clustering cost are the stable behavioral contract.
+  ASSERT_TRUE(centroids_match);
   ASSERT_TRUE(score >= 0.99);
   ASSERT_TRUE(inertia_match);
   runInitSizeCompare();
@@ -707,6 +787,18 @@ TEST_P(KmeansFitBatchedTestD, Result)
   runInitSizeCompare();
   runMultiSeedCheck();
   runZeroCost();
+}
+
+TEST_P(KmeansFitBatchedTestF, Reproducible)
+{
+  prepareBlobInputs();
+  runReproducibleCheck();
+}
+
+TEST_P(KmeansFitBatchedTestD, Reproducible)
+{
+  prepareBlobInputs();
+  runReproducibleCheck();
 }
 
 INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,

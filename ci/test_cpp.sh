@@ -4,11 +4,6 @@
 
 set -euo pipefail
 
-# Usage: ci/test_cpp.sh [SHARD NUM_SHARDS]
-# With SHARD and NUM_SHARDS (1 <= SHARD <= NUM_SHARDS), only every NUM_SHARDS-th libcuvs test is
-# run, starting from test number SHARD, so the tests can be split across several CI jobs.
-SHARD=${1:-1}
-NUM_SHARDS=${2:-1}
 
 . /opt/conda/etc/profile.d/conda.sh
 
@@ -52,23 +47,31 @@ nvidia-smi
 # RAPIDS_DATASET_ROOT_DIR is used by test scripts
 RAPIDS_DATASET_ROOT_DIR=${RAPIDS_TESTS_DIR}/dataset
 export RAPIDS_DATASET_ROOT_DIR
-./ci/get_test_data.sh --NEIGHBORS_ANN_VAMANA_TEST
 
 EXITCODE=0
 trap "EXITCODE=1" ERR
 set +e
 
-# Run Python build utilities tests (once, in the first shard)
-if [[ "${SHARD}" == "1" ]]; then
-  rapids-logger "Run libcuvs Python build utilities tests"
-  pytest cpp/tests/python
-fi
-
-# Run libcuvs gtests from libcuvs-tests package
-rapids-logger "Run libcuvs tests (shard ${SHARD} of ${NUM_SHARDS})"
+# Run the k-means test binaries once in full.
+rapids-logger "Run k-means test binaries"
 pushd "$CONDA_PREFIX"/bin/gtests/libcuvs
-timeout -v --signal=SIGINT --kill-after=60s 100m ctest -j8 --output-on-failure -I "${SHARD},,${NUM_SHARDS}"
+timeout -v --signal=SIGINT --kill-after=60s 60m ctest -j4 --output-on-failure -R "^(CLUSTER_TEST|CLUSTER_KMEANS_MG_TEST|CLUSTER_KMEANS_MNMG_TEST|KMEANS_C_TEST|KMEANS_MG_C_TEST)$"
 popd
+
+# Repeat the k-means fit tests to measure their failure rate.
+rapids-logger "Run k-means fit tests repeatedly"
+pushd "$CONDA_PREFIX"/bin/gtests/libcuvs
+KMEANS_FILTER="${KMEANS_FILTER:-KmeansFitBatchedTests/*}"
+./CLUSTER_TEST --gtest_filter="${KMEANS_FILTER}" --gtest_repeat=100 > kmeans_repeat.log 2>&1
+popd
+LOG="$CONDA_PREFIX"/bin/gtests/libcuvs/kmeans_repeat.log
+grep -E "^\[  FAILED  \]|Value of|Actual:|Expected|mismatch|n_iter|Failure" "${LOG}" | head -n 400 || true
+rapids-logger "Failure counts per test (out of 100 repetitions)"
+grep -E "^\[  FAILED  \] .* \([0-9]+ ms\)$" "${LOG}" | sed -E 's/, where GetParam.*//; s/ \([0-9]+ ms\)//' | sort | uniq -c || true
+rapids-logger "Pass counts per test"
+grep -E "^\[       OK \]" "${LOG}" | sed -E 's/ \([0-9]+ ms\)//' | sort | uniq -c || true
+rapids-logger "n_iter summary"
+grep -E "^KMEANS_DIAG" "${LOG}" | sort | uniq -c | sort -rn | head -n 100 || true
 
 rapids-logger "Test script exiting with value: $EXITCODE"
 exit ${EXITCODE}
