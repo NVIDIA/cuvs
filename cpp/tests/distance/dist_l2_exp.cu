@@ -1,10 +1,16 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include "../test_utils.cuh"
 #include "distance_base.cuh"
+
+#include <raft/core/device_mdarray.hpp>
+#include <raft/util/cudart_utils.hpp>
+
+#include <cmath>
+#include <vector>
 
 namespace cuvs {
 namespace distance {
@@ -162,5 +168,46 @@ INSTANTIATE_TEST_CASE_P(DistanceTests, DistanceEucExpTestD, ::testing::ValuesIn(
 
 class BigMatrixEucExp : public BigMatrixDistanceTest<cuvs::distance::DistanceType::L2Expanded> {};
 TEST_F(BigMatrixEucExp, Result) {}
+
+// Distinct points with equal norms must keep their (small) distances. The clamp of self-distance
+// round-off to zero used to apply an absolute tolerance, which collapsed such points when the data
+// has a small magnitude (e.g. a spectral embedding).
+template <typename T>
+void test_small_scale_equal_norms(T scale)
+{
+  raft::resources handle;
+  auto stream         = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n = 8;
+  std::vector<T> h_x(n * n, T{0});
+  for (int64_t i = 0; i < n; i++) {
+    h_x[i * n + i] = scale;
+  }
+  auto x = raft::make_device_matrix<T, int64_t>(handle, n, n);
+  auto d = raft::make_device_matrix<T, int64_t>(handle, n, n);
+  raft::update_device(x.data_handle(), h_x.data(), h_x.size(), stream);
+
+  for (auto metric : {DistanceType::L2Expanded, DistanceType::L2SqrtExpanded}) {
+    cuvs::distance::pairwise_distance(handle,
+                                      raft::make_const_mdspan(x.view()),
+                                      raft::make_const_mdspan(x.view()),
+                                      d.view(),
+                                      metric);
+    std::vector<T> h_d(n * n);
+    raft::update_host(h_d.data(), d.data_handle(), h_d.size(), stream);
+    raft::resource::sync_stream(handle, stream);
+
+    const T expected =
+      metric == DistanceType::L2Expanded ? T(2) * scale * scale : std::sqrt(T(2)) * scale;
+    for (int64_t i = 0; i < n; i++) {
+      for (int64_t j = 0; j < n; j++) {
+        EXPECT_NEAR(h_d[i * n + j], i == j ? T(0) : expected, T(1e-3) * expected)
+          << "metric=" << static_cast<int>(metric) << " i=" << i << " j=" << j;
+      }
+    }
+  }
+}
+
+TEST(DistanceEucExpSmallScale, EqualNormsF) { test_small_scale_equal_norms<float>(1e-2f); }
+TEST(DistanceEucExpSmallScale, EqualNormsD) { test_small_scale_equal_norms<double>(1e-5); }
 }  // end namespace distance
 }  // namespace cuvs
