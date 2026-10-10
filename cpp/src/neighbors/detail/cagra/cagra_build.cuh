@@ -2347,8 +2347,8 @@ void reconstruct_vpq_queries(raft::resources const& res,
 // Query source:
 //   - omitted VPQ arguments: queries are read directly from `dev_query_view`
 //     (uncompressed build; the view is a slice of the resident padded device dataset, including
-//     CAGRA row padding). `cagra::detail::search_main` accepts that padded row width so search
-//     does not depad/re-pad the chunk.
+//     CAGRA row padding). `cagra::detail::search_main` accepts that padded row width and packs
+//     each search batch into a dense workspace buffer before the batched search.
 //   - VPQ arguments present: `dev_query_view` is ignored and each chunk of queries is reconstructed
 //     on the fly from the VPQ codes into `reconstructed_batch_queries` with CAGRA row padding,
 //     so we never materialize the whole (up to N x stride) reconstructed dataset.
