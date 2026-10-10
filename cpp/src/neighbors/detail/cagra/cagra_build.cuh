@@ -164,10 +164,15 @@ class ace_disk_workspace {
 template <typename T, typename IdxT>
 void check_graph_degree(size_t& intermediate_degree, size_t& graph_degree, size_t dataset_size)
 {
+  // Every row needs at least one neighbor other than itself. With a single row both degrees would
+  // drop to zero, and the kNN graph build kernels would then access memory out of bounds.
+  RAFT_EXPECTS(dataset_size >= 2,
+               "CAGRA graph build requires a dataset with at least 2 rows, got %zu",
+               dataset_size);
   if (intermediate_degree >= static_cast<size_t>(dataset_size)) {
     RAFT_LOG_WARN(
       "Intermediate graph degree cannot be larger than dataset size, reducing it to %lu",
-      dataset_size);
+      dataset_size - 1);
     intermediate_degree = dataset_size - 1;
   }
   if (intermediate_degree < graph_degree) {
