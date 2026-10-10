@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -28,6 +28,23 @@ __device__ constexpr AccT get_clamp_precision()
   }
 }
 
+/**
+ * Whether an expanded L2 distance is round-off error of a self-distance and should be clamped to
+ * zero. Self-neighboring points have (aNorm == bNorm) == accVal, but the dot product (accVal) can
+ * have round-off errors, which will cause (aNorm == bNorm) ~ accVal instead.
+ *
+ * The round-off error scales with the norms, so the tolerance is relative to them for squared
+ * norms below one. Otherwise, distinct points with equal norms and a small magnitude (for example,
+ * a spectral embedding) would have their distances incorrectly clamped to zero.
+ */
+template <typename DataT, typename AccT>
+DI bool is_self_distance_round_off(AccT dist, AccT aNorm, AccT bNorm)
+{
+  const AccT norm_product = aNorm * bNorm;
+  const AccT norm_scale   = norm_product < AccT(1) ? norm_product : AccT(1);
+  return (aNorm == bNorm) && (dist * dist < get_clamp_precision<DataT, AccT>() * norm_scale);
+}
+
 // Epilogue operator for CUTLASS based kernel
 template <typename DataT, typename AccT>
 struct l2_exp_cutlass_op {
@@ -38,13 +55,7 @@ struct l2_exp_cutlass_op {
   inline __device__ AccT operator()(AccT aNorm, AccT bNorm, AccT accVal) const noexcept
   {
     AccT outVal = aNorm + bNorm - AccT(2.0) * accVal;
-
-    /**
-     * Self-neighboring points should have (aNorm == bNorm) == accVal and the dot product (accVal)
-     * can sometimes have round-off errors, which will cause (aNorm == bNorm) ~ accVal instead.
-     */
-    outVal =
-      outVal * AccT(!((outVal * outVal < get_clamp_precision<DataT, AccT>()) * (aNorm == bNorm)));
+    outVal      = outVal * AccT(!is_self_distance_round_off<DataT, AccT>(outVal, aNorm, bNorm));
     return sqrt ? raft::sqrt(outVal * static_cast<AccT>(outVal > AccT(0))) : outVal;
   }
 
@@ -112,15 +123,9 @@ struct l2_exp_distance_op {
       for (int j = 0; j < Policy::AccColsPerTh; ++j) {
         AccT accVal = acc[i][j];
         AccT val    = regxn[i] + regyn[j] - (AccT)2.0 * accVal;
-
-        /**
-         * Self-neighboring points should have (aNorm == bNorm) == accVal and the dot product
-         * (accVal) can sometimes have round-off errors, which will cause (aNorm == bNorm) ~ accVal
-         * instead.
-         */
-        acc[i][j] = val * static_cast<AccT>((val > AccT(0))) *
-                    static_cast<AccT>(
-                      !((val * val < get_clamp_precision<DataT, AccT>()) * (regxn[i] == regyn[j])));
+        acc[i][j] =
+          val * static_cast<AccT>((val > AccT(0))) *
+          static_cast<AccT>(!is_self_distance_round_off<DataT, AccT>(val, regxn[i], regyn[j]));
       }
     }
     if (sqrt) {
