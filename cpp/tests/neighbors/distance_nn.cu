@@ -16,8 +16,10 @@
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/matrix/init.cuh>
+#include <raft/util/cudart_utils.hpp>
 
 #include <limits>
+#include <vector>
 
 namespace cuvs::neighbors {
 
@@ -444,6 +446,77 @@ TEST(Top1nnPlan, RejectsMismatchedLaunch)
                                                          DistanceType::L2Expanded,
                                                          0.0f,
                                                          plan)));
+}
+
+// Distinct points with equal norms and a small magnitude (as in a spectral embedding) must not be
+// treated as self-neighbors when finding the nearest neighbor.
+TEST(Top1nnEqualNorms, SmallScale)
+{
+  using Backend = cuvs::distance::detail::Top1nnBackend;
+  using Kvp     = raft::KeyValuePair<int, float>;
+  raft::resources handle;
+  auto stream       = raft::resource::get_cuda_stream(handle);
+  constexpr int m   = 1000;
+  constexpr int n   = 5;
+  constexpr int k   = 5;
+  constexpr float s = 1e-2f;
+  std::vector<float> h_x(m * k, 0.0f);
+  std::vector<float> h_y(n * k, 0.0f);
+  for (int i = 0; i < m; i++) {
+    h_x[i * k + i % n] = s;
+  }
+  for (int j = 0; j < n; j++) {
+    h_y[j * k + j] = s;
+  }
+  auto x      = raft::make_device_matrix<float, int>(handle, m, k);
+  auto y      = raft::make_device_matrix<float, int>(handle, n, k);
+  auto x_norm = raft::make_device_vector<float, int>(handle, m);
+  auto y_norm = raft::make_device_vector<float, int>(handle, n);
+  auto output = raft::make_device_vector<Kvp, int>(handle, m);
+  raft::update_device(x.data_handle(), h_x.data(), h_x.size(), stream.get());
+  raft::update_device(y.data_handle(), h_y.data(), h_y.size(), stream.get());
+  raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+    x_norm.data_handle(), x.data_handle(), k, m, stream.get());
+  raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+    y_norm.data_handle(), y.data_handle(), k, n, stream.get());
+
+  cuvs::distance::detail::Top1nnTuning tuning{};
+  for (auto backend : {Backend::Cutlass, Backend::Unfused}) {
+    if (!cuvs::distance::detail::is_top_1_nn_backend_available(
+          backend, x.data_handle(), y.data_handle(), m, n, k, DistanceType::L2Expanded)) {
+      continue;
+    }
+    const auto plan = cuvs::distance::probe_top_1_nn(
+      handle, x.data_handle(), y.data_handle(), m, n, k, tuning, DistanceType::L2Expanded, backend);
+    ASSERT_TRUE(plan.available);
+    auto workspace = raft::make_device_vector<char, int>(handle, plan.workspace_bytes);
+    cuvs::distance::top_1_nn<float, int>(handle,
+                                         output.data_handle(),
+                                         x.data_handle(),
+                                         y.data_handle(),
+                                         x_norm.data_handle(),
+                                         y_norm.data_handle(),
+                                         m,
+                                         n,
+                                         k,
+                                         tuning,
+                                         workspace.data_handle(),
+                                         workspace.size(),
+                                         false,
+                                         true,
+                                         true,
+                                         DistanceType::L2Expanded,
+                                         0.0f,
+                                         plan);
+    std::vector<Kvp> h_out(m);
+    raft::update_host(h_out.data(), output.data_handle(), m, stream.get());
+    raft::resource::sync_stream(handle, stream);
+    int n_wrong = 0;
+    for (int i = 0; i < m; i++) {
+      n_wrong += h_out[i].key != i % n;
+    }
+    EXPECT_EQ(n_wrong, 0) << "backend=" << static_cast<int>(backend);
+  }
 }
 
 TEST(Top1nnPlan, ExplicitUnavailableBackendIsStrict)
