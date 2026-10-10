@@ -2,6 +2,10 @@
 # SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# DO NOT MERGE: reproducer for the flaky Python IVF result tests
+# (test_build_precomputed, test_ivf_pq[inner_product-*], test_filtered_ivf_flat).
+# Uses nightly conda packages and the test files from this branch.
+
 set -euo pipefail
 
 . /opt/conda/etc/profile.d/conda.sh
@@ -9,17 +13,11 @@ set -euo pipefail
 rapids-logger "Configuring conda strict channel priority"
 conda config --set channel_priority strict
 
-rapids-logger "Downloading artifacts from previous jobs"
-CPP_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "$RAPIDS_CUDA_VERSION")")
-PYTHON_CHANNEL=$(rapids-download-from-github "$(rapids-artifact-name conda_python cuvs cuvs --stable --cuda "$RAPIDS_CUDA_VERSION")")
-
-rapids-logger "Generate Python testing dependencies"
+rapids-logger "Generate Python testing dependencies (nightly packages)"
 rapids-dependency-file-generator \
   --output conda \
   --file-key test_python \
   --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch);py=${RAPIDS_PY_VERSION};dependencies=${RAPIDS_DEPENDENCIES}" \
-  --prepend-channel "${CPP_CHANNEL}" \
-  --prepend-channel "${PYTHON_CHANNEL}" \
   | tee env.yaml
 
 rapids-mamba-retry env create --yes -f env.yaml -n test
@@ -29,41 +27,39 @@ set +u
 conda activate test
 set -u
 
-RAPIDS_TESTS_DIR=${RAPIDS_TESTS_DIR:-"${PWD}/test-results"}
-RAPIDS_COVERAGE_DIR=${RAPIDS_COVERAGE_DIR:-"${PWD}/coverage-results"}
-mkdir -p "${RAPIDS_TESTS_DIR}" "${RAPIDS_COVERAGE_DIR}"
+python -m pip install pytest-repeat
 
 rapids-print-env
 
 rapids-logger "Check GPU usage"
 nvidia-smi
 
+# Use this branch's test files with the nightly cuvs package.
+CUVS_DIR=$(python -c "import cuvs, os; print(os.path.dirname(cuvs.__file__))")
+cp -v python/cuvs/cuvs/tests/*.py "${CUVS_DIR}/tests/"
+TESTS="${CUVS_DIR}/tests"
+
 EXITCODE=0
 trap "EXITCODE=1" ERR
 set +e
 
-rapids-logger "pytest cuvs"
-pushd python/cuvs/cuvs
-timeout -v --signal=SIGINT --kill-after=60s 40m pytest \
- --cache-clear \
- --junitxml="${RAPIDS_TESTS_DIR}/junit-cuvs.xml" \
- --cov-config=../.coveragerc \
- --cov=cuvs \
- --cov-report=xml:"${RAPIDS_COVERAGE_DIR}/cuvs-coverage.xml" \
- --cov-report=term \
- tests
+rapids-logger "precomputed vs regular IVF-PQ: tie diagnostics"
+python ci/flaky_h/precomp_diag.py --metric inner_product --codebook cluster --n-queries 10000 --iters 100000 --seconds 600
+for m in inner_product sqeuclidean euclidean; do
+  for c in subspace cluster; do
+    python ci/flaky_h/precomp_diag.py --metric "${m}" --codebook "${c}" --n-queries 10000 --iters 100000 --seconds 90
+  done
+done
 
-rapids-logger "pytest cuvs-bench"
-popd
-pushd python/cuvs_bench/cuvs_bench
-timeout -v --signal=SIGINT --kill-after=60s 40m pytest \
- --cache-clear \
- --junitxml="${RAPIDS_TESTS_DIR}/junit-cuvs.xml" \
- --cov-config=../.coveragerc \
- --cov=cuvs \
- --cov-report=xml:"${RAPIDS_COVERAGE_DIR}/cuvs-bench-coverage.xml" \
- --cov-report=term \
- tests
+rapids-logger "recall distributions"
+python ci/flaky_h/recall_diag.py --n 400 --fixed-repeats 50
+
+rapids-logger "pytest --count on the flaky tests"
+timeout -v --signal=SIGINT --kill-after=60s 60m pytest \
+  -p no:cacheprovider -q -rf --count=200 \
+  "${TESTS}/test_ivf_pq.py::test_build_precomputed" \
+  "${TESTS}/test_ivf_pq.py::test_ivf_pq" \
+  "${TESTS}/test_ivf_flat.py::test_filtered_ivf_flat" 2>&1 | tail -n 200
 
 rapids-logger "Test script exiting with value: $EXITCODE"
 exit ${EXITCODE}
