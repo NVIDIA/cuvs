@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -149,7 +149,13 @@ def run_ivf_pq_build_search_test(
     "metric", ["sqeuclidean", "inner_product", "euclidean"]
 )
 def test_ivf_pq(inplace, dtype, metric):
+    # One dimension per PQ subspace. With the default pq_dim (8 for 10
+    # columns), the inner-product recall on this data is only about 0.74 and
+    # varies by about 0.01 from build to build, so `recall > 0.7` fails in
+    # roughly 1 of 1000 runs.
     run_ivf_pq_build_search_test(
+        n_cols=10,
+        pq_dim=10,
         dtype=dtype,
         inplace=inplace,
         metric=metric,
@@ -304,15 +310,14 @@ def test_build_precomputed(codebook_kind, metric):
     queries = generate_data((n_queries, n_cols), dtype)
     queries_device = device_ndarray(queries)
 
-    # Search regular index
+    # Search both indexes for one extra neighbor, so that a distance tie
+    # across the k-th position can be detected.
     search_params = ivf_pq.SearchParams(n_probes=n_probes)
     regular_dist, regular_idx = ivf_pq.search(
-        search_params, regular_index, queries_device, k
+        search_params, regular_index, queries_device, k + 1
     )
-
-    # Search precomputed index
     precomputed_dist, precomputed_idx = ivf_pq.search(
-        search_params, precomputed_index, queries_device, k
+        search_params, precomputed_index, queries_device, k + 1
     )
 
     # Copy results to host for comparison
@@ -321,19 +326,34 @@ def test_build_precomputed(codebook_kind, metric):
     precomputed_idx_host = precomputed_idx.copy_to_host()
     precomputed_dist_host = precomputed_dist.copy_to_host()
 
-    # Compare results for exact match
+    # Both indexes hold the same centers and PQ codes, so the distances must
+    # match exactly.
     np.testing.assert_array_equal(
-        regular_idx_host,
-        precomputed_idx_host,
-        err_msg="Neighbor indices should match exactly",
+        regular_dist_host[:, :k],
+        precomputed_dist_host[:, :k],
+        err_msg="Distances should match exactly",
     )
-    np.testing.assert_allclose(
-        regular_dist_host,
-        precomputed_dist_host,
-        rtol=1e-5,
-        atol=1e-5,
-        err_msg="Distances should match closely",
-    )
+
+    # The order of the vectors within each list is not deterministic (extend
+    # assigns the slots atomically), and the search breaks distance ties by
+    # that order. Neighbors with bitwise-equal distances may therefore come
+    # back in a different order, and a tie across the k-th position may
+    # select different neighbors. Compare the indices of each group of equal
+    # distances as a set, except for a group that crosses the k-th position.
+    for row in range(n_queries):
+        dist = regular_dist_host[row]
+        start = 0
+        while start < k:
+            end = start + 1
+            while end <= k and dist[end] == dist[start]:
+                end += 1
+            if end <= k:
+                np.testing.assert_array_equal(
+                    np.sort(regular_idx_host[row, start:end]),
+                    np.sort(precomputed_idx_host[row, start:end]),
+                    err_msg=f"Neighbor indices should match (query {row})",
+                )
+            start = end
 
 
 @pytest.mark.parametrize("codebook_kind", ["subspace", "cluster"])
