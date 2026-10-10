@@ -27,6 +27,7 @@
 #include <cub/device/device_reduce.cuh>
 
 #include <atomic>
+#include <cstdio>
 #include <queue>
 #include <thread>
 
@@ -526,6 +527,19 @@ void data_transformation_batch_opt(const float* d_data,
   dim3 blockDim(FusedBlockSize);
   size_t sharedMemSize = FusedBlockSize * sizeof(float);
 
+  {  // [DIAGNOSTIC]
+    cudaError_t pre = cudaPeekAtLastError();
+    if (pre != cudaSuccess || num_points == 0 || num_points > (size_t{1} << 31)) {
+      fprintf(stderr,
+              "[RABITQ-DIAG] before subtract_normalize_binarize_Kernel: num_points=%zu D=%zu "
+              "DIM=%zu pending_error=%d (%s)\n",
+              num_points,
+              D,
+              DIM,
+              int(pre),
+              cudaGetErrorName(pre));
+    }
+  }
   subtract_normalize_binarize_Kernel<FusedBlockSize>
     <<<gridDim, blockDim, sharedMemSize, stream.get()>>>(
       d_XP,         // Input: Rotated data
@@ -720,6 +734,19 @@ void data_transformation_batch_opt_contiguous(const float* d_contiguous_data,
   dim3 blockDim(FusedBlockSize);
   size_t sharedMemSize = FusedBlockSize * sizeof(float);
 
+  {  // [DIAGNOSTIC]
+    cudaError_t pre = cudaPeekAtLastError();
+    if (pre != cudaSuccess || num_points == 0 || num_points > (size_t{1} << 31)) {
+      fprintf(stderr,
+              "[RABITQ-DIAG] before subtract_normalize_binarize_Kernel: num_points=%zu D=%zu "
+              "DIM=%zu pending_error=%d (%s)\n",
+              num_points,
+              D,
+              DIM,
+              int(pre),
+              cudaGetErrorName(pre));
+    }
+  }
   subtract_normalize_binarize_Kernel<FusedBlockSize>
     <<<gridDim, blockDim, sharedMemSize, stream.get()>>>(
       d_XP,         // Input: Rotated data
