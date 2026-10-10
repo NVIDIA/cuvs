@@ -65,9 +65,43 @@ if [[ "${SHARD}" == "1" ]]; then
 fi
 
 # Run libcuvs gtests from libcuvs-tests package
-rapids-logger "Run libcuvs tests (shard ${SHARD} of ${NUM_SHARDS})"
+# [DO NOT MERGE] Reproduce the flaky silhouetteScore batched tests (#2406).
 pushd "$CONDA_PREFIX"/bin/gtests/libcuvs
-timeout -v --signal=SIGINT --kill-after=60s 100m ctest -j8 --output-on-failure -I "${SHARD},,${NUM_SHARDS}"
+rapids-logger "Run full STATS_TEST once (shard ${SHARD} of ${NUM_SHARDS} ignored)"
+./STATS_TEST
+
+SIL_LOGS="${RAPIDS_TESTS_DIR}/silhouette"
+mkdir -p "${SIL_LOGS}"
+NPROC=8
+# run_mode <name> <reps> <alias(0/1)>: run NPROC concurrent STATS_TEST processes looping the batched
+# silhouette tests, then count failing iterations per test.
+run_mode() {
+  local name=$1 reps=$2 alias=$3
+  rapids-logger "silhouette mode=${name}: ${NPROC} processes x ${reps} repeats (alias=${alias})"
+  local start=${SECONDS}
+  for p in $(seq 1 ${NPROC}); do
+    if [[ "${alias}" == "1" ]]; then
+      CUVS_DIAG_SILHOUETTE_ALIAS=1 timeout -v 40m ./STATS_TEST --gtest_filter='silhouetteScore.Batched*' \
+        --gtest_repeat="${reps}" --gtest_brief=1 > "${SIL_LOGS}/${name}_${p}.log" 2>&1 &
+    else
+      timeout -v 40m ./STATS_TEST --gtest_filter='silhouetteScore.Batched*' \
+        --gtest_repeat="${reps}" --gtest_brief=1 > "${SIL_LOGS}/${name}_${p}.log" 2>&1 &
+    fi
+  done
+  wait
+  local elapsed=$((SECONDS - start))
+  local fails
+  fails=$(cat "${SIL_LOGS}/${name}"_*.log | grep -cE '^\[  FAILED  \] silhouetteScore\.[A-Za-z]+ \([0-9]+ ms\)' || true)
+  echo "SILHOUETTE_SUMMARY mode=${name} processes=${NPROC} repeats_per_process=${reps} total_iterations=$((NPROC * reps)) failed_test_iterations=${fails} elapsed_s=${elapsed}"
+  cat "${SIL_LOGS}/${name}"_*.log | grep -oE '^\[  FAILED  \] silhouetteScore\.[A-Za-z]+ ' | sort | uniq -c || true
+  cat "${SIL_LOGS}/${name}"_*.log | grep -A3 -E 'silhouette_score.cu:[0-9]+: Failure' | head -40 || true
+  for p in $(seq 1 ${NPROC}); do tail -n 3 "${SIL_LOGS}/${name}_${p}.log"; done
+  if [[ "${alias}" == "0" && "${fails}" != "0" ]]; then EXITCODE=1; fi
+}
+nvidia-smi
+run_mode aliased 1000 1
+run_mode fixed 3000 0
+run_mode aliased2 1000 1
 popd
 
 rapids-logger "Test script exiting with value: $EXITCODE"
