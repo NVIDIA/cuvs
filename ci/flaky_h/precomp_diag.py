@@ -96,7 +96,31 @@ def run(
     rd2, ri2 = ivf_pq.search(sp, reg, q, k)
     rd2, ri2 = rd2.copy_to_host(), ri2.copy_to_host()
 
+    # The comparison used by the fixed test (search k + 1, tie-aware).
+    xd, xi = ivf_pq.search(sp, reg, q, k + 1)
+    xd, xi = xd.copy_to_host(), xi.copy_to_host()
+    yd, yi = ivf_pq.search(sp, pre, q, k + 1)
+    yd, yi = yd.copy_to_host(), yi.copy_to_host()
+    new_check_fail_rows = 0
+    new_check_dist_fail = not np.array_equal(xd[:, :k], yd[:, :k])
+    for r in range(n_queries):
+        dist = xd[r]
+        start = 0
+        bad = False
+        while start < k:
+            end = start + 1
+            while end <= k and dist[end] == dist[start]:
+                end += 1
+            if end <= k and not np.array_equal(
+                np.sort(xi[r, start:end]), np.sort(yi[r, start:end])
+            ):
+                bad = True
+            start = end
+        new_check_fail_rows += bad
+
     res = dict(
+        new_check_fail_rows=new_check_fail_rows,
+        new_check_dist_fail=new_check_dist_fail,
         rows_tied=0,
         rows_mismatch=0,
         rows_mismatch_in_tie=0,
@@ -178,6 +202,8 @@ def main():
         rows_boundary_tie_diff=0,
         runs_dist_not_bitwise=0,
         runs_self_repeat_differs=0,
+        new_check_fail_rows=0,
+        new_check_dist_fail_runs=0,
     )
     t0 = time.time()
     for it in range(a.iters):
@@ -188,6 +214,8 @@ def main():
         tot["runs"] += 1
         tot["rows"] += a.n_queries
         tot["runs_fail"] += r["rows_mismatch"] > 0
+        tot["new_check_fail_rows"] += r["new_check_fail_rows"]
+        tot["new_check_dist_fail_runs"] += r["new_check_dist_fail"]
         for key in (
             "rows_tied",
             "rows_mismatch",

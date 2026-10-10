@@ -56,7 +56,7 @@ python ci/flaky_h/recall_diag.py --n 400 --fixed-repeats 50
 
 rapids-logger "pytest --count on the flaky tests"
 timeout -v --signal=SIGINT --kill-after=60s 60m pytest \
-  -p no:cacheprovider -q -rf --count=200 \
+  -p no:cacheprovider -q -rf --count=300 \
   "${TESTS}/test_ivf_pq.py::test_build_precomputed" \
   "${TESTS}/test_ivf_pq.py::test_ivf_pq" \
   "${TESTS}/test_ivf_flat.py::test_filtered_ivf_flat" 2>&1 | tail -n 200

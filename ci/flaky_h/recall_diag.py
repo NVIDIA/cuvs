@@ -65,21 +65,17 @@ def main():
     t0 = time.time()
     cases = {}
     for metric in ["inner_product", "sqeuclidean", "euclidean"]:
-        cases[f"test_ivf_pq[{metric}]"] = (
-            lambda m=metric: t_pq.run_ivf_pq_build_search_test(
-                dtype=np.float32, inplace=True, metric=m
-            )
+        cases[f"test_ivf_pq[{metric}]"] = lambda m=metric: t_pq.test_ivf_pq(
+            True, np.float32, m
         )
     for sp in [0.5, 0.7, 1.0]:
         cases[f"test_filtered_ivf_flat[{sp}]"] = (
-            lambda sp=sp: ann_utils.run_filtered_search_test(
-                t_flat.ivf_flat, sp
-            )
+            lambda sp=sp: t_flat.test_filtered_ivf_flat(sp)
         )
     for name, fn in cases.items():
         sweep(name, fn, seeds)
-        # Same data every time: only library nondeterminism remains.
-        sweep(name + "@fixed-seed", fn, [12345] * a.fixed_repeats)
+        # Same data every time: only build nondeterminism remains.
+        sweep(name + "@fixed-seed", fn, [0] * a.fixed_repeats)
     print(f"RECALL_DIAG done in {time.time() - t0:.0f}s", flush=True)
 
 
