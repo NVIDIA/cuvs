@@ -60,19 +60,26 @@ EXITCODE=0
 trap "EXITCODE=1" ERR
 set +e
 
-# [CI ONLY] Repeat the IVF-RaBitQ tests to reproduce a flaky failure (dim = 1, host input).
+# [CI ONLY] Repeat the IVF-RaBitQ tests to reproduce a flaky failure (dim = 1, host input) and
+# to verify the empty-list fix.
 pushd "$CONDA_PREFIX"/bin/gtests/libcuvs
+rapids-logger "Run the IVF-RaBitQ empty-list regression tests repeatedly"
+timeout -v --signal=SIGINT --kill-after=60s 15m ./NEIGHBORS_ANN_IVF_RABITQ_TEST \
+  --gtest_filter='*empty_lists*' --gtest_brief=1 --gtest_repeat=50 > empty_lists.log 2>&1
+rapids-logger "empty lists exit code: $?"
+grep -c "PASSED" empty_lists.log || true
+grep -B2 -A20 "FAILED\|Failure" empty_lists.log | head -200 || true
 rapids-logger "Run NEIGHBORS_ANN_IVF_RABITQ_TEST small-dim cases repeatedly"
-timeout -v --signal=SIGINT --kill-after=60s 25m ./NEIGHBORS_ANN_IVF_RABITQ_TEST \
-  --gtest_filter='*/1:*/2:*/3:*/4:*/5:*/6:*/7:*/8' --gtest_brief=1 --gtest_repeat=1000 \
-  > small_dims.log 2>&1
+timeout -v --signal=SIGINT --kill-after=60s 20m ./NEIGHBORS_ANN_IVF_RABITQ_TEST \
+  --gtest_filter='IvfRabitq/f32_f32_i64.*/1:IvfRabitq/f32_f32_i64.*/2:IvfRabitq/f32_f32_i64.*/3' \
+  --gtest_brief=1 --gtest_repeat=1000 > small_dims.log 2>&1
 rapids-logger "small dims exit code: $?"
 grep -c "PASSED" small_dims.log || true
 grep -B2 -A40 "FAILED\|Failure\|DEGENERATE\|before subtract" small_dims.log | head -400 || true
-grep "\[RABITQ-DIAG\] n_rows" small_dims.log | sed -E 's/.*(dim=[0-9]+).*(residency=[0-9]+).*(min_list=[0-9]+) (empty_lists=[0-9]+).*/\1 \2 \3 \4/' | sort | uniq -c | sort -k2 | head -200 || true
+grep -oE "dim=[0-9]+ n_lists=[0-9]+ streaming=[0-9] residency=[0-9] on_device=[0-9] min_list=[0-9]+ empty_lists=[0-9]+" small_dims.log | sed -E 's/ n_lists=[0-9]+//; s/ on_device=[0-9]//' | sort | uniq -c | sort -k2 | head -100 || true
 rapids-logger "Run full NEIGHBORS_ANN_IVF_RABITQ_TEST repeatedly"
 timeout -v --signal=SIGINT --kill-after=60s 30m ./NEIGHBORS_ANN_IVF_RABITQ_TEST \
-  --gtest_brief=1 --gtest_repeat=30 > full.log 2>&1
+  --gtest_filter='-*empty_lists*' --gtest_brief=1 --gtest_repeat=30 > full.log 2>&1
 rapids-logger "full exit code: $?"
 grep -c "PASSED" full.log || true
 grep -B2 -A40 "FAILED\|Failure\|DEGENERATE\|before subtract" full.log | head -400 || true
