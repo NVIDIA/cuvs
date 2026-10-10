@@ -33,7 +33,7 @@ index_params->metric = L2Expanded;
 index_params->graph_degree = 64;
 index_params->intermediate_graph_degree = 128;
 index_params->max_iterations = 20;
-index_params->termination_threshold = 0.0001f;
+index_params->termination_threshold = 0.001f;
 index_params->return_distances = true;
 index_params->dist_comp_dtype = NND_DIST_COMP_AUTO;
 
@@ -60,7 +60,7 @@ index_params.metric = cuvs::distance::DistanceType::L2Expanded;
 index_params.graph_degree = 64;
 index_params.intermediate_graph_degree = 128;
 index_params.max_iterations = 20;
-index_params.termination_threshold = 0.0001f;
+index_params.termination_threshold = 0.001f;
 index_params.return_distances = true;
 index_params.dist_comp_dtype = nn_descent::DIST_COMP_DTYPE::AUTO;
 
@@ -80,7 +80,7 @@ index_params = nn_descent.IndexParams(
     graph_degree=64,
     intermediate_graph_degree=128,
     max_iterations=20,
-    termination_threshold=0.0001,
+    termination_threshold=0.001,
     return_distances=True,
     dist_comp_dtype="auto",
 )
@@ -251,7 +251,7 @@ NN-Descent does not expose filtered search because it does not expose search. Ap
 | `graph_degree` | `64` | Number of neighbors kept in the final output graph for each vector. |
 | `intermediate_graph_degree` | `128` | Larger internal graph degree used while refining candidate neighbors. It is usually at least `1.5 * graph_degree`. |
 | `max_iterations` | `20` | Maximum number of graph-refinement iterations. More iterations can improve graph quality, but increase build time. |
-| `termination_threshold` | `0.0001` | Early-stop threshold based on how many graph updates are still happening. Smaller values can run longer. |
+| `termination_threshold` | `0.001` | Early-stop threshold based on how many graph updates are still happening. Smaller values can run longer. |
 | `return_distances` | `true` | Stores distances for the returned graph. Disable this to reduce memory when only neighbor IDs are needed. |
 | `dist_comp_dtype` | `AUTO` / `"auto"` | Distance-computation dtype. `AUTO` chooses from the dataset shape, `FP32` favors precision, and `FP16` favors speed and memory use. |
 
