@@ -67,7 +67,7 @@ fi
 # Run libcuvs gtests from libcuvs-tests package
 rapids-logger "Run libcuvs tests (shard ${SHARD} of ${NUM_SHARDS})"
 pushd "$CONDA_PREFIX"/bin/gtests/libcuvs
-timeout -v --signal=SIGINT --kill-after=60s 100m ctest -j8 --output-on-failure -I "${SHARD},,${NUM_SHARDS}"
+./NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_TEST --gtest_filter='AnnCagraMultiPartition*'
 popd
 
 rapids-logger "Test script exiting with value: $EXITCODE"

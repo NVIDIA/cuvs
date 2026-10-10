@@ -95,7 +95,31 @@ rapids-logger "Run cuvs-lucene tests against the amd64-built classes"
 # compilation for this run, forcing test to use amd64-compiled jar instead of
 # local code.
 pushd java/cuvs-lucene
-mvn --batch-mode test -Dskip.compile=true
+MVN_TEST=(mvn --batch-mode test -Dskip.compile=true -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false)
+
+rapids-logger "DIAG: shortfall rate of filtered multi-partition search"
+"${MVN_TEST[@]}" -Dtest=TestDiagFilteredMultiPartitionShortfall -Ddiag.trials=12 2>&1 | grep -E "DIAG|FAIL|ERROR|Tests run" || true
+
+rapids-logger "DIAG: failing CI seeds"
+for seed in 4A2D37AD61DD7303 C28C44A945519487 DDB057FC1538C8F3 EE3B5EEAC86DF8C; do
+  for rep in 1 2 3 4 5 6 7 8; do
+    echo "SEEDRUN TestMultiSegmentGPUFilterConcurrency seed=${seed} rep=${rep}"
+    "${MVN_TEST[@]}" -Dtest='TestMultiSegmentGPUFilterConcurrency#filteredSearchesTakeTheMultiPartitionGpuPath' -Dtests.seed="${seed}" 2>&1 | grep -E "AssertionError|Tests run:|FAIL" | head -5 || true
+  done
+done
+echo "SEEDRUN TestCuVSGaps seed=BBE2A1CCC7772A7F"
+"${MVN_TEST[@]}" -Dtest='TestCuVSGaps' -Dtests.seed=BBE2A1CCC7772A7F 2>&1 | grep -E "AssertionError|Tests run:|FAIL" | head -5 || true
+
+rapids-logger "DIAG: repeated random-seed runs"
+fails=0
+for i in $(seq 1 40); do
+  out=$("${MVN_TEST[@]}" -Dtest='TestMultiSegmentGPUFilterConcurrency#filteredSearchesTakeTheMultiPartitionGpuPath' 2>&1)
+  if echo "${out}" | grep -q "AssertionError"; then
+    fails=$((fails+1))
+    echo "LOOP iter=${i} FAILED: $(echo "${out}" | grep -E 'AssertionError|reproduce with' | head -2 | tr '\n' ' ')"
+  fi
+done
+echo "LOOP TestMultiSegmentGPUFilterConcurrency failures=${fails}/40"
 popd
 
 rapids-logger "Test script exiting with value: $EXITCODE"

@@ -114,7 +114,9 @@ public class TestCuVSGaps extends LuceneTestCase {
 
     // Use the first vector (from document 0) as query
     float[] queryVector = dataset[0];
-    int topK = random.nextInt(5, TOP_K_LIMIT);
+    // Only even-numbered documents have vectors, so never ask for more results than exist.
+    int vectorCount = (datasetSize + 1) / 2;
+    int topK = Math.min(random.nextInt(5, TOP_K_LIMIT), vectorCount);
 
     GPUKnnFloatVectorQuery query =
         new GPUKnnFloatVectorQuery("vector", queryVector, topK, null, topK, 1);
