@@ -43,7 +43,14 @@ ulimit -a
 env | grep -E "^(CUDA|OMP|NVIDIA|RAPIDS|LD_)" | sort || true
 ldconfig -p | grep -E "cudadebugger|libcuda\.so" || true
 cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null || true
+lscpu || true
+cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/cpuset.cpus.effective 2>/dev/null || true
+taskset -p $$ || true
+free -g || true
 
+RAPIDS_TESTS_DIR=${RAPIDS_TESTS_DIR:-"${PWD}/test-results"}
+RAPIDS_COVERAGE_DIR=${RAPIDS_COVERAGE_DIR:-"${PWD}/coverage-results"}
+mkdir -p "${RAPIDS_TESTS_DIR}" "${RAPIDS_COVERAGE_DIR}"
 DIAG_DIR="${PWD}/hang-diag"
 mkdir -p "${DIAG_DIR}"
 
@@ -175,27 +182,32 @@ BENCH_TESTS_DIR="${PWD}/python/cuvs_bench/cuvs_bench"
 PYTEST_ARGS=(-v -p no:cacheprovider -o faulthandler_timeout=240 -o junit_family=xunit2)
 
 # Total budget for the repeat loop (seconds).
-BUDGET=$(( 150 * 60 ))
+BUDGET=$(( 200 * 60 ))
 LOOP_START=$(date +%s)
 i=0
 while (( $(date +%s) - LOOP_START < BUDGET )); do
   i=$((i + 1))
   rapids-logger "Iteration ${i} (hangs so far: ${HANGS}:${HANG_LIST})"
 
-  # Same files that run before (and including) test_cagra.py in the full suite.
+  # Same commands as the regular CI job: the full cuvs suite with coverage, then cuvs_bench.
   pushd "${CUVS_TESTS_DIR}" > /dev/null || exit 1
-  if (( i % 2 == 1 )); then
-    run_watched "iter${i}-cuvs-prefix" 420 python -X faulthandler -m pytest "${PYTEST_ARGS[@]}" \
-      tests/test_all_neighbors.py tests/test_binary_quantizer.py tests/test_brute_force.py tests/test_cagra.py
-  else
-    run_watched "iter${i}-cuvs-cagra" 420 python -X faulthandler -m pytest "${PYTEST_ARGS[@]}" \
-      tests/test_cagra.py
-  fi
+  run_watched "iter${i}-cuvs-full" 420 python -X faulthandler -m pytest "${PYTEST_ARGS[@]}" \
+    --junitxml="${RAPIDS_TESTS_DIR}/junit-cuvs.xml" \
+    --cov-config=../.coveragerc \
+    --cov=cuvs \
+    --cov-report=xml:"${RAPIDS_COVERAGE_DIR}/cuvs-coverage.xml" \
+    --cov-report=term \
+    tests
   popd > /dev/null || exit 1
 
   pushd "${BENCH_TESTS_DIR}" > /dev/null || exit 1
-  run_watched "iter${i}-bench-cli" 420 python -X faulthandler -m pytest "${PYTEST_ARGS[@]}" \
-    tests/test_cli.py
+  run_watched "iter${i}-bench" 420 python -X faulthandler -m pytest "${PYTEST_ARGS[@]}" \
+    --junitxml="${RAPIDS_TESTS_DIR}/junit-cuvs.xml" \
+    --cov-config=../.coveragerc \
+    --cov=cuvs \
+    --cov-report=xml:"${RAPIDS_COVERAGE_DIR}/cuvs-bench-coverage.xml" \
+    --cov-report=term \
+    tests
   popd > /dev/null || exit 1
 
   if (( HANGS >= 2 )); then
