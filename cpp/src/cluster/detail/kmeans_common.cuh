@@ -6,6 +6,7 @@
 
 #include "../../distance/distance.cuh"
 #include "../../distance/top_1_nn.cuh"
+#include "kmeans_centroid_sums.cuh"
 #include <cstdint>
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
@@ -121,6 +122,18 @@ struct WeightedDistanceOp {
   }
 };
 
+template <typename DataT, typename IndexT>
+struct SquaredDiffOp {
+  const DataT* a;
+  const DataT* b;
+
+  __device__ DataT operator()(IndexT offset) const
+  {
+    DataT diff = a[offset] - b[offset];
+    return diff * diff;
+  }
+};
+
 template <typename LabelT, typename DataT, typename IndexT>
 void copyClusterLabels(raft::resources const& handle,
                        const MinClusterAndDistanceResult<DataT, IndexT>& result,
@@ -194,8 +207,17 @@ void weightSum(
   DataT wt_sum_h = DataT{0};
 
   if constexpr (raft::is_device_mdspan_v<decltype(weight)>) {
-    raft::linalg::mapThenSumReduce(
-      d_wt_sum.data_handle(), n_samples, raft::identity_op{}, stream.get(), weight.data_handle());
+    // cub::DeviceReduce is run-to-run deterministic, unlike the atomics in mapThenSumReduce.
+    size_t temp_bytes = 0;
+    RAFT_CUDA_TRY(cub::DeviceReduce::Sum(
+      nullptr, temp_bytes, weight.data_handle(), d_wt_sum.data_handle(), n_samples, stream.get()));
+    rmm::device_uvector<char> temp(temp_bytes, stream);
+    RAFT_CUDA_TRY(cub::DeviceReduce::Sum(temp.data(),
+                                         temp_bytes,
+                                         weight.data_handle(),
+                                         d_wt_sum.data_handle(),
+                                         n_samples,
+                                         stream.get()));
     if (check_positive) {
       raft::copy(&wt_sum_h, d_wt_sum.data_handle(), 1, stream);
       raft::resource::sync_stream(handle);
@@ -600,8 +622,11 @@ void countSamplesInCluster(raft::resources const& handle,
  * @brief Compute centroid adjustments (weighted sums and counts per cluster)
  *
  * This helper function computes:
- * 1. Weighted sum of samples per cluster using reduce_rows_by_key
- * 2. Sum of weights per cluster using reduce_cols_by_key
+ * 1. Weighted sum of samples per cluster
+ * 2. Sum of weights per cluster
+ *
+ * Both use a fixed summation order (see sums_by_label::weighted_sums_by_label), so that
+ * identical fits give bitwise-identical centroids.
  *
  * @tparam DataT Data type for samples and weights
  * @tparam IndexT Index type
@@ -632,31 +657,17 @@ void compute_centroid_adjustments(
   rmm::device_uvector<char>& workspace,
   bool reset_sums = true)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
-  auto n_samples      = X.extent(0);
-
-  workspace.resize(n_samples, stream);
-
-  raft::linalg::reduce_rows_by_key(X.data_handle(),
-                                   X.extent(1),
-                                   cluster_labels,
-                                   sample_weights.data_handle(),
-                                   workspace.data(),
-                                   X.extent(0),
-                                   X.extent(1),
-                                   n_clusters,
-                                   centroid_sums.data_handle(),
-                                   stream,
-                                   reset_sums);
-
-  raft::linalg::reduce_cols_by_key(sample_weights.data_handle(),
-                                   cluster_labels,
-                                   weight_per_cluster.data_handle(),
-                                   static_cast<IndexT>(1),
-                                   static_cast<IndexT>(n_samples),
-                                   n_clusters,
-                                   stream,
-                                   reset_sums);
+  sums_by_label::weighted_sums_by_label(handle,
+                                        X.data_handle(),
+                                        sample_weights.data_handle(),
+                                        cluster_labels,
+                                        X.extent(0),
+                                        X.extent(1),
+                                        n_clusters,
+                                        centroid_sums.data_handle(),
+                                        weight_per_cluster.data_handle(),
+                                        workspace,
+                                        reset_sums);
 }
 /**
  * @brief Finalize centroids by dividing accumulated sums by counts.
@@ -715,13 +726,16 @@ void compute_centroid_shift(raft::resources const& handle,
                             raft::device_matrix_view<const DataT, IndexT> new_centroids,
                             raft::device_scalar_view<DataT> sqrd_norm_out)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
-  raft::linalg::mapThenSumReduce(sqrd_norm_out.data_handle(),
-                                 old_centroids.size(),
-                                 raft::sqdiff_op{},
-                                 stream,
-                                 old_centroids.data_handle(),
-                                 new_centroids.data_handle());
+  // cub::DeviceReduce is run-to-run deterministic, unlike the atomics in mapThenSumReduce.
+  rmm::device_uvector<char> workspace(0, raft::resource::get_cuda_stream(handle));
+  computeClusterCost(
+    handle,
+    cuda::counting_iterator<IndexT>(0),
+    static_cast<IndexT>(old_centroids.size()),
+    workspace,
+    sqrd_norm_out,
+    SquaredDiffOp<DataT, IndexT>{old_centroids.data_handle(), new_centroids.data_handle()},
+    raft::add_op{});
 }
 
 /**
