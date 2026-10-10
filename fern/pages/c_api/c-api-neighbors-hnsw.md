@@ -487,3 +487,95 @@ NOTE: When hierarchy is `NONE`, the loaded hnswlib index is immutable, and only 
 **Returns**
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+## Materialize a layered HNSW artifact to an hnswlib index
+
+<a id="cuvshnswmaterializeparams"></a>
+### cuvsHnswMaterializeParams
+
+Parameters for materializing a layered HNSW artifact into an hnswlib index on disk.
+
+```c
+struct cuvsHnswMaterializeParams {
+  const char* dataset_path;
+  double max_host_memory_gb;
+  int num_threads;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `dataset_path` | `const char*` | Local dataset path holding the original-ID-ordered vectors used to build the artifact.<br /><br />Supported formats match layered deserialization: `.npy` and ANN benchmark `*.bin` files with a `[uint32 rows, uint32 cols]` header (`.fbin`, `.f16bin`, `.u8bin`, `.i8bin`). |
+| `max_host_memory_gb` | `double` | Upper bound on host memory (in GiB) used for the base-topology reorder buffer.<br /><br />When `&lt;= 0`, the whole base topology is reordered in a single in-memory pass (no temporary files). When set, the base topology is reordered through bucketed temporary files so that peak host memory stays close to this budget. |
+| `num_threads` | `int` | Number of host threads to use. When `0`, the maximum number of threads is used. |
+
+<a id="cuvshnswmaterializeparamscreate"></a>
+### cuvsHnswMaterializeParamsCreate
+
+Allocate HNSW materialize params, and populate with default values
+
+```c
+cuvsError_t cuvsHnswMaterializeParamsCreate(cuvsHnswMaterializeParams_t* params);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `params` | in | [`cuvsHnswMaterializeParams_t*`](/api-reference/c-api-neighbors-hnsw#cuvshnswmaterializeparams) | cuvsHnswMaterializeParams_t to allocate |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvshnswmaterializeparamsdestroy"></a>
+### cuvsHnswMaterializeParamsDestroy
+
+De-allocate HNSW materialize params
+
+```c
+cuvsError_t cuvsHnswMaterializeParamsDestroy(cuvsHnswMaterializeParams_t params);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `params` | in | [`cuvsHnswMaterializeParams_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswmaterializeparams) | cuvsHnswMaterializeParams_t to de-allocate |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvshnswmaterializetohnswlib"></a>
+### cuvsHnswMaterializeToHnswlib
+
+Materialize a layered HNSW artifact into a standard hnswlib index file on disk.
+
+```c
+cuvsError_t cuvsHnswMaterializeToHnswlib(cuvsResources_t res,
+cuvsHnswMaterializeParams_t params,
+const char* layered_artifact_path,
+const char* output_path,
+int dim,
+cuvsDistanceType metric);
+```
+
+Materializes a `GRAPH_ONLY` artifact (graph topology only, stored in ACE order) plus a local dataset into a standard hnswlib index file, without ever holding the full materialized index in host memory. The resulting file is compatible with the original hnswlib library and can be read back through `cuvsHnswDeserialize` with `hierarchy == CPU`. The element data type (`float`, `half`, `uint8_t` or `int8_t`) is inferred from the external dataset. GRAPH_ONLY artifacts are currently produced through the C++ API.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+| `params` | in | [`cuvsHnswMaterializeParams_t`](/api-reference/c-api-neighbors-hnsw#cuvshnswmaterializeparams) | cuvsHnswMaterializeParams_t materialization parameters |
+| `layered_artifact_path` | in | `const char*` | path to the layered HNSW artifact |
+| `output_path` | in | `const char*` | path to the hnswlib index file to write |
+| `dim` | in | `int` | the dimension of the vectors in the index |
+| `metric` | in | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) | the distance metric used to build the index |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)

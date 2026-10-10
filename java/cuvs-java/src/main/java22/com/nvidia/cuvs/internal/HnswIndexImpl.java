@@ -6,6 +6,7 @@ package com.nvidia.cuvs.internal;
 
 import static com.nvidia.cuvs.internal.CuVSParamsHelper.createHnswAceParamsNative;
 import static com.nvidia.cuvs.internal.CuVSParamsHelper.createHnswIndexParams;
+import static com.nvidia.cuvs.internal.CuVSParamsHelper.createHnswMaterializeParamsNative;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG;
 import static com.nvidia.cuvs.internal.common.Util.buildMemorySegment;
@@ -19,6 +20,7 @@ import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.HnswAceParams;
 import com.nvidia.cuvs.HnswIndex;
 import com.nvidia.cuvs.HnswIndexParams;
+import com.nvidia.cuvs.HnswMaterializeParams;
 import com.nvidia.cuvs.HnswQuery;
 import com.nvidia.cuvs.HnswSearchParams;
 import com.nvidia.cuvs.SearchResults;
@@ -27,6 +29,7 @@ import com.nvidia.cuvs.internal.panama.DLDataType;
 import com.nvidia.cuvs.internal.panama.cuvsHnswAceParams;
 import com.nvidia.cuvs.internal.panama.cuvsHnswIndex;
 import com.nvidia.cuvs.internal.panama.cuvsHnswIndexParams;
+import com.nvidia.cuvs.internal.panama.cuvsHnswMaterializeParams;
 import com.nvidia.cuvs.internal.panama.cuvsHnswSearchParams;
 import java.io.InputStream;
 import java.lang.foreign.Arena;
@@ -218,7 +221,7 @@ public class HnswIndexImpl implements HnswIndex {
   }
 
   /**
-   * Allocates the configured search parameters in the MemorySegment.
+   * Allocates the configured index parameters in the MemorySegment.
    */
   private CloseableHandle segmentFromIndexParams(HnswIndexParams params) {
     var hnswParams = createHnswIndexParams();
@@ -285,6 +288,56 @@ public class HnswIndexImpl implements HnswIndex {
       }
     }
     return new HnswIndexImpl(new IndexReference(hnswIndex), resources, hnswParams);
+  }
+
+  /**
+   * Materializes a layered HNSW artifact into a standard hnswlib index file on disk.
+   *
+   * @param resources            the CuVS resources
+   * @param materializeParams    the materialization parameters
+   * @param layeredArtifactPath  path to the layered HNSW artifact
+   * @param outputPath           path to the hnswlib index file to write
+   * @param dim                  the dimension of the vectors in the index
+   * @param metric               the distance metric used to build the index
+   * @throws Throwable if an error occurs during materialization
+   */
+  public static void materializeToHnswlib(
+      CuVSResources resources,
+      HnswMaterializeParams materializeParams,
+      String layeredArtifactPath,
+      String outputPath,
+      int dim,
+      HnswIndexParams.CuvsDistanceType metric)
+      throws Throwable {
+    Objects.requireNonNull(resources);
+    Objects.requireNonNull(materializeParams);
+    Objects.requireNonNull(layeredArtifactPath);
+    Objects.requireNonNull(outputPath);
+    Objects.requireNonNull(metric);
+
+    try (var localArena = Arena.ofConfined();
+        var paramsHandle = createHnswMaterializeParamsNative()) {
+      MemorySegment paramsSeg = paramsHandle.handle();
+
+      String datasetPath = materializeParams.getDatasetPath();
+      if (datasetPath != null) {
+        cuvsHnswMaterializeParams.dataset_path(paramsSeg, localArena.allocateFrom(datasetPath));
+      }
+      cuvsHnswMaterializeParams.max_host_memory_gb(
+          paramsSeg, materializeParams.getMaxHostMemoryGb());
+      cuvsHnswMaterializeParams.num_threads(paramsSeg, materializeParams.getNumThreads());
+
+      MemorySegment artifactSeg = buildMemorySegment(localArena, layeredArtifactPath);
+      MemorySegment outputSeg = buildMemorySegment(localArena, outputPath);
+
+      try (var resourcesAccessor = resources.access()) {
+        var cuvsRes = resourcesAccessor.handle();
+        int returnValue =
+            cuvsHnswMaterializeToHnswlib(
+                cuvsRes, paramsSeg, artifactSeg, outputSeg, dim, metric.value);
+        checkCuVSError(returnValue, "cuvsHnswMaterializeToHnswlib");
+      }
+    }
   }
 
   private static CloseableHandle createHnswIndexParamsForBuild(
