@@ -121,6 +121,73 @@ public abstract class CuVSTestCase {
     }
   }
 
+  // [DO NOT MERGE] Diagnostics for flaky randomized tests: per query, report where each of the
+  // first 5 returned ids ranks in the exact (squared L2) ordering, and the tie-aware recall@k.
+  protected void logMismatchDiagnostics(
+      String tag,
+      SearchResults results,
+      float[][] dataset,
+      float[][] queries,
+      BitSet[] prefilters,
+      int topK) {
+    int n = dataset.length;
+    int dim = dataset[0].length;
+    for (int q = 0; q < results.getResults().size(); q++) {
+      double[] d = new double[n];
+      int nPass = 0;
+      for (int j = 0; j < n; j++) {
+        if (prefilters != null && !prefilters[q].get(j)) {
+          d[j] = Double.POSITIVE_INFINITY;
+          continue;
+        }
+        nPass++;
+        double s = 0;
+        for (int k = 0; k < dim; k++) {
+          double t = (double) queries[q][k] - (double) dataset[j][k];
+          s += t * t;
+        }
+        d[j] = s;
+      }
+      double[] sorted = d.clone();
+      java.util.Arrays.sort(sorted);
+      double kth = sorted[Math.min(topK, n) - 1];
+      double win = sorted[Math.min(topK * 2 + 10, n) - 1];
+      Map<Integer, Float> r = results.getResults().get(q);
+      List<Map.Entry<Integer, Float>> sortedRes =
+          r.entrySet().stream().sorted(Map.Entry.comparingByValue()).toList();
+      int good = 0;
+      for (var e : sortedRes) {
+        int id = e.getKey();
+        if (id >= 0 && id < n && d[id] <= kth) good++;
+      }
+      StringBuilder sb = new StringBuilder();
+      sb.append(
+          String.format(
+              "DIAG %s q=%d n=%d dim=%d k=%d nPass=%d returned=%d recall@k=%.3f kth=%.4f"
+                  + " win(2k+10)=%.4f",
+              tag, q, n, dim, topK, nPass, r.size(), (double) good / topK, kth, win));
+      for (int j = 0; j < Math.min(5, sortedRes.size()); j++) {
+        int id = sortedRes.get(j).getKey();
+        float got = sortedRes.get(j).getValue();
+        if (id < 0 || id >= n) {
+          sb.append(String.format(" | #%d id=%d INVALID got=%.4f", j, id, got));
+          continue;
+        }
+        int rank = 0;
+        int ties = 0;
+        for (int t = 0; t < n; t++) {
+          if (d[t] < d[id]) rank++;
+          else if (d[t] == d[id] && t != id) ties++;
+        }
+        sb.append(
+            String.format(
+                " | #%d id=%d rank=%d ties=%d exact=%.4f got=%.4f pass=%b",
+                j, id, rank, ties, d[id], got, prefilters == null || prefilters[q].get(id)));
+      }
+      log.info(sb.toString());
+    }
+  }
+
   protected static void checkResults(
       List<Map<Integer, Float>> expected, List<Map<Integer, Float>> actual) {
     List<Map<Integer, Float>> sortedExpected = new ArrayList<Map<Integer, Float>>();

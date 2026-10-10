@@ -11,7 +11,6 @@ import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import java.util.BitSet;
 import java.util.List;
 import org.junit.Before;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.slf4j.Logger;
@@ -35,7 +34,7 @@ public class CagraRandomizedIT extends CuVSTestCase {
     DEVICE
   }
 
-  @Ignore // https://github.com/nvidia/cuvs/issues/1468
+  // [DO NOT MERGE] re-enabled to reproduce #1468 / #1048 / #631
   @Test
   public void testResultsTopKWithRandomValues() throws Throwable {
     TestDatasetMemoryKind[] testDatasetMemoryKinds = {
@@ -46,6 +45,22 @@ public class CagraRandomizedIT extends CuVSTestCase {
         tmpResultsTopKWithRandomValues(datasetMemoryKind);
       }
     }
+  }
+
+  /**
+   * Gives the index the device-padded vectors CAGRA search needs. A device matrix whose rows are
+   * already padded can only be viewed, not copied.
+   */
+  private static AutoCloseable attachPaddedDataset(CagraIndex index, CuVSMatrix deviceVectors)
+      throws Throwable {
+    if (CagraIndex.isPaddedDataset(deviceVectors)) {
+      var view = index.makePaddedDatasetView(deviceVectors);
+      index.updateDataset(view);
+      return view;
+    }
+    var dataset = index.makePaddedDataset(deviceVectors);
+    index.updateDataset(dataset);
+    return dataset;
   }
 
   private void tmpResultsTopKWithRandomValues(TestDatasetMemoryKind datasetMemoryKind)
@@ -153,7 +168,11 @@ public class CagraRandomizedIT extends CuVSTestCase {
       }
       log.trace("Index built successfully.");
 
-      try (var queryVectors = CuVSMatrix.ofArray(queries)) {
+      // CAGRA search needs the device-padded vectors, whatever memory the index was built from.
+      try (var hostVectors = CuVSMatrix.ofArray(vectors);
+          var deviceVectors = hostVectors.toDevice(resources);
+          var indexDataset = attachPaddedDataset(index, deviceVectors);
+          var queryVectors = CuVSMatrix.ofArray(queries)) {
         // Execute search and retrieve results
         CagraQuery.Builder queryBuilder =
             new CagraQuery.Builder(resources)
@@ -169,7 +188,22 @@ public class CagraRandomizedIT extends CuVSTestCase {
         log.trace("Query built successfully. Executing search...");
         SearchResults results = index.search(query);
 
-        compareResults(results, expected, topK, datasetSize, numQueries);
+        try {
+          compareResults(results, expected, topK, datasetSize, numQueries);
+        } catch (AssertionError e) {
+          log.info(
+              "MISMATCH seed={} n={} dim={} q={} k={} prefilter={} kind={}",
+              com.carrotsearch.randomizedtesting.RandomizedContext.current()
+                  .getRunnerSeedAsString(),
+              datasetSize,
+              dimensions,
+              numQueries,
+              topK,
+              usePrefilter,
+              datasetMemoryKind);
+          logMismatchDiagnostics("cagra", results, vectors, queries, prefilters, topK);
+          throw e;
+        }
       } finally {
         index.close();
       }
