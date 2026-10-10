@@ -74,4 +74,68 @@ INSTANTIATE_TEST_CASE_P(AnnHnswInmemSpillTest,
                         AnnHnswInmemSpillTest_float,
                         ::testing::ValuesIn(hnsw_inmem_spill_inputs));
 
+// One nonaligned shape per scalar; avoid crossing the full ACE parameter matrix.
+typedef AnnHnswAceTest<float, float, uint32_t> AnnHnswLayeredSourcesTest_float;
+TEST_P(AnnHnswLayeredSourcesTest_float, RegularBuild)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::regular);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_float, InMemoryAceBuild)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::inmem_ace);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_float, DeviceStandardAttached)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::device_standard_attached);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_float, DeviceStandardExplicit)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::device_standard_explicit);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_float, DevicePaddedAttached)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::device_padded_attached);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_float, DevicePaddedExplicit)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::device_padded_explicit);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_float, HostStandard)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::host_standard);
+}
+
+TEST_P(AnnHnswLayeredSourcesTest_float, HostPadded)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::host_padded);
+}
+
+INSTANTIATE_TEST_CASE_P(
+  AnnHnswLayeredSourcesTest,
+  AnnHnswLayeredSourcesTest_float,
+  ::testing::Values(AnnHnswAceInputs{
+    10, 2000, 17, 10, 2, 100, false, cuvs::distance::DistanceType::L2Expanded, 0.9}));
+
+// Keep a small input regression alongside the larger conversion cases.
+typedef AnnHnswAceTest<float, float, uint32_t> AnnHnswLayeredTinyTest_float;
+TEST_P(AnnHnswLayeredTinyTest_float, RegularBuild)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::regular);
+}
+TEST_P(AnnHnswLayeredTinyTest_float, InMemoryAceBuild)
+{
+  this->testHnswAceLayeredBuildDeserializeSearch(LayeredSource::inmem_ace);
+}
+INSTANTIATE_TEST_CASE_P(
+  AnnHnswLayeredTinyTest,
+  AnnHnswLayeredTinyTest_float,
+  ::testing::Values(AnnHnswAceInputs{
+    10, 256, 17, 10, 2, 100, false, cuvs::distance::DistanceType::L2Expanded, 0.9}));
+
 }  // namespace cuvs::neighbors::hnsw
