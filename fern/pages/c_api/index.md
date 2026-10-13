@@ -11,6 +11,7 @@ These pages are generated from the documented public headers in the cuVS source 
 
 - [C API](/api-reference/c-api-core-c-api)
 - [Dataset](/api-reference/c-api-core-dataset)
+- [Filter](/api-reference/c-api-core-filter)
 
 ## Distance
 

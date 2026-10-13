@@ -278,6 +278,8 @@ navigation:
             path: "./pages/c_api/c-api-core-c-api.md"
           - page: "Core Dataset"
             path: "./pages/c_api/c-api-core-dataset.md"
+          - page: "Core Filter"
+            path: "./pages/c_api/c-api-core-filter.md"
           - page: "Distance Distance"
             path: "./pages/c_api/c-api-distance-distance.md"
           - page: "Distance Pairwise Distance"

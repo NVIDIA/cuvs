@@ -296,6 +296,176 @@ Creates a new TieredIndex Builder.
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:169`_
 
+### mergeCagraIndexes
+
+```java
+CagraIndex mergeCagraIndexes( CagraIndex[] indexes, long mergedDatasetHandleAddress, long[] offsets, CagraIndexParams mergeParams) throws Throwable
+```
+
+Merges multiple CAGRA indexes into a single index, using a caller-owned pre-concatenated
+padded dataset.
+
+See CagraIndex.PaddedDataset, long[]) for the full
+`mergedDatasetHandleAddress`/`offsets` contract; this SPI method takes the raw
+native handle address so implementations don't need to depend on the concrete dataset
+wrapper type.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `indexes` | Array of CAGRA indexes to merge |
+| `mergedDatasetHandleAddress` | native handle address of the caller-owned padded dataset (or padded dataset view) holding the concatenation of every input index's rows, in `indexes` order |
+| `offsets` | Per-index starting row within the merged dataset. Array of \{@code indexes.length + 1\} entries; the last entry must equal the merged dataset's row count |
+| `mergeParams` | Parameters to control the merge operation, or null to use defaults |
+
+**Returns**
+
+A new merged CAGRA index
+
+**Throws**
+
+| Type | Description |
+| --- | --- |
+| `Throwable` | if an error occurs during the merge operation |
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:192`_
+
+### mergeCagraIndexes
+
+```java
+default CagraIndex mergeCagraIndexes( CagraIndex[] indexes, long mergedDatasetHandleAddress, long[] offsets, BitSet filter, CagraIndexParams mergeParams) throws Throwable
+```
+
+Merges multiple CAGRA indexes into a single index, using a caller-owned pre-concatenated
+padded dataset that was already filtered by `filter` (or unfiltered, if `filter`
+is null).
+
+This is declared as a `default` method so that adding it does not break binary
+compatibility with providers compiled against an earlier version of this interface; the
+default implementation falls back to \{@link #mergeCagraIndexes(CagraIndex[], long, long[],
+CagraIndexParams)\} when `filter` is null, and otherwise throws \{@link
+UnsupportedOperationException\}.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `indexes` | Array of CAGRA indexes to merge |
+| `mergedDatasetHandleAddress` | native handle address of the caller-owned padded dataset (or padded dataset view) holding the concatenation of every input index's surviving rows, in `indexes` order |
+| `offsets` | Per-index starting row within the merged dataset. Array of \{@code indexes.length + 1\} entries; the last entry must equal the merged dataset's row count |
+| `filter` | Bitset selecting which rows (over the concatenation of every index's rows, in `indexes` order) survive into the merged dataset; a set bit keeps the row. Pass null for an unfiltered merge |
+| `mergeParams` | Parameters to control the merge operation, or null to use defaults |
+
+**Returns**
+
+A new merged CAGRA index
+
+**Throws**
+
+| Type | Description |
+| --- | --- |
+| `Throwable` | if an error occurs during the merge operation |
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:224`_
+
+### cagraMergedDatasetOffsets
+
+```java
+default long[] cagraMergedDatasetOffsets(CagraIndex[] indexes, BitSet filter) throws Throwable
+```
+
+Computes per-index write offsets for a bitset-filtered merged dataset buffer.
+
+See BitSet) for the full contract.
+This is declared as a `default` method for the same binary-compatibility reason as
+long, long[], BitSet, CagraIndexParams); the default
+implementation throws `UnsupportedOperationException`.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `indexes` | Array of CAGRA indexes that will be merged |
+| `filter` | Bitset selecting which rows (over the concatenation of every index's rows, in `indexes` order) survive; a set bit keeps the row |
+
+**Returns**
+
+Array of `indexes.length + 1` entries, as described in \{@link CagraIndex#mergedDatasetOffsets(CagraIndex[], BitSet)\}
+
+**Throws**
+
+| Type | Description |
+| --- | --- |
+| `Throwable` | if an error occurs |
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:253`_
+
+### concatenateCagraDatasets
+
+```java
+default CagraIndex.PaddedDataset concatenateCagraDatasets(CagraIndex[] indexes) throws Throwable
+```
+
+Concatenates every input index's dataset (unfiltered, in `indexes` order) into a newly
+allocated, owning padded dataset.
+
+See `CagraIndex#concatenateDatasets(CagraIndex[])` for the full contract. This is
+declared as a `default` method for the same binary-compatibility reason as \{@link
+#mergeCagraIndexes(CagraIndex[], long, long[], BitSet, CagraIndexParams)\}; the default
+implementation throws `UnsupportedOperationException`.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `indexes` | Array of CAGRA indexes to concatenate |
+
+**Returns**
+
+A newly allocated owning padded dataset, as described in \{@link CagraIndex#concatenateDatasets(CagraIndex[])\}
+
+**Throws**
+
+| Type | Description |
+| --- | --- |
+| `Throwable` | if an error occurs |
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:272`_
+
+### concatenateAndFilterCagraDatasets
+
+```java
+default CagraIndex.PaddedDataset concatenateAndFilterCagraDatasets( CagraIndex[] indexes, BitSet filter) throws Throwable
+```
+
+Concatenates every input index's dataset (in `indexes` order), retaining only the rows
+selected by `filter`, into a newly allocated, owning padded dataset.
+
+See BitSet) for the full
+contract. This is declared as a `default` method for the same binary-compatibility
+reason as long, long[], BitSet, CagraIndexParams);
+the default implementation throws `UnsupportedOperationException`.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `indexes` | Array of CAGRA indexes to concatenate |
+| `filter` | Bitset selecting which rows (over the concatenation of every index's rows, in `indexes` order) survive into the output; a set bit keeps the row |
+
+**Returns**
+
+A newly allocated owning padded dataset, as described in \{@link CagraIndex#concatenateAndFilterDatasets(CagraIndex[], BitSet)\}
+
+**Throws**
+
+| Type | Description |
+| --- | --- |
+| `Throwable` | if an error occurs |
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:293`_
+
 ### isCagraPaddedDataset
 
 ```java
@@ -327,37 +497,7 @@ true when the rows are already padded the way CAGRA requires
 | --- | --- |
 | `UnsupportedOperationException` | if this provider cannot answer |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:186`_
-
-### mergeCagraIndexes
-
-```java
-CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter) throws Throwable
-```
-
-Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
-`rowFilter`. See CagraIndexParams, BitSet) for the
-meaning of the filter.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `indexes` | Array of CAGRA indexes to merge |
-| `mergeParams` | Parameters to control the merge operation, or null to use defaults |
-| `rowFilter` | The rows to keep, or null to keep all of them |
-
-**Returns**
-
-A new merged CAGRA index
-
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `Throwable` | if an error occurs during the merge operation |
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:202`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:313`_
 
 ### newFilterBitsetHandle
 
@@ -374,7 +514,7 @@ Per-partition bit offsets are recomputed inside cuVS from the index sizes.
 | --- | --- |
 | `combinedLongs` | packed bitset words for a single partition |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:211`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:324`_
 
 ### searchCagraMultiPartition
 
@@ -400,7 +540,7 @@ Searches multiple CAGRA index partitions for the global top-k nearest neighbors 
 | --- | --- |
 | `Throwable` | if an error occurs during the search |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:224`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:337`_
 
 ### gpuInfoProvider
 
@@ -410,7 +550,7 @@ GPUInfoProvider gpuInfoProvider()
 
 Returns a `GPUInfoProvider` to query the system for GPU related information
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:233`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:346`_
 
 ### enableRMMPooledMemory
 
@@ -429,7 +569,7 @@ This operation has a global effect, and will affect all resources on the current
 | `initialPoolSizePercent` | The initial pool size, in percentage of the total GPU memory |
 | `maxPoolSizePercent` | The maximum pool size, in percentage of the total GPU memory |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:247`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:360`_
 
 ### enableRMMManagedPooledMemory
 
@@ -448,7 +588,7 @@ This operation has a global effect, and will affect all resources on the current
 | `initialPoolSizePercent` | The initial pool size, in percentage of the total GPU memory |
 | `maxPoolSizePercent` | The maximum pool size, in percentage of the total GPU memory |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:257`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:370`_
 
 ### enableRMMAsyncMemory
 
@@ -463,7 +603,7 @@ on deallocation. This is especially beneficial when multiple CAGRA searches run 
 on separate CUDA streams, because internal workspace allocations no longer serialize kernel
 launches. This operation has a global effect and will affect all resources on the current device.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:267`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:380`_
 
 ### resetRMMPooledMemory
 
@@ -473,7 +613,7 @@ void resetRMMPooledMemory()
 
 Disables pooled memory on the current device, reverting back to the default setting.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:270`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:383`_
 
 ### provider
 
@@ -483,7 +623,7 @@ static CuVSProvider provider()
 
 Retrieves the system-wide provider.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:273`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:386`_
 
 ### cagraIndexParamsFromHnswParams
 
@@ -513,7 +653,7 @@ may be shifted along the curve right or left. See the heuristics descriptions fo
 
 A new CAGRA index parameters object
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:293`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:406`_
 
 ### cagraIndexParamsFromDataset
 
@@ -537,6 +677,6 @@ Create CAGRA index parameters heuristically tuned for a dataset.
 
 A new CAGRA index parameters object
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:311`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:424`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:18`_
