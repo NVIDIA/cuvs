@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -78,6 +78,16 @@ auto create_algo(const std::string& algo_name,
   if constexpr (std::is_same_v<T, float> || std::is_same_v<T, uint8_t> ||
                 std::is_same_v<T, int8_t>) {
     if (algo_name == "raft_ivf_flat" || algo_name == "cuvs_ivf_flat") {
+      typename cuvs::bench::cuvs_ivf_flat<T, int64_t>::build_param param;
+      parse_build_param<T, int64_t>(conf, param);
+      a = std::make_unique<cuvs::bench::cuvs_ivf_flat<T, int64_t>>(metric, dim, param);
+    }
+  }
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (algo_name == "cuvs_binary_ivf_flat") {
+      if (metric != cuvs::bench::Metric::kBitwiseHamming) {
+        throw std::invalid_argument("cuvs_binary_ivf_flat requires bitwise_hamming distance");
+      }
       typename cuvs::bench::cuvs_ivf_flat<T, int64_t>::build_param param;
       parse_build_param<T, int64_t>(conf, param);
       a = std::make_unique<cuvs::bench::cuvs_ivf_flat<T, int64_t>>(metric, dim, param);
@@ -162,6 +172,14 @@ auto create_search_param(const std::string& algo_name, const nlohmann::json& con
   if constexpr (std::is_same_v<T, float> || std::is_same_v<T, uint8_t> ||
                 std::is_same_v<T, int8_t>) {
     if (algo_name == "raft_ivf_flat" || algo_name == "cuvs_ivf_flat") {
+      auto param =
+        std::make_unique<typename cuvs::bench::cuvs_ivf_flat<T, int64_t>::search_param>();
+      parse_search_param<T, int64_t>(conf, *param);
+      return param;
+    }
+  }
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (algo_name == "cuvs_binary_ivf_flat") {
       auto param =
         std::make_unique<typename cuvs::bench::cuvs_ivf_flat<T, int64_t>::search_param>();
       parse_search_param<T, int64_t>(conf, *param);

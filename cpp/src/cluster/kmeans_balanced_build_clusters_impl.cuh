@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -50,10 +50,19 @@ void build_clusters(const raft::resources& handle,
                     MappingOpT mapping_op,
                     std::optional<raft::device_vector_view<const MathT>> X_norm)
 {
+  cuvs::cluster::kmeans::detail::validate_packed_binary_metric(params);
+  RAFT_EXPECTS(centroids.extent(0) > IndexT{0},
+               "The number of centroids must be strictly positive");
   RAFT_EXPECTS(X.extent(0) == labels.extent(0),
                "Number of rows in dataset and labels are different");
-  RAFT_EXPECTS(X.extent(1) == centroids.extent(1),
+  auto centers_dim =
+    cuvs::cluster::kmeans::detail::centers_dim<DataT>(X.extent(1), params.is_packed_binary);
+  RAFT_EXPECTS(centers_dim == centroids.extent(1),
                "Number of features in dataset and centroids are different");
+  RAFT_EXPECTS(X.extent(0) <= std::numeric_limits<IndexT>::max() / centers_dim,
+               "The chosen index type cannot represent all indices for the given dataset");
+  RAFT_EXPECTS(!X_norm.has_value() || X_norm->extent(0) == X.extent(0),
+               "Number of rows in dataset and norms are different");
   RAFT_EXPECTS(centroids.extent(0) == cluster_sizes.extent(0),
                "Number of rows in centroids and clusyer_sizes are different");
 

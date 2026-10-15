@@ -37,6 +37,9 @@ faiss_cpu_hnsw_flat:
 cuvs_ivf_flat:
   executable: CUVS_IVF_FLAT_ANN_BENCH
   requires_gpu: true
+cuvs_binary_ivf_flat:
+  executable: CUVS_IVF_FLAT_ANN_BENCH
+  requires_gpu: true
 cuvs_ivf_pq:
   executable: CUVS_IVF_PQ_ANN_BENCH
   requires_gpu: true
