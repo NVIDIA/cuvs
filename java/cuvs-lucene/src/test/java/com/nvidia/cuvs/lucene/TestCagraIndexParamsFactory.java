@@ -197,7 +197,7 @@ public class TestCagraIndexParamsFactory extends LuceneTestCase {
 
   /**
    * The heuristic type must reach cuVS rather than being pinned to the default: under
-   * SIMILAR_SEARCH_PERFORMANCE cuVS derives {@code graph_degree = 2 + maxConn * 2 / 3} instead of
+   * SIMILAR_SEARCH_PERFORMANCE cuVS derives {@code graph_degree = maxConn} instead of
    * SAME_GRAPH_FOOTPRINT's {@code 2 * maxConn}. Requires the native cuVS library.
    */
   @Test
@@ -217,7 +217,7 @@ public class TestCagraIndexParamsFactory extends LuceneTestCase {
     CagraIndexParams cagraParams = CagraIndexParamsFactory.create(params, 10_000, 128);
 
     // Distinguishes the two heuristics: SAME_GRAPH_FOOTPRINT would yield 2 * 48 = 96.
-    assertEquals(2 + 48 * 2 / 3, cagraParams.getGraphDegree());
+    assertEquals(48, cagraParams.getGraphDegree());
   }
 
   /**

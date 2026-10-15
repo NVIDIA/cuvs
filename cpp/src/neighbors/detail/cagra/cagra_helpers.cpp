@@ -66,6 +66,11 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
   size_t prune_dev = n_rows * intermediate_degree * index_size;  // d_input_graph
   prune_dev += prune_dev_fixed;
 
+  // d_natural_degree (only allocated when variable_graph_degree_fraction < 1.0). It is held for
+  // the whole duration of optimize(), so it stays live across the prune, reverse-graph and
+  // combine stages alike.
+  size_t natural_degree_dev = n_rows * sizeof(uint32_t);
+
   // Reverse graph stage memory
   size_t rev_dev = n_rows * graph_degree * index_size;  // d_rev_graph
   rev_dev += n_rows * sizeof(uint32_t);                 // d_rev_graph_count
@@ -95,7 +100,7 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
 
   size_t total_host       = mst_host + combine_host + debug_host_size;
   size_t total_host_fixed = mst_host_fixed + combine_host_fixed;
-  size_t total_dev        = std::max(prune_dev, rev_dev + combine_dev);
+  size_t total_dev        = natural_degree_dev + std::max(prune_dev, rev_dev + combine_dev);
   size_t total_dev_fixed  = std::max(prune_dev_fixed, combine_dev_fixed);
 
   return std::make_tuple(total_host, total_dev, total_host_fixed, total_dev_fixed);
