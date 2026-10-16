@@ -70,6 +70,7 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
         bool use_disk
         double max_host_memory_gb
         double max_gpu_memory_gb
+        double target_alpha
     ctypedef cuvsAceParams* cuvsAceParams_t
 
     ctypedef struct cuvsCagraIndexParams:

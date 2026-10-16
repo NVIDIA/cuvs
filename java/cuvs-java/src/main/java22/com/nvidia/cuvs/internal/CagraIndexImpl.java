@@ -1145,6 +1145,7 @@ public class CagraIndexImpl implements CagraIndex {
           cuvsAceParamsMemorySegment, cuVSAceParams.getMaxHostMemoryGb());
       cuvsAceParams.max_gpu_memory_gb(
           cuvsAceParamsMemorySegment, cuVSAceParams.getMaxGpuMemoryGb());
+      cuvsAceParams.target_alpha(cuvsAceParamsMemorySegment, cuVSAceParams.getTargetAlpha());
 
       String buildDir = cuVSAceParams.getBuildDir();
       if (buildDir != null && !buildDir.isEmpty()) {

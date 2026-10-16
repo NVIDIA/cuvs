@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include "../../../src/neighbors/detail/cagra/cagra_ace.cuh"
 #include "../ann_cagra.cuh"
 
 #include <utility>
@@ -154,3 +155,89 @@ TEST(AnnCagraMultiPartition, MixedGraphDegreeRejected)
 }
 
 }  // namespace cuvs::neighbors::cagra
+
+namespace cuvs::neighbors::cagra::detail {
+
+TEST(AceBudget, RejectsSpillOffsetOverflow)
+{
+  constexpr uint64_t limit = std::numeric_limits<uint32_t>::max();
+  EXPECT_TRUE(ace_spill_count_fits<uint32_t>(0));
+  EXPECT_TRUE(ace_spill_count_fits<uint32_t>(limit));
+  EXPECT_FALSE(ace_spill_count_fits<uint32_t>(limit + 1));
+  // Original IDs fit, but three spill copies per row do not.
+  EXPECT_FALSE(ace_spill_count_fits<uint32_t>(1'500'000'000ULL * 3));
+}
+
+TEST(AceBudget, SubsamplesFiniteAndInfiniteQuantileTies)
+{
+  for (const float score : {0.0f, std::numeric_limits<float>::infinity()}) {
+    auto gate = ace_target_alpha_threshold(std::vector<float>(300, score), 100, 3, 0.25);
+    EXPECT_EQ(gate.threshold, score);
+    EXPECT_DOUBLE_EQ(gate.tie_probability, 1.0 / 12.0);
+    size_t accepted = 0;
+    for (size_t row = 0; row < 100'000; ++row) {
+      for (size_t partition = 1; partition <= 3; ++partition) {
+        accepted += gate.accepts(score, row, partition);
+      }
+    }
+    EXPECT_NEAR(static_cast<double>(accepted) / 100'000, 0.25, 0.01);
+  }
+}
+
+TEST(AceBudget, AccountsForScoresBelowThreshold)
+{
+  auto gate = ace_target_alpha_threshold({0, 1, 1, 1, 2, 2}, 2, 3, 1.0);
+  EXPECT_EQ(gate.threshold, 1);
+  EXPECT_DOUBLE_EQ(gate.tie_probability, 1.0 / 3.0);
+  EXPECT_TRUE(gate.accepts(0, 5, 1));
+  EXPECT_FALSE(gate.accepts(2, 5, 1));
+}
+
+TEST(AceBudget, ZeroAndMaximumBudgets)
+{
+  const std::vector<float> scores{0, 1, std::numeric_limits<float>::infinity()};
+  auto zero = ace_target_alpha_threshold(scores, 1, 3, 0.0);
+  auto full = ace_target_alpha_threshold(scores, 1, 3, 3.0);
+  for (const float score : scores) {
+    EXPECT_FALSE(zero.accepts(score, 0, 1));
+    EXPECT_TRUE(full.accepts(score, 0, 1));
+  }
+}
+
+TEST(AceBudget, LabelingBatchRespectsHostAndGpuBudgetsAbove8192Partitions)
+{
+  constexpr size_t rows = 2'000'000, partitions = 16384, dim = 128;
+  constexpr size_t samples    = 1'638'400;
+  constexpr size_t gpu_fixed  = sizeof(float) * (samples + partitions) * dim;
+  constexpr size_t pairs      = sizeof(float) * partitions * partitions;
+  constexpr size_t host_fixed = sizeof(float) * (samples * dim + 3 * samples) + pairs;
+  constexpr size_t per_row    = sizeof(float) * (dim + partitions);
+  constexpr size_t ample      = 8ULL << 30;
+  EXPECT_EQ(ace_labeling_sample_count(1000, 20), 1000);
+  EXPECT_EQ(ace_labeling_batch_size(rows, dim, partitions, 1.0, ample, ample), 32768);
+  // This GPU budget fits the pair matrix but only 20000 assignment rows.
+  EXPECT_EQ(ace_labeling_batch_size(rows, dim, partitions, 1.0, gpu_fixed + 20000 * per_row, ample),
+            20000);
+  EXPECT_EQ(ace_labeling_batch_size(rows, dim, partitions, 1.0, ample, host_fixed + 7 * per_row),
+            7);
+  EXPECT_EQ(ace_labeling_batch_size(rows, dim, partitions, 1.0, ample, host_fixed + per_row - 1),
+            0);
+  EXPECT_EQ(ace_labeling_batch_size(rows, dim, partitions, 1.0, gpu_fixed + pairs - 1, ample), 0);
+  // Core-only builds need no pair matrix or score vectors.
+  EXPECT_GT(ace_labeling_batch_size(rows, dim, partitions, 0.0, gpu_fixed + pairs - 1, ample), 0);
+  EXPECT_EQ(ace_labeling_batch_size(10, dim, 2, 1.0, ample, ample), 10);
+  EXPECT_EQ(ace_labeling_batch_size(rows, dim, partitions, 1.0, 0, ample), 0);
+}
+
+TEST(AceBudget, LabelingMemoryRejectsImpossibleDimensions)
+{
+  EXPECT_EQ(ace_labeling_batch_size(1'000'000,
+                                    std::numeric_limits<size_t>::max(),
+                                    16384,
+                                    1.0,
+                                    std::numeric_limits<size_t>::max(),
+                                    std::numeric_limits<size_t>::max()),
+            0);
+}
+
+}  // namespace cuvs::neighbors::cagra::detail

@@ -22,6 +22,15 @@ from cuvs.tests.ann_utils import (
 )
 
 
+def test_ace_target_alpha_params():
+    """Preserve default and explicit alpha values in the Python parameter object."""
+    defaults = cagra.AceParams()
+    configured = cagra.AceParams(target_alpha=1.5)
+
+    assert defaults.target_alpha == 1.0
+    assert configured.target_alpha == 1.5
+
+
 def run_cagra_ace_build_search_test(
     n_rows=10000,
     n_cols=10,
@@ -35,7 +44,10 @@ def run_cagra_ace_build_search_test(
     ef_construction=100,
     use_disk=False,
     hierarchy="gpu",
+    target_alpha=1.0,
+    expected_recall=0.7,
 ):
+    """Build and search ACE indexes, reloading HNSW output for disk builds."""
     dataset = generate_data((n_rows, n_cols), dtype)
     queries = generate_data((n_queries, n_cols), dtype)
     if metric == "inner_product":
@@ -55,6 +67,7 @@ def run_cagra_ace_build_search_test(
             ef_construction=ef_construction,
             build_dir=temp_dir,
             use_disk=use_disk,
+            target_alpha=target_alpha,
         )
 
         # Build parameters
@@ -104,7 +117,8 @@ def run_cagra_ace_build_search_test(
             skl_idx = nn_skl.kneighbors(queries, return_distance=False)
 
             recall = calc_recall(out_idx_host, skl_idx)
-            assert recall > 0.7
+            assert recall >= expected_recall
+            assert np.all((out_idx_host >= 0) & (out_idx_host < n_rows))
 
             # test that we can get the cagra graph from the index
             graph = index.graph
@@ -157,7 +171,9 @@ def run_cagra_ace_build_search_test(
             )
 
             recall = calc_recall(out_idx, skl_idx)
-            assert recall > 0.7
+            assert recall >= expected_recall
+            assert np.all((out_idx >= 0) & (out_idx < n_rows))
+            assert np.all(np.isfinite(out_dist))
 
 
 def _build_ace_with_disk_workspace(dataset, build_dir):
@@ -287,7 +303,7 @@ def test_cagra_ace_tiny_memory_limit_triggers_disk_mode():
             ef_construction=100,
             build_dir=temp_dir,
             use_disk=False,  # Not explicitly requesting disk mode
-            max_host_memory_gb=0.001,  # Tiny limit to force disk mode
+            max_host_memory_gb=0.004,  # Fit labeling buffers but force disk mode
             max_gpu_memory_gb=0.0,  # No GPU memory limit
         )
 
@@ -316,3 +332,47 @@ def test_cagra_ace_tiny_memory_limit_triggers_disk_mode():
         assert os.path.exists(reordered_file), (
             "Reordered dataset file should exist when disk mode is triggered"
         )
+
+
+@pytest.mark.parametrize(
+    ("target_alpha", "npartitions"),
+    [(-1.0, 4), (float("nan"), 4), (float("inf"), 4), (3.5, 4), (1.5, 2)],
+)
+def test_ace_rejects_invalid_target_alpha(target_alpha, npartitions, tmp_path):
+    """Validate alpha through the build, including the effective partition limit."""
+    dataset = np.zeros((4096, 16), dtype=np.float32)
+    build_dir = tmp_path / "ace"
+    ace_params = cagra.AceParams(
+        npartitions=npartitions,
+        target_alpha=target_alpha,
+        use_disk=True,
+        build_dir=str(build_dir),
+    )
+    params = cagra.IndexParams(build_algo="ace", ace_params=ace_params)
+    with pytest.raises(CuvsException, match="target_alpha"):
+        cagra.build(params, dataset)
+    assert not build_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("target_alpha", "use_disk", "npartitions"),
+    [(0.0, False, 2), (1.5, True, 3)],
+)
+def test_ace_target_alpha_build_search(target_alpha, use_disk, npartitions):
+    """Exercise zero/multiple spills and reload disk indexes before searching."""
+    run_cagra_ace_build_search_test(
+        # Keep 1000 rows per partition so ACE preserves the requested count.
+        n_rows=1000 * npartitions,
+        n_cols=8,
+        n_queries=16,
+        k=4,
+        npartitions=npartitions,
+        ef_construction=64,
+        hierarchy="none",
+        target_alpha=target_alpha,
+        use_disk=use_disk,
+        # Core-only graphs can be disconnected; do not impose a quality target.
+        expected_recall=0.0 if target_alpha == 0.0 else 0.7,
+        graph_degree=16,
+        intermediate_graph_degree=32,
+    )
