@@ -430,6 +430,16 @@ jobs:
           - '!python/**'
           - '!rust/**'
           - '!thirdparty/LICENSES/**'
+        devcontainer_build_inputs:
+          - '.devcontainer/**'
+          - '.github/workflows/pr.yaml'
+          - 'RAPIDS_BRANCH'
+          - 'c/**'
+          - 'cmake/**'
+          - 'cpp/**'
+          - 'dependencies.yaml'
+          - 'python/**'
+          - '!**/*.md'
   checks:
     needs: telemetry-setup
     uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
@@ -768,7 +778,8 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    needs: telemetry-setup
+    needs: [telemetry-setup, changed-files]
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).devcontainer_build_inputs
     uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@main
     with:
       arch: '["amd64", "arm64"]'
