@@ -18,6 +18,8 @@
 
 #include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/add.cuh>
+#include <raft/linalg/map.cuh>
+#include <raft/linalg/unary_op.cuh>
 #include <raft/matrix/gather.cuh>
 #include <raft/util/fast_int_div.cuh>
 #include <rmm/cuda_stream_pool.hpp>
@@ -67,6 +69,11 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
 
   void testIVFFlat()
   {
+    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming) &&
+        !(std::is_same_v<DataT, uint8_t>)) {
+      GTEST_SKIP();
+    }
+
     size_t queries_size = ps.num_queries * ps.k;
     std::vector<IdxT> indices_ivfflat(queries_size);
     std::vector<IdxT> indices_naive(queries_size);
@@ -190,6 +197,27 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
         cuvs::neighbors::ivf_flat::index<DataT, IdxT> index_loaded(handle_);
         cuvs::neighbors::ivf_flat::deserialize(handle_, index_file.filename, &index_loaded);
         ASSERT_EQ(index_2.size(), index_loaded.size());
+        if (index_2.binary_index()) {
+          ASSERT_TRUE(cuvs::devArrMatch(index_2.binary_centers().data_handle(),
+                                        index_loaded.binary_centers().data_handle(),
+                                        index_2.binary_centers().size(),
+                                        cuvs::Compare<uint8_t>(),
+                                        stream_.get()));
+        }
+        if (index_2.binary_index() && index_2.adaptive_centers()) {
+          ASSERT_TRUE(cuvs::devArrMatch(index_2.binary_center_counts().data_handle(),
+                                        index_loaded.binary_center_counts().data_handle(),
+                                        index_2.binary_center_counts().size(),
+                                        cuvs::Compare<uint32_t>(),
+                                        stream_.get()));
+        }
+        if (!index_2.binary_index()) {
+          ASSERT_TRUE(cuvs::devArrMatch(index_2.centers().data_handle(),
+                                        index_loaded.centers().data_handle(),
+                                        index_2.centers().size(),
+                                        cuvs::Compare<float>(),
+                                        stream_.get()));
+        }
 
         cuvs::neighbors::ivf_flat::search(handle_,
                                           search_params,
@@ -206,41 +234,53 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
 
         // Test the centroid invariants
         if (index_2.adaptive_centers()) {
-          // The centers must be up-to-date with the corresponding data
-          std::vector<uint32_t> list_sizes(index_2.n_lists());
-          std::vector<IdxT*> list_indices(index_2.n_lists());
-          rmm::device_uvector<float> centroid(ps.dim, stream_);
-          raft::copy(
-            list_sizes.data(), index_2.list_sizes().data_handle(), index_2.n_lists(), stream_);
-          raft::copy(
-            list_indices.data(), index_2.inds_ptrs().data_handle(), index_2.n_lists(), stream_);
-          raft::resource::sync_stream(handle_);
-          for (uint32_t l = 0; l < index_2.n_lists(); l++) {
-            if (list_sizes[l] == 0) continue;
-            rmm::device_uvector<float> cluster_data(list_sizes[l] * ps.dim, stream_);
-            cuvs::spatial::knn::detail::utils::copy_selected<float>((IdxT)list_sizes[l],
-                                                                    (IdxT)ps.dim,
-                                                                    database.data(),
-                                                                    list_indices[l],
-                                                                    (IdxT)ps.dim,
-                                                                    cluster_data.data(),
-                                                                    (IdxT)ps.dim,
-                                                                    stream_);
-            raft::stats::mean<true, float, uint32_t>(
-              centroid.data(), cluster_data.data(), ps.dim, list_sizes[l], false, stream_.get());
-            ASSERT_TRUE(cuvs::devArrMatch(index_2.centers().data_handle() + ps.dim * l,
-                                          centroid.data(),
-                                          ps.dim,
-                                          cuvs::CompareApprox<float>(0.001),
-                                          stream_.get()));
+          // Skip centroid verification for BitwiseHamming metric
+          if (ps.metric != cuvs::distance::DistanceType::BitwiseHamming) {
+            // The centers must be up-to-date with the corresponding data
+            std::vector<uint32_t> list_sizes(index_2.n_lists());
+            std::vector<IdxT*> list_indices(index_2.n_lists());
+            rmm::device_uvector<float> centroid(ps.dim, stream_);
+            raft::copy(
+              list_sizes.data(), index_2.list_sizes().data_handle(), index_2.n_lists(), stream_);
+            raft::copy(
+              list_indices.data(), index_2.inds_ptrs().data_handle(), index_2.n_lists(), stream_);
+            raft::resource::sync_stream(handle_);
+            for (uint32_t l = 0; l < index_2.n_lists(); l++) {
+              if (list_sizes[l] == 0) continue;
+              rmm::device_uvector<float> cluster_data(list_sizes[l] * ps.dim, stream_);
+              cuvs::spatial::knn::detail::utils::copy_selected<float>((IdxT)list_sizes[l],
+                                                                      (IdxT)ps.dim,
+                                                                      database.data(),
+                                                                      list_indices[l],
+                                                                      (IdxT)ps.dim,
+                                                                      cluster_data.data(),
+                                                                      (IdxT)ps.dim,
+                                                                      stream_);
+              raft::stats::mean<true, float, uint32_t>(
+                centroid.data(), cluster_data.data(), ps.dim, list_sizes[l], false, stream_.get());
+              ASSERT_TRUE(cuvs::devArrMatch(index_2.centers().data_handle() + ps.dim * l,
+                                            centroid.data(),
+                                            ps.dim,
+                                            cuvs::CompareApprox<float>(0.001),
+                                            stream_.get()));
+            }
           }
         } else {
           // The centers must be immutable
-          ASSERT_TRUE(cuvs::devArrMatch(index_2.centers().data_handle(),
-                                        idx.centers().data_handle(),
-                                        index_2.centers().size(),
-                                        cuvs::Compare<float>(),
-                                        stream_.get()));
+          if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming) {
+            // For BitwiseHamming, compare binary centers
+            ASSERT_TRUE(cuvs::devArrMatch(index_2.binary_centers().data_handle(),
+                                          idx.binary_centers().data_handle(),
+                                          index_2.binary_centers().size(),
+                                          cuvs::Compare<uint8_t>(),
+                                          stream_.get()));
+          } else {
+            ASSERT_TRUE(cuvs::devArrMatch(index_2.centers().data_handle(),
+                                          idx.centers().data_handle(),
+                                          index_2.centers().size(),
+                                          cuvs::Compare<float>(),
+                                          stream_.get()));
+          }
         }
       }
       float eps = std::is_same_v<DataT, half> ? 0.005 : 0.001;
@@ -257,6 +297,11 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
 
   void testPacker()
   {
+    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming) &&
+        !(std::is_same_v<DataT, uint8_t>)) {
+      GTEST_SKIP();
+    }
+
     ivf_flat::index_params index_params;
     ivf_flat::search_params search_params;
     index_params.n_lists          = ps.nlist;
@@ -330,13 +375,11 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
             [dim = idx.dim(),
              list_size,
              padded_list_size,
-             chunk_size = raft::util::FastIntDiv<int32_t>(
-               static_cast<int32_t>(idx.veclen()))] __device__(auto i) {
+             chunk_size = raft::util::FastIntDiv<int64_t>(idx.veclen())] __device__(auto i) {
               uint32_t max_group_offset = interleaved_group::roundDown(list_size);
               if (i < max_group_offset * dim) { return true; }
-              uint32_t surplus = (i - max_group_offset * dim);
-              uint32_t ingroup_id =
-                interleaved_group::mod(static_cast<int32_t>(surplus) / chunk_size);
+              uint32_t surplus    = (i - max_group_offset * dim);
+              uint32_t ingroup_id = interleaved_group::mod(int64_t(surplus) / chunk_size);
               return ingroup_id < (list_size - max_group_offset);
             });
 
@@ -391,6 +434,11 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
 
   void testFilter()
   {
+    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming) &&
+        !(std::is_same_v<DataT, uint8_t>)) {
+      GTEST_SKIP();
+    }
+
     size_t queries_size = ps.num_queries * ps.k;
     std::vector<IdxT> indices_ivfflat(queries_size);
     std::vector<IdxT> indices_naive(queries_size);
@@ -498,6 +546,12 @@ class AnnIVFFlatTest : public ::testing::TestWithParam<AnnIvfFlatInputs<IdxT>> {
         handle_, r, database.data(), ps.num_db_vecs * ps.dim, DataT(0.1), DataT(2.0));
       raft::random::uniform(
         handle_, r, search_queries.data(), ps.num_queries * ps.dim, DataT(0.1), DataT(2.0));
+    } else if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
+               std::is_same_v<DataT, uint8_t>) {
+      raft::random::uniformInt(
+        handle_, r, database.data(), ps.num_db_vecs * ps.dim, DataT(0), DataT(255));
+      raft::random::uniformInt(
+        handle_, r, search_queries.data(), ps.num_queries * ps.dim, DataT(0), DataT(255));
     } else {
       raft::random::uniformInt(
         handle_, r, database.data(), ps.num_db_vecs * ps.dim, DataT(1), DataT(20));
@@ -527,14 +581,19 @@ const std::vector<AnnIvfFlatInputs<int64_t>> inputs = {
   {1000, 10000, 1, 16, 40, 1024, cuvs::distance::DistanceType::L2Expanded, true},
   {1000, 10000, 2, 16, 40, 1024, cuvs::distance::DistanceType::L2Expanded, false},
   {1000, 10000, 2, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
+  {1000, 10000, 2, 16, 40, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
   {1000, 10000, 3, 16, 40, 1024, cuvs::distance::DistanceType::L2Expanded, true},
   {1000, 10000, 3, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, true},
+  {1000, 10000, 3, 16, 40, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
   {1000, 10000, 4, 16, 40, 1024, cuvs::distance::DistanceType::L2Expanded, false},
   {1000, 10000, 4, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
+  {1000, 10000, 4, 16, 40, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
   {1000, 10000, 5, 16, 40, 1024, cuvs::distance::DistanceType::InnerProduct, false},
   {1000, 10000, 5, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
+  {1000, 10000, 5, 16, 40, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
   {1000, 10000, 8, 16, 40, 1024, cuvs::distance::DistanceType::InnerProduct, true},
   {1000, 10000, 8, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, true},
+  {1000, 10000, 8, 16, 40, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
   {1000, 10000, 5, 16, 40, 1024, cuvs::distance::DistanceType::L2SqrtExpanded, false},
   {1000, 10000, 5, 16, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
   {1000, 10000, 8, 16, 40, 1024, cuvs::distance::DistanceType::L2SqrtExpanded, true},
@@ -561,50 +620,70 @@ const std::vector<AnnIvfFlatInputs<int64_t>> inputs = {
   // various random combinations
   {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::L2Expanded, false},
   {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
+  {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
   {1000, 10000, 16, 10, 50, 1024, cuvs::distance::DistanceType::L2Expanded, false},
   {1000, 10000, 16, 10, 50, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
+  {1000, 10000, 16, 10, 50, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
   {1000, 10000, 16, 10, 70, 1024, cuvs::distance::DistanceType::L2Expanded, false},
   {1000, 10000, 16, 10, 70, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
+  {1000, 10000, 16, 10, 70, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
   {100, 10000, 16, 10, 20, 512, cuvs::distance::DistanceType::L2Expanded, false},
   {100, 10000, 16, 10, 20, 512, cuvs::distance::DistanceType::CosineExpanded, false},
+  {100, 10000, 16, 10, 20, 512, cuvs::distance::DistanceType::BitwiseHamming, false},
   {20, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::L2Expanded, true},
   {20, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::CosineExpanded, true},
   {1000, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::L2Expanded, true},
   {1000, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::CosineExpanded, true},
+  {1000, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
   {10000, 131072, 8, 10, 20, 1024, cuvs::distance::DistanceType::L2Expanded, false},
   {10000, 131072, 8, 10, 20, 1024, cuvs::distance::DistanceType::CosineExpanded, false},
+  {10000, 131072, 8, 10, 20, 1024, cuvs::distance::DistanceType::BitwiseHamming, false},
 
   // host input data
   {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::L2Expanded, false, true},
   {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true},
+  {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true},
   {1000, 10000, 16, 10, 50, 1024, cuvs::distance::DistanceType::L2Expanded, false, true},
   {1000, 10000, 16, 10, 50, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true},
+  {1000, 10000, 16, 10, 50, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true},
   {1000, 10000, 16, 10, 70, 1024, cuvs::distance::DistanceType::L2Expanded, false, true},
   {1000, 10000, 16, 10, 70, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true},
+  {1000, 10000, 16, 10, 70, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true},
   {100, 10000, 16, 10, 20, 512, cuvs::distance::DistanceType::L2Expanded, false, true},
   {100, 10000, 16, 10, 20, 512, cuvs::distance::DistanceType::CosineExpanded, false, true},
+  {100, 10000, 16, 10, 20, 512, cuvs::distance::DistanceType::BitwiseHamming, false, true},
   {20, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::L2Expanded, false, true},
   {20, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true},
+  {20, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true},
   {1000, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::L2Expanded, false, true},
   {1000, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true},
+  {1000, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true},
   {10000, 131072, 8, 10, 20, 1024, cuvs::distance::DistanceType::L2Expanded, false, true},
   {10000, 131072, 8, 10, 20, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true},
+  {10000, 131072, 8, 10, 20, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true},
 
   // // host input data with prefetching for kernel copy overlapping
   {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::L2Expanded, false, true, true},
   {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true, true},
+  {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true, true},
   {1000, 10000, 16, 10, 50, 1024, cuvs::distance::DistanceType::L2Expanded, false, true, true},
   {1000, 10000, 16, 10, 50, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true, true},
+  {1000, 10000, 16, 10, 50, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true, true},
   {1000, 10000, 16, 10, 70, 1024, cuvs::distance::DistanceType::L2Expanded, false, true, true},
   {1000, 10000, 16, 10, 70, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true, true},
+  {1000, 10000, 16, 10, 70, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true, true},
   {100, 10000, 16, 10, 20, 512, cuvs::distance::DistanceType::L2Expanded, false, true, true},
   {100, 10000, 16, 10, 20, 512, cuvs::distance::DistanceType::CosineExpanded, false, true, true},
+  {100, 10000, 16, 10, 20, 512, cuvs::distance::DistanceType::BitwiseHamming, false, true, true},
   {20, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::L2Expanded, false, true, true},
   {20, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true, true},
+  {20, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true, true},
   {1000, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::L2Expanded, false, true, true},
   {1000, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true, true},
+  {1000, 100000, 16, 10, 20, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true, true},
   {10000, 131072, 8, 10, 20, 1024, cuvs::distance::DistanceType::L2Expanded, false, true, true},
   {10000, 131072, 8, 10, 20, 1024, cuvs::distance::DistanceType::CosineExpanded, false, true, true},
+  {10000, 131072, 8, 10, 20, 1024, cuvs::distance::DistanceType::BitwiseHamming, false, true, true},
 
   {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::InnerProduct, true},
   {1000, 10000, 16, 10, 40, 1024, cuvs::distance::DistanceType::CosineExpanded, true},
@@ -627,10 +706,13 @@ const std::vector<AnnIvfFlatInputs<int64_t>> inputs = {
   // test splitting the big query batches  (> max gridDim.y) into smaller batches
   {100000, 1024, 32, 10, 64, 64, cuvs::distance::DistanceType::InnerProduct, false},
   {100000, 1024, 32, 10, 64, 64, cuvs::distance::DistanceType::CosineExpanded, false},
+  {100000, 1024, 32, 10, 64, 64, cuvs::distance::DistanceType::BitwiseHamming, false},
   {1000000, 1024, 32, 10, 256, 256, cuvs::distance::DistanceType::InnerProduct, false},
   {1000000, 1024, 32, 10, 256, 256, cuvs::distance::DistanceType::CosineExpanded, false},
+  {1000000, 1024, 32, 10, 256, 256, cuvs::distance::DistanceType::BitwiseHamming, false},
   {98306, 1024, 32, 10, 64, 64, cuvs::distance::DistanceType::InnerProduct, true},
   {98306, 1024, 32, 10, 64, 64, cuvs::distance::DistanceType::CosineExpanded, true},
+  {98306, 1024, 32, 10, 64, 64, cuvs::distance::DistanceType::BitwiseHamming, false},
 
   // test radix_sort for getting the cluster selection
   {1000,
@@ -657,10 +739,24 @@ const std::vector<AnnIvfFlatInputs<int64_t>> inputs = {
    raft::matrix::detail::select::warpsort::kMaxCapacity * 4,
    cuvs::distance::DistanceType::CosineExpanded,
    false},
+  {1000,
+   10000,
+   16,
+   10,
+   raft::matrix::detail::select::warpsort::kMaxCapacity * 4,
+   raft::matrix::detail::select::warpsort::kMaxCapacity * 4,
+   cuvs::distance::DistanceType::BitwiseHamming,
+   false},
 
   // The following two test cases should show very similar recall.
   // num_queries, num_db_vecs, dim, k, nprobe, nlist, metric, adaptive_centers
   {20000, 8712, 3, 10, 51, 66, cuvs::distance::DistanceType::L2Expanded, false},
-  {100000, 8712, 3, 10, 51, 66, cuvs::distance::DistanceType::L2Expanded, false}};
+  {100000, 8712, 3, 10, 51, 66, cuvs::distance::DistanceType::L2Expanded, false},
+
+  // BitwiseHamming with adaptive centers
+  {1000, 10000, 32, 16, 20, 80, cuvs::distance::DistanceType::BitwiseHamming, true},
+  {1000, 10000, 64, 16, 20, 80, cuvs::distance::DistanceType::BitwiseHamming, true},
+  {1000, 10000, 128, 16, 20, 80, cuvs::distance::DistanceType::BitwiseHamming, true},
+};
 
 }  // namespace cuvs::neighbors::ivf_flat

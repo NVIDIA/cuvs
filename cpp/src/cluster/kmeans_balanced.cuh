@@ -73,10 +73,12 @@ void fit(const raft::resources& handle,
          MappingOpT mapping_op                                = raft::identity_op(),
          std::optional<raft::host_scalar_view<MathT>> inertia = std::nullopt)
 {
-  RAFT_EXPECTS(X.extent(1) == centroids.extent(1),
+  cuvs::cluster::kmeans::detail::validate_packed_binary_metric(params);
+  auto centers_dim =
+    cuvs::cluster::kmeans::detail::centers_dim<DataT>(X.extent(1), params.is_packed_binary);
+  RAFT_EXPECTS(centers_dim == centroids.extent(1),
                "Number of features in dataset and centroids are different");
-  RAFT_EXPECTS(static_cast<uint64_t>(X.extent(0)) * static_cast<uint64_t>(X.extent(1)) <=
-                 static_cast<uint64_t>(std::numeric_limits<IndexT>::max()),
+  RAFT_EXPECTS(X.extent(0) <= std::numeric_limits<IndexT>::max() / centers_dim,
                "The chosen index type cannot represent all indices for the given dataset");
   RAFT_EXPECTS(centroids.extent(0) > IndexT{0} && centroids.extent(0) <= X.extent(0),
                "The number of centroids must be strictly positive and cannot exceed the number of "
@@ -135,12 +137,16 @@ void predict(const raft::resources& handle,
              raft::device_vector_view<LabelT, IndexT> labels,
              MappingOpT mapping_op = raft::identity_op())
 {
+  cuvs::cluster::kmeans::detail::validate_packed_binary_metric(params);
   RAFT_EXPECTS(X.extent(0) == labels.extent(0),
                "Number of rows in dataset and labels are different");
-  RAFT_EXPECTS(X.extent(1) == centroids.extent(1),
+  auto centers_dim =
+    cuvs::cluster::kmeans::detail::centers_dim<DataT>(X.extent(1), params.is_packed_binary);
+  RAFT_EXPECTS(centers_dim == centroids.extent(1),
                "Number of features in dataset and centroids are different");
-  RAFT_EXPECTS(static_cast<uint64_t>(X.extent(0)) * static_cast<uint64_t>(X.extent(1)) <=
-                 static_cast<uint64_t>(std::numeric_limits<IndexT>::max()),
+  RAFT_EXPECTS(centroids.extent(0) > 0, "The number of centroids must be strictly positive");
+  RAFT_EXPECTS(X.extent(0) <= std::numeric_limits<IndexT>::max() / centers_dim &&
+                 centroids.extent(0) <= std::numeric_limits<IndexT>::max() / centers_dim,
                "The chosen index type cannot represent all indices for the given dataset");
   RAFT_EXPECTS(static_cast<uint64_t>(centroids.extent(0)) <=
                  static_cast<uint64_t>(std::numeric_limits<LabelT>::max()),
@@ -266,13 +272,16 @@ EXTERN_TEMPLATE_BUILD_CLUSTERS(
  * @param[in]  X              Dataset for which to calculate cluster centers. The data must be in
  *                            row-major format. [dim = n_samples x n_features]
  * @param[in]  labels         The input labels [dim = n_samples]
- * @param[out] centroids      The output centroids [dim = n_clusters x n_features]
+ * @param[out] centroids      The output centroids
+ *                            [dim = n_clusters x
+ *                            (is_packed_binary ? 8 * n_features : n_features)]
  * @param[out] cluster_sizes  Size of each cluster [dim = n_clusters]
  * @param[in]  reset_counters Whether to clear the output arrays before calculating.
  *                            When set to `false`, this function may be used to update existing
  *                            centers and sizes using the weighted average principle.
  * @param[in]  mapping_op     (optional) Functor to convert from the input datatype to the
  *                            arithmetic datatype. If DataT == MathT, this must be the identity.
+ * @param[in]  is_packed_binary Treat uint8_t X as packed bits. Requires DataT == uint8_t.
  */
 template <typename DataT,
           typename MathT,
@@ -286,14 +295,20 @@ void calc_centers_and_sizes(const raft::resources& handle,
                             raft::device_matrix_view<MathT, IndexT> centroids,
                             raft::device_vector_view<CounterT, IndexT> cluster_sizes,
                             bool reset_counters   = true,
-                            MappingOpT mapping_op = raft::identity_op())
+                            MappingOpT mapping_op = raft::identity_op(),
+                            bool is_packed_binary = false)
 {
   RAFT_EXPECTS(X.extent(0) == labels.extent(0),
                "Number of rows in dataset and labels are different");
-  RAFT_EXPECTS(X.extent(1) == centroids.extent(1),
+  auto centers_dim =
+    cuvs::cluster::kmeans::detail::centers_dim<DataT>(X.extent(1), is_packed_binary);
+  RAFT_EXPECTS(centers_dim == centroids.extent(1),
                "Number of features in dataset and centroids are different");
+  RAFT_EXPECTS(X.extent(0) <= std::numeric_limits<IndexT>::max() / centers_dim &&
+                 centroids.extent(0) <= std::numeric_limits<IndexT>::max() / centers_dim,
+               "The chosen index type cannot represent all indices for the given dataset");
   RAFT_EXPECTS(centroids.extent(0) == cluster_sizes.extent(0),
-               "Number of rows in centroids and clusyer_sizes are different");
+               "Number of rows in centroids and cluster_sizes are different");
 
   cuvs::cluster::kmeans::detail::calc_centers_and_sizes(
     handle,
@@ -305,6 +320,7 @@ void calc_centers_and_sizes(const raft::resources& handle,
     X.extent(0),
     labels.data_handle(),
     reset_counters,
+    is_packed_binary,
     mapping_op,
     raft::resource::get_workspace_resource_ref(handle));
 }
