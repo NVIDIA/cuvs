@@ -45,9 +45,18 @@ enum class HnswHierarchy { NONE, CPU, GPU };
  * @brief Output artifact format for an HNSW index
  *
  * `HNSWLIB` produces the standard hnswlib index format. `GRAPH_ONLY` stores the graph
- * separately from vectors. The current implementation requires `HnswHierarchy::GPU` and
- * disk-backed ACE. Load a graph-only artifact with the two-filename `deserialize` overload, which
- * reads the vectors from a separate local dataset.
+ * separately from vectors and requires `HnswHierarchy::GPU`. Regular CAGRA, in-memory ACE, and
+ * disk-backed ACE all support this format. Load a graph-only artifact with the two-filename
+ * `deserialize` overload and a separate dataset in original row order before searching.
+ *
+ * With `GRAPH_ONLY`, `build` and `from_cagra` construct the hierarchy and write the graph-only
+ * file before returning. The returned index refers to that file; it is not yet searchable.
+ * For an in-memory CAGRA source, the index owns a temporary directory that is deleted when the
+ * index is destroyed. Use `serialize` to save the graph outside that directory. Disk-backed ACE
+ * output remains in the caller's build directory after the index is destroyed.
+ *
+ * For a complete build, save, load, and search example, see
+ * [hnsw_ace_layered_example.cu](https://github.com/NVIDIA/cuvs/blob/main/examples/cpp/src/hnsw_ace_layered_example.cu).
  */
 enum class HnswOutputFormat {
   HNSWLIB,
@@ -64,8 +73,7 @@ enum class HnswOutputFormat {
 struct index_params : cuvs::neighbors::index_params {
   /** Hierarchy build type for HNSW index when converting from CAGRA index */
   HnswHierarchy hierarchy = HnswHierarchy::GPU;
-  /** Output artifact format. Graph-only output currently requires a GPU hierarchy and disk-backed
-   * ACE. */
+  /** Output artifact format. Graph-only output requires a GPU hierarchy. */
   HnswOutputFormat output_format = HnswOutputFormat::HNSWLIB;
   /** Size of the candidate list during hierarchy construction when hierarchy is `CPU`*/
   int ef_construction = 200;
@@ -199,6 +207,10 @@ struct index : cuvs::neighbors::index {
 
   /**
   @brief Get file path for disk-backed index
+
+  Graph-only artifacts from in-memory builds are temporary and remain valid while this handle is
+  alive. Use `serialize` to save a persistent copy. Disk-backed ACE artifacts remain in the
+  caller's build directory.
   */
   virtual std::string file_path() const { return ""; }
 
@@ -486,12 +498,24 @@ std::unique_ptr<index<int8_t>> build(
  *       3. `GPU`: The hierarchy is constructed on the GPU.
  * When `output_format` is `GRAPH_ONLY`, the GPU-built hierarchy is stored as graph links only.
  * Reload it with the two-filename `deserialize` overload so vectors can be reconstructed from the
- * local dataset.
+ * local dataset in original row order. In-memory conversion returns a handle owning a temporary
+ * artifact. Call `serialize` before destroying the handle to preserve it.
+ *
+ * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
+ * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the existing CAGRA graph,
+ * in the directory selected by `ace_params.build_dir` when that graph was built. `from_cagra`
+ * derives this path from the CAGRA graph file; it does not select a new build directory.
+ * Conversion fails if `hnsw_index.cuvs` already exists. Before repeating conversion, move the
+ * previous artifact elsewhere or use a fresh graph directory.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
- * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU`
+ * @param[in] dataset optional original-order host vectors. For a GPU hierarchy, including
+ * `GRAPH_ONLY`, provide these if the CAGRA index has no attached device dataset. Rows and logical
+ * dimensions must match the CAGRA index. Attached padded device datasets are supported.
  *
  * Usage example:
  * @code{.cpp}
@@ -526,12 +550,24 @@ std::unique_ptr<index<float>> from_cagra(
  *       3. `GPU`: The hierarchy is constructed on the GPU.
  * When `output_format` is `GRAPH_ONLY`, the GPU-built hierarchy is stored as graph links only.
  * Reload it with the two-filename `deserialize` overload so vectors can be reconstructed from the
- * local dataset.
+ * local dataset in original row order. In-memory conversion returns a handle owning a temporary
+ * artifact. Call `serialize` before destroying the handle to preserve it.
+ *
+ * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
+ * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the existing CAGRA graph,
+ * in the directory selected by `ace_params.build_dir` when that graph was built. `from_cagra`
+ * derives this path from the CAGRA graph file; it does not select a new build directory.
+ * Conversion fails if `hnsw_index.cuvs` already exists. Before repeating conversion, move the
+ * previous artifact elsewhere or use a fresh graph directory.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
- * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU`
+ * @param[in] dataset optional original-order host vectors. For a GPU hierarchy, including
+ * `GRAPH_ONLY`, provide these if the CAGRA index has no attached device dataset. Rows and logical
+ * dimensions must match the CAGRA index. Attached padded device datasets are supported.
  *
  * Usage example:
  * @code{.cpp}
@@ -566,12 +602,24 @@ std::unique_ptr<index<half>> from_cagra(
  *       3. `GPU`: The hierarchy is constructed on the GPU.
  * When `output_format` is `GRAPH_ONLY`, the GPU-built hierarchy is stored as graph links only.
  * Reload it with the two-filename `deserialize` overload so vectors can be reconstructed from the
- * local dataset.
+ * local dataset in original row order. In-memory conversion returns a handle owning a temporary
+ * artifact. Call `serialize` before destroying the handle to preserve it.
+ *
+ * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
+ * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the existing CAGRA graph,
+ * in the directory selected by `ace_params.build_dir` when that graph was built. `from_cagra`
+ * derives this path from the CAGRA graph file; it does not select a new build directory.
+ * Conversion fails if `hnsw_index.cuvs` already exists. Before repeating conversion, move the
+ * previous artifact elsewhere or use a fresh graph directory.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
- * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU`
+ * @param[in] dataset optional original-order host vectors. For a GPU hierarchy, including
+ * `GRAPH_ONLY`, provide these if the CAGRA index has no attached device dataset. Rows and logical
+ * dimensions must match the CAGRA index. Attached padded device datasets are supported.
  *
  * Usage example:
  * @code{.cpp}
@@ -606,12 +654,24 @@ std::unique_ptr<index<uint8_t>> from_cagra(
  *       3. `GPU`: The hierarchy is constructed on the GPU.
  * When `output_format` is `GRAPH_ONLY`, the GPU-built hierarchy is stored as graph links only.
  * Reload it with the two-filename `deserialize` overload so vectors can be reconstructed from the
- * local dataset.
+ * local dataset in original row order. In-memory conversion returns a handle owning a temporary
+ * artifact. Call `serialize` before destroying the handle to preserve it.
+ *
+ * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
+ * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the existing CAGRA graph,
+ * in the directory selected by `ace_params.build_dir` when that graph was built. `from_cagra`
+ * derives this path from the CAGRA graph file; it does not select a new build directory.
+ * Conversion fails if `hnsw_index.cuvs` already exists. Before repeating conversion, move the
+ * previous artifact elsewhere or use a fresh graph directory.
  *
  * @param[in] res raft resources
  * @param[in] params hnsw index parameters
  * @param[in] cagra_index cagra index
- * @param[in] dataset optional dataset to avoid extra memory copy when hierarchy is `CPU`
+ * @param[in] dataset optional original-order host vectors. For a GPU hierarchy, including
+ * `GRAPH_ONLY`, provide these if the CAGRA index has no attached device dataset. Rows and logical
+ * dimensions must match the CAGRA index. Attached padded device datasets are supported.
  *
  * Usage example:
  * @code{.cpp}
@@ -638,7 +698,17 @@ std::unique_ptr<index<int8_t>> from_cagra(
  * @brief Construct an hnswlib index from a device-standard CAGRA index.
  *
  * When the index has an attached device dataset view, `dataset` may be omitted. Otherwise pass a
- * host matrix with the vectors (same contract as `device_padded_index`).
+ * host matrix with the vectors (same contract as `device_padded_index`). `GRAPH_ONLY` requires
+ * a GPU hierarchy and follows the same dataset and temporary-artifact contracts.
+ *
+ * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
+ * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the existing CAGRA graph,
+ * in the directory selected by `ace_params.build_dir` when that graph was built. `from_cagra`
+ * derives this path from the CAGRA graph file; it does not select a new build directory.
+ * Conversion fails if `hnsw_index.cuvs` already exists. Before repeating conversion, move the
+ * previous artifact elsewhere or use a fresh graph directory.
  */
 std::unique_ptr<index<float>> from_cagra(
   raft::resources const& res,
@@ -671,6 +741,19 @@ std::unique_ptr<index<int8_t>> from_cagra(
 /**
  * @brief Construct an hnswlib index from a host-built CAGRA index.
  * Requires `dataset` for in-memory indices — host builds do not store vectors in the index.
+ * `GRAPH_ONLY` requires a GPU hierarchy and explicit `dataset` vectors for both in-memory and
+ * disk-backed indices. Supply vectors in original row order with matching row count and logical
+ * dimensions. For in-memory conversion, serialize the returned temporary graph artifact before
+ * destroying the handle.
+ *
+ * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
+ * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the existing CAGRA graph,
+ * in the directory selected by `ace_params.build_dir` when that graph was built. `from_cagra`
+ * derives this path from the CAGRA graph file; it does not select a new build directory.
+ * Conversion fails if `hnsw_index.cuvs` already exists. Before repeating conversion, move the
+ * previous artifact elsewhere or use a fresh graph directory.
  */
 std::unique_ptr<index<float>> from_cagra(
   raft::resources const& res,
@@ -703,6 +786,19 @@ std::unique_ptr<index<int8_t>> from_cagra(
 /**
  * @brief Construct an hnswlib index from a host-built CAGRA index (standard dataset layout).
  * Requires `dataset` for in-memory indices — host builds do not store vectors in the index.
+ * `GRAPH_ONLY` requires a GPU hierarchy and explicit `dataset` vectors for both in-memory and
+ * disk-backed indices. Supply vectors in original row order with matching row count and logical
+ * dimensions. For in-memory conversion, serialize the returned temporary graph artifact before
+ * destroying the handle.
+ *
+ * `GRAPH_ONLY` conversion does not support composite CAGRA indexes with `source_indices()`
+ * mappings. Disk-backed ACE's internal row mapping is supported and restored to original row IDs.
+ *
+ * Disk-backed `GRAPH_ONLY` conversion creates `hnsw_index.cuvs` beside the existing CAGRA graph,
+ * in the directory selected by `ace_params.build_dir` when that graph was built. `from_cagra`
+ * derives this path from the CAGRA graph file; it does not select a new build directory.
+ * Conversion fails if `hnsw_index.cuvs` already exists. Before repeating conversion, move the
+ * previous artifact elsewhere or use a fresh graph directory.
  */
 std::unique_ptr<index<float>> from_cagra(
   raft::resources const& res,
@@ -1103,7 +1199,12 @@ void search(raft::resources const& res,
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
  * When `output_format` is `GRAPH_ONLY`, the saved artifact stores the graph only.
- * Load it with the two-filename `deserialize` overload and a local dataset.
+ * Load it with the two-filename `deserialize` overload and a local dataset in original row order.
+ * For an in-memory CAGRA source, conversion creates an internal temporary directory that is
+ * deleted when the returned index is destroyed. Serialize outside that directory to keep the
+ * graph file. Serializing to the index's current `file_path()` does not transfer ownership.
+ * A caller-supplied `ace_params.build_dir` used for disk-backed ACE is not an owned temporary
+ * directory: destroying the index does not remove that directory or its graph file.
  *
  * @param[in] res raft resources
  * @param[in] filename path to the serialized HNSW output
@@ -1134,7 +1235,12 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
  * When `output_format` is `GRAPH_ONLY`, the saved artifact stores the graph only.
- * Load it with the two-filename `deserialize` overload and a local dataset.
+ * Load it with the two-filename `deserialize` overload and a local dataset in original row order.
+ * For an in-memory CAGRA source, conversion creates an internal temporary directory that is
+ * deleted when the returned index is destroyed. Serialize outside that directory to keep the
+ * graph file. Serializing to the index's current `file_path()` does not transfer ownership.
+ * A caller-supplied `ace_params.build_dir` used for disk-backed ACE is not an owned temporary
+ * directory: destroying the index does not remove that directory or its graph file.
  *
  * @param[in] res raft resources
  * @param[in] filename path to the serialized HNSW output
@@ -1165,7 +1271,12 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
  * When `output_format` is `GRAPH_ONLY`, the saved artifact stores the graph only.
- * Load it with the two-filename `deserialize` overload and a local dataset.
+ * Load it with the two-filename `deserialize` overload and a local dataset in original row order.
+ * For an in-memory CAGRA source, conversion creates an internal temporary directory that is
+ * deleted when the returned index is destroyed. Serialize outside that directory to keep the
+ * graph file. Serializing to the index's current `file_path()` does not transfer ownership.
+ * A caller-supplied `ace_params.build_dir` used for disk-backed ACE is not an owned temporary
+ * directory: destroying the index does not remove that directory or its graph file.
  *
  * @param[in] res raft resources
  * @param[in] filename path to the serialized HNSW output
@@ -1196,7 +1307,12 @@ void serialize(raft::resources const& res, const std::string& filename, const in
  * However, when hierarchy is `CPU`, the saved hnswlib index is compatible with the original hnswlib
  * library.
  * When `output_format` is `GRAPH_ONLY`, the saved artifact stores the graph only.
- * Load it with the two-filename `deserialize` overload and a local dataset.
+ * Load it with the two-filename `deserialize` overload and a local dataset in original row order.
+ * For an in-memory CAGRA source, conversion creates an internal temporary directory that is
+ * deleted when the returned index is destroyed. Serialize outside that directory to keep the
+ * graph file. Serializing to the index's current `file_path()` does not transfer ownership.
+ * A caller-supplied `ace_params.build_dir` used for disk-backed ACE is not an owned temporary
+ * directory: destroying the index does not remove that directory or its graph file.
  *
  * @param[in] res raft resources
  * @param[in] filename path to the serialized HNSW output
