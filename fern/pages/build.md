@@ -25,10 +25,26 @@ Most source builds use the repository `build.sh` script. The script wraps CMake,
 
 The common source-build prerequisites are:
 
-1. CMake 3.26.4 or newer.
-2. GCC 9.3 or newer, with GCC 11.4 or newer recommended.
+1. CMake 4.0 or newer.
+2. GCC 13.3 or newer.
 3. CUDA Toolkit 12.2 or newer.
 4. An Ampere architecture GPU or newer.
+5. A Python 3 interpreter.
+6. For CUDA Toolkit 13.1 or newer, cuTile: the `cuda.tile` Python package, `tileiras` and `bin2c`. With conda install `cutile-python` and `cuda-tileiras`; with pip install `cuda-tile[tileiras]`.
+
+Optional components have additional requirements:
+
+- Multi-node multi-GPU tests (`--mnmg-tests`):
+  - UCX
+  - UCXX
+- Benchmarks (`bench-ann`):
+  - `glog`
+  - `openblas`
+  - `nlohmann_json`
+  - On x86_64, for the DiskANN algorithms:
+    - `mkl-devel` 2023
+    - `libaio`
+    - Boost 1.87 (`libboost-devel`)
 
 ### Create a Build Environment
 
