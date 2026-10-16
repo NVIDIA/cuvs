@@ -81,7 +81,7 @@ RUST_BUILD_DIR=${REPODIR}/rust/target
 JAVA_INTERNAL_BUILD_DIR=${REPODIR}/java/internal/build
 JAVA_BUILD_DIR=${REPODIR}/java/cuvs-java/target
 JAVA_PANAMA_DIR=${REPODIR}/java/cuvs-java/src/main/java22/com/nvidia/cuvs/internal/panama
-LUCENE_BUILD_DIR=${REPODIR}/java/cuvs-lucene/target
+LUCENE_BUILD_DIRS=("${REPODIR}"/java/cuvs-lucene/target "${REPODIR}"/java/cuvs-lucene/*/target)
 BUILD_DIRS=(
     "${LIBCUVS_BUILD_DIR}"
     "${PYTHON_BUILD_DIR}"
@@ -89,7 +89,7 @@ BUILD_DIRS=(
     "${JAVA_INTERNAL_BUILD_DIR}"
     "${JAVA_BUILD_DIR}"
     "${JAVA_PANAMA_DIR}"
-    "${LUCENE_BUILD_DIR}"
+    "${LUCENE_BUILD_DIRS[@]}"
 )
 
 # Set defaults for vars modified by flags to this script

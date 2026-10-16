@@ -9,7 +9,6 @@ ARGS="$*"
 NUMARGS=$#
 
 VERSION="26.12.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
-GROUP_ID="com.nvidia.cuvs.lucene"
 
 function hasArg {
     (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " $1 ")
@@ -34,22 +33,20 @@ if [ -d "${CUVS_LIB_DIR}" ]; then
     export LD_LIBRARY_PATH="${CUVS_LIB_DIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 fi
 
-MAVEN_VERIFY_ARGS=()
+# A test failure in one module doesn't stop the others: every module is tested and reported,
+# and the build still fails at the end.
+MAVEN_INSTALL_ARGS=("--fail-at-end")
 if ! hasArg --run-java-tests; then
-    MAVEN_VERIFY_ARGS=("-DskipTests")
+    MAVEN_INSTALL_ARGS+=("-DskipTests")
 fi
 
 cd "${LUCENE_DIR}"
 
-mvn clean verify "${MAVEN_VERIFY_ARGS[@]}"
-
-# Coverage data only exists when the tests actually ran.
-if hasArg --run-java-tests; then
-    mvn jacoco:report
-fi
-
-mvn install:install-file -Dfile=./target/cuvs-lucene-$VERSION.jar -DgroupId=$GROUP_ID -DartifactId=cuvs-lucene -Dversion=$VERSION -Dpackaging=jar
-cp pom.xml ./target/
+# Builds every lucene-X.Y module (one artifact per supported Lucene release), runs their tests when
+# asked to, and installs them into the local Maven repository. Each module's target/ also gets a
+# standalone pom.xml, so that it holds all the files needed to publish that module. When the tests
+# run, the build also writes their coverage report to each module's target/site/jacoco.
+mvn clean install "${MAVEN_INSTALL_ARGS[@]}"
 
 # Build the cuvs-lucene examples against the jar just installed above, to catch drift between the
 # examples and the cuvs-lucene API.

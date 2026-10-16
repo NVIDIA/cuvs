@@ -147,7 +147,7 @@ jobs:
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_lucene.sh"
       artifact-name-prefix: "cuvs-lucene"
-      file_to_upload: "java/cuvs-lucene/target/"
+      file_to_upload: "java/cuvs-lucene/*/target/"
   python-build:
     needs: [build-details, cpp-build]
     permissions:
