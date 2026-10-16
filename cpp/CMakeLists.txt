@@ -1677,19 +1677,6 @@ if(NOT BUILD_CPU_ONLY)
       INTERFACE $<LINK_ONLY:kvikio::kvikio>
     )
 
-    # ensure CUDA symbols aren't relocated to the middle of the debug build binaries
-    file(
-      WRITE "${CMAKE_CURRENT_BINARY_DIR}/fatbin.ld"
-      [=[
-SECTIONS
-{
-.nvFatBinSegment : { *(.nvFatBinSegment) }
-.nv_fatbin : { *(.nv_fatbin) }
-}
-]=]
-    )
-    target_link_options(cuvs PRIVATE $<HOST_LINK:${CMAKE_CURRENT_BINARY_DIR}/fatbin.ld>)
-
   endif()
 
   if(NOT cuvs_compile_mode STREQUAL "shared_only")
