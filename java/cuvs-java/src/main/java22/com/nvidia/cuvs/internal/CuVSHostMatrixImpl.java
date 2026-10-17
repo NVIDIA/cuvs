@@ -223,7 +223,11 @@ public class CuVSHostMatrixImpl extends CuVSMatrixBaseImpl implements CuVSHostMa
 
   @Override
   public MemorySegment toTensor(Arena arena) {
-    var strides = rowStride >= 0 ? new long[] {rowStride, columnStride} : null;
+    // DLPack strides are in elements. An unset column stride means adjacent elements, which is a
+    // stride of 1; passing it through as -1 would make every consumer reject the tensor as not
+    // row-major.
+    var strides =
+        rowStride > 0 ? new long[] {rowStride, columnStride > 0 ? columnStride : 1} : null;
     return prepareTensor(
         arena, memorySegment, new long[] {size, columns}, strides, code(), bits(), kDLCPU());
   }

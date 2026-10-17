@@ -72,6 +72,18 @@ inline bool is_f_contiguous(DLManagedTensor* managed_tensor)
   return true;
 }
 
+/**
+ * True for a 2-D tensor stored row by row, where elements within a row are adjacent and rows may
+ * be padded: no strides, or a unit element stride and a row stride of at least the row length.
+ */
+inline bool is_row_major_with_row_stride(DLManagedTensor* managed_tensor)
+{
+  auto tensor = managed_tensor->dl_tensor;
+  if (tensor.ndim != 2) { return false; }
+  if (!tensor.strides) { return true; }
+  return tensor.strides[1] == 1 && tensor.strides[0] >= tensor.shape[1];
+}
+
 inline bool is_c_contiguous(DLManagedTensor* managed_tensor)
 {
   auto tensor = managed_tensor->dl_tensor;
@@ -135,7 +147,19 @@ inline MdspanType from_dlpack(DLManagedTensor* managed_tensor)
   }
   auto exts = typename MdspanType::extents_type{shape};
 
-  return MdspanType{reinterpret_cast<typename MdspanType::data_handle_type>(tensor.data), exts};
+  if constexpr (std::is_same_v<typename MdspanType::layout_type, raft::layout_stride>) {
+    // Only row-major matrices whose rows may be padded; consumers read the row stride.
+    static_assert(MdspanType::extents_type::rank() == 2);
+    RAFT_EXPECTS(is_row_major_with_row_stride(managed_tensor),
+                 "Expected a row-major matrix (unit element stride, row stride >= row length)");
+    using index_type   = typename MdspanType::index_type;
+    index_type const n = static_cast<index_type>(tensor.shape[1]);
+    cuda::std::array<index_type, 2> strides{tensor.strides ? tensor.strides[0] : n, 1};
+    return MdspanType{reinterpret_cast<typename MdspanType::data_handle_type>(tensor.data),
+                      typename MdspanType::mapping_type{exts, strides}};
+  } else {
+    return MdspanType{reinterpret_cast<typename MdspanType::data_handle_type>(tensor.data), exts};
+  }
 }
 
 #pragma GCC diagnostic push

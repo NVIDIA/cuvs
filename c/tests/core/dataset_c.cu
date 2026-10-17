@@ -182,6 +182,46 @@ TEST(DatasetC, MakeStandardViewHostAndDevice)
   ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
 }
 
+TEST(DatasetC, ViewsAcceptRowStrides)
+{
+  cuvsResources_t res;
+  ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
+  cudaStream_t stream;
+  ASSERT_EQ(cuvsStreamGet(res, &stream), CUVS_SUCCESS);
+
+  // 30 fp32 columns: CAGRA's padded row width is 32.
+  constexpr int64_t n_rows = 64;
+  constexpr int64_t n_cols = 30;
+  std::vector<float> host(n_rows * 34, 1.0f);
+  rmm::device_uvector<float> device(n_rows * 32, stream);
+  raft::copy(device.data(), host.data(), device.size(), stream);
+
+  auto make = [&](void* data, DLDeviceType device_type, int64_t row_stride, int64_t col_stride,
+                  auto factory) {
+    MatrixTensor matrix(data, n_rows, n_cols, device_type, 32);
+    int64_t strides[2] = {row_stride, col_stride};
+    matrix.tensor.dl_tensor.strides = strides;
+    cuvsDataset_t dataset           = nullptr;
+    auto status                     = factory(res, &matrix.tensor, &dataset);
+    if (status == CUVS_SUCCESS) { EXPECT_EQ(cuvsDatasetDestroy(dataset), CUVS_SUCCESS); }
+    return status;
+  };
+
+  // A dense matrix that states its strides explicitly ({n_cols, 1}) is still dense.
+  EXPECT_EQ(make(host.data(), kDLCPU, n_cols, 1, cuvsDatasetMakeStandardView), CUVS_SUCCESS);
+  EXPECT_EQ(make(device.data(), kDLCUDA, n_cols, 1, cuvsDatasetMakeStandardView), CUVS_SUCCESS);
+  // Padded rows: a standard view takes any row stride >= n_cols, a padded view exactly CAGRA's.
+  EXPECT_EQ(make(host.data(), kDLCPU, 34, 1, cuvsDatasetMakeStandardView), CUVS_SUCCESS);
+  EXPECT_EQ(make(device.data(), kDLCUDA, 32, 1, cuvsDatasetMakePaddedView), CUVS_SUCCESS);
+  EXPECT_EQ(make(device.data(), kDLCUDA, 31, 1, cuvsDatasetMakePaddedView), CUVS_ERROR);
+  // Not row-major with adjacent elements: rejected.
+  EXPECT_EQ(make(host.data(), kDLCPU, 29, 1, cuvsDatasetMakeStandardView), CUVS_ERROR);
+  EXPECT_EQ(make(host.data(), kDLCPU, 34, 2, cuvsDatasetMakeStandardView), CUVS_ERROR);
+  EXPECT_EQ(make(host.data(), kDLCPU, 34, -1, cuvsDatasetMakeStandardView), CUVS_ERROR);
+
+  ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
+}
+
 TEST(DatasetC, MakeHostPadded)
 {
   cuvsResources_t res;

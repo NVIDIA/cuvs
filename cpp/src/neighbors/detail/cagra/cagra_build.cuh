@@ -1053,6 +1053,69 @@ auto build_cagra_host_graph_from_knn_params(raft::resources const& res,
 }
 
 /**
+ * Calls `build_graph` with a dense (row length == dim) view of `dataset` for the kNN-graph
+ * builders.
+ *
+ * NN-descent and IVF-PQ read their input as a dense row-major matrix, so they would treat a
+ * standard view's row padding (stride > dim, e.g. rows that carry a per-row trailer) as extra
+ * dimensions. Such rows are compacted first:
+ *  - host rows of 1-byte types going to NN-descent, which keeps the dataset on the device anyway,
+ *    are compacted by the pitched host-to-device copy itself, so no host copy is made and the
+ *    device copy replaces the one NN-descent would otherwise allocate;
+ *  - other host rows are compacted on the host, in parallel;
+ *  - device rows are compacted with a pitched device-to-device copy.
+ * Dense views, and padded views (whose padding is part of the CAGRA layout), are passed through.
+ */
+template <typename T, typename DatasetViewT, typename KnnParamsVariant, typename BuildGraph>
+auto with_dense_knn_dataset(raft::resources const& res,
+                            DatasetViewT const& dataset,
+                            KnnParamsVariant const& knn_build_params,
+                            BuildGraph&& build_graph)
+{
+  if constexpr (cuvs::neighbors::is_standard_dataset_view_v<DatasetViewT>) {
+    if (dataset.stride() != dataset.dim()) {
+      auto const src       = dataset.view();
+      int64_t const n_rows = src.extent(0);
+      int64_t const dim    = dataset.dim();
+      size_t const row_len = static_cast<size_t>(dim) * sizeof(T);
+      size_t const pitch   = static_cast<size_t>(dataset.stride()) * sizeof(T);
+      cudaStream_t stream  = raft::resource::get_cuda_stream(res).get();
+      common::nvtx::range<common::nvtx::domain::cuvs> fun_scope(
+        "cagra::detail::compact_strided_rows(%zu, %zu, %zu)",
+        size_t(n_rows),
+        size_t(dim),
+        size_t(dataset.stride()));
+      constexpr bool kDeviceSrc = cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>;
+      bool const to_device =
+        kDeviceSrc ||
+        (sizeof(T) == 1 &&
+         std::holds_alternative<cagra::graph_build_params::nn_descent_params>(knn_build_params));
+      if (to_device) {
+        auto packed = raft::make_device_matrix<T, int64_t>(res, n_rows, dim);
+        RAFT_CUDA_TRY(cudaMemcpy2DAsync(packed.data_handle(),
+                                        row_len,
+                                        src.data_handle(),
+                                        pitch,
+                                        row_len,
+                                        n_rows,
+                                        cudaMemcpyDefault,
+                                        stream));
+        return build_graph(raft::make_const_mdspan(packed.view()));
+      }
+      auto packed = raft::make_host_matrix<T, int64_t>(n_rows, dim);
+      auto* dst   = reinterpret_cast<char*>(packed.data_handle());
+      auto* from  = reinterpret_cast<const char*>(src.data_handle());
+#pragma omp parallel for
+      for (int64_t i = 0; i < n_rows; i++) {
+        std::memcpy(dst + i * row_len, from + i * pitch, row_len);
+      }
+      return build_graph(raft::make_const_mdspan(packed.view()));
+    }
+  }
+  return build_graph(dataset.view());
+}
+
+/**
  * Build from a host row-major matrix without uploading the full dataset early when IVF-PQ graph
  * construction can consume host batches directly. Iterative CAGRA search needs the rows on device
  * in CAGRA-padded layout and does not copy them here; pass a device dataset to `cagra::build`
@@ -1091,13 +1154,16 @@ auto build_from_host_matrix(raft::resources const& res,
         "device_standard_dataset_view). Host datasets can use IVF-PQ or NN-descent "
         "graph construction.");
     }
-    return build_cagra_host_graph_from_knn_params<T, IdxT>(res,
-                                                           params,
-                                                           knn_build_params,
-                                                           static_cast<int64_t>(n_rows),
-                                                           intermediate_degree,
-                                                           graph_degree,
-                                                           dataset.view());
+    return with_dense_knn_dataset<T>(
+      res, dataset, knn_build_params, [&](auto const& knn_graph_dataset) {
+        return build_cagra_host_graph_from_knn_params<T, IdxT>(res,
+                                                               params,
+                                                               knn_build_params,
+                                                               static_cast<int64_t>(n_rows),
+                                                               intermediate_degree,
+                                                               graph_degree,
+                                                               knn_graph_dataset);
+      });
   }();
 
   RAFT_LOG_TRACE("Graph optimized, creating index");
@@ -1144,13 +1210,16 @@ auto build_from_device_matrix(raft::resources const& res,
     auto cagra_graph = iterative_build_graph<T, IdxT>(res, params, device_dataset);
     idx.update_graph(res, std::move(cagra_graph));
   } else {
-    auto cagra_graph = build_cagra_host_graph_from_knn_params<T, IdxT>(res,
-                                                                       params,
-                                                                       knn_build_params,
-                                                                       device_dataset.n_rows(),
-                                                                       intermediate_degree,
-                                                                       graph_degree,
-                                                                       device_dataset.view());
+    auto cagra_graph = with_dense_knn_dataset<T>(
+      res, device_dataset, knn_build_params, [&](auto const& knn_graph_dataset) {
+        return build_cagra_host_graph_from_knn_params<T, IdxT>(res,
+                                                               params,
+                                                               knn_build_params,
+                                                               device_dataset.n_rows(),
+                                                               intermediate_degree,
+                                                               graph_degree,
+                                                               knn_graph_dataset);
+      });
     idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
   }
 
