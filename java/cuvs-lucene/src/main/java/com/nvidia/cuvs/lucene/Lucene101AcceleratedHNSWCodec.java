@@ -52,7 +52,7 @@ public class Lucene101AcceleratedHNSWCodec extends FilterCodec {
    */
   public Lucene101AcceleratedHNSWCodec(AcceleratedHNSWParams acceleratedHNSWParams)
       throws Exception {
-    this(NAME, LuceneProvider.getCodec("101"));
+    super(NAME, LuceneProvider.getCodec("101"));
     initializeFormat(acceleratedHNSWParams);
   }
 
