@@ -47,7 +47,11 @@ struct KmeansSNMGInputs {
 template <typename T>
 class KmeansSNMGTest : public ::testing::TestWithParam<KmeansSNMGInputs<T>> {
  protected:
-  KmeansSNMGTest() : clique_() { clique_.set_memory_pool(50); }
+  KmeansSNMGTest() : clique_()
+  {
+    clique_.set_memory_pool(50);
+    clique_.set_stream_pool(1);
+  }
 
   void runTest()
   {
