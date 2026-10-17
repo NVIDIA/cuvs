@@ -968,12 +968,12 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
 
 inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_inputs()
 {
-  return raft::util::itertools::product<AnnHnswAceInputs>(
+  auto inputs = raft::util::itertools::product<AnnHnswAceInputs>(
     {10},           // n_queries
     {5000},         // n_rows
     {64, 128},      // dim
     {10},           // k
-    {0, 1, 2, 4},   // npartitions (auto, adjusted, and explicit)
+    {2, 4},         // npartitions (explicit)
     {100},          // ef_construction
     {false, true},  // use_disk (test both modes)
     {cuvs::distance::DistanceType::L2Expanded,
@@ -982,6 +982,14 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_inputs()
     {0.0},                                         // max_host_memory_gb (0 = use default)
     {0.0}                                          // max_gpu_memory_gb (0 = use default)
   );
+  // ACE resolves npartitions 0 (auto) and 1 (adjusted) to 2 before any other partitioning logic
+  // (ace_resolve_partition_count), so crossing them with every other axis would only repeat the
+  // npartitions = 2 builds. One case each keeps the resolution path covered.
+  inputs.push_back(
+    {10, 5000, 64, 10, 0, 100, false, cuvs::distance::DistanceType::L2Expanded, 0.9, 0.0, 0.0});
+  inputs.push_back(
+    {10, 5000, 64, 10, 1, 100, true, cuvs::distance::DistanceType::InnerProduct, 0.9, 0.0, 0.0});
+  return inputs;
 }
 
 // Inputs specifically for testing memory limit fallback to disk mode
