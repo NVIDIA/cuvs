@@ -63,8 +63,8 @@ struct params : base_params {
 | `oversampling_factor` | `double` | Oversampling factor for use in the k-means\|\| algorithm.<br /><br />In the single-GPU path the value `0` is overloaded as an algorithm switch that selects the classic sequential k-means++ instead of the scalable variant. Any value `> 0` is used as-is.<br /><br />In the multi-GPU path (a `fit` call issued with a multi-GPU `handle` and device-resident inputs) any value `< 1.0` (including `0`) is internally clamped to `1.0`. Values `>= 1.0` are passed through unchanged. |
 | `batch_samples` | `int` | batch_samples and batch_centroids are used to tile 1NN computation which is useful to optimize/control the memory footprint<br />Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0 then don't tile the centroids<br /><br />NB: These parameters are unrelated to device_buffer_samples, which specifies the number of training vectors that get buffered on device when the training vectors are passed in on host. |
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
-| `init_size` | `int64_t` | Number of samples to randomly draw for the KMeansPlusPlus initialization step. A random subset of this size is used for centroid seeding.<br /><br />Only applies when dataset is on host; for device data the full dataset is always used for seeding and this parameter is ignored.<br /><br />When set to 0 (default) with host data uses `min(3 * n_clusters, n_samples)` as a default.<br /><br />In Batched multi-GPU host-data fits, the effective KMeansPlusPlus initialization sample is materialized on device on every rank. Every rank must have enough GPU memory for this sample, and rank 0 must also have enough GPU memory for the seeding workspace.<br /><br />Default: 0. |
-| `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch when fitting with host data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path and ignored by device-data overloads.<br /><br />Inputs spanning multiple batches are double-buffered when the handle has an auxiliary stream, and use one buffer otherwise. Budget about `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer, plus algorithm workspaces. Sample weights require the same number of additional buffers with `device_buffer_samples * sizeof(value_type)` bytes each.<br /><br />In multi-GPU mode this is a per-rank batch size: each rank processes up to this many local samples per batch, clamped to that rank's local sample count. This is ignored by device-data overloads.<br />Default: 0 (process all data at once). |
+| `init_size` | `int64_t` | Number of samples used for KMeansPlusPlus initialization. This applies to host floating-point input and to byte input in either memory location; device floating-point input always uses the full dataset.<br /><br />Zero uses `min(3 * n_clusters, n_samples)`; byte input also limits the<br />default to the effective batch size.<br /><br />In batched multi-GPU host-data fits, every device must hold the sample, and rank 0 must also hold the seeding workspace.<br /><br />Default: 0. |
+| `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch. This applies to host floating-point input and to byte input in either memory location. Zero processes all host floating-point rows at once and automatically sizes byte batches; device floating-point input ignores this parameter.<br /><br />Host input is double-buffered when the handle has an auxiliary stream. In floating-point multi-GPU mode this is a per-rank batch size, clamped to the local sample count. Byte-input Lloyd k-means is single-GPU only.<br /><br />Default: 0. |
 
 <a id="cluster-kmeans-balanced-donor-selection"></a>
 ### cluster::kmeans::balanced_donor_selection
@@ -305,29 +305,115 @@ raft::host_scalar_view<int64_t> n_iter);
 
 **Additional overload:** `cluster::kmeans::fit`
 
-Find clusters with k-means algorithm. Initial centroids are chosen with k-means++ algorithm. Empty clusters are reinitialized by choosing new centroids with k-means++ algorithm.
+Find clusters with Lloyd k-means from byte input.
 
 ```cpp
 void fit(raft::resources const& handle,
 const cuvs::cluster::kmeans::params& params,
-raft::device_matrix_view<const int8_t, int> X,
-std::optional<raft::device_vector_view<const int8_t, int>> sample_weight,
-raft::device_matrix_view<int8_t, int> centroids,
-raft::host_scalar_view<int8_t> inertia,
-raft::host_scalar_view<int> n_iter);
+raft::host_matrix_view<const int8_t, int64_t> X,
+std::optional<raft::host_vector_view<const float, int64_t>> sample_weight,
+raft::device_matrix_view<float, int64_t> centroids,
+raft::host_scalar_view<float> inertia,
+raft::host_scalar_view<int64_t> n_iter);
+```
+
+Supports host- and device-resident `int8_t` and `uint8_t` input on one GPU. Values are converted by batches to float32 and divided by 128 or 256, respectively. Weights, centroids, and inertia are float32; caller-provided centroids must use the normalized float space.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` | in | `raft::resources const&` | RAFT resources. |
+| `params` | in | [`const cuvs::cluster::kmeans::params&`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-params) | K-means parameters. |
+| `X` | in | `raft::host_matrix_view<const int8_t, int64_t>` | Row-major input. [n_samples x n_features] |
+| `sample_weight` | in | `std::optional<raft::host_vector_view<const float, int64_t>>` | Optional weights. [n_samples] |
+| `centroids` | inout | `raft::device_matrix_view<float, int64_t>` | Initial and fitted centroids. |
+| `inertia` | out | `raft::host_scalar_view<float>` | Sum of squared distances. |
+| `n_iter` | out | `raft::host_scalar_view<int64_t>` | Number of iterations run. |
+
+**Returns**
+
+`void`
+
+**Additional overload:** `cluster::kmeans::fit`
+
+```cpp
+void fit(raft::resources const& handle,
+const cuvs::cluster::kmeans::params& params,
+raft::device_matrix_view<const int8_t, int64_t> X,
+std::optional<raft::device_vector_view<const float, int64_t>> sample_weight,
+raft::device_matrix_view<float, int64_t> centroids,
+raft::host_scalar_view<float> inertia,
+raft::host_scalar_view<int64_t> n_iter);
 ```
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `handle` | in | `raft::resources const&` | The raft handle. |
-| `params` | in | [`const cuvs::cluster::kmeans::params&`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-params) | Parameters for KMeans model. |
-| `X` | in | `raft::device_matrix_view<const int8_t, int>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
-| `sample_weight` | in | `std::optional<raft::device_vector_view<const int8_t, int>>` | Optional weights for each observation in X. [len = n_samples] |
-| `centroids` | inout | `raft::device_matrix_view<int8_t, int>` | [in] When init is InitMethod::Array, use centroids as the initial cluster centers. [out] The generated centroids from the kmeans algorithm are stored at the address pointed by 'centroids'. [dim = n_clusters x n_features] |
-| `inertia` | out | `raft::host_scalar_view<int8_t>` | Sum of squared distances of samples to their closest cluster center. |
-| `n_iter` | out | `raft::host_scalar_view<int>` | Number of iterations run. |
+| `handle` |  | `raft::resources const&` |  |
+| `params` |  | [`const cuvs::cluster::kmeans::params&`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-params) |  |
+| `X` |  | `raft::device_matrix_view<const int8_t, int64_t>` |  |
+| `sample_weight` |  | `std::optional<raft::device_vector_view<const float, int64_t>>` |  |
+| `centroids` |  | `raft::device_matrix_view<float, int64_t>` |  |
+| `inertia` |  | `raft::host_scalar_view<float>` |  |
+| `n_iter` |  | `raft::host_scalar_view<int64_t>` |  |
+
+**Returns**
+
+`void`
+
+**Additional overload:** `cluster::kmeans::fit`
+
+```cpp
+void fit(raft::resources const& handle,
+const cuvs::cluster::kmeans::params& params,
+raft::host_matrix_view<const uint8_t, int64_t> X,
+std::optional<raft::host_vector_view<const float, int64_t>> sample_weight,
+raft::device_matrix_view<float, int64_t> centroids,
+raft::host_scalar_view<float> inertia,
+raft::host_scalar_view<int64_t> n_iter);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `params` |  | [`const cuvs::cluster::kmeans::params&`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-params) |  |
+| `X` |  | `raft::host_matrix_view<const uint8_t, int64_t>` |  |
+| `sample_weight` |  | `std::optional<raft::host_vector_view<const float, int64_t>>` |  |
+| `centroids` |  | `raft::device_matrix_view<float, int64_t>` |  |
+| `inertia` |  | `raft::host_scalar_view<float>` |  |
+| `n_iter` |  | `raft::host_scalar_view<int64_t>` |  |
+
+**Returns**
+
+`void`
+
+**Additional overload:** `cluster::kmeans::fit`
+
+```cpp
+void fit(raft::resources const& handle,
+const cuvs::cluster::kmeans::params& params,
+raft::device_matrix_view<const uint8_t, int64_t> X,
+std::optional<raft::device_vector_view<const float, int64_t>> sample_weight,
+raft::device_matrix_view<float, int64_t> centroids,
+raft::host_scalar_view<float> inertia,
+raft::host_scalar_view<int64_t> n_iter);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `params` |  | [`const cuvs::cluster::kmeans::params&`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-params) |  |
+| `X` |  | `raft::device_matrix_view<const uint8_t, int64_t>` |  |
+| `sample_weight` |  | `std::optional<raft::device_vector_view<const float, int64_t>>` |  |
+| `centroids` |  | `raft::device_matrix_view<float, int64_t>` |  |
+| `inertia` |  | `raft::host_scalar_view<float>` |  |
+| `n_iter` |  | `raft::host_scalar_view<int64_t>` |  |
 
 **Returns**
 
