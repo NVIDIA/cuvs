@@ -35,6 +35,29 @@ enum class bbq_code_layout {
 | `packed_7b` | `` | Each dimension is quantized to 7 bits and treated as a signed value. |
 | `packed_8b` | `` | Each dimension is quantized to 8 bits and treated as an unsigned value. |
 
+<a id="preprocessing-quantize-bbq-params"></a>
+### preprocessing::quantize::bbq::params
+
+```cpp
+struct params {
+  bbq_code_layout doc_layout;
+  bbq_code_layout query_layout;
+  cuvs::distance::DistanceType metric;
+  float lambda;
+  int iters;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `doc_layout` | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) | The code layout of the encoded rows on the document side of a distance |
+| `query_layout` | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) | The code layout of the encoded rows on the query side of a distance. When it differs from doc_layout, the dataset is encoded a second time in this layout. |
+| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | Used for selecting the per-row additional correction: \|\|x - c\|\|^2 for L2, x.c otherwise. |
+| `lambda` | `float` | Relative interval weight of the quantization error against the norm-preserving term of the loss. |
+| `iters` | `int` | Coordinate descent iterations per row. |
+
 <a id="preprocessing-quantize-bbq-get-bit-width"></a>
 ### preprocessing::quantize::bbq::get_bit_width
 
@@ -84,20 +107,41 @@ BBQ in cuVS designed to be compatible with the Lucene/Elasticsearch dataset: a s
 RaBitQ and BBQ in cuVS both compress centroid-relative vectors to low-bit codes and retain additional per-vector information so search is better than naïve sign-bit comparison. They differ in transformation and scale representation. RaBitQ commonly separates residual magnitude from direction, then applies a random orthogonal rotation before binary coding; BBQ uses per-vector scalar intervals to interpret the compressed residual codes.
 
 ```cpp
-template <typename DataT, typename IdxT>
+template <typename DataT>
 struct quantizer {
+  raft::device_vector<DataT, int64_t> centroid;
+  float centroid_norm_sq;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `centroid` | `raft::device_vector<DataT, int64_t>` |  |
+| `centroid_norm_sq` | `float` |  |
+
+<a id="preprocessing-quantize-bbq-bbq-dataset-owning-storage"></a>
+### preprocessing::quantize::bbq::bbq_dataset_owning_storage
+
+A dataset encoded by a BBQ quantizer in one code layout: the codes of every row and the per-row factors needed to compare them.
+
+The storage does not own the centroid the rows were encoded against; it reads it through `quantizer`, so the quantizer that produced it has to outlive it.
+
+```cpp
+template <typename DataT, typename IdxT>
+struct bbq_dataset_owning_storage {
   raft::device_vector<float, IdxT> dequant_delta;
   raft::device_vector<float, IdxT> dequant_sum_delta;
   raft::device_vector<float, IdxT> row_norm;
+  quantizer_view<DataT> quantizer;
   raft::device_matrix<uint8_t, IdxT> codes;
   raft::device_vector<float, IdxT> lower_intervals;
   raft::device_vector<float, IdxT> upper_intervals;
   raft::device_vector<float, IdxT> additional_corrections;
   raft::device_vector<int32_t, IdxT> quantized_component_sums;
-  raft::device_vector<DataT, IdxT> centroid;
   bbq_code_layout layout;
   cuvs::distance::DistanceType metric;
-  float centroid_norm_sq;
 };
 ```
 
@@ -108,15 +152,14 @@ struct quantizer {
 | `dequant_delta` | `raft::device_vector<float, IdxT>` | Precomputed per-row dequantization factors, derived once (offline) from lower/upper_intervals and quantized_component_sums: dequant_delta = (upper-lower)/(2^bits-1) |
 | `dequant_sum_delta` | `raft::device_vector<float, IdxT>` | Precomputed per-row dequantization factors, derived once (offline) from dequant_delta and quantized_component_sums: dequant_sum_delta = dequant_delta * quantized_component_sums. |
 | `row_norm` | `raft::device_vector<float, IdxT>` | Squared norm of the row in original (un-centered) vector space, \|\|x\|\|^2 |
+| `quantizer` | `quantizer_view<DataT>` |  |
 | `codes` | `raft::device_matrix<uint8_t, IdxT>` |  |
 | `lower_intervals` | `raft::device_vector<float, IdxT>` |  |
 | `upper_intervals` | `raft::device_vector<float, IdxT>` |  |
 | `additional_corrections` | `raft::device_vector<float, IdxT>` |  |
 | `quantized_component_sums` | `raft::device_vector<int32_t, IdxT>` |  |
-| `centroid` | `raft::device_vector<DataT, IdxT>` |  |
 | `layout` | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) |  |
 | `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) |  |
-| `centroid_norm_sq` | `float` |  |
 
 <a id="preprocessing-quantize-bbq-helpers-resolve-dequant-factors"></a>
 ### preprocessing::quantize::bbq::helpers::resolve_dequant_factors

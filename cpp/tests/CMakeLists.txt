@@ -473,6 +473,7 @@ ConfigureTest(
        preprocessing/spectral_embedding.cu
        preprocessing/product_quantization.cu
        preprocessing/pca.cu
+       preprocessing/bbq_quantization.cu
   GPUS 1
   PERCENT 100
 )

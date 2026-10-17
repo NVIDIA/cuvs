@@ -56,6 +56,23 @@ enum class bbq_code_layout {
 };
 
 /**
+ * doc_layout: The code layout of the encoded rows on the document side of a distance
+ * query_layout: The code layout of the encoded rows on the query side of a distance. When it
+ * differs from doc_layout, the dataset is encoded a second time in this layout.
+ * metric: Used for selecting the per-row additional correction: ||x - c||^2 for L2, x.c otherwise.
+ * lambda: Relative interval weight of the quantization error against the norm-preserving term of
+ * the loss.
+ * iters: Coordinate descent iterations per row.
+ */
+struct params {
+  bbq_code_layout doc_layout          = bbq_code_layout::packed_1b;
+  bbq_code_layout query_layout        = bbq_code_layout::transposed_4b;
+  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded;
+  float lambda                        = 0.1f;
+  int iters                           = 5;
+};
+
+/**
  * Bit width of a layout.
  */
 constexpr auto get_bit_width(bbq_code_layout layout) noexcept -> uint32_t
@@ -85,7 +102,7 @@ constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noex
   return 0;
 }
 
-template <typename DataT, typename IdxT>
+template <typename DataT>
 struct quantizer_view;
 
 /**
@@ -106,15 +123,55 @@ struct quantizer_view;
  * in transformation and scale representation. RaBitQ commonly separates residual magnitude from
  * direction, then applies a random orthogonal rotation before binary coding; BBQ uses per-vector
  * scalar intervals to interpret the compressed residual codes.
+ *
+ * @tparam DataT data element type
+ */
+template <typename DataT>
+struct quantizer {
+  raft::device_vector<DataT, int64_t> centroid;
+  float centroid_norm_sq{};
+
+  quantizer(raft::resources const& res, uint32_t dim)
+    : centroid{raft::make_device_vector<DataT, int64_t>(res, static_cast<int64_t>(dim))}
+  {
+  }
+
+  auto dim() const noexcept -> uint32_t { return static_cast<uint32_t>(centroid.extent(0)); }
+  [[nodiscard]] auto view() const noexcept -> quantizer_view<DataT>
+  {
+    return quantizer_view<DataT>{centroid.view(), centroid_norm_sq};
+  }
+};
+
+template <typename DataT>
+struct quantizer_view {
+  raft::device_vector_view<const DataT, int64_t> centroid;
+  float centroid_norm_sq{};
+
+  constexpr auto dim() const noexcept -> uint32_t
+  {
+    return static_cast<uint32_t>(centroid.extent(0));
+  }
+};
+
+template <typename DataT, typename IdxT>
+struct bbq_dataset_view_storage;
+
+/**
+ * @brief A dataset encoded by a BBQ quantizer in one code layout: the codes of every row and the
+ * per-row factors needed to compare them.
+ *
+ * The storage does not own the centroid the rows were encoded against; it reads it through
+ * `quantizer`, so the quantizer that produced it has to outlive it.
  */
 template <typename DataT, typename IdxT>
-struct quantizer {
+struct bbq_dataset_owning_storage {
+  quantizer_view<DataT> quantizer;
   raft::device_matrix<uint8_t, IdxT> codes;
   raft::device_vector<float, IdxT> lower_intervals;
   raft::device_vector<float, IdxT> upper_intervals;
   raft::device_vector<float, IdxT> additional_corrections;
   raft::device_vector<int32_t, IdxT> quantized_component_sums;
-  raft::device_vector<DataT, IdxT> centroid;
   /** Precomputed per-row dequantization factors, derived once (offline) from
    * lower/upper_intervals and quantized_component_sums: dequant_delta = (upper-lower)/(2^bits-1) */
   raft::device_vector<float, IdxT> dequant_delta;
@@ -126,102 +183,91 @@ struct quantizer {
 
   bbq_code_layout layout{bbq_code_layout::packed_1b};
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
-  float centroid_norm_sq{};
 
-  quantizer(raft::resources const& res,
-            IdxT n_rows,
-            uint32_t dim,
-            bbq_code_layout layout,
-            cuvs::distance::DistanceType metric)
-    : codes{raft::make_device_matrix<uint8_t, IdxT>(
-        res, n_rows, static_cast<IdxT>(get_encoded_row_length(dim, layout)))},
-      lower_intervals{raft::make_device_vector<float, IdxT>(res, n_rows)},
-      upper_intervals{raft::make_device_vector<float, IdxT>(res, n_rows)},
-      additional_corrections{raft::make_device_vector<float, IdxT>(res, n_rows)},
-      quantized_component_sums{raft::make_device_vector<int32_t, IdxT>(res, n_rows)},
-      centroid{raft::make_device_vector<DataT, IdxT>(res, static_cast<IdxT>(dim))},
-      dequant_delta{raft::make_device_vector<float, IdxT>(res, n_rows)},
-      dequant_sum_delta{raft::make_device_vector<float, IdxT>(res, n_rows)},
-      row_norm{raft::make_device_vector<float, IdxT>(res, n_rows)},
-      layout{layout},
-      metric{metric}
+  bbq_dataset_owning_storage(raft::resources const& res,
+                             quantizer_view<DataT> quantizer_,
+                             IdxT n_rows_,
+                             bbq_code_layout layout_,
+                             cuvs::distance::DistanceType metric_)
+    : quantizer{quantizer_},
+      codes{raft::make_device_matrix<uint8_t, IdxT>(
+        res, n_rows_, static_cast<IdxT>(get_encoded_row_length(quantizer_.dim(), layout_)))},
+      lower_intervals{raft::make_device_vector<float, IdxT>(res, n_rows_)},
+      upper_intervals{raft::make_device_vector<float, IdxT>(res, n_rows_)},
+      additional_corrections{raft::make_device_vector<float, IdxT>(res, n_rows_)},
+      quantized_component_sums{raft::make_device_vector<int32_t, IdxT>(res, n_rows_)},
+      dequant_delta{raft::make_device_vector<float, IdxT>(res, n_rows_)},
+      dequant_sum_delta{raft::make_device_vector<float, IdxT>(res, n_rows_)},
+      row_norm{raft::make_device_vector<float, IdxT>(res, n_rows_)},
+      layout{layout_},
+      metric{metric_}
   {
   }
 
   [[nodiscard]] auto n_rows() const noexcept -> IdxT { return codes.extent(0); }
-  [[nodiscard]] auto dim() const noexcept -> uint32_t
-  {
-    return static_cast<uint32_t>(centroid.extent(0));
-  }
+  [[nodiscard]] auto dim() const noexcept -> uint32_t { return quantizer.dim(); }
   [[nodiscard]] constexpr auto encoded_row_length() const noexcept -> uint32_t
   {
     return get_encoded_row_length(dim(), layout);
   }
-  [[nodiscard]] auto view() const noexcept -> quantizer_view<DataT, IdxT>
+  [[nodiscard]] auto view() const noexcept -> bbq_dataset_view_storage<DataT, IdxT>
   {
-    return quantizer_view<DataT, IdxT>{codes.view(),
-                                       lower_intervals.view(),
-                                       upper_intervals.view(),
-                                       additional_corrections.view(),
-                                       quantized_component_sums.view(),
-                                       centroid.view(),
-                                       dequant_delta.view(),
-                                       dequant_sum_delta.view(),
-                                       row_norm.view(),
-                                       layout,
-                                       metric,
-                                       centroid_norm_sq};
+    return bbq_dataset_view_storage<DataT, IdxT>{quantizer,
+                                                 codes.view(),
+                                                 lower_intervals.view(),
+                                                 upper_intervals.view(),
+                                                 additional_corrections.view(),
+                                                 quantized_component_sums.view(),
+                                                 dequant_delta.view(),
+                                                 dequant_sum_delta.view(),
+                                                 row_norm.view(),
+                                                 layout,
+                                                 metric};
   }
 };
 
 template <typename DataT, typename IdxT>
-struct quantizer_view {
+struct bbq_dataset_view_storage {
+  quantizer_view<DataT> quantizer;
   raft::device_matrix_view<const uint8_t, IdxT> codes;
   raft::device_vector_view<const float, IdxT> lower_intervals;
   raft::device_vector_view<const float, IdxT> upper_intervals;
   raft::device_vector_view<const float, IdxT> additional_corrections;
   raft::device_vector_view<const int32_t, IdxT> quantized_component_sums;
-  raft::device_vector_view<const DataT, IdxT> centroid;
   raft::device_vector_view<const float, IdxT> dequant_delta;
   raft::device_vector_view<const float, IdxT> dequant_sum_delta;
   raft::device_vector_view<const float, IdxT> row_norm;
 
   bbq_code_layout layout{bbq_code_layout::packed_1b};
   cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
-  float centroid_norm_sq{};
 
-  quantizer_view(raft::device_matrix_view<const uint8_t, IdxT> codes_,
-                 raft::device_vector_view<const float, IdxT> lower_intervals_,
-                 raft::device_vector_view<const float, IdxT> upper_intervals_,
-                 raft::device_vector_view<const float, IdxT> additional_corrections_,
-                 raft::device_vector_view<const int32_t, IdxT> quantized_component_sums_,
-                 raft::device_vector_view<const DataT, IdxT> centroid_,
-                 raft::device_vector_view<const float, IdxT> dequant_delta_,
-                 raft::device_vector_view<const float, IdxT> dequant_sum_delta_,
-                 raft::device_vector_view<const float, IdxT> row_norm_,
-                 bbq_code_layout layout_,
-                 cuvs::distance::DistanceType metric_,
-                 float centroid_norm_sq_) noexcept
-    : codes{codes_},
+  bbq_dataset_view_storage(quantizer_view<DataT> quantizer_,
+                           raft::device_matrix_view<const uint8_t, IdxT> codes_,
+                           raft::device_vector_view<const float, IdxT> lower_intervals_,
+                           raft::device_vector_view<const float, IdxT> upper_intervals_,
+                           raft::device_vector_view<const float, IdxT> additional_corrections_,
+                           raft::device_vector_view<const int32_t, IdxT> quantized_component_sums_,
+                           raft::device_vector_view<const float, IdxT> dequant_delta_,
+                           raft::device_vector_view<const float, IdxT> dequant_sum_delta_,
+                           raft::device_vector_view<const float, IdxT> row_norm_,
+                           bbq_code_layout layout_,
+                           cuvs::distance::DistanceType metric_) noexcept
+    : quantizer{quantizer_},
+      codes{codes_},
       lower_intervals{lower_intervals_},
       upper_intervals{upper_intervals_},
       additional_corrections{additional_corrections_},
       quantized_component_sums{quantized_component_sums_},
-      centroid{centroid_},
       dequant_delta{dequant_delta_},
       dequant_sum_delta{dequant_sum_delta_},
       row_norm{row_norm_},
       layout{layout_},
-      metric{metric_},
-      centroid_norm_sq{centroid_norm_sq_}
+      metric{metric_}
   {
   }
 
   [[nodiscard]] constexpr auto n_rows() const noexcept -> IdxT { return codes.extent(0); }
-  [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t
-  {
-    return static_cast<uint32_t>(centroid.extent(0));
-  }
+  [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t { return quantizer.dim(); }
 };
 
 namespace helpers {
@@ -245,17 +291,25 @@ void resolve_dequant_factors(
 namespace neighbors {
 struct bbq_dataset_container {
   template <typename DataT, typename IdxT>
-  using owning_storage = cuvs::preprocessing::quantize::bbq::quantizer<DataT, IdxT>;
+  using owning_storage =
+    cuvs::preprocessing::quantize::bbq::bbq_dataset_owning_storage<DataT, IdxT>;
   template <typename DataT, typename IdxT>
-  using view_storage = cuvs::preprocessing::quantize::bbq::quantizer_view<DataT, IdxT>;
+  using view_storage = cuvs::preprocessing::quantize::bbq::bbq_dataset_view_storage<DataT, IdxT>;
 };
 
 template <typename DataT, typename IdxT, typename Accessor>
 struct dataset<bbq_dataset_container, DataT, IdxT, Accessor> {
+  using quantizer_type      = cuvs::preprocessing::quantize::bbq::quantizer<DataT>;
   using owning_storage_type = bbq_dataset_container::owning_storage<DataT, IdxT>;
-  std::vector<owning_storage_type> quantizers;
+  quantizer_type quantizer;
+  std::vector<owning_storage_type> storages;
 
-  dataset(owning_storage_type&& quantizer) noexcept { add_quantizer(std::move(quantizer)); }
+  explicit dataset(quantizer_type&& quantizer_) noexcept : quantizer{std::move(quantizer_)} {}
+  dataset(quantizer_type&& quantizer_, owning_storage_type&& storage)
+    : dataset{std::move(quantizer_)}
+  {
+    add_storage(std::move(storage));
+  }
   [[nodiscard]] auto as_dataset_view() const noexcept
     -> dataset_view<bbq_dataset_container,
                     DataT,
@@ -265,26 +319,25 @@ struct dataset<bbq_dataset_container, DataT, IdxT, Accessor> {
     return dataset_view<bbq_dataset_container,
                         DataT,
                         IdxT,
-                        detail::dataset_view_accessor_for_owning<DataT, Accessor>>{quantizers};
+                        detail::dataset_view_accessor_for_owning<DataT, Accessor>>{storages};
   }
   [[nodiscard]] constexpr auto n_rows() const noexcept -> IdxT
   {
-    return quantizers.size() > 0 ? quantizers[0].n_rows() : 0;
+    return storages.size() > 0 ? storages[0].n_rows() : 0;
   }
-  [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t
-  {
-    return quantizers.size() > 0 ? quantizers[0].dim() : 0;
-  }
+  [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t { return quantizer.dim(); }
 
-  void add_quantizer(owning_storage_type&& quantizer)
+  void add_storage(owning_storage_type&& storage)
   {
-    RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
-    quantizers.push_back(std::move(quantizer));
+    RAFT_EXPECTS(storage.quantizer.centroid_norm_sq == quantizer.centroid_norm_sq,
+                 "Storage was not encoded with the quantizer of this dataset.");
+    RAFT_EXPECTS(!has_layout(storage.layout), "Storage already exists with layout.");
+    storages.push_back(std::move(storage));
   }
   bool has_layout(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const noexcept
   {
-    for (uint32_t i = 0; i < quantizers.size(); i++) {
-      if (quantizers[i].layout == layout) { return true; }
+    for (uint32_t i = 0; i < storages.size(); i++) {
+      if (storages[i].layout == layout) { return true; }
     }
     return false;
   }
@@ -294,48 +347,48 @@ template <typename DataT, typename IdxT, typename Accessor>
 struct dataset_view<bbq_dataset_container, DataT, IdxT, Accessor> {
   using owning_storage_type = bbq_dataset_container::owning_storage<DataT, IdxT>;
   using view_storage_type   = bbq_dataset_container::view_storage<DataT, IdxT>;
-  std::vector<view_storage_type> quantizers;
+  std::vector<view_storage_type> storages;
 
   dataset_view() noexcept = default;
 
-  dataset_view(const std::vector<owning_storage_type>& quantizers) noexcept
+  dataset_view(const std::vector<owning_storage_type>& storages_) noexcept
   {
-    for (const auto& quantizer : quantizers) {
-      add_quantizer(quantizer);
+    for (const auto& storage : storages_) {
+      add_storage(storage);
     }
   }
   [[nodiscard]] constexpr auto n_rows() const noexcept -> IdxT
   {
-    return quantizers.size() > 0 ? quantizers[0].n_rows() : 0;
+    return storages.size() > 0 ? storages[0].n_rows() : 0;
   }
   [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t
   {
-    return quantizers.size() > 0 ? quantizers[0].dim() : 0;
+    return storages.size() > 0 ? storages[0].dim() : 0;
   }
 
-  void add_quantizer(view_storage_type quantizer)
+  void add_storage(view_storage_type storage)
   {
-    RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
-    quantizers.push_back(quantizer);
+    RAFT_EXPECTS(!has_layout(storage.layout), "Storage already exists with layout.");
+    storages.push_back(storage);
   }
-  void add_quantizer(const owning_storage_type& quantizer)
+  void add_storage(const owning_storage_type& storage)
   {
-    RAFT_EXPECTS(!has_layout(quantizer.layout), "Quantizer already exists with layout.");
-    quantizers.push_back(quantizer.view());
+    RAFT_EXPECTS(!has_layout(storage.layout), "Storage already exists with layout.");
+    storages.push_back(storage.view());
   }
   bool has_layout(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const noexcept
   {
-    for (uint32_t i = 0; i < quantizers.size(); i++) {
-      if (quantizers[i].layout == layout) { return true; }
+    for (uint32_t i = 0; i < storages.size(); i++) {
+      if (storages[i].layout == layout) { return true; }
     }
     return false;
   }
-  view_storage_type get_quantizer(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const
+  view_storage_type get_storage(cuvs::preprocessing::quantize::bbq::bbq_code_layout layout) const
   {
-    for (uint32_t i = 0; i < quantizers.size(); i++) {
-      if (quantizers[i].layout == layout) { return quantizers[i]; }
+    for (uint32_t i = 0; i < storages.size(); i++) {
+      if (storages[i].layout == layout) { return storages[i]; }
     }
-    throw std::runtime_error("No quantizer found with layout.");
+    throw std::runtime_error("No storage found with layout.");
   }
 };
 
@@ -385,4 +438,53 @@ inline constexpr bool is_bbq_dataset_view_v =
 
 }  // namespace neighbors
 
+namespace preprocessing::quantize::bbq {
+
+/**
+ * @brief Builds a BBQ quantizer from a dataset: computes the centroid shared by every row.
+ *
+ * Usage example:
+ * @code{.cpp}
+ * raft::handle_t handle;
+ * auto quantizer = cuvs::preprocessing::quantize::bbq::build(handle, dataset);
+ * @endcode
+ *
+ * @param[in] res raft resource
+ * @param[in] dataset a row-major matrix view on device
+ *
+ * @return quantizer
+ */
+quantizer<float> build(raft::resources const& res,
+                       raft::device_matrix_view<const float, int64_t> dataset);
+
+/**
+ * @brief Encodes a dataset with a built BBQ quantizer into a BBQ dataset.
+ *
+ * The dataset holds its own copy of the centroid @p quantizer refers to, and one or two storages
+ * depending on `params.doc_layout` and `params.query_layout`.
+ *
+ * Usage example:
+ * @code{.cpp}
+ * raft::handle_t handle;
+ * cuvs::preprocessing::quantize::bbq::params params;
+ * auto quantizer = cuvs::preprocessing::quantize::bbq::build(handle, dataset);
+ * auto bbq_dataset =
+ *   cuvs::preprocessing::quantize::bbq::transform(handle, params, quantizer.view(), dataset);
+ * @endcode
+ *
+ * @param[in] res raft resource
+ * @param[in] params configuration for BBQ encoding, e.g. doc_layout, query_layout, metric, lambda,
+ * iters
+ * @param[in] quantizer a view of a BBQ quantizer returned by `build`
+ * @param[in] dataset a row-major matrix view on device
+ *
+ * @return the encoded dataset
+ */
+cuvs::neighbors::device_bbq_dataset<float, int64_t> transform(
+  raft::resources const& res,
+  const params params,
+  quantizer_view<float> quantizer,
+  raft::device_matrix_view<const float, int64_t> dataset);
+
+}  // namespace preprocessing::quantize::bbq
 }  // namespace CUVS_EXPORT cuvs

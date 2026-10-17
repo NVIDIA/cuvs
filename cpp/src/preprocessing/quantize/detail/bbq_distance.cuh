@@ -25,12 +25,12 @@ namespace preprocessing::quantize::bbq {
 
 // --------------------------------------------------------------------------
 // Layout geometry
-// Encoded row length of a quantizer, and the bit planes its layout slices a row into.
+// Encoded row length of a storage, and the bit planes its layout slices a row into.
 // --------------------------------------------------------------------------
 
 template <typename DataT, typename IdxT>
 _RAFT_HOST_DEVICE constexpr uint32_t get_encoded_row_length(
-  const quantizer_view<DataT, IdxT>& dataset)
+  const bbq_dataset_view_storage<DataT, IdxT>& dataset)
 {
   return get_encoded_row_length(dataset.dim(), dataset.layout);
 }
@@ -280,39 +280,39 @@ __device__ __forceinline__ uint32_t code_inner_product_1b_x_packed_4b(const uint
 
 /**
  * Integer inner product between a document row and a query row, each read through its own
- * quantizer. The two layouts may differ: the supported (document, query) pairs are the ones
+ * storage. The two layouts may differ: the supported (document, query) pairs are the ones
  * nn-descent's local join dispatches on, and passing the same view twice is the symmetric case.
  */
 template <typename DataT, typename IdxT>
 __device__ __forceinline__ uint32_t
-code_inner_product(const quantizer_view<DataT, IdxT>& quantizer_document,
-                   const quantizer_view<DataT, IdxT>& quantizer_query,
+code_inner_product(const bbq_dataset_view_storage<DataT, IdxT>& storage_document,
+                   const bbq_dataset_view_storage<DataT, IdxT>& storage_query,
                    int64_t row_document,
                    int64_t row_query)
 {
-  const uint8_t* document = &quantizer_document.codes(row_document, 0);
-  const uint8_t* query    = &quantizer_query.codes(row_query, 0);
+  const uint8_t* document = &storage_document.codes(row_document, 0);
+  const uint8_t* query    = &storage_query.codes(row_query, 0);
 
-  if (quantizer_document.layout == quantizer_query.layout) {
+  if (storage_document.layout == storage_query.layout) {
     return code_inner_product(
-      document, query, quantizer_document.layout, get_encoded_row_length(quantizer_document));
+      document, query, storage_document.layout, get_encoded_row_length(storage_document));
   }
-  if (quantizer_document.layout == bbq_code_layout::packed_1b &&
-      quantizer_query.layout == bbq_code_layout::packed_4b) {
+  if (storage_document.layout == bbq_code_layout::packed_1b &&
+      storage_query.layout == bbq_code_layout::packed_4b) {
     return code_inner_product_1b_x_packed_4b(
-      document, query, get_encoded_row_length(quantizer_document));
+      document, query, get_encoded_row_length(storage_document));
   }
   // Every remaining supported pair is bit-sliced on both sides: (packed_1b, transposed_2b),
   // (packed_1b, transposed_4b) and (transposed_2b, transposed_4b).
-  assert(quantizer_document.layout == bbq_code_layout::packed_1b ||
-         quantizer_document.layout == bbq_code_layout::transposed_2b);
-  assert(quantizer_query.layout == bbq_code_layout::transposed_2b ||
-         quantizer_query.layout == bbq_code_layout::transposed_4b);
+  assert(storage_document.layout == bbq_code_layout::packed_1b ||
+         storage_document.layout == bbq_code_layout::transposed_2b);
+  assert(storage_query.layout == bbq_code_layout::transposed_2b ||
+         storage_query.layout == bbq_code_layout::transposed_4b);
   return code_inner_product_planes(document,
-                                   get_code_planes(quantizer_document.layout),
+                                   get_code_planes(storage_document.layout),
                                    query,
-                                   get_code_planes(quantizer_query.layout),
-                                   (quantizer_document.dim() + 7) / 8);
+                                   get_code_planes(storage_query.layout),
+                                   (storage_document.dim() + 7) / 8);
 }
 
 // --------------------------------------------------------------------------
@@ -446,7 +446,7 @@ __device__ __forceinline__ void bbq_code_inner_product_2x1(const uint8_t* row_a0
 // --------------------------------------------------------------------------
 
 // Per-row dequantization terms needed by bbq_calculate_metric.
-// row_norm is read directly from the quantizer view instead,
+// row_norm is read directly from the storage view instead,
 // since register pressure in the BBQ local-join kernels is already tight.
 struct bbq_dequant_factors {
   float lower;
@@ -457,17 +457,17 @@ struct bbq_dequant_factors {
 
 template <typename DataT, typename IdxT>
 __device__ __forceinline__ bbq_dequant_factors
-get_dequant_factors(const quantizer_view<DataT, IdxT>& quantizer, int64_t row)
+get_dequant_factors(const bbq_dataset_view_storage<DataT, IdxT>& storage, int64_t row)
 {
-  return bbq_dequant_factors{quantizer.lower_intervals(row),
-                             quantizer.dequant_delta(row),
-                             quantizer.dequant_sum_delta(row),
-                             quantizer.additional_corrections(row)};
+  return bbq_dequant_factors{storage.lower_intervals(row),
+                             storage.dequant_delta(row),
+                             storage.dequant_sum_delta(row),
+                             storage.additional_corrections(row)};
 }
 
 // Converts one raw BBQ dot product into a final (post-epilogue) float distance, given both
 // operands' precomputed dequant factors. Evaluated exactly once per matrix cell
-// dim/centroid_norm_sq/row_norm both come directly from quantizer_document/quantizer_query rather
+// dim/centroid_norm_sq/row_norm both come directly from storage_document/storage_query rather
 // than being passed separately, since every caller reads them the same id-indexed way -- row_norm
 // is only read for CosineExpanded (skipped entirely otherwise).
 template <typename DataT, typename Index_t, typename DistEpilogue_t>
@@ -475,15 +475,15 @@ __device__ __forceinline__ float bbq_calculate_metric(
   uint32_t raw,
   const bbq_dequant_factors& doc_factors,
   const bbq_dequant_factors& query_factors,
-  const quantizer_view<DataT, int64_t>& quantizer_document,
-  const quantizer_view<DataT, int64_t>& quantizer_query,
+  const bbq_dataset_view_storage<DataT, int64_t>& storage_document,
+  const bbq_dataset_view_storage<DataT, int64_t>& storage_query,
   cuvs::distance::DistanceType metric,
   DistEpilogue_t dist_epilogue,
   Index_t document_id,
   Index_t query_id)
 {
   constexpr bool can_postprocess_dist = std::is_same_v<DistEpilogue_t, raft::identity_op>;
-  const float dim                     = static_cast<float>(quantizer_document.dim());
+  const float dim                     = static_cast<float>(storage_document.dim());
 
   const float centered = dim * doc_factors.lower * query_factors.lower +
                          query_factors.lower * doc_factors.sum_delta +
@@ -499,11 +499,11 @@ __device__ __forceinline__ float bbq_calculate_metric(
       d = sqrtf(d);
     }
   } else if (metric == cuvs::distance::DistanceType::InnerProduct) {
-    d = -(centered + corrections - quantizer_document.centroid_norm_sq);
+    d = -(centered + corrections - storage_document.quantizer.centroid_norm_sq);
   } else {  // CosineExpanded
     const float norm_product =
-      quantizer_document.row_norm(document_id) * quantizer_query.row_norm(query_id);
-    const float dot = centered + corrections - quantizer_document.centroid_norm_sq;
+      storage_document.row_norm(document_id) * storage_query.row_norm(query_id);
+    const float dot = centered + corrections - storage_document.quantizer.centroid_norm_sq;
     d               = norm_product > 0.0f ? 1.0f - dot / sqrtf(norm_product) : 0.0f;
   }
   return dist_epilogue(d, document_id, query_id);

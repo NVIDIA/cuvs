@@ -328,17 +328,36 @@ inline host_quantizer_storage quantize(const float* data,
 }
 
 /** The CPU reference quantizer works in float, so it only ever feeds a float-valued dataset. */
+inline auto copy_bbq_quantizer_host_to_device(raft::resources const& res,
+                                              host_quantizer_storage const& host_storage)
+  -> cuvs::preprocessing::quantize::bbq::quantizer<float>
+{
+  cuvs::preprocessing::quantize::bbq::quantizer<float> device{
+    res, static_cast<uint32_t>(host_storage.centroid.extent(0))};
+  raft::copy(device.centroid.data_handle(),
+             host_storage.centroid.data_handle(),
+             device.centroid.size(),
+             raft::resource::get_cuda_stream(res));
+  device.centroid_norm_sq = host_storage.centroid_norm_sq;
+  return device;
+}
+
+/** Uploads the per-row arrays of @p host_storage, which was encoded against @p quantizer. */
 template <typename IdxT>
-auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
-                                            host_quantizer_storage const& host_storage) ->
+auto copy_bbq_owning_storage_host_to_device(
+  raft::resources const& res,
+  cuvs::preprocessing::quantize::bbq::quantizer_view<float> quantizer,
+  host_quantizer_storage const& host_storage) ->
   typename cuvs::neighbors::device_bbq_dataset<float, IdxT>::owning_storage_type
 {
   using device_storage =
     typename cuvs::neighbors::device_bbq_dataset<float, IdxT>::owning_storage_type;
+  RAFT_EXPECTS(host_storage.centroid.extent(0) == static_cast<int64_t>(quantizer.dim()),
+               "host BBQ storage and quantizer disagree on the dimension");
   auto stream = raft::resource::get_cuda_stream(res);
   device_storage device{res,
+                        quantizer,
                         static_cast<IdxT>(host_storage.codes.extent(0)),
-                        static_cast<uint32_t>(host_storage.centroid.extent(0)),
                         host_storage.layout,
                         host_storage.metric};
 
@@ -360,10 +379,6 @@ auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
              host_storage.quantized_component_sums.data_handle(),
              device.quantized_component_sums.size(),
              stream);
-  raft::copy(device.centroid.data_handle(),
-             host_storage.centroid.data_handle(),
-             device.centroid.size(),
-             stream);
   raft::copy(device.dequant_delta.data_handle(),
              host_storage.dequant_delta.data_handle(),
              device.dequant_delta.size(),
@@ -376,20 +391,30 @@ auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
              host_storage.row_norm.data_handle(),
              device.row_norm.size(),
              stream);
-  device.centroid_norm_sq = host_storage.centroid_norm_sq;
   return device;
 }
 
+/** Every element of @p host has to be encoded against the same centroid. */
 template <typename IdxT>
 auto make_device_bbq_dataset(raft::resources const& res,
                              std::vector<host_quantizer_storage> const& host)
   -> cuvs::neighbors::device_bbq_dataset<float, IdxT>
 {
   RAFT_EXPECTS(host.size() != 0, "host BBQ dataset has no storage");
-  cuvs::neighbors::device_bbq_dataset<float, IdxT> device{
-    copy_bbq_owning_storage_host_to_device<IdxT>(res, host[0])};
+  const auto& centroid = host[0].centroid;
   for (std::size_t i = 1; i < host.size(); ++i) {
-    device.add_quantizer(copy_bbq_owning_storage_host_to_device<IdxT>(res, host[i]));
+    RAFT_EXPECTS(host[i].centroid.extent(0) == centroid.extent(0) &&
+                   std::equal(centroid.data_handle(),
+                              centroid.data_handle() + centroid.size(),
+                              host[i].centroid.data_handle()),
+                 "host BBQ storage %zu was encoded against a different centroid",
+                 i);
+  }
+  cuvs::neighbors::device_bbq_dataset<float, IdxT> device{
+    copy_bbq_quantizer_host_to_device(res, host[0])};
+  for (const auto& storage : host) {
+    device.add_storage(
+      copy_bbq_owning_storage_host_to_device<IdxT>(res, device.quantizer.view(), storage));
   }
   return device;
 }
@@ -424,7 +449,7 @@ inline auto parse_bbq_layout_token(std::string_view token) -> bbq_code_layout
 
 /**
  * Reject layout pairs the local-join kernels cannot serve. Without this the library either
- * silently falls back to a symmetric join on the first quantizer (which looks like a working
+ * silently falls back to a symmetric join on the first storage (which looks like a working
  * asymmetric run), or reaches an unsupported-layout failure deep inside GNND::build. Must be kept
  * in sync with the dispatch in GNND<Data_t, Index_t>::local_join (nn_descent.cuh).
  */
@@ -585,8 +610,8 @@ inline auto quantize_cached(const float* rows,
 /**
  * Quantize host-resident @p rows and upload the codes, ready for the BBQ NN-Descent build.
  *
- * `query_token == doc_token` produces a single quantizer and a symmetric join; differing tokens
- * produce two quantizers and an asymmetric join, where the wider codes serve the query side.
+ * `query_token == doc_token` produces a single storage and a symmetric join; differing tokens
+ * produce two storages and an asymmetric join, where the wider codes serve the query side.
  */
 inline auto quantize_to_device(raft::resources const& res,
                                const float* rows,

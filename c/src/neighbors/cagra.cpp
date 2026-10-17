@@ -413,8 +413,8 @@ template <typename T>
 void validate_bbq_layouts(cuvs::neighbors::device_bbq_dataset_view<T, int64_t> const& dataset)
 {
   using layout_t = cuvs::preprocessing::quantize::bbq::bbq_code_layout;
-  if (dataset.quantizers.size() == 1) {
-    auto layout = dataset.quantizers.front().layout;
+  if (dataset.storages.size() == 1) {
+    auto layout = dataset.storages.front().layout;
     RAFT_EXPECTS(layout == layout_t::packed_1b || layout == layout_t::transposed_2b ||
                    layout == layout_t::packed_4b || layout == layout_t::packed_7b ||
                    layout == layout_t::packed_8b,
@@ -432,10 +432,10 @@ void validate_bbq_layouts(cuvs::neighbors::device_bbq_dataset_view<T, int64_t> c
 
 template <typename T>
 auto get_cpp_bbq_quantizer_view(cuvsBbqQuantizer_t quantizer)
-  -> cuvs::preprocessing::quantize::bbq::quantizer_view<T, int64_t>
+  -> cuvs::preprocessing::quantize::bbq::bbq_dataset_view_storage<T, int64_t>
 {
-  using owner_t = cuvs::preprocessing::quantize::bbq::quantizer<T, int64_t>;
-  using view_t  = cuvs::preprocessing::quantize::bbq::quantizer_view<T, int64_t>;
+  using owner_t = cuvs::preprocessing::quantize::bbq::bbq_dataset_owning_storage<T, int64_t>;
+  using view_t  = cuvs::preprocessing::quantize::bbq::bbq_dataset_view_storage<T, int64_t>;
   RAFT_EXPECTS(quantizer != nullptr && quantizer->addr != 0,
                "cuvsDatasetMakeBbqView: null quantizer storage");
   if (quantizer->is_owning) {
@@ -469,7 +469,7 @@ auto make_bbq_dataset_view(cuvsBbqQuantizer_t* quantizers, std::size_t num_quant
       RAFT_EXPECTS(quantizer.metric == expected_metric,
                    "cuvsDatasetMakeBbqView: all quantizers must use the same metric");
     }
-    dataset->add_quantizer(quantizer);
+    dataset->add_storage(quantizer);
   }
 
   return dataset;
