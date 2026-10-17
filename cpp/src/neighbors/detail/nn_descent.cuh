@@ -2164,7 +2164,8 @@ GnndGraph<Index_t>::GnndGraph(raft::resources const& res,
 template <typename Index_t>
 void GnndGraph<Index_t>::sample_graph_new(InternalID_t<Index_t>* new_neighbors, const size_t width)
 {
-  std::fill_n(h_graph_new.data_handle(), nrow * num_samples, std::numeric_limits<Index_t>::max());
+  // No sentinel fill: every consumer of h_graph_new only reads the first h_list_sizes_new[i].x
+  // entries of a row.
 #pragma omp parallel for
   for (size_t i = 0; i < nrow; i++) {
     auto list_new                       = h_graph_new.data_handle() + i * num_samples;
@@ -2232,11 +2233,7 @@ void GnndGraph<Index_t>::init_random_graph()
 template <typename Index_t>
 void GnndGraph<Index_t>::sample_graph(bool sample_new)
 {
-  std::fill_n(h_graph_old.data_handle(), nrow * num_samples, std::numeric_limits<Index_t>::max());
-  if (sample_new) {
-    std::fill_n(h_graph_new.data_handle(), nrow * num_samples, std::numeric_limits<Index_t>::max());
-  }
-
+  // No sentinel fill: consumers only read the first list_sizes[i].x entries of a row.
 #pragma omp parallel for
   for (size_t i = 0; i < nrow; i++) {
     h_list_sizes_old.data_handle()[i].x = 0;
@@ -2350,12 +2347,6 @@ GNND<Data_t, Index_t>::GNND(raft::resources const& res, const BuildConfig& build
     dists_host_buffer_{
       raft::make_pinned_matrix<DistData_t, size_t, raft::row_major>(res, nrow_, DEGREE_ON_DEVICE)},
     d_locks_{raft::make_device_vector<int, size_t>(res, nrow_)},
-    h_rev_graph_new_{
-      raft::make_pinned_matrix<Index_t, size_t, raft::row_major>(res, nrow_, NUM_SAMPLES)},
-    h_graph_old_(
-      raft::make_pinned_matrix<Index_t, size_t, raft::row_major>(res, nrow_, NUM_SAMPLES)),
-    h_rev_graph_old_{
-      raft::make_pinned_matrix<Index_t, size_t, raft::row_major>(res, nrow_, NUM_SAMPLES)},
     d_list_sizes_new_{raft::make_device_vector<int2, size_t>(res, nrow_)},
     d_list_sizes_old_{raft::make_device_vector<int2, size_t>(res, nrow_)}
 {
@@ -2400,9 +2391,89 @@ void GNND<Data_t, Index_t>::add_reverse_edges(Index_t* graph_ptr,
     std::numeric_limits<Index_t>::max());
   add_rev_edges_kernel<<<nrow_, raft::warp_size(), 0, stream>>>(
     graph_ptr, d_rev_graph_ptr, NUM_SAMPLES, list_sizes);
-  raft::copy(res,
-             raft::make_host_vector_view(h_rev_graph_ptr, nrow_ * NUM_SAMPLES),
-             raft::make_device_vector_view(d_rev_graph_ptr, nrow_ * NUM_SAMPLES));
+  if (h_rev_graph_ptr != nullptr) {
+    raft::copy(res,
+               raft::make_host_vector_view(h_rev_graph_ptr, nrow_ * NUM_SAMPLES),
+               raft::make_device_vector_view(d_rev_graph_ptr, nrow_ * NUM_SAMPLES));
+  }
+}
+
+template <typename Data_t, typename Index_t>
+void GNND<Data_t, Index_t>::allocate_sample_lists()
+{
+  const size_t max_rows = build_config_.max_dataset_size;
+  if (!device_lists_ && !h_graph_old_.has_value()) {
+    // Called after the dataset buffers are allocated, so the lists only take device memory that
+    // is genuinely spare; otherwise fall back to reading them from pinned host memory.
+    try {
+      d_lists_.emplace(
+        raft::make_device_matrix<Index_t, size_t, raft::row_major>(res, 4, max_rows * NUM_SAMPLES));
+      device_lists_ = true;
+    } catch (std::bad_alloc&) {
+      RAFT_LOG_DEBUG("NN-Descent: sample lists do not fit on device, using pinned host memory");
+    } catch (raft::logic_error&) {
+      RAFT_LOG_DEBUG("NN-Descent: sample lists do not fit on device, using pinned host memory");
+    }
+    if (!device_lists_) {
+      h_rev_graph_new_.emplace(
+        raft::make_pinned_matrix<Index_t, size_t, raft::row_major>(res, max_rows, NUM_SAMPLES));
+      h_graph_old_.emplace(
+        raft::make_pinned_matrix<Index_t, size_t, raft::row_major>(res, max_rows, NUM_SAMPLES));
+      h_rev_graph_old_.emplace(
+        raft::make_pinned_matrix<Index_t, size_t, raft::row_major>(res, max_rows, NUM_SAMPLES));
+    }
+  }
+  if (device_lists_) {
+    graph_new_ptr_     = d_lists_->data_handle();
+    rev_graph_new_ptr_ = d_lists_->data_handle() + max_rows * NUM_SAMPLES;
+    graph_old_ptr_     = d_lists_->data_handle() + 2 * max_rows * NUM_SAMPLES;
+    rev_graph_old_ptr_ = d_lists_->data_handle() + 3 * max_rows * NUM_SAMPLES;
+  } else {
+    graph_new_ptr_     = graph_.h_graph_new.data_handle();
+    rev_graph_new_ptr_ = h_rev_graph_new_->data_handle();
+    graph_old_ptr_     = h_graph_old_->data_handle();
+    rev_graph_old_ptr_ = h_rev_graph_old_->data_handle();
+  }
+}
+
+template <typename Data_t, typename Index_t>
+void GNND<Data_t, Index_t>::prepare_sample_lists(cudaStream_t stream)
+{
+  raft::copy(res, d_list_sizes_new_.view(), graph_.h_list_sizes_new.view());
+  raft::copy(res, d_list_sizes_old_.view(), graph_.h_list_sizes_old.view());
+  if (device_lists_) {
+    raft::copy(graph_new_ptr_, graph_.h_graph_new.data_handle(), nrow_ * NUM_SAMPLES, stream);
+    raft::copy(graph_old_ptr_, graph_.h_graph_old.data_handle(), nrow_ * NUM_SAMPLES, stream);
+  } else {
+    // The host worker rewrites graph_.h_graph_old while the kernels read this iteration's lists,
+    // so hand the kernels the freshly sampled buffer and give the worker the stale one.
+    std::swap(*h_graph_old_, graph_.h_graph_old);
+    graph_old_ptr_ = h_graph_old_->data_handle();
+  }
+  // The worker thread starts overwriting the host-side lists and sizes once this returns.
+  raft::resource::sync_stream(res);
+}
+
+template <typename Data_t, typename Index_t>
+void GNND<Data_t, Index_t>::add_all_reverse_edges(cudaStream_t stream)
+{
+  if (device_lists_) {
+    // Reverse lists are built in place on device and never leave it.
+    add_reverse_edges(
+      graph_new_ptr_, nullptr, rev_graph_new_ptr_, d_list_sizes_new_.data_handle(), stream);
+    add_reverse_edges(
+      graph_old_ptr_, nullptr, rev_graph_old_ptr_, d_list_sizes_old_.data_handle(), stream);
+  } else {
+    // Reuse dists_buffer_ as device scratch to save GPU memory. graph_buffer_ cannot be reused,
+    // because it contains some information for local_join.
+    static_assert(DEGREE_ON_DEVICE * sizeof(*(dists_buffer_.data_handle())) >=
+                  NUM_SAMPLES * sizeof(*(graph_buffer_.data_handle())));
+    auto* scratch = reinterpret_cast<Index_t*>(dists_buffer_.data_handle());
+    add_reverse_edges(
+      graph_new_ptr_, rev_graph_new_ptr_, scratch, d_list_sizes_new_.data_handle(), stream);
+    add_reverse_edges(
+      graph_old_ptr_, rev_graph_old_ptr_, scratch, d_list_sizes_old_.data_handle(), stream);
+  }
 }
 
 template <typename Data_t, typename Index_t>
@@ -2429,11 +2500,11 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
 
   auto launch_kernel = [&](auto* typed_ptr) {
     if (use_simt) {
-      local_join_kernel_simt<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
-                                                               h_rev_graph_new_.data_handle(),
+      local_join_kernel_simt<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_new_ptr_,
+                                                               rev_graph_new_ptr_,
                                                                d_list_sizes_new_.data_handle(),
-                                                               h_graph_old_.data_handle(),
-                                                               h_rev_graph_old_.data_handle(),
+                                                               graph_old_ptr_,
+                                                               rev_graph_old_ptr_,
                                                                d_list_sizes_old_.data_handle(),
                                                                NUM_SAMPLES,
                                                                typed_ptr,
@@ -2445,11 +2516,11 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
                                                                build_config_.metric,
                                                                dist_epilogue);
     } else {
-      local_join_kernel_wmma<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
-                                                               h_rev_graph_new_.data_handle(),
+      local_join_kernel_wmma<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_new_ptr_,
+                                                               rev_graph_new_ptr_,
                                                                d_list_sizes_new_.data_handle(),
-                                                               h_graph_old_.data_handle(),
-                                                               h_rev_graph_old_.data_handle(),
+                                                               graph_old_ptr_,
+                                                               rev_graph_old_ptr_,
                                                                d_list_sizes_old_.data_handle(),
                                                                NUM_SAMPLES,
                                                                typed_ptr,
@@ -2532,11 +2603,11 @@ void GNND<Data_t, Index_t>::local_join(
     constexpr auto D       = decltype(document_layout)::value;
     constexpr auto Q       = decltype(query_layout)::value;
     auto launch_local_join = [&](auto kernel) {
-      kernel<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
-                                               h_rev_graph_new_.data_handle(),
+      kernel<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_new_ptr_,
+                                               rev_graph_new_ptr_,
                                                d_list_sizes_new_.data_handle(),
-                                               h_graph_old_.data_handle(),
-                                               h_rev_graph_old_.data_handle(),
+                                               graph_old_ptr_,
+                                               rev_graph_old_ptr_,
                                                d_list_sizes_old_.data_handle(),
                                                NUM_SAMPLES,
                                                quantizer_document,
@@ -2717,6 +2788,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
     raft::resource::sync_stream(res);
   }
 
+  allocate_sample_lists();
   graph_.clear();
   graph_.init_random_graph();
   graph_.sample_graph(true);
@@ -2740,29 +2812,13 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
 
   for (size_t it = 0; it < build_config_.max_iterations; it++) {
     num_iterations_ = it + 1;
-    raft::copy(res, d_list_sizes_new_.view(), graph_.h_list_sizes_new.view());
-    raft::copy(res, h_graph_old_.view(), graph_.h_graph_old.view());
-    raft::copy(res, d_list_sizes_old_.view(), graph_.h_list_sizes_old.view());
-    raft::resource::sync_stream(res);
+    prepare_sample_lists(stream);
 
     worker.submit([&update_and_sample, it] { update_and_sample(it); });
 
     RAFT_LOG_DEBUG("# GNND iteration: %lu / %lu", it + 1, build_config_.max_iterations);
 
-    // Reuse dists_buffer_ to save GPU memory. graph_buffer_ cannot be reused, because it
-    // contains some information for local_join.
-    static_assert(DEGREE_ON_DEVICE * sizeof(*(dists_buffer_.data_handle())) >=
-                  NUM_SAMPLES * sizeof(*(graph_buffer_.data_handle())));
-    add_reverse_edges(graph_.h_graph_new.data_handle(),
-                      h_rev_graph_new_.data_handle(),
-                      (Index_t*)dists_buffer_.data_handle(),
-                      d_list_sizes_new_.data_handle(),
-                      stream);
-    add_reverse_edges(h_graph_old_.data_handle(),
-                      h_rev_graph_old_.data_handle(),
-                      (Index_t*)dists_buffer_.data_handle(),
-                      d_list_sizes_old_.data_handle(),
-                      stream);
+    add_all_reverse_edges(stream);
 
     // Tensor operations from `mma.h` are guarded with archicteture
     // __CUDA_ARCH__ >= 700. Since RAFT supports compilation for ARCH 600,
@@ -2867,6 +2923,7 @@ void GNND<Data_t, Index_t>::build(
   num_iterations_ = 0;
   graph_.h_graph  = reinterpret_cast<InternalID_t<Index_t>*>(output_graph);
 
+  allocate_sample_lists();
   graph_.clear();
   graph_.init_random_graph();
   graph_.sample_graph(true);
@@ -2890,26 +2947,12 @@ void GNND<Data_t, Index_t>::build(
 
   for (size_t it = 0; it < build_config_.max_iterations; ++it) {
     num_iterations_ = it + 1;
-    raft::copy(res, d_list_sizes_new_.view(), graph_.h_list_sizes_new.view());
-    raft::copy(res, h_graph_old_.view(), graph_.h_graph_old.view());
-    raft::copy(res, d_list_sizes_old_.view(), graph_.h_list_sizes_old.view());
-    raft::resource::sync_stream(res);
+    prepare_sample_lists(stream);
 
     worker.submit([&update_and_sample, it] { update_and_sample(it); });
     RAFT_LOG_DEBUG("# GNND iteration: %lu / %lu", it + 1, build_config_.max_iterations);
 
-    static_assert(DEGREE_ON_DEVICE * sizeof(*(dists_buffer_.data_handle())) >=
-                  NUM_SAMPLES * sizeof(*(graph_buffer_.data_handle())));
-    add_reverse_edges(graph_.h_graph_new.data_handle(),
-                      h_rev_graph_new_.data_handle(),
-                      reinterpret_cast<Index_t*>(dists_buffer_.data_handle()),
-                      d_list_sizes_new_.data_handle(),
-                      stream);
-    add_reverse_edges(h_graph_old_.data_handle(),
-                      h_rev_graph_old_.data_handle(),
-                      reinterpret_cast<Index_t*>(dists_buffer_.data_handle()),
-                      d_list_sizes_old_.data_handle(),
-                      stream);
+    add_all_reverse_edges(stream);
 
     local_join(stream, dataset, dist_epilogue);
     worker.wait();
