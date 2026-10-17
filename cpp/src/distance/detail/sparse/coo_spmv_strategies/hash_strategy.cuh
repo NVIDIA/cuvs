@@ -12,6 +12,7 @@
 #include <raft/util/cuda_dev_essentials.cuh>
 
 #include <cuco/static_map.cuh>
+#include <cuda/functional>
 #include <cuda/iterator>
 #include <thrust/copy.h>
 
@@ -38,7 +39,8 @@ class hash_strategy : public coo_spmv_strategy<value_idx, value_t, tpb> {
  public:
   static constexpr value_idx empty_key_sentinel = value_idx{-1};
   static constexpr value_t empty_value_sentinel = value_t{0};
-  using probing_scheme_type = cuco::linear_probing<1, cuco::murmurhash3_32<value_idx>>;
+  using probing_scheme_type =
+    cuco::linear_probing<1, cuda::hash<value_idx, cuda::hash_algorithm::murmurhash3_32>>;
   using storage_ref_type =
     cuco::bucket_storage_ref<cuco::pair<value_idx, value_t>, 1, cuco::extent<int>>;
   using map_type = cuco::static_map_ref<value_idx,
