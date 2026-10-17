@@ -30,7 +30,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}-${{ inputs.build_type || 'branch' }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref_type != 'tag' }}
 
 permissions: {}
 
@@ -78,8 +78,7 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    # Keep CUDA builds separate; the release gather job retains their native classifiers.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -96,8 +95,7 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    # Build against the matching cuvs-java artifact from this workflow run.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -148,6 +146,75 @@ jobs:
       script: "ci/build_lucene.sh"
       artifact-name-prefix: "cuvs-lucene"
       file_to_upload: "java/cuvs-lucene/target/"
+  java-maven-gather:
+    if: ${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
+    needs: [java-build, lucene-build]
+    runs-on: linux-amd64-cpu4
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [cuvs-java, cuvs-lucene]
+    steps:
+      - name: Checkout release source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - name: Download module builds from this run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: ${{ matrix.module }}-cuda*
+          path: ${{ runner.temp }}/java-builds
+      - name: Assemble Maven repository
+        env:
+          MODULE: ${{ matrix.module }}
+        run: |
+          python3 java/ci/assemble_maven_repo.py \
+            --module "${MODULE}" --tag "${GITHUB_REF_NAME}" \
+            --artifacts-dir "${RUNNER_TEMP}/java-builds" \
+            --output-dir "${RUNNER_TEMP}/maven-repo"
+      - name: Upload assembled Maven repository
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.module }}_maven_repo
+          path: ${{ runner.temp }}/maven-repo
+          if-no-files-found: error
+  java-publish:
+    needs: java-maven-gather
+    permissions:
+      actions: read
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/maven-publish.yaml@main
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      MAVEN_DEPLOY_TOKEN: ${{ secrets.MAVEN_DEPLOY_TOKEN }}
+    with:
+      artifact-name: cuvs-java_maven_repo
+      source-git-sha: ${{ inputs.sha || github.sha }}
+      profile-id: ${{ vars.MAVEN_STAGING_PROFILE_ID || 'com.nvidia.cuvs' }}
+      docs-project: cuvs-java
+  lucene-publish:
+    # The Lucene release depends on the matching published Java coordinate.
+    # Documentation is dispatched separately from release-tracking.
+    if: ${{ !cancelled() && needs.java-publish.outputs.deployment-state == 'PUBLISHED' }}
+    needs: [java-maven-gather, java-publish]
+    permissions:
+      actions: read
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/maven-publish.yaml@main
+    secrets:
+      GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+      GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+      MAVEN_DEPLOY_TOKEN: ${{ secrets.MAVEN_DEPLOY_TOKEN }}
+    with:
+      artifact-name: cuvs-lucene_maven_repo
+      source-git-sha: ${{ inputs.sha || github.sha }}
+      profile-id: ${{ vars.MAVEN_STAGING_PROFILE_ID || 'com.nvidia.cuvs' }}
+      docs-project: cuvs-lucene
   python-build:
     needs: [build-details, cpp-build]
     permissions:
