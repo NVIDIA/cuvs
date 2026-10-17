@@ -1,0 +1,316 @@
+    # This is a sample to deploy a milvus cluster in milvus-operator's default configurations.
+    apiVersion: milvus.io/v1beta1
+    kind: Milvus
+    metadata:
+      name: milvus-cpu-120
+      namespace: kioxia
+      labels:
+        app: milvus
+    spec:
+      mode: cluster
+      dependencies:
+        etcd:
+          inCluster:
+            values:
+              image:
+                tag: 3.5.23-r2
+              extraEnvVars:
+                - name: ETCD_MAX_REQUEST_BYTES
+                  value: "536870912"
+              args:
+                - /opt/bitnami/scripts/etcd/run.sh
+                - --quota-backend-bytes
+                - "50737418240"
+
+              replicaCount: 1
+              persistence:    
+                storageClass: local-path
+                size: 50Gi
+                volumePermissions:
+                  enabled: true
+        storage:      
+          inCluster:
+            values:
+              environment:
+                MINIO_API_STALE_UPLOADS_EXPIRY: 720h
+              # change to standalone if you dont have 3 nodes
+              mode: standalone
+              service:
+                type: LoadBalancer
+              consoleService:
+                type: LoadBalancer
+                  
+              replicas: 1
+              persistence:    
+                storageClass: local-path
+                size: 10Ti      
+              resources:
+                requests:
+                  memory: 16Gi  
+                
+        pulsar:      
+          inCluster:
+            values:                       
+              zookeeper:
+                replicaCount: 1
+                volumes:
+                  data:
+                    size: 40Gi
+              broker:
+                replicaCount: 1
+                resources:
+                  limits:
+                    cpu: 4
+                    memory: 4Gi   
+                configData:                                                                                                                                 
+                  PULSAR_MEM: >                                                                                                                             
+                    -Xms128m -Xmx1024m -XX:MaxDirectMemorySize=1024m                                                    
+                  managedLedgerDefaultAckQuorum: '1'
+                  managedLedgerDefaultEnsembleSize: '1'
+                  managedLedgerDefaultWriteQuorum: '1'                                                
+              bookkeeper:
+                replicaCount: 3
+                configData:                                                                                                                                   
+                  # we use `bin/pulsar` for starting bookie daemons                                                                                           
+                  PULSAR_MEM: >                                                                                                                             
+                    -Xms128m                                                                                                                                
+                    -Xmx1024m                                                                                                                                  
+                    -XX:MaxDirectMemorySize=1024m                                                                                                            
+                resources:
+                  limits:
+                    cpu: 4
+                    memory: 32Gi             
+                 
+      components:
+        proxy:
+          replicas: 1
+          serviceType: LoadBalancer
+          image: 10.93.66.61:32610/milvus:v2.6.23330-kioxia
+        queryNode:
+          # initContainers:
+          #   - name: patch-run-sh
+          #     image: busybox:1.36
+          #     command:
+          #       - /bin/sh
+          #       - -c
+          #       - |
+          #         echo "Backing up original run.sh..."
+          #         cp /milvus/tools/run.sh /milvus/tools/run.sh.bak
+          #         echo "Patching run.sh with taskset..."
+          #         cat << 'EOF' > /milvus/tools/run.sh
+          #         #!/bin/sh
+          #         exec taskset -c 30-59,150-179 /milvus/tools/run.sh.bak "$@"
+          #         EOF
+          #         chmod +x /milvus/tools/run.sh
+          #     volumeMounts:
+          #       - name: tools
+          #         mountPath: /milvus/tools
+          replicas: 4
+          image: 10.93.66.61:32610/milvus:v2.6.23330-kioxia
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "none"
+          volumeMounts:
+          - mountPath: /var/lib/milvus/data
+            name: disk
+          volumes:
+          - name: disk
+            hostPath:
+              path: "/var/lib/milvus/data"
+              type: DirectoryOrCreate
+        indexNode:
+          replicas: 0
+          image: 10.93.66.61:32610/milvus:v2.6.23330-kioxia
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "none"
+          volumeMounts:
+          - mountPath: /var/lib/milvus/data
+            name: disk
+          volumes:
+          - name: disk
+            hostPath:
+              path: "/var/lib/milvus/data"
+              type: DirectoryOrCreate
+        streamingNode:
+          replicas: 1
+          image: 10.93.66.61:32610/milvus:v2.6.23330-kioxia
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "none"
+          volumeMounts:
+          - mountPath: /var/lib/milvus/data
+            name: disk
+          volumes:
+          - name: disk
+            hostPath:
+              path: "/var/lib/milvus/data"
+              type: DirectoryOrCreate
+        mixCoord:
+          image: 10.93.66.61:32610/milvus:v2.6.23330-kioxia
+          replicas: 1
+          volumeMounts:
+          - mountPath: /var/lib/milvus/data
+            name: disk
+          volumes:
+          - name: disk
+            hostPath:
+              path: "/var/lib/milvus/data"
+              type: DirectoryOrCreate
+        dataNode:
+          image: 10.93.66.61:32610/milvus:v2.6.23330-kioxia
+          env:
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "none"
+            - name: LOCAL_STORAGE_SIZE
+              value: "300"
+          replicas: 4
+          volumeMounts:
+          - mountPath: /var/lib/milvus/data
+            name: disk
+          volumes:
+          - name: disk
+            hostPath:
+              path: "/var/lib/milvus/data"
+              type: DirectoryOrCreate
+
+      config:
+        session:
+          ttl: 60
+        gpu:
+          initMemSize: 0
+          maxMemSize: 0      
+        log:
+          file:
+            maxAge: 10
+            maxBackups: 20
+            maxSize: 100            
+          format: text
+          level: debug
+        common:
+          #controls minio fetch parallelism - default is 16-which means 8 threads, 1 is for 128 threads
+          indexSliceSize: 1
+          DiskIndex:
+            BeamWidthRatio: 1
+            BuildNumThreadsRatio: 1
+            LoadNumThreadRatio: 8
+            MaxDegree: 60
+            PQCodeBudgetGBRatio: 0.0417
+            SearchCacheBudgetGBRatio: 0.0
+            SearchListSize: 100
+          AiSAQIndex:
+            BeamWidthRatio: 1
+            BuildNumThreadsRatio: 1
+            LoadNumThreadRatio: 8
+            MaxDegree: 60
+            PQCodeBudgetGBRatio: 0.417
+            DiskPQCodeBudgetGBRatio: 0.25
+            SearchCacheBudgetGBRatio: 0.0
+            SearchListSize: 100
+            NumEntryPoints: 1000  #<int value, default 0>, Number of entry points that should be generated to be used as a search start points. Value must be between 1 and 1000
+            InlinePQ: 0   #<int value, default 0>, Set the number of pq vectors to be stored inline as part of the index node
+            PQCacheSize: 0 #<int value, default 0>, Compressed vectors cache DRAM size in bytes
+            Rearrange: true  #<boolean value, default false>, Enable vectors rearrangement during build, when enabled, each vector will be assigned and stored with a new id, in a way that the number of IOs needed to read the PQ vectors during search will be minimal. This option is ignored if all PQ vectors are stored inline
+            pqReadPageCacheSize: 0 #4800000  #<int value, default
+          useVectorAsClusteringKey: true
+          enableVectorClusteringKey: true
+        proxy:
+          grpc:
+            serverMaxRecvSize: 2147483648   # 2GB
+            serverMaxSendSize: 2147483648
+            clientMaxRecvSize: 2147483648
+            clientMaxSendSize: 2147483648
+        dataNode:
+          grpc:
+            serverMaxRecvSize: 2147483648   # 2GB
+            serverMaxSendSize: 2147483648
+            clientMaxRecvSize: 2147483648
+            clientMaxSendSize: 2147483648
+          import:
+            maxConcurrentTaskNum: 64
+            maxImportFileSizeInGB: 1024
+            concurrencyPerCPUCore: 1
+          clusteringCompaction:
+            memoryBufferRatio: 0.1
+            workPoolSize: 512
+            flushPoolSize: 32
+          segment:
+            binlog:
+              maxsize: 1048676
+
+        streamingNode:
+          grpc:
+            serverMaxRecvSize: 2147483648   # 2GB
+            serverMaxSendSize: 2147483648
+            clientMaxRecvSize: 2147483648
+            clientMaxSendSize: 2147483648
+
+        rootCoord:
+          grpc:
+            serverMaxRecvSize: 2147483648   # 2GB
+            serverMaxSendSize: 2147483648
+            clientMaxRecvSize: 2147483648
+            clientMaxSendSize: 2147483648
+
+        queryNode:
+          grpc:
+            serverMaxRecvSize: 2147483648   # 2GB
+            serverMaxSendSize: 2147483648
+            clientMaxRecvSize: 2147483648
+            clientMaxSendSize: 2147483648
+          segcore:
+            knowhereThreadPoolNumRatio: 1
+          scheduler:
+            maxReadConcurrentRatio: 2
+          enableSegmentPrune: true
+          defaultSegmentFilterRatio: 0.5
+        queryCoord:
+          grpc:
+            serverMaxRecvSize: 2147483648   # 2GB
+            serverMaxSendSize: 2147483648
+            clientMaxRecvSize: 2147483648
+            clientMaxSendSize: 2147483648
+          loadTimeoutSeconds: 6000
+
+        dataCoord:
+          grpc:
+            serverMaxRecvSize: 2147483648   # 2GB
+            serverMaxSendSize: 2147483648
+            clientMaxRecvSize: 2147483648
+            clientMaxSendSize: 2147483648
+          import:
+            maxImportFileNumPerReq: 500000
+            maxSizeInMBPerImportTask: 156250
+#uncomment if using clustering compaction or just import
+          sortCompaction:
+            enable: false
+          segment:
+            maxSize: 32743 # 39292
+            diskSegmentMaxSize: 32743 # 39292
+            sealProportion: 0.8
+            smallProportion: 0.5
+          compaction:
+            rpcTimeout: 180
+            timeout: 5600
+            indexBasedCompaction: false
+            levelzero:
+              forceTrigger:
+                maxSize: 85899345920
+            clustering:
+              enable: true
+              maxTrainSizeRatio: 0.1
+              autoEnable: true
+              triggerInterval: 60
+              minInterval: 3600
+              maxInterval: 2592000
+              newDataSizeThreshold: 1024m
+              preferSegmentSizeRatio: 1.5
+              maxSegmentSizeRatio: 2.5
+              timeout: 720000
+              minCentroidsNum: 5
+              maxClusterSize: 1024g
+
+              maxCentroidsPerSegment: 2
+              minClusterSizeRatio: 0.001  
+            
+            
