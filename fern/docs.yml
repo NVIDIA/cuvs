@@ -65,6 +65,7 @@ css:
   - "./styles/metrics-table.css"
   - "./styles/notebook-viewer.css"
   - "./styles/trajectory-viewer.css"
+  - "./styles/performance-dashboard.css"
 experimental:
   mdx-components:
     - "./theme/nvidia/components"
@@ -113,6 +114,8 @@ navigation:
             path: "./pages/tuning_guide.md"
       - page: "Integrations"
         path: "./pages/integrations.md"
+      - page: "Performance"
+        path: "./pages/performance.md"
       - page: "Use-cases"
         path: "./pages/use_cases.md"
       - page: "Using cuVS APIs"
