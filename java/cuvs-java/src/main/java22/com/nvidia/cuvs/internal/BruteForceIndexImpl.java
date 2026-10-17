@@ -26,6 +26,7 @@ import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.SearchResults;
 import com.nvidia.cuvs.internal.common.CloseableRMMAllocation;
+import com.nvidia.cuvs.internal.common.OmpThreadScope;
 import com.nvidia.cuvs.internal.panama.cuvsFilter;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -119,12 +120,14 @@ public class BruteForceIndexImpl implements BruteForceIndex {
 
     MemorySegment datasetMemSegment = dataset.memorySegment();
 
-    omp_set_num_threads(bruteForceIndexParams.getNumWriterThreads());
-
     long datasetBytes = C_FLOAT_BYTE_SIZE * rows * cols;
     var index = createBruteForceIndex();
 
-    try (var resourcesAccessor = resources.access()) {
+    // Index parameters are optional; without them, leave the OpenMP setting alone.
+    int numWriterThreads =
+        bruteForceIndexParams != null ? bruteForceIndexParams.getNumWriterThreads() : 0;
+    try (var ompThreads = OmpThreadScope.of(numWriterThreads);
+        var resourcesAccessor = resources.access()) {
       long cuvsResources = resourcesAccessor.handle();
       try (var closeableDataMemorySegmentP = allocateRMMSegment(cuvsResources, datasetBytes)) {
         MemorySegment datasetMemorySegmentP = closeableDataMemorySegmentP.handle();
@@ -152,8 +155,6 @@ public class BruteForceIndexImpl implements BruteForceIndex {
             tensorDataArena,
             index);
       }
-    } finally {
-      omp_set_num_threads(1);
     }
   }
 
