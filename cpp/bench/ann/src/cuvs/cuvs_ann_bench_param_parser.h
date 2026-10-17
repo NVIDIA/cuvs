@@ -329,6 +329,10 @@ nlohmann::json collect_conf_with_prefix(const nlohmann::json& conf,
 }
 
 template <typename T, typename IdxT>
+void parse_search_param(const nlohmann::json& conf,
+                        typename cuvs::bench::cuvs_cagra<T, IdxT>::search_param& param);
+
+template <typename T, typename IdxT>
 void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::cagra::index_params& params)
 {
   // NB: try to avoid setting parameters implicitly, because this parsing may be used after
@@ -376,6 +380,7 @@ void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::cagra::index
   nlohmann::json ivf_pq_search_conf = collect_conf_with_prefix(conf, "ivf_pq_search_");
   nlohmann::json nn_descent_conf    = collect_conf_with_prefix(conf, "nn_descent_");
   nlohmann::json ace_conf           = collect_conf_with_prefix(conf, "ace_");
+  nlohmann::json build_search_conf  = collect_conf_with_prefix(conf, "build_search_");
 
   // When graph_build_algo is not specified, leave graph_build_params as monostate so the
   // CAGRA build uses AUTO selection (NN_DESCENT or IVF_PQ based on dataset/heuristics).
@@ -406,6 +411,65 @@ void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::cagra::index
       } else if constexpr (std::is_same_v<U,
                                           cuvs::neighbors::graph_build_params::nn_descent_params>) {
         parse_build_param<T, IdxT>(nn_descent_conf, arg);
+      } else if constexpr (std::is_same_v<
+                             U,
+                             cuvs::neighbors::graph_build_params::iterative_search_params>) {
+        if (build_search_conf.contains("width") && !build_search_conf.contains("search_width")) {
+          build_search_conf["search_width"] = build_search_conf.at("width");
+        }
+        build_search_conf.erase("persistent");
+        build_search_conf.erase("persistent_lifetime");
+        build_search_conf.erase("persistent_device_usage");
+        typename cuvs::bench::cuvs_cagra<T, IdxT>::search_param search_param;
+        search_param.p = arg;
+        parse_search_param<T, IdxT>(build_search_conf, search_param);
+        static_cast<cuvs::neighbors::cagra::search_params&>(arg) = search_param.p;
+        if (build_search_conf.contains("min_iterations")) {
+          arg.min_iterations = build_search_conf.at("min_iterations");
+        }
+        if (build_search_conf.contains("max_queries")) {
+          arg.max_queries = build_search_conf.at("max_queries");
+        }
+        if (build_search_conf.contains("team_size")) {
+          arg.team_size = build_search_conf.at("team_size");
+        }
+        if (build_search_conf.contains("hashmap_min_bitlen")) {
+          arg.hashmap_min_bitlen = build_search_conf.at("hashmap_min_bitlen");
+        }
+        if (build_search_conf.contains("hashmap_max_fill_rate")) {
+          arg.hashmap_max_fill_rate = build_search_conf.at("hashmap_max_fill_rate");
+        }
+        if (build_search_conf.contains("num_random_samplings")) {
+          arg.num_random_samplings = build_search_conf.at("num_random_samplings");
+        }
+
+        if (build_search_conf.contains("hashmap_mode")) {
+          std::string mode = build_search_conf.at("hashmap_mode");
+          if (mode == "hash") {
+            arg.hashmap_mode = cuvs::neighbors::cagra::hash_mode::HASH;
+          } else if (mode == "small") {
+            arg.hashmap_mode = cuvs::neighbors::cagra::hash_mode::SMALL;
+          } else if (mode == "auto") {
+            arg.hashmap_mode = cuvs::neighbors::cagra::hash_mode::AUTO;
+          }
+        }
+        // Precision of the codebook/query in shared memory for the VPQ search used during
+        // the iterative build. Accepts an integer code (0=F16, 1=E5M2) or a string.
+        if (build_search_conf.contains("smem_dtype")) {
+          const auto& sd = build_search_conf.at("smem_dtype");
+          if (sd.is_number_integer()) {
+            arg.smem_dtype = static_cast<cuvs::neighbors::cagra::internal_dtype>(sd.get<int>());
+          } else {
+            std::string s = sd.get<std::string>();
+            if (s == "f16" || s == "F16" || s == "fp16" || s == "half") {
+              arg.smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
+            } else if (s == "e5m2" || s == "E5M2" || s == "fp8") {
+              arg.smem_dtype = cuvs::neighbors::cagra::internal_dtype::E5M2;
+            } else {
+              throw std::runtime_error("invalid value for build_search smem_dtype: " + s);
+            }
+          }
+        }
       }
     },
     params.graph_build_params);

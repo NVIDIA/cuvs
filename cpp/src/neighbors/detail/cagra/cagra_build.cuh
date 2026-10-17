@@ -10,7 +10,6 @@
 #include "cagra_ace.cuh"
 #include "cagra_search.cuh"
 #include "graph_core.cuh"
-#include <cuvs/preprocessing/quantize/pq.hpp>
 
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
