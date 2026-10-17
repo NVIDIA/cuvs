@@ -10,7 +10,7 @@ _Java package: `com.nvidia.cuvs`_
 public class CagraCompressionParams
 ```
 
-Supplemental compression parameters to build CAGRA Index.
+Supplemental compression parameters retained for the CAGRA compression API.
 
 ## Public Members
 
