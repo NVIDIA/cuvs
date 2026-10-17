@@ -26,7 +26,28 @@ namespace cuvs::neighbors::ivf_pq::detail {
 
 // Serialization version
 // Version 4 adds codes_layout field
-constexpr int kSerializationVersion = 4;
+// Version 5 adds use_ann_for_extend (tri-state int8: -1 nullopt, 0 false, 1 true)
+constexpr int kSerializationVersion = 5;
+
+/** Serialize std::optional<bool> as int8_t (-1 = nullopt, 0/1 = false/true). */
+inline void serialize_optional_bool(raft::resources const& handle,
+                                    std::ostream& os,
+                                    std::optional<bool> v)
+{
+  int8_t flag = v.has_value() ? static_cast<int8_t>(v.value() ? 1 : 0) : int8_t{-1};
+  raft::serialize_scalar(handle, os, flag);
+}
+
+/** Deserialize std::optional<bool> from int8_t (-1 = nullopt, 0/1 = false/true). */
+inline std::optional<bool> deserialize_optional_bool(raft::resources const& handle,
+                                                     std::istream& is)
+{
+  int8_t flag = raft::deserialize_scalar<int8_t>(handle, is);
+  if (flag == 1) { return true; }
+  if (flag == 0) { return false; }
+  RAFT_EXPECTS(flag == -1, "ivf_pq::deserialize: invalid use_ann_for_extend flag %d", int{flag});
+  return std::nullopt;
+}
 
 /**
  * Write the index to an output stream
@@ -58,6 +79,7 @@ void serialize(raft::resources const& handle_, Output& os, const index<IdxT>& in
   raft::serialize_scalar(handle_, os, index.codebook_kind());
   raft::serialize_scalar(handle_, os, index.codes_layout());
   raft::serialize_scalar(handle_, os, index.n_lists());
+  serialize_optional_bool(handle_, os, index.use_ann_for_extend());
 
   cuvs::util::detail::serialize_mdspan(handle_, os, index.pq_centers());
   cuvs::util::detail::serialize_mdspan(handle_, os, index.centers());
@@ -69,19 +91,20 @@ void serialize(raft::resources const& handle_, Output& os, const index<IdxT>& in
   raft::copy(handle_, sizes_host.view(), index.list_sizes());
   raft::resource::sync_stream(handle_);
   cuvs::util::detail::serialize_mdspan(handle_, os, sizes_host.view());
+  // Pass shared_ptr to serialize_list so null (unallocated) lists write size=0 instead of crashing.
   // NOTE: We use static_cast here because serialize_list requires the concrete list type
   // to access the spec_type for determining the serialized data layout.
   if (index.codes_layout() == list_layout::FLAT) {
     auto list_store_spec = list_spec_flat<uint32_t, IdxT>{index.pq_bits(), index.pq_dim(), true};
     for (uint32_t label = 0; label < index.n_lists(); label++) {
-      auto& typed_list = static_cast<const list_data_flat<IdxT>&>(*index.lists()[label]);
+      auto typed_list = std::static_pointer_cast<list_data_flat<IdxT>>(index.lists()[label]);
       ivf::serialize_list(handle_, os, typed_list, list_store_spec, sizes_host(label));
     }
   } else {
     auto list_store_spec =
       list_spec_interleaved<uint32_t, IdxT>{index.pq_bits(), index.pq_dim(), true};
     for (uint32_t label = 0; label < index.n_lists(); label++) {
-      auto& typed_list = static_cast<const list_data_interleaved<IdxT>&>(*index.lists()[label]);
+      auto typed_list = std::static_pointer_cast<list_data_interleaved<IdxT>>(index.lists()[label]);
       ivf::serialize_list(handle_, os, typed_list, list_store_spec, sizes_host(label));
     }
   }
@@ -139,6 +162,7 @@ auto deserialize_impl(raft::resources const& handle_, Input& input) -> index<Idx
   auto codebook_kind = raft::deserialize_scalar<cuvs::neighbors::ivf_pq::codebook_gen>(handle_, is);
   auto codes_layout  = raft::deserialize_scalar<cuvs::neighbors::ivf_pq::list_layout>(handle_, is);
   auto n_lists       = raft::deserialize_scalar<std::uint32_t>(handle_, is);
+  auto use_ann_for_extend = deserialize_optional_bool(handle_, is);
 
   RAFT_LOG_DEBUG("n_rows %zu, dim %d, pq_dim %d, pq_bits %d, n_lists %d",
                  static_cast<std::size_t>(n_rows),
@@ -176,8 +200,16 @@ auto deserialize_impl(raft::resources const& handle_, Input& input) -> index<Idx
                pq_bits);
 
   // Create owning_impl directly to get mutable access for deserialization
-  auto impl = std::make_unique<owning_impl<IdxT>>(
-    handle_, metric, codebook_kind, n_lists, dim, pq_bits, pq_dim, cma, codes_layout);
+  auto impl = std::make_unique<owning_impl<IdxT>>(handle_,
+                                                  metric,
+                                                  codebook_kind,
+                                                  n_lists,
+                                                  dim,
+                                                  pq_bits,
+                                                  pq_dim,
+                                                  cma,
+                                                  codes_layout,
+                                                  use_ann_for_extend);
 
   // Deserialize center/matrix data using mutable accessors
   cuvs::util::detail::deserialize_mdspan(handle_, input, impl->pq_centers());
