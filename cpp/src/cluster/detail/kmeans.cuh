@@ -1082,7 +1082,8 @@ void kmeans_fit(
       compute_centroid_shift<DataT, IndexT>(handle,
                                             raft::make_const_mdspan(centroids_const),
                                             raft::make_const_mdspan(new_centroids_view),
-                                            sqrdNormError.view());
+                                            sqrdNormError.view(),
+                                            ws);
 
       std::swap(cur_centroids_ptr, new_centroids_ptr);
 
