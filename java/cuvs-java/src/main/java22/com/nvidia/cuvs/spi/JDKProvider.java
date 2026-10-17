@@ -715,8 +715,15 @@ final class JDKProvider implements CuVSProvider {
         return;
       }
       closed = true;
-      matrix.close();
+      try {
+        onClose();
+      } finally {
+        matrix.close();
+      }
     }
+
+    /** Releases builder-owned native state; runs on {@link #build()} and on abandonment. */
+    protected void onClose() {}
 
     protected abstract void internalAddVector(MemorySegment vector);
   }
@@ -724,6 +731,11 @@ final class JDKProvider implements CuVSProvider {
   /**
    * This {@link CuVSDeviceMatrix} builder implementation returns a {@link CuVSDeviceMatrix} backed by managed RMM
    * device memory. It uses a {@link PinnedMemoryBuffer} to batch data before copying it to the GPU.
+   *
+   * <p>The pinned buffer is used as two halves: while one half is being copied to the device, rows
+   * are written into the other, so the host-side copy of each vector overlaps the PCIe transfer
+   * instead of waiting for it. Before a half is written again, the builder waits only for that
+   * half's previous transfer (a CUDA event), not for the whole stream.
    */
   private static final class BufferedDeviceMatrixBuilder extends MatrixBuilder<CuVSDeviceMatrixImpl>
       implements CuVSMatrix.Builder<CuVSDeviceMatrix> {
@@ -731,7 +743,11 @@ final class JDKProvider implements CuVSProvider {
     private final MemorySegment stream;
 
     private final CuVSResources resources;
+    private final int halves;
+    private final long halfBytes;
     private final long bufferRowCount;
+    private final MemorySegment[] copyDone = new MemorySegment[2];
+    private int currentHalf;
     private int currentBufferRow;
 
     private BufferedDeviceMatrixBuilder(
@@ -739,9 +755,10 @@ final class JDKProvider implements CuVSProvider {
       super(CuVSDeviceMatrixRMMImpl.create(resources, size, columns, dataType), size, columns);
       this.stream = Util.getStream(resources);
       this.resources = resources;
-
-      this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
-      this.currentBufferRow = 0;
+      long rowsPerHalf = (PinnedMemoryBuffer.CHUNK_BYTES / 2) / rowBytes;
+      this.halves = rowsPerHalf > 0 ? 2 : 1;
+      this.halfBytes = PinnedMemoryBuffer.CHUNK_BYTES / halves;
+      this.bufferRowCount = Math.min(halfBytes / rowBytes, size);
     }
 
     private BufferedDeviceMatrixBuilder(
@@ -760,9 +777,10 @@ final class JDKProvider implements CuVSProvider {
 
       this.stream = Util.getStream(resources);
       this.resources = resources;
-
-      this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
-      this.currentBufferRow = 0;
+      long rowsPerHalf = (PinnedMemoryBuffer.CHUNK_BYTES / 2) / rowBytes;
+      this.halves = rowsPerHalf > 0 ? 2 : 1;
+      this.halfBytes = PinnedMemoryBuffer.CHUNK_BYTES / halves;
+      this.bufferRowCount = Math.min(halfBytes / rowBytes, size);
     }
 
     @Override
@@ -770,7 +788,10 @@ final class JDKProvider implements CuVSProvider {
       if (currentRow >= size) {
         throw new ArrayIndexOutOfBoundsException();
       }
-      var hostBufferOffset = currentBufferRow * rowBytes;
+      if (currentBufferRow == 0) {
+        waitForHalf(currentHalf);
+      }
+      var hostBufferOffset = currentHalf * halfBytes + currentBufferRow * rowBytes;
       try (var access = resources.access()) {
         var hostBuffer = CuVSResourcesImpl.getHostBuffer(access);
         MemorySegment.copy(vector, 0, hostBuffer, hostBufferOffset, rowBytes);
@@ -778,12 +799,20 @@ final class JDKProvider implements CuVSProvider {
         currentRow++;
         currentBufferRow++;
         if (currentBufferRow == bufferRowCount) {
-          flushBuffer(hostBuffer);
+          flushHalf(hostBuffer);
         }
       }
     }
 
-    private void flushBuffer(MemorySegment hostBuffer) {
+    /** Blocks until the last transfer out of {@code half}, if any, has finished. */
+    private void waitForHalf(int half) {
+      if (copyDone[half] != null) {
+        checkCudaError(cudaEventSynchronize(copyDone[half]), "cudaEventSynchronize");
+      }
+    }
+
+    /** Starts the transfer of the current half and moves on to the other one. */
+    private void flushHalf(MemorySegment hostBuffer) {
       if (currentBufferRow > 0) {
         var deviceMemoryOffset = (currentRow - currentBufferRow) * rowSize;
         var dst = matrix.memorySegment().asSlice(deviceMemoryOffset);
@@ -791,16 +820,37 @@ final class JDKProvider implements CuVSProvider {
             cudaMemcpy2DAsync(
                 dst,
                 rowSize,
-                hostBuffer,
+                hostBuffer.asSlice(currentHalf * halfBytes),
                 rowBytes,
                 rowBytes,
                 currentBufferRow,
                 CudaMemcpyKind.HOST_TO_DEVICE.kind,
                 stream),
             "cudaMemcpy2DAsync");
-
+        if (copyDone[currentHalf] == null) {
+          try (var localArena = Arena.ofConfined()) {
+            var eventPtr = localArena.allocate(cudaEvent_t);
+            checkCudaError(
+                cudaEventCreateWithFlags(eventPtr, cudaEventDisableTiming()),
+                "cudaEventCreateWithFlags");
+            copyDone[currentHalf] = eventPtr.get(cudaEvent_t, 0);
+          }
+        }
+        checkCudaError(cudaEventRecord(copyDone[currentHalf], stream), "cudaEventRecord");
         currentBufferRow = 0;
-        checkCudaError(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+        currentHalf = (currentHalf + 1) % halves;
+      }
+    }
+
+    @Override
+    protected void onClose() {
+      // Whether built or abandoned, no transfer may still be reading the shared pinned buffer.
+      checkCudaError(cudaStreamSynchronize(stream), "cudaStreamSynchronize");
+      for (int i = 0; i < copyDone.length; ++i) {
+        if (copyDone[i] != null) {
+          checkCudaError(cudaEventDestroy(copyDone[i]), "cudaEventDestroy");
+          copyDone[i] = null;
+        }
       }
     }
 
@@ -809,8 +859,9 @@ final class JDKProvider implements CuVSProvider {
       ensureOpen();
       try (var access = resources.access()) {
         var hostBuffer = CuVSResourcesImpl.getHostBuffer(access);
-        flushBuffer(hostBuffer);
+        flushHalf(hostBuffer);
       }
+      onClose();
       return transferOwnership();
     }
   }
@@ -891,11 +942,23 @@ final class JDKProvider implements CuVSProvider {
       if (currentRow >= size) {
         throw new ArrayIndexOutOfBoundsException();
       }
-      MemorySegment.copy(vector, 0, matrix.memorySegment(), ((currentRow++) * rowSize), rowBytes);
+      long offset = (currentRow++) * rowSize;
+      MemorySegment.copy(vector, 0, matrix.memorySegment(), offset, rowBytes);
+      if (rowSize > rowBytes) {
+        // The matrix memory is not zero-filled; padding must still read as zero.
+        matrix.memorySegment().asSlice(offset + rowBytes, rowSize - rowBytes).fill((byte) 0);
+      }
     }
 
     @Override
     public CuVSHostMatrix build() {
+      ensureOpen();
+      // Rows never added read as zero, as they did when the matrix memory was zero-filled.
+      long filled = currentRow * rowSize;
+      var segment = matrix.memorySegment();
+      if (filled < segment.byteSize()) {
+        segment.asSlice(filled).fill((byte) 0);
+      }
       return transferOwnership();
     }
   }
