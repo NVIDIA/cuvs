@@ -420,6 +420,16 @@ void search_with_filtering(raft::resources const& res,
     res, params, idx, queries, neighbors, distances, sample_filter);
 }
 
+namespace detail {
+/** Clamp a filtering rate derived from a filter to the range the search plan accepts. */
+inline float clamp_filtering_rate(float filtering_rate)
+{
+  const float min_filtering_rate = 0.0f;
+  const float max_filtering_rate = 0.999f;
+  return std::min(std::max(filtering_rate, min_filtering_rate), max_filtering_rate);
+}
+}  // namespace detail
+
 template <typename T,
           typename IdxT,
           cuvs::neighbors::ann_dataset_view DatasetViewT,
@@ -451,10 +461,7 @@ void search(raft::resources const& res,
     if (params.filtering_rate < 0.0) {
       const auto num_set_bits = sample_filter.bitset_view_.count(res);
       auto filtering_rate = (float)(idx.dataset().n_rows() - num_set_bits) / idx.dataset().n_rows();
-      const float min_filtering_rate = 0.0;
-      const float max_filtering_rate = 0.999;
-      params_copy.filtering_rate =
-        std::min(std::max(filtering_rate, min_filtering_rate), max_filtering_rate);
+      params_copy.filtering_rate = detail::clamp_filtering_rate(filtering_rate);
     }
     auto sample_filter_copy = sample_filter;
     return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT, DatasetViewT>(
@@ -503,13 +510,7 @@ void search(raft::resources const& res,
       dynamic_cast<const cuvs::neighbors::filtering::udf_filter&>(sample_filter_ref);
     search_params params_copy = params;
     if (params.filtering_rate < 0.0) {
-      const float min_filtering_rate = 0.0f;
-      const float max_filtering_rate = 0.999f;
-      params_copy.filtering_rate =
-        sample_filter.filtering_rate < 0.0f
-          ? 0.0f
-          : std::min(std::max(sample_filter.filtering_rate, min_filtering_rate),
-                     max_filtering_rate);
+      params_copy.filtering_rate = detail::clamp_filtering_rate(sample_filter.filtering_rate);
     }
     auto sample_filter_copy = sample_filter;
     return search_with_filtering<T, IdxT, decltype(sample_filter_copy), OutputIdxT, DatasetViewT>(
@@ -606,10 +607,35 @@ void search(
                                           cuvs::neighbors::filtering::none_sample_filter>(
       res, params, indices, queries, partition_ids, neighbors, distances, partition_bitsets);
   } else {
+    // As in the single-partition bitset path, derive the filtering rate from the bitsets when the
+    // caller did not set one, so that the search plan enlarges itopk_size for selective filters.
+    // Without this, a selective filter leaves too few valid candidates and the search can return
+    // fewer than k neighbors. One plan serves every partition, so size it for the most selective
+    // partition that still accepts at least one row; a partition that accepts nothing contributes
+    // no neighbors whatever the itopk_size, and an unfiltered partition has a rate of zero.
+    search_params params_copy = params;
+    if (params.filtering_rate < 0.0) {
+      float filtering_rate = 0.0f;
+      for (size_t i = 0; i < partition_bitsets.size() && i < indices.size(); i++) {
+        const auto& v = partition_bitsets[i];
+        if (v.data() == nullptr || v.size() == 0) { continue; }
+        const int64_t n_rows = indices[i]->dataset().n_rows();
+        if (n_rows == 0) { continue; }
+        // Count only this partition's rows; the bitset may be padded past n_rows.
+        const auto num_set_bits =
+          cuvs::core::bitset_view<std::uint32_t, int64_t>(const_cast<std::uint32_t*>(v.data()),
+                                                          std::min<int64_t>(n_rows, v.size()))
+            .count(res);
+        if (num_set_bits == 0) { continue; }
+        filtering_rate =
+          std::max(filtering_rate, static_cast<float>(n_rows - num_set_bits) / n_rows);
+      }
+      params_copy.filtering_rate = detail::clamp_filtering_rate(filtering_rate);
+    }
     using bitset_filter_t = cuvs::neighbors::filtering::bitset_filter<std::uint32_t, int64_t>;
     cagra::detail::search_multi_partition<T, OutputIdxT, IdxT, float, bitset_filter_t>(
       res,
-      params,
+      params_copy,
       indices,
       queries,
       partition_ids,
