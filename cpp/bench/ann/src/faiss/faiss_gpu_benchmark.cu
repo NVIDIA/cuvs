@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -121,7 +121,8 @@ void parse_build_param(const nlohmann::json& conf,
       ivf_pq_build_p.kmeans_n_iters = ivf_pq_build_conf.at("niter");
     }
     if (ivf_pq_build_conf.contains("ratio")) {
-      ivf_pq_build_p.kmeans_trainset_fraction = 1.0 / static_cast<double>(conf.at("ratio"));
+      ivf_pq_build_p.kmeans_trainset_fraction =
+        1.0 / static_cast<double>(ivf_pq_build_conf.at("ratio"));
     }
     if (ivf_pq_build_conf.contains("pq_bits")) {
       ivf_pq_build_p.pq_bits = ivf_pq_build_conf.at("pq_bits");
