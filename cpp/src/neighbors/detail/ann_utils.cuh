@@ -6,6 +6,7 @@
 #pragma once
 
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/common.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
@@ -60,7 +61,8 @@ struct pointer_residency_count<Type, Types...> {
     auto [on_device, on_host] = pointer_residency_count<Types...>::run(ptrs...);
     cudaPointerAttributes attr;
     RAFT_CUDA_TRY(cudaPointerGetAttributes(&attr, ptr));
-    if (attr.devicePointer || attr.type == cudaMemoryTypeDevice) { ++on_device; }
+    // Not `attr.devicePointer != nullptr`: with HMM it can be set for pageable host memory.
+    if (cuvs::neighbors::detail::is_device_accessible(attr)) { ++on_device; }
     if (attr.hostPointer || attr.type == cudaMemoryTypeUnregistered) { ++on_host; }
     return std::make_tuple(on_device, on_host);
   }

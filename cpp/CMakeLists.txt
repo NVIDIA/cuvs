@@ -1480,6 +1480,7 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/detail/cagra/topk_for_cagra/topk.cu
     ${cuvs_cagra_search_cuda_inst_files}
     src/neighbors/detail/cagra/cagra_helpers.cpp
+    src/neighbors/detail/pointer_attributes.cpp
     src/neighbors/dynamic_batching.cu
     src/neighbors/composite/index.cu
     $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/cagra.cpp>

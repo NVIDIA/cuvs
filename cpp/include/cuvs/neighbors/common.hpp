@@ -1094,6 +1094,18 @@ template <typename T, typename I, typename L>
 
 namespace detail {
 
+/**
+ * Whether memory described by `attr` may be dereferenced in device code on the current device.
+ *
+ * Device and managed memory are device-accessible, and registered (pinned) host memory is when it
+ * is mapped (`devicePointer` is set). Pageable (unregistered) host memory is device-accessible only
+ * when the device reads it through the host page tables (ATS). On systems with HMM,
+ * `cudaPointerGetAttributes` can also report a non-null `devicePointer` for pageable memory (for
+ * example after the first GPU access to pageable memory in the process), but device accesses to it
+ * are then serviced through GPU page faults, so it is treated as host-only there.
+ */
+[[nodiscard]] auto is_device_accessible(const cudaPointerAttributes& attr) -> bool;
+
 template <typename SrcT>
 [[nodiscard]] inline uint32_t mdspan_row_stride_elements(SrcT const& src)
 {
@@ -1115,7 +1127,10 @@ template <typename ValueT, typename SrcT>
   if (ptr_attrs.type == cudaMemoryTypeDevice || ptr_attrs.type == cudaMemoryTypeManaged) {
     return const_cast<ValueT*>(src.data_handle());
   }
-  auto* device_ptr = reinterpret_cast<ValueT*>(ptr_attrs.devicePointer);
+  // Host memory needs a device mapping; pageable memory only counts when the device reads it
+  // through the host page tables (ATS), not through HMM page faults.
+  auto* device_ptr =
+    is_device_accessible(ptr_attrs) ? reinterpret_cast<ValueT*>(ptr_attrs.devicePointer) : nullptr;
   RAFT_EXPECTS(device_ptr != nullptr, "%s", error_msg);
   return device_ptr;
 }

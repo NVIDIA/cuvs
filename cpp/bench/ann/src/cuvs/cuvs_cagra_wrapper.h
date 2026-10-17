@@ -66,13 +66,15 @@ inline void maybe_log_cagra_persistent_concurrency_hint(bool persistent_search)
     threads_rec);
 }
 
-/** Whether the GPU can dereference this pointer: device, managed or mapped host memory. */
+/**
+ * Whether the GPU can dereference this pointer: device, managed or mapped host memory, or pageable
+ * memory on systems where the device reads it through the host page tables (ATS).
+ */
 inline auto is_device_accessible(const void* ptr) -> bool
 {
   cudaPointerAttributes attrs{};
   RAFT_CUDA_TRY(cudaPointerGetAttributes(&attrs, ptr));
-  return attrs.type == cudaMemoryTypeDevice || attrs.type == cudaMemoryTypeManaged ||
-         attrs.devicePointer != nullptr;
+  return cuvs::neighbors::detail::is_device_accessible(attrs);
 }
 
 /**
