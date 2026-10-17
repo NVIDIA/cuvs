@@ -47,6 +47,8 @@ struct index_params : cuvs::neighbors::index_params {
   float batch_base;
   uint32_t queue_size;
   uint32_t reverse_batchsize;
+  bool use_bloom_filter;
+  uint32_t bloom_bits;
   std::optional<codebook_params<float>> codebooks;
 };
 ```
@@ -63,6 +65,8 @@ struct index_params : cuvs::neighbors::index_params {
 | `batch_base` | `float` | Base of growth rate of batch sizes * |
 | `queue_size` | `uint32_t` | Size of candidate queue structure - should be (2^x)-1 |
 | `reverse_batchsize` | `uint32_t` | Max batchsize of reverse edge processing (reduces memory footprint) |
+| `use_bloom_filter` | `bool` | Use a bloom filter as the GreedySearch visited set to skip duplicate neighbor visits during each search instead of scanning the visited list (probabilistic; a small false-positive rate may skip some nodes and marginally affect recall). |
+| `bloom_bits` | `uint32_t` | Size of the GreedySearch bloom filter in bits (must be a multiple of 32). Larger values lower the false-positive rate at the cost of more shared memory per block. Ignored unless use_bloom_filter is true. |
 | `codebooks` | [`std::optional<codebook_params<float>>`](/api-reference/cpp-api-neighbors-vamana#neighbors-vamana-codebook-params) | Codebooks and related parameters |
 
 ## Vamana index type

@@ -960,6 +960,37 @@ struct QueryCandidates {
   }
 };
 
+// Two-hash bloom filter used as the per-search GreedySearch visited set.
+template <typename IdxT>
+__device__ __forceinline__ bool bloom_check_and_mark(uint32_t* bloom_filter, int n_bits, IdxT id)
+{
+  const uint32_t u    = static_cast<uint32_t>(id);
+  const uint32_t bit1 = (u * 2654435761u) % static_cast<uint32_t>(n_bits);
+  const uint32_t bit2 = (u * 2246822519u) % static_cast<uint32_t>(n_bits);
+  const uint32_t w1   = bloom_filter[bit1 / 32];
+  const uint32_t w2   = bloom_filter[bit2 / 32];
+  const bool seen     = ((w1 >> (bit1 % 32)) & 1u) != 0u && ((w2 >> (bit2 % 32)) & 1u) != 0u;
+  if (!seen) {
+    bloom_filter[bit1 / 32] |= 1u << (bit1 % 32);
+    bloom_filter[bit2 / 32] |= 1u << (bit2 % 32);
+  }
+  return seen;
+}
+
+template <typename IdxT>
+__device__ __forceinline__ void bloom_mark(uint32_t* bloom_filter, int n_bits, IdxT id)
+{
+  bloom_check_and_mark<IdxT>(bloom_filter, n_bits, id);
+}
+
+template <typename IdxT>
+__device__ __forceinline__ void bloom_reset(uint32_t* bloom_filter, int bloom_words, int laneId)
+{
+  for (int w = laneId; w < bloom_words; w += raft::WarpSize) {
+    bloom_filter[w] = 0;
+  }
+}
+
 namespace {
 
 /********************************************************************************************
