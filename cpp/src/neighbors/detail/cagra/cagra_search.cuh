@@ -92,76 +92,59 @@ void search_main_core(
 
   RAFT_LOG_DEBUG("Cagra search");
   const uint32_t max_queries = plan->max_queries;
-  // Same 16B row-pitch rule as make_device_padded_dataset. Tight [n, dim] rows can be misaligned
-  // between rows (e.g. float, dim=1) and trigger misaligned access in CAGRA search. Callers may
-  // also pass an already-padded [n, stride] matrix; `query_logical_dim` is the feature width used
-  // by setup_workspace (`+= dim * query_id`). If query_row_stride > logical dim, run one query per
-  // plan call so every kernel sees query_id==0 and the base pointer selects the row (keeps the
-  // batched path when stride==dim).
-  const DataT* queries_buf{};
-  uint32_t query_row_stride{};
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<DataT, int64_t>> queries_padded_own;
-  if (cuvs::neighbors::matrix_row_width_matches_cagra_required(queries)) {
-    auto v           = cuvs::neighbors::make_device_padded_dataset_view(res, queries);
-    queries_buf      = v.view().data_handle();
-    query_row_stride = v.stride();
-  } else {
-    queries_padded_own = cuvs::neighbors::make_device_padded_dataset(res, queries);
-    auto v             = queries_padded_own->as_dataset_view();
-    queries_buf        = v.view().data_handle();
-    query_row_stride   = v.stride();
+  // The search kernels read query `i` of a batch element by element (scalar loads, no vectorized
+  // access) starting at `queries + query_logical_dim * i` (see setup_workspace). A batch therefore
+  // needs a dense row pitch of exactly `query_logical_dim` elements; the 16B CAGRA row alignment
+  // applies to the dataset, not to the queries. Dense [n, dim] queries are searched in place.
+  // Queries that carry CAGRA row padding ([n, stride], stride > dim; e.g. a slice of a padded
+  // dataset in the iterative build) are packed one batch at a time into a dense workspace buffer.
+  // Either way every batch of up to `max_queries` queries is searched with one plan call.
+  const uint32_t query_row_width = static_cast<uint32_t>(queries.extent(1));
+  const bool pack_queries        = query_row_width != query_logical_dim;
+  const DataT* queries_ptr =
+    cuvs::neighbors::detail::expect_device_accessible_data_handle<const DataT>(
+      queries, "CAGRA search: queries must be device-accessible.");
+  lightweight_uvector<DataT> packed_queries(res);
+  if (pack_queries) {
+    packed_queries.resize(
+      std::min<size_t>(max_queries, queries.extent(0)) * static_cast<size_t>(query_logical_dim),
+      raft::resource::get_cuda_stream(res));
   }
-  const bool can_batch_n_queries = (query_row_stride == query_logical_dim);
 
   for (unsigned qid = 0; qid < queries.extent(0); qid += max_queries) {
     const uint32_t n_queries = std::min<std::size_t>(max_queries, queries.extent(0) - qid);
-    if (can_batch_n_queries) {
-      auto _topk_indices_ptr   = neighbors.data_handle() + (topk * qid);
-      auto _topk_distances_ptr = distances.data_handle() + (topk * qid);
-      const auto* _query_ptr =
-        queries_buf + (static_cast<size_t>(query_row_stride) * static_cast<size_t>(qid));
-      const auto* _seed_ptr =
-        plan->num_seeds > 0
-          ? reinterpret_cast<const IndexT*>(plan->dev_seed.data()) + (plan->num_seeds * qid)
-          : nullptr;
-      uint32_t* _num_executed_iterations = nullptr;
-
-      (*plan)(res,
-              graph,
-              source_indices,
-              _topk_indices_ptr,
-              _topk_distances_ptr,
-              _query_ptr,
-              n_queries,
-              _seed_ptr,
-              _num_executed_iterations,
-              topk,
-              set_offset(sample_filter, qid));
-    } else {
-      for (uint32_t qi = 0; qi < n_queries; ++qi) {
-        const size_t g           = static_cast<size_t>(qid) + static_cast<size_t>(qi);
-        auto _topk_indices_ptr   = neighbors.data_handle() + (topk * g);
-        auto _topk_distances_ptr = distances.data_handle() + (topk * g);
-        const auto* _query_ptr   = queries_buf + (query_row_stride * g);
-        const auto* _seed_ptr =
-          plan->num_seeds > 0
-            ? reinterpret_cast<const IndexT*>(plan->dev_seed.data()) + (plan->num_seeds * g)
-            : nullptr;
-        uint32_t* _num_executed_iterations = nullptr;
-
-        (*plan)(res,
-                graph,
-                source_indices,
-                _topk_indices_ptr,
-                _topk_distances_ptr,
-                _query_ptr,
-                1u,
-                _seed_ptr,
-                _num_executed_iterations,
-                topk,
-                set_offset(sample_filter, g));
-      }
+    auto _topk_indices_ptr   = neighbors.data_handle() + (static_cast<size_t>(topk) * qid);
+    auto _topk_distances_ptr = distances.data_handle() + (static_cast<size_t>(topk) * qid);
+    const DataT* _query_ptr  = queries_ptr + (static_cast<size_t>(query_row_width) * qid);
+    if (pack_queries) {
+      raft::copy_matrix(packed_queries.data(),
+                        query_logical_dim,
+                        _query_ptr,
+                        query_row_width,
+                        query_logical_dim,
+                        n_queries,
+                        raft::resource::get_cuda_stream(res));
+      // The persistent kernel takes jobs from the host without waiting on the `res` stream.
+      if (plan->persistent) { raft::resource::sync_stream(res); }
+      _query_ptr = packed_queries.data();
     }
+    const auto* _seed_ptr =
+      plan->num_seeds > 0
+        ? reinterpret_cast<const IndexT*>(plan->dev_seed.data()) + (plan->num_seeds * qid)
+        : nullptr;
+    uint32_t* _num_executed_iterations = nullptr;
+
+    (*plan)(res,
+            graph,
+            source_indices,
+            _topk_indices_ptr,
+            _topk_distances_ptr,
+            _query_ptr,
+            n_queries,
+            _seed_ptr,
+            _num_executed_iterations,
+            topk,
+            set_offset(sample_filter, qid));
   }
 }
 
