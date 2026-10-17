@@ -20,9 +20,11 @@
 #include <cuvs/selection/select_k.hpp>
 #include <raft/core/cublas_macros.hpp>
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/operators.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/detail/cublaslt_wrappers.hpp>
 #include <raft/linalg/norm.cuh>
+#include <raft/linalg/unary_op.cuh>
 
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
@@ -1016,6 +1018,14 @@ void IVFGPU::PrepareClusterSearchInputs(
                                                                 &beta,
                                                                 searcher.get_centroid_distances(),
                                                                 num_centroids);
+  // Rounding in the expanded form can make ||q - c||^2 slightly negative when the query is on (or
+  // very near) a centroid. The search kernels take sqrt(||q - c||^2) for the error bound, which is
+  // NaN for a negative value, and a NaN lower bound drops every vector of that list, so clamp to 0.
+  raft::linalg::unaryOp(searcher.get_centroid_distances(),
+                        searcher.get_centroid_distances(),
+                        batch_size * num_centroids,
+                        raft::plug_const_op<float, raft::max_op>{0.f},
+                        searcher_stream.get());
 
   // Step 4: select top-nprobe clusters per query
   auto d_raft_vals = raft::make_device_matrix<float, int64_t>(searcher_handle, batch_size, nprobe);
