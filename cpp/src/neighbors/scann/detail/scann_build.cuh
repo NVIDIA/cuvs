@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../detail/ann_utils.cuh"
+#include <cuda/memory_resource>
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/neighbors/scann.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
@@ -67,7 +68,7 @@ void train_kmeans(
 
   auto trainset = raft::make_device_matrix<T, int64_t>(res, 0, 0);
 
-  rmm::device_async_resource_ref trainset_mr = raft::resource::get_workspace_resource_ref(res);
+  cuda::mr::device_resource_ref trainset_mr = raft::resource::get_workspace_resource_ref(res);
 
   size_t free_mem = raft::resource::get_workspace_free_bytes(res);
 

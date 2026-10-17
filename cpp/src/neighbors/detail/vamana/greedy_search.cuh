@@ -12,9 +12,9 @@
 #include "vamana_structs.cuh"
 #include <cuvs/neighbors/vamana.hpp>
 
+#include <cuda/memory_resource>
 #include <cuvs/distance/distance.hpp>
 #include <raft/util/warp_primitives.cuh>
-#include <rmm/resource_ref.hpp>
 
 #include <chrono>
 #include <cstdio>

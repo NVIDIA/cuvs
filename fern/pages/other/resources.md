@@ -492,11 +492,13 @@ The large workspace resource is the RAFT-side hook for what many applications tr
 #include <raft/core/device_resources.hpp>
 #include <raft/core/resource/workspace_resource.hpp>
 
+#include <cuda/memory_resource>
+
 raft::device_resources resources;
 
 auto large_workspace = get_or_create_shared_large_workspace_resource();
 raft::resource::set_large_workspace_resource(
-    resources, raft::mr::device_resource{large_workspace});
+    resources, cuda::mr::any_device_resource{large_workspace});
 
 // Run algorithms that may need large temporary allocations.
 ```
