@@ -316,6 +316,7 @@ outputs:
       host:
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl ${{ nccl_version }}
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - ${{ pin_subpackage("libcuvs", exact=True) }}
@@ -337,6 +338,7 @@ outputs:
         - ${{ pin_subpackage("libcuvs", exact=True) }}
         - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
         - libraft-headers =${{ minor_version }}
+        - libkvikio =${{ minor_version }}
         - nccl
         - libcublas
         - libcurand
