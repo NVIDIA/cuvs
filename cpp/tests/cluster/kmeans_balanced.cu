@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/cluster/detail/kmeans_balanced.cuh"
 #include "../test_utils.h"
 
 #include <cuvs/cluster/kmeans.hpp>
@@ -12,16 +13,20 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/random/make_blobs.cuh>
+#include <raft/random/rng.cuh>
 #include <raft/stats/adjusted_rand_index.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
 #include <rmm/device_uvector.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 
 #include <thrust/fill.h>
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <cstring>
 #include <optional>
 #include <vector>
 
@@ -300,5 +305,91 @@ KB_TEST((KmeansBalancedTest<int8_t, float, uint32_t, int, i2f_scaler<int8_t, flo
 KB_TEST((KmeansBalancedTest<int8_t, float, int, int, i2f_scaler<int8_t, float>, true>),
         KmeansBalancedTestFI8I32I32_SEP,
         inputsf_i32);
+
+/*
+ * The balancing step must pick the same donor points for identical inputs: they may depend neither
+ * on the order in which the GPU runs the warps nor on how many fits ran before in the process.
+ * Most rows are packed in a few clusters and many clusters are empty, so that many receivers need a
+ * donor.
+ */
+void check_adjust_centers_reproducible(cuvs::cluster::kmeans::balanced_donor_selection donor)
+{
+  raft::resources handle;
+  auto stream           = raft::resource::get_cuda_stream(handle);
+  const int64_t n_rows  = 10007;
+  const int64_t dim     = 8;
+  const int64_t n_lists = 200;
+  auto dataset          = raft::make_device_matrix<float, int64_t>(handle, n_rows, dim);
+  raft::random::RngState rng(1234ULL);
+  raft::random::uniform(handle, rng, dataset.data_handle(), n_rows * dim, -1.0f, 1.0f);
+  std::vector<float> h_centers(n_lists * dim);
+  for (size_t i = 0; i < h_centers.size(); i++) {
+    h_centers[i] = static_cast<float>(i % 97) / 97.0f;
+  }
+
+  // 95% of the rows in clusters [0, 10), the rest spread over [10, 60); clusters [60, 200) empty.
+  std::vector<uint32_t> h_labels(n_rows);
+  std::vector<uint32_t> h_sizes(n_lists, 0);
+  for (int64_t i = 0; i < n_rows; i++) {
+    h_labels[i] = i < n_rows * 95 / 100 ? i % 10 : 10 + i % 50;
+    h_sizes[h_labels[i]]++;
+  }
+  auto labels = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+  auto sizes  = raft::make_device_vector<uint32_t, int64_t>(handle, n_lists);
+  raft::update_device(labels.data_handle(), h_labels.data(), n_rows, stream);
+  raft::update_device(sizes.data_handle(), h_sizes.data(), n_lists, stream);
+
+  const bool random     = donor == cuvs::cluster::kmeans::balanced_donor_selection::Random;
+  const float lower_tol = random ? 0.25f : 0.7f;
+  const float upper_tol = random ? 4.0f : 1.5f;
+  const float offset    = random ? 0.05f : 0.2f;
+
+  std::vector<std::vector<float>> results;
+  for (int run = 0; run < 3; run++) {
+    auto centers = raft::make_device_matrix<float, int64_t>(handle, n_lists, dim);
+    raft::update_device(centers.data_handle(), h_centers.data(), h_centers.size(), stream);
+    bool adjusted =
+      cuvs::cluster::kmeans::detail::adjust_centers(handle,
+                                                    centers.data_handle(),
+                                                    n_lists,
+                                                    dim,
+                                                    dataset.data_handle(),
+                                                    n_rows,
+                                                    labels.data_handle(),
+                                                    sizes.data_handle(),
+                                                    lower_tol,
+                                                    upper_tol,
+                                                    offset,
+                                                    donor,
+                                                    /*balancing_step=*/3u,
+                                                    raft::identity_op{},
+                                                    rmm::mr::get_current_device_resource_ref());
+    ASSERT_TRUE(adjusted);
+    std::vector<float> h(centers.size());
+    raft::update_host(h.data(), centers.data_handle(), h.size(), stream);
+    raft::resource::sync_stream(handle);
+    results.push_back(std::move(h));
+  }
+  // Both strategies move (at least) the first 60 empty clusters.
+  for (int64_t c = 60; c < 120; c++) {
+    ASSERT_NE(0, std::memcmp(&results[0][c * dim], &h_centers[c * dim], dim * sizeof(float)))
+      << "cluster " << c << " was not moved";
+  }
+  for (int run = 1; run < 3; run++) {
+    ASSERT_EQ(
+      0, std::memcmp(results[0].data(), results[run].data(), results[0].size() * sizeof(float)))
+      << "adjust_centers moved the centers differently for identical inputs (call " << run << ")";
+  }
+}
+
+TEST(KmeansBalancedAdjustCenters, ReproducibleSizeSorted)
+{
+  check_adjust_centers_reproducible(cuvs::cluster::kmeans::balanced_donor_selection::SizeSorted);
+}
+
+TEST(KmeansBalancedAdjustCenters, ReproducibleRandomDonor)
+{
+  check_adjust_centers_reproducible(cuvs::cluster::kmeans::balanced_donor_selection::Random);
+}
 
 }  // namespace cuvs
