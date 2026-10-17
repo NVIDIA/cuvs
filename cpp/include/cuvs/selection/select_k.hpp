@@ -66,6 +66,9 @@ using SelectAlgo = raft::matrix::SelectAlgo;
  *   the selection algorithm to use
  * @param[in] len_i
  *  optional array of size (batch_size) providing lengths for each individual row
+ * @param[in] stable
+ *   when true, an equal-key tie is broken on the index, so the selected elements do not depend on
+ *   the input order or on thread timing. `algo` is then ignored.
  */
 void select_k(
   raft::resources const& handle,
@@ -76,7 +79,8 @@ void select_k(
   bool select_min,
   bool sorted                                                           = false,
   SelectAlgo algo                                                       = SelectAlgo::kAuto,
-  std::optional<raft::device_vector_view<const int64_t, int64_t>> len_i = std::nullopt);
+  std::optional<raft::device_vector_view<const int64_t, int64_t>> len_i = std::nullopt,
+  bool stable                                                           = false);
 
 void select_k(raft::resources const& handle,
               raft::device_matrix_view<const float, int64_t, raft::row_major> in_val,
@@ -86,7 +90,8 @@ void select_k(raft::resources const& handle,
               bool select_min,
               bool sorted                                                       = false,
               SelectAlgo algo                                                   = SelectAlgo::kAuto,
-              std::optional<raft::device_vector_view<const int, int64_t>> len_i = std::nullopt);
+              std::optional<raft::device_vector_view<const int, int64_t>> len_i = std::nullopt,
+              bool stable                                                       = false);
 
 /**
  * Select k smallest or largest key/values from each row in the input data.
@@ -131,6 +136,9 @@ void select_k(raft::resources const& handle,
  *   the selection algorithm to use
  * @param[in] len_i
  *  optional array of size (batch_size) providing lengths for each individual row
+ * @param[in] stable
+ *   when true, an equal-key tie is broken on the index, so the selected elements do not depend on
+ *   the input order or on thread timing. `algo` is then ignored.
  */
 void select_k(
   raft::resources const& handle,
@@ -141,7 +149,8 @@ void select_k(
   bool select_min,
   bool sorted                                                            = false,
   SelectAlgo algo                                                        = SelectAlgo::kAuto,
-  std::optional<raft::device_vector_view<const uint32_t, int64_t>> len_i = std::nullopt);
+  std::optional<raft::device_vector_view<const uint32_t, int64_t>> len_i = std::nullopt,
+  bool stable                                                            = false);
 
 /**
  * Select k smallest or largest key/values from each row in the input data.
@@ -186,6 +195,9 @@ void select_k(
  *   the selection algorithm to use
  * @param[in] len_i
  *  optional array of size (batch_size) providing lengths for each individual row
+ * @param[in] stable
+ *   when true, an equal-key tie is broken on the index, so the selected elements do not depend on
+ *   the input order or on thread timing. `algo` is then ignored.
  */
 void select_k(
   raft::resources const& handle,
@@ -196,7 +208,8 @@ void select_k(
   bool select_min,
   bool sorted                                                            = false,
   SelectAlgo algo                                                        = SelectAlgo::kAuto,
-  std::optional<raft::device_vector_view<const uint32_t, int64_t>> len_i = std::nullopt);
+  std::optional<raft::device_vector_view<const uint32_t, int64_t>> len_i = std::nullopt,
+  bool stable                                                            = false);
 /** @} */  // end of group select_k
 
 }  // namespace selection
