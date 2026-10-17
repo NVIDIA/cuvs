@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -105,3 +105,24 @@ cdef extern from "cuvs/neighbors/hnsw.h" nogil:
                                     int32_t dim,
                                     cuvsDistanceType metric,
                                     cuvsHnswIndex_t index) except +
+
+    ctypedef struct cuvsHnswMaterializeParams:
+        const char* dataset_path
+        double max_host_memory_gb
+        int num_threads
+
+    ctypedef cuvsHnswMaterializeParams* cuvsHnswMaterializeParams_t
+
+    cuvsError_t cuvsHnswMaterializeParamsCreate(
+        cuvsHnswMaterializeParams_t* params)
+
+    cuvsError_t cuvsHnswMaterializeParamsDestroy(
+        cuvsHnswMaterializeParams_t params)
+
+    cuvsError_t cuvsHnswMaterializeToHnswlib(
+        cuvsResources_t res,
+        cuvsHnswMaterializeParams_t params,
+        const char* layered_artifact_path,
+        const char* output_path,
+        int32_t dim,
+        cuvsDistanceType metric) except +

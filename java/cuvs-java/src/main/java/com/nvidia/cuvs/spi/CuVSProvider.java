@@ -166,6 +166,28 @@ public interface CuVSProvider {
   HnswIndex hnswIndexBuild(CuVSResources resources, HnswIndexParams hnswParams, CuVSMatrix dataset)
       throws Throwable;
 
+  /**
+   * Materializes a layered HNSW artifact into a standard hnswlib index file on disk.
+   *
+   * @param resources The CuVS resources
+   * @param materializeParams Materialization parameters (dataset path, host-memory budget, threads)
+   * @param layeredArtifactPath Path to the layered HNSW artifact
+   * @param outputPath Path to the hnswlib index file to write
+   * @param dim The dimension of the vectors in the index
+   * @param metric The distance metric used to build the index
+   * @throws Throwable if an error occurs during materialization
+   */
+  default void hnswMaterializeToHnswlib(
+      CuVSResources resources,
+      HnswMaterializeParams materializeParams,
+      String layeredArtifactPath,
+      String outputPath,
+      int dim,
+      HnswIndexParams.CuvsDistanceType metric)
+      throws Throwable {
+    throw new UnsupportedOperationException();
+  }
+
   /** Creates a new TieredIndex Builder. */
   TieredIndex.Builder newTieredIndexBuilder(CuVSResources cuVSResources)
       throws UnsupportedOperationException;
