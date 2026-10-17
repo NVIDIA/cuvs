@@ -41,6 +41,7 @@
 
 #include <mma.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <limits>
 #include <numeric>
@@ -899,13 +900,16 @@ __launch_bounds__(BLOCK_SIZE)
   constexpr int APAD           = 8;
   constexpr int BPAD           = 8;
   constexpr int TILE_COL_WIDTH = 128;
-  __shared__ __half s_nv[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + APAD];  // New vectors
-  __shared__ __half s_ov[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + BPAD];  // Old vectors
-  static_assert(sizeof(float) * MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES <=
-                sizeof(__half) * MAX_NUM_BI_SAMPLES * (TILE_COL_WIDTH + BPAD));
-  // s_distances: MAX_NUM_BI_SAMPLES x SKEWED_MAX_NUM_BI_SAMPLES, reuse the space of s_ov
-  float* s_distances    = (float*)&s_ov[0][0];
-  int* s_unique_counter = (int*)&s_ov[0][0];
+  // One arena: the new and old vector tiles live in it during the pass over the features, and
+  // the distance block replaces them once that pass is done; their lifetimes never overlap.
+  constexpr size_t TILE_BYTES = sizeof(__half) * MAX_NUM_BI_SAMPLES * (TILE_COL_WIDTH + APAD);
+  constexpr size_t DIST_BYTES = sizeof(float) * MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES;
+  static_assert(APAD == BPAD);
+  __shared__ __align__(32) unsigned char s_arena[std::max(2 * TILE_BYTES, DIST_BYTES)];
+  auto s_nv          = reinterpret_cast<__half(*)[TILE_COL_WIDTH + APAD]>(s_arena);  // New vectors
+  auto s_ov          = reinterpret_cast<__half(*)[TILE_COL_WIDTH + BPAD]>(s_arena + TILE_BYTES);
+  float* s_distances = reinterpret_cast<float*>(s_arena);
+  __shared__ int s_unique_counter[2];
 
   if (threadIdx.x == 0) {
     s_unique_counter[0] = 0;
@@ -964,13 +968,20 @@ __launch_bounds__(BLOCK_SIZE)
 
   wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
   wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> b_frag;
-  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
+  // c_nn: new x new (phase 1), c_no: new x old (phase 2). Both phases share one pass over the
+  // feature dimension so each new-vector tile is gathered from global memory only once.
+  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_nn;
+  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_no;
+  const bool has_old = list_old_size > 0;
   // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
   // starts past either extent only produces cells calculate_metric discards -- skip its MMA and
   // its store. Staging is cooperative, so this must not skip the barriers.
   const bool warp_active = warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_new_size;
+  const bool warp_active_2 =
+    warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_old_size;
   if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
-    wmma::fill_fragment(c_frag, 0.0);
+    wmma::fill_fragment(c_nn, 0.0);
+    wmma::fill_fragment(c_no, 0.0);
 
     for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
       int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
@@ -990,6 +1001,19 @@ __launch_bounds__(BLOCK_SIZE)
                    lane_id);
         }
       }
+#pragma unroll
+      for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
+        int idx = i * num_warps + warp_id;
+        if (idx < list_old_size) {
+          size_t neighbor_id = old_neighbors[idx];
+          size_t idx_in_data = neighbor_id * data_dim;
+          load_vec(s_ov[idx],
+                   data + idx_in_data + step * TILE_COL_WIDTH,
+                   num_load_elems,
+                   TILE_COL_WIDTH,
+                   lane_id);
+        }
+      }
       __syncthreads();
 
       for (int i = 0; warp_active && i < TILE_COL_WIDTH / WMMA_K; i++) {
@@ -997,15 +1021,29 @@ __launch_bounds__(BLOCK_SIZE)
           a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
         wmma::load_matrix_sync(
           b_frag, s_nv[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
-        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+        wmma::mma_sync(c_nn, a_frag, b_frag, c_nn);
       }
+      // A separate loop rather than a per-accumulator branch inside the one above: with the guard
+      // hoisted out, each loop body is straight-line code the compiler can software-pipeline,
+      // which is worth more than reusing a_frag.
+      for (int i = 0; warp_active_2 && i < TILE_COL_WIDTH / WMMA_K; i++) {
+        wmma::load_matrix_sync(
+          a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
+        wmma::load_matrix_sync(
+          b_frag, s_ov[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
+        wmma::mma_sync(c_no, a_frag, b_frag, c_no);
+      }
+      // Shared memory is only read inside the k loop; one barrier before the next tile load
+      // overwrites s_nv / s_ov (or s_distances, which aliases them, is written) is enough.
       __syncthreads();
     }
 
+    // The tiles are dead from here on, so s_distances (which aliases them) can take the
+    // new x new block.
     if (warp_active) {
       wmma::store_matrix_sync(
         s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
-        c_frag,
+        c_nn,
         SKEWED_MAX_NUM_BI_SAMPLES,
         wmma::mem_row_major);
     }
@@ -1033,64 +1071,15 @@ __launch_bounds__(BLOCK_SIZE)
     }
   }
 
-  if (!list_old_size) return;
+  if (!has_old) return;
 
   __syncthreads();
 
-  // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
-  // starts past either extent only produces cells calculate_metric discards
-  const bool warp_active_2 =
-    warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_old_size;
   if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
-    wmma::fill_fragment(c_frag, 0.0);
-    for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
-      int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
-                             ? data_dim - step * TILE_COL_WIDTH
-                             : TILE_COL_WIDTH;
-      if (TILE_COL_WIDTH < data_dim) {
-#pragma unroll
-        for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
-          int idx = i * num_warps + warp_id;
-          if (idx < list_new_size) {
-            size_t neighbor_id = new_neighbors[idx];
-            size_t idx_in_data = neighbor_id * data_dim;
-            load_vec(s_nv[idx],
-                     data + idx_in_data + step * TILE_COL_WIDTH,
-                     num_load_elems,
-                     TILE_COL_WIDTH,
-                     lane_id);
-          }
-        }
-      }
-#pragma unroll
-      for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
-        int idx = i * num_warps + warp_id;
-        if (idx < list_old_size) {
-          size_t neighbor_id = old_neighbors[idx];
-          size_t idx_in_data = neighbor_id * data_dim;
-          load_vec(s_ov[idx],
-                   data + idx_in_data + step * TILE_COL_WIDTH,
-                   num_load_elems,
-                   TILE_COL_WIDTH,
-                   lane_id);
-        }
-      }
-      __syncthreads();
-
-      for (int i = 0; warp_active_2 && i < TILE_COL_WIDTH / WMMA_K; i++) {
-        wmma::load_matrix_sync(
-          a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
-        wmma::load_matrix_sync(
-          b_frag, s_ov[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
-        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
-      }
-      __syncthreads();
-    }
-
     if (warp_active_2) {
       wmma::store_matrix_sync(
         s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
-        c_frag,
+        c_no,
         SKEWED_MAX_NUM_BI_SAMPLES,
         wmma::mem_row_major);
     }
