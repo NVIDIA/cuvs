@@ -71,7 +71,7 @@ class CagraIterativeBuildBugTest : public ::testing::Test {
 
     // No padding and no attach step: a compressed dataset is read through its own view, which the
     // index holds on to, so `compressed` has to outlive the index.
-    auto cagra_index = cagra::build(res, bug_index_params(), compressed.as_dataset_view());
+    auto cagra_index = cagra::build(res, bug_index_params(), std::as_const(compressed).view());
     raft::resource::sync_stream(res);
 
     ASSERT_GT(cagra_index.size(), 0);

@@ -348,10 +348,10 @@ struct index_params : cuvs::neighbors::index_params {
    *   cagra::index_params index_params;
    *   // Build graph only — caller attaches dataset later.
    *   index_params.attach_dataset_on_build = false;
-   *   auto index = cagra::build(res, index_params, dataset->as_dataset_view());
+   *   auto index = cagra::build(res, index_params, dataset->view());
    *   // ASSERT(index.size() == 0);  // no dataset yet
    *   // Attach with a view (storage owned by `dataset`).
-   *   index = cagra::update_dataset(res, std::move(index), dataset->as_dataset_view());
+   *   index = cagra::update_dataset(res, std::move(index), dataset->view());
    *   cagra::search(res, search_params, index, queries, neighbors, distances);
    * @endcode
    */
@@ -592,7 +592,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     : cuvs::neighbors::index(),
       metric_(metric),
       graph_(raft::make_device_matrix<graph_index_type, int64_t>(res, 0, 0)),
-      dataset_{},
+      dataset_{cuvs::neighbors::detail::make_empty_dataset_view<DatasetViewT>()},
       dataset_norms_(std::nullopt)
   {
   }
@@ -618,7 +618,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    * the index uses the dataset; the index does not take ownership of the buffer.
    * @code{.cpp}
    *   auto padded_owner = cuvs::neighbors::make_device_padded_dataset(res, dataset_mdspan);
-   *   auto view         = padded_owner->as_dataset_view();
+   *   auto view         = padded_owner->view();
    *   cuvs::neighbors::cagra::device_padded_index<float> idx(res, metric, view,
    *                                                       raft::make_const_mdspan(graph));
    *   // `padded_owner` must outlive `idx` (do not let it go out of scope while `idx` is used).
@@ -793,24 +793,9 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     // Re-open the file descriptor in read-only mode for subsequent operations
     dataset_fd_.emplace(std::move(fd));
 
-    if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
-      auto v = raft::make_device_matrix_view<const T, int64_t>(
-        static_cast<const T*>(nullptr), int64_t{0}, dim_);
-      dataset_ = DatasetViewT(v, dim_);
-    } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
-      auto v = raft::make_device_matrix_view<const T, int64_t>(
-        static_cast<const T*>(nullptr), int64_t{0}, dim_);
-      dataset_ = DatasetViewT(v);
-    } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<DatasetViewT>) {
-      auto v = raft::make_host_matrix_view<const T, int64_t>(
-        static_cast<const T*>(nullptr), int64_t{0}, dim_);
-      dataset_ = DatasetViewT(v, dim_);
-    } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
-      auto v = raft::make_host_matrix_view<const T, int64_t>(
-        static_cast<const T*>(nullptr), int64_t{0}, dim_);
-      dataset_ = DatasetViewT(v);
-    } else if constexpr (cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
-      dataset_ = DatasetViewT{dim_};
+    if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT> ||
+                  cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
+      dataset_ = cuvs::neighbors::detail::make_empty_dataset_view<DatasetViewT>(dim_);
     } else {
       RAFT_FAIL("update_dataset(fd): unsupported DatasetViewT for disk-backed dataset");
     }
@@ -1293,7 +1278,7 @@ auto build(raft::resources const& res,
  *   using namespace cuvs::neighbors;
  *   // Build `extended` = old || new on device, padded for CAGRA.
  *   auto extended = make_device_padded_dataset(res, concatenated_view);
- *   auto extended_view = extended->as_dataset_view();
+ *   auto extended_view = extended->view();
  *
  *   cagra::extend_params params;
  *   int64_t new_start_row = static_cast<int64_t>(index.size());
