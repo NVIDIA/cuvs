@@ -253,10 +253,13 @@ struct dataset_descriptor_host {
     {
       if (!ready.load(std::memory_order_acquire)) { eval(stream); }
       // value is immutable at this point.
-      auto& [ptr, ready_stream] = std::get<ready_t>(value);
-      if (ready_stream != stream) {
-        RAFT_CUDA_TRY(cudaStreamWaitEvent(stream.get(), ready_event, 0));
-      }
+      auto* ptr = std::get<0>(std::get<ready_t>(value));
+      // Always order `stream` after the initialization kernel. Comparing the stream handles is not
+      // enough: the per-thread default stream (`cudaStreamPerThread`, which is also raft's default
+      // stream) has the same handle in every host thread but refers to a different stream in each.
+      // When several threads share a raft::resources (and thus this cached descriptor), skipping
+      // the wait lets a search kernel read the descriptor before it is initialized.
+      RAFT_CUDA_TRY(cudaStreamWaitEvent(stream.get(), ready_event, 0));
       return ptr;
     }
   };
