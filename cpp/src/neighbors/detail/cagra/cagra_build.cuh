@@ -30,6 +30,7 @@
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
+#include <cuvs/neighbors/gpipnn.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 #include <cuvs/neighbors/refine.hpp>
@@ -952,6 +953,124 @@ auto iterative_build_graph(raft::resources const& res,
   return dev_graph;
 }
 
+/**
+ * Materialize `dataset` as the contiguous, even-`dim` device matrix `gpipnn::build_graph` takes.
+ *
+ * Three things can be wrong with a CAGRA dataset view from GPiPNN's point of view: it may be
+ * host-resident, its rows may be padded to a stride wider than the logical `dim`, and `dim` may be
+ * odd. A strided copy fixes the first two. The third is fixed by widening to `dim + 1` and zeroing
+ * the added column, which contributes nothing to any dot product or row norm and so leaves every
+ * pairwise distance unchanged under either supported metric -- this is the graph the caller asked
+ * for, not an approximation of it.
+ *
+ * `storage` is only allocated when a copy is needed; an already-contiguous even-`dim` device view
+ * is handed back untouched.
+ */
+template <typename T, typename DatasetViewT>
+  requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
+auto ensure_contiguous_device_dataset_for_gpipnn(
+  raft::resources const& res,
+  DatasetViewT const& dataset,
+  std::optional<raft::device_matrix<T, int64_t>>& storage)
+  -> raft::device_matrix_view<const T, int64_t, raft::row_major>
+{
+  auto const src        = dataset.data_const_view();
+  auto const n_rows     = static_cast<int64_t>(dataset.n_rows());
+  auto const dim        = static_cast<int64_t>(dataset.dim());
+  auto const stride     = static_cast<int64_t>(src.stride(0));
+  auto const padded_dim = dim + (dim % 2);
+
+  if constexpr (cuvs::neighbors::is_device_dataset_view_v<DatasetViewT>) {
+    if (stride == dim && padded_dim == dim) {
+      return raft::make_device_matrix_view<const T, int64_t>(src.data_handle(), n_rows, dim);
+    }
+  }
+
+  auto stream = raft::resource::get_cuda_stream(res).get();
+  storage.emplace(raft::make_device_matrix<T, int64_t>(res, n_rows, padded_dim));
+  if (padded_dim != dim) {
+    RAFT_CUDA_TRY(cudaMemsetAsync(
+      storage->data_handle(), 0, sizeof(T) * static_cast<size_t>(n_rows * padded_dim), stream));
+  }
+  RAFT_CUDA_TRY(cudaMemcpy2DAsync(storage->data_handle(),
+                                  sizeof(T) * static_cast<size_t>(padded_dim),
+                                  src.data_handle(),
+                                  sizeof(T) * static_cast<size_t>(stride),
+                                  sizeof(T) * static_cast<size_t>(dim),
+                                  static_cast<size_t>(n_rows),
+                                  cudaMemcpyDefault,
+                                  stream));
+  return raft::make_const_mdspan(storage->view());
+}
+
+/**
+ * GPiPNN graph construction, returning the final host CAGRA graph.
+ *
+ * Unlike the IVF-PQ and NN-descent paths this does not go through `optimize()`: GPiPNN's own prune
+ * stage already emits a fully populated graph at `graph_degree`, so `intermediate_graph_degree` is
+ * unused and `guarantee_connectivity` has nothing to act on.
+ */
+template <typename T, typename IdxT, typename DatasetViewT>
+  requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
+auto gpipnn_build_graph(raft::resources const& res,
+                        index_params const& params,
+                        cuvs::neighbors::experimental::gpipnn::index_params gpipnn_params,
+                        DatasetViewT const& dataset) -> raft::host_matrix<IdxT, int64_t>
+{
+  static_assert(std::is_same_v<T, float> || std::is_same_v<T, half> || std::is_same_v<T, int8_t> ||
+                  std::is_same_v<T, uint8_t>,
+                "GPiPNN for CAGRA graph build supports float, half, int8 and uint8 datasets only");
+
+  auto const n_rows       = static_cast<int64_t>(dataset.n_rows());
+  auto const graph_degree = static_cast<uint32_t>(params.graph_degree);
+
+  RAFT_LOG_INFO("Creating graph index using GPiPNN");
+
+  if (gpipnn_params.graph_degree != graph_degree) {
+    RAFT_LOG_WARN(
+      "Graph degree (%u) for gpipnn needs to match cagra graph degree (%u), aligning gpipnn "
+      "graph_degree.",
+      gpipnn_params.graph_degree,
+      graph_degree);
+    gpipnn_params.graph_degree = graph_degree;
+  }
+  if (gpipnn_params.max_candidates < gpipnn_params.graph_degree) {
+    RAFT_LOG_WARN(
+      "max_candidates (%u) for gpipnn must be at least graph_degree (%u), raising it to %u.",
+      gpipnn_params.max_candidates,
+      gpipnn_params.graph_degree,
+      2 * gpipnn_params.graph_degree);
+    gpipnn_params.max_candidates = 2 * gpipnn_params.graph_degree;
+  }
+  if (params.guarantee_connectivity) {
+    RAFT_LOG_WARN(
+      "guarantee_connectivity has no effect with the gpipnn graph build: gpipnn prunes to "
+      "graph_degree itself, so CAGRA's optimize() -- which is what enforces connectivity -- does "
+      "not run.");
+  }
+  gpipnn_params.metric = params.metric;
+
+  std::optional<raft::device_matrix<T, int64_t>> dataset_own;
+  auto gpipnn_dataset = ensure_contiguous_device_dataset_for_gpipnn<T>(res, dataset, dataset_own);
+
+  auto device_graph = raft::make_device_matrix<uint32_t, int64_t>(res, n_rows, graph_degree);
+  cuvs::neighbors::experimental::gpipnn::build_graph(
+    res, gpipnn_params, gpipnn_dataset, device_graph.view());
+
+  auto cagra_graph = raft::make_host_matrix<IdxT, int64_t>(n_rows, graph_degree);
+  if constexpr (std::is_same_v<IdxT, uint32_t>) {
+    raft::copy(res, cagra_graph.view(), device_graph.view());
+    raft::resource::sync_stream(res);
+  } else {
+    auto staging = raft::make_host_matrix<uint32_t, int64_t>(n_rows, graph_degree);
+    raft::copy(res, staging.view(), device_graph.view());
+    raft::resource::sync_stream(res);
+    std::copy(
+      staging.data_handle(), staging.data_handle() + staging.size(), cagra_graph.data_handle());
+  }
+  return cagra_graph;
+}
+
 template <typename IdxT>
 [[nodiscard]] inline auto resolve_cagra_default_knn_graph_build_params(
   raft::resources const& res,
@@ -970,6 +1089,17 @@ template <typename IdxT>
       knn_build_params = cagra::graph_build_params::ivf_pq_params(dataset_extents, params.metric);
     }
   }
+  // GPiPNN's leaf join needs sm_80 instructions and an sm_80-or-newer image in libcuvs to have been
+  // compiled. Both are checked at once, because from here the two are the same problem: the
+  // algorithm cannot run, and a graph builder that can is one line away.
+  if (std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params) &&
+      !cuvs::neighbors::experimental::gpipnn::is_supported()) {
+    RAFT_LOG_WARN(
+      "GPiPNN graph build needs a GPU of compute capability 8.0 (Ampere) or newer and a libcuvs "
+      "built for one; this combination provides neither. Falling back to NN-descent.");
+    knn_build_params =
+      cagra::graph_build_params::nn_descent_params(intermediate_degree, params.metric);
+  }
   return knn_build_params;
 }
 
@@ -987,8 +1117,16 @@ inline void validate_cagra_knn_graph_build_constraints(index_params const& param
   RAFT_EXPECTS(
     params.metric != cuvs::distance::DistanceType::CosineExpanded ||
       std::holds_alternative<cagra::graph_build_params::ivf_pq_params>(knn_build_params) ||
-      std::holds_alternative<cagra::graph_build_params::nn_descent_params>(knn_build_params),
+      std::holds_alternative<cagra::graph_build_params::nn_descent_params>(knn_build_params) ||
+      std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params),
     "CosineExpanded distance is not supported for iterative CAGRA graph build.");
+
+  RAFT_EXPECTS(
+    !std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params) ||
+      params.metric == cuvs::distance::DistanceType::L2Expanded ||
+      params.metric == cuvs::distance::DistanceType::CosineExpanded,
+    "GPiPNN for CAGRA graph build only supports L2Expanded and CosineExpanded as "
+    "metrics.");
 
   RAFT_EXPECTS(params.metric != cuvs::distance::DistanceType::BitwiseHamming ||
                  (std::is_same_v<T, uint8_t> || std::is_same_v<T, int8_t>),
@@ -1101,6 +1239,10 @@ auto build_from_host_matrix(raft::resources const& res,
         "device_standard_dataset_view). Host datasets can use IVF-PQ or NN-descent "
         "graph construction.");
     }
+    if (std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params)) {
+      return gpipnn_build_graph<T, IdxT>(
+        res, params, std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params), dataset);
+    }
     return build_cagra_host_graph_from_knn_params<T, IdxT>(
       res,
       params,
@@ -1154,6 +1296,13 @@ auto build_from_device_matrix(raft::resources const& res,
         knn_build_params)) {
     auto cagra_graph = iterative_build_graph<T, IdxT>(res, params, device_dataset);
     idx.update_graph(res, std::move(cagra_graph));
+  } else if (std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params)) {
+    auto cagra_graph = gpipnn_build_graph<T, IdxT>(
+      res,
+      params,
+      std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params),
+      device_dataset);
+    idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
   } else {
     auto cagra_graph = build_cagra_host_graph_from_knn_params<T, IdxT>(
       res,

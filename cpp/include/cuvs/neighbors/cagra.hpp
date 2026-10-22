@@ -9,6 +9,7 @@
 #include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
+#include <cuvs/neighbors/gpipnn.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
@@ -254,7 +255,8 @@ using graph_build_params_t = std::variant<std::monostate,
                                           graph_build_params::ivf_pq_params,
                                           graph_build_params::nn_descent_params,
                                           graph_build_params::ace_params,
-                                          graph_build_params::iterative_search_params>;
+                                          graph_build_params::iterative_search_params,
+                                          graph_build_params::gpipnn_params>;
 
 /**
  * @brief A strategy for selecting the graph build parameters based on similar HNSW index
@@ -297,9 +299,9 @@ struct index_params : cuvs::neighbors::index_params {
   size_t graph_degree = 64;
   /** Parameters for graph building.
    *
-   * Set ivf_pq_params, nn_descent_params, ace_params, or iterative_search_params to select the
-   * graph build algorithm and control their parameters. The default (std::monostate) is to use a
-   * heuristic to decide the algorithm and its parameters.
+   * Set ivf_pq_params, nn_descent_params, ace_params, iterative_search_params or gpipnn_params to
+   * select the graph build algorithm and control their parameters. The default (std::monostate) is
+   * to use a heuristic to decide the algorithm and its parameters.
    *
    * @code{.cpp}
    * cagra::index_params params;
@@ -317,7 +319,18 @@ struct index_params : cuvs::neighbors::index_params {
    * // 4. Choose iterative graph building using CAGRA's search() and optimize()  [Experimental]
    * params.graph_build_params =
    * cagra::graph_build_params::iterative_search_params();
+   *
+   * // 5. Choose GPiPNN, which builds the graph without searching it  [Experimental]
+   * params.graph_build_params = cagra::graph_build_params::gpipnn_params();
    * @endcode
+   *
+   * GPiPNN differs from the others in three ways that affect the parameters around it. It prunes
+   * to `graph_degree` itself rather than handing an intermediate graph to `optimize()`, so
+   * `intermediate_graph_degree` is unused and `guarantee_connectivity` cannot be honoured; it
+   * supports only L2Expanded and CosineExpanded; and it requires compute capability 8.0 or
+   * newer. Asking for it
+   * where it cannot run falls back to NN-descent with a warning rather than failing, since the
+   * point of this field is to choose among interchangeable builders.
    */
   graph_build_params_t graph_build_params;
   /**
