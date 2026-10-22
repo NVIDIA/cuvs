@@ -185,6 +185,7 @@ outputs:
         - cmake ${{ cmake_version }}
         - ${{ stdlib("c") }}
       host:
+        - libgomp >=${{ c_compiler_version }}
         - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
@@ -314,6 +315,7 @@ outputs:
         - cmake ${{ cmake_version }}
         - ${{ stdlib("c") }}
       host:
+        - libgomp >=${{ c_compiler_version }}
         - librmm =${{ minor_version }}
         - libraft-headers =${{ minor_version }}
         - nccl ${{ nccl_version }}

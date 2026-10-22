@@ -49,7 +49,8 @@ public class HnswRandomizedIT extends CuVSTestCase {
     int NUM_QUERIES_LIMIT = 10;
     int TOP_K_LIMIT = 64; // nocommit This fails beyond 64
 
-    int datasetSize = random.nextInt(DATASET_SIZE_LIMIT) + 1;
+    // A CAGRA graph needs at least 2 rows, so the HNSW index converted from it does too.
+    int datasetSize = random.nextInt(DATASET_SIZE_LIMIT) + 2;
     int dimensions = random.nextInt(DIMENSIONS_LIMIT) + 1;
     int numQueries = random.nextInt(NUM_QUERIES_LIMIT) + 1;
     int topK = Math.min(random.nextInt(TOP_K_LIMIT) + 1, datasetSize);
