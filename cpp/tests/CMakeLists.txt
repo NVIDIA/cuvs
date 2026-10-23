@@ -493,7 +493,7 @@ ConfigureTest(
 
 ConfigureTest(
   NAME UTIL_TEST
-  PATH util/file_io_test.cpp util/host_memory_test.cpp util/rng_philox.cu
+  PATH util/file_io_test.cpp util/host_memory_test.cpp
   GPUS 1
   PERCENT 100
 )
