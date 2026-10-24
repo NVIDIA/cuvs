@@ -24,24 +24,30 @@ function(_cutile_fragment_tag_header_files output_var)
 endfunction()
 
 # Probes the toolchain for cuTile support and records the result in the CUVS_CUTILE_* global
-# properties. Missing prerequisites disable cuTile instead of failing configuration.
+# properties. Before CUDA 13.1, which is the first release with tileiras, missing prerequisites
+# disable cuTile. From CUDA 13.1 on they fail configuration, so that a build cannot silently ship
+# without the cuTile kernels.
 function(_cutile_detect)
   set_property(GLOBAL PROPERTY CUVS_CUTILE_ENABLED 0)
 
+  # Use the vendored upstream finder until the minimum CMake version is 4.3, when we can use cmake
+  # -E bin2c for embedding instead. The finder also supports conda's nvcc symlink layout.
+  list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../thirdparty/cmake")
   find_package(CUDAToolkit REQUIRED)
   if(CUDAToolkit_VERSION VERSION_LESS 13.0)
     message(STATUS "cuTile disabled: requires CUDA 13.0+ (found ${CUDAToolkit_VERSION}).")
     return()
   endif()
+  if(CUDAToolkit_VERSION VERSION_LESS 13.1)
+    set(missing_level STATUS)
+    set(missing_prefix "cuTile disabled")
+  else()
+    set(missing_level FATAL_ERROR)
+    set(missing_prefix "cuTile is required with CUDA 13.1+ (found ${CUDAToolkit_VERSION})")
+  endif()
 
-  find_program(
-    CUVS_CUTILE_BIN2C
-    NAMES bin2c
-    PATHS ${CUDAToolkit_BIN_DIR}
-    NO_DEFAULT_PATH
-  )
-  if(NOT CUVS_CUTILE_BIN2C)
-    message(STATUS "cuTile disabled: bin2c not found in ${CUDAToolkit_BIN_DIR}.")
+  if(NOT TARGET CUDA::bin2c)
+    message(${missing_level} "${missing_prefix}: CUDA::bin2c target not found.")
     return()
   endif()
 
@@ -54,9 +60,10 @@ function(_cutile_detect)
   )
   if(NOT import_result EQUAL 0)
     message(
-      STATUS "cuTile disabled: cuda.tile (cuTile Python) is not importable by ${python}. "
-             "Install cutile-python and cuda-tileiras (conda), or cuda-tile[tileiras] (pip).\n"
-             "Import error: ${import_error}"
+      ${missing_level}
+      "${missing_prefix}: cuda.tile (cuTile Python) is not importable by ${python}. "
+      "Install cutile-python and cuda-tileiras (conda), or cuda-tile[tileiras] (pip).\n"
+      "Import error: ${import_error}"
     )
     return()
   endif()
@@ -64,7 +71,7 @@ function(_cutile_detect)
   message(STATUS "Using cuTile Python: ${python}")
   set_property(GLOBAL PROPERTY CUVS_CUTILE_ENABLED 1)
   set_property(GLOBAL PROPERTY CUVS_CUTILE_PYTHON "${python}")
-  set_property(GLOBAL PROPERTY CUVS_CUTILE_BIN2C "${CUVS_CUTILE_BIN2C}")
+  set_property(GLOBAL PROPERTY CUVS_CUTILE_BIN2C "$<TARGET_FILE:CUDA::bin2c>")
 endfunction()
 
 # Returns whether cuTile can be built, and the python interpreter and bin2c to build it with, in the
@@ -120,6 +127,9 @@ function(_cutile_make_python_args output_var)
   endif()
   if(DEFINED occupancy AND NOT "${occupancy}" STREQUAL "")
     list(APPEND _python_args --occupancy "${occupancy}")
+  endif()
+  if(DEFINED num_ctas AND NOT "${num_ctas}" STREQUAL "")
+    list(APPEND _python_args --num-ctas "${num_ctas}")
   endif()
   set(${output_var}
       "${_python_args}"
@@ -233,6 +243,10 @@ function(generate_cutile_kernels source_list_var)
   # cmake-lint: disable=C0103,E1120
   foreach(i RANGE "${last}")
     string(JSON matrix_json_entry GET "${matrix_product}" "${i}")
+    string(JSON _entry_gpu_code ERROR_VARIABLE _no_gpu_code GET "${matrix_json_entry}" gpu_code)
+    if(NOT _no_gpu_code AND _entry_gpu_code IN_LIST CUVS_CUTILE_EXCLUDED_GPU_CODES)
+      continue()
+    endif()
     process_cutile_matrix_entry(
       "${source_list_var}"
       KERNEL_DIR "${_CUTILE_KERNEL_DIR}"

@@ -25,7 +25,7 @@ namespace raft::mr {
  * works on GH systems.
  *
  * TODO(tfeher): consider improving or removing this helper once we made progress with
- * https://github.com/rapidsai/raft/issues/1819
+ * https://github.com/NVIDIA/raft/issues/1819
  */
 class cuda_huge_page_resource {
  public:

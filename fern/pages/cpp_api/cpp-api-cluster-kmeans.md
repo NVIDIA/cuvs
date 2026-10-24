@@ -60,7 +60,7 @@ struct params : base_params {
 | `verbosity` | `rapids_logger::level_enum` | verbosity level. |
 | `rng_state` | `raft::random::RngState` | Seed to the random number generator. |
 | `n_init` | `int` | Number of instance k-means algorithm will be run with different seeds. |
-| `oversampling_factor` | `double` | Oversampling factor for use in the k-means\|\| algorithm.<br /><br />In the single-GPU path the value `0` is overloaded as an algorithm switch that selects the classic sequential k-means++ instead of the scalable variant. Any value `&gt; 0` is used as-is.<br /><br />In the multi-GPU path (a `fit` call issued with a multi-GPU `handle` and device-resident inputs) any value `&lt; 1.0` (including `0`) is internally clamped to `1.0`. Values `&gt;= 1.0` are passed through unchanged. |
+| `oversampling_factor` | `double` | Oversampling factor for use in the k-means\|\| algorithm.<br /><br />In the single-GPU path the value `0` is overloaded as an algorithm switch that selects the classic sequential k-means++ instead of the scalable variant. Any value `> 0` is used as-is.<br /><br />In the multi-GPU path (a `fit` call issued with a multi-GPU `handle` and device-resident inputs) any value `< 1.0` (including `0`) is internally clamped to `1.0`. Values `>= 1.0` are passed through unchanged. |
 | `batch_samples` | `int` | batch_samples and batch_centroids are used to tile 1NN computation which is useful to optimize/control the memory footprint<br />Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0 then don't tile the centroids<br /><br />NB: These parameters are unrelated to device_buffer_samples, which specifies the number of training vectors that get buffered on device when the training vectors are passed in on host. |
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
 | `init_size` | `int64_t` | Number of samples to randomly draw for the KMeansPlusPlus initialization step. A random subset of this size is used for centroid seeding.<br /><br />Only applies when dataset is on host; for device data the full dataset is always used for seeding and this parameter is ignored.<br /><br />When set to 0 (default) with host data uses `min(3 * n_clusters, n_samples)` as a default.<br /><br />In Batched multi-GPU host-data fits, the effective KMeansPlusPlus initialization sample is materialized on device on every rank. Every rank must have enough GPU memory for this sample, and rank 0 must also have enough GPU memory for the seeding workspace.<br /><br />Default: 0. |
@@ -123,7 +123,7 @@ raft::host_scalar_view<int64_t> n_iter);
 
 Runs on multiple GPUs when `handle` carries an SNMG clique (`raft::resource::is_multi_gpu(handle)`) or initialized RAFT comms (`raft::resource::comms_initialized(handle)`), and on a single GPU otherwise.
 
-TODO: Evaluate replacing the extent type with int64_t. Reference issue: https://github.com/nvidia/cuvs/issues/1961
+TODO: Evaluate replacing the extent type with int64_t. Reference issue: https://github.com/NVIDIA/cuvs/issues/1961
 
 This overload supports out-of-core computation where the dataset resides on the host. Data is processed in batches, streaming from host to device. The batch size is controlled by `params.device_buffer_samples`. Multiple batches are double-buffered when an auxiliary stream is available. Without a stream pool, the fit uses one input buffer and remains correct but serialized. One auxiliary stream is sufficient to overlap transfer and compute. Pinned host memory is crucial for OOC performance: ordinary pageable or unregistered `mmap`-backed input degrades throughput rapidly.
 
@@ -423,6 +423,8 @@ raft::device_matrix_view<float, int64_t> centroids,
 std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 ```
 
+**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. CosineExpanded is not supported in packed binary mode.<br />With the flag disabled, uint8_t values are numeric.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
@@ -707,6 +709,8 @@ raft::device_matrix_view<const uint8_t, int64_t> X,
 raft::device_matrix_view<const float, int64_t> centroids,
 raft::device_vector_view<uint32_t, int64_t> labels);
 ```
+
+**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. CosineExpanded is not supported in packed binary mode.<br />With the flag disabled, uint8_t values are numeric.
 
 **Parameters**
 

@@ -96,7 +96,8 @@ public class AcceleratedHNSWParams {
    * @param intermediateGraphDegree The intermediate graph degree while building the CAGRA index.
    * @param graphdegree The graph degree to use while building the CAGRA index.
    * @param hnswLayers The number of HNSW layers to build in the HNSW index.
-   * @param maxConn The max connection parameter used when building HNSW index with the fallback mechanism.
+   * @param maxConn The HNSW max connections parameter: the CPU fallback builds with it, and it
+   *     bounds the GPU-built graph to at most 2 * maxConn neighbors per node on level 0.
    * @param beamWidth The beam width parameter used when building HNSW index with the fallback mechanism.
    * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ].
    * @param cuVSIvfPqParams An instance of CuVSIvfPqParams containing IVF_PQ specific parameters.
@@ -353,6 +354,10 @@ public class AcceleratedHNSWParams {
      * Valid range - Minimum: {@value MIN_GRAPH_DEG}, Maximum: {@value MAX_GRAPH_DEG}
      * Default value - {@value DEFAULT_GRAPH_DEGREE}
      *
+     * <p>With the CUSTOM strategy, the degree cuVS builds (this value, lowered to the intermediate
+     * graph degree if that is smaller) must be at most {@code 2 * maxConn}: the graph is written as
+     * an HNSW graph, which holds at most {@code 2 * maxConn} neighbors per node on level 0.
+     *
      * @param graphDegree
      * @return instance of {@link Builder}
      */
@@ -375,9 +380,14 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the max connections parameter while building HNSW index with fallback mechanism
+     * Set the HNSW max connections parameter (M)
      * Valid range - Minimum: {@value MIN_MAX_CONN}, Maximum: {@value MAX_MAX_CONN}
      * Default value - {@value DEFAULT_MAX_CONN}
+     *
+     * <p>The CPU fallback builds the graph with it, every segment records it as its M, and it
+     * bounds the GPU-built graph: at most {@code 2 * maxConn} neighbors per node on level 0 (with
+     * the CUSTOM strategy, the graph degree must not exceed that) and at most {@code maxConn} on
+     * the upper layers.
      *
      * @param maxConn the max connections parameter
      * @return instance of {@link Builder}
@@ -537,6 +547,34 @@ public class AcceleratedHNSWParams {
           nnDescentNumIterations,
           MIN_NN_DESCENT_NUM_ITERATIONS,
           MAX_NN_DESCENT_NUM_ITERATIONS);
+      // The CAGRA graph is written as an HNSW graph with maxConn, which holds at most 2 * maxConn
+      // neighbors per node on level 0. A wider graph is searched fine, but a CPU merge cannot copy
+      // it. Under HEURISTIC, cuVS derives the degree from maxConn and stays within that; under
+      // CUSTOM, cuVS builds the graph degree, lowered to the intermediate graph degree if that is
+      // smaller.
+      if (strategy == Strategy.CUSTOM) {
+        int builtDegree = Math.min(graphdegree, intermediateGraphDegree);
+        int maxDegree = 2 * maxConn;
+        if (builtDegree > maxDegree) {
+          String built =
+              graphdegree <= intermediateGraphDegree
+                  ? "graphDegree " + graphdegree
+                  : "graphDegree "
+                      + graphdegree
+                      + ", lowered by cuVS to intermediateGraphDegree "
+                      + intermediateGraphDegree
+                      + ",";
+          throw new IllegalArgumentException(
+              built
+                  + " is larger than 2 * maxConn ("
+                  + maxDegree
+                  + "), the most neighbors an HNSW graph holds per node: set maxConn to at least "
+                  + Math.ceilDiv(builtDegree, 2)
+                  + " or graphDegree to at most "
+                  + maxDegree
+                  + ".");
+        }
+      }
     }
 
     /**

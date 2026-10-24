@@ -40,7 +40,8 @@ public class TestAcceleratedHNSWUpperLayers extends LuceneTestCase {
             CuVSMatrix.class,
             int.class,
             CagraIndexParams.class,
-            QuantizationType.class);
+            QuantizationType.class,
+            int.class);
     assertFalse(Modifier.isPublic(matrixOverload.getModifiers()));
   }
 }

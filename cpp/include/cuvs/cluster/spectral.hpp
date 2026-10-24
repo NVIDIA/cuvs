@@ -49,7 +49,7 @@ struct params {
  * @{
  */
 
-// TODO: int64_t nnz support (see https://github.com/nvidia/cuvs/issues/1484)
+// TODO: int64_t nnz support (see https://github.com/NVIDIA/cuvs/issues/1484)
 
 /**
  * @brief Perform spectral clustering on a connectivity graph

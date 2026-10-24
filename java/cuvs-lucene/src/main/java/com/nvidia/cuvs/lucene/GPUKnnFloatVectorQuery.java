@@ -540,10 +540,8 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
     FixedBitSet filterBits = new FixedBitSet(maxDoc);
     Scorer scorer = scorerSupplier.get(Long.MAX_VALUE);
     DocIdSetIterator it = scorer.iterator();
-    int doc;
-    while ((doc = it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
-      filterBits.set(doc);
-    }
+    // Let Lucene use iterator-specific bulk loading when available.
+    filterBits.or(it);
 
     if (liveDocs == null) return filterBits;
 
