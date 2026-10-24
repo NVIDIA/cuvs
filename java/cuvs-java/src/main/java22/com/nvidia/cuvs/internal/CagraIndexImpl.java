@@ -1243,8 +1243,8 @@ public class CagraIndexImpl implements CagraIndex {
       CagraIndexImpl merged = null;
       int numWriterThreads = mergeParams != null ? mergeParams.getNumWriterThreads() : 0;
       try (var nativeMergeParams = segmentFromIndexParams(mergeParams);
-          var ompThreads = OmpThreadScope.of(numWriterThreads);
-          var resourcesAccessor = resources.access()) {
+          var resourcesAccessor = resources.access();
+          var ompThreads = OmpThreadScope.of(numWriterThreads)) {
         var cuvsRes = resourcesAccessor.handle();
 
         // The words the merge filter points at have to outlive the merge call, so the
