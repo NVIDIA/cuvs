@@ -527,7 +527,11 @@ public class CagraIndexParams {
     /**
      * Sets the number of writer threads to use for indexing.
      *
-     * @param numWriterThreads number of writer threads to use
+     * <p>This sets the OpenMP thread count for the native build or merge on the calling thread, and
+     * the previous count is restored afterwards. A value of zero or less leaves the OpenMP setting
+     * untouched, so the native code uses the OpenMP default (normally one thread per core).
+     *
+     * @param numWriterThreads number of writer threads to use, or zero or less for the OpenMP default
      * @return an instance of Builder
      */
     public Builder withNumWriterThreads(int numWriterThreads) {
