@@ -93,7 +93,12 @@ auto make_padded_view(const raft::resources& res,
     }
   }
   cuvs::neighbors::cagra::detail::copy_with_padding(res, buffer, src);
-  return {raft::make_const_mdspan(buffer.view()), static_cast<uint32_t>(src.extent(1))};
+  return cuvs::neighbors::detail::make_dense_view<
+    cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+    buffer.data_handle(),
+    buffer.extent(0),
+    static_cast<uint32_t>(src.extent(1)),
+    static_cast<uint32_t>(buffer.extent(1)));
 }
 
 /** Grow `buffers` to `size` empty matrices (device matrices are not default-constructible). */
@@ -373,8 +378,9 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       auto const stride = static_cast<int64_t>(
         cuvs::neighbors::cagra_required_row_width<T>(static_cast<uint32_t>(dim_)));
       *dataset_                = raft::make_device_matrix<T, int64_t>(handle_, merged_rows, stride);
-      auto merged_dataset_view = cuvs::neighbors::device_padded_dataset_view<T, int64_t>(
-        raft::make_const_mdspan(dataset_->view()), static_cast<uint32_t>(dim_));
+      auto merged_dataset_view = cuvs::neighbors::detail::make_dense_view<
+        cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+        dataset_->data_handle(), merged_rows, static_cast<uint32_t>(dim_), stride);
       index_ =
         std::make_shared<index_type>(cuvs::neighbors::cagra::merge(handle_,
                                                                    params,
@@ -413,11 +419,11 @@ void cuvs_cagra<T, IdxT>::compress_dataset(const T* dataset, size_t nrow)
   vpq_dataset_ = std::make_shared<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
     cuvs::preprocessing::quantize::pq::make_vpq_dataset(handle_, *index_params_.compression, src));
   vpq_index_ = std::make_shared<cuvs::neighbors::cagra::device_pq_index<T, IdxT, half>>(
-    handle_, parse_metric_type(metric_), vpq_dataset_->as_dataset_view(), index_->graph());
+    handle_, parse_metric_type(metric_), vpq_dataset_->view(), index_->graph());
 
   // Search runs on the compressed rows and the graph, so release the dense copy of the dataset.
-  cuvs::neighbors::device_padded_dataset_view<T, int64_t> empty_dv(
-    raft::make_device_matrix_view(static_cast<T const*>(nullptr), 0, this->dim_), this->dim_);
+  auto empty_dv = cuvs::neighbors::detail::make_empty_dataset_view<
+    cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(this->dim_);
   *index_   = cuvs::neighbors::cagra::update_dataset(handle_, std::move(*index_), empty_dv);
   *dataset_ = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
   need_dataset_update_ = false;
@@ -482,9 +488,9 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
     dataset_mem_ = sp.dataset_mem;
 
     // First free up existing memory
-    *dataset_ = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
-    cuvs::neighbors::device_padded_dataset_view<T, int64_t> empty_dv(
-      raft::make_device_matrix_view(static_cast<T const*>(nullptr), 0, this->dim_), this->dim_);
+    *dataset_     = raft::make_device_matrix<T, int64_t>(handle_, 0, 0);
+    auto empty_dv = cuvs::neighbors::detail::make_empty_dataset_view<
+      cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(this->dim_);
     *index_ = cuvs::neighbors::cagra::update_dataset(handle_, std::move(*index_), empty_dv);
 
     // Allocate space using the correct memory resource.
@@ -494,10 +500,9 @@ void cuvs_cagra<T, IdxT>::set_search_param(const search_param_base& param,
     auto mr = get_mr(dataset_mem_);
     cuvs::neighbors::cagra::detail::copy_with_padding(handle_, *dataset_, *input_dataset_v_, mr);
 
-    cuvs::neighbors::device_padded_dataset_view<T, int64_t> dv(
-      raft::make_device_matrix_view(
-        dataset_->data_handle(), dataset_->extent(0), dataset_->extent(1)),
-      this->dim_);
+    auto dv = cuvs::neighbors::detail::make_dense_view<
+      cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
+      dataset_->data_handle(), dataset_->extent(0), this->dim_, dataset_->extent(1));
     *index_ = cuvs::neighbors::cagra::update_dataset(handle_, std::move(*index_), dv);
 
     need_dataset_update_         = false;
