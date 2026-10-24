@@ -21,6 +21,7 @@ public class CagraIndexParams {
   private final CuvsDistanceType cuvsDistanceType;
   private final long intermediateGraphDegree;
   private final long graphDegree;
+  private final double variableGraphDegreeFraction;
   private final long nnDescentNiter;
   private final int numWriterThreads;
   private final CuVSIvfPqParams cuVSIvfPqParams;
@@ -72,10 +73,11 @@ public class CagraIndexParams {
    */
   public enum HnswHeuristicType {
     /**
-     * Create a graph that is very similar to an HNSW graph in
-     * terms of the number of nodes and search performance. Since HNSW produces a variable-degree
-     * graph (2M being the max graph degree) and CAGRA produces a fixed-degree graph, there's always a
-     * difference in the performance of the two.
+     * Create a graph that is very similar to an HNSW graph in terms of the number of nodes and
+     * search performance.
+     * Unlike HNSW, the maximum degree of the graph is not fixed to {@code 2*M}, but is decided
+     * according the internal logic (smaller than {@code 2*M}). The edge selection criteria of the
+     * two algorithms also differ, so there's always a difference in the performance of the two.
      *
      * This function attempts to produce such a graph that the QPS and recall of the two graphs being
      * searched by HNSW are close for any search parameter combination. The CAGRA-produced graph tends
@@ -329,6 +331,7 @@ public class CagraIndexParams {
   private CagraIndexParams(
       long intermediateGraphDegree,
       long graphDegree,
+      double variableGraphDegreeFraction,
       CagraGraphBuildAlgo CuvsCagraGraphBuildAlgo,
       long nnDescentNiter,
       int writerThreads,
@@ -337,6 +340,7 @@ public class CagraIndexParams {
       CuVSAceParams cuVSAceParams) {
     this.intermediateGraphDegree = intermediateGraphDegree;
     this.graphDegree = graphDegree;
+    this.variableGraphDegreeFraction = variableGraphDegreeFraction;
     this.cuvsCagraGraphBuildAlgo = CuvsCagraGraphBuildAlgo;
     this.nnDescentNiter = nnDescentNiter;
     this.numWriterThreads = writerThreads;
@@ -378,6 +382,17 @@ public class CagraIndexParams {
    */
   public long getGraphDegree() {
     return graphDegree;
+  }
+
+  /**
+   * Gets the fraction of the output graph degree that defines the minimum output graph degree.
+   * The default value of 1.0 means the graph has a constant degree.
+   *
+   * @return the variable graph degree fraction, in [0, 1]
+   * @see Builder#withVariableGraphDegreeFraction(double)
+   */
+  public double getVariableGraphDegreeFraction() {
+    return variableGraphDegreeFraction;
   }
 
   /**
@@ -440,6 +455,8 @@ public class CagraIndexParams {
         + intermediateGraphDegree
         + ", graphDegree="
         + graphDegree
+        + ", variableGraphDegreeFraction="
+        + variableGraphDegreeFraction
         + ", nnDescentNiter="
         + nnDescentNiter
         + ", numWriterThreads="
@@ -460,6 +477,7 @@ public class CagraIndexParams {
     private CuvsDistanceType cuvsDistanceType = CuvsDistanceType.L2Expanded;
     private long intermediateGraphDegree = 128;
     private long graphDegree = 64;
+    private double variableGraphDegreeFraction = 1.0;
     private long nnDescentNumIterations = 20;
     private int numWriterThreads = 2;
     private CuVSIvfPqParams cuVSIvfPqParams = new CuVSIvfPqParams.Builder().build();
@@ -486,6 +504,27 @@ public class CagraIndexParams {
      */
     public Builder withGraphDegree(long graphDegree) {
       this.graphDegree = graphDegree;
+      return this;
+    }
+
+    /**
+     * Sets the fraction of the output graph degree that defines the minimum output graph degree,
+     * allowing variable-degree neighbor graphs.
+     *
+     * <p>Must be in [0, 1]. The default value of 1.0 disables the variable-degree logic (normal
+     * CAGRA behavior). Values below 1.0 enable variable-degree graphs: the optimize step finds the
+     * minimum detour threshold that covers at least {@code ceil(graphDegree * fraction)} edges per
+     * node, then lets reverse edges expand the degree further. Unused neighbor slots are padded with
+     * an invalid-neighbor sentinel.
+     *
+     * <p>This is intended for the CAGRA-to-HNSW conversion pipeline. Do not use it with CAGRA's
+     * native GPU search.
+     *
+     * @param variableGraphDegreeFraction the fraction of the graph degree, in [0, 1]
+     * @return an instance of Builder
+     */
+    public Builder withVariableGraphDegreeFraction(double variableGraphDegreeFraction) {
+      this.variableGraphDegreeFraction = variableGraphDegreeFraction;
       return this;
     }
 
@@ -566,6 +605,7 @@ public class CagraIndexParams {
       return new CagraIndexParams(
           intermediateGraphDegree,
           graphDegree,
+          variableGraphDegreeFraction,
           cuvsCagraGraphBuildAlgo,
           nnDescentNumIterations,
           numWriterThreads,

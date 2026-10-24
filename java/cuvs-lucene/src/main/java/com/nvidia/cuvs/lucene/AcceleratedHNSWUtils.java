@@ -336,7 +336,11 @@ public class AcceleratedHNSWUtils {
         for (int j = 0; j < degree && j < rv.size(); j++) {
           int subsetIndex1 = rv.getAsInt(j);
           // Map subset index to original node ID
-          if (subsetIndex1 >= 0 && subsetIndex1 < selectedNodes.length) {
+          if (subsetIndex1 == -1) {
+            // kInvalidNeighbor padding of a variable-degree graph: keep it as "no neighbor"
+            // (GPUBuiltHnswGraph skips negative entries) rather than inventing a self-loop.
+            remappedAdjacency[i][j] = -1;
+          } else if (subsetIndex1 >= 0 && subsetIndex1 < selectedNodes.length) {
             remappedAdjacency[i][j] = selectedNodes[subsetIndex1];
           } else {
             // Invalid index, use self-reference

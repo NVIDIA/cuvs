@@ -92,6 +92,32 @@ float distances_exp_filtered[4]    = {0.03878258, 0.12472608, 0.04776672, 0.5906
 std::vector<uint64_t> neighbors_exp_disk = {3, 0, 3, 1};
 std::vector<float> distances_exp_disk    = {0.03878258, 0.12472608, 0.04776672, 0.15224178};
 
+TEST(CagraC, VariableGraphDegreeFractionFromHnswParams)
+{
+  cuvsCagraIndexParams_t params;
+  ASSERT_EQ(cuvsCagraIndexParamsCreate(&params), CUVS_SUCCESS);
+  EXPECT_EQ(params->variable_graph_degree_fraction, 1.0);
+
+  // The fraction chosen by the C++ heuristics must be carried over to the C struct.
+  ASSERT_EQ(cuvsCagraIndexParamsFromHnswParams(
+              params, 10000, 128, 16, 100, CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT, L2Expanded),
+            CUVS_SUCCESS);
+  EXPECT_LT(params->variable_graph_degree_fraction, 1.0);
+
+  ASSERT_EQ(cuvsCagraIndexParamsFromHnswParams(
+              params,
+              10000,
+              128,
+              16,
+              100,
+              CUVS_CAGRA_HEURISTIC_SIMILAR_SEARCH_PERFORMANCE,
+              L2Expanded),
+            CUVS_SUCCESS);
+  EXPECT_EQ(params->variable_graph_degree_fraction, 1.0);
+
+  ASSERT_EQ(cuvsCagraIndexParamsDestroy(params), CUVS_SUCCESS);
+}
+
 TEST(CagraC, BuildSearch)
 {
   // create cuvsResources_t

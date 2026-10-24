@@ -61,7 +61,7 @@ chosen strategy in the `AcceleratedHNSWParams`.
 
 an instance of `CagraIndexParams`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:73`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:74`_
 
 ### withMaxGraphDegree
 
@@ -84,6 +84,6 @@ it stays at least the graph degree, as CAGRA requires.
 
 parameters whose graph degree is at most `maxGraphDegree`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:119`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:121`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:17`_

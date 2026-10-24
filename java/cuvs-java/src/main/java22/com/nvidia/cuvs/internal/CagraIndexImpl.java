@@ -1075,6 +1075,8 @@ public class CagraIndexImpl implements CagraIndex {
 
     cuvsCagraIndexParams.intermediate_graph_degree(indexPtr, params.getIntermediateGraphDegree());
     cuvsCagraIndexParams.graph_degree(indexPtr, params.getGraphDegree());
+    cuvsCagraIndexParams.variable_graph_degree_fraction(
+        indexPtr, params.getVariableGraphDegreeFraction());
     cuvsCagraIndexParams.build_algo(indexPtr, params.getCagraGraphBuildAlgo().value);
     cuvsCagraIndexParams.nn_descent_niter(indexPtr, params.getNNDescentNumIterations());
     cuvsCagraIndexParams.metric(indexPtr, params.getCuvsDistanceType().value);
