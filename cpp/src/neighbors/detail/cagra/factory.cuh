@@ -98,11 +98,11 @@ auto make_key(const cagra::search_params& params,
               const void* dataset_norms)
   -> std::enable_if_t<is_padded_dataset_v<DatasetT> || is_standard_dataset_v<DatasetT>, key>
 {
-  return key{reinterpret_cast<uint64_t>(dataset.view().data_handle()),
+  return key{reinterpret_cast<uint64_t>(dataset.data_const_view().data_handle()),
              reinterpret_cast<uint64_t>(dataset_norms),
              uint64_t(dataset.n_rows()),
              dataset.dim(),
-             dataset.stride(),
+             uint32_t(dataset.data_const_view().stride(0)),
              uint32_t(params.team_size),
              uint32_t(metric),
              uint32_t(params.smem_dtype)};
@@ -114,14 +114,15 @@ auto make_key(const cagra::search_params& params,
               cuvs::distance::DistanceType metric,
               const void* dataset_norms) -> std::enable_if_t<is_vpq_dataset_v<DatasetT>, key>
 {
-  return key{reinterpret_cast<uint64_t>(dataset.data.data_handle()),
-             reinterpret_cast<uint64_t>(dataset_norms),
-             uint64_t(dataset.n_rows()),
-             dataset.dim(),
-             uint32_t(reinterpret_cast<uint64_t>(dataset.pq_code_book.data_handle()) >> 6),
-             uint32_t(params.team_size),
-             uint32_t(metric),
-             uint32_t(params.smem_dtype)};
+  return key{
+    reinterpret_cast<uint64_t>(dataset.data_const_view().data_handle()),
+    reinterpret_cast<uint64_t>(dataset_norms),
+    uint64_t(dataset.n_rows()),
+    dataset.dim(),
+    uint32_t(reinterpret_cast<uint64_t>(dataset.manifest_view().pq_code_book.data_handle()) >> 6),
+    uint32_t(params.team_size),
+    uint32_t(metric),
+    uint32_t(params.smem_dtype)};
 }
 
 inline auto operator==(const key& a, const key& b) -> bool
