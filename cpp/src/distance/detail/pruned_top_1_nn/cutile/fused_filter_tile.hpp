@@ -13,7 +13,7 @@
 #include <cstdint>
 #include <optional>
 
-namespace cuvs::cluster::kmeans::detail::superkmeans {
+namespace cuvs::distance::detail::pruned_nn {
 
 struct fused_filter_tile {
   int tile_m;
@@ -25,7 +25,7 @@ struct fused_filter_tile {
 auto fused_filter_tile_config() -> std::optional<fused_filter_tile>;
 
 /**
- * SuperKMeans' first pruning filter: the partial distances of rows to centroids over the first
+ * The pruned 1-NN's first filter: the partial distances of rows to centroids over the first
  * `partial_dim` dims, keeping the pairs below `best[row] * ratio`. FP16 only: the caller filters
  * float data on half copies of its first dims.
  *
@@ -59,4 +59,4 @@ void launch_fused_filter(const half* rows,
                          int* seg_count,
                          cudaStream_t stream);
 
-}  // namespace cuvs::cluster::kmeans::detail::superkmeans
+}  // namespace cuvs::distance::detail::pruned_nn
