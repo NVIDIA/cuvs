@@ -5,8 +5,8 @@
 
 #pragma once
 
+#include <cuda_runtime.h>
 #include <cuvs/detail/jit_lto/cutile_compat.hpp>
-#include <raft/core/resources.hpp>
 
 #include <cuda_fp16.h>
 
@@ -43,9 +43,9 @@ auto fused_filter_tile_config() -> std::optional<fused_filter_tile>;
  * @param partial_dim     a multiple of tile_k, at most dim
  * @param packed          [n_rows * n_col_tiles * tile_n] survivors
  * @param seg_count       [n_rows, n_col_tiles] survivors per segment
+ * @param stream          the stream to launch on
  */
-void launch_fused_filter(raft::resources const& handle,
-                         const half* rows,
+void launch_fused_filter(const half* rows,
                          int n_rows,
                          const half* centroids,
                          int n_centroids,
@@ -56,6 +56,7 @@ void launch_fused_filter(raft::resources const& handle,
                          float ratio,
                          int partial_dim,
                          int64_t* packed,
-                         int* seg_count);
+                         int* seg_count,
+                         cudaStream_t stream);
 
 }  // namespace cuvs::cluster::kmeans::detail::superkmeans
