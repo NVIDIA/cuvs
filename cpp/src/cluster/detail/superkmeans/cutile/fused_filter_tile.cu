@@ -11,7 +11,6 @@
 #include <cuvs/detail/jit_lto/superkmeans/fused_filter_fragments.hpp>
 
 #include <raft/core/error.hpp>
-#include <raft/core/resource/cuda_stream.hpp>
 #include <raft/util/cudart_utils.hpp>
 
 #include <cuda_fp16.h>
@@ -54,8 +53,7 @@ auto fused_filter_tile_config() -> std::optional<fused_filter_tile>
   return fused_filter_tile{cfg.tile_m, cfg.tile_n, cfg.tile_k};
 }
 
-void launch_fused_filter(raft::resources const& handle,
-                         const half* rows,
+void launch_fused_filter(const half* rows,
                          int n_rows,
                          const half* centroids,
                          int n_centroids,
@@ -66,7 +64,8 @@ void launch_fused_filter(raft::resources const& handle,
                          float ratio,
                          int partial_dim,
                          int64_t* packed,
-                         int* seg_count)
+                         int* seg_count,
+                         cudaStream_t stream)
 {
   FusedFilterTilePlanner planner;
   auto launcher = planner.try_get_launcher();
@@ -137,11 +136,10 @@ void launch_fused_filter(raft::resources const& handle,
   const int packed_len        = static_cast<int>(packed_size);
   const int unit              = 1;
 
-  const auto stream = raft::resource::get_cuda_stream(handle);
   dim3 grid((n_rows + tile.tile_m - 1) / tile.tile_m, 1, 1);
   dim3 block(1, 1, 1);
   // Each array as (pointer, shape..., stride...), then the scalars; the tile sizes are compiled in.
-  launcher->template dispatch<fused_filter_kernel_t>(stream.get(),
+  launcher->template dispatch<fused_filter_kernel_t>(stream,
                                                      grid,
                                                      block,
                                                      0,

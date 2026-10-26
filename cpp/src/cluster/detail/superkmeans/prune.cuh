@@ -97,12 +97,11 @@ RAFT_KERNEL squared_norms_kernel(
 
 template <typename T>
 void squared_norms(
-  raft::resources const& handle, const T* rows, int64_t n, int64_t stride, int64_t cols, float* out)
+  const T* rows, int64_t n, int64_t stride, int64_t cols, float* out, cudaStream_t stream)
 {
   constexpr uint32_t kThreads = 256;
   const auto blocks           = raft::ceildiv<int64_t>(n * kWarpSize, kThreads);
-  squared_norms_kernel<<<blocks, kThreads, 0, raft::resource::get_cuda_stream(handle).get()>>>(
-    rows, n, stride, cols, out);
+  squared_norms_kernel<<<blocks, kThreads, 0, stream>>>(rows, n, stride, cols, out);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
@@ -129,20 +128,17 @@ RAFT_KERNEL distance_to_assigned_kernel(const T* __restrict__ rows,
 }
 
 template <typename T, typename C>
-void distance_to_assigned(raft::resources const& handle,
-                          const T* rows,
+void distance_to_assigned(const T* rows,
                           int64_t n,
                           const C* centroids,
                           int64_t dim,
                           const uint32_t* labels,
-                          float* dist)
+                          float* dist,
+                          cudaStream_t stream)
 {
   constexpr uint32_t kThreads = 256;
   const auto blocks           = raft::ceildiv<int64_t>(n * kWarpSize, kThreads);
-  distance_to_assigned_kernel<<<blocks,
-                                kThreads,
-                                0,
-                                raft::resource::get_cuda_stream(handle).get()>>>(
+  distance_to_assigned_kernel<<<blocks, kThreads, 0, stream>>>(
     rows, n, centroids, dim, labels, dist);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
@@ -332,8 +328,7 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
  * gets each row's first-filter survivors added. row_order (optional): the rows' order.
  */
 template <typename T>
-void prune(raft::resources const& handle,
-           const T* rows,
+void prune(const T* rows,
            int64_t n_rows,
            const uint32_t* row_order,
            const T* centroids,
@@ -344,23 +339,23 @@ void prune(raft::resources const& handle,
            first_filter_lists lists,
            uint32_t* labels,
            float* dist,
-           uint32_t* survivors)
+           uint32_t* survivors,
+           cudaStream_t stream)
 {
   RAFT_EXPECTS(partial_dim <= dim && (dim - partial_dim) % kDimTileSize == 0,
                "SuperKMeans pruning needs dim - partial_dim to be a multiple of %u",
                kDimTileSize);
-  prune_kernel<<<n_rows, kWarpSize, 0, raft::resource::get_cuda_stream(handle).get()>>>(
-    rows,
-    row_order,
-    centroids,
-    centroid_offset,
-    static_cast<uint32_t>(dim),
-    partial_dim,
-    ratios,
-    lists,
-    labels,
-    dist,
-    survivors);
+  prune_kernel<<<n_rows, kWarpSize, 0, stream>>>(rows,
+                                                 row_order,
+                                                 centroids,
+                                                 centroid_offset,
+                                                 static_cast<uint32_t>(dim),
+                                                 partial_dim,
+                                                 ratios,
+                                                 lists,
+                                                 labels,
+                                                 dist,
+                                                 survivors);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
