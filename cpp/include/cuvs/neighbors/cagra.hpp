@@ -348,10 +348,10 @@ struct index_params : cuvs::neighbors::index_params {
    *   cagra::index_params index_params;
    *   // Build graph only — caller attaches dataset later.
    *   index_params.attach_dataset_on_build = false;
-   *   auto index = cagra::build(res, index_params, dataset->as_dataset_view());
+   *   auto index = cagra::build(res, index_params, dataset->view());
    *   // ASSERT(index.size() == 0);  // no dataset yet
    *   // Attach with a view (storage owned by `dataset`).
-   *   index = cagra::update_dataset(res, std::move(index), dataset->as_dataset_view());
+   *   index = cagra::update_dataset(res, std::move(index), dataset->view());
    *   cagra::search(res, search_params, index, queries, neighbors, distances);
    * @endcode
    */
@@ -592,7 +592,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     : cuvs::neighbors::index(),
       metric_(metric),
       graph_(raft::make_device_matrix<graph_index_type, int64_t>(res, 0, 0)),
-      dataset_{},
+      dataset_{cuvs::neighbors::detail::make_empty_dataset_view<DatasetViewT>()},
       dataset_norms_(std::nullopt)
   {
   }
@@ -618,7 +618,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    * the index uses the dataset; the index does not take ownership of the buffer.
    * @code{.cpp}
    *   auto padded_owner = cuvs::neighbors::make_device_padded_dataset(res, dataset_mdspan);
-   *   auto view         = padded_owner->as_dataset_view();
+   *   auto view         = padded_owner->view();
    *   cuvs::neighbors::cagra::device_padded_index<float> idx(res, metric, view,
    *                                                       raft::make_const_mdspan(graph));
    *   // `padded_owner` must outlive `idx` (do not let it go out of scope while `idx` is used).
@@ -793,24 +793,9 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     // Re-open the file descriptor in read-only mode for subsequent operations
     dataset_fd_.emplace(std::move(fd));
 
-    if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
-      auto v = raft::make_device_matrix_view<const T, int64_t>(
-        static_cast<const T*>(nullptr), int64_t{0}, dim_);
-      dataset_ = DatasetViewT(v, dim_);
-    } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
-      auto v = raft::make_device_matrix_view<const T, int64_t>(
-        static_cast<const T*>(nullptr), int64_t{0}, dim_);
-      dataset_ = DatasetViewT(v);
-    } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<DatasetViewT>) {
-      auto v = raft::make_host_matrix_view<const T, int64_t>(
-        static_cast<const T*>(nullptr), int64_t{0}, dim_);
-      dataset_ = DatasetViewT(v, dim_);
-    } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
-      auto v = raft::make_host_matrix_view<const T, int64_t>(
-        static_cast<const T*>(nullptr), int64_t{0}, dim_);
-      dataset_ = DatasetViewT(v);
-    } else if constexpr (cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
-      dataset_ = DatasetViewT{dim_};
+    if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT> ||
+                  cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
+      dataset_ = cuvs::neighbors::detail::make_empty_dataset_view<DatasetViewT>(dim_);
     } else {
       RAFT_FAIL("update_dataset(fd): unsupported DatasetViewT for disk-backed dataset");
     }
@@ -1293,7 +1278,7 @@ auto build(raft::resources const& res,
  *   using namespace cuvs::neighbors;
  *   // Build `extended` = old || new on device, padded for CAGRA.
  *   auto extended = make_device_padded_dataset(res, concatenated_view);
- *   auto extended_view = extended->as_dataset_view();
+ *   auto extended_view = extended->view();
  *
  *   cagra::extend_params params;
  *   int64_t new_start_row = static_cast<int64_t>(index.size());
@@ -3629,21 +3614,77 @@ auto build(const raft::resources& clique,
            cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>;
 
+/// \ingroup mg_cpp_index_build
+/**
+ * @brief Builds a multi-GPU index from a padded host dataset (`float`).
+ *
+ * The index takes the padded row width (the row stride of `index_dataset`) as its dimension, so
+ * the search queries must be this wide. The padding is zero and does not change the L2, inner
+ * product and cosine distances, so zero-pad the queries to the index dimension.
+ *
+ * @param[in] clique a `raft::resources` object specifying the NCCL clique configuration
+ * @param[in] index_params configure the index building
+ * @param[in] index_dataset a padded row-major matrix on host [n_rows, row stride]
+ *
+ * @return the constructed CAGRA MG index
+ */
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
            cuvs::neighbors::host_padded_dataset_view<float, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>;
 
+/// \ingroup mg_cpp_index_build
+/**
+ * @brief Builds a multi-GPU index from a padded host dataset (`half`).
+ *
+ * The index takes the padded row width (the row stride of `index_dataset`) as its dimension, so
+ * the search queries must be this wide. The padding is zero and does not change the L2, inner
+ * product and cosine distances, so zero-pad the queries to the index dimension.
+ *
+ * @param[in] clique a `raft::resources` object specifying the NCCL clique configuration
+ * @param[in] index_params configure the index building
+ * @param[in] index_dataset a padded row-major matrix on host [n_rows, row stride]
+ *
+ * @return the constructed CAGRA MG index
+ */
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
            cuvs::neighbors::host_padded_dataset_view<half, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>;
 
+/// \ingroup mg_cpp_index_build
+/**
+ * @brief Builds a multi-GPU index from a padded host dataset (`int8_t`).
+ *
+ * The index takes the padded row width (the row stride of `index_dataset`) as its dimension, so
+ * the search queries must be this wide. The padding is zero and does not change the L2, inner
+ * product and cosine distances, so zero-pad the queries to the index dimension.
+ *
+ * @param[in] clique a `raft::resources` object specifying the NCCL clique configuration
+ * @param[in] index_params configure the index building
+ * @param[in] index_dataset a padded row-major matrix on host [n_rows, row stride]
+ *
+ * @return the constructed CAGRA MG index
+ */
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
            cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> const& index_dataset)
   -> cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>;
 
+/// \ingroup mg_cpp_index_build
+/**
+ * @brief Builds a multi-GPU index from a padded host dataset (`uint8_t`).
+ *
+ * The index takes the padded row width (the row stride of `index_dataset`) as its dimension, so
+ * the search queries must be this wide. The padding is zero and does not change the L2, inner
+ * product and cosine distances, so zero-pad the queries to the index dimension.
+ *
+ * @param[in] clique a `raft::resources` object specifying the NCCL clique configuration
+ * @param[in] index_params configure the index building
+ * @param[in] index_dataset a padded row-major matrix on host [n_rows, row stride]
+ *
+ * @return the constructed CAGRA MG index
+ */
 auto build(const raft::resources& clique,
            const cuvs::neighbors::mg_index_params<cagra::index_params>& index_params,
            cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> const& index_dataset)

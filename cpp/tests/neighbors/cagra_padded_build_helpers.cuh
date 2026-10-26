@@ -50,7 +50,7 @@ struct padded_device_matrix_for_cagra {
       return build_result{nullptr, make_device_padded_dataset_view(res, src)};
     } else {
       auto own = make_device_padded_dataset(res, src);
-      auto vw  = own->as_dataset_view();
+      auto vw  = own->view();
       return build_result{std::move(own), vw};
     }
   }
