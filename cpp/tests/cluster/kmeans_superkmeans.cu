@@ -296,8 +296,9 @@ TEST(KmeansSuperKMeans, Fallback)
  */
 TEST(KmeansSuperKMeans, Pruned)
 {
-  // Two centroid batches, the second partial, and two tail dim tiles (one re-filter)
-  constexpr int64_t n_rows     = 20000;
+  // Three row batches, the last partial; two centroid batches, the second partial; and two tail
+  // dim tiles (one re-filter)
+  constexpr int64_t n_rows     = 300000;
   constexpr int64_t dim        = 768;
   constexpr int64_t n_clusters = 1100;
   constexpr uint32_t n_iters   = 8;
