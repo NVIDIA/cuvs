@@ -21,6 +21,7 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/core/memory_type.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/util/cudart_utils.hpp>
@@ -69,10 +70,7 @@ inline void maybe_log_cagra_persistent_concurrency_hint(bool persistent_search)
 /** Whether the GPU can dereference this pointer: device, managed or mapped host memory. */
 inline auto is_device_accessible(const void* ptr) -> bool
 {
-  cudaPointerAttributes attrs{};
-  RAFT_CUDA_TRY(cudaPointerGetAttributes(&attrs, ptr));
-  return attrs.type == cudaMemoryTypeDevice || attrs.type == cudaMemoryTypeManaged ||
-         attrs.devicePointer != nullptr;
+  return raft::get_pointer_memory_info(ptr).device_pointer != nullptr;
 }
 
 /**
