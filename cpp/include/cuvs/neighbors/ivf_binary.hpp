@@ -152,17 +152,19 @@ struct index : cuvs::neighbors::index {
  *
  * The thresholds of the dataset dictionary are copied into the index.
  *
- * Usage example:
- * ```cpp
- *   using namespace cuvs::neighbors;
- *   namespace binary = cuvs::preprocessing::quantize::binary;
- *   auto quantizer = binary::train(handle, binary::params{}, raw_dataset);
- *   auto codes = raft::make_device_matrix<uint8_t, int64_t>(handle, n_rows, (dim + 7) / 8);
- *   binary::transform(handle, quantizer, raw_dataset, codes.view());
- *   auto dataset = cuvs::make_device_binary_dataset_view<int64_t>(
- *     raft::make_const_mdspan(codes.view()), quantizer, dim);
- *   auto index = ivf_binary::build(handle, ivf_binary::index_params{}, dataset);
- * ```
+ * Usage example, with `raw_dataset` a device matrix view of floats:
+ *
+ * 1. Define `namespace binary = cuvs::preprocessing::quantize::binary;` and train the quantizer:
+ *    `auto quantizer = binary::train(handle, binary::params{}, raw_dataset);`
+ * 2. Allocate packed codes:
+ *    `auto codes = raft::make_device_matrix<uint8_t, int64_t>(handle, n_rows, (dim + 7) / 8);`
+ * 3. Encode the dataset:
+ *    `binary::transform(handle, quantizer, raw_dataset, codes.view());`
+ * 4. Associate the codes with the quantizer:
+ *    `auto codes_view = raft::make_const_mdspan(codes.view());`
+ *    `auto dataset = cuvs::make_device_binary_dataset_view<int64_t>(codes_view, quantizer, dim);`
+ * 5. Build the index:
+ *    `auto index = cuvs::neighbors::ivf_binary::build(handle, {}, dataset);`
  *
  * @param[in] handle
  * @param[in] index_params configure the index building

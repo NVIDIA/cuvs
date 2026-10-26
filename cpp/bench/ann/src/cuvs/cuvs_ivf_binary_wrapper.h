@@ -17,7 +17,7 @@
 
 namespace cuvs::bench {
 
-class cuvs_binary_ivf_flat : public algo<uint8_t>, public algo_gpu {
+class cuvs_ivf_binary : public algo<uint8_t>, public algo_gpu {
  public:
   using search_param_base = algo<uint8_t>::search_param;
   using build_param       = cuvs::neighbors::ivf_binary::index_params;
@@ -27,11 +27,11 @@ class cuvs_binary_ivf_flat : public algo<uint8_t>, public algo_gpu {
   };
 
   // The benchmark dimension counts packed bytes; IVF-Binary's dimension counts bits.
-  cuvs_binary_ivf_flat(Metric metric, int dim, const build_param& param)
+  cuvs_ivf_binary(Metric metric, int dim, const build_param& param)
     : algo<uint8_t>(metric, dim), index_params_(param)
   {
     if (metric != Metric::kBitwiseHamming) {
-      throw std::invalid_argument("cuvs_binary_ivf_flat requires bitwise_hamming distance");
+      throw std::invalid_argument("cuvs_ivf_binary requires bitwise_hamming distance");
     }
     if (dim <= 0 || uint64_t(dim) > std::numeric_limits<uint32_t>::max() / 8) {
       throw std::invalid_argument("invalid packed binary dimension");
@@ -97,7 +97,7 @@ class cuvs_binary_ivf_flat : public algo<uint8_t>, public algo_gpu {
 
   std::unique_ptr<algo<uint8_t>> copy() override
   {
-    return std::make_unique<cuvs_binary_ivf_flat>(*this);
+    return std::make_unique<cuvs_ivf_binary>(*this);
   }
 
  private:

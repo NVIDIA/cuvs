@@ -29,6 +29,7 @@ option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_RABITQ
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_SQ "Include faiss' cpu ivf sq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_HNSW_FLAT "Include faiss' hnsw algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT "Include cuVS ivf flat algorithm in benchmark" ON)
+option(CUVS_ANN_BENCH_USE_CUVS_IVF_BINARY "Include cuVS ivf binary algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_IVF_SQ "Include cuVS ivf sq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_IVF_PQ "Include cuVS ivf pq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_CAGRA "Include cuVS CAGRA in benchmark" ON)
@@ -87,6 +88,7 @@ set(CUVS_USE_FAISS_STATIC ON)
 if(BUILD_CPU_ONLY)
   set(CUVS_FAISS_ENABLE_GPU OFF)
   set(CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT OFF)
+  set(CUVS_ANN_BENCH_USE_CUVS_IVF_BINARY OFF)
   set(CUVS_ANN_BENCH_USE_CUVS_IVF_SQ OFF)
   set(CUVS_ANN_BENCH_USE_CUVS_IVF_PQ OFF)
   set(CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ OFF)
@@ -106,6 +108,7 @@ set(CUVS_ANN_BENCH_USE_CUVS OFF)
 if(CUVS_ANN_BENCH_USE_CUVS_IVF_PQ
    OR CUVS_ANN_BENCH_USE_CUVS_BRUTE_FORCE
    OR CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT
+   OR CUVS_ANN_BENCH_USE_CUVS_IVF_BINARY
    OR CUVS_ANN_BENCH_USE_CUVS_IVF_SQ
    OR CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ
    OR CUVS_ANN_BENCH_USE_CUVS_CAGRA
@@ -254,6 +257,10 @@ if(CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT)
   ConfigureAnnBench(
     NAME CUVS_IVF_FLAT PATH src/cuvs/cuvs_benchmark.cu src/cuvs/cuvs_ivf_flat.cu LINKS cuvs
   )
+endif()
+
+if(CUVS_ANN_BENCH_USE_CUVS_IVF_BINARY)
+  ConfigureAnnBench(NAME CUVS_IVF_BINARY PATH src/cuvs/cuvs_benchmark.cu LINKS cuvs)
 endif()
 
 if(CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ)
