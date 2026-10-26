@@ -539,7 +539,7 @@ class faiss_gpu_cagra : public faiss_gpu<T> {
     config.graph_degree              = param.graph_degree;
     config.intermediate_graph_degree = param.intermediate_graph_degree;
     config.device                    = this->device_;
-    config.store_dataset             = true;
+    config.store_dataset             = false;
     if (param.cagra_build_algo == "IVF_PQ") {
       config.build_algo           = faiss::gpu::graph_build_algo::IVF_PQ;
       this->ivf_pq_build_params_  = param.ivf_pq_build_params;

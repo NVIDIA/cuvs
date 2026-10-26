@@ -193,7 +193,7 @@ index 6ff3419b7..f03a5e5f0 100644
                  raft::make_const_mdspan(knn_graph_copy.view()));
      } else {
          FAISS_THROW_MSG(
-@@ -206,17 +210,23 @@ void CuvsCagra<data_t>::train(idx_t n, const data_t* x) {
+@@ -206,17 +210,39 @@ void CuvsCagra<data_t>::train(idx_t n, const data_t* x) {
      if (getDeviceForAddress(x) >= 0) {
          auto dataset = raft::make_device_matrix_view<const data_t, int64_t>(
                  x, n, dim_);
@@ -205,7 +205,8 @@ index 6ff3419b7..f03a5e5f0 100644
 -                        raft_handle, index_params_, dataset));
 +                        raft_handle, index_params_, dataset_view));
 +        store_dataset_ = true;
-     } else {
+-    } else {
++    } else if (store_dataset_) {
          auto dataset =
                  raft::make_host_matrix_view<const data_t, int64_t>(x, n, dim_);
 +        host_to_device_dataset_ =
@@ -216,10 +217,26 @@ index 6ff3419b7..f03a5e5f0 100644
 -                        raft_handle, index_params_, dataset));
 +                        raft_handle, index_params_,
 +                        host_to_device_dataset_->as_dataset_view()));
++    } else {
++        // Build the graph directly from host memory without copying the
++        // dataset to the device. search() attaches the dataset on first use.
++        auto dataset =
++                raft::make_host_matrix_view<const data_t, int64_t>(x, n, dim_);
++        auto graph_only_params = index_params_;
++        graph_only_params.attach_dataset_on_build = false;
++        auto host_index = cuvs::neighbors::cagra::build(
++                raft_handle,
++                graph_only_params,
++                cuvs::neighbors::make_host_standard_dataset_view(dataset));
++        cuvs_index = std::make_shared<
++                cuvs::neighbors::cagra::index<data_t, uint32_t>>(
++                raft_handle,
++                std::move(host_index),
++                cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>{});
      }
  }
 
-@@ -252,13 +262,22 @@ void CuvsCagra<data_t>::search(
+@@ -252,13 +278,22 @@ void CuvsCagra<data_t>::search(
 
      if (!store_dataset_) {
          if (getDeviceForAddress(storage_) >= 0) {
@@ -245,7 +262,7 @@ index 6ff3419b7..f03a5e5f0 100644
          }
          store_dataset_ = true;
      }
-@@ -326,6 +345,7 @@ void CuvsCagra<data_t>::search(
+@@ -326,6 +361,7 @@ void CuvsCagra<data_t>::search(
  template <typename data_t>
  void CuvsCagra<data_t>::reset() {
      cuvs_index.reset();
