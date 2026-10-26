@@ -517,8 +517,9 @@ void minClusterDistanceCompute(
     // Strict-FP32 (Stable) distances in two phases:
     //    (1) a TF32 1-NN finds each row's nearest centroid
     //    (2) the distance to it is recomputed in FP32 directly from the data (refine_distance).
-    // The two-phase method is faster and more accurate than the strict-FP32 GEMM when n_features >= 16.
-    // At K < 16, TF32 might not be sufficiently accurate and therefore, choose native FP32 or its emulations.
+    // The two-phase method is faster and more accurate than the strict-FP32 GEMM when n_features
+    // >= 16. At K < 16, TF32 might not be sufficiently accurate and therefore, choose native FP32
+    // or its emulations.
     constexpr IndexT kMinTf32Features = 16;
     bool two_phase                    = false;
     auto top_1_nn_backend             = backend;
