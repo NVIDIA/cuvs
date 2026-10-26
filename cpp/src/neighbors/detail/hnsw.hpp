@@ -2933,10 +2933,11 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
   // Public HNSW API uses host_matrix_view; CAGRA build expects a dataset view.
   // Host build stores only the graph; vectors are passed separately to from_cagra below.
   auto host_standard_view = cuvs::neighbors::make_host_standard_dataset_view(dataset);
-  auto cagra_index        = cuvs::neighbors::cagra::build(res, cagra_params, host_standard_view);
+  auto ace_host_index     = cuvs::neighbors::cagra::build(res, cagra_params, host_standard_view);
 
   RAFT_LOG_INFO("hnsw::build - Converting CAGRA index to HNSW format");
-  return from_cagra<T>(res, params, cagra_index, std::make_optional(dataset));
+
+  return from_cagra<T>(res, params, ace_host_index, std::make_optional(dataset));
 }
 
 }  // namespace cuvs::neighbors::hnsw::detail
