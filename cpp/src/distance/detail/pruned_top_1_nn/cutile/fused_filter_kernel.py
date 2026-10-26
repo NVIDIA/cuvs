@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # =============================================================================
-"""SuperKMeans' first pruning filter: the partial GEMM over the first d' dims fused with the filter.
+"""The pruned 1-NN's first filter: the partial GEMM over the first d' dims fused with the filter.
 
 Each CTA owns TM rows and loops over the centroid tiles (TN wide). For each it computes the partial
 distance ||row||^2 + ||centroid||^2 - 2 row.centroid over the first d' dims (FP16 tensor cores) and
@@ -35,7 +35,7 @@ LOW_32_BITS = (1 << 32) - 1
 
 
 def kernel_symbol(data_type: str) -> str:
-    return {"half": "superkmeans_fused_filter_h"}[data_type]
+    return {"half": "pruned_1nn_fused_filter_h"}[data_type]
 
 
 def make_kernel(*, gpu_code: str, occupancy: int | None = None):

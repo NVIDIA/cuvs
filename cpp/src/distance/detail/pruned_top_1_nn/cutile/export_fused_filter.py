@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # =============================================================================
-"""Export SuperKMeans' fused first-filter cuTile kernel to cubin."""
+"""Export the pruned 1-NN's fused first-filter cuTile kernel to cubin."""
 
 from __future__ import annotations
 
