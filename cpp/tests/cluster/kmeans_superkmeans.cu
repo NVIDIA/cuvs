@@ -137,7 +137,7 @@ auto make_data(raft::handle_t& handle, std::vector<float>& host)
   return X;
 }
 
-/** The start centroids SuperKMeans draws for `seed`: rows sampled as by kmeans::fit's Random init.
+/** The start centroids SuperKMeans draws for `seed`: rows sampled with raft::matrix::sample_rows.
  */
 std::vector<float> start_centroids(raft::handle_t& handle,
                                    const std::vector<float>& host,
@@ -289,17 +289,95 @@ TEST(KmeansSuperKMeans, Fallback)
   }
 }
 
+/* With more than 256 clusters and a multiple of 256 dims, the iterations after the first prune
+ * (on a build and device with the filter's kernels; otherwise they assign in full). The pruning
+ * bound is a heuristic without a rotation, so the result is compared with Lloyd's from the same
+ * start rows rather than exactly. The labels and inertia come from a full assignment.
+ */
+TEST(KmeansSuperKMeans, Pruned)
+{
+  // Two centroid batches, the second partial, and two tail dim tiles (one re-filter)
+  constexpr int64_t n_rows     = 20000;
+  constexpr int64_t dim        = 768;
+  constexpr int64_t n_clusters = 1100;
+  constexpr uint32_t n_iters   = 8;
+  constexpr uint64_t seed      = 42;
+  raft::handle_t handle;
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
+
+  auto blobs       = raft::make_device_matrix<float, int64_t>(handle, n_rows, dim);
+  auto blob_labels = raft::make_device_vector<int64_t, int64_t>(handle, n_rows);
+  raft::random::make_blobs<float, int64_t>(blobs.data_handle(),
+                                           blob_labels.data_handle(),
+                                           n_rows,
+                                           dim,
+                                           n_clusters,
+                                           stream,
+                                           true,
+                                           nullptr,
+                                           nullptr,
+                                           1.0f,
+                                           true,
+                                           -2.0f,
+                                           2.0f,
+                                           uint64_t{1234});
+  auto X_half = raft::make_device_matrix<half, int64_t>(handle, n_rows, dim);
+  raft::linalg::unaryOp(
+    X_half.data_handle(), blobs.data_handle(), n_rows * dim, raft::cast_op<half>(), stream);
+  // Lloyd's runs on the half values too, so both data types are compared with the same reference
+  raft::linalg::unaryOp(
+    blobs.data_handle(), X_half.data_handle(), n_rows * dim, raft::cast_op<float>(), stream);
+  auto X = raft::make_const_mdspan(blobs.view());
+
+  // Lloyd's from SuperKMeans' start rows (its own Random init draws other rows for the same seed)
+  auto centroids = raft::make_device_matrix<float, int64_t>(handle, n_clusters, dim);
+  raft::matrix::sample_rows(handle, raft::random::RngState(seed), X, centroids.view());
+  cuvs::cluster::kmeans::params lloyd;
+  lloyd.n_clusters    = n_clusters;
+  lloyd.init          = cuvs::cluster::kmeans::params::Array;
+  lloyd.max_iter      = n_iters;
+  lloyd.tol           = 1e-30;  // must be positive; this small, all iterations run
+  float lloyd_inertia = 0;
+  int64_t lloyd_iters = 0;
+  cuvs::cluster::kmeans::fit(handle,
+                             lloyd,
+                             X,
+                             std::nullopt,
+                             centroids.view(),
+                             raft::make_host_scalar_view(&lloyd_inertia),
+                             raft::make_host_scalar_view(&lloyd_iters));
+
+  cuvs::cluster::kmeans::superkmeans_params params;
+  params.n_iters   = n_iters;
+  params.rng_state = raft::random::RngState(seed);
+  auto labels      = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+  float inertia    = 0;
+  cuvs::cluster::kmeans::fit_predict(
+    handle, params, X, centroids.view(), labels.view(), raft::make_host_scalar_view(&inertia));
+  EXPECT_NEAR(inertia, lloyd_inertia, 0.01 * lloyd_inertia);
+
+  float half_inertia = 0;
+  cuvs::cluster::kmeans::fit_predict(handle,
+                                     params,
+                                     raft::make_const_mdspan(X_half.view()),
+                                     centroids.view(),
+                                     labels.view(),
+                                     raft::make_host_scalar_view(&half_inertia));
+  EXPECT_NEAR(half_inertia, lloyd_inertia, 0.01 * lloyd_inertia);
+}
+
 TEST(KmeansSuperKMeans, RejectsUnsupported)
 {
   raft::handle_t handle;
   cuvs::cluster::kmeans::superkmeans_params params;
-  auto X         = raft::make_device_matrix<float, int64_t>(handle, 1000, 256);
-  auto centroids = raft::make_device_matrix<float, int64_t>(handle, 300, 256);
-  // Pruned configurations are not implemented yet.
-  EXPECT_THROW(
-    cuvs::cluster::kmeans::fit(handle, params, raft::make_const_mdspan(X.view()), centroids.view()),
-    raft::logic_error);
+  // Pruning works on whole 256-dim tiles.
+  auto X_odd     = raft::make_device_matrix<float, int64_t>(handle, 1000, 384);
+  auto centroids = raft::make_device_matrix<float, int64_t>(handle, 300, 384);
+  EXPECT_THROW(cuvs::cluster::kmeans::fit(
+                 handle, params, raft::make_const_mdspan(X_odd.view()), centroids.view()),
+               raft::logic_error);
 
+  auto X               = raft::make_device_matrix<float, int64_t>(handle, 1000, 256);
   auto small_centroids = raft::make_device_matrix<float, int64_t>(handle, 8, 256);
   params.metric        = cuvs::distance::DistanceType::InnerProduct;
   EXPECT_THROW(cuvs::cluster::kmeans::fit(
