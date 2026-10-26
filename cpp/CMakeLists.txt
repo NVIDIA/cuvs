@@ -1456,6 +1456,7 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/kmeans_balanced_fit_predict_int8.cu
     src/cluster/kmeans_balanced_predict_int8.cu
     src/cluster/kmeans_balanced_predict_uint8.cu
+    src/cluster/kmeans_superkmeans.cu
     src/cluster/kmeans_transform_double.cu
     src/cluster/kmeans_transform_float.cu
     src/cluster/single_linkage_float.cu
