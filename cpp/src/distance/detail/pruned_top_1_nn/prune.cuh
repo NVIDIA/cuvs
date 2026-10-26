@@ -16,7 +16,7 @@
 #include <type_traits>
 #include <vector>
 
-namespace cuvs::cluster::kmeans::detail::superkmeans {
+namespace cuvs::distance::detail::pruned_nn {
 
 // Dims between the survivors' re-filters, and d' of the first filter
 constexpr uint32_t kDimTileSize = 256;
@@ -343,7 +343,7 @@ void prune(const T* rows,
            cudaStream_t stream)
 {
   RAFT_EXPECTS(partial_dim <= dim && (dim - partial_dim) % kDimTileSize == 0,
-               "SuperKMeans pruning needs dim - partial_dim to be a multiple of %u",
+               "Pruned 1-NN needs dim - partial_dim to be a multiple of %u",
                kDimTileSize);
   prune_kernel<<<n_rows, kWarpSize, 0, stream>>>(rows,
                                                  row_order,
@@ -359,4 +359,4 @@ void prune(const T* rows,
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
-}  // namespace cuvs::cluster::kmeans::detail::superkmeans
+}  // namespace cuvs::distance::detail::pruned_nn

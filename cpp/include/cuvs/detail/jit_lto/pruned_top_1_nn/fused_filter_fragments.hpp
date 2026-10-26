@@ -5,7 +5,7 @@
 
 #pragma once
 
-namespace cuvs::cluster::kmeans::detail::superkmeans {
+namespace cuvs::distance::detail::pruned_nn {
 
 template <typename DataTag, typename ArchTag>
 struct fragment_tag_fused_filter_cubin {
@@ -13,4 +13,4 @@ struct fragment_tag_fused_filter_cubin {
   static constexpr int cc_minor = ArchTag::cc_minor;
 };
 
-}  // namespace cuvs::cluster::kmeans::detail::superkmeans
+}  // namespace cuvs::distance::detail::pruned_nn

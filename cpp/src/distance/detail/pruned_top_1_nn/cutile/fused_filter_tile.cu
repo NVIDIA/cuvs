@@ -8,7 +8,7 @@
 #include <cuvs/detail/jit_lto/TileAlgorithmPlanner.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/cutile_arch_tags.hpp>
-#include <cuvs/detail/jit_lto/superkmeans/fused_filter_fragments.hpp>
+#include <cuvs/detail/jit_lto/pruned_top_1_nn/fused_filter_fragments.hpp>
 
 #include <raft/core/error.hpp>
 #include <raft/util/cudart_utils.hpp>
@@ -17,12 +17,12 @@
 
 #include <limits>
 
-namespace cuvs::cluster::kmeans::detail::superkmeans {
+namespace cuvs::distance::detail::pruned_nn {
 
 namespace {
 
 /** Must match kernel_symbol() in fused_filter_kernel.py. */
-constexpr const char* kFusedFilterEntrypoint = "superkmeans_fused_filter_h";
+constexpr const char* kFusedFilterEntrypoint = "pruned_1nn_fused_filter_h";
 
 struct FusedFilterTilePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
   using DataTag = cuvs::neighbors::detail::tag_h;
@@ -69,15 +69,15 @@ void launch_fused_filter(const half* rows,
 {
   FusedFilterTilePlanner planner;
   auto launcher = planner.try_get_launcher();
-  RAFT_EXPECTS(launcher != nullptr, "SuperKMeans fused filter: no cuTile cubin for this device");
+  RAFT_EXPECTS(launcher != nullptr, "Pruned 1-NN fused filter: no cuTile cubin for this device");
   const auto tile = planner.tile_config();
 
   constexpr int row_pitch_divisor = 16 / sizeof(half);
-  RAFT_EXPECTS(n_rows > 0 && n_centroids > 0, "SuperKMeans fused filter: empty input");
+  RAFT_EXPECTS(n_rows > 0 && n_centroids > 0, "Pruned 1-NN fused filter: empty input");
   RAFT_EXPECTS(dim % row_pitch_divisor == 0,
-               "SuperKMeans fused filter: the row pitch must be a multiple of 16 bytes");
+               "Pruned 1-NN fused filter: the row pitch must be a multiple of 16 bytes");
   RAFT_EXPECTS(partial_dim > 0 && partial_dim <= dim && partial_dim % tile.tile_k == 0,
-               "SuperKMeans fused filter: partial_dim must be a positive multiple of %d, at most "
+               "Pruned 1-NN fused filter: partial_dim must be a positive multiple of %d, at most "
                "dim",
                tile.tile_k);
   for (const void* ptr : {static_cast<const void*>(rows),
@@ -88,12 +88,12 @@ void launch_fused_filter(const half* rows,
                           static_cast<const void*>(packed),
                           static_cast<const void*>(seg_count)}) {
     RAFT_EXPECTS(reinterpret_cast<uintptr_t>(ptr) % 16 == 0,
-                 "SuperKMeans fused filter: buffers must be 16-byte aligned");
+                 "Pruned 1-NN fused filter: buffers must be 16-byte aligned");
   }
   const int n_col_tiles     = (n_centroids + tile.tile_n - 1) / tile.tile_n;
   const int64_t packed_size = int64_t{n_rows} * n_col_tiles * tile.tile_n;
   RAFT_EXPECTS(packed_size <= std::numeric_limits<int>::max(),
-               "SuperKMeans fused filter: too many rows x centroids in one call");
+               "Pruned 1-NN fused filter: too many rows x centroids in one call");
 
   using fused_filter_kernel_t = void(void*,
                                      int,
@@ -177,4 +177,4 @@ void launch_fused_filter(const half* rows,
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
-}  // namespace cuvs::cluster::kmeans::detail::superkmeans
+}  // namespace cuvs::distance::detail::pruned_nn
