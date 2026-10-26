@@ -253,10 +253,13 @@ __device__ inline uint32_t refilter(uint32_t n,
 /**
  * A warp per block and row, against one centroid batch: the row's first-filter survivors (partial
  * distances over the first partial_dim dims), the tail dims in dim tiles with a re-filter after
- * each but the last, then the argmin, kept if closer than the row's current centroid.
+ * each but the last, then the argmin, kept if closer than the row's current centroid. Block b
+ * handles row row_order[b] when given (heaviest rows first), and each row's first-filter survivors
+ * are added to `survivors`.
  */
 template <typename T>
 RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
+                         const uint32_t* __restrict__ row_order,
                          const T* __restrict__ centroids,
                          uint32_t centroid_offset,
                          uint32_t dim,
@@ -264,18 +267,20 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
                          const float* __restrict__ ratios,
                          first_filter_lists lists,
                          uint32_t* __restrict__ labels,
-                         float* __restrict__ dist)
+                         float* __restrict__ dist,
+                         uint32_t* __restrict__ survivors)
 {
   __shared__ survivor_id_t ids[kCentroidBatchSize];
   __shared__ float distances[kCentroidBatchSize];
   const uint32_t lane = threadIdx.x;
-  const int64_t row   = blockIdx.x;
+  const int64_t row   = row_order != nullptr ? row_order[blockIdx.x] : blockIdx.x;
   const T* row_values = rows + row * dim;
   uint32_t best_index = labels[row];
   float best          = dist[row];
   const float bound   = best;
 
   uint32_t n_left = load_survivors(lists, row, ids, distances);
+  if (lane == 0) { survivors[row] += n_left; }
   if (n_left == 0 || (n_left == 1 && centroid_offset + ids[0] == best_index)) { return; }
 
   for (uint32_t d = partial_dim; d < dim && n_left; d += kDimTileSize) {
@@ -323,12 +328,14 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
 /**
  * The pruning kernel for n_rows rows against one centroid batch (its first centroid
  * centroid_offset), after the fused first filter wrote `lists`. `labels` and `dist` hold each
- * row's current centroid and distance, and get the closer survivor if there is one.
+ * row's current centroid and distance, and get the closer survivor if there is one; `survivors`
+ * gets each row's first-filter survivors added. row_order (optional): the rows' order.
  */
 template <typename T>
 void prune(raft::resources const& handle,
            const T* rows,
            int64_t n_rows,
+           const uint32_t* row_order,
            const T* centroids,
            uint32_t centroid_offset,
            int64_t dim,
@@ -336,13 +343,15 @@ void prune(raft::resources const& handle,
            const float* ratios,
            first_filter_lists lists,
            uint32_t* labels,
-           float* dist)
+           float* dist,
+           uint32_t* survivors)
 {
   RAFT_EXPECTS(partial_dim <= dim && (dim - partial_dim) % kDimTileSize == 0,
                "SuperKMeans pruning needs dim - partial_dim to be a multiple of %u",
                kDimTileSize);
   prune_kernel<<<n_rows, kWarpSize, 0, raft::resource::get_cuda_stream(handle).get()>>>(
     rows,
+    row_order,
     centroids,
     centroid_offset,
     static_cast<uint32_t>(dim),
@@ -350,7 +359,8 @@ void prune(raft::resources const& handle,
     ratios,
     lists,
     labels,
-    dist);
+    dist,
+    survivors);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
