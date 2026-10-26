@@ -827,8 +827,14 @@ void brute_force_search_filtered(
                                               raft::identity_op(),
                                               filter_type);
   } else {
+    // masked_matmul fills the CSR structure from the mask itself, so it is left uninitialized
+    // here; converting first would only run the same conversion twice.
     auto csr = raft::make_device_csr_matrix<DistanceT, IdxT>(res, n_queries, n_dataset, nnz_h);
-    std::visit([&](const auto& actual_view) { actual_view.to_csr(res, csr); }, *filter_view);
+    // cuSPARSE does not document that SDDMM leaves the output values unread when beta == 0, so
+    // zero them rather than hand it uninitialized memory. (raft::linalg::zero takes an int count,
+    // which nnz can exceed.)
+    RAFT_CUDA_TRY(cudaMemsetAsync(
+      csr.get_elements().data(), 0, static_cast<size_t>(nnz_h) * sizeof(DistanceT), stream.get()));
 
     // create filter csr view
     auto compressed_csr_view = csr.structure_view();

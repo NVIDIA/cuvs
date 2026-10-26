@@ -95,6 +95,9 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
   typename upstream_type::search_params_type search_params_upsm{};
   dynamic_batching::search_params search_params_dynb{};
 
+  // Minimum overlap between the direct and the batched results
+  double min_neighbor_overlap = 0.9;
+
   // indexes
   std::shared_ptr<upstream_type> index_upsm                                = nullptr;
   std::optional<dynamic_batching::index<data_type, index_type>> index_dynb = std::nullopt;
@@ -213,7 +216,7 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
                                 ps.n_queries,
                                 ps.k,
                                 0.001,
-                                0.9))
+                                min_neighbor_overlap))
       << ps;
   }
 

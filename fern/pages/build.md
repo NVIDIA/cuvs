@@ -8,7 +8,7 @@ All NVIDIA cuVS routine implementations live in the C++ core. For every non-C++ 
 
 Pre-compiled NVIDIA cuVS packages are available for Linux on x86_64 and aarch64. Native Windows support is not available at this time. On Windows, use WSL2 with GPU passthrough. See the [CUDA-X for data science WSL2 guide](https://docs.nvidia.com/datascience/install/#wsl2).
 
-Source builds and package installs require a supported NVIDIA GPU. For current source builds, use CUDA Toolkit 12.2 or newer and an Ampere architecture GPU or newer, which means compute capability 8.0 or higher.
+Source builds and package installs require a supported NVIDIA GPU. For current source builds, use CUDA Toolkit 12.9 or newer and an Volta architecture GPU or newer, which means compute capability 7.0 or higher.
 
 ## Language Guides
 
@@ -25,10 +25,31 @@ Most source builds use the repository `build.sh` script. The script wraps CMake,
 
 The common source-build prerequisites are:
 
-1. CMake 3.26.4 or newer.
-2. GCC 9.3 or newer, with GCC 11.4 or newer recommended.
-3. CUDA Toolkit 12.2 or newer.
-4. An Ampere architecture GPU or newer.
+1. CMake 4.0 or newer.
+2. GCC 13.3 or newer.
+3. A Python 3 interpreter.
+  * cuTile ( CUDA 13.1 or newer ): the `cuda.tile` Python package, `tileiras` and `bin2c`. With conda install `cutile-python` and `cuda-tileiras`; with pip install `cuda-tile` and `cuda-toolkit[tileiras]`.
+4. CUDA Toolkit 12.9 or newer.
+5. For CUDA Toolkit 12:
+  * Volta architecture or better ([Compute Capability](https://docs.nvidia.com/deploy/cuda-compatibility/latest/) >=7.0)
+6. For CUDA Toolkit 13 or newer:
+  * Turing architecture or better (Compute Capability >=7.5) with CUDA 13.x
+
+
+
+Optional components have additional requirements:
+
+- Multi-node multi-GPU tests (`--mnmg-tests`):
+  - UCX
+  - UCXX
+- Benchmarks (`bench-ann`):
+  - `glog`
+  - `openblas`
+  - `nlohmann_json`
+  - On x86_64, for the DiskANN algorithms:
+    - `mkl-devel` 2023
+    - `libaio`
+    - Boost 1.87 (`libboost-devel`)
 
 ### Create a Build Environment
 
