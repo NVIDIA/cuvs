@@ -35,7 +35,7 @@ diskann::Metric parse_metric_to_diskann(cuvs::bench::Metric metric)
   }
 }
 
-// TODO (tarangj): Remaining features are tracked at https://github.com/nvidia/cuvs/issues/656
+// TODO (tarangj): Remaining features are tracked at https://github.com/NVIDIA/cuvs/issues/656
 template <typename T>
 class diskann_memory : public algo<T> {
  public:

@@ -123,7 +123,7 @@ raft::host_scalar_view<int64_t> n_iter);
 
 Runs on multiple GPUs when `handle` carries an SNMG clique (`raft::resource::is_multi_gpu(handle)`) or initialized RAFT comms (`raft::resource::comms_initialized(handle)`), and on a single GPU otherwise.
 
-TODO: Evaluate replacing the extent type with int64_t. Reference issue: https://github.com/nvidia/cuvs/issues/1961
+TODO: Evaluate replacing the extent type with int64_t. Reference issue: https://github.com/NVIDIA/cuvs/issues/1961
 
 This overload supports out-of-core computation where the dataset resides on the host. Data is processed in batches, streaming from host to device. The batch size is controlled by `params.device_buffer_samples`. Multiple batches are double-buffered when an auxiliary stream is available. Without a stream pool, the fit uses one input buffer and remains correct but serialized. One auxiliary stream is sufficient to overlap transfer and compute. Pinned host memory is crucial for OOC performance: ordinary pageable or unregistered `mmap`-backed input degrades throughput rapidly.
 
@@ -423,6 +423,8 @@ raft::device_matrix_view<float, int64_t> centroids,
 std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 ```
 
+**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. CosineExpanded is not supported in packed binary mode.<br />With the flag disabled, uint8_t values are numeric.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
@@ -707,6 +709,8 @@ raft::device_matrix_view<const uint8_t, int64_t> X,
 raft::device_matrix_view<const float, int64_t> centroids,
 raft::device_vector_view<uint32_t, int64_t> labels);
 ```
+
+**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. CosineExpanded is not supported in packed binary mode.<br />With the flag disabled, uint8_t values are numeric.
 
 **Parameters**
 

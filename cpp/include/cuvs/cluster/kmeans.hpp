@@ -216,6 +216,19 @@ struct balanced_params : base_params {
    * average cluster size; in that mode, `balance_upper_tolerance` does not control donor selection.
    */
   balanced_donor_selection donor_selection = balanced_donor_selection::SizeSorted;
+
+  /**
+   * If true, treats uint8_t input data as bit-packed binary data where each byte contains 8 bits.
+   * Bits are expanded on-the-fly, least-significant bit first, to {-1, +1} floats
+   * during training and prediction. Other input types are rejected when this flag is set.
+   * When enabled:
+   *   - Input data dimension represents packed dimension (actual_dim / 8)
+   *   - Output centroids dimension is expanded (packed_dim * 8)
+   *   - The metric operates on the expanded floating-point vectors (for example L2Expanded),
+   *     not on the packed bytes; BitwiseHamming is not a balanced k-means training metric.
+   *   - CosineExpanded is not supported.
+   */
+  bool is_packed_binary = false;
 };
 
 /**
@@ -240,7 +253,7 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  * (`raft::resource::comms_initialized(handle)`), and on a single GPU otherwise.
  *
  * TODO: Evaluate replacing the extent type with int64_t. Reference issue:
- * https://github.com/nvidia/cuvs/issues/1961
+ * https://github.com/NVIDIA/cuvs/issues/1961
  *
  * This overload supports out-of-core computation where the dataset resides
  * on the host. Data is processed in batches, streaming from host to
@@ -716,6 +729,12 @@ void fit(const raft::resources& handle,
 
 /**
  * @brief Find balanced clusters with k-means algorithm.
+ *
+ * @note When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,
+ * and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are
+ * expanded least-significant bit first to {-1, +1}; the selected metric operates
+ * on those expanded vectors. CosineExpanded is not supported in packed binary mode.
+ * With the flag disabled, uint8_t values are numeric.
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>
@@ -1214,6 +1233,12 @@ void predict(const raft::resources& handle,
 
 /**
  * @brief Predict the closest cluster each sample in X belongs to.
+ *
+ * @note When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,
+ * and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are
+ * expanded least-significant bit first to {-1, +1}; the selected metric operates
+ * on those expanded vectors. CosineExpanded is not supported in packed binary mode.
+ * With the flag disabled, uint8_t values are numeric.
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>

@@ -9,7 +9,6 @@ ARGS="$*"
 NUMARGS=$#
 
 VERSION="26.12.0" # Note: The version is updated automatically when ci/release/update-version.sh is invoked
-GROUP_ID="com.nvidia.cuvs.lucene"
 
 function hasArg {
     (( NUMARGS != 0 )) && (echo " ${ARGS} " | grep -q " $1 ")
@@ -48,7 +47,9 @@ if hasArg --run-java-tests; then
     mvn jacoco:report
 fi
 
-mvn install:install-file -Dfile=./target/cuvs-lucene-$VERSION.jar -DgroupId=$GROUP_ID -DartifactId=cuvs-lucene -Dversion=$VERSION -Dpackaging=jar
+# Install the project's own pom, not one Maven generates or extracts from the jar: otherwise the
+# installed artifact can lose its dependencies (e.g. cuvs-java), which breaks the examples below.
+mvn install:install-file -Dfile=./target/cuvs-lucene-$VERSION.jar -DpomFile=pom.xml
 cp pom.xml ./target/
 
 # Build the cuvs-lucene examples against the jar just installed above, to catch drift between the

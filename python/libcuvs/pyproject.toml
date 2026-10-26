@@ -31,8 +31,8 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/nvidia/cuvs"
-Documentation = "https://docs.rapids.ai/api/cuvs/stable/"
+Homepage = "https://github.com/NVIDIA/cuvs"
+Documentation = "https://docs.nvidia.com/cuvs/home"
 
 [project.entry-points."cmake.prefix"]
 libcuvs = "libcuvs"

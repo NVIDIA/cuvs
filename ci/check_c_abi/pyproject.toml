@@ -16,7 +16,7 @@ dependencies = ["libclang", "msgspec", "termcolor"]
 check-c-abi = "check_c_abi.main:main_cli"
 
 [project.urls]
-Homepage = "https://github.com/nvidia/cuvs"
+Homepage = "https://github.com/NVIDIA/cuvs"
 
 [tool.setuptools.dynamic]
 version = { file = "VERSION" }

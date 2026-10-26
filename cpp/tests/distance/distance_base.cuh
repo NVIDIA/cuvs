@@ -456,7 +456,7 @@ template <typename DataType>
 // implemented.
 //
 // Context:
-// https://github.com/rapidsai/raft/issues/1338
+// https://github.com/NVIDIA/raft/issues/1338
 template <typename layout>
 constexpr bool layout_to_row_major();
 

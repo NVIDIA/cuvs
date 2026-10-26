@@ -99,7 +99,7 @@ Use RAFT array types consistently in public C++ APIs and implementation code. Fo
 
 Keep data layout explicit. Most NVIDIA cuVS APIs expect row-major dense matrices unless the API says otherwise.
 
-Prefer public API signatures that accept non-owning views, not owning arrays. This keeps NVIDIA cuVS functions flexible because callers can pass memory owned by RAFT, another RAPIDS library, or an application-specific allocator.
+Prefer public API signatures that accept non-owning views, not owning arrays. This keeps NVIDIA cuVS functions flexible because callers can pass memory owned by RAFT, another CUDA-X library for data science, or an application-specific allocator.
 
 Prefer `device_matrix_view` and `device_vector_view` over raw pointers for public NVIDIA cuVS C++ APIs. Views carry shape, layout, memory-space, and constness information, making incorrect dimensions and accidental writes easier to catch.
 
@@ -288,7 +288,7 @@ pre-commit install
 
 ### Core Hooks
 
-C++ and CUDA code are formatted with [clang-format](https://clang.llvm.org/docs/ClangFormat.html). NVIDIA cuVS follows the Google C++ style with a few local adjustments documented in [cpp/.clang-format](https://github.com/nvidia/cuvs/blob/main/cpp/.clang-format):
+C++ and CUDA code are formatted with [clang-format](https://clang.llvm.org/docs/ClangFormat.html). NVIDIA cuVS follows the Google C++ style with a few local adjustments documented in [cpp/.clang-format](https://github.com/NVIDIA/cuvs/blob/main/cpp/.clang-format):
 
 1. Empty functions, records, and namespaces are not split.
 2. Indentation is two spaces, including line continuations.
@@ -324,7 +324,7 @@ python ./cpp/scripts/include_checker.py --inplace cpp/include cpp/tests
 
 ### Copyright
 
-RAPIDS pre-commit hooks check copyright headers on modified tracked files. To run that check manually:
+Pre-commit hooks check copyright headers on modified tracked files. To run that check manually:
 
 ```bash
 pre-commit run -a verify-copyright

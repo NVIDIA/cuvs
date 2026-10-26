@@ -175,7 +175,7 @@ __device__ __forceinline__ int xor_swap(int x, int mask, int dir)
   return x < y == dir ? y : x;
 }
 
-// TODO: Move to RAFT utils https://github.com/rapidsai/raft/issues/1827
+// TODO: Move to RAFT utils https://github.com/NVIDIA/raft/issues/1827
 __device__ __forceinline__ uint bfe(uint lane_id, uint pos)
 {
   uint res;
@@ -550,7 +550,7 @@ __device__ __forceinline__ void calculate_metric(float* s_distances,
         s_distances[i] = 0.0;
         int n1         = row_neighbors[row_id];
         int n2         = col_neighbors[col_id];
-        // TODO: https://github.com/nvidia/cuvs/issues/1127
+        // TODO: https://github.com/NVIDIA/cuvs/issues/1127
         const uint8_t* data_n1 = reinterpret_cast<const uint8_t*>(data) + n1 * data_dim;
         const uint8_t* data_n2 = reinterpret_cast<const uint8_t*>(data) + n2 * data_dim;
         for (int d = 0; d < data_dim; d++) {
@@ -561,7 +561,7 @@ __device__ __forceinline__ void calculate_metric(float* s_distances,
         s_distances[i] =
           l2_norms[row_neighbors[row_id]] + l2_norms[col_neighbors[col_id]] - 2.0f * s_distances[i];
         // for fp32 vs fp16 precision differences resulting in negative distances when distance
-        // should be 0 related issue: https://github.com/nvidia/cuvs/issues/991
+        // should be 0 related issue: https://github.com/NVIDIA/cuvs/issues/991
         s_distances[i] = s_distances[i] < 0.0f ? 0.0f : s_distances[i];
         if (!can_postprocess_dist && metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
           s_distances[i] = sqrtf(s_distances[i]);

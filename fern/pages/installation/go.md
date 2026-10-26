@@ -16,6 +16,8 @@ conda install -c rapidsai -c conda-forge libcuvs cuda-version=13.3
 conda install -c rapidsai -c conda-forge libcuvs cuda-version=12.9
 ```
 
+The Go bindings require Go 1.22.4 or newer.
+
 When building examples or working on the Go bindings from source, use the centralized [build environment guidance](/installation#create-a-build-environment). A Go-specific environment YAML file is also available in `conda/environments` when you want a narrower development environment.
 
 Configure CGO so Go can find the native headers and libraries:
