@@ -8,10 +8,16 @@
 
 #include <raft/linalg/coalesced_reduction.cuh>
 #include <raft/matrix/init.cuh>
+#include <raft/util/kernel_launch.hpp>
+
+#include <rmm/device_uvector.hpp>
 
 #include <mma.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
+#include <optional>
 
 namespace cuvs::cluster::kmeans::detail {
 
@@ -31,6 +37,76 @@ void* reserve_aligned_workspace(rmm::device_uvector<char>& workspace,
   const auto candidate = reinterpret_cast<std::uintptr_t>(workspace.data() + prefix_bytes);
   const auto aligned   = (candidate + alignment - 1) / alignment * alignment;
   return reinterpret_cast<void*>(aligned);
+}
+
+/**
+ * Phase 2 of the strict-FP32 (Stable) distances: one warp per row recomputes, in FP32 and directly
+ * from the data, the L2 distance sum((x - c)^2) (or its square root) to the nearest centroid found
+ * by the TF32 1-NN. The direct difference has no |x|^2 + |c|^2 - 2 x.c cancellation, so the
+ * distance is FP32-accurate whatever the 1-NN precision. `nearest` holds the 1-NN result: plain
+ * indices (cuTile) or key-value pairs (unfused).
+ */
+template <typename IndexT>
+__device__ inline IndexT nearest_index(IndexT v)
+{
+  return v;
+}
+template <typename IndexT, typename DistT>
+__device__ inline IndexT nearest_index(const raft::KeyValuePair<IndexT, DistT>& v)
+{
+  return v.key;
+}
+
+template <typename IndexT, typename NearestT>
+RAFT_KERNEL refine_distance_kernel(const float* x,
+                                   const float* centroids,
+                                   const NearestT* nearest,
+                                   float* distance,
+                                   IndexT n_rows,
+                                   IndexT n_features,
+                                   bool apply_sqrt)
+{
+  constexpr int kWarp = 32;
+  const auto row = static_cast<int64_t>(blockIdx.x) * (blockDim.x / kWarp) + threadIdx.x / kWarp;
+  const int lane = threadIdx.x % kWarp;
+  if (row >= static_cast<int64_t>(n_rows)) { return; }
+  const float* xr = x + row * n_features;
+  const float* cr = centroids + static_cast<int64_t>(nearest_index(nearest[row])) * n_features;
+  float acc       = 0;
+  for (int64_t j = lane; j < n_features; j += kWarp) {
+    const float diff = xr[j] - cr[j];
+    acc              = fmaf(diff, diff, acc);
+  }
+  for (int offset = kWarp / 2; offset > 0; offset /= 2) {
+    acc += __shfl_down_sync(0xffffffffu, acc, offset);
+  }
+  if (lane == 0) { distance[row] = apply_sqrt ? sqrtf(acc) : acc; }
+}
+
+template <typename IndexT, typename NearestT>
+void refine_distance(raft::resources const& handle,
+                     const float* x,
+                     const float* centroids,
+                     const NearestT* nearest,
+                     float* distance,
+                     IndexT n_rows,
+                     IndexT n_features,
+                     bool apply_sqrt)
+{
+  constexpr int kRowsPerBlock = 8;  // one warp per row
+  const auto blocks =
+    static_cast<unsigned>((static_cast<int64_t>(n_rows) + kRowsPerBlock - 1) / kRowsPerBlock);
+  raft::launch_kernel(handle,
+                      blocks,
+                      32 * kRowsPerBlock,
+                      refine_distance_kernel<IndexT, NearestT>,
+                      x,
+                      centroids,
+                      nearest,
+                      distance,
+                      n_rows,
+                      n_features,
+                      apply_sqrt);
 }
 
 struct tf32_square_op {
@@ -438,6 +514,36 @@ void minClusterDistanceCompute(
                                         static_cast<IndexT>(tuning.unfused.candidate_tile)));
     const auto centroids_const = raft::make_device_matrix_view<const DataT, IndexT>(
       centroids.data_handle(), n_clusters, n_features);
+    // Strict-FP32 (Stable) distances in two phases:
+    //    (1) a TF32 1-NN finds each row's nearest centroid
+    //    (2) the distance to it is recomputed in FP32 directly from the data (refine_distance).
+    // The two-phase method is faster and more accurate than the strict-FP32 GEMM when n_features >= 16.
+    // At K < 16, TF32 might not be sufficiently accurate and therefore, choose native FP32 or its emulations.
+    constexpr IndexT kMinTf32Features = 16;
+    bool two_phase                    = false;
+    auto top_1_nn_backend             = backend;
+    if constexpr (std::is_same_v<DataT, float>) {
+      const bool refinable_metric = metric == cuvs::distance::DistanceType::L2Expanded ||
+                                    metric == cuvs::distance::DistanceType::L2SqrtExpanded;
+      if (backend == cuvs::distance::detail::Top1nnBackend::Stable && refinable_metric &&
+          n_features >= kMinTf32Features) {
+        if (cuvs::distance::detail::is_top_1_nn_backend_available(
+              cuvs::distance::detail::Top1nnBackend::Cutile,
+              X.data_handle(),
+              centroids_const.data_handle(),
+              n_samples,
+              n_clusters,
+              n_features,
+              metric)) {
+          two_phase        = true;
+          top_1_nn_backend = cuvs::distance::detail::Top1nnBackend::Cutile;
+        } else {
+          // Requested explicitly (not as Stable), the unfused backend runs a TF32 GEMM.
+          two_phase        = true;
+          top_1_nn_backend = cuvs::distance::detail::Top1nnBackend::Unfused;
+        }
+      }
+    }
     const auto plan = cuvs::distance::probe_top_1_nn(handle,
                                                      X.data_handle(),
                                                      centroids.data_handle(),
@@ -446,8 +552,8 @@ void minClusterDistanceCompute(
                                                      n_features,
                                                      tuning,
                                                      metric,
-                                                     backend,
-                                                     false);
+                                                     top_1_nn_backend,
+                                                     two_phase);
     RAFT_EXPECTS(plan.available,
                  "Requested top_1_nn backend is unavailable for KMeans distance reduction");
 
@@ -499,7 +605,25 @@ void minClusterDistanceCompute(
     }
 
     std::size_t backend_workspace_bytes = plan.workspace_bytes;
-    void* backend_workspace             = reserve_aligned_workspace(
+    // Two-phase 1-NN results (indices for cuTile, key-value pairs for unfused) live after the
+    // backend workspace. Reserve them first: it is the larger request, so the backend reservation
+    // below never reallocates the buffer.
+    using NearestKvp = raft::KeyValuePair<IndexT, DataT>;
+    const bool separate_nearest =
+      plan.output_layout == cuvs::distance::detail::Top1nnOutputLayout::Separate;
+    const std::size_t nearest_bytes =
+      !two_phase ? 0
+                 : static_cast<std::size_t>(n_samples) *
+                     (separate_nearest ? sizeof(IndexT) : sizeof(NearestKvp));
+    const std::size_t backend_span =
+      backend_workspace_bytes == 0 ? 0 : backend_workspace_bytes + plan.workspace_alignment - 1;
+    // 16-byte alignment: the unfused multi-tile merge accesses the key-value pairs vectorized.
+    void* nearest           = reserve_aligned_workspace(workspace,
+                                              backend_span,
+                                              nearest_bytes,
+                                              std::max<std::size_t>(16, alignof(NearestKvp)),
+                                              stream);
+    void* backend_workspace = reserve_aligned_workspace(
       workspace, 0, backend_workspace_bytes, plan.workspace_alignment, stream);
 
     auto launch = [&](auto output) {
@@ -523,7 +647,29 @@ void minClusterDistanceCompute(
                                               plan);
     };
     if constexpr (std::is_same_v<DataT, float>) {
-      if (plan.output_layout == cuvs::distance::detail::Top1nnOutputLayout::Separate) {
+      if (two_phase) {
+        auto refine = [&](const auto* nearest_result) {
+          refine_distance<IndexT>(handle,
+                                  X.data_handle(),
+                                  centroids.data_handle(),
+                                  nearest_result,
+                                  minClusterDistance.data_handle(),
+                                  n_samples,
+                                  n_features,
+                                  metric == cuvs::distance::DistanceType::L2SqrtExpanded);
+        };
+        if (separate_nearest) {
+          // The TF32 distance lands in the output and is overwritten by the refinement.
+          auto* indices = static_cast<IndexT*>(nearest);
+          launch(
+            cuvs::distance::Top1nnOutput<IndexT, DataT>{indices, minClusterDistance.data_handle()});
+          refine(indices);
+        } else {
+          auto* pairs = static_cast<NearestKvp*>(nearest);
+          launch(pairs);
+          refine(pairs);
+        }
+      } else if (plan.output_layout == cuvs::distance::detail::Top1nnOutputLayout::Separate) {
         launch(
           cuvs::distance::Top1nnOutput<IndexT, DataT>{nullptr, minClusterDistance.data_handle()});
       } else {

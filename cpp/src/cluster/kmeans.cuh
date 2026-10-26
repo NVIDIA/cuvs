@@ -337,6 +337,7 @@ void cluster_cost(
   raft::device_scalar_view<DataT> cost,
   std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
 {
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("kmeans::cluster_cost");
   auto stream     = raft::resource::get_cuda_stream(handle);
   auto n_clusters = centroids.extent(0);
   auto n_samples  = X.extent(0);
