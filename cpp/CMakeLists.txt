@@ -1234,6 +1234,26 @@ if(NOT BUILD_CPU_ONLY)
       "${cutile_fused_1nn_tiles}" @ONLY
     )
     list(APPEND cutile_fused_1nn_files "${cutile_fused_1nn_tiles}")
+
+    set(superkmeans_cutile_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/detail/superkmeans/cutile")
+    set(cutile_superkmeans_generated_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/cluster/superkmeans/cutile"
+    )
+    generate_cutile_kernels(
+      cutile_superkmeans_files
+      KERNEL_DIR "${superkmeans_cutile_dir}"
+      KERNEL_BASENAME "superkmeans_fused_filter"
+      KERNEL_PYTHON "fused_filter_kernel.py"
+      EXPORT_SCRIPT "export_fused_filter.py"
+      OUTPUT_DIRECTORY "${cutile_superkmeans_generated_dir}"
+      MATRIX_JSON_FILE "${superkmeans_cutile_dir}/fused_filter_cutile_matrix.json"
+                       PYTHON "${cutile_python}" BIN2C "${cutile_bin2c}"
+      FRAGMENT_TAG_FORMAT_CUBIN
+        "cuvs::cluster::kmeans::detail::superkmeans::fragment_tag_fused_filter_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::detail::jit_lto::@arch_tag@>"
+      FRAGMENT_TAG_HEADER_FILES
+        "<cuvs/detail/jit_lto/superkmeans/fused_filter_fragments.hpp>"
+        "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    )
   endif()
   # Note that this matrix contains an `arch_includes` placeholder, since we don't currently have a
   # way to do an item-wise transform on a list after computing the matrix product and before
@@ -1572,6 +1592,8 @@ if(NOT BUILD_CPU_ONLY)
       cuvs_objs
       PRIVATE ${cutile_fused_1nn_files}
               src/distance/detail/fused_distance_nn/cutile/fused_1nn_tile.cu ${cutile_smoke_files}
+              ${cutile_superkmeans_files}
+              src/cluster/detail/superkmeans/cutile/fused_filter_tile.cu
     )
   endif()
 
@@ -1621,6 +1643,7 @@ if(NOT BUILD_CPU_ONLY)
     INTERFACE "$<INSTALL_INTERFACE:include>"
     PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}/src"
             "${cutile_fused_1nn_generated_dir}" "${cutile_smoke_generated_dir}"
+            "${cutile_superkmeans_generated_dir}"
   )
 
   # Endian detection
