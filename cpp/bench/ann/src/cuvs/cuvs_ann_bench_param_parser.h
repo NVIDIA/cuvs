@@ -10,6 +10,7 @@
 #include "cuvs_wrapper.h"
 #endif
 #ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT
+#include "cuvs_binary_ivf_flat_wrapper.h"
 #include "cuvs_ivf_flat_wrapper.h"
 extern template class cuvs::bench::cuvs_ivf_flat<float, int64_t>;
 extern template class cuvs::bench::cuvs_ivf_flat<uint8_t, int64_t>;
@@ -94,6 +95,24 @@ void parse_search_param(const nlohmann::json& conf,
                         typename cuvs::bench::cuvs_ivf_flat<T, IdxT>::search_param& param)
 {
   param.ivf_flat_params.n_probes = conf.at("nprobe");
+}
+#endif
+
+#ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT
+inline void parse_build_param(const nlohmann::json& conf,
+                              cuvs::bench::cuvs_binary_ivf_flat::build_param& param)
+{
+  param.n_lists = conf.at("nlist");
+  if (conf.contains("niter")) { param.kmeans_n_iters = conf.at("niter"); }
+  if (conf.contains("ratio")) {
+    param.kmeans_trainset_fraction = 1.0 / static_cast<double>(conf.at("ratio"));
+  }
+}
+
+inline void parse_search_param(const nlohmann::json& conf,
+                               cuvs::bench::cuvs_binary_ivf_flat::search_param& param)
+{
+  param.ivf_binary_params.n_probes = conf.at("nprobe");
 }
 #endif
 

@@ -40,10 +40,8 @@ inline auto parse_metric_type(cuvs::bench::Metric metric) -> cuvs::distance::Dis
   } else if (metric == cuvs::bench::Metric::kEuclidean) {
     // Even for L2 expanded RAFT IVF Flat uses unexpanded formula
     return cuvs::distance::DistanceType::L2Expanded;
-  } else if (metric == cuvs::bench::Metric::kBitwiseHamming) {
-    return cuvs::distance::DistanceType::BitwiseHamming;
   } else {
-    throw std::runtime_error("unsupported cuVS metric");
+    throw std::runtime_error("raft supports only metric type of inner product and L2");
   }
 }
 

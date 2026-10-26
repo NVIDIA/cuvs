@@ -142,7 +142,7 @@
   distance: euclidean
 
 - name: openai-5m-binary
-  dims: 1536
+  dims: 192  # 1536 bits packed into bytes
   base_file: openai-5m-binary/base.u8bin
   query_file: openai-5m-binary/query.u8bin
   groundtruth_neighbors_file: openai-5m-binary/groundtruth.neighbors.ibin

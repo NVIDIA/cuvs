@@ -3332,6 +3332,7 @@ def parse_doxygen_entry(
     active_summary = False
     active_returns = False
     active_detail = False
+    in_fenced_code = False
 
     for raw_line in comment.splitlines():
         line_text = raw_line.strip()
@@ -3341,6 +3342,18 @@ def parse_doxygen_entry(
                 active_code = None
             else:
                 active_code[1].append(raw_line.rstrip())
+            continue
+
+        if line_text.startswith("```"):
+            details.append(line_text)
+            in_fenced_code = not in_fenced_code
+            active_param = None
+            active_summary = False
+            active_returns = False
+            active_detail = False
+            continue
+        if in_fenced_code:
+            details.append(raw_line.rstrip())
             continue
 
         code_match = re.match(r"[@\\]code(?:\{\.?([\w+-]+)\})?", line_text)
@@ -4576,6 +4589,7 @@ def render_doxygen_details(raw_lines: list[str]) -> list[str]:
     lines: list[str] = []
     paragraph: list[str] = []
     in_list = False
+    in_fenced_code = False
 
     def flush_paragraph() -> None:
         nonlocal paragraph
@@ -4590,6 +4604,17 @@ def render_doxygen_details(raw_lines: list[str]) -> list[str]:
 
     for raw_line in raw_lines:
         stripped = raw_line.strip()
+        if stripped.startswith("```"):
+            flush_paragraph()
+            if lines and lines[-1] != "" and not in_fenced_code:
+                lines.append("")
+            lines.append(stripped)
+            in_fenced_code = not in_fenced_code
+            in_list = False
+            continue
+        if in_fenced_code:
+            lines.append(raw_line)
+            continue
         if not stripped:
             flush_paragraph()
             if lines and lines[-1] != "":

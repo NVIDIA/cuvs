@@ -123,8 +123,8 @@ struct index : cuvs::neighbors::index {
   /** Bit-packed cluster centers [n_lists, storage_dim]. */
   raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> centers() const noexcept;
   /**
-   * Exact number of ones at each bit of the vectors in each cluster [n_lists, 8 * storage_dim];
-   * empty unless the centers are adaptive.
+   * @brief Exact number of ones at each bit of the vectors in each cluster [n_lists, 8 *
+   * storage_dim]. Empty unless the centers are adaptive.
    */
   raft::device_matrix_view<const uint32_t, int64_t, raft::row_major> center_counts() const noexcept;
   /** The build dataset's quantizer, available for external encoding of queries or new vectors. */
@@ -153,7 +153,7 @@ struct index : cuvs::neighbors::index {
  * The thresholds of the dataset dictionary are copied into the index.
  *
  * Usage example:
- * @code{.cpp}
+ * ```cpp
  *   using namespace cuvs::neighbors;
  *   namespace binary = cuvs::preprocessing::quantize::binary;
  *   auto quantizer = binary::train(handle, binary::params{}, raw_dataset);
@@ -162,7 +162,7 @@ struct index : cuvs::neighbors::index {
  *   auto dataset = cuvs::make_device_binary_dataset_view<int64_t>(
  *     raft::make_const_mdspan(codes.view()), quantizer, dim);
  *   auto index = ivf_binary::build(handle, ivf_binary::index_params{}, dataset);
- * @endcode
+ * ```
  *
  * @param[in] handle
  * @param[in] index_params configure the index building

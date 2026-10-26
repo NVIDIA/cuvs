@@ -214,13 +214,11 @@ raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> centers() cons
 <a id="neighbors-ivf-binary-index-center-counts"></a>
 ### neighbors::ivf_binary::index::center_counts
 
-Exact number of ones at each bit of the vectors in each cluster [n_lists, 8 * storage_dim];
+Exact number of ones at each bit of the vectors in each cluster [n_lists, 8 * storage_dim]. Empty unless the centers are adaptive.
 
 ```cpp
 raft::device_matrix_view<const uint32_t, int64_t, raft::row_major> center_counts() const noexcept;
 ```
-
-empty unless the centers are adaptive.
 
 **Returns**
 
@@ -255,6 +253,17 @@ device_binary_dataset_view<float, int64_t> dataset) -> index<int64_t>;
 The thresholds of the dataset dictionary are copied into the index.
 
 Usage example:
+
+```cpp
+  using namespace cuvs::neighbors;
+  namespace binary = cuvs::preprocessing::quantize::binary;
+  auto quantizer = binary::train(handle, binary::params{}, raw_dataset);
+  auto codes = raft::make_device_matrix<uint8_t, int64_t>(handle, n_rows, (dim + 7) / 8);
+  binary::transform(handle, quantizer, raw_dataset, codes.view());
+  auto dataset = cuvs::make_device_binary_dataset_view<int64_t>(
+    raft::make_const_mdspan(codes.view()), quantizer, dim);
+  auto index = ivf_binary::build(handle, ivf_binary::index_params{}, dataset);
+```
 
 **Parameters**
 
