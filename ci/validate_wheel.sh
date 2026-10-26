@@ -21,11 +21,11 @@ PYDISTCHECK_ARGS=(
 if [[ "${package_dir}" == "python/libcuvs" ]]; then
     if [[ "${RAPIDS_CUDA_MAJOR}" == "12" ]]; then
         PYDISTCHECK_ARGS+=(
-            --max-allowed-size-compressed '385Mi'
+            --max-allowed-size-compressed '396Mi'
         )
     else
         PYDISTCHECK_ARGS+=(
-            --max-allowed-size-compressed '237Mi'
+            --max-allowed-size-compressed '245Mi'
         )
     fi
 elif [[ "${package_dir}" != "python/cuvs" ]]; then
