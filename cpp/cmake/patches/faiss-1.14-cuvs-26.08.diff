@@ -46,7 +46,7 @@ index 4be7cebb8..42315d027 100644
                  raft_handle,
                  cuvs::distance::DistanceType::BitwiseHamming,
 -                dataset_mds,
-+                host_to_device_dataset_->as_dataset_view(),
++                std::as_const(*host_to_device_dataset_).view(),
                  raft::make_const_mdspan(knn_graph_copy.view()));
      } else {
          FAISS_THROW_MSG(
@@ -72,7 +72,7 @@ index 4be7cebb8..42315d027 100644
                  cuvs::neighbors::cagra::build(
 -                        raft_handle, index_params_, dataset));
 +                        raft_handle, index_params_,
-+                        host_to_device_dataset_->as_dataset_view()));
++                        std::as_const(*host_to_device_dataset_).view()));
      }
  }
 
@@ -99,7 +99,7 @@ index 4be7cebb8..42315d027 100644
 +            *cuvs_index = cuvs::neighbors::cagra::update_dataset(
 +                    raft_handle,
 +                    std::move(*cuvs_index),
-+                    host_to_device_dataset_->as_dataset_view());
++                    std::as_const(*host_to_device_dataset_).view());
          }
          store_dataset_ = true;
      }
@@ -189,11 +189,11 @@ index 6ff3419b7..f03a5e5f0 100644
                  raft_handle,
                  metricFaissToCuvs(metric_, false),
 -                dataset_mds,
-+                host_to_device_dataset_->as_dataset_view(),
++                std::as_const(*host_to_device_dataset_).view(),
                  raft::make_const_mdspan(knn_graph_copy.view()));
      } else {
          FAISS_THROW_MSG(
-@@ -206,17 +210,39 @@ void CuvsCagra<data_t>::train(idx_t n, const data_t* x) {
+@@ -206,17 +210,41 @@ void CuvsCagra<data_t>::train(idx_t n, const data_t* x) {
      if (getDeviceForAddress(x) >= 0) {
          auto dataset = raft::make_device_matrix_view<const data_t, int64_t>(
                  x, n, dim_);
@@ -216,7 +216,7 @@ index 6ff3419b7..f03a5e5f0 100644
                  cuvs::neighbors::cagra::build(
 -                        raft_handle, index_params_, dataset));
 +                        raft_handle, index_params_,
-+                        host_to_device_dataset_->as_dataset_view()));
++                        std::as_const(*host_to_device_dataset_).view()));
 +    } else {
 +        // Build the graph directly from host memory without copying the
 +        // dataset to the device. search() attaches the dataset on first use.
@@ -228,15 +228,17 @@ index 6ff3419b7..f03a5e5f0 100644
 +                raft_handle,
 +                graph_only_params,
 +                cuvs::neighbors::make_host_standard_dataset_view(dataset));
++        // A graph-only index provides the empty device dataset view.
++        auto empty_dataset =
++                cuvs::neighbors::cagra::index<data_t, uint32_t>(raft_handle)
++                        .dataset();
 +        cuvs_index = std::make_shared<
 +                cuvs::neighbors::cagra::index<data_t, uint32_t>>(
-+                raft_handle,
-+                std::move(host_index),
-+                cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>{});
++                raft_handle, std::move(host_index), empty_dataset);
      }
  }
 
-@@ -252,13 +278,22 @@ void CuvsCagra<data_t>::search(
+@@ -252,13 +280,22 @@ void CuvsCagra<data_t>::search(
 
      if (!store_dataset_) {
          if (getDeviceForAddress(storage_) >= 0) {
@@ -258,11 +260,11 @@ index 6ff3419b7..f03a5e5f0 100644
 +            *cuvs_index = cuvs::neighbors::cagra::update_dataset(
 +                    raft_handle,
 +                    std::move(*cuvs_index),
-+                    host_to_device_dataset_->as_dataset_view());
++                    std::as_const(*host_to_device_dataset_).view());
          }
          store_dataset_ = true;
      }
-@@ -326,6 +361,7 @@ void CuvsCagra<data_t>::search(
+@@ -326,6 +363,7 @@ void CuvsCagra<data_t>::search(
  template <typename data_t>
  void CuvsCagra<data_t>::reset() {
      cuvs_index.reset();
