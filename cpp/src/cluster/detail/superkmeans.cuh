@@ -13,6 +13,7 @@
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
@@ -26,8 +27,10 @@
 #include <cub/device/device_segmented_radix_sort.cuh>
 
 #include <algorithm>
+#include <numeric>
 #include <optional>
 #include <type_traits>
+#include <vector>
 
 namespace cuvs::cluster::kmeans::detail::superkmeans {
 
@@ -47,16 +50,16 @@ auto inertia(const raft::resources& handle,
              raft::device_matrix_view<const float, int64_t> centroids,
              raft::device_vector_view<const uint32_t, int64_t> labels) -> float
 {
-  auto dist = raft::make_device_vector<float, int64_t>(handle, X.extent(0));
-  distance_to_assigned(handle,
-                       X.data_handle(),
+  auto dist           = raft::make_device_vector<float, int64_t>(handle, X.extent(0));
+  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
+  distance_to_assigned(X.data_handle(),
                        X.extent(0),
                        centroids.data_handle(),
                        X.extent(1),
                        labels.data_handle(),
-                       dist.data_handle());
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
-  auto sum            = raft::make_device_scalar<float>(handle, 0.0f);
+                       dist.data_handle(),
+                       stream);
+  auto sum = raft::make_device_scalar<float>(handle, 0.0f);
   raft::linalg::mapThenSumReduce(
     sum.data_handle(), dist.size(), raft::identity_op{}, stream, dist.data_handle());
   float out = 0;
@@ -136,9 +139,10 @@ inline void row_batch_layout(const raft::resources& handle,
 /**
  * The pruned assignment: from each row's current centroid, the fused partial GEMM over the first
  * kDimTileSize dims with the first filter, then the pruning kernel on the survivors' tail dims.
- * Rows go in batches of kRowBatchSize against centroid batches of kCentroidBatchSize. The filter
- * runs on FP16: float rows are filtered on half copies of their first dims, and the centroids the
- * kernels read are T, a half copy of the float centroids for half rows.
+ * Rows go in batches of kRowBatchSize against centroid batches of kCentroidBatchSize, the row
+ * batches round-robin over up to kMaxStreams streams of the handle's stream pool (the main stream
+ * without one). The filter runs on FP16: float rows are filtered on half copies of their first
+ * dims, and the centroids the kernels read are T, a half copy of the float centroids for half rows.
  *
  * Within a row batch the pruning kernel's blocks take the heaviest rows first (LPT): the rows
  * ordered by their first-filter survivors in the previous call.
@@ -158,7 +162,6 @@ class pruned_assignment {
       filter_dim_(std::is_same_v<T, half> ? dim_ : kDimTileSize),
       tile_(tile),
       n_row_batches_(raft::ceildiv(n_rows_, kRowBatchSize)),
-      n_col_tiles_(raft::ceildiv<int64_t>(kCentroidBatchSize, tile.tile_n)),
       ratios_(raft::make_device_vector<float, int64_t>(handle, dim_ + 1)),
       row_norms_(raft::make_device_vector<float, int64_t>(handle, n_rows_)),
       centroid_norms_(raft::make_device_vector<float, int64_t>(handle, n_clusters)),
@@ -170,17 +173,27 @@ class pruned_assignment {
       batch_offsets_(raft::make_device_vector<int64_t, int64_t>(handle, n_row_batches_ + 1)),
       filter_rows_(raft::make_device_matrix<half, int64_t>(
         handle, std::is_same_v<T, half> ? 0 : n_rows_, filter_dim_)),
-      filter_centroids_(raft::make_device_matrix<half, int64_t>(handle, n_clusters, filter_dim_)),
-      packed_(raft::make_device_vector<int64_t, int64_t>(
-        handle, std::min(n_rows_, kRowBatchSize) * n_col_tiles_ * tile.tile_n)),
-      seg_count_(raft::make_device_vector<int32_t, int64_t>(
-        handle, std::min(n_rows_, kRowBatchSize) * n_col_tiles_))
+      filter_centroids_(raft::make_device_matrix<half, int64_t>(handle, n_clusters, filter_dim_))
   {
+    auto stream          = raft::resource::get_cuda_stream(handle).get();
+    const auto pool_size = raft::resource::is_stream_pool_initialized(handle)
+                             ? static_cast<int64_t>(raft::resource::get_stream_pool_size(handle))
+                             : 0;
+    n_streams_           = std::max<int64_t>(1, std::min({pool_size, kMaxStreams, n_row_batches_}));
+    // The first filter's survivor lists, one pair per stream, sized for a whole batch
+    const int64_t batch_rows  = std::min(n_rows_, kRowBatchSize);
+    const int64_t n_col_tiles = raft::ceildiv<int64_t>(kCentroidBatchSize, tile.tile_n);
+    for (int64_t s = 0; s < n_streams_; s++) {
+      packed_.push_back(
+        raft::make_device_vector<int64_t, int64_t>(handle, batch_rows * n_col_tiles * tile.tile_n));
+      seg_count_.push_back(
+        raft::make_device_vector<int32_t, int64_t>(handle, batch_rows * n_col_tiles));
+    }
+
     const auto ratios = adsampling_ratios(dim_);
     ratio_            = ratios[kDimTileSize];
-    raft::copy(
-      ratios_.data_handle(), ratios.data(), ratios.size(), raft::resource::get_cuda_stream(handle));
-    squared_norms(handle, X.data_handle(), n_rows_, dim_, kDimTileSize, row_norms_.data_handle());
+    raft::copy(ratios_.data_handle(), ratios.data(), ratios.size(), stream);
+    squared_norms(X.data_handle(), n_rows_, dim_, kDimTileSize, row_norms_.data_handle(), stream);
     if constexpr (!std::is_same_v<T, half>) {
       copy_columns(X.data_handle(), n_rows_, filter_rows_.view());
     }
@@ -199,7 +212,7 @@ class pruned_assignment {
               bool order_next)
   {
 #if CUVS_CUTILE_ENABLED
-    auto stream = raft::resource::get_cuda_stream(handle_).get();
+    auto main_stream = raft::resource::get_cuda_stream(handle_).get();
     // The filter's FP16 copy of the centroids' first dims; for half rows, all dims, which is also
     // the copy the other kernels read
     copy_columns(centroids.data_handle(), n_clusters_, filter_centroids_.view());
@@ -212,23 +225,31 @@ class pruned_assignment {
       kernel_centroids = centroids.data_handle();
       filter_rows      = filter_rows_.data_handle();
     }
-    squared_norms(
-      handle_, kernel_centroids, n_clusters_, dim_, kDimTileSize, centroid_norms_.data_handle());
-    RAFT_CUDA_TRY(
-      cudaMemsetAsync(survivors_.data_handle(), 0, survivors_.size() * sizeof(uint32_t), stream));
+    squared_norms(kernel_centroids,
+                  n_clusters_,
+                  dim_,
+                  kDimTileSize,
+                  centroid_norms_.data_handle(),
+                  main_stream);
+    RAFT_CUDA_TRY(cudaMemsetAsync(
+      survivors_.data_handle(), 0, survivors_.size() * sizeof(uint32_t), main_stream));
+    const bool pooled = n_streams_ > 1;
+    if (pooled) { raft::resource::wait_stream_pool_on_stream(handle_); }
 
-    for (int64_t i = 0; i < n_rows_; i += kRowBatchSize) {
+    for (int64_t b = 0; b < n_row_batches_; b++) {
+      const int64_t i       = b * kRowBatchSize;
       const int64_t n_rows  = std::min(kRowBatchSize, n_rows_ - i);
+      const int64_t s       = b % n_streams_;
+      cudaStream_t stream   = pooled ? stream_of(s) : main_stream;
       const T* rows         = X_.data_handle() + i * dim_;
       uint32_t* row_labels  = labels.data_handle() + i;
       float* row_dist       = dist_.data_handle() + i;
       const uint32_t* order = has_row_order_ ? row_order_.data_handle() + i : nullptr;
       // Each row's bound: its distance to its current centroid
-      distance_to_assigned(handle_, rows, n_rows, kernel_centroids, dim_, row_labels, row_dist);
+      distance_to_assigned(rows, n_rows, kernel_centroids, dim_, row_labels, row_dist, stream);
       for (int64_t j = 0; j < n_clusters_; j += kCentroidBatchSize) {
         const int64_t n_centroids = std::min<int64_t>(kCentroidBatchSize, n_clusters_ - j);
-        launch_fused_filter(handle_,
-                            filter_rows + i * filter_dim_,
+        launch_fused_filter(filter_rows + i * filter_dim_,
                             static_cast<int>(n_rows),
                             filter_centroids_.data_handle() + j * filter_dim_,
                             static_cast<int>(n_centroids),
@@ -238,10 +259,10 @@ class pruned_assignment {
                             row_dist,
                             ratio_,
                             static_cast<int>(kDimTileSize),
-                            packed_.data_handle(),
-                            seg_count_.data_handle());
-        prune(handle_,
-              rows,
+                            packed_[s].data_handle(),
+                            seg_count_[s].data_handle(),
+                            stream);
+        prune(rows,
               n_rows,
               order,
               kernel_centroids + j * dim_,
@@ -250,17 +271,23 @@ class pruned_assignment {
               kDimTileSize,
               ratios_.data_handle(),
               first_filter_lists{
-                packed_.data_handle(),
-                seg_count_.data_handle(),
+                packed_[s].data_handle(),
+                seg_count_[s].data_handle(),
                 static_cast<uint32_t>(raft::ceildiv<int64_t>(n_centroids, tile_.tile_n)),
                 static_cast<uint32_t>(tile_.tile_n)},
               row_labels,
               row_dist,
-              survivors_.data_handle() + i);
+              survivors_.data_handle() + i,
+              stream);
       }
     }
+    if (pooled) {
+      std::vector<std::size_t> used(n_streams_);
+      std::iota(used.begin(), used.end(), std::size_t{0});
+      raft::resource::sync_stream_pool(handle_, used);
+    }
     if (order_next) {
-      order_rows_by_survivors(stream);
+      order_rows_by_survivors(main_stream);
       has_row_order_ = true;
     }
 #else
@@ -269,6 +296,11 @@ class pruned_assignment {
   }
 
  private:
+  cudaStream_t stream_of(int64_t s) const
+  {
+    return raft::resource::get_stream_from_stream_pool(handle_, s).get();
+  }
+
   /** The first filter_dim_ dims of n rows as half, packed into `out`. */
   template <typename S>
   void copy_columns(const S* in, int64_t n, raft::device_matrix_view<half, int64_t> out)
@@ -311,20 +343,22 @@ class pruned_assignment {
     sort(temp.data(), temp_bytes);
   }
 
+  static constexpr int64_t kMaxStreams = 2;
+
   const raft::resources& handle_;
   raft::device_matrix_view<const T, int64_t> X_;
   int64_t n_rows_, dim_, n_clusters_, filter_dim_;
   fused_filter_tile tile_;
   int64_t n_row_batches_;
-  int64_t n_col_tiles_;
+  int64_t n_streams_  = 1;
   float ratio_        = 1.0f;
   bool has_row_order_ = false;
   raft::device_vector<float, int64_t> ratios_, row_norms_, centroid_norms_, dist_;
   raft::device_vector<uint32_t, int64_t> survivors_, row_order_, local_ids_, sorted_keys_;
   raft::device_vector<int64_t, int64_t> batch_offsets_;
   raft::device_matrix<half, int64_t> filter_rows_, filter_centroids_;
-  raft::device_vector<int64_t, int64_t> packed_;
-  raft::device_vector<int32_t, int64_t> seg_count_;
+  std::vector<raft::device_vector<int64_t, int64_t>> packed_;
+  std::vector<raft::device_vector<int32_t, int64_t>> seg_count_;
 };
 
 /**

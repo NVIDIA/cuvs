@@ -11,11 +11,14 @@
 #include <raft/core/error.hpp>
 #include <raft/core/handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/matrix/sample_rows.cuh>
 #include <raft/random/make_blobs.cuh>
 #include <raft/random/rng_state.hpp>
 #include <raft/util/cudart_utils.hpp>
+
+#include <rmm/cuda_stream_pool.hpp>
 
 #include <cuda_fp16.h>
 
@@ -23,6 +26,7 @@
 
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -356,6 +360,17 @@ TEST(KmeansSuperKMeans, Pruned)
   cuvs::cluster::kmeans::fit_predict(
     handle, params, X, centroids.view(), labels.view(), raft::make_host_scalar_view(&inertia));
   EXPECT_NEAR(inertia, lloyd_inertia, 0.01 * lloyd_inertia);
+
+  // With a stream pool the row batches run on two streams
+  raft::resource::set_cuda_stream_pool(handle, std::make_shared<rmm::cuda_stream_pool>(2));
+  float pooled_inertia = 0;
+  cuvs::cluster::kmeans::fit_predict(handle,
+                                     params,
+                                     X,
+                                     centroids.view(),
+                                     labels.view(),
+                                     raft::make_host_scalar_view(&pooled_inertia));
+  EXPECT_NEAR(pooled_inertia, lloyd_inertia, 0.01 * lloyd_inertia);
 
   float half_inertia = 0;
   cuvs::cluster::kmeans::fit_predict(handle,
