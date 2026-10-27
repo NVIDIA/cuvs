@@ -79,11 +79,11 @@ def make_kernel(
     rmode = _mma_rounding_mode(gpu_code) if mma_rounding else None
     if rmode is None:
 
-        def to_mma(tile):
+        def to_mma_dtype(tile):
             return tile.astype(mma_dtype)
     else:
 
-        def to_mma(tile):
+        def to_mma_dtype(tile):
             return tile.astype(mma_dtype, rounding_mode=rmode)
 
     acc_dtype = ct.float32
@@ -143,7 +143,7 @@ def make_kernel(
         for n in range(num_tiles_n):
             accumulator = ct.full((tm, tn), 0, dtype=acc_dtype)
             for k in range(num_tiles_k):
-                a = to_mma(
+                a = to_mma_dtype(
                     ct.load(
                         A,
                         index=(bidm, k),
@@ -151,7 +151,7 @@ def make_kernel(
                         padding_mode=zero_pad,
                     )
                 )
-                b_T = to_mma(
+                b_T = to_mma_dtype(
                     ct.load(
                         B,
                         index=(k, n),
