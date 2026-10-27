@@ -865,8 +865,9 @@ auto bbq_join_virtual_arch() -> decltype(raft::util::arch::kernel_virtual_arch(n
   return raft::util::arch::kernel_virtual_arch(bbq_kernel_pointer(static_cast<const T*>(nullptr)));
 }
 
+// clang-format off
 #if @owns_kernel_pointer@
-void* bbq_kernel_pointer(const@data_type@*)
+void* bbq_kernel_pointer(const @data_type@*)
 {
   return reinterpret_cast<void*>(local_join_kernel_bbq_wmma<bbq_code_layout::packed_4b,
                                                             bbq_code_layout::packed_4b,
@@ -877,7 +878,6 @@ void* bbq_kernel_pointer(const@data_type@*)
 }
 #endif
 
-// clang-format off
 template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
 // clang-format on
 
