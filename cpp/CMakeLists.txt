@@ -1763,6 +1763,16 @@ if(NOT BUILD_CPU_ONLY)
     OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/symmetrize_@instantiation_name@.cu"
   )
 
+  generate_string_matrix(
+    coo_merge_kernel_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/coo_merge_kernel_matrix.json"
+    ITEM_FORMAT
+    "template <> __host__ __device__ auto @provider_type@::@method@() -> @pointer_type@@semicolon@"
+    GLUE
+    "\n"
+  )
+
   generate_inst_matrix(
     cuvs_primitive_sources
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/masked_matmul_matrix.json"
@@ -1839,16 +1849,6 @@ if(NOT BUILD_CPU_ONLY)
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/laplacian_zero_to_one.cu.in"
     OUTPUT_FILE_FORMAT
       "${CMAKE_CURRENT_BINARY_DIR}/src/core/laplacian_zero_to_one_@instantiation_name@.cu"
-  )
-
-  generate_string_matrix(
-    coo_merge_kernel_extern_instantiations
-    MATRIX_JSON_FILE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/coo_merge_kernel_matrix.json"
-    ITEM_FORMAT
-    "template <> __host__ __device__ auto @provider_type@::@method@() -> @pointer_type@@semicolon@"
-    GLUE
-    "\n"
   )
 
   generate_inst_matrix(
