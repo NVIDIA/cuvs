@@ -1,37 +1,21 @@
 [
   {
-    "return_type": "int",
+    "return_type": "CUVS_EXPORT int",
     "qualified_function": "cuvs::detail::getUniquelabels",
     "template_arguments": "",
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "rmm::device_uvector<unsigned int>&, unsigned int*, unsigned long, CUstream_st*"
+        "parameter_types": "rmm::device_uvector<unsigned int>&, unsigned int*, unsigned long, CUstream_st*",
+        "instantiation_name": "cuvs_detail_getuniquelabels_device_uvector_u32_ref_u32_ptr_ulong_stream_ptr"
       },
       {
-        "parameter_types": "rmm::device_uvector<int>&, int*, unsigned long, CUstream_st*"
+        "parameter_types": "rmm::device_uvector<int>&, int*, unsigned long, CUstream_st*",
+        "instantiation_name": "cuvs_detail_getuniquelabels_device_uvector_int_ref_int_ptr_ulong_stream_ptr"
       },
       {
-        "parameter_types": "rmm::device_uvector<long>&, long*, unsigned long, CUstream_st*"
-      }
-    ]
-  },
-  {
-    "return_type": "int",
-    "qualified_function": "raft::label::detail::getUniquelabels",
-    "function_qualifiers": "",
-    "_variants": [
-      {
-        "template_arguments": "<int>",
-        "parameter_types": "rmm::device_uvector<int>&, int*, size_t, cudaStream_t"
-      },
-      {
-        "template_arguments": "<uint32_t>",
-        "parameter_types": "rmm::device_uvector<uint32_t>&, uint32_t*, size_t, cudaStream_t"
-      },
-      {
-        "template_arguments": "<int64_t>",
-        "parameter_types": "rmm::device_uvector<int64_t>&, int64_t*, size_t, cudaStream_t"
+        "parameter_types": "rmm::device_uvector<long>&, long*, unsigned long, CUstream_st*",
+        "instantiation_name": "cuvs_detail_getuniquelabels_device_uvector_long_ref_long_ptr_ulong_stream_ptr"
       }
     ]
   }

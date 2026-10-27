@@ -1,0 +1,24 @@
+[
+  {
+    "return_type": "int",
+    "qualified_function": "raft::label::detail::getUniquelabels",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<int>",
+        "parameter_types": "rmm::device_uvector<int>&, int*, size_t, cudaStream_t",
+        "instantiation_name": "raft_label_detail_getuniquelabels_int"
+      },
+      {
+        "template_arguments": "<uint32_t>",
+        "parameter_types": "rmm::device_uvector<uint32_t>&, uint32_t*, size_t, cudaStream_t",
+        "instantiation_name": "raft_label_detail_getuniquelabels_u32"
+      },
+      {
+        "template_arguments": "<int64_t>",
+        "parameter_types": "rmm::device_uvector<int64_t>&, int64_t*, size_t, cudaStream_t",
+        "instantiation_name": "raft_label_detail_getuniquelabels_i64"
+      }
+    ]
+  }
+]
