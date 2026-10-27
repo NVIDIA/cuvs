@@ -1454,24 +1454,6 @@ if(NOT BUILD_CPU_ONLY)
 
   list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/src/core/copy_selected.cu")
 
-  foreach(primitive IN ITEMS src/core/matrix_fill src/core/thrust_fill src/core/thrust_fill_n)
-    set(primitive_instantiations)
-    generate_string_matrix(
-      primitive_instantiations
-      MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
-      ITEM_FORMAT
-      "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-      GLUE
-      "\n"
-    )
-    configure_file(
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
-      "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu" @ONLY
-    )
-    list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
-  endforeach()
-
   foreach(
     primitive IN
     ITEMS src/core/compute_duplicates_mask
@@ -2131,6 +2113,27 @@ if(NOT BUILD_CPU_ONLY)
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/matrix_vector_op.cu.in"
     OUTPUT_FILE_FORMAT
       "${CMAKE_CURRENT_BINARY_DIR}/src/core/matrix_vector_op_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/matrix_fill_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/matrix_fill.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/matrix_fill_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_fill_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_fill.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/thrust_fill_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_fill_n_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_fill_n.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/thrust_fill_n_@instantiation_name@.cu"
   )
 
   generate_inst_matrix(

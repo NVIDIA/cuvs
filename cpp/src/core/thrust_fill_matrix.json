@@ -6,19 +6,24 @@
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "rmm::exec_policy_nosync const&, int*, int*, int const&"
+        "parameter_types": "rmm::exec_policy_nosync const&, int*, int*, int const&",
+        "instantiation_name": "exec_policy_nosync_c_ref_int_ptr_int_ptr_int_c_ref"
       },
       {
-        "parameter_types": "thrust::cuda_cub::execute_on_stream const&, __half*, __half*, __half const&"
+        "parameter_types": "thrust::cuda_cub::execute_on_stream const&, __half*, __half*, __half const&",
+        "instantiation_name": "execute_on_stream_c_ref_f16_ptr_f16_ptr_f16_c_ref"
       },
       {
-        "parameter_types": "thrust::cuda_cub::execute_on_stream const&, double*, double*, double const&"
+        "parameter_types": "thrust::cuda_cub::execute_on_stream const&, double*, double*, double const&",
+        "instantiation_name": "execute_on_stream_c_ref_f64_ptr_f64_ptr_f64_c_ref"
       },
       {
-        "parameter_types": "thrust::cuda_cub::execute_on_stream const&, float*, float*, float const&"
+        "parameter_types": "thrust::cuda_cub::execute_on_stream const&, float*, float*, float const&",
+        "instantiation_name": "execute_on_stream_c_ref_f32_ptr_f32_ptr_f32_c_ref"
       },
       {
-        "parameter_types": "thrust::cuda_cub::execute_on_stream const&, int*, int*, int const&"
+        "parameter_types": "thrust::cuda_cub::execute_on_stream const&, int*, int*, int const&",
+        "instantiation_name": "execute_on_stream_c_ref_int_ptr_int_ptr_int_c_ref"
       }
     ]
   }

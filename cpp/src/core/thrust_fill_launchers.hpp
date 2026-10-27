@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cuda/std/utility>
 #include <cuda_runtime_api.h>
+#include <cuvs/core/export.hpp>
 #include <iterator>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
@@ -32,12 +33,12 @@ void thrust_sequence(Policy const& policy, Iterator first, Iterator last, Init i
 namespace cuvs::detail {
 using raft::row_major;
 template <typename math_t, typename extents, typename layout>
-void matrix_fill(raft::resources const& handle,
-                 raft::device_mdspan<const math_t, extents, layout> in,
-                 raft::device_mdspan<math_t, extents, layout> out,
-                 raft::host_scalar_view<math_t> scalar);
+CUVS_EXPORT void matrix_fill(raft::resources const& handle,
+                             raft::device_mdspan<const math_t, extents, layout> in,
+                             raft::device_mdspan<math_t, extents, layout> out,
+                             raft::host_scalar_view<math_t> scalar);
 template <typename math_t, typename extents, typename layout>
-void matrix_fill(raft::resources const& handle,
-                 raft::device_mdspan<math_t, extents, layout> inout,
-                 math_t scalar);
+CUVS_EXPORT void matrix_fill(raft::resources const& handle,
+                             raft::device_mdspan<math_t, extents, layout> inout,
+                             math_t scalar);
 }  // namespace cuvs::detail
