@@ -7,7 +7,7 @@
     "_variants": [
       {
         "parameter_types": "double const*, int, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::key_op, raft::KeyValuePair<int, double>*>, double const*, char*, int, int, int, double*, CUstream_st*, bool",
-        "instantiation_name": "cuvs_detail_reduce_rows_by_key_f64_c_ptr_int_transform_top1nn_key_value_int_f64_ptr_key_op_key_value_int_f64_ptr_f64_c_ptr_char_ptr_int_int_int_f64_ptr_stream_ptr_bool"
+        "instantiation_name": "f64_i32_top1nn"
       },
       {
         "parameter_types": "double const*, int, int*, double const*, char*, int, int, int, double*, CUstream_st*, bool",
@@ -15,7 +15,7 @@
       },
       {
         "parameter_types": "double const*, long, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, double>*>::key_op, raft::KeyValuePair<long, double>*>, double const*, char*, long, long, long, double*, CUstream_st*, bool",
-        "instantiation_name": "cuvs_detail_reduce_rows_by_key_f64_c_ptr_long_transform_top1nn_key_value_long_f64_ptr_key_op_key_value_long_f64_ptr_f64_c_ptr_char_ptr_long_long_long_f64_ptr_stream_ptr_bool"
+        "instantiation_name": "f64_i64_top1nn"
       },
       {
         "parameter_types": "double const*, long, long*, double const*, char*, long, long, long, double*, CUstream_st*, bool",
@@ -23,7 +23,7 @@
       },
       {
         "parameter_types": "float const*, int, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::key_op, raft::KeyValuePair<int, float>*>, float const*, char*, int, int, int, float*, CUstream_st*, bool",
-        "instantiation_name": "cuvs_detail_reduce_rows_by_key_f32_c_ptr_int_transform_top1nn_key_value_int_f32_ptr_key_op_key_value_int_f32_ptr_f32_c_ptr_char_ptr_int_int_int_f32_ptr_stream_ptr_bool"
+        "instantiation_name": "f32_i32_top1nn"
       },
       {
         "parameter_types": "float const*, int, int*, float const*, char*, int, int, int, float*, CUstream_st*, bool",
@@ -31,7 +31,7 @@
       },
       {
         "parameter_types": "float const*, long, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::key_op, raft::KeyValuePair<long, float>*>, float const*, char*, long, long, long, float*, CUstream_st*, bool",
-        "instantiation_name": "cuvs_detail_reduce_rows_by_key_f32_c_ptr_long_transform_top1nn_key_value_long_f32_ptr_key_op_key_value_long_f32_ptr_f32_c_ptr_char_ptr_long_long_long_f32_ptr_stream_ptr_bool"
+        "instantiation_name": "f32_i64_top1nn"
       },
       {
         "parameter_types": "float const*, long, long*, float const*, char*, long, long, long, float*, CUstream_st*, bool",
