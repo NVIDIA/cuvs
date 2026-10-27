@@ -302,9 +302,8 @@ void add_graph_nodes(
   raft::copy(handle, updated_graph_prefix, raft::make_const_mdspan(index.graph()));
 
   using padded_view_t = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
-  auto zero_row       = raft::make_device_matrix_view<const T, int64_t>(
-    static_cast<const T*>(nullptr), int64_t{0}, static_cast<uint32_t>(dim));
-  padded_view_t device_empty_dataset_view(zero_row, static_cast<uint32_t>(dim));
+  auto device_empty_dataset_view =
+    cuvs::neighbors::detail::make_empty_dataset_view<padded_view_t>(static_cast<uint32_t>(dim));
   auto empty_graph_view = raft::make_device_matrix_view<const IdxT, int64_t>(nullptr, 0, degree);
   neighbors::cagra::index<T, IdxT, padded_view_t> internal_index(
     handle, index.metric(), device_empty_dataset_view, empty_graph_view);
@@ -363,7 +362,7 @@ void extend_core(raft::resources const& handle,
                "cuvs::neighbors::hnsw::deserialize() before calling extend().");
 
   const std::size_t initial_dataset_size = index.size();
-  const auto extended_view               = extended_dataset.view();
+  const auto extended_view               = extended_dataset.data_const_view();
   const std::size_t new_dataset_size     = static_cast<std::size_t>(extended_view.extent(0));
   const std::size_t degree               = index.graph_degree();
   const std::size_t dim                  = index.dim();
