@@ -1474,26 +1474,6 @@ if(NOT BUILD_CPU_ONLY)
     list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
-  foreach(primitive IN ITEMS src/core/cub_exclusive_sum src/core/exclusive_scan_dispatch
-                             src/core/thrust_exclusive_scan src/core/thrust_inclusive_scan
-  )
-    set(primitive_instantiations)
-    generate_string_matrix(
-      primitive_instantiations
-      MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
-      ITEM_FORMAT
-      "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-      GLUE
-      "\n"
-    )
-    configure_file(
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
-      "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu" @ONLY
-    )
-    list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
-  endforeach()
-
   foreach(
     primitive IN
     ITEMS src/core/coalescedReduction
@@ -1948,6 +1928,75 @@ if(NOT BUILD_CPU_ONLY)
     OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/unaryOp_@instantiation_name@.cu"
   )
 
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_exclusive_sum_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_exclusive_sum.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_exclusive_sum_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/exclusive_scan_dispatch_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/exclusive_scan_dispatch.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/exclusive_scan_dispatch_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_exclusive_scan_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_exclusive_scan.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/thrust_exclusive_scan_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_inclusive_scan_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_inclusive_scan.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/thrust_inclusive_scan_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_scan_@inst_abbrev@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_init_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_init.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_scan_init_@inst_abbrev@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_init_alias_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_init_alias.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_scan_init_alias_@inst_abbrev@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_shared_kernels_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_shared_kernels.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_scan_shared_kernels_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_mixed_scan_kernels_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_mixed_scan_kernels.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_mixed_scan_kernels_@instantiation_name@.cu"
+  )
+
   add_library(
     cuvs_objs OBJECT
     ${cuvs_primitive_sources}
@@ -1956,8 +2005,6 @@ if(NOT BUILD_CPU_ONLY)
     src/core/copy_distance_tile.cu
     src/core/cub_max.cu
     src/core/cub_ptx_query.cu
-    src/core/cub_scan.cu
-    src/core/cub_scan_init.cu
     src/core/cub_sort_keys_descending.cu
     src/core/eye.cu
     src/core/gpu_repeat_csr.cu

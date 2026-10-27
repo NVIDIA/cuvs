@@ -1,0 +1,34 @@
+[
+  {
+    "provider_type": "cuvs::detail::scan_launch::sum_i32_i64_ulong_exclusive_pointer",
+    "pointer_type": "cuvs::detail::scan_launch::sum_i32_i64_ulong_exclusive_pointer_ScanKernel_pointer",
+    "method": "ScanKernel",
+    "kernel_function": "cub::detail::scan::DeviceScanKernel",
+    "kernel_arguments": "cub::detail::scan::policy_selector_from_types<int*, long*, int, unsigned long, cuda::std::plus<void>, false>, int*, long*, cub::ScanTileState<int, true>, cuda::std::plus<void>, cub::detail::InputValue<int, int*>, unsigned long, int, false, false, int",
+    "instantiation_name": "sum_i32_i64_ulong_exclusive_pointer_ScanKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::scan_launch::sum_i32_i64_ulong_exclusive_pointer",
+    "pointer_type": "cuvs::detail::scan_launch::sum_i32_i64_ulong_exclusive_pointer_InitKernel_pointer",
+    "method": "InitKernel",
+    "kernel_function": "cub::detail::scan::DeviceScanInitKernel",
+    "kernel_arguments": "cub::detail::scan::policy_selector_from_types<int*, long*, int, unsigned long, cuda::std::plus<void>, false>, int*, long*, cub::ScanTileState<int, true>, int",
+    "instantiation_name": "sum_i32_i64_ulong_exclusive_pointer_InitKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::scan_launch::sum_i32_i64_u32_exclusive_pointer",
+    "pointer_type": "cuvs::detail::scan_launch::sum_i32_i64_u32_exclusive_pointer_ScanKernel_pointer",
+    "method": "ScanKernel",
+    "kernel_function": "cub::detail::scan::DeviceScanKernel",
+    "kernel_arguments": "cub::detail::scan::policy_selector_from_types<int*, long*, int, unsigned int, cuda::std::plus<void>, false>, int*, long*, cub::ScanTileState<int, true>, cuda::std::plus<void>, cub::detail::InputValue<int, int*>, unsigned int, int, false, false, int",
+    "instantiation_name": "sum_i32_i64_u32_exclusive_pointer_ScanKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::scan_launch::sum_i32_i64_u32_exclusive_pointer",
+    "pointer_type": "cuvs::detail::scan_launch::sum_i32_i64_u32_exclusive_pointer_InitKernel_pointer",
+    "method": "InitKernel",
+    "kernel_function": "cub::detail::scan::DeviceScanInitKernel",
+    "kernel_arguments": "cub::detail::scan::policy_selector_from_types<int*, long*, int, unsigned int, cuda::std::plus<void>, false>, int*, long*, cub::ScanTileState<int, true>, int",
+    "instantiation_name": "sum_i32_i64_u32_exclusive_pointer_InitKernel"
+  }
+]
