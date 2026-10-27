@@ -2417,8 +2417,8 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
   //     element-wise distance computation in fp32.
   //   fp16 dist (everything else: fp16/int8/uint8 input, or fp32 input with dist_comp_dtype ==
   //     FP16 or AUTO with dim > 16) -> WMMA (tensor-core accelerated dot product). Non-fp16
-  //     dtypes are converted to fp16 on-the-fly while loading into shared memory; for fp32 host
-  //     input this conversion happens earlier at copy-in time (see d_data_half_).
+  //     dtypes are converted to fp16 on-the-fly while loading into shared memory; for fp32 input
+  //     this conversion happens earlier, once, at setup time (see d_data_half_).
   //   L1 distance for any input -> SIMT (L1 needs element-wise ops, can't use tensor cores).
   using DCT = cuvs::neighbors::nn_descent::DIST_COMP_DTYPE;
   bool use_fp16_dist =
@@ -2465,8 +2465,8 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
   };
 
   if (d_data_half_.has_value()) {
-    // Host fp32 input was downcast to a device-side fp16 buffer because distances are computed in
-    // fp16 (dist_comp_dtype == FP16, or AUTO with dim > 16).
+    // fp32 input (host or device) was downcast to a device-side fp16 buffer because distances are
+    // computed in fp16 (dist_comp_dtype == FP16, or AUTO with dim > 16).
     launch_kernel(static_cast<const half*>(d_data_ptr_));
   } else {
     // Data stored as input_t: device data used directly, or host data copied as-is.
@@ -2647,7 +2647,43 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
      (build_config_.dist_comp_dtype == DCT::AUTO && build_config_.dataset_dim > 16));
   bool downcast_host_data = !data_on_device && fp32_input_uses_fp16_dist;
 
-  if (data_on_device) {
+  // fp32 device input with fp16 distances: downcast once into a device-side fp16 buffer so the
+  // local-join kernel gathers 2-byte elements with vectorised loads instead of converting 4-byte
+  // scalars on every gather. Falls back to using the input directly if the buffer does not fit.
+  bool downcast_device_data = false;
+  if (data_on_device && fp32_input_uses_fp16_dist) {
+    try {
+      if (!d_data_half_.has_value()) {
+        d_data_half_.emplace(raft::make_device_matrix<half, size_t, raft::row_major>(
+          res, build_config_.max_dataset_size, build_config_.dataset_dim));
+      }
+      downcast_device_data = true;
+    } catch (std::bad_alloc&) {
+      RAFT_LOG_DEBUG("NN-Descent: not enough device memory for an fp16 copy, using fp32 input");
+    } catch (raft::logic_error&) {
+      RAFT_LOG_DEBUG("NN-Descent: not enough device memory for an fp16 copy, using fp32 input");
+    }
+  }
+
+  if (downcast_device_data) {
+    if (needs_l2_norms) {
+      // Compute l2 norms on the fp32 input before it is downcast to fp16.
+      compute_l2_norms_kernel<<<nrow_,
+                                raft::warp_size(),
+                                sizeof(input_t) *
+                                  raft::ceildiv(build_config_.dataset_dim,
+                                                static_cast<size_t>(raft::warp_size())) *
+                                  raft::warp_size(),
+                                stream>>>(data, build_config_.dataset_dim, l2_norms_.data_handle());
+      RAFT_CUDA_TRY(cudaPeekAtLastError());
+    }
+    constexpr int TPB = 256;
+    size_t n_elems    = static_cast<size_t>(nrow_) * build_config_.dataset_dim;
+    convert_copy_kernel<<<raft::ceildiv(n_elems, static_cast<size_t>(TPB)), TPB, 0, stream>>>(
+      data, d_data_half_.value().data_handle(), n_elems);
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    d_data_ptr_ = d_data_half_.value().data_handle();
+  } else if (data_on_device) {
     // When user-given data is on device, we use it directly. This can be any type (fp32, fp16,
     // int8, uint8)
     d_data_ptr_ = data;
@@ -2704,7 +2740,7 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
     d_data_ptr_ = d_data_direct_.value().data_handle();
   }
 
-  if (needs_l2_norms && !downcast_host_data) {
+  if (needs_l2_norms && !downcast_host_data && !downcast_device_data) {
     compute_l2_norms_kernel<<<nrow_,
                               raft::warp_size(),
                               sizeof(input_t) *
