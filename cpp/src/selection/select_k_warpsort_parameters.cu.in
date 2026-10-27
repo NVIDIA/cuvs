@@ -1,0 +1,108 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+#include <core/selection_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/matrix/detail/select_warpsort.cuh>
+
+namespace raft::matrix::detail::select::warpsort {
+
+template <>
+void calc_launch_parameter<@sort_type@, @data_type@, @index_type@>(raft::resources const& res,
+                                                      size_t batch_size,
+                                                      size_t len,
+                                                      int k,
+                                                      int* p_num_of_block,
+                                                      int* p_num_of_warp)
+{
+  auto calc_params = [&](int block_size_limit = 0) {
+    uint64_t key = (static_cast<uint64_t>(k) << 32) | static_cast<uint64_t>(block_size_limit);
+    auto& cache =
+      resource::get_custom_resource<warpsort_params_cache<@sort_type@, @data_type@, @index_type@>>(res)->value;
+    launch_params val;
+    if (!cache.get(key, &val)) {
+      auto params = cuvs::detail::
+        warpsort_launch_setup<@sort_type@, @data_type@, @index_type@, select::dense_layout<@index_type@>>::
+          calc_optimal_params(k, block_size_limit);
+      val.block_size    = params.block_size;
+      val.min_grid_size = params.min_grid_size;
+      cache.set(key, val);
+    }
+    return val;
+  };
+
+  const int capacity               = bound_by_power_of_two(k);
+  const int capacity_per_full_warp = std::max(capacity, WarpSize);
+  auto lps                         = calc_params();
+  int block_size                   = lps.block_size;
+  int min_grid_size                = lps.min_grid_size;
+  block_size                       = Pow2<WarpSize>::roundDown(block_size);
+
+  int num_of_warp;
+  int num_of_block;
+  if (batch_size < size_t(min_grid_size)) {  // may use multiple blocks
+    num_of_warp       = block_size / WarpSize;
+    num_of_block      = min_grid_size / int(batch_size);
+    int len_per_block = int(ceildiv<size_t>(len, num_of_block));
+    int len_per_warp  = ceildiv(len_per_block, num_of_warp);
+
+    len_per_warp  = Pow2<WarpSize>::roundUp(len_per_warp);
+    len_per_block = len_per_warp * num_of_warp;
+    num_of_block  = int(ceildiv<size_t>(len, len_per_block));
+
+    constexpr int kLenFactor = LaunchThreshold<@sort_type@>::len_factor_for_multi_block;
+    if (len_per_warp < capacity_per_full_warp * kLenFactor) {
+      len_per_warp  = capacity_per_full_warp * kLenFactor;
+      len_per_block = num_of_warp * len_per_warp;
+      if (size_t(len_per_block) > len) { len_per_block = len; }
+      num_of_block = int(ceildiv<size_t>(len, len_per_block));
+      num_of_warp  = ceildiv(len_per_block, len_per_warp);
+    }
+  } else {  // use only single block
+    num_of_block = 1;
+
+    auto adjust_block_size = [len, capacity_per_full_warp](int bs) {
+      int warps_per_block = bs / WarpSize;
+      int len_per_warp    = int(ceildiv<size_t>(len, warps_per_block));
+      len_per_warp        = Pow2<WarpSize>::roundUp(len_per_warp);
+      warps_per_block     = int(ceildiv<size_t>(len, len_per_warp));
+
+      constexpr int kLenFactor = LaunchThreshold<@sort_type@>::len_factor_for_single_block;
+      if (len_per_warp < capacity_per_full_warp * kLenFactor) {
+        len_per_warp    = capacity_per_full_warp * kLenFactor;
+        warps_per_block = int(ceildiv<size_t>(len, len_per_warp));
+      }
+
+      return warps_per_block * WarpSize;
+    };
+
+    // gradually reduce the block size while the batch size allows and the len is not big enough
+    // to occupy a single block well.
+    block_size = adjust_block_size(block_size);
+    do {
+      num_of_warp        = block_size / WarpSize;
+      auto another       = calc_params(block_size);
+      another.block_size = adjust_block_size(another.block_size);
+      if (batch_size >= size_t(another.min_grid_size)  // still have enough work
+          && another.block_size < block_size           // protect against an infinite loop
+          && another.min_grid_size * another.block_size >
+               min_grid_size * block_size  // improve occupancy
+      ) {
+        block_size    = another.block_size;
+        min_grid_size = another.min_grid_size;
+      } else {
+        break;
+      }
+    } while (block_size > WarpSize);
+    num_of_warp = std::max(1, num_of_warp);
+  }
+
+  *p_num_of_block = num_of_block;
+  *p_num_of_warp  = num_of_warp * capacity_per_full_warp / capacity;
+}
+
+}  // namespace raft::matrix::detail::select::warpsort

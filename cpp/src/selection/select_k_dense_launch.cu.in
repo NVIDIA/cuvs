@@ -1,0 +1,626 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+#include <core/selection_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/matrix/select_k.cuh>
+
+extern template void raft::linalg::detail::map<true, int, int, raft::mul_const_op<int>>(
+  cuda::stream_ref, int*, int, raft::mul_const_op<int>);
+
+extern template void raft::linalg::detail::map<true, int64_t, int64_t, raft::mul_const_op<int64_t>>(
+  cuda::stream_ref, int64_t*, int64_t, raft::mul_const_op<int64_t>);
+
+extern template void
+raft::linalg::detail::map<true, uint32_t, uint32_t, raft::mul_const_op<uint32_t>>(
+  cuda::stream_ref, uint32_t*, uint32_t, raft::mul_const_op<uint32_t>);
+
+extern template void raft::matrix::detail::segmented_sort_by_key<float, int>(
+  raft::resources const&, float*, int*, size_t, size_t, int const*, bool);
+extern template void raft::matrix::detail::segmented_sort_by_key<float, int64_t>(
+  raft::resources const&, float*, int64_t*, size_t, size_t, int64_t const*, bool);
+extern template void raft::matrix::detail::segmented_sort_by_key<float, uint32_t>(
+  raft::resources const&, float*, uint32_t*, size_t, size_t, uint32_t const*, bool);
+extern template void raft::matrix::detail::segmented_sort_by_key<__half, uint32_t>(
+  raft::resources const&, __half*, uint32_t*, size_t, size_t, uint32_t const*, bool);
+extern template void raft::matrix::detail::segmented_sort_by_key<int, uint32_t>(
+  raft::resources const&, int*, uint32_t*, size_t, size_t, uint32_t const*, bool);
+namespace raft::matrix::detail::select::warpsort {
+template <>
+void calc_launch_parameter<warp_sort_filtered, float, int>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_immediate, float, int>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed, float, int>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed_ext, float, int>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_filtered, float, int64_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_immediate, float, int64_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed, float, int64_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed_ext, float, int64_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_filtered, float, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_immediate, float, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed, float, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed_ext, float, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_filtered, __half, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_immediate, __half, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed, __half, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed_ext, __half, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_filtered, int, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_immediate, int, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed, int, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void calc_launch_parameter<warp_sort_distributed_ext, int, uint32_t>(
+  raft::resources const&, size_t, size_t, int, int*, int*);
+template <>
+void select_k_<warp_sort_filtered, float, int, raft::matrix::detail::select::dense_layout<int>>(
+  bool,
+  int,
+  int,
+  float const*,
+  int const*,
+  int const*,
+  size_t,
+  size_t,
+  int,
+  float*,
+  int*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_immediate, float, int, raft::matrix::detail::select::dense_layout<int>>(
+  bool,
+  int,
+  int,
+  float const*,
+  int const*,
+  int const*,
+  size_t,
+  size_t,
+  int,
+  float*,
+  int*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed, float, int, raft::matrix::detail::select::dense_layout<int>>(
+  bool,
+  int,
+  int,
+  float const*,
+  int const*,
+  int const*,
+  size_t,
+  size_t,
+  int,
+  float*,
+  int*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed_ext,
+               float,
+               int,
+               raft::matrix::detail::select::dense_layout<int>>(bool,
+                                                                int,
+                                                                int,
+                                                                float const*,
+                                                                int const*,
+                                                                int const*,
+                                                                size_t,
+                                                                size_t,
+                                                                int,
+                                                                float*,
+                                                                int*,
+                                                                bool,
+                                                                cuda::stream_ref,
+                                                                rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_filtered,
+               float,
+               int64_t,
+               raft::matrix::detail::select::dense_layout<int64_t>>(bool,
+                                                                    int,
+                                                                    int,
+                                                                    float const*,
+                                                                    int64_t const*,
+                                                                    int64_t const*,
+                                                                    size_t,
+                                                                    size_t,
+                                                                    int,
+                                                                    float*,
+                                                                    int64_t*,
+                                                                    bool,
+                                                                    cuda::stream_ref,
+                                                                    rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_immediate,
+               float,
+               int64_t,
+               raft::matrix::detail::select::dense_layout<int64_t>>(bool,
+                                                                    int,
+                                                                    int,
+                                                                    float const*,
+                                                                    int64_t const*,
+                                                                    int64_t const*,
+                                                                    size_t,
+                                                                    size_t,
+                                                                    int,
+                                                                    float*,
+                                                                    int64_t*,
+                                                                    bool,
+                                                                    cuda::stream_ref,
+                                                                    rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed,
+               float,
+               int64_t,
+               raft::matrix::detail::select::dense_layout<int64_t>>(bool,
+                                                                    int,
+                                                                    int,
+                                                                    float const*,
+                                                                    int64_t const*,
+                                                                    int64_t const*,
+                                                                    size_t,
+                                                                    size_t,
+                                                                    int,
+                                                                    float*,
+                                                                    int64_t*,
+                                                                    bool,
+                                                                    cuda::stream_ref,
+                                                                    rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed_ext,
+               float,
+               int64_t,
+               raft::matrix::detail::select::dense_layout<int64_t>>(bool,
+                                                                    int,
+                                                                    int,
+                                                                    float const*,
+                                                                    int64_t const*,
+                                                                    int64_t const*,
+                                                                    size_t,
+                                                                    size_t,
+                                                                    int,
+                                                                    float*,
+                                                                    int64_t*,
+                                                                    bool,
+                                                                    cuda::stream_ref,
+                                                                    rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_filtered,
+               float,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  float const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  float*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_immediate,
+               float,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  float const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  float*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed,
+               float,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  float const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  float*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed_ext,
+               float,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  float const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  float*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_filtered,
+               __half,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  __half const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  __half*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_immediate,
+               __half,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  __half const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  __half*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed,
+               __half,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  __half const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  __half*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed_ext,
+               __half,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  __half const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  __half*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_filtered,
+               int,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  int const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  int*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_immediate,
+               int,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  int const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  int*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed,
+               int,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  int const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  int*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+template <>
+void select_k_<warp_sort_distributed_ext,
+               int,
+               uint32_t,
+               raft::matrix::detail::select::dense_layout<uint32_t>>(
+  bool,
+  int,
+  int,
+  int const*,
+  uint32_t const*,
+  uint32_t const*,
+  size_t,
+  size_t,
+  int,
+  int*,
+  uint32_t*,
+  bool,
+  cuda::stream_ref,
+  rmm::device_async_resource_ref);
+
+}  // namespace raft::matrix::detail::select::warpsort
+extern template void raft::matrix::detail::select::radix::
+  select_k<float, int, 8, 512, raft::matrix::detail::select::dense_layout<int>>(
+    raft::resources const&,
+    float const*,
+    int const*,
+    int,
+    int,
+    int,
+    float*,
+    int*,
+    bool,
+    bool,
+    int const*);
+extern template void raft::matrix::detail::select::radix::
+  select_k<float, int, 11, 512, raft::matrix::detail::select::dense_layout<int>>(
+    raft::resources const&,
+    float const*,
+    int const*,
+    int,
+    int,
+    int,
+    float*,
+    int*,
+    bool,
+    bool,
+    int const*);
+extern template void raft::matrix::detail::select::radix::
+  select_k<float, int64_t, 8, 512, raft::matrix::detail::select::dense_layout<int64_t>>(
+    raft::resources const&,
+    float const*,
+    int64_t const*,
+    int,
+    int64_t,
+    int64_t,
+    float*,
+    int64_t*,
+    bool,
+    bool,
+    int64_t const*);
+extern template void raft::matrix::detail::select::radix::
+  select_k<float, int64_t, 11, 512, raft::matrix::detail::select::dense_layout<int64_t>>(
+    raft::resources const&,
+    float const*,
+    int64_t const*,
+    int,
+    int64_t,
+    int64_t,
+    float*,
+    int64_t*,
+    bool,
+    bool,
+    int64_t const*);
+extern template void raft::matrix::detail::select::radix::
+  select_k<float, uint32_t, 8, 512, raft::matrix::detail::select::dense_layout<uint32_t>>(
+    raft::resources const&,
+    float const*,
+    uint32_t const*,
+    int,
+    uint32_t,
+    uint32_t,
+    float*,
+    uint32_t*,
+    bool,
+    bool,
+    uint32_t const*);
+extern template void raft::matrix::detail::select::radix::
+  select_k<float, uint32_t, 11, 512, raft::matrix::detail::select::dense_layout<uint32_t>>(
+    raft::resources const&,
+    float const*,
+    uint32_t const*,
+    int,
+    uint32_t,
+    uint32_t,
+    float*,
+    uint32_t*,
+    bool,
+    bool,
+    uint32_t const*);
+extern template void raft::matrix::detail::select::radix::
+  select_k<__half, uint32_t, 8, 512, raft::matrix::detail::select::dense_layout<uint32_t>>(
+    raft::resources const&,
+    __half const*,
+    uint32_t const*,
+    int,
+    uint32_t,
+    uint32_t,
+    __half*,
+    uint32_t*,
+    bool,
+    bool,
+    uint32_t const*);
+extern template void raft::matrix::detail::select::radix::
+  select_k<__half, uint32_t, 11, 512, raft::matrix::detail::select::dense_layout<uint32_t>>(
+    raft::resources const&,
+    __half const*,
+    uint32_t const*,
+    int,
+    uint32_t,
+    uint32_t,
+    __half*,
+    uint32_t*,
+    bool,
+    bool,
+    uint32_t const*);
+extern template void raft::matrix::detail::select::radix::
+  select_k<int, uint32_t, 8, 512, raft::matrix::detail::select::dense_layout<uint32_t>>(
+    raft::resources const&,
+    int const*,
+    uint32_t const*,
+    int,
+    uint32_t,
+    uint32_t,
+    int*,
+    uint32_t*,
+    bool,
+    bool,
+    uint32_t const*);
+extern template void raft::matrix::detail::select::radix::
+  select_k<int, uint32_t, 11, 512, raft::matrix::detail::select::dense_layout<uint32_t>>(
+    raft::resources const&,
+    int const*,
+    uint32_t const*,
+    int,
+    uint32_t,
+    uint32_t,
+    int*,
+    uint32_t*,
+    bool,
+    bool,
+    uint32_t const*);
+
+namespace cuvs::detail {
+
+template <typename T, typename Index>
+void select_k(raft::resources const& handle,
+              T const* values,
+              Index const* indices,
+              size_t rows,
+              size_t columns,
+              int k,
+              T* selected_values,
+              Index* selected_indices,
+              bool select_min,
+              bool sorted,
+              raft::matrix::SelectAlgo algorithm,
+              Index const* row_lengths)
+{
+  raft::matrix::detail::select_k<T, Index>(handle,
+                                           values,
+                                           indices,
+                                           rows,
+                                           columns,
+                                           k,
+                                           selected_values,
+                                           selected_indices,
+                                           select_min,
+                                           sorted,
+                                           algorithm,
+                                           row_lengths);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::detail

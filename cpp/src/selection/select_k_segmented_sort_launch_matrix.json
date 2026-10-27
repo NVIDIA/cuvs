@@ -1,0 +1,34 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::segmented_sort_by_key",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<float, int>",
+        "parameter_types": "raft::resources const&, float*, int*, size_t, size_t, int const*, bool",
+        "instantiation_name": "f32_int"
+      },
+      {
+        "template_arguments": "<float, int64_t>",
+        "parameter_types": "raft::resources const&, float*, int64_t*, size_t, size_t, int64_t const*, bool",
+        "instantiation_name": "f32_i64"
+      },
+      {
+        "template_arguments": "<float, uint32_t>",
+        "parameter_types": "raft::resources const&, float*, uint32_t*, size_t, size_t, uint32_t const*, bool",
+        "instantiation_name": "f32_u32"
+      },
+      {
+        "template_arguments": "<__half, uint32_t>",
+        "parameter_types": "raft::resources const&, __half*, uint32_t*, size_t, size_t, uint32_t const*, bool",
+        "instantiation_name": "f16_u32"
+      },
+      {
+        "template_arguments": "<int, uint32_t>",
+        "parameter_types": "raft::resources const&, int*, uint32_t*, size_t, size_t, uint32_t const*, bool",
+        "instantiation_name": "int_u32"
+      }
+    ]
+  }
+]

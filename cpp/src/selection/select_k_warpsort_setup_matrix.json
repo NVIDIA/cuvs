@@ -1,0 +1,174 @@
+[
+  {
+    "_variants": [
+      {
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "int",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int>",
+        "instantiation_name": "warp_sort_filtered_f32_int_dense_layout_int"
+      },
+      {
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "int",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int>",
+        "instantiation_name": "warp_sort_immediate_f32_int_dense_layout_int"
+      },
+      {
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "int",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int>",
+        "instantiation_name": "warp_sort_distributed_f32_int_dense_layout_int"
+      },
+      {
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "int",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int>",
+        "instantiation_name": "warp_sort_distributed_ext_f32_int_dense_layout_int"
+      },
+      {
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int64_t>",
+        "instantiation_name": "warp_sort_filtered_f32_i64_dense_layout_i64"
+      },
+      {
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int64_t>",
+        "instantiation_name": "warp_sort_immediate_f32_i64_dense_layout_i64"
+      },
+      {
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int64_t>",
+        "instantiation_name": "warp_sort_distributed_f32_i64_dense_layout_i64"
+      },
+      {
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int64_t>",
+        "instantiation_name": "warp_sort_distributed_ext_f32_i64_dense_layout_i64"
+      },
+      {
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_filtered_f32_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_immediate_f32_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_distributed_f32_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_distributed_ext_f32_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_filtered",
+        "data_type": "__half",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_filtered_f16_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_immediate",
+        "data_type": "__half",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_immediate_f16_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_distributed",
+        "data_type": "__half",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_distributed_f16_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "__half",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_distributed_ext_f16_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_filtered",
+        "data_type": "int",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_filtered_int_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_immediate",
+        "data_type": "int",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_immediate_int_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_distributed",
+        "data_type": "int",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_distributed_int_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "int",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>",
+        "instantiation_name": "warp_sort_distributed_ext_int_u32_dense_layout_u32"
+      },
+      {
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::csr_layout<int64_t>",
+        "instantiation_name": "warp_sort_filtered_f32_i64_csr_layout_i64"
+      },
+      {
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::csr_layout<int64_t>",
+        "instantiation_name": "warp_sort_immediate_f32_i64_csr_layout_i64"
+      },
+      {
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::csr_layout<int64_t>",
+        "instantiation_name": "warp_sort_distributed_f32_i64_csr_layout_i64"
+      },
+      {
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::csr_layout<int64_t>",
+        "instantiation_name": "warp_sort_distributed_ext_f32_i64_csr_layout_i64"
+      }
+    ]
+  }
+]

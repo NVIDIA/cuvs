@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/selection_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -33,7 +34,6 @@
 #include <raft/sparse/convert/coo.cuh>
 #include <raft/sparse/convert/csr.cuh>
 #include <raft/sparse/linalg/masked_matmul.cuh>
-#include <raft/sparse/matrix/select_k.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/popc.cuh>
@@ -897,8 +897,7 @@ void brute_force_search_filtered(
       csr.get_elements().data(), compressed_csr_view);
     std::optional<raft::device_vector_view<const IdxT, IdxT>> no_opt = std::nullopt;
     bool select_min = cuvs::distance::is_min_close(metric);
-    raft::sparse::matrix::select_k(
-      res, const_csr_view, no_opt, distances, neighbors, select_min, true);
+    cuvs::detail::select_k(res, const_csr_view, no_opt, distances, neighbors, select_min, true);
   }
 
   return;

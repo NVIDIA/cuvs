@@ -1,0 +1,35 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "select_k",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::detail",
+    "_variants": [
+      {
+        "template_arguments": "<float, int>",
+        "parameter_types": "raft::resources const&, float const*, int const*, size_t, size_t, int, float*, int*, bool, bool, raft::matrix::SelectAlgo, int const*",
+        "instantiation_name": "f32_int"
+      },
+      {
+        "template_arguments": "<float, int64_t>",
+        "parameter_types": "raft::resources const&, float const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, bool, raft::matrix::SelectAlgo, int64_t const*",
+        "instantiation_name": "f32_i64"
+      },
+      {
+        "template_arguments": "<float, uint32_t>",
+        "parameter_types": "raft::resources const&, float const*, uint32_t const*, size_t, size_t, int, float*, uint32_t*, bool, bool, raft::matrix::SelectAlgo, uint32_t const*",
+        "instantiation_name": "f32_u32"
+      },
+      {
+        "template_arguments": "<__half, uint32_t>",
+        "parameter_types": "raft::resources const&, __half const*, uint32_t const*, size_t, size_t, int, __half*, uint32_t*, bool, bool, raft::matrix::SelectAlgo, uint32_t const*",
+        "instantiation_name": "f16_u32"
+      },
+      {
+        "template_arguments": "<int, uint32_t>",
+        "parameter_types": "raft::resources const&, int const*, uint32_t const*, size_t, size_t, int, int*, uint32_t*, bool, bool, raft::matrix::SelectAlgo, uint32_t const*",
+        "instantiation_name": "int_u32"
+      }
+    ]
+  }
+]

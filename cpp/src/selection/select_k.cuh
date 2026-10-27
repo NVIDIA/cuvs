@@ -5,8 +5,8 @@
 
 #pragma once
 
+#include "../core/selection_launchers.hpp"
 #include <cuvs/selection/select_k.hpp>
-#include <raft/matrix/detail/select_k.cuh>
 
 namespace cuvs::selection::detail {
 
@@ -36,19 +36,18 @@ void select_k(raft::resources const& handle,
 
   // just delegate implementation to raft - the primary benefit here is to have
   // instantiations only compiled once in cuvs
-  return raft::matrix::detail::select_k<T, IdxT>(
-    handle,
-    in_val.data_handle(),
-    in_idx.has_value() ? in_idx->data_handle() : nullptr,
-    batch_size,
-    len,
-    k,
-    out_val.data_handle(),
-    out_idx.data_handle(),
-    select_min,
-    sorted,
-    algo,
-    len_i.has_value() ? len_i->data_handle() : nullptr);
+  return cuvs::detail::select_k<T, IdxT>(handle,
+                                         in_val.data_handle(),
+                                         in_idx.has_value() ? in_idx->data_handle() : nullptr,
+                                         batch_size,
+                                         len,
+                                         k,
+                                         out_val.data_handle(),
+                                         out_idx.data_handle(),
+                                         select_min,
+                                         sorted,
+                                         algo,
+                                         len_i.has_value() ? len_i->data_handle() : nullptr);
 }
 }  // namespace cuvs::selection::detail
 

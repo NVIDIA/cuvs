@@ -1,0 +1,66 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+#include <core/selection_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/matrix/detail/select_warpsort.cuh>
+
+namespace cuvs::detail {
+
+template <template <int, bool, typename, typename> class WarpSortClass,
+          typename T,
+          typename IdxT,
+          typename RowLayout>
+warpsort_launch_params
+warpsort_launch_setup<WarpSortClass, T, IdxT, RowLayout>::calc_optimal_params(int k,
+                                                                              int block_size_limit)
+{
+  auto params = raft::matrix::detail::select::warpsort::
+    launch_setup<WarpSortClass, T, IdxT, RowLayout>::calc_optimal_params(k, block_size_limit);
+  return {params.block_size, params.min_grid_size};
+}
+
+template <template <int, bool, typename, typename> class WarpSortClass,
+          typename T,
+          typename IdxT,
+          typename RowLayout>
+void warpsort_launch_setup<WarpSortClass, T, IdxT, RowLayout>::kernel(int k,
+                                                                      bool select_min,
+                                                                      size_t batch_size,
+                                                                      size_t len,
+                                                                      int num_blocks,
+                                                                      int block_dim,
+                                                                      size_t smem_size,
+                                                                      const T* in_key,
+                                                                      const IdxT* in_idx,
+                                                                      const IdxT* in_indptr,
+                                                                      T* out_key,
+                                                                      IdxT* out_idx,
+                                                                      cuda::stream_ref stream)
+{
+  raft::matrix::detail::select::warpsort::launch_setup<WarpSortClass, T, IdxT, RowLayout>::kernel(
+    k,
+    select_min,
+    batch_size,
+    len,
+    num_blocks,
+    block_dim,
+    smem_size,
+    in_key,
+    in_idx,
+    in_indptr,
+    out_key,
+    out_idx,
+    stream);
+}
+
+template struct warpsort_launch_setup<raft::matrix::detail::select::warpsort::@sort_type@,
+                                      @data_type@,
+                                      @index_type@,
+                                      @row_layout@>;
+
+}  // namespace cuvs::detail

@@ -1,0 +1,35 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "select_k",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::detail",
+    "_variants": [
+      {
+        "template_arguments": "<float, int>",
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<const float, int64_t, raft::row_major>, std::optional<raft::device_matrix_view<const int, int64_t, raft::row_major>>, raft::device_matrix_view<float, int64_t, raft::row_major>, raft::device_matrix_view<int, int64_t, raft::row_major>, bool, bool, raft::matrix::SelectAlgo",
+        "instantiation_name": "f32_int"
+      },
+      {
+        "template_arguments": "<float, int64_t>",
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<const float, int64_t, raft::row_major>, std::optional<raft::device_matrix_view<const int64_t, int64_t, raft::row_major>>, raft::device_matrix_view<float, int64_t, raft::row_major>, raft::device_matrix_view<int64_t, int64_t, raft::row_major>, bool, bool, raft::matrix::SelectAlgo",
+        "instantiation_name": "f32_i64"
+      },
+      {
+        "template_arguments": "<float, uint32_t>",
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<const float, int64_t, raft::row_major>, std::optional<raft::device_matrix_view<const uint32_t, int64_t, raft::row_major>>, raft::device_matrix_view<float, int64_t, raft::row_major>, raft::device_matrix_view<uint32_t, int64_t, raft::row_major>, bool, bool, raft::matrix::SelectAlgo",
+        "instantiation_name": "f32_u32"
+      },
+      {
+        "template_arguments": "<__half, uint32_t>",
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<const __half, int64_t, raft::row_major>, std::optional<raft::device_matrix_view<const uint32_t, int64_t, raft::row_major>>, raft::device_matrix_view<__half, int64_t, raft::row_major>, raft::device_matrix_view<uint32_t, int64_t, raft::row_major>, bool, bool, raft::matrix::SelectAlgo",
+        "instantiation_name": "f16_u32"
+      },
+      {
+        "template_arguments": "<int, uint32_t>",
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<const int, int64_t, raft::row_major>, std::optional<raft::device_matrix_view<const uint32_t, int64_t, raft::row_major>>, raft::device_matrix_view<int, int64_t, raft::row_major>, raft::device_matrix_view<uint32_t, int64_t, raft::row_major>, bool, bool, raft::matrix::SelectAlgo",
+        "instantiation_name": "int_u32"
+      }
+    ]
+  }
+]

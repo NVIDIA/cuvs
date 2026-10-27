@@ -1,0 +1,59 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/selection_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/core/error.hpp>
+
+#include <limits>
+
+namespace cuvs::detail {
+
+template <typename T, typename Index>
+void select_k(
+  raft::resources const& handle,
+  raft::device_matrix_view<const T, int64_t, raft::row_major> values,
+  std::optional<raft::device_matrix_view<const Index, int64_t, raft::row_major>> indices,
+  raft::device_matrix_view<T, int64_t, raft::row_major> selected_values,
+  raft::device_matrix_view<Index, int64_t, raft::row_major> selected_indices,
+  bool select_min,
+  bool sorted,
+  raft::matrix::SelectAlgo algorithm)
+{
+  // Preserve the validation in RAFT's matrix-view API while routing its actual
+  // device dispatch through the pointer launcher owned by a separate source.
+  RAFT_EXPECTS(selected_values.extent(1) <= int64_t(std::numeric_limits<int>::max()),
+               "output k must fit the int type.");
+  auto rows    = values.extent(0);
+  auto columns = values.extent(1);
+  auto k       = int(selected_values.extent(1));
+  RAFT_EXPECTS(rows == selected_values.extent(0), "batch sizes must be equal");
+  RAFT_EXPECTS(rows == selected_indices.extent(0), "batch sizes must be equal");
+  if (indices.has_value()) {
+    RAFT_EXPECTS(rows == indices->extent(0), "batch sizes must be equal");
+    RAFT_EXPECTS(columns == indices->extent(1), "value and index input lengths must be equal");
+  }
+  RAFT_EXPECTS(int64_t(k) == selected_indices.extent(1),
+               "value and index output lengths must be equal");
+  cuvs::detail::select_k<T, Index>(handle,
+                                   values.data_handle(),
+                                   indices.has_value() ? indices->data_handle() : nullptr,
+                                   rows,
+                                   columns,
+                                   k,
+                                   selected_values.data_handle(),
+                                   selected_indices.data_handle(),
+                                   select_min,
+                                   sorted,
+                                   algorithm,
+                                   nullptr);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::detail

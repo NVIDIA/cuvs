@@ -7,6 +7,7 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
+#include "../../core/selection_launchers.hpp"
 #include "../detail/ann_utils.cuh"
 #include "../ivf_common.cuh"
 #include "../sample_filter.cuh"  // none_sample_filter
@@ -30,7 +31,6 @@
 #include <raft/linalg/norm_types.hpp>
 #include <raft/linalg/normalize.cuh>
 #include <raft/matrix/detail/select_warpsort.cuh>
-#include <raft/matrix/select_k.cuh>
 #include <raft/util/cache.hpp>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
@@ -245,7 +245,7 @@ void select_clusters(raft::resources const& handle,
   // Select neighbor clusters for each query.
   rmm::device_uvector<dist_type> cluster_dists(size_t(n_queries) * size_t(n_probes), stream, mr);
   // cuvs::selection::select_k lacks uint32_t-as-a-value support at the moment
-  raft::matrix::select_k<dist_type, uint32_t>(
+  cuvs::detail::select_k<dist_type, uint32_t>(
     handle,
     raft::make_device_matrix_view<const dist_type, int64_t>(
       qc_distances.data(), n_queries, n_lists),

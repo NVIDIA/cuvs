@@ -1,0 +1,26 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/matrix/detail/select_radix.cuh>
+
+extern template void raft::linalg::detail::map<true, int, size_t, raft::mod_const_op<int>>(
+  cuda::stream_ref, int*, size_t, raft::mod_const_op<int>);
+
+extern template void raft::linalg::detail::map<true, int64_t, size_t, raft::mod_const_op<int64_t>>(
+  cuda::stream_ref, int64_t*, size_t, raft::mod_const_op<int64_t>);
+
+extern template void
+raft::linalg::detail::map<true, uint32_t, size_t, raft::mod_const_op<uint32_t>>(
+  cuda::stream_ref, uint32_t*, size_t, raft::mod_const_op<uint32_t>);
+// clang-format off
+#if @share_grid_dimension@
+@grid_dimension_declaration@;
+#endif
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

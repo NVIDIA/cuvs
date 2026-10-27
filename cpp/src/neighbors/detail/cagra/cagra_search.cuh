@@ -7,6 +7,7 @@
 
 #include "../../../core/map_launchers.hpp"
 #include "../../../core/nvtx.hpp"
+#include "../../../core/selection_launchers.hpp"
 #include "factory.cuh"
 #include "sample_filter_utils.cuh"
 #include "search_multi_cta.cuh"
@@ -36,7 +37,6 @@
 #include <raft/linalg/matrix_vector_op.cuh>
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/reduce.cuh>
-#include <raft/matrix/select_k.cuh>
 
 #include <cstddef>
 
@@ -599,7 +599,7 @@ void search_multi_partition(
     // Cosine transform applied here) are smaller-is-closer, while InnerProduct is larger-is-closer.
     const bool select_min = cuvs::distance::is_min_close(metric);
 
-    raft::matrix::select_k<DistanceT, uint32_t>(
+    cuvs::detail::select_k<DistanceT, uint32_t>(
       res,
       raft::make_device_matrix_view<const DistanceT, int64_t, raft::row_major>(
         transposed_distances,
