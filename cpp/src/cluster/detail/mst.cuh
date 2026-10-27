@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/radix_sorting_launchers.hpp"
+#include "../../core/unique_labels_launchers.hpp"
 #include "../../sparse/neighbors/cross_component_nn.cuh"
 #include "raft/core/device_mdspan.hpp"
 #include "raft/core/operators.hpp"
@@ -199,7 +200,7 @@ void connect_knn_graph(
   int n_components = get_n_components(color, m, stream.get());
 
   rmm::device_uvector<value_idx> d_color_remapped(m, stream);
-  raft::label::make_monotonic(d_color_remapped.data(), color, m, stream.get(), true);
+  cuvs::detail::make_monotonic(d_color_remapped.data(), color, m, stream.get(), true);
 
   std::vector<value_idx> h_color(m);
   raft::copy(handle,

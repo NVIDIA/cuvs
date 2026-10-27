@@ -6,6 +6,7 @@
 
 #include "../../../core/cub_runtime_launchers.hpp"
 #include "../../../core/radix_sorting_launchers.hpp"
+#include "../../../core/unique_labels_launchers.hpp"
 #include "../../../distance/masked_nn.cuh"
 #include <cuvs/distance/distance.hpp>
 
@@ -221,7 +222,7 @@ template <typename value_idx>
 value_idx get_n_components(value_idx* colors, size_t n_rows, cudaStream_t stream)
 {
   rmm::device_uvector<value_idx> map_ids(0, stream);
-  int num_clusters = raft::label::getUniquelabels(map_ids, colors, n_rows, stream);
+  int num_clusters = cuvs::detail::getUniquelabels(map_ids, colors, n_rows, stream);
   return num_clusters;
 }
 
@@ -542,7 +543,7 @@ void cross_component_nn(
 
   // Normalize colors so they are drawn from a monotonically increasing set
   constexpr bool zero_based = true;
-  raft::label::make_monotonic(
+  cuvs::detail::make_monotonic(
     colors.data(), const_cast<value_idx*>(orig_colors), n_rows, stream.get(), zero_based);
 
   /**

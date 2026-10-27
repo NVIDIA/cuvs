@@ -1,0 +1,44 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_device_unique_launchers.hpp>
+
+#include <core/cub_compact_launchers.hpp>
+
+#include <neighbors/detail/ann_utils.cuh>
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_radix_launchers.hpp>
+#include <core/unique_labels_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/label/classlabels.cuh>
+
+namespace cuvs::detail {
+
+template <typename value_t>
+int getUniquelabels(raft::resources const& handle,
+                    rmm::device_uvector<value_t>& unique,
+                    value_t* y,
+                    size_t n)
+
+{
+  return raft::label::getUniquelabels(handle, unique, y, n);
+}
+
+template <typename value_t>
+int getUniquelabels(rmm::device_uvector<value_t>& unique, value_t* y, size_t n, cudaStream_t stream)
+
+{
+  return raft::label::getUniquelabels(unique, y, n, stream);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@getUniquelabels_detail_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

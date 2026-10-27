@@ -1,0 +1,49 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/ann_utils.cuh>
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_radix_launchers.hpp>
+#include <core/unique_labels_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/label/classlabels.cuh>
+
+extern template int raft::label::detail::getUniquelabels<int>(rmm::device_uvector<int>&,
+                                                              int*,
+                                                              size_t,
+                                                              cudaStream_t);
+extern template int raft::label::detail::getUniquelabels<uint32_t>(rmm::device_uvector<uint32_t>&,
+                                                                   uint32_t*,
+                                                                   size_t,
+                                                                   cudaStream_t);
+extern template int raft::label::detail::getUniquelabels<int64_t>(rmm::device_uvector<int64_t>&,
+                                                                  int64_t*,
+                                                                  size_t,
+                                                                  cudaStream_t);
+
+namespace cuvs::detail {
+
+template <typename Type, typename Lambda>
+void make_monotonic(
+  Type* out, Type* in, size_t N, cudaStream_t stream, Lambda filter_op, bool zero_based)
+
+{
+  return raft::label::make_monotonic(out, in, N, stream, filter_op, zero_based);
+}
+
+template <typename Type>
+void make_monotonic(Type* out, Type* in, size_t N, cudaStream_t stream, bool zero_based)
+
+{
+  return raft::label::make_monotonic(out, in, N, stream, zero_based);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

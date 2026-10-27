@@ -1431,6 +1431,16 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
 
+  generate_string_matrix(
+    getUniquelabels_detail_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/getUniquelabels_detail_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
   generate_inst_matrix(
     cuvs_primitive_sources
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_argmin_matrix.json"
@@ -1655,6 +1665,29 @@ if(NOT BUILD_CPU_ONLY)
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_sort_shared_kernels.cu.in"
     OUTPUT_FILE_FORMAT
       "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_sort_shared_kernels_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/getUniquelabels_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/getUniquelabels.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/getUniquelabels_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/getUniquelabels_detail_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/getUniquelabels_detail.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/getUniquelabels_detail_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/make_monotonic_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/make_monotonic.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/make_monotonic_@instantiation_name@.cu"
   )
 
   add_library(

@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "CUVS_EXPORT void",
+    "qualified_function": "cuvs::detail::make_monotonic",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "int*, int*, unsigned long, CUstream_st*, bool",
+        "instantiation_name": "int_ptr_int_ptr_ulong_stream_ptr_bool"
+      },
+      {
+        "parameter_types": "long*, long*, unsigned long, CUstream_st*, bool",
+        "instantiation_name": "long_ptr_long_ptr_ulong_stream_ptr_bool"
+      }
+    ]
+  }
+]
