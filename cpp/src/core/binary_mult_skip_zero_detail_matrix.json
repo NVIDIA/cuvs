@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::matrixVectorBinaryMultSkipZero",
+    "template_arguments": "<true, false, float, long, 256>",
+    "parameter_types": "float*, float const*, long, long, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "raft_matrix_detail_matrixvectorbinarymultskipzero_true_false_f32_long_256"
+  }
+]
