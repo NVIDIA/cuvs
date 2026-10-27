@@ -1431,8 +1431,38 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
 
+  generate_string_matrix(
+    reduce_rows_by_key_detail_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/reduce_rows_by_key_detail_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+  generate_string_matrix(
+    reduce_rows_by_key_helpers_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/reduce_rows_by_key_helpers_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+  foreach(primitive IN ITEMS src/core/reduce_rows_by_key src/core/reduce_rows_by_key_detail
+                             src/core/reduce_rows_by_key_helpers
+  )
+    generate_inst_matrix(
+      cuvs_primitive_sources
+      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
+      OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/${primitive}_@instantiation_name@.cu"
+    )
+  endforeach()
+
   add_library(
     cuvs_objs OBJECT
+    ${cuvs_primitive_sources}
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}

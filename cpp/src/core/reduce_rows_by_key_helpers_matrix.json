@@ -1,0 +1,58 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::sum_rows_by_key_small_nkeys",
+    "template_arguments": "<const float*, float, float, int>",
+    "parameter_types": "const float*, int, const char*, const float*, int, int, int, float*, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "sum_f32_i32"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::sum_rows_by_key_small_nkeys",
+    "template_arguments": "<const float*, float, float, int64_t>",
+    "parameter_types": "const float*, int64_t, const char*, const float*, int64_t, int64_t, int64_t, float*, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "sum_f32_i64"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::sum_rows_by_key_small_nkeys",
+    "template_arguments": "<const double*, double, double, int>",
+    "parameter_types": "const double*, int, const char*, const double*, int, int, int, double*, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "sum_f64_i32"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::sum_rows_by_key_small_nkeys",
+    "template_arguments": "<const double*, double, double, int64_t>",
+    "parameter_types": "const double*, int64_t, const char*, const double*, int64_t, int64_t, int64_t, double*, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "sum_f64_i64"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::convert_array",
+    "template_arguments": "<char*, int*>",
+    "parameter_types": "char*, int*, int, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "convert_i32"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::convert_array",
+    "template_arguments": "<char*, int64_t*>",
+    "parameter_types": "char*, int64_t*, int, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "convert_i64"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::convert_array",
+    "template_arguments": "<char*, const uint32_t*>",
+    "parameter_types": "char*, const uint32_t*, int, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "convert_u32"
+  }
+]
