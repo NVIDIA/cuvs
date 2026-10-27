@@ -7,6 +7,7 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
+#include "../../core/thrust_fill_launchers.hpp"
 #include "../detail/ann_utils.cuh"
 #include "../ivf_common.cuh"
 #include "../sample_filter.cuh"
@@ -586,14 +587,14 @@ void search_impl(raft::resources const& handle,
     rmm::device_uvector<uint32_t> all_indices(
       std::size_t(n_queries) * max_samples, stream, search_mr);
 
-    thrust::fill_n(raft::resource::get_thrust_policy(handle),
-                   all_distances.data(),
-                   std::size_t(n_queries) * max_samples,
-                   std::numeric_limits<float>::max());
-    thrust::fill_n(raft::resource::get_thrust_policy(handle),
-                   all_indices.data(),
-                   std::size_t(n_queries) * max_samples,
-                   uint32_t(0xFFFFFFFF));
+    cuvs::detail::thrust_fill_n(raft::resource::get_thrust_policy(handle),
+                                all_distances.data(),
+                                std::size_t(n_queries) * max_samples,
+                                std::numeric_limits<float>::max());
+    cuvs::detail::thrust_fill_n(raft::resource::get_thrust_policy(handle),
+                                all_indices.data(),
+                                std::size_t(n_queries) * max_samples,
+                                uint32_t(0xFFFFFFFF));
 
     // grid_dim_x is unused for the non-fused path; set to n_probes so each
     // block in the (n_probes, n_queries) grid processes exactly one probe

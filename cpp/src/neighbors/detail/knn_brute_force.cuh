@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/cub_runtime_launchers.hpp"
+#include "../../core/thrust_fill_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -164,12 +165,13 @@ void tiled_brute_force_knn(const raft::resources& handle,
   // if we have less than k items in the index, we should fill out the result
   // to indicate that we are missing items (and match behaviour in faiss)
   if (n < k) {
-    raft::matrix::fill(handle,
-                       raft::make_device_matrix_view(distances, m, k),
-                       std::numeric_limits<DistanceT>::lowest());
+    cuvs::detail::matrix_fill(handle,
+                              raft::make_device_matrix_view(distances, m, k),
+                              std::numeric_limits<DistanceT>::lowest());
 
     if constexpr (std::is_signed_v<IndexType>) {
-      raft::matrix::fill(handle, raft::make_device_matrix_view(indices, m, k), IndexType{-1});
+      cuvs::detail::matrix_fill(
+        handle, raft::make_device_matrix_view(indices, m, k), IndexType{-1});
     }
   }
 

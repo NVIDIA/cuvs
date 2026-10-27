@@ -8,6 +8,7 @@
 //
 
 // This file implements `SearcherGPU::SearchClusterQueryPairsSharedMemOpt`.
+#include "../../../core/thrust_fill_launchers.hpp"
 #include "../../detail/smem_utils.cuh"
 #include "../jit_lto_kernels/kernel_def.hpp"
 #include "../jit_lto_kernels/launcher_factory.hpp"
@@ -102,10 +103,10 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
 
   // Initialize with -infinity (convert to FP16)
   lut_dtype neg_inf_fp16 = __float2half(-std::numeric_limits<float>::infinity());
-  thrust::fill(thrust::cuda::par.on(stream_.get()),
-               d_lut_for_queries.data(),
-               d_lut_for_queries.data() + lut_elements,
-               neg_inf_fp16);
+  cuvs::detail::thrust_fill(thrust::cuda::par.on(stream_.get()),
+                            d_lut_for_queries.data(),
+                            d_lut_for_queries.data() + lut_elements,
+                            neg_inf_fp16);
 
   // Precompute LUTs
   launchPrecomputeLUTs_fp16(queries.data_handle(),
@@ -148,23 +149,23 @@ void SearcherGPU::SearchClusterQueryPairsSharedMemOpt(
   auto d_topk_pids  = raft::make_device_matrix<uint32_t, int64_t>(handle_, num_queries, n_cols);
 
   // initialize distances
-  thrust::fill(thrust::cuda::par.on(stream_.get()),
-               d_topk_dists.data_handle(),
-               d_topk_dists.data_handle() + d_topk_dists.size(),
-               std::numeric_limits<float>::infinity());
+  cuvs::detail::thrust_fill(thrust::cuda::par.on(stream_.get()),
+                            d_topk_dists.data_handle(),
+                            d_topk_dists.data_handle() + d_topk_dists.size(),
+                            std::numeric_limits<float>::infinity());
 
   rmm::device_uvector<int> d_query_write_counters(num_queries, stream_);
-  thrust::fill(thrust::cuda::par.on(stream_.get()),
-               d_query_write_counters.data(),
-               d_query_write_counters.data() + num_queries,
-               0);
+  cuvs::detail::thrust_fill(thrust::cuda::par.on(stream_.get()),
+                            d_query_write_counters.data(),
+                            d_query_write_counters.data() + num_queries,
+                            0);
 
   rmm::device_uvector<float> d_topk_threshold_batch(use_block_sort ? num_queries : 0, stream_);
   if (use_block_sort) {
-    thrust::fill(thrust::cuda::par.on(stream_.get()),
-                 d_topk_threshold_batch.data(),
-                 d_topk_threshold_batch.data() + num_queries,
-                 std::numeric_limits<float>::infinity());
+    cuvs::detail::thrust_fill(thrust::cuda::par.on(stream_.get()),
+                              d_topk_threshold_batch.data(),
+                              d_topk_threshold_batch.data() + num_queries,
+                              std::numeric_limits<float>::infinity());
   }
   // Then launch kernel for computation
   size_t num_pairs = num_queries * nprobe;

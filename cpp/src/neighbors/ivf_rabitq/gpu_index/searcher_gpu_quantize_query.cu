@@ -8,6 +8,7 @@
 //
 
 // This file implements `SearcherGPU::SearchClusterQueryPairsQuantizeQuery`.
+#include "../../../core/thrust_fill_launchers.hpp"
 #include "../../detail/smem_utils.cuh"
 #include "../jit_lto_kernels/kernel_def.hpp"
 #include "../jit_lto_kernels/launcher_factory.hpp"
@@ -450,21 +451,21 @@ void SearcherGPU::SearchClusterQueryPairsQuantizeQuery(
   auto d_topk_pids  = raft::make_device_matrix<uint32_t, int64_t>(handle_, num_queries, n_cols);
 
   // initialize distances
-  thrust::fill(thrust::cuda::par.on(stream_.get()),
-               d_topk_dists.data_handle(),
-               d_topk_dists.data_handle() + d_topk_dists.size(),
-               std::numeric_limits<float>::infinity());
+  cuvs::detail::thrust_fill(thrust::cuda::par.on(stream_.get()),
+                            d_topk_dists.data_handle(),
+                            d_topk_dists.data_handle() + d_topk_dists.size(),
+                            std::numeric_limits<float>::infinity());
 
-  thrust::fill(thrust::cuda::par.on(stream_.get()),
-               d_query_write_counters.data_handle(),
-               d_query_write_counters.data_handle() + num_queries,
-               0);
+  cuvs::detail::thrust_fill(thrust::cuda::par.on(stream_.get()),
+                            d_query_write_counters.data_handle(),
+                            d_query_write_counters.data_handle() + num_queries,
+                            0);
 
   if (use_block_sort) {
-    thrust::fill(thrust::cuda::par.on(stream_.get()),
-                 d_topk_threshold_batch.data_handle(),
-                 d_topk_threshold_batch.data_handle() + num_queries,
-                 std::numeric_limits<float>::infinity());
+    cuvs::detail::thrust_fill(thrust::cuda::par.on(stream_.get()),
+                              d_topk_threshold_batch.data_handle(),
+                              d_topk_threshold_batch.data_handle() + num_queries,
+                              std::numeric_limits<float>::infinity());
   }
 
   // Launch modified kernel with packed queries instead of LUT

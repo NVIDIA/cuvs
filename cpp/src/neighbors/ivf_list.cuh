@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../core/thrust_fill_launchers.hpp"
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 
@@ -59,7 +60,7 @@ list<SpecT, SizeT, SpecExtraArgs...>::list(raft::resources const& res,
       e.what());
   }
   // Fill the index buffer with a pre-defined marker for easier debugging
-  raft::matrix::fill(res, indices.view(), ivf::kInvalidRecord<index_type>);
+  cuvs::detail::matrix_fill(res, indices.view(), ivf::kInvalidRecord<index_type>);
 }
 
 template <typename ListT>

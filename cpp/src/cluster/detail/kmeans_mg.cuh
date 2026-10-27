@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/thrust_fill_launchers.hpp"
 #include "../kmeans.cuh"
 #include "kmeans.cuh"
 #include "kmeans_batch_loader.cuh"
@@ -472,9 +473,9 @@ void mnmg_fit(
                                                            rank,
                                                            comms);
 
-    if (!sample_weights) { raft::matrix::fill(dev_res, batch_weights.view(), DataT{1}); }
+    if (!sample_weights) { cuvs::detail::matrix_fill(dev_res, batch_weights.view(), DataT{1}); }
 
-    raft::matrix::fill(dev_res, d_prior_cost.view(), DataT{0});
+    cuvs::detail::matrix_fill(dev_res, d_prior_cost.view(), DataT{0});
     *h_done_flag.data_handle() = 0;
 
     for (local_n_iter = 1; local_n_iter <= iter_params.max_iter; ++local_n_iter) {
@@ -491,9 +492,9 @@ void mnmg_fit(
 
       RAFT_LOG_DEBUG("MNMG KMeans: iteration %d on rank %d", local_n_iter, rank);
 
-      raft::matrix::fill(dev_res, centroid_sums.view(), DataT{0});
-      raft::matrix::fill(dev_res, weight_per_cluster.view(), DataT{0});
-      raft::matrix::fill(dev_res, clustering_cost.view(), DataT{0});
+      cuvs::detail::matrix_fill(dev_res, centroid_sums.view(), DataT{0});
+      cuvs::detail::matrix_fill(dev_res, weight_per_cluster.view(), DataT{0});
+      cuvs::detail::matrix_fill(dev_res, clustering_cost.view(), DataT{0});
 
       data_batches.start();
       if (weight_batches.has_value()) { weight_batches->start(); }
@@ -634,7 +635,7 @@ void mnmg_fit(
     }
     local_n_iter = std::min(local_n_iter, static_cast<IndexT>(iter_params.max_iter));
 
-    raft::matrix::fill(dev_res, clustering_cost.view(), DataT{0});
+    cuvs::detail::matrix_fill(dev_res, clustering_cost.view(), DataT{0});
 
     data_batches.start();
     if (weight_batches.has_value()) { weight_batches->start(); }

@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/cub_runtime_launchers.hpp"
+#include "../../core/thrust_fill_launchers.hpp"
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
@@ -253,7 +254,7 @@ void extract_flattened_clusters(raft::resources const& handle,
 
   // Handle special case where n_clusters == 1
   if (n_clusters == 1) {
-    raft::matrix::fill(
+    cuvs::detail::matrix_fill(
       handle, raft::make_device_vector_view<value_idx>(labels, n_leaves), value_idx(0));
   } else {
     /**
@@ -306,7 +307,7 @@ void extract_flattened_clusters(raft::resources const& handle,
     rmm::device_uvector<value_idx> tmp_labels(n_vertices, stream);
 
     // Init labels to -1
-    thrust::fill(thrust_policy, tmp_labels.data(), tmp_labels.data() + n_vertices, -1);
+    cuvs::detail::thrust_fill(thrust_policy, tmp_labels.data(), tmp_labels.data() + n_vertices, -1);
 
     // Write labels for cluster roots to "labels"
     auto first = cuda::make_counting_iterator<uint>(0);

@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../../core/thrust_fill_launchers.hpp"
 #include "cagra_helpers.hpp"
 #include "graph_shared.cuh"
 #include "utils.hpp"
@@ -822,8 +823,8 @@ void make_reverse_graph_gpu(
   //
   // Make reverse graph
   //
-  raft::matrix::fill(res, d_rev_graph, IdxT(-1));
-  raft::matrix::fill(res, d_rev_graph_count, uint32_t(0));
+  cuvs::detail::matrix_fill(res, d_rev_graph, IdxT(-1));
+  cuvs::detail::matrix_fill(res, d_rev_graph_count, uint32_t(0));
 
   if constexpr (AccessorOutputGraph::is_device_accessible) {
     // output graph is fully device accessible, so we need no copy to device
@@ -1467,7 +1468,7 @@ void prune_graph_gpu(
   [[maybe_unused]] uint64_t num_full = 0;
   auto dev_stats                     = raft::make_device_vector<uint64_t>(res, 2);
   auto host_stats                    = raft::make_host_vector<uint64_t>(2);
-  raft::matrix::fill(res, dev_stats.view(), uint64_t(0));
+  cuvs::detail::matrix_fill(res, dev_stats.view(), uint64_t(0));
 
   namespace bli                       = cuvs::spatial::knn::detail::utils;
   auto [copy_stream, enable_prefetch] = bli::get_prefetch_stream(res);

@@ -1,0 +1,58 @@
+[
+  {
+    "return_type": "float*",
+    "qualified_function": "cuvs::detail::thrust_fill_n",
+    "template_arguments": "",
+    "parameter_types": "rmm::exec_policy_nosync const&, float*, unsigned long, float const&",
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_f32_ptr_ulong_f32_c_ref"
+  },
+  {
+    "return_type": "unsigned int*",
+    "qualified_function": "cuvs::detail::thrust_fill_n",
+    "template_arguments": "",
+    "parameter_types": "rmm::exec_policy_nosync const&, unsigned int*, unsigned long, unsigned int const&",
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_u32_ptr_ulong_u32_c_ref"
+  },
+  {
+    "return_type": "int*",
+    "qualified_function": "cuvs::detail::thrust_fill_n",
+    "template_arguments": "",
+    "parameter_types": "rmm::exec_policy_nosync const&, int*, ptrdiff_t, int const&",
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_int_ptr_ptrdiff_t_int_c_ref"
+  },
+  {
+    "return_type": "half*",
+    "qualified_function": "cuvs::detail::thrust_fill_n",
+    "template_arguments": "",
+    "parameter_types": "thrust::cuda_cub::execute_on_stream const&, half*, ptrdiff_t, half const&",
+    "function_qualifiers": "",
+    "instantiation_name": "execute_on_stream_c_ref_half_ptr_ptrdiff_t_half_c_ref"
+  },
+  {
+    "return_type": "double*",
+    "qualified_function": "cuvs::detail::thrust_fill_n",
+    "template_arguments": "",
+    "parameter_types": "thrust::cuda_cub::execute_on_stream const&, double*, ptrdiff_t, double const&",
+    "function_qualifiers": "",
+    "instantiation_name": "execute_on_stream_c_ref_f64_ptr_ptrdiff_t_f64_c_ref"
+  },
+  {
+    "return_type": "float*",
+    "qualified_function": "cuvs::detail::thrust_fill_n",
+    "template_arguments": "",
+    "parameter_types": "thrust::cuda_cub::execute_on_stream const&, float*, ptrdiff_t, float const&",
+    "function_qualifiers": "",
+    "instantiation_name": "execute_on_stream_c_ref_f32_ptr_ptrdiff_t_f32_c_ref"
+  },
+  {
+    "return_type": "int*",
+    "qualified_function": "cuvs::detail::thrust_fill_n",
+    "template_arguments": "",
+    "parameter_types": "thrust::cuda_cub::execute_on_stream const&, int*, ptrdiff_t, int const&",
+    "function_qualifiers": "",
+    "instantiation_name": "execute_on_stream_c_ref_int_ptr_ptrdiff_t_int_c_ref"
+  }
+]

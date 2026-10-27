@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/thrust_fill_launchers.hpp"
 #include "../detail/haversine_distance.cuh"
 #include "common.cuh"
 #include "registers.hpp"
@@ -1134,9 +1135,10 @@ void rbc_low_dim_pass_two(raft::resources const& handle,
 
   rmm::device_uvector<std::uint32_t> bitset(bitset_size * n_query_rows,
                                             raft::resource::get_cuda_stream(handle));
-  raft::matrix::fill(handle,
-                     raft::make_device_vector_view<std::uint32_t>(bitset.data(), bitset.size()),
-                     std::uint32_t(0));
+  cuvs::detail::matrix_fill(
+    handle,
+    raft::make_device_vector_view<std::uint32_t>(bitset.data(), bitset.size()),
+    std::uint32_t(0));
 
   perform_post_filter_registers<value_idx, value_t, std::uint32_t, 128>
     <<<n_query_rows,

@@ -1,0 +1,125 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+#include <core/thrust_fill_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/matrix/init.cuh>
+
+extern template void
+raft::linalg::detail::map<false, unsigned long, unsigned long, raft::const_op<unsigned long>>(
+  cuda::stream_ref, unsigned long*, unsigned long, raft::const_op<unsigned long>);
+
+extern template void
+raft::linalg::detail::map<false, unsigned long, int, raft::const_op<unsigned long>>(
+  cuda::stream_ref, unsigned long*, int, raft::const_op<unsigned long>);
+
+extern template void
+raft::linalg::detail::map<false, unsigned int, unsigned long, raft::const_op<unsigned int>>(
+  cuda::stream_ref, unsigned int*, unsigned long, raft::const_op<unsigned int>);
+
+extern template void raft::linalg::detail::map<false,
+                                               raft::KeyValuePair<long, float>,
+                                               long,
+                                               raft::const_op<raft::KeyValuePair<long, float>>>(
+  cuda::stream_ref,
+  raft::KeyValuePair<long, float>*,
+  long,
+  raft::const_op<raft::KeyValuePair<long, float>>);
+
+extern template void raft::linalg::detail::map<false,
+                                               raft::KeyValuePair<long, double>,
+                                               long,
+                                               raft::const_op<raft::KeyValuePair<long, double>>>(
+  cuda::stream_ref,
+  raft::KeyValuePair<long, double>*,
+  long,
+  raft::const_op<raft::KeyValuePair<long, double>>);
+
+extern template void raft::linalg::detail::
+  map<false, raft::KeyValuePair<int, float>, int, raft::const_op<raft::KeyValuePair<int, float>>>(
+    cuda::stream_ref,
+    raft::KeyValuePair<int, float>*,
+    int,
+    raft::const_op<raft::KeyValuePair<int, float>>);
+
+extern template void raft::linalg::detail::
+  map<false, raft::KeyValuePair<int, double>, int, raft::const_op<raft::KeyValuePair<int, double>>>(
+    cuda::stream_ref,
+    raft::KeyValuePair<int, double>*,
+    int,
+    raft::const_op<raft::KeyValuePair<int, double>>);
+
+extern template void raft::linalg::detail::map<false, long, unsigned int, raft::const_op<long>>(
+  cuda::stream_ref, long*, unsigned int, raft::const_op<long>);
+
+extern template void raft::linalg::detail::map<false, int, unsigned long, raft::const_op<int>>(
+  cuda::stream_ref, int*, unsigned long, raft::const_op<int>);
+
+extern template void raft::linalg::detail::map<false, bool, long, raft::const_op<bool>>(
+  cuda::stream_ref, bool*, long, raft::const_op<bool>);
+
+extern template void raft::linalg::detail::map<false, long, unsigned long, raft::const_op<long>>(
+  cuda::stream_ref, long*, unsigned long, raft::const_op<long>);
+
+extern template void raft::linalg::detail::map<false, long, long, raft::const_op<long>>(
+  cuda::stream_ref, long*, long, raft::const_op<long>);
+
+extern template void raft::linalg::detail::map<false, int, long, raft::const_op<int>>(
+  cuda::stream_ref, int*, long, raft::const_op<int>);
+
+extern template void raft::linalg::detail::map<false, float, unsigned long, raft::const_op<float>>(
+  cuda::stream_ref, float*, unsigned long, raft::const_op<float>);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::const_op<float>>(
+  cuda::stream_ref, float*, long, raft::const_op<float>);
+
+extern template void raft::linalg::detail::map<false, float, int, raft::const_op<float>>(
+  cuda::stream_ref, float*, int, raft::const_op<float>);
+
+extern template void raft::linalg::detail::map<false, double, long, raft::const_op<double>>(
+  cuda::stream_ref, double*, long, raft::const_op<double>);
+
+extern template void raft::linalg::detail::map<false, double, int, raft::const_op<double>>(
+  cuda::stream_ref, double*, int, raft::const_op<double>);
+
+extern template void raft::linalg::detail::map<false, float, unsigned int, raft::const_op<float>>(
+  cuda::stream_ref, float*, unsigned int, raft::const_op<float>);
+
+extern template void raft::linalg::detail::map<false, double, unsigned int, raft::const_op<double>>(
+  cuda::stream_ref, double*, unsigned int, raft::const_op<double>);
+
+extern template void raft::linalg::detail::map<false, uint32_t, int64_t, raft::const_op<uint32_t>>(
+  cuda::stream_ref, uint32_t*, int64_t, raft::const_op<uint32_t>);
+extern template void
+raft::linalg::detail::map<false, uint32_t, unsigned int, raft::const_op<uint32_t>>(
+  cuda::stream_ref, uint32_t*, unsigned int, raft::const_op<uint32_t>);
+
+namespace cuvs::detail {
+
+template <typename math_t, typename extents, typename layout>
+void matrix_fill(raft::resources const& handle,
+                 raft::device_mdspan<const math_t, extents, layout> in,
+                 raft::device_mdspan<math_t, extents, layout> out,
+                 raft::host_scalar_view<math_t> scalar)
+
+{
+  return raft::matrix::fill(handle, in, out, scalar);
+}
+
+template <typename math_t, typename extents, typename layout>
+void matrix_fill(raft::resources const& handle,
+                 raft::device_mdspan<math_t, extents, layout> inout,
+                 math_t scalar)
+
+{
+  return raft::matrix::fill(handle, inout, scalar);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

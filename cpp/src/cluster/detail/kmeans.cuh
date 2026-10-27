@@ -8,6 +8,7 @@
 
 #include "../../core/cub_runtime_launchers.hpp"
 #include "../../core/nvtx.hpp"
+#include "../../core/thrust_fill_launchers.hpp"
 #include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"
 #include "kmeans_common.cuh"
@@ -845,10 +846,10 @@ void kmeans_fit(
       weight_batches.emplace(
         handle, weight_view, device_buffer_samples, batch_copy_stream, batch_mr, enable_prefetch);
     } else {
-      raft::matrix::fill(handle, batch_weights_buf.view(), DataT{1});
+      cuvs::detail::matrix_fill(handle, batch_weights_buf.view(), DataT{1});
     }
   } else if (weight_ptr == nullptr) {
-    raft::matrix::fill(handle, batch_weights_buf.view(), DataT{1});
+    cuvs::detail::matrix_fill(handle, batch_weights_buf.view(), DataT{1});
   }
 
   std::optional<raft::device_vector<DataT, IndexT>> prenormalized_weights;
@@ -994,9 +995,9 @@ void kmeans_fit(
 
       RAFT_LOG_DEBUG("KMeans.fit: Iteration-%d", n_current_iter);
 
-      raft::matrix::fill(handle, centroid_sums.view(), DataT{0});
-      raft::matrix::fill(handle, weight_per_cluster.view(), DataT{0});
-      raft::matrix::fill(handle, clustering_cost.view(), DataT{0});
+      cuvs::detail::matrix_fill(handle, centroid_sums.view(), DataT{0});
+      cuvs::detail::matrix_fill(handle, weight_per_cluster.view(), DataT{0});
+      cuvs::detail::matrix_fill(handle, clustering_cost.view(), DataT{0});
 
       // Complete iteration setup before starting the cold pipeline, so no potentially blocking
       // CUDA setup remains between the first transfer and its first consumer.
@@ -1116,7 +1117,7 @@ void kmeans_fit(
         cur_centroids_ptr, n_clusters, n_features);
 
       iter_inertia = DataT{0};
-      raft::matrix::fill(handle, clustering_cost.view(), DataT{0});
+      cuvs::detail::matrix_fill(handle, clustering_cost.view(), DataT{0});
       data_batches.start();
       if (weight_batches.has_value()) { weight_batches->start(); }
       for (std::size_t batch_pos = 0; batch_pos < data_batches.num_batches(); ++batch_pos) {
@@ -1269,7 +1270,7 @@ void kmeans_predict(raft::resources const& handle,
   if (sample_weight.has_value())
     raft::copy(handle, weight.view(), sample_weight.value());
   else
-    raft::matrix::fill(handle, weight.view(), DataT(1));
+    cuvs::detail::matrix_fill(handle, weight.view(), DataT(1));
 
   if (normalize_weight && sample_weight.has_value()) {
     auto d_wt_sum = raft::make_device_scalar<DataT>(handle, DataT{0});

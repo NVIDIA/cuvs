@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../core/mnmg_comms.cuh"
+#include "../../core/thrust_fill_launchers.hpp"
 #include "kmeans.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
@@ -215,7 +216,7 @@ raft::device_matrix<DataT, IndexT> sample_global_rows(
   }
 
   auto sampled_rows = raft::make_device_matrix<DataT, IndexT>(handle, sample_size, n_features);
-  raft::matrix::fill(handle, sampled_rows.view(), DataT{0});
+  cuvs::detail::matrix_fill(handle, sampled_rows.view(), DataT{0});
 
   for (auto const& owned_sample : owned_samples) {
     auto [part_idx, row_in_part] = locate_local_row(part_offsets, owned_sample.local_idx);

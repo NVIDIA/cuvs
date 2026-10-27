@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/thrust_fill_launchers.hpp"
 #include "gmm_kernels.cuh"
 
 #include <cuvs/cluster/gmm.hpp>
@@ -327,7 +328,8 @@ void e_step(raft::resources const& handle,
     rmm::device_uvector<T> mut((size_t)K * d, stream);
     rmm::device_uvector<T> ones_pc(K, stream);
     rmm::device_uvector<T> const_k(K, stream);
-    thrust::fill(thrust::cuda::par.on(stream), ones_pc.data(), ones_pc.data() + K, T(1));
+    cuvs::detail::thrust_fill(
+      thrust::cuda::par.on(stream), ones_pc.data(), ones_pc.data() + K, T(1));
     T one = T(1), zero = T(0);
     raft::linalg::gemm(
       handle, false, false, d, n, d, &one, prec_chol, d, X, d, &zero, xt.data(), d, stream);
@@ -395,7 +397,7 @@ struct MStepWorkspace {
     cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
     covariance_type ct  = params.cov_type;
     ones.resize(n, stream);
-    thrust::fill(thrust::cuda::par.on(stream), ones.data(), ones.data() + n, T(1));
+    cuvs::detail::thrust_fill(thrust::cuda::par.on(stream), ones.data(), ones.data() + n, T(1));
     if (ct == covariance_type::FULL) {
       centered.resize((size_t)n * d, stream);
       // batched precision-Cholesky scratch
@@ -1245,7 +1247,8 @@ void fused_score(raft::resources const& handle,
     rmm::device_uvector<T> xt((size_t)n * d, stream);
     rmm::device_uvector<T> mut((size_t)K * d, stream);
     rmm::device_uvector<T> ones_pc(K, stream);
-    thrust::fill(thrust::cuda::par.on(stream), ones_pc.data(), ones_pc.data() + K, T(1));
+    cuvs::detail::thrust_fill(
+      thrust::cuda::par.on(stream), ones_pc.data(), ones_pc.data() + K, T(1));
     T one = T(1), zero = T(0);
     // X̃ = X @ U  and  μ̃ = means @ U  (same GEMM convention as the E-step).
     raft::linalg::gemm(

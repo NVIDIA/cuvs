@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/thrust_fill_launchers.hpp"
 #include "common.hpp"
 #include "coo_spmv_strategies/dense_smem_strategy.cuh"
 #include "coo_spmv_strategies/hash_strategy.cuh"
@@ -44,7 +45,7 @@ inline void balanced_coo_pairwise_generalized_spmv(
   strategy_t strategy,
   int chunk_size = 500000)
 {
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     config_.handle,
     raft::make_device_vector_view(out_dists, (int64_t)config_.a_nrows * config_.b_nrows),
     value_t(0));
@@ -100,7 +101,7 @@ inline void balanced_coo_pairwise_generalized_spmv(
   write_f write_func,
   int chunk_size = 500000)
 {
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     config_.handle,
     raft::make_device_vector_view(out_dists, (int64_t)config_.a_nrows * config_.b_nrows),
     value_t(0));

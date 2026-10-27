@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/thrust_fill_launchers.hpp"
 #include "compress_to_bits.cuh"
 #include "fused_distance_nn/fused_l2_nn.cuh"
 #include "masked_distance_base.cuh"
@@ -255,9 +256,9 @@ void masked_l2_nn_impl(raft::resources const& handle,
   size_t m_div_64 = raft::ceildiv(m, IdxT(64));
   rmm::device_uvector<uint64_t> ws_adj64{m_div_64 * num_groups, stream, ws_mr};
   rmm::device_uvector<int> ws_fused_nn{size_t(m), stream, ws_mr};
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     handle, raft::make_device_vector_view(ws_adj64.data(), ws_adj64.size()), uint64_t(0));
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     handle, raft::make_device_vector_view(ws_fused_nn.data(), ws_fused_nn.size()), int(0));
 
   // Compress boolean adjacency matrix to bitfield.

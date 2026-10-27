@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/thrust_fill_launchers.hpp"
 #include "ann_utils.cuh"
 #include "neighbors_device_intrinsics.cuh"
 #include "nn_descent_gnnd.hpp"
@@ -2362,11 +2363,11 @@ GNND<Data_t, Index_t>::GNND(raft::resources const& res, const BuildConfig& build
 {
   static_assert(NUM_SAMPLES <= 32);
 
-  raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
+  cuvs::detail::matrix_fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
   auto graph_buffer_view = raft::make_device_matrix_view<Index_t, int64_t>(
     reinterpret_cast<Index_t*>(graph_buffer_.data_handle()), nrow_, DEGREE_ON_DEVICE);
-  raft::matrix::fill(res, graph_buffer_view, std::numeric_limits<Index_t>::max());
-  raft::matrix::fill(res, d_locks_.view(), 0);
+  cuvs::detail::matrix_fill(res, graph_buffer_view, std::numeric_limits<Index_t>::max());
+  cuvs::detail::matrix_fill(res, d_locks_.view(), 0);
 
   if (build_config.metric == cuvs::distance::DistanceType::L2Expanded ||
       build_config.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
@@ -2381,11 +2382,11 @@ GNND<Data_t, Index_t>::GNND(raft::resources const& res, const BuildConfig& build
 template <typename Data_t, typename Index_t>
 void GNND<Data_t, Index_t>::reset(raft::resources const& res)
 {
-  raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
+  cuvs::detail::matrix_fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
   auto graph_buffer_view = raft::make_device_matrix_view<Index_t, int64_t>(
     reinterpret_cast<Index_t*>(graph_buffer_.data_handle()), nrow_, DEGREE_ON_DEVICE);
-  raft::matrix::fill(res, graph_buffer_view, std::numeric_limits<Index_t>::max());
-  raft::matrix::fill(res, d_locks_.view(), 0);
+  cuvs::detail::matrix_fill(res, graph_buffer_view, std::numeric_limits<Index_t>::max());
+  cuvs::detail::matrix_fill(res, d_locks_.view(), 0);
 }
 
 template <typename Data_t, typename Index_t>
@@ -2395,7 +2396,7 @@ void GNND<Data_t, Index_t>::add_reverse_edges(Index_t* graph_ptr,
                                               int2* list_sizes,
                                               cudaStream_t stream)
 {
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     res,
     raft::make_device_matrix_view<Index_t, int64_t>(d_rev_graph_ptr, nrow_, DEGREE_ON_DEVICE),
     std::numeric_limits<Index_t>::max());
@@ -2410,7 +2411,7 @@ template <typename Data_t, typename Index_t>
 template <typename DistEpilogue_t>
 void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_epilogue)
 {
-  raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
+  cuvs::detail::matrix_fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
 
   // Kernel dispatch logic, based on the effective distance-computation dtype (which depends on
   // the input dtype and dist_comp_dtype):
@@ -2482,7 +2483,7 @@ void GNND<Data_t, Index_t>::local_join(
   cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
   DistEpilogue_t dist_epilogue)
 {
-  raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
+  cuvs::detail::matrix_fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
 
   // Both kernels take the same (document, query) pair, so there is no symmetric/asymmetric split
   // here: a single quantizer just means the same one on both operands, which is exactly what

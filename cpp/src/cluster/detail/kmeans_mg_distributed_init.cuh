@@ -6,6 +6,7 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/mnmg_comms.cuh"
+#include "../../core/thrust_fill_launchers.hpp"
 #include "kmeans.cuh"
 #include "kmeans_common.cuh"
 #include "kmeans_mg_batched_init.cuh"
@@ -270,7 +271,7 @@ void initKMeansPlusPlus_distributed(
   // Per-rank "is this local row already a chosen centroid" bitmap.
   auto isSampleCentroid =
     raft::make_device_vector<std::uint8_t, IndexT>(handle, std::max(n_local, IndexT{1}));
-  if (n_local > 0) { raft::matrix::fill(handle, isSampleCentroid.view(), std::uint8_t{0}); }
+  if (n_local > 0) { cuvs::detail::matrix_fill(handle, isSampleCentroid.view(), std::uint8_t{0}); }
   if (rank == rp) {
     const std::uint8_t one = 1;
     raft::copy(isSampleCentroid.data_handle() + chosen_local_idx, &one, 1, stream);
@@ -419,7 +420,7 @@ void initKMeansPlusPlus_distributed(
   if (static_cast<IndexT>(potentialCentroids.extent(0)) > n_clusters) {
     const auto n_candidates = static_cast<IndexT>(potentialCentroids.extent(0));
     auto weight             = raft::make_device_vector<DataT, IndexT>(handle, n_candidates);
-    raft::matrix::fill(handle, weight.view(), DataT{0});
+    cuvs::detail::matrix_fill(handle, weight.view(), DataT{0});
 
     auto part_weight = raft::make_device_vector<DataT, IndexT>(handle, n_candidates);
     for (std::size_t p = 0; p < X_parts.size(); ++p) {
@@ -430,7 +431,7 @@ void initKMeansPlusPlus_distributed(
       auto norm_slice = raft::make_device_vector_view<DataT, IndexT>(
         L2NormX.data_handle() + part_offsets[p], part_rows);
 
-      raft::matrix::fill(handle, part_weight.view(), DataT{0});
+      cuvs::detail::matrix_fill(handle, part_weight.view(), DataT{0});
       cuvs::cluster::kmeans::count_samples_in_cluster<DataT, IndexT>(
         handle, params, x_slice, norm_slice, potentialCentroids, workspace, part_weight.view());
 

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/thrust_fill_launchers.hpp"
 #include <cuvs/neighbors/all_neighbors.hpp>
 #include <cuvs/preprocessing/spectral_embedding.hpp>
 
@@ -172,7 +173,7 @@ void create_connectivity_graph(
   });
 
   // set all distances to 1.0f (connectivity KNN graph)
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     handle, raft::make_device_vector_view<float, NNZType>(d_distances.data_handle(), nnz), 1.0f);
 
   auto coo_matrix_view = raft::make_device_coo_matrix_view<const float, int, int, NNZType>(

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/thrust_fill_launchers.hpp"
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/add.cuh>
@@ -220,21 +221,21 @@ DataT silhouette_score(
   } else {
     perSampleSilScore = silhouette_scorePerSample;
   }
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     handle, raft::make_device_vector_view<DataT, int>(perSampleSilScore, nRows), DataT(0));
 
   // getting the sample count per cluster
   rmm::device_uvector<DataT> binCountArray(nLabels, stream);
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     handle, raft::make_device_vector_view<DataT, int>(binCountArray.data(), nLabels), DataT(0));
   countLabels(labels, binCountArray.data(), nRows, nLabels, workspace, stream);
 
   // calculating the sample-cluster-distance-sum-array
   rmm::device_uvector<DataT> sampleToClusterSumOfDistances(nRows * nLabels, stream);
-  raft::matrix::fill(handle,
-                     raft::make_device_vector_view<DataT, int>(sampleToClusterSumOfDistances.data(),
-                                                               nRows * nLabels),
-                     DataT(0));
+  cuvs::detail::matrix_fill(handle,
+                            raft::make_device_vector_view<DataT, int>(
+                              sampleToClusterSumOfDistances.data(), nRows * nLabels),
+                            DataT(0));
   raft::linalg::reduce_cols_by_key(handle,
                                    raft::make_device_matrix_view<const DataT, int, raft::row_major>(
                                      distanceMatrix.data(), nRows, nRows),
@@ -246,9 +247,9 @@ DataT silhouette_score(
   // creating the a array and b array
   rmm::device_uvector<DataT> d_aArray(nRows, stream);
   rmm::device_uvector<DataT> d_bArray(nRows, stream);
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     handle, raft::make_device_vector_view<DataT, int>(d_aArray.data(), nRows), DataT(0));
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     handle, raft::make_device_vector_view<DataT, int>(d_bArray.data(), nRows), DataT(0));
 
   // kernel that populates the d_aArray
@@ -268,10 +269,10 @@ DataT silhouette_score(
 
   // elementwise dividing by bincounts
   rmm::device_uvector<DataT> averageDistanceBetweenSampleAndCluster(nRows * nLabels, stream);
-  raft::matrix::fill(handle,
-                     raft::make_device_vector_view<DataT, int>(
-                       averageDistanceBetweenSampleAndCluster.data(), nRows * nLabels),
-                     DataT(0));
+  cuvs::detail::matrix_fill(handle,
+                            raft::make_device_vector_view<DataT, int>(
+                              averageDistanceBetweenSampleAndCluster.data(), nRows * nLabels),
+                            DataT(0));
 
   auto averageDistanceBetweenSampleAndClusterView = raft::make_device_matrix_view<DataT>(
     averageDistanceBetweenSampleAndCluster.data(), nRows, nLabels);
@@ -313,7 +314,7 @@ DataT silhouette_score(
 
   // calculating the sum of all the silhouette score
   rmm::device_scalar<DataT> d_avgSilhouetteScore(stream);
-  raft::matrix::fill(
+  cuvs::detail::matrix_fill(
     handle, raft::make_device_vector_view<DataT, int>(d_avgSilhouetteScore.data(), 1), DataT(0));
 
   raft::linalg::mapThenSumReduce<DataT, raft::identity_op>(d_avgSilhouetteScore.data(),

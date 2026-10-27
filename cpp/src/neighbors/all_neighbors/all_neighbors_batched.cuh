@@ -5,6 +5,7 @@
 
 #pragma once
 #include "../../core/omp_wrapper.hpp"
+#include "../../core/thrust_fill_launchers.hpp"
 #include "../detail/reachability.cuh"
 #include "all_neighbors_builder.cuh"
 #include "raft/core/logger_macros.hpp"
@@ -57,11 +58,11 @@ void reset_global_matrices(raft::resources const& res,
               global_distances_fill_value);
   } else {
     // device or managed memory: fill on the GPU (managed is device-accessible)
-    raft::matrix::fill(
+    cuvs::detail::matrix_fill(
       res,
       raft::make_device_matrix_view<IdxT, IdxT>(global_neighbors.data_handle(), num_rows, k),
       global_neighbors_fill_value);
-    raft::matrix::fill(
+    cuvs::detail::matrix_fill(
       res,
       raft::make_device_matrix_view<T, IdxT>(global_distances.data_handle(), num_rows, k),
       global_distances_fill_value);

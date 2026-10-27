@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/thrust_fill_launchers.hpp"
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
@@ -469,7 +470,7 @@ void sharded_search_with_tree_merge(
                               raft::resource::get_cuda_stream(dev_res).get());
 
       auto d_trans = raft::make_device_vector<searchIdxT>(dev_res, 2);
-      raft::matrix::fill(dev_res, d_trans.view(), searchIdxT(0));
+      cuvs::detail::matrix_fill(dev_res, d_trans.view(), searchIdxT(0));
 
       int64_t remaining = index.num_ranks_;
       int64_t radix     = 2;

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../core/thrust_fill_launchers.hpp"
 #include "../../distance/top_1_nn.cuh"
 #include "kmeans_common.cuh"
 
@@ -291,7 +292,7 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
     if (plan.output_layout == cuvs::distance::detail::Top1nnOutputLayout::KeyValuePair) {
       auto output = raft::make_device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT>(
         result.key_values(), n_samples);
-      raft::matrix::fill(
+      cuvs::detail::matrix_fill(
         handle, output, raft::KeyValuePair<IndexT, DataT>{0, std::numeric_limits<DataT>::max()});
       init_out_buffer = false;
     }
@@ -350,7 +351,7 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
   auto output =
     raft::make_device_vector_view<raft::KeyValuePair<IndexT, DataT>, IndexT>(kvp_output, n_samples);
   raft::KeyValuePair<IndexT, DataT> initial_value(0, std::numeric_limits<DataT>::max());
-  raft::matrix::fill(handle, output, initial_value);
+  cuvs::detail::matrix_fill(handle, output, initial_value);
 
   for (IndexT dIdx = 0; dIdx < n_samples; dIdx += dataBatchSize) {
     auto ns          = std::min(static_cast<IndexT>(dataBatchSize), n_samples - dIdx);
@@ -540,7 +541,7 @@ void minClusterDistanceCompute(
   L2NormBuf_OR_DistBuf.resize(dataBatchSize * centroidsBatchSize, stream);
   auto pairwiseDistance = raft::make_device_matrix_view<DataT, IndexT>(
     L2NormBuf_OR_DistBuf.data(), dataBatchSize, centroidsBatchSize);
-  raft::matrix::fill(handle, minClusterDistance, std::numeric_limits<DataT>::max());
+  cuvs::detail::matrix_fill(handle, minClusterDistance, std::numeric_limits<DataT>::max());
   for (IndexT dIdx = 0; dIdx < n_samples; dIdx += dataBatchSize) {
     auto ns          = std::min(static_cast<IndexT>(dataBatchSize), n_samples - dIdx);
     auto datasetView = raft::make_device_matrix_view<const DataT, IndexT>(

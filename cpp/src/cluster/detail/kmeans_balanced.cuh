@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/thrust_fill_launchers.hpp"
 #include "kmeans_common.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -222,7 +223,7 @@ inline void predict_bitwise_hamming(const raft::resources& handle,
   auto minClusterAndDistance = raft::make_device_mdarray<raft::KeyValuePair<IdxT, uint32_t>, IdxT>(
     handle, mr, raft::make_extents<IdxT>(n_rows));
   raft::KeyValuePair<IdxT, uint32_t> initial_value(0, std::numeric_limits<uint32_t>::max());
-  raft::matrix::fill(handle, minClusterAndDistance.view(), initial_value);
+  cuvs::detail::matrix_fill(handle, minClusterAndDistance.view(), initial_value);
 
   cuvs::distance::fusedDistanceNNMinReduce<uint8_t, raft::KeyValuePair<IdxT, uint32_t>, IdxT>(
     handle,
@@ -703,7 +704,7 @@ void predict(const raft::resources& handle,
   rmm::device_uvector<MathT> cur_dataset_norm(
     need_norm || native_half ? max_minibatch_size : 0, stream, mem_res);
   if (need_norm && params.is_packed_binary) {
-    raft::matrix::fill(
+    cuvs::detail::matrix_fill(
       handle,
       raft::make_device_matrix_view<MathT, IdxT>(cur_dataset_norm.data(), max_minibatch_size, 1),
       static_cast<MathT>(transformed_dim));
@@ -1429,9 +1430,10 @@ auto build_fine_clusters(const raft::resources& handle,
         params.metric == cuvs::distance::DistanceType::CosineExpanded) {
       if (params.is_packed_binary) {
         // Expanded bits have a constant squared row norm.
-        raft::matrix::fill(handle,
-                           raft::make_device_matrix_view<MathT, IdxT>(mc_trainset_norm, k, 1),
-                           static_cast<MathT>(transformed_dim));
+        cuvs::detail::matrix_fill(
+          handle,
+          raft::make_device_matrix_view<MathT, IdxT>(mc_trainset_norm, k, 1),
+          static_cast<MathT>(transformed_dim));
       } else {
         thrust::gather(raft::resource::get_thrust_policy(handle),
                        mc_trainset_ids,
@@ -1546,7 +1548,7 @@ void build_hierarchical(const raft::resources& handle,
              (params.metric == cuvs::distance::DistanceType::L2Expanded ||
               params.metric == cuvs::distance::DistanceType::L2SqrtExpanded)) {
     dataset_norm_buf.resize(n_rows, stream);
-    raft::matrix::fill(
+    cuvs::detail::matrix_fill(
       handle,
       raft::make_device_matrix_view<MathT, IdxT>(dataset_norm_buf.data(), n_rows, 1),
       static_cast<MathT>(transformed_dim));

@@ -5,6 +5,7 @@
 #pragma once
 
 // TODO: This shouldn't be invoking anything from detail outside of neighbors namespace
+#include "../../../core/thrust_fill_launchers.hpp"
 #include <raft/core/copy.cuh>
 #include <raft/core/detail/macros.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -290,7 +291,7 @@ void copy_with_padding(
     raft::copy(res, dst.view(), src);
   } else {
     // copy with padding
-    raft::matrix::fill(res, dst.view(), T(0));
+    cuvs::detail::matrix_fill(res, dst.view(), T(0));
     raft::copy_matrix(dst.data_handle(),
                       dst.extent(1),
                       src.data_handle(),

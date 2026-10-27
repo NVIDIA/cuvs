@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../core/thrust_fill_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 
@@ -182,7 +183,7 @@ double trustworthiness_score(const raft::resources& h,
     build_lookup_table<<<n_blocks, N_THREADS, 0, stream>>>(
       lookup_table.data(), X_ind.data(), n, work);
 
-    raft::matrix::fill(h, raft::make_device_scalar_view(t_dbuf.data()), double(0));
+    cuvs::detail::matrix_fill(h, raft::make_device_scalar_view(t_dbuf.data()), double(0));
 
     work     = curBatchSize * (n_neighbors + 1);
     n_blocks = raft::ceildiv(work, N_THREADS);
