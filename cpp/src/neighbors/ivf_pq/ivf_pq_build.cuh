@@ -154,73 +154,7 @@ void flat_compute_residuals(
   const T* dataset,                                                          // [n_rows, dim]
   std::variant<uint32_t, const uint32_t*> labels,                            // [n_rows]
   rmm::device_async_resource_ref device_memory,
-  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded)
-{
-  auto stream  = raft::resource::get_cuda_stream(handle);
-  auto dim     = rotation_matrix.extent(1);
-  auto rot_dim = rotation_matrix.extent(0);
-  rmm::device_uvector<float> tmp(n_rows * dim, stream, device_memory);
-  auto tmp_view = raft::make_device_vector_view<float, size_t>(tmp.data(), tmp.size());
-
-  if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-    cuvs::detail::map(
-      handle,
-      tmp_view,
-      raft::cast_op<float>{},
-      raft::make_const_mdspan(raft::make_device_vector_view<const T, IdxT>(dataset, n_rows * dim)));
-    auto tmp_matrix_view = raft::make_device_matrix_view<float, size_t>(tmp.data(), n_rows, dim);
-    cuvs::detail::row_normalize<raft::linalg::L2Norm>(
-      handle, raft::make_const_mdspan(tmp_matrix_view), tmp_matrix_view);
-  } else {
-    raft::linalg::map_offset(
-      handle,
-      tmp_view,
-      [dim] __device__(size_t i, T val) { return utils::mapping<float>{}(val); },
-      raft::make_const_mdspan(raft::make_device_vector_view<const T, IdxT>(dataset, n_rows * dim)));
-  }
-
-  raft::linalg::map_offset(
-    handle,
-    tmp_view,
-    [centers, labels, dim] __device__(size_t i, float val) {
-      auto row_ix = i / dim;
-      auto el_ix  = i % dim;
-      auto label  = std::holds_alternative<uint32_t>(labels)
-                      ? std::get<uint32_t>(labels)
-                      : std::get<const uint32_t*>(labels)[row_ix];
-      return val - centers(label, el_ix);
-    },
-    raft::make_const_mdspan(tmp_view));
-
-  float alpha = 1.0f;
-  float beta  = 0.0f;
-  raft::linalg::gemm(handle,
-                     true,
-                     false,
-                     rot_dim,
-                     n_rows,
-                     dim,
-                     &alpha,
-                     rotation_matrix.data_handle(),
-                     dim,
-                     tmp.data(),
-                     dim,
-                     &beta,
-                     residuals,
-                     rot_dim,
-                     stream.get());
-}
-
-template <uint32_t BlockDim, typename IdxT>
-__launch_bounds__(BlockDim) static __global__ void fill_indices_kernel(IdxT n_rows,
-                                                                       IdxT* data_indices,
-                                                                       IdxT* data_offsets,
-                                                                       const uint32_t* labels)
-{
-  const auto i = IdxT(BlockDim) * IdxT(blockIdx.x) + IdxT(threadIdx.x);
-  if (i >= n_rows) { return; }
-  data_indices[atomicAdd<IdxT>(data_offsets + labels[i], 1)] = i;
-}
+  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded);
 
 /**
  * @brief Calculate cluster offsets and arrange data indices into clusters.
@@ -241,29 +175,7 @@ auto calculate_offsets_and_indices(IdxT n_rows,
                                    const uint32_t* cluster_sizes,
                                    IdxT* cluster_offsets,
                                    IdxT* data_indices,
-                                   cuda::stream_ref stream) -> uint32_t
-{
-  auto exec_policy = rmm::exec_policy(stream);
-  // Calculate the offsets
-  IdxT cumsum = 0;
-  raft::update_device(cluster_offsets, &cumsum, 1, stream);
-  cuvs::detail::thrust_inclusive_scan(
-    exec_policy, cluster_sizes, cluster_sizes + n_lists, cluster_offsets + 1, thrust::plus<>{});
-  raft::update_host(&cumsum, cluster_offsets + n_lists, 1, stream);
-  uint32_t max_cluster_size =
-    *cuvs::detail::thrust_max_element(exec_policy, cluster_sizes, cluster_sizes + n_lists);
-  stream.sync();
-  RAFT_EXPECTS(cumsum == n_rows, "cluster sizes do not add up.");
-  RAFT_LOG_DEBUG("Max cluster size %d", max_cluster_size);
-  rmm::device_uvector<IdxT> data_offsets_buf(n_lists, stream);
-  auto data_offsets = data_offsets_buf.data();
-  raft::copy(data_offsets, cluster_offsets, n_lists, stream);
-  constexpr uint32_t n_threads = 128;  // NOLINT
-  const IdxT n_blocks          = raft::div_rounding_up_unsafe(n_rows, n_threads);
-  fill_indices_kernel<n_threads>
-    <<<n_blocks, n_threads, 0, stream.get()>>>(n_rows, data_indices, data_offsets, labels);
-  return max_cluster_size;
-}
+                                   cuda::stream_ref stream) -> uint32_t;
 
 inline void pad_centers_with_norms(raft::resources const& res,
                                    const float* centers,
@@ -308,26 +220,7 @@ void set_centers(raft::resources const& handle,
 template <typename IdxT>
 void transpose_pq_centers(const raft::resources& handle,
                           owning_impl<IdxT>* impl,
-                          const float* pq_centers_source)
-{
-  auto extents = impl->pq_centers().extents();
-  static_assert(extents.rank() == 3);
-  auto extents_source =
-    raft::make_extents<uint32_t>(extents.extent(0), extents.extent(2), extents.extent(1));
-  auto span_source = raft::make_mdspan<const float, uint32_t, raft::row_major, false, true>(
-    pq_centers_source, extents_source);
-  auto pq_centers_view = raft::make_device_vector_view<float, IdxT>(
-    impl->pq_centers().data_handle(), impl->pq_centers().size());
-  raft::linalg::map_offset(handle, pq_centers_view, [span_source, extents] __device__(size_t i) {
-    uint32_t ii[3];
-    for (int r = 2; r > 0; r--) {
-      ii[r] = i % extents.extent(r);
-      i /= extents.extent(r);
-    }
-    ii[0] = i;
-    return span_source(ii[0], ii[2], ii[1]);
-  });
-}
+                          const float* pq_centers_source);
 
 template <typename IdxT>
 void train_per_subset(raft::resources const& handle,
@@ -1688,4 +1581,81 @@ inline void extract_centers(raft::resources const& res,
                     index.n_lists(),
                     stream);
 }
+// Share preparation kernels across build and transform front ends.
+extern template void flat_compute_residuals<__half, long>(
+  const raft::resources&,
+  float*,
+  long,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  const __half*,
+  std::variant<uint32_t, const uint32_t*>,
+  rmm::device_async_resource_ref,
+  cuvs::distance::DistanceType);
+extern template void flat_compute_residuals<float, long>(
+  const raft::resources&,
+  float*,
+  long,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  const float*,
+  std::variant<uint32_t, const uint32_t*>,
+  rmm::device_async_resource_ref,
+  cuvs::distance::DistanceType);
+extern template void flat_compute_residuals<float, unsigned int>(
+  const raft::resources&,
+  float*,
+  unsigned int,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  const float*,
+  std::variant<uint32_t, const uint32_t*>,
+  rmm::device_async_resource_ref,
+  cuvs::distance::DistanceType);
+extern template void flat_compute_residuals<signed char, long>(
+  const raft::resources&,
+  float*,
+  long,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  const signed char*,
+  std::variant<uint32_t, const uint32_t*>,
+  rmm::device_async_resource_ref,
+  cuvs::distance::DistanceType);
+extern template void flat_compute_residuals<signed char, unsigned int>(
+  const raft::resources&,
+  float*,
+  unsigned int,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  const signed char*,
+  std::variant<uint32_t, const uint32_t*>,
+  rmm::device_async_resource_ref,
+  cuvs::distance::DistanceType);
+extern template void flat_compute_residuals<unsigned char, long>(
+  const raft::resources&,
+  float*,
+  long,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  const unsigned char*,
+  std::variant<uint32_t, const uint32_t*>,
+  rmm::device_async_resource_ref,
+  cuvs::distance::DistanceType);
+extern template void flat_compute_residuals<unsigned char, unsigned int>(
+  const raft::resources&,
+  float*,
+  unsigned int,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  raft::device_matrix_view<const float, uint32_t, raft::row_major>,
+  const unsigned char*,
+  std::variant<uint32_t, const uint32_t*>,
+  rmm::device_async_resource_ref,
+  cuvs::distance::DistanceType);
+extern template void transpose_pq_centers<long>(const raft::resources&,
+                                                owning_impl<long>*,
+                                                const float*);
+extern template uint32_t calculate_offsets_and_indices<long>(
+  long, uint32_t, const uint32_t*, const uint32_t*, long*, long*, cuda::stream_ref);
+
 }  // namespace cuvs::neighbors::ivf_pq::detail

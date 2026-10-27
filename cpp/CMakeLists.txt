@@ -1450,6 +1450,15 @@ if(NOT BUILD_CPU_ONLY)
 
   generate_inst_matrix(
     cuvs_primitive_sources
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/flat_compute_residuals_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/flat_compute_residuals.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/flat_compute_residuals_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_argmin_matrix.json"
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_argmin.cu.in"
     OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_argmin_@instantiation_name@.cu"
@@ -1730,6 +1739,8 @@ if(NOT BUILD_CPU_ONLY)
     src/core/thrust_reduce_by_key.cu
     src/core/thrust_stable_sort_by_key.cu
     src/core/thrust_transform.cu
+    src/neighbors/ivf_pq/calculate_offsets_and_indices.cu
+    src/neighbors/ivf_pq/transpose_pq_centers.cu
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}
