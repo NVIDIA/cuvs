@@ -187,28 +187,6 @@ struct MutualReachabilityFixConnectivitiesRedOp {
   }
 };
 
-/**
- * Assumes 3-iterator tuple containing COO rows, cols, and
- * a cub keyvalue pair object. Sorts the 3 arrays in
- * ascending order: row->col->keyvaluepair
- */
-struct TupleComp {
-  template <typename one, typename two>
-  __host__ __device__ bool operator()(const one& t1, const two& t2)
-  {
-    // sort first by each sample's color,
-    if (cuda::std::get<0>(t1) < cuda::std::get<0>(t2)) return true;
-    if (cuda::std::get<0>(t1) > cuda::std::get<0>(t2)) return false;
-
-    // then by the color of each sample's closest neighbor,
-    if (cuda::std::get<1>(t1) < cuda::std::get<1>(t2)) return true;
-    if (cuda::std::get<1>(t1) > cuda::std::get<1>(t2)) return false;
-
-    // then sort by value in descending order
-    return cuda::std::get<2>(t1).value < cuda::std::get<2>(t2).value;
-  }
-};
-
 template <typename LabelT, typename DataT>
 struct CubKVPMinReduce {
   typedef raft::KeyValuePair<LabelT, DataT> KVP;
