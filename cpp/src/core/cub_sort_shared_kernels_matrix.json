@@ -1,0 +1,194 @@
+[
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending_RadixSortOnesweepKernel_pointer",
+    "method": "RadixSortOnesweepKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortOnesweepKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<int, int, unsigned long long>, (cub::SortOrder)0, int, int, unsigned long long, int, int, cub::detail::identity_decomposer_t",
+    "instantiation_name": "pairs_i32_i32_u64_ascending_RadixSortOnesweepKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending_RadixSortInitLookbackKernel_pointer",
+    "method": "RadixSortInitLookbackKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<int, int, unsigned long long>, int, int",
+    "instantiation_name": "pairs_i32_i32_u64_ascending_RadixSortInitLookbackKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending_RadixSortInitBinsAndCountersKernel_pointer",
+    "method": "RadixSortInitBinsAndCountersKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<int, int, unsigned long long>, int, unsigned long long",
+    "instantiation_name": "pairs_i32_i32_u64_ascending_RadixSortInitBinsAndCountersKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending_RadixSortExclusiveSumKernel_pointer",
+    "method": "RadixSortExclusiveSumKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortExclusiveSumKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<int, int, unsigned long long>, unsigned long long",
+    "instantiation_name": "pairs_i32_i32_u64_ascending_RadixSortExclusiveSumKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending_RadixSortHistogramKernel_pointer",
+    "method": "RadixSortHistogramKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortHistogramKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<int, int, unsigned long long>, (cub::SortOrder)0, int, unsigned long long, cub::detail::identity_decomposer_t",
+    "instantiation_name": "pairs_i32_i32_u64_ascending_RadixSortHistogramKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i32_i32_u64_ascending_RadixSortSingleTileKernel_pointer",
+    "method": "RadixSortSingleTileKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortSingleTileKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<int, int, unsigned long long>, (cub::SortOrder)0, int, int, unsigned long long, cub::detail::identity_decomposer_t",
+    "instantiation_name": "pairs_i32_i32_u64_ascending_RadixSortSingleTileKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending_RadixSortOnesweepKernel_pointer",
+    "method": "RadixSortOnesweepKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortOnesweepKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<long, long, unsigned long long>, (cub::SortOrder)0, long, long, unsigned long long, int, int, cub::detail::identity_decomposer_t",
+    "instantiation_name": "pairs_i64_i64_u64_ascending_RadixSortOnesweepKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending_RadixSortInitLookbackKernel_pointer",
+    "method": "RadixSortInitLookbackKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<long, long, unsigned long long>, int, int",
+    "instantiation_name": "pairs_i64_i64_u64_ascending_RadixSortInitLookbackKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending_RadixSortInitBinsAndCountersKernel_pointer",
+    "method": "RadixSortInitBinsAndCountersKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<long, long, unsigned long long>, int, unsigned long long",
+    "instantiation_name": "pairs_i64_i64_u64_ascending_RadixSortInitBinsAndCountersKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending_RadixSortExclusiveSumKernel_pointer",
+    "method": "RadixSortExclusiveSumKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortExclusiveSumKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<long, long, unsigned long long>, unsigned long long",
+    "instantiation_name": "pairs_i64_i64_u64_ascending_RadixSortExclusiveSumKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending_RadixSortHistogramKernel_pointer",
+    "method": "RadixSortHistogramKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortHistogramKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<long, long, unsigned long long>, (cub::SortOrder)0, long, unsigned long long, cub::detail::identity_decomposer_t",
+    "instantiation_name": "pairs_i64_i64_u64_ascending_RadixSortHistogramKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::pairs_i64_i64_u64_ascending_RadixSortSingleTileKernel_pointer",
+    "method": "RadixSortSingleTileKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortSingleTileKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<long, long, unsigned long long>, (cub::SortOrder)0, long, long, unsigned long long, cub::detail::identity_decomposer_t",
+    "instantiation_name": "pairs_i64_i64_u64_ascending_RadixSortSingleTileKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i64_u64",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i64_u64_MergeSortMergeKernel_pointer",
+    "method": "MergeSortMergeKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortMergeKernel",
+    "kernel_arguments": "cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> > >, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, thrust::zip_iterator<cuda::std::tuple<long*> >, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, thrust::zip_iterator<cuda::std::tuple<long*> >, unsigned long long, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<long, long, raft::KeyValuePair<long, float> >, cuda::std::tuple<long>",
+    "instantiation_name": "mst_zip_i64_u64_MergeSortMergeKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i64_u64",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i64_u64_MergeSortPartitionKernel_pointer",
+    "method": "MergeSortPartitionKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortPartitionKernel",
+    "kernel_arguments": "thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, unsigned long long, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<long, long, raft::KeyValuePair<long, float> >",
+    "instantiation_name": "mst_zip_i64_u64_MergeSortPartitionKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i64_u64",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i64_u64_MergeSortBlockSortKernel_pointer",
+    "method": "MergeSortBlockSortKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortBlockSortKernel",
+    "kernel_arguments": "cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> > >, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, thrust::zip_iterator<cuda::std::tuple<long*> >, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, thrust::zip_iterator<cuda::std::tuple<long*> >, unsigned long long, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<long, long, raft::KeyValuePair<long, float> >, cuda::std::tuple<long>",
+    "instantiation_name": "mst_zip_i64_u64_MergeSortBlockSortKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i64_u32",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i64_u32_MergeSortMergeKernel_pointer",
+    "method": "MergeSortMergeKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortMergeKernel",
+    "kernel_arguments": "cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> > >, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, thrust::zip_iterator<cuda::std::tuple<long*> >, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, thrust::zip_iterator<cuda::std::tuple<long*> >, unsigned int, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<long, long, raft::KeyValuePair<long, float> >, cuda::std::tuple<long>",
+    "instantiation_name": "mst_zip_i64_u32_MergeSortMergeKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i64_u32",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i64_u32_MergeSortPartitionKernel_pointer",
+    "method": "MergeSortPartitionKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortPartitionKernel",
+    "kernel_arguments": "thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, unsigned int, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<long, long, raft::KeyValuePair<long, float> >",
+    "instantiation_name": "mst_zip_i64_u32_MergeSortPartitionKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i64_u32",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i64_u32_MergeSortBlockSortKernel_pointer",
+    "method": "MergeSortBlockSortKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortBlockSortKernel",
+    "kernel_arguments": "cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> > >, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, thrust::zip_iterator<cuda::std::tuple<long*> >, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*> >, thrust::zip_iterator<cuda::std::tuple<long*> >, unsigned int, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<long, long, raft::KeyValuePair<long, float> >, cuda::std::tuple<long>",
+    "instantiation_name": "mst_zip_i64_u32_MergeSortBlockSortKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i32_u64",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i32_u64_MergeSortMergeKernel_pointer",
+    "method": "MergeSortMergeKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortMergeKernel",
+    "kernel_arguments": "cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> > >, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, thrust::zip_iterator<cuda::std::tuple<int*> >, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, thrust::zip_iterator<cuda::std::tuple<int*> >, unsigned long long, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<int, int, raft::KeyValuePair<int, float> >, cuda::std::tuple<int>",
+    "instantiation_name": "mst_zip_i32_u64_MergeSortMergeKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i32_u64",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i32_u64_MergeSortPartitionKernel_pointer",
+    "method": "MergeSortPartitionKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortPartitionKernel",
+    "kernel_arguments": "thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, unsigned long long, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<int, int, raft::KeyValuePair<int, float> >",
+    "instantiation_name": "mst_zip_i32_u64_MergeSortPartitionKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i32_u64",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i32_u64_MergeSortBlockSortKernel_pointer",
+    "method": "MergeSortBlockSortKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortBlockSortKernel",
+    "kernel_arguments": "cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> > >, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, thrust::zip_iterator<cuda::std::tuple<int*> >, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, thrust::zip_iterator<cuda::std::tuple<int*> >, unsigned long long, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<int, int, raft::KeyValuePair<int, float> >, cuda::std::tuple<int>",
+    "instantiation_name": "mst_zip_i32_u64_MergeSortBlockSortKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i32_u32",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i32_u32_MergeSortMergeKernel_pointer",
+    "method": "MergeSortMergeKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortMergeKernel",
+    "kernel_arguments": "cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> > >, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, thrust::zip_iterator<cuda::std::tuple<int*> >, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, thrust::zip_iterator<cuda::std::tuple<int*> >, unsigned int, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<int, int, raft::KeyValuePair<int, float> >, cuda::std::tuple<int>",
+    "instantiation_name": "mst_zip_i32_u32_MergeSortMergeKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i32_u32",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i32_u32_MergeSortPartitionKernel_pointer",
+    "method": "MergeSortPartitionKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortPartitionKernel",
+    "kernel_arguments": "thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, unsigned int, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<int, int, raft::KeyValuePair<int, float> >",
+    "instantiation_name": "mst_zip_i32_u32_MergeSortPartitionKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::radix_launch::mst_zip_i32_u32",
+    "pointer_type": "cuvs::detail::radix_launch::mst_zip_i32_u32_MergeSortBlockSortKernel_pointer",
+    "method": "MergeSortBlockSortKernel",
+    "kernel_function": "cub::detail::merge_sort::DeviceMergeSortBlockSortKernel",
+    "kernel_arguments": "cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> > >, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, thrust::zip_iterator<cuda::std::tuple<int*> >, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*> >, thrust::zip_iterator<cuda::std::tuple<int*> >, unsigned int, cuvs::sparse::neighbors::detail::TupleComp, cuda::std::tuple<int, int, raft::KeyValuePair<int, float> >, cuda::std::tuple<int>",
+    "instantiation_name": "mst_zip_i32_u32_MergeSortBlockSortKernel"
+  }
+]
