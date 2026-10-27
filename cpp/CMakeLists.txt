@@ -61,6 +61,7 @@ option(BUILD_SHARED_LIBS "Build cuvs shared libraries" ON)
 option(BUILD_TESTS "Build cuvs unit-tests" ON)
 option(BUILD_C_LIBRARY "Build cuVS C API library" ON)
 option(BUILD_CUVS_BENCH "Build cuVS ann benchmarks" OFF)
+option(BUILD_CUVS_CLUSTER_BENCH "Build cuVS clustering benchmarks" OFF)
 option(BUILD_CAGRA_HNSWLIB "Build CAGRA+hnswlib interface" ON)
 option(BUILD_MG_ALGOS "Build with multi-GPU support" ON)
 option(BUILD_MNMG_TESTS
@@ -126,6 +127,7 @@ include(CMakeDependentOption)
 message(VERBOSE "cuVS: Build cuVS unit-tests: ${BUILD_TESTS}")
 message(VERBOSE "cuVS: Build CPU only components: ${BUILD_CPU_ONLY}")
 message(VERBOSE "cuVS: Build ANN benchmarks: ${BUILD_CUVS_BENCH}")
+message(VERBOSE "cuVS: Build clustering benchmarks: ${BUILD_CUVS_CLUSTER_BENCH}")
 message(VERBOSE "cuVS: Build only the shared library: ${CUVS_COMPILE_DYNAMIC_ONLY}")
 message(VERBOSE "cuVS: Enable detection of conda environment for dependencies: ${DETECT_CONDA_ENV}")
 message(VERBOSE "cuVS: Disable deprecation warnings " ${DISABLE_DEPRECATION_WARNINGS})
@@ -209,7 +211,7 @@ if(BUILD_TESTS OR BUILD_C_TESTS)
   rapids_cpm_gtest(BUILD_STATIC)
 endif()
 
-if(BUILD_CUVS_BENCH)
+if(BUILD_CUVS_BENCH OR BUILD_CUVS_CLUSTER_BENCH)
   include(${rapids-cmake-dir}/cpm/gbench.cmake)
   rapids_cpm_gbench(BUILD_STATIC)
 endif()
@@ -1862,4 +1864,11 @@ endif()
 
 if(BUILD_CUVS_BENCH)
   add_subdirectory(bench/ann/)
+endif()
+
+# ##################################################################################################
+# * build clustering benchmark executable -----------------------------------------
+
+if(BUILD_CUVS_CLUSTER_BENCH)
+  add_subdirectory(bench/cluster/)
 endif()
