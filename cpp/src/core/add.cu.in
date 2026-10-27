@@ -8,6 +8,20 @@
 #include <cuvs/core/cuda_fp16.hpp>
 #include <raft/linalg/add.cuh>
 
+extern template void raft::linalg::detail::
+  map<false, unsigned int, unsigned int, raft::add_op, unsigned int, unsigned int>(
+    cuda::stream_ref,
+    unsigned int*,
+    unsigned int,
+    raft::add_op,
+    unsigned int const*,
+    unsigned int const*);
+
+extern template void raft::linalg::detail::map<false, float, int, raft::add_op, float, float>(
+  cuda::stream_ref, float*, int, raft::add_op, float const*, float const*);
+extern template void raft::linalg::detail::map<false, double, int, raft::add_op, double, double>(
+  cuda::stream_ref, double*, int, raft::add_op, double const*, double const*);
+
 namespace cuvs::detail {
 
 template <typename InT, typename OutT, typename IdxType>
@@ -26,4 +40,6 @@ void add(raft::resources const& handle, InType in1, InType in2, OutType out)
 
 }  // namespace cuvs::detail
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
