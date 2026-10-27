@@ -9,7 +9,7 @@
 
 #include <cuvs/neighbors/brute_force.hpp>
 
-#include <raft/core/copy.hpp>
+#include <raft/core/copy.cuh>
 
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
@@ -116,16 +116,7 @@ index<T, DistT>::index(raft::resources const& res,
   // (note: we're doing the transpose here to avoid doing per query)
   auto const stream = raft::resource::get_cuda_stream(res);
   if constexpr (std::is_same_v<T, std::int8_t>) {
-    auto const size = dataset_view.extent(0) * dataset_view.extent(1);
-    cuvs::neighbors::detail::
-      int8_col_major_to_row_major_kernel<<<cuvs::neighbors::detail::int8_grid_size(size),
-                                           cuvs::neighbors::detail::kInt8BlockSize,
-                                           0,
-                                           stream.get()>>>(dataset_view.data_handle(),
-                                                           dataset_.data_handle(),
-                                                           dataset_view.extent(0),
-                                                           dataset_view.extent(1));
-    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    raft::copy(res, dataset_.view(), dataset_view);
   } else {
     raft::linalg::transpose(res,
                             const_cast<T*>(dataset_view.data_handle()),
@@ -160,16 +151,7 @@ index<T, DistT>::index(raft::resources const& res,
   // (note: we're doing the transpose here to avoid doing per query)
   auto const stream = raft::resource::get_cuda_stream(res);
   if constexpr (std::is_same_v<T, std::int8_t>) {
-    auto const size = dataset_view.extent(0) * dataset_view.extent(1);
-    cuvs::neighbors::detail::
-      int8_col_major_to_row_major_kernel<<<cuvs::neighbors::detail::int8_grid_size(size),
-                                           cuvs::neighbors::detail::kInt8BlockSize,
-                                           0,
-                                           stream.get()>>>(dataset_view.data_handle(),
-                                                           dataset_.data_handle(),
-                                                           dataset_view.extent(0),
-                                                           dataset_view.extent(1));
-    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    raft::copy(res, dataset_.view(), dataset_view);
   } else {
     raft::linalg::transpose(res,
                             const_cast<T*>(dataset_view.data_handle()),

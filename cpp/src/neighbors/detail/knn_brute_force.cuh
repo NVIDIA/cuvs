@@ -917,8 +917,8 @@ void search(raft::resources const& res,
   if constexpr (std::is_same_v<T, std::int8_t>) {
     try {
       dynamic_cast<const cuvs::neighbors::filtering::none_sample_filter&>(sample_filter_ref);
-      if (params.int8_path == cuvs::neighbors::brute_force::int8_search_path::cutlass) {
-        return int8_cutlass_brute_force_search<int64_t, LayoutT>(
+      if (params.int8_path == cuvs::neighbors::brute_force::int8_search_path::fused) {
+        return int8_fused_brute_force_search<int64_t, LayoutT>(
           res, idx, queries, neighbors, distances);
       }
       return int8_brute_force_search<int64_t, LayoutT>(res, idx, queries, neighbors, distances);

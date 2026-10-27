@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -54,10 +54,10 @@ struct l2_unexp_distance_op {
     }
   };
 
-  template <typename Policy>
+  template <typename Policy, typename NormT>
   DI void epilog(AccT acc[Policy::AccRowsPerTh][Policy::AccColsPerTh],
-                 void* regxn,
-                 void* regyn,
+                 NormT regxn,
+                 NormT regyn,
                  IdxT gridStrideX,
                  IdxT gridStrideY) const
   {

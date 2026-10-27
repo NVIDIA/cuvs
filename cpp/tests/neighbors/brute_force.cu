@@ -10,6 +10,7 @@
 #include <cuvs/selection/select_k.hpp>
 
 #include <cuvs/neighbors/brute_force.hpp>
+#include <raft/core/copy.cuh>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/transpose.cuh>
@@ -650,17 +651,17 @@ INSTANTIATE_TEST_CASE_P(RandomBruteForceKNNTest,
                         RandomBruteForceKNNTestH,
                         ::testing::ValuesIn(random_inputs));
 
-TEST(BruteForceInt8, L2AndInnerProduct)
+TEST(BruteForceInt8, SupportedMetrics)
 {
   raft::resources res;
   auto const stream           = raft::resource::get_cuda_stream(res);
-  constexpr int64_t n_rows    = 5;
+  constexpr int64_t n_rows    = 3;
   constexpr int64_t n_queries = 2;
   constexpr int64_t dim       = 4;
-  constexpr int64_t k         = 2;
-  std::vector<std::int8_t> const host_dataset{1, 2, 3,  4, -1, -2, -3, -4, 1, 2,
-                                              3, 5, 10, 0, 0,  0,  0,  0,  0, 0};
-  std::vector<std::int8_t> const host_queries{1, 2, 3, 4, -1, -2, -3, -4};
+  constexpr int64_t k         = 3;
+  std::vector<std::int8_t> const host_dataset{
+    -128, -128, -128, -128, 127, 127, 127, 127, 0, 0, 0, 0};
+  std::vector<std::int8_t> const host_queries{-128, -128, -128, -128, 127, 127, 127, 127};
 
   auto dataset = raft::make_device_matrix<std::int8_t, int64_t>(res, n_rows, dim);
   auto queries = raft::make_device_matrix<std::int8_t, int64_t>(res, n_queries, dim);
@@ -668,50 +669,115 @@ TEST(BruteForceInt8, L2AndInnerProduct)
     dataset.data_handle(), host_dataset.data(), host_dataset.size(), stream.get());
   raft::update_device(
     queries.data_handle(), host_queries.data(), host_queries.size(), stream.get());
+  auto col_dataset =
+    raft::make_device_matrix<std::int8_t, int64_t, raft::col_major>(res, n_rows, dim);
+  auto col_queries =
+    raft::make_device_matrix<std::int8_t, int64_t, raft::col_major>(res, n_queries, dim);
+  raft::copy(res, col_dataset.view(), dataset.view());
+  raft::copy(res, col_queries.view(), queries.view());
 
   struct expected_result {
     cuvs::distance::DistanceType metric;
     std::vector<int64_t> neighbors;
     std::vector<float> distances;
   };
-  std::vector<expected_result> const expected{
-    {cuvs::distance::DistanceType::L2Expanded, {0, 2, 1, 4}, {0.0f, 1.0f, 0.0f, 30.0f}},
-    {cuvs::distance::DistanceType::InnerProduct, {2, 0, 1, 4}, {34.0f, 30.0f, 30.0f, 0.0f}}};
-
-  for (auto const& result : expected) {
-    index_params index_params;
-    index_params.metric = result.metric;
-    auto index          = build(res, index_params, raft::make_const_mdspan(dataset.view()));
-    std::vector<int8_search_path> paths{int8_search_path::cublas};
-    if (result.metric == cuvs::distance::DistanceType::L2Expanded) {
-      paths.push_back(int8_search_path::cutlass);
-    }
-
-    for (auto path : paths) {
-      auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, n_queries, k);
-      auto distances = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
-      search_params params;
-      params.int8_path = path;
-      search(res,
-             params,
-             index,
-             raft::make_const_mdspan(queries.view()),
-             neighbors.view(),
-             distances.view());
-
-      std::vector<int64_t> actual_neighbors(n_queries * k);
-      std::vector<float> actual_distances(n_queries * k);
-      raft::update_host(
-        actual_neighbors.data(), neighbors.data_handle(), actual_neighbors.size(), stream.get());
-      raft::update_host(
-        actual_distances.data(), distances.data_handle(), actual_distances.size(), stream.get());
-      raft::resource::sync_stream(res);
-
-      EXPECT_EQ(actual_neighbors, result.neighbors);
-      for (size_t i = 0; i < actual_distances.size(); ++i) {
-        EXPECT_FLOAT_EQ(actual_distances[i], result.distances[i]);
+  std::vector<expected_result> expected{{cuvs::distance::DistanceType::L2Expanded,
+                                         {0, 2, 1, 1, 2, 0},
+                                         {0.0f, 65536.0f, 260100.0f, 0.0f, 64516.0f, 260100.0f}},
+                                        {cuvs::distance::DistanceType::InnerProduct,
+                                         {0, 2, 1, 1, 2, 0},
+                                         {65536.0f, 0.0f, -65024.0f, 64516.0f, 0.0f, -65024.0f}},
+                                        {cuvs::distance::DistanceType::CosineExpanded,
+                                         {0, 2, 1, 1, 2, 0},
+                                         {0.0f, 1.0f, 2.0f, 0.0f, 1.0f, 2.0f}}};
+  for (auto metric : {cuvs::distance::DistanceType::L2Unexpanded,
+                      cuvs::distance::DistanceType::L2SqrtExpanded,
+                      cuvs::distance::DistanceType::L2SqrtUnexpanded}) {
+    auto result   = expected.front();
+    result.metric = metric;
+    if (metric != cuvs::distance::DistanceType::L2Unexpanded) {
+      for (auto& distance : result.distances) {
+        distance = std::sqrt(distance);
       }
     }
+    expected.push_back(result);
+  }
+
+  for (auto const& result : expected) {
+    auto check = [&](auto dataset_view, auto queries_view) {
+      index_params index_params;
+      index_params.metric = result.metric;
+      auto index          = build(res, index_params, dataset_view);
+      std::vector<int8_search_path> paths{int8_search_path::cublas};
+      if (result.metric != cuvs::distance::DistanceType::InnerProduct &&
+          result.metric != cuvs::distance::DistanceType::CosineExpanded) {
+        paths.push_back(int8_search_path::fused);
+      }
+
+      for (auto path : paths) {
+        auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, n_queries, k);
+        auto distances = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
+        search_params params;
+        params.int8_path = path;
+        search(res, params, index, queries_view, neighbors.view(), distances.view());
+
+        std::vector<int64_t> actual_neighbors(n_queries * k);
+        std::vector<float> actual_distances(n_queries * k);
+        raft::update_host(
+          actual_neighbors.data(), neighbors.data_handle(), actual_neighbors.size(), stream.get());
+        raft::update_host(
+          actual_distances.data(), distances.data_handle(), actual_distances.size(), stream.get());
+        raft::resource::sync_stream(res);
+
+        EXPECT_EQ(actual_neighbors, result.neighbors);
+        for (size_t i = 0; i < actual_distances.size(); ++i) {
+          EXPECT_FLOAT_EQ(actual_distances[i], result.distances[i]);
+        }
+      }
+    };
+    check(raft::make_const_mdspan(dataset.view()), raft::make_const_mdspan(queries.view()));
+    check(raft::make_const_mdspan(col_dataset.view()), raft::make_const_mdspan(col_queries.view()));
+    check(raft::make_const_mdspan(dataset.view()), raft::make_const_mdspan(col_queries.view()));
+    check(raft::make_const_mdspan(col_dataset.view()), raft::make_const_mdspan(queries.view()));
+  }
+}
+
+TEST(BruteForceInt8, SearchShapeValidation)
+{
+  raft::resources res;
+  index_params index_params;
+  index_params.metric = cuvs::distance::DistanceType::L2Unexpanded;
+
+  auto neighbors       = raft::make_device_matrix<int64_t, int64_t>(res, 1, 1);
+  auto distances       = raft::make_device_matrix<float, int64_t>(res, 1, 1);
+  auto dataset         = raft::make_device_matrix<std::int8_t, int64_t>(res, 512, 4);
+  auto index           = build(res, index_params, raft::make_const_mdspan(dataset.view()));
+  auto empty_queries   = raft::make_device_matrix<std::int8_t, int64_t>(res, 0, 4);
+  auto empty_neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 0, 1);
+  auto empty_distances = raft::make_device_matrix<float, int64_t>(res, 0, 1);
+
+  for (auto path : {int8_search_path::cublas, int8_search_path::fused}) {
+    search_params params;
+    params.int8_path        = path;
+    auto const overflow_dim = path == int8_search_path::cublas ? int64_t{131072} : int64_t{33026};
+    for (int64_t dim : {int64_t{0}, overflow_dim}) {
+      auto invalid_dataset = raft::make_device_matrix<std::int8_t, int64_t>(res, 1, dim);
+      auto invalid_index =
+        build(res, index_params, raft::make_const_mdspan(invalid_dataset.view()));
+      EXPECT_THROW(search(res,
+                          params,
+                          invalid_index,
+                          raft::make_const_mdspan(invalid_dataset.view()),
+                          neighbors.view(),
+                          distances.view()),
+                   raft::logic_error);
+    }
+    EXPECT_NO_THROW(search(res,
+                           params,
+                           index,
+                           raft::make_const_mdspan(empty_queries.view()),
+                           empty_neighbors.view(),
+                           empty_distances.view()));
   }
 }
 

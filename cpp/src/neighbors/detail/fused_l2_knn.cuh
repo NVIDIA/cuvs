@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -727,7 +727,10 @@ void fusedL2ExpKnnImpl(const DataT* x,
                        void* workspace,
                        size_t& worksize)
 {
-  using KPolicy = typename fused_l2_row_policy<DataT, AccT>::type;
+  typedef typename raft::linalg::Policy2x8<AccT, 1>::Policy RowPolicy;
+  typedef typename raft::linalg::Policy4x4<AccT, VecLen>::ColPolicy ColPolicy;
+
+  typedef typename std::conditional<true, RowPolicy, ColPolicy>::type KPolicy;
 
   ASSERT(isRowMajor, "Only Row major inputs are allowed");
 

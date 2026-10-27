@@ -27,8 +27,8 @@ struct index_params : cuvs::neighbors::index_params {};
 enum class int8_search_path {
   /** INT8 cuBLAS GEMM followed by top-k selection. */
   cublas,
-  /** CUTLASS-based fused L2 distance and top-k kernel. */
-  cutlass
+  /** SIMT fused L2 distance and top-k kernel, for k <= 64. */
+  fused
 };
 
 struct search_params : cuvs::neighbors::search_params {
@@ -281,8 +281,9 @@ auto build(raft::resources const& handle,
 /**
  * @brief Build an INT8 brute-force index from a row-major device dataset.
  *
- * INT8 search uses cuBLAS GEMM with exact INT32 dot-product accumulation and returns FLOAT32
- * distances. The vector dimension must be a multiple of four.
+ * INT8 search returns FLOAT32 distances. The default cuBLAS path uses INT32 dot-product
+ * accumulation and requires a positive vector dimension divisible by four, at most 131068.
+ * The fused SIMT path supports L2 metrics with k <= 64 and dimensions from 1 through 33025.
  */
 auto build(raft::resources const& handle,
            const cuvs::neighbors::brute_force::index_params& index_params,
