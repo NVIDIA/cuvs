@@ -9,6 +9,7 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/core/memory_type.hpp>
 #include <raft/core/nvtx.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/cuda_stream_pool.hpp>
@@ -58,10 +59,9 @@ struct pointer_residency_count<Type, Types...> {
   static inline auto run(const Type* ptr, const Types*... ptrs) -> std::tuple<int, int>
   {
     auto [on_device, on_host] = pointer_residency_count<Types...>::run(ptrs...);
-    cudaPointerAttributes attr;
-    RAFT_CUDA_TRY(cudaPointerGetAttributes(&attr, ptr));
-    if (attr.devicePointer || attr.type == cudaMemoryTypeDevice) { ++on_device; }
-    if (attr.hostPointer || attr.type == cudaMemoryTypeUnregistered) { ++on_host; }
+    auto info                 = raft::get_pointer_memory_info(ptr);
+    if (info.device_pointer != nullptr) { ++on_device; }
+    if (raft::is_host_accessible(info.type)) { ++on_host; }
     return std::make_tuple(on_device, on_host);
   }
 };

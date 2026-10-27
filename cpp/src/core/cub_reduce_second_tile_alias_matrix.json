@@ -1,0 +1,16 @@
+[
+  {
+    "inst_abbrev": "sum_i64_u32_indices",
+    "pointer_type": "cuvs::detail::reduce_launch::sum_second_0_1_SingleTileSecondKernel_pointer",
+    "provider": "cuvs::detail::reduce_launch::sum_second_0_1",
+    "method": "SingleTileSecondKernel",
+    "canonical_provider": "cuvs::detail::reduce_launch::sum_second_0_0"
+  },
+  {
+    "inst_abbrev": "sum_i64_u64_indices",
+    "pointer_type": "cuvs::detail::reduce_launch::sum_second_1_1_SingleTileSecondKernel_pointer",
+    "provider": "cuvs::detail::reduce_launch::sum_second_1_1",
+    "method": "SingleTileSecondKernel",
+    "canonical_provider": "cuvs::detail::reduce_launch::sum_second_1_0"
+  }
+]
