@@ -1431,26 +1431,12 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
 
-  # Keep every primitive function in its own CUDA translation unit.
-  foreach(primitive IN ITEMS src/core/histogram)
-    set(primitive_instantiations)
-    generate_string_matrix(
-      primitive_instantiations
-      MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
-      ITEM_FORMAT
-      "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-      GLUE
-      "\n"
-    )
-    # One matrix entry keeps all specializations of the function in the same CUDA owner.
-    generate_inst_matrix(
-      cuvs_primitive_sources
-      MATRIX_JSON_STRING "{\"primitive\": \"${primitive}\"}"
-      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
-      OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/@primitive@.cu"
-    )
-  endforeach()
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/histogram_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/histogram.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/histogram_@instantiation_name@.cu"
+  )
 
   add_library(
     cuvs_objs OBJECT
