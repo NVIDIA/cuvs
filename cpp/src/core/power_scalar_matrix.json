@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::power_scalar",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "instantiation_name": "vector_f32_long_scalar_u32",
+    "parameter_types": "raft::resources const&, raft::device_vector_view<float const, long, raft::row_major>, raft::device_vector_view<float, long, raft::row_major>, raft::host_scalar_view<float const, unsigned int>"
+  }
+]

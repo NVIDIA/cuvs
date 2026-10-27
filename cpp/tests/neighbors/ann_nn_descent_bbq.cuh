@@ -117,7 +117,7 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
                                                ps.metric,
                                                ps.layout,
                                                ps.second_dataset_layout.value_or(ps.layout));
-      auto dataset = owning_dataset.as_dataset_view();
+      auto dataset = owning_dataset.view();
       nn_descent::index_params index_params;
       index_params.metric                    = ps.metric;
       index_params.graph_degree              = ps.graph_degree;
