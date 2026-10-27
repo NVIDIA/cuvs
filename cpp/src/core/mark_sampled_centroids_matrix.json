@@ -6,16 +6,20 @@
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "raft::resources const&, raft::KeyValuePair<long, double>*, int, unsigned char*"
+        "parameter_types": "raft::resources const&, raft::KeyValuePair<long, double>*, int, unsigned char*",
+        "instantiation_name": "key_value_long_f64_ptr_int_u8_ptr"
       },
       {
-        "parameter_types": "raft::resources const&, raft::KeyValuePair<long, double>*, long, unsigned char*"
+        "parameter_types": "raft::resources const&, raft::KeyValuePair<long, double>*, long, unsigned char*",
+        "instantiation_name": "key_value_long_f64_ptr_long_u8_ptr"
       },
       {
-        "parameter_types": "raft::resources const&, raft::KeyValuePair<long, float>*, int, unsigned char*"
+        "parameter_types": "raft::resources const&, raft::KeyValuePair<long, float>*, int, unsigned char*",
+        "instantiation_name": "key_value_long_f32_ptr_int_u8_ptr"
       },
       {
-        "parameter_types": "raft::resources const&, raft::KeyValuePair<long, float>*, long, unsigned char*"
+        "parameter_types": "raft::resources const&, raft::KeyValuePair<long, float>*, long, unsigned char*",
+        "instantiation_name": "key_value_long_f32_ptr_long_u8_ptr"
       }
     ]
   }

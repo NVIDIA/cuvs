@@ -4,6 +4,7 @@
  */
 
 #include <core/cub_ptx_query.hpp>
+#include <core/cub_radix_launchers.hpp>
 
 #include <neighbors/ball_cover/common.cuh>
 #include <sparse/neighbors/detail/cross_component_nn.cuh>
@@ -35,4 +36,6 @@ void thrust_sort_by_key(Key first, Key last, Value values)
 
 }  // namespace cuvs::detail
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

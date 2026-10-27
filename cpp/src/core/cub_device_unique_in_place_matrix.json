@@ -1,0 +1,9 @@
+[
+  {
+    "input_type": "float*",
+    "output_type": "float*",
+    "count_type": "long*",
+    "equality_type": "cuda::std::equal_to<float>",
+    "inst_abbrev": "f32_count_i64"
+  }
+]

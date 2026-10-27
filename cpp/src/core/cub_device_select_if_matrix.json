@@ -1,0 +1,34 @@
+[
+  {
+    "inst_abbrev": "sample_f64_i32",
+    "input_type": "cub::ArgIndexInputIterator<double*, long, double>",
+    "flags_type": "cub::NullType*",
+    "output_type": "raft::KeyValuePair<long, double>*",
+    "count_type": "int*",
+    "predicate_type": "cuvs::cluster::kmeans::detail::SamplingOp<double, int>"
+  },
+  {
+    "inst_abbrev": "sample_f64_i64",
+    "input_type": "cub::ArgIndexInputIterator<double*, long, double>",
+    "flags_type": "cub::NullType*",
+    "output_type": "raft::KeyValuePair<long, double>*",
+    "count_type": "long*",
+    "predicate_type": "cuvs::cluster::kmeans::detail::SamplingOp<double, long>"
+  },
+  {
+    "inst_abbrev": "sample_f32_i32",
+    "input_type": "cub::ArgIndexInputIterator<float*, long, float>",
+    "flags_type": "cub::NullType*",
+    "output_type": "raft::KeyValuePair<long, float>*",
+    "count_type": "int*",
+    "predicate_type": "cuvs::cluster::kmeans::detail::SamplingOp<float, int>"
+  },
+  {
+    "inst_abbrev": "sample_f32_i64",
+    "input_type": "cub::ArgIndexInputIterator<float*, long, float>",
+    "flags_type": "cub::NullType*",
+    "output_type": "raft::KeyValuePair<long, float>*",
+    "count_type": "long*",
+    "predicate_type": "cuvs::cluster::kmeans::detail::SamplingOp<float, long>"
+  }
+]

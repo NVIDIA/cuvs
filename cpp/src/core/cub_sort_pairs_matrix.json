@@ -7,11 +7,13 @@
     "_variants": [
       {
         "template_arguments": "<int*, int*, int*, int*, int>",
-        "parameter_types": "void*, unsigned long&, int*, int*, int*, int*, int, int, int, CUstream_st*"
+        "parameter_types": "void*, unsigned long&, int*, int*, int*, int*, int, int, int, CUstream_st*",
+        "instantiation_name": "int_ptr_int_ptr_int_ptr_int_ptr_int"
       },
       {
         "template_arguments": "<unsigned int const*, unsigned int*, unsigned int*, unsigned int*, unsigned long>",
-        "parameter_types": "void*, unsigned long&, unsigned int const*, unsigned int*, unsigned int*, unsigned int*, unsigned long, int, int, CUstream_st*"
+        "parameter_types": "void*, unsigned long&, unsigned int const*, unsigned int*, unsigned int*, unsigned int*, unsigned long, int, int, CUstream_st*",
+        "instantiation_name": "u32_c_ptr_u32_ptr_u32_ptr_u32_ptr_ulong"
       }
     ]
   }

@@ -17,3 +17,14 @@ cuvs::detail::unique_launch::unique_0::CompactInitKernel();
 template <>
 CUB_RUNTIME_FUNCTION cuvs::detail::unique_launch::compact64_pointer
 cuvs::detail::unique_launch::unique_1::CompactInitKernel();
+
+namespace cuvs::detail {
+template <typename Count>
+cudaError_t launch_compact_init(CUB_DETAIL_DEFAULT_KERNEL_LAUNCHER_FACTORY launcher_factory,
+                                int grid,
+                                int threads,
+                                cub::ScanTileState<int> state,
+                                int tiles,
+                                Count* selected,
+                                cudaStream_t stream);
+}
