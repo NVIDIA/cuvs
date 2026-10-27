@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "raft::sparse::solver::Graph_COO<int, int, float>",
+    "qualified_function": "raft::sparse::solver::mst",
+    "template_arguments": "<int, int, float, double>",
+    "parameter_types": "raft::resources const&, const int*, const int*, const float*, int, int, int*, cudaStream_t, bool, bool, int",
+    "function_qualifiers": "",
+    "instantiation_name": "i32_f32"
+  },
+  {
+    "return_type": "raft::sparse::solver::Graph_COO<int64_t, int64_t, float>",
+    "qualified_function": "raft::sparse::solver::mst",
+    "template_arguments": "<int64_t, int64_t, float, double>",
+    "parameter_types": "raft::resources const&, const int64_t*, const int64_t*, const float*, int64_t, int64_t, int64_t*, cudaStream_t, bool, bool, int",
+    "function_qualifiers": "",
+    "instantiation_name": "i64_f32"
+  }
+]

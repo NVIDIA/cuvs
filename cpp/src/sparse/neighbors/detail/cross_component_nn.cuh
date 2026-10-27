@@ -471,28 +471,6 @@ void sort_by_color(raft::resources const& handle,
   cuvs::detail::thrust_sort_by_key(exec_policy, keys, keys + n_rows, vals, TupleComp());
 }
 
-template <typename value_idx, typename value_t>
-RAFT_KERNEL min_components_by_color_kernel(value_idx* out_rows,
-                                           value_idx* out_cols,
-                                           value_t* out_vals,
-                                           const value_idx* out_index,
-                                           const value_idx* indices,
-                                           const raft::KeyValuePair<value_idx, value_t>* kvp,
-                                           size_t nnz)
-{
-  size_t tid = blockDim.x * blockIdx.x + threadIdx.x;
-
-  if (tid >= nnz) return;
-
-  int idx = out_index[tid];
-
-  if ((tid == 0 || (out_index[tid - 1] != idx))) {
-    out_rows[idx] = indices[tid];
-    out_cols[idx] = kvp[tid].key;
-    out_vals[idx] = kvp[tid].value;
-  }
-}
-
 /**
  * Computes the min set of unique components that neighbor the
  * components of each source vertex.
@@ -511,16 +489,7 @@ void min_components_by_color(raft::sparse::COO<value_t, value_idx>& coo,
                              const value_idx* indices,
                              const raft::KeyValuePair<value_idx, value_t>* kvp,
                              size_t nnz,
-                             cudaStream_t stream)
-{
-  /**
-   * Arrays should be ordered by: colors_indptr->colors_n->kvp.value
-   * so the last element of each column in the input CSR should be
-   * the min.
-   */
-  min_components_by_color_kernel<<<raft::ceildiv(nnz, (size_t)256), 256, 0, stream>>>(
-    coo.rows(), coo.cols(), coo.vals(), out_index, indices, kvp, nnz);
-}
+                             cudaStream_t stream);
 
 /**
  * Connects the components of an otherwise unconnected knn graph

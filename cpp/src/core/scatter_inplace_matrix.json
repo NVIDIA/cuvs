@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::scatterInplaceImpl",
+    "template_arguments": "<float, long>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<float, long, raft::layout_c_contiguous>, raft::device_vector_view<const long, long, raft::layout_c_contiguous>, long",
+    "function_qualifiers": "",
+    "instantiation_name": "f32_i64"
+  }
+]

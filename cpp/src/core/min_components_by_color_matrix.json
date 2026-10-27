@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::sparse::neighbors::detail::min_components_by_color",
+    "template_arguments": "<int, float>",
+    "parameter_types": "raft::sparse::COO<float, int>&, const int*, const int*, const raft::KeyValuePair<int, float>*, size_t, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "i32_f32"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::sparse::neighbors::detail::min_components_by_color",
+    "template_arguments": "<int64_t, float>",
+    "parameter_types": "raft::sparse::COO<float, int64_t>&, const int64_t*, const int64_t*, const raft::KeyValuePair<int64_t, float>*, size_t, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "i64_f32"
+  }
+]

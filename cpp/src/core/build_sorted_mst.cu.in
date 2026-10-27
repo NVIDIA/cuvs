@@ -12,6 +12,7 @@
 
 #include <cluster/detail/mst.cuh>
 #include <core/cub_ptx_query.hpp>
+#include <core/cub_scan_launchers.hpp>
 
 #include <core/cub_radix_launchers.hpp>
 #include <cuvs/core/cuda_fp16.hpp>
@@ -104,4 +105,14 @@ void build_sorted_mst(raft::resources const& handle,
 
 }  // namespace cuvs::cluster::agglomerative::detail
 
-@primitive_instantiations@
+// clang-format off
+@get_matrix_diagonal_extern_instantiations@
+
+@scatter_inplace_extern_instantiations@
+
+@min_components_by_color_extern_instantiations@
+
+@mst_solver_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

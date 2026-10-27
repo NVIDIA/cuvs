@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::getDiagonalMatrix",
+    "template_arguments": "<float, long>",
+    "parameter_types": "float*, const float*, long, long, bool, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "f32_i64"
+  }
+]

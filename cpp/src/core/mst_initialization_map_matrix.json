@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::map",
+    "template_arguments": "<true, bool, size_t, raft::const_op<bool>>",
+    "parameter_types": "cuda::stream_ref, bool*, size_t, raft::const_op<bool>",
+    "function_qualifiers": "",
+    "instantiation_name": "bool_size"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::map",
+    "template_arguments": "<true, unsigned long long, size_t, raft::const_op<unsigned long long>>",
+    "parameter_types": "cuda::stream_ref, unsigned long long*, size_t, raft::const_op<unsigned long long>",
+    "function_qualifiers": "",
+    "instantiation_name": "u64_size"
+  }
+]

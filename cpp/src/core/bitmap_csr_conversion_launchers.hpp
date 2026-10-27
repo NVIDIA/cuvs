@@ -4,6 +4,7 @@
  */
 
 #pragma once
+#include <cuvs/core/export.hpp>
 #include <optional>
 #include <raft/core/bitmap.hpp>
 #include <raft/core/bitset.hpp>
@@ -36,8 +37,9 @@ void bitset_to_csr(raft::resources const& handle,
 
 namespace cuvs::detail {
 template <typename T, typename nnz_type, typename outT>
-void sorted_coo_to_csr(const T* rows, nnz_type nnz, outT* row_ind, int m, cudaStream_t stream);
+CUVS_EXPORT void sorted_coo_to_csr(
+  const T* rows, nnz_type nnz, outT* row_ind, int m, cudaStream_t stream);
 
 template <typename T, typename outT>
-void sorted_coo_to_csr(raft::sparse::COO<T>* coo, outT* row_ind, cudaStream_t stream);
+CUVS_EXPORT void sorted_coo_to_csr(raft::sparse::COO<T>* coo, outT* row_ind, cudaStream_t stream);
 }  // namespace cuvs::detail

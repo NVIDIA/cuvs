@@ -1,18 +1,21 @@
 [
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "cuvs::detail::sorted_coo_to_csr",
     "template_arguments": "",
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "int const*, unsigned long, int*, int, CUstream_st*"
+        "parameter_types": "int const*, unsigned long, int*, int, CUstream_st*",
+        "instantiation_name": "int_c_ptr_ulong_int_ptr_int_stream_ptr"
       },
       {
-        "parameter_types": "long const*, long, long*, int, CUstream_st*"
+        "parameter_types": "long const*, long, long*, int, CUstream_st*",
+        "instantiation_name": "long_c_ptr_long_long_ptr_int_stream_ptr"
       },
       {
-        "parameter_types": "long const*, unsigned long, long*, int, CUstream_st*"
+        "parameter_types": "long const*, unsigned long, long*, int, CUstream_st*",
+        "instantiation_name": "long_c_ptr_ulong_long_ptr_int_stream_ptr"
       }
     ]
   }
