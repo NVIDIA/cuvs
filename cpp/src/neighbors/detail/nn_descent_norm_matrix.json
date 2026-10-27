@@ -1,66 +1,74 @@
 [
   {
-    "return_type": "raft::util::arch::SM_runtime",
+    "return_type": "CUVS_EXPORT raft::util::arch::SM_runtime",
     "qualified_function": "norm_kernel_virtual_arch",
     "template_arguments": "<float>",
     "parameter_types": "",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::neighbors::nn_descent::detail"
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "norm_kernel_virtual_arch_f32"
   },
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "launch_compute_l2_norms_kernel",
     "template_arguments": "<float>",
     "parameter_types": "dim3, dim3, size_t, cudaStream_t, const float*, int, float*",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::neighbors::nn_descent::detail"
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "launch_compute_l2_norms_kernel_f32"
   },
   {
-    "return_type": "raft::util::arch::SM_runtime",
+    "return_type": "CUVS_EXPORT raft::util::arch::SM_runtime",
     "qualified_function": "norm_kernel_virtual_arch",
     "template_arguments": "<__half>",
     "parameter_types": "",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::neighbors::nn_descent::detail"
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "norm_kernel_virtual_arch_f16"
   },
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "launch_compute_l2_norms_kernel",
     "template_arguments": "<__half>",
     "parameter_types": "dim3, dim3, size_t, cudaStream_t, const __half*, int, float*",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::neighbors::nn_descent::detail"
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "launch_compute_l2_norms_kernel_f16"
   },
   {
-    "return_type": "raft::util::arch::SM_runtime",
+    "return_type": "CUVS_EXPORT raft::util::arch::SM_runtime",
     "qualified_function": "norm_kernel_virtual_arch",
     "template_arguments": "<int8_t>",
     "parameter_types": "",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::neighbors::nn_descent::detail"
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "norm_kernel_virtual_arch_int8_t"
   },
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "launch_compute_l2_norms_kernel",
     "template_arguments": "<int8_t>",
     "parameter_types": "dim3, dim3, size_t, cudaStream_t, const int8_t*, int, float*",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::neighbors::nn_descent::detail"
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "launch_compute_l2_norms_kernel_int8_t"
   },
   {
-    "return_type": "raft::util::arch::SM_runtime",
+    "return_type": "CUVS_EXPORT raft::util::arch::SM_runtime",
     "qualified_function": "norm_kernel_virtual_arch",
     "template_arguments": "<uint8_t>",
     "parameter_types": "",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::neighbors::nn_descent::detail"
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "norm_kernel_virtual_arch_uint8_t"
   },
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "launch_compute_l2_norms_kernel",
     "template_arguments": "<uint8_t>",
     "parameter_types": "dim3, dim3, size_t, cudaStream_t, const uint8_t*, int, float*",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::neighbors::nn_descent::detail"
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "launch_compute_l2_norms_kernel_uint8_t"
   }
 ]

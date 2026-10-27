@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * All rights reserved. SPDX-License-Identifier: Apache-2.0
  */
 
@@ -33,6 +33,8 @@ void launch_convert_copy_kernel(
   convert_copy_kernel<<<grid, block, shared, stream>>>(src, dst, n);
 }
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
 
 }  // namespace cuvs::neighbors::nn_descent::detail
