@@ -1,16 +1,18 @@
 [
   {
-    "return_type": "int*",
+    "return_type": "CUVS_EXPORT int*",
     "qualified_function": "cuvs::detail::thrust_copy",
     "template_arguments": "",
     "parameter_types": "rmm::exec_policy_nosync const&, cuda::counting_iterator<int, long>, cuda::counting_iterator<int, long>, int*",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_counting_iterator_int_long_counting_iterator_int_long_int_ptr"
   },
   {
-    "return_type": "long*",
+    "return_type": "CUVS_EXPORT long*",
     "qualified_function": "cuvs::detail::thrust_copy",
     "template_arguments": "",
     "parameter_types": "rmm::exec_policy_nosync const&, cuda::counting_iterator<long, __int128>, cuda::counting_iterator<long, __int128>, long*",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_counting_iterator_long_int128_counting_iterator_long_int128_long_ptr"
   }
 ]
