@@ -1,0 +1,35 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_select_launchers.hpp>
+
+namespace {
+
+using inst_data_t  = @data_type@;
+using inst_index_t = @index_type@;
+
+}  // namespace
+
+namespace cuvs::cluster::kmeans::detail {
+
+template <typename DataT, typename IndexT>
+__host__ __device__
+SamplingOp<DataT, IndexT>::SamplingOp(DataT c, double l, IndexT k, DataT* rand, uint8_t* ptr)
+  : cluster_cost(c), oversampling_factor(l), n_clusters(k), rnd(rand), flag(ptr)
+{
+}
+
+template <typename DataT, typename IndexT>
+__host__ __device__ __forceinline__ bool SamplingOp<DataT, IndexT>::operator()(
+  const raft::KeyValuePair<ptrdiff_t, DataT>& a) const
+{
+  DataT prob_threshold = (DataT)rnd[a.key];
+  DataT prob_x         = ((oversampling_factor * n_clusters * a.value) / cluster_cost);
+  return !flag[a.key] && (prob_x > prob_threshold);
+}
+
+template struct SamplingOp<inst_data_t, inst_index_t>;
+
+}  // namespace cuvs::cluster::kmeans::detail

@@ -1,0 +1,14 @@
+[
+  {
+    "pointer_type": "cuvs::detail::unique_launch::compact32_pointer",
+    "provider": "cuvs::detail::unique_launch::unique_0",
+    "kernel_arguments": "cub::ScanTileState<unsigned int>, unsigned int*",
+    "inst_abbrev": "count_u32"
+  },
+  {
+    "pointer_type": "cuvs::detail::unique_launch::compact64_pointer",
+    "provider": "cuvs::detail::unique_launch::unique_1",
+    "kernel_arguments": "cub::ScanTileState<unsigned long long>, unsigned long*",
+    "inst_abbrev": "count_u64"
+  }
+]

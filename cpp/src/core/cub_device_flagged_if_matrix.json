@@ -1,0 +1,34 @@
+[
+  {
+    "inst_abbrev": "sparse_hash_f64",
+    "input_type": "cuda::counting_iterator<int, long>",
+    "flags_type": "cub::NullType*",
+    "output_type": "int*",
+    "count_type": "long*",
+    "predicate_type": "cuvs::distance::detail::sparse::hash_strategy<int, double, 1024>::fits_in_hash_table"
+  },
+  {
+    "inst_abbrev": "sparse_hash_f32",
+    "input_type": "cuda::counting_iterator<int, long>",
+    "flags_type": "cub::NullType*",
+    "output_type": "int*",
+    "count_type": "long*",
+    "predicate_type": "cuvs::distance::detail::sparse::hash_strategy<int, float, 1024>::fits_in_hash_table"
+  },
+  {
+    "inst_abbrev": "bitset_f16",
+    "input_type": "thrust::counting_iterator<long>",
+    "flags_type": "cub::NullType*",
+    "output_type": "long*",
+    "count_type": "long*",
+    "predicate_type": "cuvs::detail::bitset_row_filter<__half, long, unsigned int, float>"
+  },
+  {
+    "inst_abbrev": "bitset_f32",
+    "input_type": "thrust::counting_iterator<long>",
+    "flags_type": "cub::NullType*",
+    "output_type": "long*",
+    "count_type": "long*",
+    "predicate_type": "cuvs::detail::bitset_row_filter<float, long, unsigned int, float>"
+  }
+]
