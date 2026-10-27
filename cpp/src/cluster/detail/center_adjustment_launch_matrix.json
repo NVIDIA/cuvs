@@ -5,7 +5,7 @@
     "template_arguments": "<__half const*, float, long, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>>",
     "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, __half const*, long, const unsigned int*, const long*, const long*, float, long, long*, cuvs::spatial::knn::detail::utils::mapping<float>",
     "function_qualifiers": "",
-    "instantiation_name": "kernel_0"
+    "instantiation_name": "f16_i64_u32_mapping"
   },
   {
     "return_type": "void",
@@ -13,7 +13,7 @@
     "template_arguments": "<float const*, float, long, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>>",
     "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, float const*, long, const unsigned int*, const long*, const long*, float, long, long*, cuvs::spatial::knn::detail::utils::mapping<float>",
     "function_qualifiers": "",
-    "instantiation_name": "kernel_1"
+    "instantiation_name": "f32_i64_u32_mapping"
   },
   {
     "return_type": "void",
@@ -21,7 +21,7 @@
     "template_arguments": "<signed char const*, float, long, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>>",
     "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, signed char const*, long, const unsigned int*, const long*, const long*, float, long, long*, cuvs::spatial::knn::detail::utils::mapping<float>",
     "function_qualifiers": "",
-    "instantiation_name": "kernel_2"
+    "instantiation_name": "i8_i64_u32_mapping"
   },
   {
     "return_type": "void",
@@ -29,7 +29,7 @@
     "template_arguments": "<unsigned char const*, float, long, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>>",
     "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, unsigned char const*, long, const unsigned int*, const long*, const long*, float, long, long*, cuvs::spatial::knn::detail::utils::mapping<float>",
     "function_qualifiers": "",
-    "instantiation_name": "kernel_3"
+    "instantiation_name": "u8_i64_u32_mapping"
   },
   {
     "return_type": "void",
@@ -37,6 +37,6 @@
     "template_arguments": "<thrust::transform_iterator<cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>, thrust::counting_iterator<long, thrust::use_default, thrust::use_default, thrust::use_default, thrust::__compile_time_value<1>>, thrust::use_default, thrust::use_default>, float, long, unsigned int, raft::identity_op>",
     "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, thrust::transform_iterator<cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>, thrust::counting_iterator<long, thrust::use_default, thrust::use_default, thrust::use_default, thrust::__compile_time_value<1>>, thrust::use_default, thrust::use_default>, long, const unsigned int*, const long*, const long*, float, long, long*, raft::identity_op",
     "function_qualifiers": "",
-    "instantiation_name": "kernel_4"
+    "instantiation_name": "bitwise_f32_i64_u32_identity"
   }
 ]
