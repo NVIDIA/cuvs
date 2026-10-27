@@ -6,7 +6,9 @@
     "parameter_types": "cudaStream_t, cuvs::neighbors::device_bbq_dataset_view<float, int64_t>, raft::identity_op",
     "function_qualifiers": "",
     "namespace_context": "cuvs::neighbors::nn_descent::detail",
-    "instantiation_name": "gnnd_const_float_int_local_join_identity_op"
+    "instantiation_name": "gnnd_const_float_int_local_join_identity_op",
+    "data_type": "float",
+    "owns_kernel_pointer": "1"
   },
   {
     "return_type": "raft::util::arch::SM_runtime",
@@ -15,7 +17,9 @@
     "parameter_types": "",
     "function_qualifiers": "",
     "namespace_context": "cuvs::neighbors::nn_descent::detail",
-    "instantiation_name": "bbq_join_virtual_arch_f32"
+    "instantiation_name": "bbq_join_virtual_arch_f32",
+    "data_type": "float",
+    "owns_kernel_pointer": "0"
   },
   {
     "return_type": "void",
@@ -24,7 +28,9 @@
     "parameter_types": "cudaStream_t, cuvs::neighbors::device_bbq_dataset_view<__half, int64_t>, raft::identity_op",
     "function_qualifiers": "",
     "namespace_context": "cuvs::neighbors::nn_descent::detail",
-    "instantiation_name": "gnnd_const_half_int_local_join_identity_op"
+    "instantiation_name": "gnnd_const_half_int_local_join_identity_op",
+    "data_type": "__half",
+    "owns_kernel_pointer": "1"
   },
   {
     "return_type": "raft::util::arch::SM_runtime",
@@ -33,7 +39,9 @@
     "parameter_types": "",
     "function_qualifiers": "",
     "namespace_context": "cuvs::neighbors::nn_descent::detail",
-    "instantiation_name": "bbq_join_virtual_arch_f16"
+    "instantiation_name": "bbq_join_virtual_arch_f16",
+    "data_type": "__half",
+    "owns_kernel_pointer": "0"
   },
   {
     "return_type": "void",
@@ -42,7 +50,9 @@
     "parameter_types": "cudaStream_t, cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t>, raft::identity_op",
     "function_qualifiers": "",
     "namespace_context": "cuvs::neighbors::nn_descent::detail",
-    "instantiation_name": "gnnd_const_int8_t_int_local_join_identity_op"
+    "instantiation_name": "gnnd_const_int8_t_int_local_join_identity_op",
+    "data_type": "int8_t",
+    "owns_kernel_pointer": "1"
   },
   {
     "return_type": "raft::util::arch::SM_runtime",
@@ -51,7 +61,9 @@
     "parameter_types": "",
     "function_qualifiers": "",
     "namespace_context": "cuvs::neighbors::nn_descent::detail",
-    "instantiation_name": "bbq_join_virtual_arch_int8_t"
+    "instantiation_name": "bbq_join_virtual_arch_int8_t",
+    "data_type": "int8_t",
+    "owns_kernel_pointer": "0"
   },
   {
     "return_type": "void",
@@ -60,7 +72,9 @@
     "parameter_types": "cudaStream_t, cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t>, raft::identity_op",
     "function_qualifiers": "",
     "namespace_context": "cuvs::neighbors::nn_descent::detail",
-    "instantiation_name": "gnnd_const_uint8_t_int_local_join_identity_op"
+    "instantiation_name": "gnnd_const_uint8_t_int_local_join_identity_op",
+    "data_type": "uint8_t",
+    "owns_kernel_pointer": "1"
   },
   {
     "return_type": "raft::util::arch::SM_runtime",
@@ -69,6 +83,8 @@
     "parameter_types": "",
     "function_qualifiers": "",
     "namespace_context": "cuvs::neighbors::nn_descent::detail",
-    "instantiation_name": "bbq_join_virtual_arch_uint8_t"
+    "instantiation_name": "bbq_join_virtual_arch_uint8_t",
+    "data_type": "uint8_t",
+    "owns_kernel_pointer": "0"
   }
 ]

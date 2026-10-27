@@ -1452,7 +1452,10 @@ if(NOT BUILD_CPU_ONLY)
 
   foreach(
     primitive IN
-    ITEMS src/neighbors/detail/nn_descent_add_reverse_edges
+    ITEMS src/neighbors/detail/nn_descent_reverse_edges_launch
+          src/neighbors/detail/nn_descent_local_join_simt
+          src/neighbors/detail/nn_descent_local_join_wmma
+          src/neighbors/detail/nn_descent_add_reverse_edges
           src/neighbors/detail/nn_descent_local_join_dense
           src/neighbors/detail/nn_descent_local_join_bbq
           src/neighbors/detail/nn_descent_norm

@@ -862,14 +862,20 @@ void GNND<Data_t, Index_t>::local_join(
 template <typename T>
 auto bbq_join_virtual_arch() -> decltype(raft::util::arch::kernel_virtual_arch(nullptr))
 {
-  auto kernel = local_join_kernel_bbq_wmma<bbq_code_layout::packed_4b,
-                                           bbq_code_layout::packed_4b,
-                                           T,
-                                           int,
-                                           InternalID_t<int>,
-                                           raft::identity_op>;
-  return raft::util::arch::kernel_virtual_arch(reinterpret_cast<void*>(kernel));
+  return raft::util::arch::kernel_virtual_arch(bbq_kernel_pointer(static_cast<const T*>(nullptr)));
 }
+
+#if @owns_kernel_pointer@
+void* bbq_kernel_pointer(const@data_type@*)
+{
+  return reinterpret_cast<void*>(local_join_kernel_bbq_wmma<bbq_code_layout::packed_4b,
+                                                            bbq_code_layout::packed_4b,
+                                                            @data_type@,
+                                                            int,
+                                                            InternalID_t<int>,
+                                                            raft::identity_op>);
+}
+#endif
 
 // clang-format off
 template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;

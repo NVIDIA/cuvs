@@ -1,0 +1,50 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "launch_local_join_wmma",
+    "template_arguments": "<float, int, raft::identity_op>",
+    "parameter_types": "dim3, dim3, size_t, cudaStream_t, const int*, const int*, const int2*, const int*, const int*, const int2*, int, const float*, int, InternalID_t<int>*, DistData_t*, int*, DistData_t*, cuvs::distance::DistanceType, raft::identity_op",
+    "function_qualifiers": "",
+    "instantiation_name": "f32_identity"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_local_join_wmma",
+    "template_arguments": "<float, int, cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, float>>",
+    "parameter_types": "dim3, dim3, size_t, cudaStream_t, const int*, const int*, const int2*, const int*, const int*, const int2*, int, const float*, int, InternalID_t<int>*, DistData_t*, int*, DistData_t*, cuvs::distance::DistanceType, cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, float>",
+    "function_qualifiers": "",
+    "instantiation_name": "f32_reachability"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_local_join_wmma",
+    "template_arguments": "<__half, int, raft::identity_op>",
+    "parameter_types": "dim3, dim3, size_t, cudaStream_t, const int*, const int*, const int2*, const int*, const int*, const int2*, int, const __half*, int, InternalID_t<int>*, DistData_t*, int*, DistData_t*, cuvs::distance::DistanceType, raft::identity_op",
+    "function_qualifiers": "",
+    "instantiation_name": "f16_identity"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_local_join_wmma",
+    "template_arguments": "<__half, int, cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, float>>",
+    "parameter_types": "dim3, dim3, size_t, cudaStream_t, const int*, const int*, const int2*, const int*, const int*, const int2*, int, const __half*, int, InternalID_t<int>*, DistData_t*, int*, DistData_t*, cuvs::distance::DistanceType, cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, float>",
+    "function_qualifiers": "",
+    "instantiation_name": "f16_reachability"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_local_join_wmma",
+    "template_arguments": "<int8_t, int, raft::identity_op>",
+    "parameter_types": "dim3, dim3, size_t, cudaStream_t, const int*, const int*, const int2*, const int*, const int*, const int2*, int, const int8_t*, int, InternalID_t<int>*, DistData_t*, int*, DistData_t*, cuvs::distance::DistanceType, raft::identity_op",
+    "function_qualifiers": "",
+    "instantiation_name": "i8_identity"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_local_join_wmma",
+    "template_arguments": "<uint8_t, int, raft::identity_op>",
+    "parameter_types": "dim3, dim3, size_t, cudaStream_t, const int*, const int*, const int2*, const int*, const int*, const int2*, int, const uint8_t*, int, InternalID_t<int>*, DistData_t*, int*, DistData_t*, cuvs::distance::DistanceType, raft::identity_op",
+    "function_qualifiers": "",
+    "instantiation_name": "u8_identity"
+  }
+]

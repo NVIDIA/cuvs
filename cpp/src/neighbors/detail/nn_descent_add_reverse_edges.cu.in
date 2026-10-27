@@ -15,33 +15,6 @@ extern template void raft::linalg::detail::map<false, float, size_t, raft::const
 
 namespace cuvs::neighbors::nn_descent::detail {
 
-template <typename Index_t>
-RAFT_KERNEL add_rev_edges_kernel(const Index_t* graph,
-                                 Index_t* rev_graph,
-                                 int num_samples,
-                                 int2* list_sizes)
-{
-  size_t list_id = blockIdx.x;
-  int2 list_size = list_sizes[list_id];
-
-  for (int idx = threadIdx.x; idx < list_size.x; idx += blockDim.x) {
-    // each node has same number (num_samples) of forward and reverse edges
-    Index_t rev_list_id = graph[list_id * num_samples + idx];
-    if (rev_list_id == std::numeric_limits<Index_t>::max()) {
-      // sentinel value
-      continue;
-    }
-
-    // there are already num_samples forward edges
-    int idx_in_rev_list = atomicAdd(&list_sizes[rev_list_id].y, 1);
-    if (idx_in_rev_list >= num_samples) {
-      atomicExch(&list_sizes[rev_list_id].y, num_samples);
-    } else {
-      rev_graph[static_cast<size_t>(rev_list_id) * num_samples + idx_in_rev_list] = list_id;
-    }
-  }
-}
-
 }  // namespace cuvs::neighbors::nn_descent::detail
 
 namespace cuvs::neighbors::nn_descent::detail {
@@ -57,8 +30,7 @@ void GNND<Data_t, Index_t>::add_reverse_edges(Index_t* graph_ptr,
     res,
     raft::make_device_matrix_view<Index_t, int64_t>(d_rev_graph_ptr, nrow_, DEGREE_ON_DEVICE),
     std::numeric_limits<Index_t>::max());
-  add_rev_edges_kernel<<<nrow_, raft::warp_size(), 0, stream>>>(
-    graph_ptr, d_rev_graph_ptr, NUM_SAMPLES, list_sizes);
+  launch_add_rev_edges(nrow_, stream, graph_ptr, d_rev_graph_ptr, NUM_SAMPLES, list_sizes);
   raft::copy(res,
              raft::make_host_vector_view(h_rev_graph_ptr, nrow_ * NUM_SAMPLES),
              raft::make_device_vector_view(d_rev_graph_ptr, nrow_ * NUM_SAMPLES));

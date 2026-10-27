@@ -1,0 +1,61 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/nn_descent.cuh>
+#include <neighbors/detail/reachability.cuh>
+#include <raft/linalg/map.cuh>
+
+extern template void raft::linalg::detail::map<false, int, long, raft::const_op<int>>(
+  cuda::stream_ref, int*, long, raft::const_op<int>);
+
+extern template void raft::linalg::detail::map<false, float, size_t, raft::const_op<float>>(
+  cuda::stream_ref, float*, size_t, raft::const_op<float>);
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+template <typename Index_t>
+RAFT_KERNEL add_rev_edges_kernel(const Index_t* graph,
+                                 Index_t* rev_graph,
+                                 int num_samples,
+                                 int2* list_sizes)
+{
+  size_t list_id = blockIdx.x;
+  int2 list_size = list_sizes[list_id];
+
+  for (int idx = threadIdx.x; idx < list_size.x; idx += blockDim.x) {
+    // each node has same number (num_samples) of forward and reverse edges
+    Index_t rev_list_id = graph[list_id * num_samples + idx];
+    if (rev_list_id == std::numeric_limits<Index_t>::max()) {
+      // sentinel value
+      continue;
+    }
+
+    // there are already num_samples forward edges
+    int idx_in_rev_list = atomicAdd(&list_sizes[rev_list_id].y, 1);
+    if (idx_in_rev_list >= num_samples) {
+      atomicExch(&list_sizes[rev_list_id].y, num_samples);
+    } else {
+      rev_graph[static_cast<size_t>(rev_list_id) * num_samples + idx_in_rev_list] = list_id;
+    }
+  }
+}
+
+template <typename Index_t>
+void launch_add_rev_edges(size_t nrow,
+                          cudaStream_t stream,
+                          const Index_t* graph,
+                          Index_t* rev_graph,
+                          int num_samples,
+                          int2* list_sizes)
+{
+  add_rev_edges_kernel<<<nrow, raft::warp_size(), 0, stream>>>(
+    graph, rev_graph, num_samples, list_sizes);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::nn_descent::detail

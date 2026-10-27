@@ -1,0 +1,332 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/nn_descent.cuh>
+#include <neighbors/detail/reachability.cuh>
+#include <raft/linalg/map.cuh>
+
+extern template void raft::linalg::detail::map<false, int, long, raft::const_op<int>>(
+  cuda::stream_ref, int*, long, raft::const_op<int>);
+
+extern template void raft::linalg::detail::map<false, float, size_t, raft::const_op<float>>(
+  cuda::stream_ref, float*, size_t, raft::const_op<float>);
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+template <typename Data_t,
+          typename Index_t,
+          typename ID_t = InternalID_t<Index_t>,
+          typename DistEpilogue_t>
+RAFT_KERNEL
+#ifdef __CUDA_ARCH__
+// Use minBlocksPerMultiprocessor = 4 on specific arches
+#if (__CUDA_ARCH__) == 700 || (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || \
+  (__CUDA_ARCH__) == 1000
+__launch_bounds__(BLOCK_SIZE, 4)
+#else
+__launch_bounds__(BLOCK_SIZE)
+#endif
+#endif
+  local_join_kernel_wmma(const Index_t* graph_new,
+                         const Index_t* rev_graph_new,
+                         const int2* sizes_new,
+                         const Index_t* graph_old,
+                         const Index_t* rev_graph_old,
+                         const int2* sizes_old,
+                         const int width,
+                         const Data_t* data,
+                         const int data_dim,
+                         ID_t* graph,
+                         DistData_t* dists,
+                         int* locks,
+                         DistData_t* l2_norms,
+                         cuvs::distance::DistanceType metric,
+                         DistEpilogue_t dist_epilogue)
+{
+#if (__CUDA_ARCH__ >= 700)
+  using namespace nvcuda;
+  __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
+
+  constexpr int APAD           = 8;
+  constexpr int BPAD           = 8;
+  constexpr int TILE_COL_WIDTH = 128;
+  __shared__ __half s_nv[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + APAD];  // New vectors
+  __shared__ __half s_ov[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + BPAD];  // Old vectors
+  static_assert(sizeof(float) * MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES <=
+                sizeof(__half) * MAX_NUM_BI_SAMPLES * (TILE_COL_WIDTH + BPAD));
+  // s_distances: MAX_NUM_BI_SAMPLES x SKEWED_MAX_NUM_BI_SAMPLES, reuse the space of s_ov
+  float* s_distances    = (float*)&s_ov[0][0];
+  int* s_unique_counter = (int*)&s_ov[0][0];
+
+  if (threadIdx.x == 0) {
+    s_unique_counter[0] = 0;
+    s_unique_counter[1] = 0;
+  }
+
+  Index_t* new_neighbors = s_list;
+  Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
+
+  size_t list_id      = blockIdx.x;
+  int2 list_new_size2 = sizes_new[list_id];
+  int list_new_size   = list_new_size2.x + list_new_size2.y;
+  int2 list_old_size2 = sizes_old[list_id];
+  int list_old_size   = list_old_size2.x + list_old_size2.y;
+
+  if (!list_new_size) return;
+  int tx = threadIdx.x;
+
+  if (tx < list_new_size2.x) {
+    new_neighbors[tx] = graph_new[list_id * width + tx];
+  } else if (tx >= list_new_size2.x && tx < list_new_size) {
+    new_neighbors[tx] = rev_graph_new[list_id * width + tx - list_new_size2.x];
+  }
+
+  if (tx < list_old_size2.x) {
+    old_neighbors[tx] = graph_old[list_id * width + tx];
+  } else if (tx >= list_old_size2.x && tx < list_old_size) {
+    old_neighbors[tx] = rev_graph_old[list_id * width + tx - list_old_size2.x];
+  }
+
+  __syncthreads();
+
+  remove_duplicates(new_neighbors,
+                    list_new_size2.x,
+                    new_neighbors + list_new_size2.x,
+                    list_new_size2.y,
+                    s_unique_counter[0],
+                    0);
+
+  remove_duplicates(old_neighbors,
+                    list_old_size2.x,
+                    old_neighbors + list_old_size2.x,
+                    list_old_size2.y,
+                    s_unique_counter[1],
+                    1);
+  __syncthreads();
+  list_new_size = list_new_size2.x + s_unique_counter[0];
+  list_old_size = list_old_size2.x + s_unique_counter[1];
+
+  int warp_id             = threadIdx.x / raft::warp_size();
+  int lane_id             = threadIdx.x % raft::warp_size();
+  constexpr int num_warps = BLOCK_SIZE / raft::warp_size();
+
+  int warp_id_y = warp_id / 4;
+  int warp_id_x = warp_id % 4;
+
+  wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
+  wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> b_frag;
+  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
+  // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
+  // starts past either extent only produces cells calculate_metric discards -- skip its MMA and
+  // its store. Staging is cooperative, so this must not skip the barriers.
+  const bool warp_active = warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_new_size;
+  if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
+    wmma::fill_fragment(c_frag, 0.0);
+
+    for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
+      int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
+                             ? data_dim - step * TILE_COL_WIDTH
+                             : TILE_COL_WIDTH;
+#pragma unroll
+      for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
+        int idx = i * num_warps + warp_id;
+        if (idx < list_new_size) {
+          size_t neighbor_id = new_neighbors[idx];
+          size_t idx_in_data = neighbor_id * data_dim;
+          // converted to fp16 on-the-fly while loading
+          load_vec(s_nv[idx],
+                   data + idx_in_data + step * TILE_COL_WIDTH,
+                   num_load_elems,
+                   TILE_COL_WIDTH,
+                   lane_id);
+        }
+      }
+      __syncthreads();
+
+      for (int i = 0; warp_active && i < TILE_COL_WIDTH / WMMA_K; i++) {
+        wmma::load_matrix_sync(
+          a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
+        wmma::load_matrix_sync(
+          b_frag, s_nv[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
+        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+      }
+      __syncthreads();
+    }
+
+    if (warp_active) {
+      wmma::store_matrix_sync(
+        s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
+        c_frag,
+        SKEWED_MAX_NUM_BI_SAMPLES,
+        wmma::mem_row_major);
+    }
+  }
+  __syncthreads();
+
+  calculate_metric(s_distances,
+                   new_neighbors,
+                   list_new_size,
+                   new_neighbors,
+                   list_new_size,
+                   data,
+                   data_dim,
+                   l2_norms,
+                   metric,
+                   dist_epilogue);
+  __syncthreads();
+
+  for (int step = 0; step < raft::ceildiv(list_new_size, num_warps); step++) {
+    int idx_in_list = step * num_warps + tx / raft::warp_size();
+    if (idx_in_list >= list_new_size) continue;
+    auto min_elem = get_min_item(s_list[idx_in_list], idx_in_list, new_neighbors, s_distances);
+    if (min_elem.id() < gridDim.x) {
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
+    }
+  }
+
+  if (!list_old_size) return;
+
+  __syncthreads();
+
+  // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
+  // starts past either extent only produces cells calculate_metric discards
+  const bool warp_active_2 =
+    warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_old_size;
+  if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
+    wmma::fill_fragment(c_frag, 0.0);
+    for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
+      int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
+                             ? data_dim - step * TILE_COL_WIDTH
+                             : TILE_COL_WIDTH;
+      if (TILE_COL_WIDTH < data_dim) {
+#pragma unroll
+        for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
+          int idx = i * num_warps + warp_id;
+          if (idx < list_new_size) {
+            size_t neighbor_id = new_neighbors[idx];
+            size_t idx_in_data = neighbor_id * data_dim;
+            load_vec(s_nv[idx],
+                     data + idx_in_data + step * TILE_COL_WIDTH,
+                     num_load_elems,
+                     TILE_COL_WIDTH,
+                     lane_id);
+          }
+        }
+      }
+#pragma unroll
+      for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
+        int idx = i * num_warps + warp_id;
+        if (idx < list_old_size) {
+          size_t neighbor_id = old_neighbors[idx];
+          size_t idx_in_data = neighbor_id * data_dim;
+          load_vec(s_ov[idx],
+                   data + idx_in_data + step * TILE_COL_WIDTH,
+                   num_load_elems,
+                   TILE_COL_WIDTH,
+                   lane_id);
+        }
+      }
+      __syncthreads();
+
+      for (int i = 0; warp_active_2 && i < TILE_COL_WIDTH / WMMA_K; i++) {
+        wmma::load_matrix_sync(
+          a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
+        wmma::load_matrix_sync(
+          b_frag, s_ov[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
+        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+      }
+      __syncthreads();
+    }
+
+    if (warp_active_2) {
+      wmma::store_matrix_sync(
+        s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
+        c_frag,
+        SKEWED_MAX_NUM_BI_SAMPLES,
+        wmma::mem_row_major);
+    }
+    __syncthreads();
+  }
+
+  calculate_metric(s_distances,
+                   new_neighbors,
+                   list_new_size,
+                   old_neighbors,
+                   list_old_size,
+                   data,
+                   data_dim,
+                   l2_norms,
+                   metric,
+                   dist_epilogue);
+
+  __syncthreads();
+
+  for (int step = 0; step < raft::ceildiv(MAX_NUM_BI_SAMPLES * 2, num_warps); step++) {
+    int idx_in_list = step * num_warps + tx / raft::warp_size();
+    if (idx_in_list >= list_new_size && idx_in_list < MAX_NUM_BI_SAMPLES) continue;
+    if (idx_in_list >= MAX_NUM_BI_SAMPLES + list_old_size && idx_in_list < MAX_NUM_BI_SAMPLES * 2)
+      continue;
+    ResultItem<Index_t> min_elem{std::numeric_limits<Index_t>::max(),
+                                 std::numeric_limits<DistData_t>::max()};
+    if (idx_in_list < MAX_NUM_BI_SAMPLES) {
+      auto temp_min_item =
+        get_min_item(s_list[idx_in_list], idx_in_list, old_neighbors, s_distances);
+      if (temp_min_item.dist() < min_elem.dist()) { min_elem = temp_min_item; }
+    } else {
+      auto temp_min_item = get_min_item(
+        s_list[idx_in_list], idx_in_list - MAX_NUM_BI_SAMPLES, new_neighbors, s_distances, false);
+      if (temp_min_item.dist() < min_elem.dist()) { min_elem = temp_min_item; }
+    }
+
+    if (min_elem.id() < gridDim.x) {
+      insert_to_global_graph(min_elem, s_list[idx_in_list], graph, dists, locks);
+    }
+  }
+#endif
+}
+
+template <typename Data_t, typename Index_t, typename DistEpilogue_t>
+void launch_local_join_wmma(dim3 grid,
+                            dim3 block,
+                            size_t shared,
+                            cudaStream_t stream,
+                            const Index_t* graph_new,
+                            const Index_t* rev_graph_new,
+                            const int2* sizes_new,
+                            const Index_t* graph_old,
+                            const Index_t* rev_graph_old,
+                            const int2* sizes_old,
+                            int width,
+                            const Data_t* data,
+                            int data_dim,
+                            InternalID_t<Index_t>* graph,
+                            DistData_t* dists,
+                            int* locks,
+                            DistData_t* l2_norms,
+                            cuvs::distance::DistanceType metric,
+                            DistEpilogue_t dist_epilogue)
+{
+  local_join_kernel_wmma<<<grid, block, shared, stream>>>(graph_new,
+                                                          rev_graph_new,
+                                                          sizes_new,
+                                                          graph_old,
+                                                          rev_graph_old,
+                                                          sizes_old,
+                                                          width,
+                                                          data,
+                                                          data_dim,
+                                                          graph,
+                                                          dists,
+                                                          locks,
+                                                          l2_norms,
+                                                          metric,
+                                                          dist_epilogue);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::nn_descent::detail
