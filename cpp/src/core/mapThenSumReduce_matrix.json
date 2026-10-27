@@ -6,34 +6,44 @@
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "double*, int, raft::identity_op, CUstream_st*, double const*"
+        "parameter_types": "double*, int, raft::identity_op, CUstream_st*, double const*",
+        "instantiation_name": "f64_ptr_int_identity_op_stream_ptr_f64_c_ptr"
       },
       {
-        "parameter_types": "double*, int, raft::identity_op, CUstream_st*, double const*, double*"
+        "parameter_types": "double*, int, raft::identity_op, CUstream_st*, double const*, double*",
+        "instantiation_name": "f64_ptr_int_identity_op_stream_ptr_f64_c_ptr_f64_ptr"
       },
       {
-        "parameter_types": "double*, long, raft::identity_op, CUstream_st*, double const*"
+        "parameter_types": "double*, long, raft::identity_op, CUstream_st*, double const*",
+        "instantiation_name": "f64_ptr_long_identity_op_stream_ptr_f64_c_ptr"
       },
       {
-        "parameter_types": "double*, unsigned int, raft::compose_op<raft::sq_op, raft::sub_op>, CUstream_st*, double const*, double const*"
+        "parameter_types": "double*, unsigned int, raft::compose_op<raft::sq_op, raft::sub_op>, CUstream_st*, double const*, double const*",
+        "instantiation_name": "f64_ptr_u32_compose_op_sq_op_sub_op_stream_ptr_f64_c_ptr_f64_c_ptr"
       },
       {
-        "parameter_types": "double*, unsigned long, raft::compose_op<raft::sq_op, raft::sub_op>, CUstream_st*, double const*, double const*"
+        "parameter_types": "double*, unsigned long, raft::compose_op<raft::sq_op, raft::sub_op>, CUstream_st*, double const*, double const*",
+        "instantiation_name": "f64_ptr_ulong_compose_op_sq_op_sub_op_stream_ptr_f64_c_ptr_f64_c_ptr"
       },
       {
-        "parameter_types": "float*, int, raft::identity_op, CUstream_st*, float const*"
+        "parameter_types": "float*, int, raft::identity_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_ptr_int_identity_op_stream_ptr_f32_c_ptr"
       },
       {
-        "parameter_types": "float*, int, raft::identity_op, CUstream_st*, float const*, float*"
+        "parameter_types": "float*, int, raft::identity_op, CUstream_st*, float const*, float*",
+        "instantiation_name": "f32_ptr_int_identity_op_stream_ptr_f32_c_ptr_f32_ptr"
       },
       {
-        "parameter_types": "float*, long, raft::identity_op, CUstream_st*, float const*"
+        "parameter_types": "float*, long, raft::identity_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_ptr_long_identity_op_stream_ptr_f32_c_ptr"
       },
       {
-        "parameter_types": "float*, unsigned int, raft::compose_op<raft::sq_op, raft::sub_op>, CUstream_st*, float const*, float const*"
+        "parameter_types": "float*, unsigned int, raft::compose_op<raft::sq_op, raft::sub_op>, CUstream_st*, float const*, float const*",
+        "instantiation_name": "f32_ptr_u32_compose_op_sq_op_sub_op_stream_ptr_f32_c_ptr_f32_c_ptr"
       },
       {
-        "parameter_types": "float*, unsigned long, raft::compose_op<raft::sq_op, raft::sub_op>, CUstream_st*, float const*, float const*"
+        "parameter_types": "float*, unsigned long, raft::compose_op<raft::sq_op, raft::sub_op>, CUstream_st*, float const*, float const*",
+        "instantiation_name": "f32_ptr_ulong_compose_op_sq_op_sub_op_stream_ptr_f32_c_ptr_f32_c_ptr"
       }
     ]
   }
