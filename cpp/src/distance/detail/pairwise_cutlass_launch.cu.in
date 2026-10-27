@@ -1,0 +1,147 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cutlass/gemm/device/gemm_universal_adapter.h>
+#include <distance/detail/distance_ops/l2_exp.cuh>
+#include <distance/detail/pairwise_cutlass_launch.hpp>
+#include <distance/detail/pairwise_distance_epilogue_elementwise.h>
+#include <distance/detail/pairwise_distance_gemm.h>
+#include <raft/core/operators.hpp>
+#include <rmm/device_uvector.hpp>
+#include <util/cutlass_utils.hpp>
+
+#include <type_traits>
+
+namespace {
+
+using inst_data_t = @data_type@;
+
+}  // namespace
+
+namespace cuvs::distance::detail {
+template <typename T, int Alignment, bool RowMajor>
+using pairwise_cutlass_l2 =
+  cutlass::gemm::device::GemmUniversalAdapter<typename gemm::kernel::PairwiseDistanceGemm<
+    T,
+    Alignment,
+    T,
+    Alignment,
+    T,
+    T,
+    epilogue::thread::PairwiseDistanceEpilogueElementwise<T,
+                                                          T,
+                                                          T,
+                                                          T,
+                                                          T,
+                                                          1,
+                                                          ops::l2_exp_cutlass_op<T, T>,
+                                                          raft::identity_op>,
+    3,
+    RowMajor>::GemmKernel>;
+
+extern template void launch_pairwise_cutlass_l2<double, 1, true>(int,
+                                                                 int,
+                                                                 int,
+                                                                 const double*,
+                                                                 const double*,
+                                                                 const double*,
+                                                                 double*,
+                                                                 double*,
+                                                                 int64_t,
+                                                                 int64_t,
+                                                                 int64_t,
+                                                                 bool,
+                                                                 cudaStream_t);
+extern template void launch_pairwise_cutlass_l2<double, 1, false>(int,
+                                                                  int,
+                                                                  int,
+                                                                  const double*,
+                                                                  const double*,
+                                                                  const double*,
+                                                                  double*,
+                                                                  double*,
+                                                                  int64_t,
+                                                                  int64_t,
+                                                                  int64_t,
+                                                                  bool,
+                                                                  cudaStream_t);
+
+template <typename T, int Alignment, bool RowMajor>
+void launch_pairwise_cutlass_l2(int m,
+                                int n,
+                                int k,
+                                const T* a,
+                                const T* b,
+                                const T* xn,
+                                T* yn,
+                                T* output,
+                                int64_t lda,
+                                int64_t ldb,
+                                int64_t ldd,
+                                bool sqrt,
+                                cudaStream_t stream)
+{
+  if constexpr (std::is_same_v<T, double> && Alignment == 2) {
+    static_assert(std::is_same_v<pairwise_cutlass_l2<T, 1, RowMajor>,
+                                 pairwise_cutlass_l2<T, Alignment, RowMajor>>);
+    return launch_pairwise_cutlass_l2<T, 1, RowMajor>(
+      m, n, k, a, b, xn, yn, output, lda, ldb, ldd, sqrt, stream);
+  } else {
+    using Gemm = pairwise_cutlass_l2<T, Alignment, RowMajor>;
+    using Epilogue =
+      epilogue::thread::PairwiseDistanceEpilogueElementwise<T,
+                                                            T,
+                                                            T,
+                                                            T,
+                                                            T,
+                                                            1,
+                                                            ops::l2_exp_cutlass_op<T, T>,
+                                                            raft::identity_op>;
+    typename Epilogue::Params epilogue(ops::l2_exp_cutlass_op<T, T>(sqrt), raft::identity_op{});
+    typename Gemm::Arguments arguments{cutlass::gemm::GemmUniversalMode::kGemm,
+                                       cutlass::gemm::GemmCoord(m, n, k),
+                                       1,
+                                       epilogue,
+                                       a,
+                                       b,
+                                       xn,
+                                       nullptr,
+                                       yn,
+                                       output,
+                                       int64_t{0},
+                                       int64_t{0},
+                                       int64_t{0},
+                                       int64_t{0},
+                                       int64_t{0},
+                                       int64_t{0},
+                                       lda,
+                                       ldb,
+                                       1,
+                                       0,
+                                       0,
+                                       ldd};
+    rmm::device_uvector<uint8_t> workspace(Gemm::get_workspace_size(arguments), stream);
+    Gemm operation;
+    CUVS_CUTLASS_TRY(operation.can_implement(arguments));
+    CUVS_CUTLASS_TRY(operation.initialize(arguments, workspace.data(), stream));
+    CUVS_CUTLASS_TRY(operation(stream));
+  }
+}
+
+template void launch_pairwise_cutlass_l2<inst_data_t, @alignment@, @row_major@>(int,
+                                                                        int,
+                                                                        int,
+                                                                        const inst_data_t*,
+                                                                        const inst_data_t*,
+                                                                        const inst_data_t*,
+                                                                        inst_data_t*,
+                                                                        inst_data_t*,
+                                                                        int64_t,
+                                                                        int64_t,
+                                                                        int64_t,
+                                                                        bool,
+                                                                        cudaStream_t);
+
+}  // namespace cuvs::distance::detail

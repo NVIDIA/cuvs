@@ -1,0 +1,62 @@
+[
+  {
+    "data_type": "float",
+    "alignment": "1",
+    "row_major": "true",
+    "inst_abbrev": "f32_a1_row"
+  },
+  {
+    "data_type": "float",
+    "alignment": "1",
+    "row_major": "false",
+    "inst_abbrev": "f32_a1_col"
+  },
+  {
+    "data_type": "float",
+    "alignment": "2",
+    "row_major": "true",
+    "inst_abbrev": "f32_a2_row"
+  },
+  {
+    "data_type": "float",
+    "alignment": "2",
+    "row_major": "false",
+    "inst_abbrev": "f32_a2_col"
+  },
+  {
+    "data_type": "float",
+    "alignment": "4",
+    "row_major": "true",
+    "inst_abbrev": "f32_a4_row"
+  },
+  {
+    "data_type": "float",
+    "alignment": "4",
+    "row_major": "false",
+    "inst_abbrev": "f32_a4_col"
+  },
+  {
+    "data_type": "double",
+    "alignment": "1",
+    "row_major": "true",
+    "inst_abbrev": "f64_a1_row"
+  },
+  {
+    "data_type": "double",
+    "alignment": "1",
+    "row_major": "false",
+    "inst_abbrev": "f64_a1_col"
+  },
+  {
+    "data_type": "double",
+    "alignment": "2",
+    "row_major": "true",
+    "inst_abbrev": "f64_a2_row"
+  },
+  {
+    "data_type": "double",
+    "alignment": "2",
+    "row_major": "false",
+    "inst_abbrev": "f64_a2_col"
+  }
+]
