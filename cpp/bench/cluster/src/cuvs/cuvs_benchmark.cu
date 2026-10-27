@@ -15,9 +15,8 @@
 namespace cuvs::bench::cluster {
 
 template <typename T>
-auto create_algo(const std::string& name,
-                 const nlohmann::json& param,
-                 const raft::resources& res) -> std::unique_ptr<algo<T>>
+auto create_algo(const std::string& name, const nlohmann::json& param, const raft::resources& res)
+  -> std::unique_ptr<algo<T>>
 {
   if (name == "cuvs_kmeans") {
     if constexpr (std::is_same_v<T, float>) {

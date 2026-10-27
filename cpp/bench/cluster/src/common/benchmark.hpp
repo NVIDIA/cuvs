@@ -45,9 +45,8 @@ class algo {
 
 /** Implemented by each benchmark executable. Throws if `name` or `T` is not supported. */
 template <typename T>
-auto create_algo(const std::string& name,
-                 const nlohmann::json& param,
-                 const raft::resources& res) -> std::unique_ptr<algo<T>>;
+auto create_algo(const std::string& name, const nlohmann::json& param, const raft::resources& res)
+  -> std::unique_ptr<algo<T>>;
 
 template <typename T>
 void bench_fit(::benchmark::State& state,

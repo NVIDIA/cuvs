@@ -217,12 +217,14 @@ def test_cli_executable_failure(dataset_dir, gpu_present):
 
 
 def test_cli_end_to_end(dataset_dir):
-    """Runs the real CUVS_KMEANS_CLUSTER_BENCH; skipped if it is not found."""
+    """
+    Runs the real CUVS_KMEANS_CLUSTER_BENCH, as installed by the
+    libcuvs-bench-cluster package (or from CUVS_CLUSTER_BENCH_DIR).
+    """
     executable_dir = os.environ.get("CUVS_CLUSTER_BENCH_DIR")
-    if not CppGBenchConfigLoader(executable_subdir="cluster").get_build_path(
+    assert CppGBenchConfigLoader(executable_subdir="cluster").get_build_path(
         EXECUTABLE, executable_dir
-    ):
-        pytest.skip(f"{EXECUTABLE} not found")
+    ), f"{EXECUTABLE} not found"
     args = [
         "--dataset=blobs",
         f"--dataset-path={dataset_dir}",

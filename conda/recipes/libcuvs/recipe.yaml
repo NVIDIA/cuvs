@@ -506,3 +506,39 @@ outputs:
       homepage: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.urls.Homepage }}
       license: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.license }}
       summary: libcuvs benchmark
+
+  - package:
+      name: libcuvs-bench-cluster
+      version: ${{ version }}
+    inherit: libcuvs-build
+    build:
+      script:
+        content: |
+          cmake --install cpp/build --component cluster_bench
+      string: cuda${{ cuda_major }}_${{ datetime_string }}_${{ head_rev }}
+      dynamic_linking:
+        overlinking_behavior: "error"
+      prefix_detection:
+        ignore_binary_files: true
+    requirements:
+      build:
+        - cmake ${{ cmake_version }}
+        - ${{ stdlib("c") }}
+      host:
+        - ${{ pin_subpackage("libcuvs-headers", exact=True) }}
+        - ${{ pin_subpackage("libcuvs", exact=True) }}
+        - cuda-version =${{ cuda_version }}
+        - libraft-headers =${{ minor_version }}
+        - librmm =${{ minor_version }}
+      run:
+        - librmm =${{ minor_version }}
+        - ${{ pin_subpackage("libcuvs", exact=True) }}
+        - ${{ pin_compatible("cuda-version", upper_bound="x", lower_bound="x") }}
+      ignore_run_exports:
+        by_name:
+          - cuda-version
+          - librmm
+    about:
+      homepage: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.urls.Homepage }}
+      license: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.license }}
+      summary: libcuvs clustering benchmark
