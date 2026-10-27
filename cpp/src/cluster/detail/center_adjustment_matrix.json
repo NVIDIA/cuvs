@@ -1,0 +1,45 @@
+[
+  {
+    "return_type": "bool",
+    "qualified_function": "cuvs::cluster::kmeans::detail::adjust_centers",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::cluster::kmeans::detail",
+    "_variants": [
+      {
+        "template_arguments": "< __half const*, float, long, unsigned int, unsigned long long, cuvs::spatial::knn::detail::utils::mapping<float>>",
+        "parameter_types": "raft::resources const &, float *, long, long, __half const *, long, unsigned int const *, unsigned long long const *, float, float, float, cuvs::cluster::kmeans::balanced_donor_selection, cuvs::spatial::knn::detail::utils::mapping<float>, rmm::device_async_resource_ref",
+        "instantiation_name": "f16_i64_u32_u64_mapping"
+      },
+      {
+        "template_arguments": "< float const*, float, long, unsigned int, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>>",
+        "parameter_types": "raft::resources const &, float *, long, long, float const *, long, unsigned int const *, unsigned int const *, float, float, float, cuvs::cluster::kmeans::balanced_donor_selection, cuvs::spatial::knn::detail::utils::mapping<float>, rmm::device_async_resource_ref",
+        "instantiation_name": "f32_i64_u32_u32_mapping"
+      },
+      {
+        "template_arguments": "< float const*, float, long, unsigned int, unsigned long long, cuvs::spatial::knn::detail::utils::mapping<float>>",
+        "parameter_types": "raft::resources const &, float *, long, long, float const *, long, unsigned int const *, unsigned long long const *, float, float, float, cuvs::cluster::kmeans::balanced_donor_selection, cuvs::spatial::knn::detail::utils::mapping<float>, rmm::device_async_resource_ref",
+        "instantiation_name": "f32_i64_u32_u64_mapping"
+      },
+      {
+        "template_arguments": "< signed char const*, float, long, unsigned int, unsigned long long, cuvs::spatial::knn::detail::utils::mapping<float>>",
+        "parameter_types": "raft::resources const &, float *, long, long, signed char const *, long, unsigned int const *, unsigned long long const *, float, float, float, cuvs::cluster::kmeans::balanced_donor_selection, cuvs::spatial::knn::detail::utils::mapping<float>, rmm::device_async_resource_ref",
+        "instantiation_name": "i8_i64_u32_u64_mapping"
+      },
+      {
+        "template_arguments": "< unsigned char const*, float, long, unsigned int, unsigned long long, cuvs::spatial::knn::detail::utils::mapping<float>>",
+        "parameter_types": "raft::resources const &, float *, long, long, unsigned char const *, long, unsigned int const *, unsigned long long const *, float, float, float, cuvs::cluster::kmeans::balanced_donor_selection, cuvs::spatial::knn::detail::utils::mapping<float>, rmm::device_async_resource_ref",
+        "instantiation_name": "u8_i64_u32_u64_mapping"
+      },
+      {
+        "template_arguments": "<thrust::transform_iterator<cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>, thrust::counting_iterator<long, thrust::use_default, thrust::use_default, thrust::use_default, thrust::__compile_time_value<1>>, thrust::use_default, thrust::use_default>, float, long, unsigned int, unsigned long long, raft::identity_op>",
+        "parameter_types": "raft::resources const&, float*, long, long, thrust::transform_iterator<cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>, thrust::counting_iterator<long, thrust::use_default, thrust::use_default, thrust::use_default, thrust::__compile_time_value<1>>, thrust::use_default, thrust::use_default>, long, unsigned int const*, unsigned long long const*, float, float, float, cuvs::cluster::kmeans::balanced_donor_selection, raft::identity_op, rmm::device_async_resource_ref",
+        "instantiation_name": "bitwise_f32_i64_u32_u64_identity"
+      },
+      {
+        "template_arguments": "< unsigned char const*, float, long, unsigned int, unsigned long long, raft::identity_op>",
+        "parameter_types": "raft::resources const &, float *, long, long, unsigned char const *, long, unsigned int const *, unsigned long long const *, float, float, float, cuvs::cluster::kmeans::balanced_donor_selection, raft::identity_op, rmm::device_async_resource_ref",
+        "instantiation_name": "u8_i64_u32_u64_identity"
+      }
+    ]
+  }
+]

@@ -847,58 +847,26 @@ __launch_bounds__((raft::WarpSize * BlockDimY)) RAFT_KERNEL
   }
 }
 
-template <uint32_t BlockDimY,
-          typename DatasetIterator,
+template <typename DatasetIterator,
           typename MathT,
           typename IdxT,
           typename LabelT,
           typename MappingOpT>
-__launch_bounds__((raft::WarpSize * BlockDimY)) RAFT_KERNEL
-  adjust_centers_kernel(MathT* centers,  // [n_clusters, dim]
-                        IdxT n_pairs,
-                        IdxT dim,
-                        DatasetIterator dataset,  // random-access iterator to [n_rows, dim]
-                        IdxT n_rows,
-                        const LabelT* labels,  // [n_rows]
-                        const IdxT* receiver_clusters,
-                        const IdxT* donor_clusters,
-                        MathT centroid_offset,
-                        IdxT seed,
-                        IdxT* update_count,
-                        MappingOpT mapping_op)
-{
-  IdxT pair_id = threadIdx.y + BlockDimY * static_cast<IdxT>(blockIdx.x);
-  if (pair_id >= n_pairs) return;
-
-  auto receiver_cluster = receiver_clusters[pair_id];
-  auto donor_cluster    = donor_clusters[pair_id];
-  IdxT i                = n_rows;
-  IdxT j                = raft::laneId();
-  for (IdxT attempt = 0; attempt < n_rows; attempt += raft::WarpSize) {
-    auto candidate =
-      static_cast<IdxT>((static_cast<int64_t>(seed) * static_cast<int64_t>(attempt + j + 1) +
-                         static_cast<int64_t>(pair_id)) %
-                        static_cast<int64_t>(n_rows));
-    auto found = static_cast<IdxT>(labels[candidate]) == donor_cluster;
-    auto mask  = __ballot_sync(raft::warp_full_mask(), found);
-    if (mask != 0) {
-      auto source_lane = __ffs(mask) - 1;
-      i                = raft::shfl(found ? candidate : n_rows, source_lane);
-      if (j == source_lane) { atomicAdd(update_count, IdxT{1}); }
-      break;
-    }
-  }
-  if (i >= n_rows) return;
-
-  // Reinitialize the small cluster close to the large cluster centroid, with a small offset towards
-  // a random donor point so it can split the large partition in the next prediction step.
-  for (; j < dim; j += raft::WarpSize) {
-    auto donor_center = centers[j + dim * donor_cluster];
-    auto donor_point  = mapping_op(dataset[j + dim * i]);
-    auto val          = donor_center + centroid_offset * (donor_point - donor_center);
-    centers[j + dim * receiver_cluster] = val;
-  }
-}
+void launch_adjust_centers(dim3 grid,
+                           dim3 block,
+                           cudaStream_t stream,
+                           MathT* centers,
+                           IdxT n_pairs,
+                           IdxT dim,
+                           DatasetIterator dataset,
+                           IdxT n_rows,
+                           const LabelT* labels,
+                           const IdxT* receiver_clusters,
+                           const IdxT* donor_clusters,
+                           MathT centroid_offset,
+                           IdxT seed,
+                           IdxT* update_count,
+                           MappingOpT mapping_op);
 
 /**
  * @brief Adjust centers for clusters that have small number of entries.
@@ -963,106 +931,7 @@ auto adjust_centers(const raft::resources& handle,
                     MathT centroid_offset,
                     cuvs::cluster::kmeans::balanced_donor_selection donor_selection,
                     MappingOpT mapping_op,
-                    rmm::device_async_resource_ref device_memory) -> bool
-{
-  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
-    "adjust_centers(%zu, %u)", static_cast<size_t>(n_rows), n_clusters);
-  if (n_clusters == 0) { return false; }
-  auto stream = raft::resource::get_cuda_stream(handle);
-  constexpr static std::array kPrimes{29,   71,   113,  173,  229,  281,  349,  409,  463,  541,
-                                      601,  659,  733,  809,  863,  941,  1013, 1069, 1151, 1223,
-                                      1291, 1373, 1451, 1511, 1583, 1657, 1733, 1811, 1889, 1987,
-                                      2053, 2129, 2213, 2287, 2357, 2423, 2531, 2617, 2687, 2741};
-  static IdxT i_primes = 0;
-
-  auto average         = static_cast<MathT>(n_rows) / static_cast<MathT>(n_clusters);
-  auto lower_threshold = average * balance_lower_tolerance;
-  auto upper_threshold = average * balance_upper_tolerance;
-  std::vector<CounterT> host_cluster_sizes(n_clusters);
-  raft::update_host(host_cluster_sizes.data(), cluster_sizes, n_clusters, stream);
-  raft::resource::sync_stream(handle, stream);
-
-  std::vector<std::pair<CounterT, IdxT>> sorted_clusters;
-  sorted_clusters.reserve(n_clusters);
-  for (IdxT cluster = 0; cluster < n_clusters; ++cluster) {
-    sorted_clusters.emplace_back(host_cluster_sizes[cluster], cluster);
-  }
-  std::sort(sorted_clusters.begin(), sorted_clusters.end());
-
-  std::vector<IdxT> host_receiver_clusters;
-  std::vector<IdxT> host_donor_clusters;
-  host_receiver_clusters.reserve(n_clusters / 2);
-  host_donor_clusters.reserve(n_clusters / 2);
-  for (IdxT pair_id = 0; pair_id < n_clusters / 2; ++pair_id) {
-    auto const& [small_size, small_cluster] = sorted_clusters[pair_id];
-    auto const& [large_size, large_cluster] = sorted_clusters[n_clusters - 1 - pair_id];
-    if (small_cluster == large_cluster) { break; }
-    if (large_size == 0) { break; }
-    if (static_cast<MathT>(small_size) >= lower_threshold &&
-        static_cast<MathT>(large_size) <= upper_threshold) {
-      break;
-    }
-    host_receiver_clusters.push_back(small_cluster);
-    host_donor_clusters.push_back(large_cluster);
-  }
-  auto n_pairs = static_cast<IdxT>(host_receiver_clusters.size());
-  if (n_pairs == 0) { return false; }
-
-  IdxT ofst;
-  do {
-    i_primes = (i_primes + 1) % kPrimes.size();
-    ofst     = kPrimes[i_primes];
-  } while (n_rows % ofst == 0);
-
-  rmm::device_uvector<IdxT> receiver_clusters(n_pairs, stream, device_memory);
-  rmm::device_uvector<IdxT> donor_clusters(n_pairs, stream, device_memory);
-  constexpr uint32_t kBlockDimY = 4;
-  const dim3 block_dim(raft::WarpSize, kBlockDimY, 1);
-  rmm::device_scalar<IdxT> update_count(stream, device_memory);
-  update_count.set_value_to_zero_async(stream);
-
-  if (donor_selection == cuvs::cluster::kmeans::balanced_donor_selection::Random) {
-    rmm::device_scalar<IdxT> search_count(stream, device_memory);
-    search_count.set_value_to_zero_async(stream);
-    const dim3 grid_dim(raft::ceildiv(n_clusters, static_cast<IdxT>(kBlockDimY)), 1, 1);
-    adjust_centers_random_donor_kernel<kBlockDimY>
-      <<<grid_dim, block_dim, 0, stream.get()>>>(centers,
-                                                 n_clusters,
-                                                 dim,
-                                                 dataset,
-                                                 n_rows,
-                                                 labels,
-                                                 cluster_sizes,
-                                                 lower_threshold,
-                                                 static_cast<IdxT>(n_rows / n_clusters),
-                                                 centroid_offset,
-                                                 ofst,
-                                                 search_count.data(),
-                                                 update_count.data(),
-                                                 mapping_op);
-    return update_count.value(stream) > 0;  // NB: rmm scalar performs the sync
-  }
-
-  raft::update_device(receiver_clusters.data(), host_receiver_clusters.data(), n_pairs, stream);
-  raft::update_device(donor_clusters.data(), host_donor_clusters.data(), n_pairs, stream);
-  const dim3 grid_dim(raft::ceildiv(n_pairs, static_cast<IdxT>(kBlockDimY)), 1, 1);
-  adjust_centers_kernel<kBlockDimY>
-    <<<grid_dim, block_dim, 0, stream.get()>>>(centers,
-                                               n_pairs,
-                                               dim,
-                                               dataset,
-                                               n_rows,
-                                               labels,
-                                               receiver_clusters.data(),
-                                               donor_clusters.data(),
-                                               centroid_offset,
-                                               ofst,
-                                               update_count.data(),
-                                               mapping_op);
-  auto n_updates = update_count.value(stream);  // NB: rmm scalar performs the sync
-  RAFT_EXPECTS(n_updates == n_pairs, "Balanced k-means failed to update all adjusted centers");
-  return n_updates > 0;
-}
+                    rmm::device_async_resource_ref device_memory) -> bool;
 
 /**
  * @brief Expectation-maximization-balancing combined in an iterative process.
