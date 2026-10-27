@@ -6,10 +6,12 @@
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "raft::resources const&, int const*, double const*, int, int, double*, raft::linalg::NormType, raft::identity_op"
+        "parameter_types": "raft::resources const&, int const*, double const*, int, int, double*, raft::linalg::NormType, raft::identity_op",
+        "instantiation_name": "int_c_ptr_f64_c_ptr_int_int_f64_ptr_normtype_identity_op"
       },
       {
-        "parameter_types": "raft::resources const&, int const*, float const*, int, int, float*, raft::linalg::NormType, raft::identity_op"
+        "parameter_types": "raft::resources const&, int const*, float const*, int, int, float*, raft::linalg::NormType, raft::identity_op",
+        "instantiation_name": "int_c_ptr_f32_c_ptr_int_int_f32_ptr_normtype_identity_op"
       }
     ]
   }

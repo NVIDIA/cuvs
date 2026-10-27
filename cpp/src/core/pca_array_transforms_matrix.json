@@ -1,0 +1,42 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::truncZeroOrigin",
+    "function_qualifiers": "",
+    "template_arguments": "<float, long>",
+    "parameter_types": "float const*, long, float*, long, long, cudaStream_t",
+    "instantiation_name": "truncate_f32_i64"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::rowReverse",
+    "function_qualifiers": "",
+    "template_arguments": "<float, long>",
+    "parameter_types": "float*, long, long, cudaStream_t",
+    "instantiation_name": "reverse_rows_f32_i64"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::colReverse",
+    "function_qualifiers": "",
+    "template_arguments": "<float, long>",
+    "parameter_types": "float*, long, long, cudaStream_t",
+    "instantiation_name": "reverse_columns_f32_i64"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::seqRoot",
+    "function_qualifiers": "",
+    "template_arguments": "<float, unsigned long>",
+    "parameter_types": "float const*, float*, float, unsigned long, cudaStream_t, bool",
+    "instantiation_name": "sqrt_f32_u64"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::ratio",
+    "function_qualifiers": "",
+    "template_arguments": "<float, unsigned long>",
+    "parameter_types": "raft::resources const&, float const*, float*, unsigned long, cudaStream_t",
+    "instantiation_name": "ratio_f32_u64"
+  }
+]

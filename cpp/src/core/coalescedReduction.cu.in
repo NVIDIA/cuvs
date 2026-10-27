@@ -10,6 +10,7 @@
 #include <cuvs/core/cuda_fp16.hpp>
 #include <raft/linalg/coalesced_reduction.cuh>
 #include <raft/linalg/map.cuh>
+#include <raft/linalg/strided_reduction.cuh>
 
 extern template void raft::linalg::detail::map<false, double, int, raft::const_op<double>, double>(
   cuda::stream_ref, double*, int, raft::const_op<double>, double const*);
@@ -81,4 +82,12 @@ void coalescedReduction(OutType* dots,
 
 }  // namespace cuvs::detail
 
-@primitive_instantiations@
+// clang-format off
+@coalesced_dispatch_extern_instantiations@
+@strided_dispatch_extern_instantiations@
+@strided_launch_extern_instantiations@
+@coalesced_thin_extern_instantiations@
+@coalesced_thick_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

@@ -6,83 +6,103 @@
     "_variants": [
       {
         "template_arguments": "<__half, float, int, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "float*, __half const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
+        "parameter_types": "float*, __half const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f16_f32_int_identity_op_add_op_identity_op"
       },
       {
         "template_arguments": "<__half, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "float*, __half const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
+        "parameter_types": "float*, __half const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f16_f32_int_sq_op_add_op_identity_op"
       },
       {
         "template_arguments": "<__half, float, int, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "float*, __half const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
+        "parameter_types": "float*, __half const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op",
+        "instantiation_name": "raw_f16_f32_int_sq_op_add_op_sqrt_op"
       },
       {
         "template_arguments": "<__half, float, long, raft::cast_op<float>, raft::add_op, raft::plug_const_op<float, raft::mul_op>>",
-        "parameter_types": "float*, __half const*, long, long, float, CUstream_st*, bool, raft::cast_op<float>, raft::add_op, raft::plug_const_op<float, raft::mul_op>"
+        "parameter_types": "float*, __half const*, long, long, float, CUstream_st*, bool, raft::cast_op<float>, raft::add_op, raft::plug_const_op<float, raft::mul_op>",
+        "instantiation_name": "raw_f16_f32_long_cast_op_f32_add_op_plug_c_op_f32_mul_op"
       },
       {
         "template_arguments": "<__half, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "float*, __half const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
+        "parameter_types": "float*, __half const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f16_f32_long_sq_op_add_op_identity_op"
       },
       {
         "template_arguments": "<__half, float, long, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "float*, __half const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
+        "parameter_types": "float*, __half const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op",
+        "instantiation_name": "raw_f16_f32_long_sq_op_add_op_sqrt_op"
       },
       {
         "template_arguments": "<double, double, int, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "double*, double const*, int, int, double, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
+        "parameter_types": "double*, double const*, int, int, double, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f64_f64_int_identity_op_add_op_identity_op"
       },
       {
         "template_arguments": "<double, double, int, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "double*, double const*, int, int, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
+        "parameter_types": "double*, double const*, int, int, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f64_f64_int_sq_op_add_op_identity_op"
       },
       {
         "template_arguments": "<double, double, int, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "double*, double const*, int, int, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
+        "parameter_types": "double*, double const*, int, int, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op",
+        "instantiation_name": "raw_f64_f64_int_sq_op_add_op_sqrt_op"
       },
       {
         "template_arguments": "<double, double, long, raft::identity_op, raft::add_op, raft::plug_const_op<double, raft::mul_op>>",
-        "parameter_types": "double*, double const*, long, long, double, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::plug_const_op<double, raft::mul_op>"
+        "parameter_types": "double*, double const*, long, long, double, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::plug_const_op<double, raft::mul_op>",
+        "instantiation_name": "raw_f64_f64_long_identity_op_add_op_plug_c_op_f64_mul_op"
       },
       {
         "template_arguments": "<double, double, long, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "double*, double const*, long, long, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
+        "parameter_types": "double*, double const*, long, long, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f64_f64_long_sq_op_add_op_identity_op"
       },
       {
         "template_arguments": "<float, float, int, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
+        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f32_f32_int_identity_op_add_op_identity_op"
       },
       {
         "template_arguments": "<float, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
+        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f32_f32_int_sq_op_add_op_identity_op"
       },
       {
         "template_arguments": "<float, float, int, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
+        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op",
+        "instantiation_name": "raw_f32_f32_int_sq_op_add_op_sqrt_op"
       },
       {
         "template_arguments": "<float, float, long, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
+        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f32_f32_long_identity_op_add_op_identity_op"
       },
       {
         "template_arguments": "<float, float, long, raft::identity_op, raft::add_op, raft::plug_const_op<float, raft::mul_op>>",
-        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::plug_const_op<float, raft::mul_op>"
+        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::plug_const_op<float, raft::mul_op>",
+        "instantiation_name": "raw_f32_f32_long_identity_op_add_op_plug_c_op_f32_mul_op"
       },
       {
         "template_arguments": "<float, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
+        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "raw_f32_f32_long_sq_op_add_op_identity_op"
       },
       {
         "template_arguments": "<float, float, long, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
+        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op",
+        "instantiation_name": "raw_f32_f32_long_sq_op_add_op_sqrt_op"
       },
       {
         "template_arguments": "<signed char, float, long, raft::cast_op<float>, raft::add_op, raft::plug_const_op<float, raft::mul_op>>",
-        "parameter_types": "float*, signed char const*, long, long, float, CUstream_st*, bool, raft::cast_op<float>, raft::add_op, raft::plug_const_op<float, raft::mul_op>"
+        "parameter_types": "float*, signed char const*, long, long, float, CUstream_st*, bool, raft::cast_op<float>, raft::add_op, raft::plug_const_op<float, raft::mul_op>",
+        "instantiation_name": "raw_i8_f32_long_cast_op_f32_add_op_plug_c_op_f32_mul_op"
       },
       {
         "template_arguments": "<unsigned char, float, long, raft::cast_op<float>, raft::add_op, raft::plug_const_op<float, raft::mul_op>>",
-        "parameter_types": "float*, unsigned char const*, long, long, float, CUstream_st*, bool, raft::cast_op<float>, raft::add_op, raft::plug_const_op<float, raft::mul_op>"
+        "parameter_types": "float*, unsigned char const*, long, long, float, CUstream_st*, bool, raft::cast_op<float>, raft::add_op, raft::plug_const_op<float, raft::mul_op>",
+        "instantiation_name": "raw_u8_f32_long_cast_op_f32_add_op_plug_c_op_f32_mul_op"
       }
     ]
   }
