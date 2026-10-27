@@ -1459,6 +1459,13 @@ if(NOT BUILD_CPU_ONLY)
     list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_unique_by_key_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_unique_by_key.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_unique_by_key_@inst_abbrev@.cu"
+  )
+
   add_library(
     cuvs_objs OBJECT
     ${cuvs_primitive_sources}
@@ -1470,7 +1477,6 @@ if(NOT BUILD_CPU_ONLY)
     src/core/cub_ptx_query.cu
     src/core/cub_reduce_second_tile.cu
     src/core/cub_transform.cu
-    src/core/cub_unique_by_key.cu
     src/core/has_non_finite.cu
     src/core/mask_distance_tile.cu
     src/core/thrust_for_each.cu
