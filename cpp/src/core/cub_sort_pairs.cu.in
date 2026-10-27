@@ -26,6 +26,8 @@ cudaError_t cub_sort_pairs(void* storage,
     storage, bytes, keys_in, keys_out, values_in, values_out, count, begin_bit, end_bit, stream);
 }
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
 
 }  // namespace cuvs::detail
