@@ -260,39 +260,3 @@ template class cuvs::neighbors::brute_force::index<half, float>;
 }  // namespace brute_force
 }  // namespace neighbors
 }  // namespace CUVS_EXPORT cuvs
-
-template void cuvs::neighbors::detail::brute_force_knn_impl<int64_t, int64_t, float, float>(
-  raft::resources const&,
-  std::vector<float*>&,
-  std::vector<int64_t>&,
-  int64_t,
-  float*,
-  int64_t,
-  int64_t*,
-  float*,
-  int64_t,
-  bool,
-  bool,
-  std::vector<int64_t>*,
-  cuvs::distance::DistanceType,
-  float,
-  std::vector<float*>*,
-  float const*);
-
-template void cuvs::neighbors::detail::brute_force_knn_impl<int64_t, int64_t, __half, float>(
-  raft::resources const&,
-  std::vector<__half*>&,
-  std::vector<int64_t>&,
-  int64_t,
-  __half*,
-  int64_t,
-  int64_t*,
-  float*,
-  int64_t,
-  bool,
-  bool,
-  std::vector<int64_t>*,
-  cuvs::distance::DistanceType,
-  float,
-  std::vector<float*>*,
-  float const*);

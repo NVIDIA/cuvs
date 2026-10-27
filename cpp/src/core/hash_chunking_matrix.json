@@ -5,7 +5,8 @@
     "template_arguments": "",
     "parameter_types": "int const*, int, rmm::device_uvector<int>&, std::tuple<int, int>&, cudaStream_t",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::distance::detail::sparse"
+    "namespace_context": "cuvs::distance::detail::sparse",
+    "instantiation_name": "cuvs_distance_detail_sparse_hash_strategy_int_double_1024_chunking_needed_int_c_ptr_int_device_uvector_int_ref_tuple_int_int_ref_stream"
   },
   {
     "return_type": "void",
@@ -13,6 +14,7 @@
     "template_arguments": "",
     "parameter_types": "int const*, int, rmm::device_uvector<int>&, std::tuple<int, int>&, cudaStream_t",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::distance::detail::sparse"
+    "namespace_context": "cuvs::distance::detail::sparse",
+    "instantiation_name": "cuvs_distance_detail_sparse_hash_strategy_int_float_1024_chunking_needed_int_c_ptr_int_device_uvector_int_ref_tuple_int_int_ref_stream"
   }
 ]

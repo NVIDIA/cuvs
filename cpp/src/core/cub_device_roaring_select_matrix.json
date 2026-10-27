@@ -1,0 +1,10 @@
+[
+  {
+    "index_pointer_type": "unsigned int const*",
+    "inst_abbrev": "const_u32"
+  },
+  {
+    "index_pointer_type": "unsigned int*",
+    "inst_abbrev": "u32"
+  }
+]

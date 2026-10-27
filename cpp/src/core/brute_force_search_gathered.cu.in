@@ -57,18 +57,20 @@ extern template void raft::matrix::detail::gatherImpl<float*,
 
 namespace cuvs::neighbors::detail {
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
 
-  template <typename T, typename IdxT, typename BitsT, typename DistanceT>
-  void brute_force_search_gathered(
-    raft::resources const& res,
-    const cuvs::neighbors::brute_force::index<T, DistanceT>& idx,
-    raft::device_matrix_view<const T, IdxT, raft::row_major> queries,
-    const cuvs::core::bitset_view<BitsT, IdxT>& filter_view,
-    IdxT n_pass,
-    raft::device_matrix_view<IdxT, IdxT, raft::row_major> neighbors,
-    raft::device_matrix_view<DistanceT, IdxT, raft::row_major> distances,
-    std::optional<raft::device_vector_view<const DistanceT, IdxT>> query_norms)
+template <typename T, typename IdxT, typename BitsT, typename DistanceT>
+void brute_force_search_gathered(
+  raft::resources const& res,
+  const cuvs::neighbors::brute_force::index<T, DistanceT>& idx,
+  raft::device_matrix_view<const T, IdxT, raft::row_major> queries,
+  const cuvs::core::bitset_view<BitsT, IdxT>& filter_view,
+  IdxT n_pass,
+  raft::device_matrix_view<IdxT, IdxT, raft::row_major> neighbors,
+  raft::device_matrix_view<DistanceT, IdxT, raft::row_major> distances,
+  std::optional<raft::device_vector_view<const DistanceT, IdxT>> query_norms)
 {
   auto policy    = raft::resource::get_thrust_policy(res);
   IdxT n_queries = queries.extent(0);

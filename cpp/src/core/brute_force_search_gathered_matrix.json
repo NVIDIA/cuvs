@@ -7,11 +7,13 @@
     "_variants": [
       {
         "template_arguments": "<float, int64_t, uint32_t, float>",
-        "parameter_types": "raft::resources const&, const cuvs::neighbors::brute_force::index<float, float>&, raft::device_matrix_view<const float, int64_t, raft::row_major>, const cuvs::core::bitset_view<uint32_t, int64_t>&, int64_t, raft::device_matrix_view<int64_t, int64_t, raft::row_major>, raft::device_matrix_view<float, int64_t, raft::row_major>, std::optional<raft::device_vector_view<const float, int64_t>>"
+        "parameter_types": "raft::resources const&, const cuvs::neighbors::brute_force::index<float, float>&, raft::device_matrix_view<const float, int64_t, raft::row_major>, const cuvs::core::bitset_view<uint32_t, int64_t>&, int64_t, raft::device_matrix_view<int64_t, int64_t, raft::row_major>, raft::device_matrix_view<float, int64_t, raft::row_major>, std::optional<raft::device_vector_view<const float, int64_t>>",
+        "instantiation_name": "f32_i64_u32_f32"
       },
       {
         "template_arguments": "<__half, int64_t, uint32_t, float>",
-        "parameter_types": "raft::resources const&, const cuvs::neighbors::brute_force::index<__half, float>&, raft::device_matrix_view<const __half, int64_t, raft::row_major>, const cuvs::core::bitset_view<uint32_t, int64_t>&, int64_t, raft::device_matrix_view<int64_t, int64_t, raft::row_major>, raft::device_matrix_view<float, int64_t, raft::row_major>, std::optional<raft::device_vector_view<const float, int64_t>>"
+        "parameter_types": "raft::resources const&, const cuvs::neighbors::brute_force::index<__half, float>&, raft::device_matrix_view<const __half, int64_t, raft::row_major>, const cuvs::core::bitset_view<uint32_t, int64_t>&, int64_t, raft::device_matrix_view<int64_t, int64_t, raft::row_major>, raft::device_matrix_view<float, int64_t, raft::row_major>, std::optional<raft::device_vector_view<const float, int64_t>>",
+        "instantiation_name": "f16_i64_u32_f32"
       }
     ]
   }

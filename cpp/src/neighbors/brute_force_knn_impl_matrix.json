@@ -1,0 +1,10 @@
+[
+  {
+    "data_type": "float",
+    "inst_abbrev": "f32"
+  },
+  {
+    "data_type": "__half",
+    "inst_abbrev": "f16"
+  }
+]

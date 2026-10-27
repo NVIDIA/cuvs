@@ -7,19 +7,23 @@
     "_variants": [
       {
         "template_arguments": "<cub::ArgIndexInputIterator<double*, long, double>, raft::KeyValuePair<long, double>*, int*, int, cuvs::cluster::kmeans::detail::SamplingOp<double, int>>",
-        "parameter_types": "void*, unsigned long&, cub::ArgIndexInputIterator<double*, long, double>, raft::KeyValuePair<long, double>*, int*, int, cuvs::cluster::kmeans::detail::SamplingOp<double, int>, cudaStream_t"
+        "parameter_types": "void*, unsigned long&, cub::ArgIndexInputIterator<double*, long, double>, raft::KeyValuePair<long, double>*, int*, int, cuvs::cluster::kmeans::detail::SamplingOp<double, int>, cudaStream_t",
+        "instantiation_name": "argindexinputiterator_f64_ptr_long_f64_key_value_long_f64_ptr_int_ptr_int_samplingop_f64_int"
       },
       {
         "template_arguments": "<cub::ArgIndexInputIterator<double*, long, double>, raft::KeyValuePair<long, double>*, long*, long, cuvs::cluster::kmeans::detail::SamplingOp<double, long>>",
-        "parameter_types": "void*, unsigned long&, cub::ArgIndexInputIterator<double*, long, double>, raft::KeyValuePair<long, double>*, long*, long, cuvs::cluster::kmeans::detail::SamplingOp<double, long>, cudaStream_t"
+        "parameter_types": "void*, unsigned long&, cub::ArgIndexInputIterator<double*, long, double>, raft::KeyValuePair<long, double>*, long*, long, cuvs::cluster::kmeans::detail::SamplingOp<double, long>, cudaStream_t",
+        "instantiation_name": "argindexinputiterator_f64_ptr_long_f64_key_value_long_f64_ptr_long_ptr_long_samplingop_f64_long"
       },
       {
         "template_arguments": "<cub::ArgIndexInputIterator<float*, long, float>, raft::KeyValuePair<long, float>*, int*, int, cuvs::cluster::kmeans::detail::SamplingOp<float, int>>",
-        "parameter_types": "void*, unsigned long&, cub::ArgIndexInputIterator<float*, long, float>, raft::KeyValuePair<long, float>*, int*, int, cuvs::cluster::kmeans::detail::SamplingOp<float, int>, cudaStream_t"
+        "parameter_types": "void*, unsigned long&, cub::ArgIndexInputIterator<float*, long, float>, raft::KeyValuePair<long, float>*, int*, int, cuvs::cluster::kmeans::detail::SamplingOp<float, int>, cudaStream_t",
+        "instantiation_name": "argindexinputiterator_f32_ptr_long_f32_key_value_long_f32_ptr_int_ptr_int_samplingop_f32_int"
       },
       {
         "template_arguments": "<cub::ArgIndexInputIterator<float*, long, float>, raft::KeyValuePair<long, float>*, long*, long, cuvs::cluster::kmeans::detail::SamplingOp<float, long>>",
-        "parameter_types": "void*, unsigned long&, cub::ArgIndexInputIterator<float*, long, float>, raft::KeyValuePair<long, float>*, long*, long, cuvs::cluster::kmeans::detail::SamplingOp<float, long>, cudaStream_t"
+        "parameter_types": "void*, unsigned long&, cub::ArgIndexInputIterator<float*, long, float>, raft::KeyValuePair<long, float>*, long*, long, cuvs::cluster::kmeans::detail::SamplingOp<float, long>, cudaStream_t",
+        "instantiation_name": "argindexinputiterator_f32_ptr_long_f32_key_value_long_f32_ptr_long_ptr_long_samplingop_f32_long"
       }
     ]
   }

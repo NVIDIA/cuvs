@@ -1525,26 +1525,32 @@ if(NOT BUILD_CPU_ONLY)
     list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
-  # Keep every primitive function in its own CUDA translation unit.
   foreach(primitive IN ITEMS src/core/brute_force_search_gathered src/core/cub_select_if
                              src/core/hash_chunking
   )
-    set(primitive_instantiations)
-    generate_string_matrix(
-      primitive_instantiations
-      MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
-      ITEM_FORMAT
-      "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-      GLUE
-      "\n"
+    generate_inst_matrix(
+      cuvs_primitive_sources
+      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
+      OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/${primitive}_@instantiation_name@.cu"
     )
-    configure_file(
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
-      "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu" @ONLY
-    )
-    list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_device_roaring_select_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_device_roaring_select.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_device_roaring_select_@inst_abbrev@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/brute_force_knn_impl_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/brute_force_knn_impl.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/brute_force_knn_impl_@inst_abbrev@.cu"
+  )
 
   add_library(
     cuvs_objs OBJECT
