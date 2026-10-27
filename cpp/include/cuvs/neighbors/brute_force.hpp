@@ -33,7 +33,8 @@ struct search_params : cuvs::neighbors::search_params {
    * - In `[0.0, 1.0)`: the value is trusted and the popcount is skipped when the dense path is
    *   selected. The sparse and gather paths still count the filter, because they need the exact
    *   number of passing entries.
-   * - Any other value (including NaN) is rejected.
+   * - Any other value (including NaN) is rejected by a filtered search. Searches without a filter
+   *   ignore this field.
    */
   float filtering_rate = -1.0;
 };

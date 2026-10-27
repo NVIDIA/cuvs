@@ -23,7 +23,7 @@ struct search_params : cuvs::neighbors::search_params {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `filtering_rate` | `float` | A hint for the fraction of entries the filter removes, i.e. `(n_queries * n_dataset - n_set_bits) / (n_queries * n_dataset)`; for a `bitset_filter` this is `(n_dataset - n_set_bits) / n_dataset`.<br /><br />- Negative (default): the rate is computed from the filter, which runs a popcount kernel and synchronizes the stream on every filtered search.<br />- In `[0.0, 1.0)`: the value is trusted and the popcount is skipped when the dense path is selected. The sparse and gather paths still count the filter, because they need the exact number of passing entries.<br />- Any other value (including NaN) is rejected. |
+| `filtering_rate` | `float` | A hint for the fraction of entries the filter removes, i.e. `(n_queries * n_dataset - n_set_bits) / (n_queries * n_dataset)`; for a `bitset_filter` this is `(n_dataset - n_set_bits) / n_dataset`.<br /><br />- Negative (default): the rate is computed from the filter, which runs a popcount kernel and synchronizes the stream on every filtered search.<br />- In `[0.0, 1.0)`: the value is trusted and the popcount is skipped when the dense path is selected. The sparse and gather paths still count the filter, because they need the exact number of passing entries.<br />- Any other value (including NaN) is rejected by a filtered search. Searches without a filter ignore this field. |
 
 ## Bruteforce index
 
