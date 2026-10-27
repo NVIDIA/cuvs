@@ -3,8 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "ann_utils.cuh"
 #include <cuvs/core/cuda_fp16.hpp>
+#include <neighbors/detail/ann_utils.cuh>
+
+namespace {
+
+using inst_index_t = @index_type@;
+
+}  // namespace
 
 namespace cuvs::spatial::knn::detail::utils {
 
@@ -26,8 +32,7 @@ void outer_add(const T* a, IdxT len_a, const T* b, IdxT len_b, T* c, cuda::strea
   outer_add_kernel<<<blocks, threads, 0, stream.get()>>>(a, len_a, b, len_b, c);
 }
 
-template void outer_add<float, int64_t>(
-  const float*, int64_t, const float*, int64_t, float*, cuda::stream_ref);
-template void outer_add<float, uint64_t>(
-  const float*, uint64_t, const float*, uint64_t, float*, cuda::stream_ref);
+template void outer_add<float, inst_index_t>(
+  const float*, inst_index_t, const float*, inst_index_t, float*, cuda::stream_ref);
+
 }  // namespace cuvs::spatial::knn::detail::utils
