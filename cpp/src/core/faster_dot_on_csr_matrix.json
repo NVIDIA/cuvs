@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::sparse::linalg::detail::faster_dot_on_csr",
+    "template_arguments": "<long, __half, float>",
+    "parameter_types": "raft::resources const&, float*, long, long const*, long const*, __half const*, __half const*, long, long",
+    "function_qualifiers": "",
+    "instantiation_name": "f16_i64_f32"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::sparse::linalg::detail::faster_dot_on_csr",
+    "template_arguments": "<long, float, float>",
+    "parameter_types": "raft::resources const&, float*, long, long const*, long const*, float const*, float const*, long, long",
+    "function_qualifiers": "",
+    "instantiation_name": "f32_i64_f32"
+  }
+]

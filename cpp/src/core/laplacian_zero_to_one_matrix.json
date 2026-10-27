@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::map",
+    "template_arguments": "<false, float, int, raft::sparse::linalg::detail::zero_to_one_functor, float>",
+    "parameter_types": "cuda::stream_ref, float*, int, raft::sparse::linalg::detail::zero_to_one_functor, float const*",
+    "function_qualifiers": "",
+    "instantiation_name": "f32_i32"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::map",
+    "template_arguments": "<false, double, int, raft::sparse::linalg::detail::zero_to_one_functor, double>",
+    "parameter_types": "cuda::stream_ref, double*, int, raft::sparse::linalg::detail::zero_to_one_functor, double const*",
+    "function_qualifiers": "",
+    "instantiation_name": "f64_i32"
+  }
+]

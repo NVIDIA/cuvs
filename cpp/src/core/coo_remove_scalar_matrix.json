@@ -7,11 +7,11 @@
     "_variants": [
       {
         "parameter_types": "raft::resources const&, raft::coo_matrix_view<float const, int, int, int, true>, cuda::std::mdspan< float const, cuda::std::extents<unsigned int, 1ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)0>>, raft::coo_matrix< float, int, int, int, true, raft::device_container_policy, (raft::SparsityType)0, std::conditional<true, raft::coordinate_structure<int, int, int, true, raft::device_container_policy>, raft::coordinate_structure_view<int, int, int, true>>::type>&",
-        "instantiation_name": "128_coo_matrix_view_f32_c_int_true_mdspan_extents_u32_1ul_layout_right_host_device_accessor_default_memory_type_0_container_policy_sparsitytype_conditional_coordinate_structure_ref"
+        "instantiation_name": "tpb128_f32_i32_nnz_i32"
       },
       {
         "parameter_types": "raft::resources const&, raft::coo_matrix_view<float const, int, int, long, true>, cuda::std::mdspan< float const, cuda::std::extents<unsigned int, 1ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)0>>, raft::coo_matrix< float, int, int, long, true, raft::device_container_policy, (raft::SparsityType)0, std::conditional< true, raft::coordinate_structure<int, int, long, true, raft::device_container_policy>, raft::coordinate_structure_view<int, int, long, true>>::type>&",
-        "instantiation_name": "128_coo_matrix_view_f32_c_int_long_true_mdspan_extents_u32_1ul_layout_right_host_device_accessor_default_memory_type_0_container_policy_sparsitytype_conditional_coordinate_structure_ref"
+        "instantiation_name": "tpb128_f32_i32_nnz_i64"
       }
     ]
   }

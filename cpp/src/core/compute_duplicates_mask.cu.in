@@ -13,6 +13,12 @@
 
 #include <raft/sparse/op/reduce.cuh>
 
+extern template void raft::sparse::op::detail::compute_duplicates_mask<int, size_t>(
+  int*, int const*, int const*, size_t, cudaStream_t);
+
+extern template void raft::sparse::op::detail::compute_duplicates_mask<long, size_t>(
+  long*, long const*, long const*, size_t, cudaStream_t);
+
 namespace cuvs::detail {
 
 template <typename value_idx>

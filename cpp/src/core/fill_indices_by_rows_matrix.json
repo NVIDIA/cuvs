@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::sparse::convert::detail::fill_indices_by_rows",
+    "template_arguments": "<unsigned int, long, long, true>",
+    "parameter_types": "raft::resources const&, unsigned int const*, long*, long, long, long, long*, long*, long, size_t",
+    "function_qualifiers": "",
+    "instantiation_name": "u32_i64_i64_checked"
+  }
+]
