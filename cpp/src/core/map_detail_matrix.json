@@ -1,0 +1,355 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::map",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<false, __half, unsigned int, cuvs::spatial::knn::detail::utils::mapping<__half>, float>",
+        "parameter_types": "cuda::stream_ref, __half*, unsigned int, cuvs::spatial::knn::detail::utils::mapping<__half>, float const*",
+        "instantiation_name": "raw_false_f16_u32_mapping_f16_f32"
+      },
+      {
+        "template_arguments": "<false, float, long, cuvs::spatial::knn::detail::utils::mapping<float>, __half>",
+        "parameter_types": "cuda::stream_ref, float*, long, cuvs::spatial::knn::detail::utils::mapping<float>, __half const*",
+        "instantiation_name": "raw_false_f32_long_mapping_f32_f16"
+      },
+      {
+        "template_arguments": "<false, float, long, cuvs::spatial::knn::detail::utils::mapping<float>, float>",
+        "parameter_types": "cuda::stream_ref, float*, long, cuvs::spatial::knn::detail::utils::mapping<float>, float const*",
+        "instantiation_name": "raw_false_f32_long_mapping_f32_f32"
+      },
+      {
+        "template_arguments": "<false, float, long, cuvs::spatial::knn::detail::utils::mapping<float>, signed char>",
+        "parameter_types": "cuda::stream_ref, float*, long, cuvs::spatial::knn::detail::utils::mapping<float>, signed char const*",
+        "instantiation_name": "raw_false_f32_long_mapping_f32_i8"
+      },
+      {
+        "template_arguments": "<false, float, long, cuvs::spatial::knn::detail::utils::mapping<float>, unsigned char>",
+        "parameter_types": "cuda::stream_ref, float*, long, cuvs::spatial::knn::detail::utils::mapping<float>, unsigned char const*",
+        "instantiation_name": "raw_false_f32_long_mapping_f32_u8"
+      },
+      {
+        "template_arguments": "<false, float, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>, __half>",
+        "parameter_types": "cuda::stream_ref, float*, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>, __half const*",
+        "instantiation_name": "raw_false_f32_u32_mapping_f32_f16"
+      },
+      {
+        "template_arguments": "<false, float, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>, signed char>",
+        "parameter_types": "cuda::stream_ref, float*, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>, signed char const*",
+        "instantiation_name": "raw_false_f32_u32_mapping_f32_i8"
+      },
+      {
+        "template_arguments": "<false, float, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>, unsigned char>",
+        "parameter_types": "cuda::stream_ref, float*, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>, unsigned char const*",
+        "instantiation_name": "raw_false_f32_u32_mapping_f32_u8"
+      },
+      {
+        "template_arguments": "<false, signed char, unsigned int, cuvs::spatial::knn::detail::utils::mapping<signed char>, float>",
+        "parameter_types": "cuda::stream_ref, signed char*, unsigned int, cuvs::spatial::knn::detail::utils::mapping<signed char>, float const*",
+        "instantiation_name": "raw_false_i8_u32_mapping_i8_f32"
+      },
+      {
+        "template_arguments": "<false, signed char, unsigned long, cuvs::spatial::knn::detail::utils::mapping<signed char>, float>",
+        "parameter_types": "cuda::stream_ref, signed char*, unsigned long, cuvs::spatial::knn::detail::utils::mapping<signed char>, float const*",
+        "instantiation_name": "raw_false_i8_ulong_mapping_i8_f32"
+      },
+      {
+        "template_arguments": "<false, unsigned char, unsigned int, cuvs::spatial::knn::detail::utils::mapping<unsigned char>, float>",
+        "parameter_types": "cuda::stream_ref, unsigned char*, unsigned int, cuvs::spatial::knn::detail::utils::mapping<unsigned char>, float const*",
+        "instantiation_name": "raw_false_u8_u32_mapping_u8_f32"
+      }
+    ]
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::map",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<false, float, long, raft::plug_const_op<float, raft::mul_op>, float>",
+        "parameter_types": "cuda::stream_ref, float*, long, raft::plug_const_op<float, raft::mul_op>, float const*",
+        "instantiation_name": "raw_false_f32_long_plug_c_op_f32_mul_op_f32"
+      },
+      {
+        "template_arguments": "<false, float, long, raft::plug_const_op<float, raft::pow_op>, float>",
+        "parameter_types": "cuda::stream_ref, float*, long, raft::plug_const_op<float, raft::pow_op>, float const*",
+        "instantiation_name": "raw_false_f32_long_plug_c_op_f32_pow_op_f32"
+      },
+      {
+        "template_arguments": "<false, unsigned int, long, raft::const_op<unsigned int>>",
+        "parameter_types": "cuda::stream_ref, unsigned int*, long, raft::const_op<unsigned int>",
+        "instantiation_name": "raw_false_u32_long_c_op_u32"
+      },
+      {
+        "template_arguments": "<false, double, int, raft::const_op<double>, double>",
+        "parameter_types": "cuda::stream_ref, double*, int, raft::const_op<double>, double const*",
+        "instantiation_name": "raw_false_f64_int_c_op_f64_f64"
+      },
+      {
+        "template_arguments": "<false, double, int, raft::identity_op, double>",
+        "parameter_types": "cuda::stream_ref, double*, int, raft::identity_op, double const*",
+        "instantiation_name": "raw_false_f64_int_identity_op_f64"
+      },
+      {
+        "template_arguments": "<false, double, int, raft::sqrt_op, double>",
+        "parameter_types": "cuda::stream_ref, double*, int, raft::sqrt_op, double const*",
+        "instantiation_name": "raw_false_f64_int_sqrt_op_f64"
+      },
+      {
+        "template_arguments": "<false, double, long, raft::const_op<double>, double>",
+        "parameter_types": "cuda::stream_ref, double*, long, raft::const_op<double>, double const*",
+        "instantiation_name": "raw_false_f64_long_c_op_f64_f64"
+      },
+      {
+        "template_arguments": "<false, double, long, raft::identity_op, double>",
+        "parameter_types": "cuda::stream_ref, double*, long, raft::identity_op, double const*",
+        "instantiation_name": "raw_false_f64_long_identity_op_f64"
+      },
+      {
+        "template_arguments": "<false, double, long, raft::plug_const_op<double, raft::mul_op>, double>",
+        "parameter_types": "cuda::stream_ref, double*, long, raft::plug_const_op<double, raft::mul_op>, double const*",
+        "instantiation_name": "raw_false_f64_long_plug_c_op_f64_mul_op_f64"
+      },
+      {
+        "template_arguments": "<false, float, int, raft::const_op<float>, float>",
+        "parameter_types": "cuda::stream_ref, float*, int, raft::const_op<float>, float const*",
+        "instantiation_name": "raw_false_f32_int_c_op_f32_f32"
+      },
+      {
+        "template_arguments": "<false, float, int, raft::identity_op, float>",
+        "parameter_types": "cuda::stream_ref, float*, int, raft::identity_op, float const*",
+        "instantiation_name": "raw_false_f32_int_identity_op_f32"
+      },
+      {
+        "template_arguments": "<false, float, int, raft::sqrt_op, float>",
+        "parameter_types": "cuda::stream_ref, float*, int, raft::sqrt_op, float const*",
+        "instantiation_name": "raw_false_f32_int_sqrt_op_f32"
+      },
+      {
+        "template_arguments": "<false, float, long, raft::const_op<float>, float>",
+        "parameter_types": "cuda::stream_ref, float*, long, raft::const_op<float>, float const*",
+        "instantiation_name": "raw_false_f32_long_c_op_f32_f32"
+      },
+      {
+        "template_arguments": "<false, float, long, raft::const_op<float>>",
+        "parameter_types": "cuda::stream_ref, float*, long, raft::const_op<float>",
+        "instantiation_name": "raw_false_f32_long_c_op_f32"
+      },
+      {
+        "template_arguments": "<false, float, long, raft::identity_op, float>",
+        "parameter_types": "cuda::stream_ref, float*, long, raft::identity_op, float const*",
+        "instantiation_name": "raw_false_f32_long_identity_op_f32"
+      },
+      {
+        "template_arguments": "<false, float, long, raft::sqrt_op, float>",
+        "parameter_types": "cuda::stream_ref, float*, long, raft::sqrt_op, float const*",
+        "instantiation_name": "raw_false_f32_long_sqrt_op_f32"
+      },
+      {
+        "template_arguments": "<false, double, int, raft::const_op<double>>",
+        "parameter_types": "cuda::stream_ref, double*, int, raft::const_op<double>",
+        "instantiation_name": "raw_false_f64_int_c_op_f64"
+      },
+      {
+        "template_arguments": "<false, int, int, raft::const_op<int>>",
+        "parameter_types": "cuda::stream_ref, int*, int, raft::const_op<int>",
+        "instantiation_name": "raw_false_int_int_c_op_int"
+      },
+      {
+        "template_arguments": "<false, float, int, raft::const_op<float>>",
+        "parameter_types": "cuda::stream_ref, float*, int, raft::const_op<float>",
+        "instantiation_name": "raw_false_f32_int_c_op_f32"
+      },
+      {
+        "template_arguments": "<false, uint32_t, unsigned int, raft::const_op<uint32_t>>",
+        "parameter_types": "cuda::stream_ref, uint32_t*, unsigned int, raft::const_op<uint32_t>",
+        "instantiation_name": "raw_false_u32_u32_c_op_u32"
+      },
+      {
+        "template_arguments": "<true, int64_t, int64_t, raft::mul_const_op<int64_t>>",
+        "parameter_types": "cuda::stream_ref, int64_t*, int64_t, raft::mul_const_op<int64_t>",
+        "instantiation_name": "raw_true_i64_i64_mul_c_op_i64"
+      },
+      {
+        "template_arguments": "<true, int, int, raft::mul_const_op<int>>",
+        "parameter_types": "cuda::stream_ref, int*, int, raft::mul_const_op<int>",
+        "instantiation_name": "raw_true_int_int_mul_c_op_int"
+      },
+      {
+        "template_arguments": "<true, uint32_t, uint32_t, raft::mul_const_op<uint32_t>>",
+        "parameter_types": "cuda::stream_ref, uint32_t*, uint32_t, raft::mul_const_op<uint32_t>",
+        "instantiation_name": "raw_true_u32_u32_mul_c_op_u32"
+      },
+      {
+        "template_arguments": "<true, int, size_t, raft::mod_const_op<int>>",
+        "parameter_types": "cuda::stream_ref, int*, size_t, raft::mod_const_op<int>",
+        "instantiation_name": "raw_true_int_size_t_mod_c_op_int"
+      },
+      {
+        "template_arguments": "<true, int64_t, size_t, raft::mod_const_op<int64_t>>",
+        "parameter_types": "cuda::stream_ref, int64_t*, size_t, raft::mod_const_op<int64_t>",
+        "instantiation_name": "raw_true_i64_size_t_mod_c_op_i64"
+      },
+      {
+        "template_arguments": "<true, uint32_t, size_t, raft::mod_const_op<uint32_t>>",
+        "parameter_types": "cuda::stream_ref, uint32_t*, size_t, raft::mod_const_op<uint32_t>",
+        "instantiation_name": "raw_true_u32_size_t_mod_c_op_u32"
+      },
+      {
+        "template_arguments": "<false, unsigned long, unsigned long, raft::const_op<unsigned long>>",
+        "parameter_types": "cuda::stream_ref, unsigned long*, unsigned long, raft::const_op<unsigned long>",
+        "instantiation_name": "raw_false_ulong_ulong_c_op_ulong"
+      },
+      {
+        "template_arguments": "<false, unsigned long, int, raft::const_op<unsigned long>>",
+        "parameter_types": "cuda::stream_ref, unsigned long*, int, raft::const_op<unsigned long>",
+        "instantiation_name": "raw_false_ulong_int_c_op_ulong"
+      },
+      {
+        "template_arguments": "<false, unsigned int, unsigned long, raft::const_op<unsigned int>>",
+        "parameter_types": "cuda::stream_ref, unsigned int*, unsigned long, raft::const_op<unsigned int>",
+        "instantiation_name": "raw_false_u32_ulong_c_op_u32"
+      },
+      {
+        "template_arguments": "<false, raft::KeyValuePair<long, float>, long, raft::const_op<raft::KeyValuePair<long, float>>>",
+        "parameter_types": "cuda::stream_ref, raft::KeyValuePair<long, float>*, long, raft::const_op<raft::KeyValuePair<long, float>>",
+        "instantiation_name": "raw_false_key_value_long_f32_long_c_op_key_value_long_f32"
+      },
+      {
+        "template_arguments": "<false, raft::KeyValuePair<long, double>, long, raft::const_op<raft::KeyValuePair<long, double>>>",
+        "parameter_types": "cuda::stream_ref, raft::KeyValuePair<long, double>*, long, raft::const_op<raft::KeyValuePair<long, double>>",
+        "instantiation_name": "raw_false_key_value_long_f64_long_c_op_key_value_long_f64"
+      },
+      {
+        "template_arguments": "<false, raft::KeyValuePair<int, float>, int, raft::const_op<raft::KeyValuePair<int, float>>>",
+        "parameter_types": "cuda::stream_ref, raft::KeyValuePair<int, float>*, int, raft::const_op<raft::KeyValuePair<int, float>>",
+        "instantiation_name": "raw_false_key_value_int_f32_int_c_op_key_value_int_f32"
+      },
+      {
+        "template_arguments": "<false, raft::KeyValuePair<int, double>, int, raft::const_op<raft::KeyValuePair<int, double>>>",
+        "parameter_types": "cuda::stream_ref, raft::KeyValuePair<int, double>*, int, raft::const_op<raft::KeyValuePair<int, double>>",
+        "instantiation_name": "raw_false_key_value_int_f64_int_c_op_key_value_int_f64"
+      },
+      {
+        "template_arguments": "<false, long, unsigned int, raft::const_op<long>>",
+        "parameter_types": "cuda::stream_ref, long*, unsigned int, raft::const_op<long>",
+        "instantiation_name": "raw_false_long_u32_c_op_long"
+      },
+      {
+        "template_arguments": "<false, int, unsigned long, raft::const_op<int>>",
+        "parameter_types": "cuda::stream_ref, int*, unsigned long, raft::const_op<int>",
+        "instantiation_name": "raw_false_int_ulong_c_op_int"
+      },
+      {
+        "template_arguments": "<false, bool, long, raft::const_op<bool>>",
+        "parameter_types": "cuda::stream_ref, bool*, long, raft::const_op<bool>",
+        "instantiation_name": "raw_false_bool_long_c_op_bool"
+      },
+      {
+        "template_arguments": "<false, long, unsigned long, raft::const_op<long>>",
+        "parameter_types": "cuda::stream_ref, long*, unsigned long, raft::const_op<long>",
+        "instantiation_name": "raw_false_long_ulong_c_op_long"
+      },
+      {
+        "template_arguments": "<false, long, long, raft::const_op<long>>",
+        "parameter_types": "cuda::stream_ref, long*, long, raft::const_op<long>",
+        "instantiation_name": "raw_false_long_long_c_op_long"
+      },
+      {
+        "template_arguments": "<false, int, long, raft::const_op<int>>",
+        "parameter_types": "cuda::stream_ref, int*, long, raft::const_op<int>",
+        "instantiation_name": "raw_false_int_long_c_op_int"
+      },
+      {
+        "template_arguments": "<false, float, unsigned long, raft::const_op<float>>",
+        "parameter_types": "cuda::stream_ref, float*, unsigned long, raft::const_op<float>",
+        "instantiation_name": "raw_false_f32_ulong_c_op_f32"
+      },
+      {
+        "template_arguments": "<false, double, long, raft::const_op<double>>",
+        "parameter_types": "cuda::stream_ref, double*, long, raft::const_op<double>",
+        "instantiation_name": "raw_false_f64_long_c_op_f64"
+      },
+      {
+        "template_arguments": "<false, float, unsigned int, raft::const_op<float>>",
+        "parameter_types": "cuda::stream_ref, float*, unsigned int, raft::const_op<float>",
+        "instantiation_name": "raw_false_f32_u32_c_op_f32"
+      },
+      {
+        "template_arguments": "<false, double, unsigned int, raft::const_op<double>>",
+        "parameter_types": "cuda::stream_ref, double*, unsigned int, raft::const_op<double>",
+        "instantiation_name": "raw_false_f64_u32_c_op_f64"
+      },
+      {
+        "template_arguments": "<true, int, int, raft::identity_op>",
+        "parameter_types": "cuda::stream_ref, int*, int, raft::identity_op",
+        "instantiation_name": "raw_true_int_int_identity_op"
+      },
+      {
+        "template_arguments": "<true, long, long, raft::identity_op>",
+        "parameter_types": "cuda::stream_ref, long*, long, raft::identity_op",
+        "instantiation_name": "raw_true_long_long_identity_op"
+      }
+    ]
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::map",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "instantiation_name": "raw_false_long_long_cast_op_long_u32",
+        "template_arguments": "<false, long, long, raft::cast_op<long>, unsigned int>",
+        "parameter_types": "cuda::stream_ref, long*, long, raft::cast_op<long>, unsigned int const*"
+      },
+      {
+        "instantiation_name": "raw_false_u32_u32_add_op_u32_u32",
+        "template_arguments": "<false, unsigned int, unsigned int, raft::add_op, unsigned int, unsigned int>",
+        "parameter_types": "cuda::stream_ref, unsigned int*, unsigned int, raft::add_op, unsigned int const*, unsigned int const*"
+      }
+    ]
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::map",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<false, float, int, raft::add_op, float, float>",
+        "parameter_types": "cuda::stream_ref, float*, int, raft::add_op, float const*, float const*",
+        "instantiation_name": "raw_false_f32_int_add_op_f32_f32"
+      },
+      {
+        "template_arguments": "<false, double, int, raft::add_op, double, double>",
+        "parameter_types": "cuda::stream_ref, double*, int, raft::add_op, double const*, double const*",
+        "instantiation_name": "raw_false_f64_int_add_op_f64_f64"
+      },
+      {
+        "template_arguments": "<false, __half, long, raft::cast_op<__half>, float>",
+        "parameter_types": "cuda::stream_ref, __half*, long, raft::cast_op<__half>, float const*",
+        "instantiation_name": "raw_false_f16_long_cast_op_f16_f32"
+      },
+      {
+        "template_arguments": "<false, float, unsigned long, raft::cast_op<float>, __half>",
+        "parameter_types": "cuda::stream_ref, float*, unsigned long, raft::cast_op<float>, __half const*",
+        "instantiation_name": "raw_false_f32_ulong_cast_op_f32_f16"
+      },
+      {
+        "template_arguments": "<false, float, unsigned long, raft::cast_op<float>, float>",
+        "parameter_types": "cuda::stream_ref, float*, unsigned long, raft::cast_op<float>, float const*",
+        "instantiation_name": "raw_false_f32_ulong_cast_op_f32_f32"
+      },
+      {
+        "template_arguments": "<false, float, unsigned long, raft::cast_op<float>, signed char>",
+        "parameter_types": "cuda::stream_ref, float*, unsigned long, raft::cast_op<float>, signed char const*",
+        "instantiation_name": "raw_false_f32_ulong_cast_op_f32_i8"
+      },
+      {
+        "template_arguments": "<false, float, unsigned long, raft::cast_op<float>, unsigned char>",
+        "parameter_types": "cuda::stream_ref, float*, unsigned long, raft::cast_op<float>, unsigned char const*",
+        "instantiation_name": "raw_false_f32_ulong_cast_op_f32_u8"
+      }
+    ]
+  }
+]

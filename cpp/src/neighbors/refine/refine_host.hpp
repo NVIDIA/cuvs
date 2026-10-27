@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -415,7 +415,7 @@ template <typename DC, typename IdxT, typename DataT, typename DistanceT, typena
       for (size_t j = 0; j < refined_k; j++) {
         indices(i, j) = std::get<1>(refined_pairs[i][j]);
         if (distances.data_handle() != nullptr) {
-          distances(i, j) = DC::template postprocess(std::get<0>(refined_pairs[i][j]));
+          distances(i, j) = DC::template postprocess<DistanceT>(std::get<0>(refined_pairs[i][j]));
         }
       }
     }
@@ -454,7 +454,8 @@ template <typename DC, typename IdxT, typename DataT, typename DistanceT, typena
         for (size_t j = 0; j < refined_k; j++) {
           indices(i, j) = std::get<1>(refined_pairs[tid][j]);
           if (distances.data_handle() != nullptr) {
-            distances(i, j) = DC::template postprocess(std::get<0>(refined_pairs[tid][j]));
+            distances(i, j) =
+              DC::template postprocess<DistanceT>(std::get<0>(refined_pairs[tid][j]));
           }
         }
       }
