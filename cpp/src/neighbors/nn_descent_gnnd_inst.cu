@@ -27,10 +27,6 @@ template void detail::GNND<const data_t, int>::build<
   bool return_distances,
   float* output_distances,
   cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, data_t> dist_epilogue);
-template void detail::GNND<const data_t, int>::local_join<
-  cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, data_t>>(
-  cudaStream_t stream,
-  cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, data_t> dist_epilogue);
 
 template void detail::GNND<const data_t, int>::build<raft::identity_op>(
   const data_t* data,
@@ -45,7 +41,5 @@ template void detail::GNND<const data_t, int>::build<raft::identity_op>(
   bool return_distances,
   float* output_distances,
   raft::identity_op dist_epilogue);
-template void detail::GNND<const data_t, int>::local_join<raft::identity_op>(
-  cudaStream_t stream, raft::identity_op dist_epilogue);
 
 }  // namespace cuvs::neighbors::nn_descent

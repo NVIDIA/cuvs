@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "launch_add_rev_edges",
+    "template_arguments": "<int>",
+    "parameter_types": "size_t, cudaStream_t, const int*, int*, int, int2*",
+    "function_qualifiers": "",
+    "instantiation_name": "i32"
+  }
+]

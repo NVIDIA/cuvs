@@ -1,0 +1,82 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/nn_descent.cuh>
+#include <neighbors/detail/reachability.cuh>
+#include <raft/linalg/map.cuh>
+
+extern template void raft::linalg::detail::map<false, int, long, raft::const_op<int>>(
+  cuda::stream_ref, int*, long, raft::const_op<int>);
+
+extern template void raft::linalg::detail::map<false, float, size_t, raft::const_op<float>>(
+  cuda::stream_ref, float*, size_t, raft::const_op<float>);
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+template <typename Data_t>
+RAFT_KERNEL compute_l2_norms_kernel(const Data_t* data, int dim, DistData_t* l2_norms)
+{
+  extern __shared__ char buffer[];
+  __shared__ float l2_norm;
+  Data_t* s_vec  = (Data_t*)buffer;
+  size_t list_id = blockIdx.x;
+  int lane_id    = threadIdx.x % raft::warp_size();
+
+  load_vec(s_vec, data + static_cast<size_t>(blockIdx.x) * dim, dim, dim, lane_id);
+  if (threadIdx.x == 0) { l2_norm = 0; }
+  __syncthreads();
+
+  for (int step = 0; step < raft::ceildiv(dim, raft::warp_size()); step++) {
+    int idx         = step * raft::warp_size() + lane_id;
+    float part_dist = 0;
+    if (idx < dim) {
+      part_dist = static_cast<float>(s_vec[idx]);
+      part_dist = part_dist * part_dist;
+    }
+    __syncwarp();
+    for (int offset = raft::warp_size() >> 1; offset >= 1; offset >>= 1) {
+      part_dist += __shfl_down_sync(raft::warp_full_mask(), part_dist, offset);
+    }
+    if (lane_id == 0) { l2_norm += part_dist; }
+    __syncwarp();
+  }
+
+  if (lane_id == 0) { l2_norms[list_id] = l2_norm; }
+}
+
+}  // namespace cuvs::neighbors::nn_descent::detail
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+template <typename Data_t>
+void launch_compute_l2_norms_kernel(dim3 grid,
+                                    dim3 block,
+                                    size_t shared,
+                                    cudaStream_t stream,
+                                    const Data_t* data,
+                                    int dim,
+                                    DistData_t* l2_norms)
+{
+  compute_l2_norms_kernel<<<grid, block, shared, stream>>>(data, dim, l2_norms);
+}
+
+template <typename T>
+auto norm_kernel_virtual_arch() -> decltype(raft::util::arch::kernel_virtual_arch(nullptr))
+{
+  return raft::util::arch::kernel_virtual_arch(norm_kernel_pointer(static_cast<const T*>(nullptr)));
+}
+
+// clang-format off
+#if @owns_kernel_pointer@
+void* norm_kernel_pointer(const @data_type@*)
+{
+  return reinterpret_cast<void*>(compute_l2_norms_kernel<@data_type@>);
+}
+#endif
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::nn_descent::detail

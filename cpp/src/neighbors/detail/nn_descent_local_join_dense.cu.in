@@ -1,0 +1,109 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/nn_descent.cuh>
+#include <neighbors/detail/reachability.cuh>
+#include <raft/linalg/map.cuh>
+
+extern template void raft::linalg::detail::map<false, int, long, raft::const_op<int>>(
+  cuda::stream_ref, int*, long, raft::const_op<int>);
+
+extern template void raft::linalg::detail::map<false, float, size_t, raft::const_op<float>>(
+  cuda::stream_ref, float*, size_t, raft::const_op<float>);
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+}  // namespace cuvs::neighbors::nn_descent::detail
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+template <typename Data_t, typename Index_t>
+template <typename DistEpilogue_t>
+void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_epilogue)
+{
+  raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
+
+  // Kernel dispatch logic, based on the effective distance-computation dtype
+  // (which depends on the input dtype and dist_comp_dtype):
+  //   fp32 dist (only fp32 input, dist_comp_dtype == FP32 or AUTO with dim <=
+  //   16) -> SIMT: scalar
+  //     element-wise distance computation in fp32.
+  //   fp16 dist (everything else: fp16/int8/uint8 input, or fp32 input with
+  //   dist_comp_dtype ==
+  //     FP16 or AUTO with dim > 16) -> WMMA (tensor-core accelerated dot
+  //     product). Non-fp16 dtypes are converted to fp16 on-the-fly while
+  //     loading into shared memory; for fp32 host input this conversion happens
+  //     earlier at copy-in time (see d_data_half_).
+  //   L1 distance for any input -> SIMT (L1 needs element-wise ops, can't use
+  //   tensor cores).
+  using DCT = cuvs::neighbors::nn_descent::DIST_COMP_DTYPE;
+  bool use_fp16_dist =
+    std::is_same_v<input_t, float> && (build_config_.dist_comp_dtype == DCT::FP16 ||
+                                       (build_config_.dist_comp_dtype == DCT::AUTO && ndim_ > 16));
+  bool use_simt = (std::is_same_v<input_t, float> && !use_fp16_dist) ||
+                  build_config_.metric == cuvs::distance::DistanceType::L1;
+
+  auto launch_kernel = [&](auto* typed_ptr) {
+    if (use_simt) {
+      launch_local_join_simt(nrow_,
+                             dim3(BLOCK_SIZE),
+                             0,
+                             stream,
+                             graph_.h_graph_new.data_handle(),
+                             h_rev_graph_new_.data_handle(),
+                             d_list_sizes_new_.data_handle(),
+                             h_graph_old_.data_handle(),
+                             h_rev_graph_old_.data_handle(),
+                             d_list_sizes_old_.data_handle(),
+                             NUM_SAMPLES,
+                             typed_ptr,
+                             ndim_,
+                             graph_buffer_.data_handle(),
+                             dists_buffer_.data_handle(),
+                             d_locks_.data_handle(),
+                             l2_norms_.data_handle(),
+                             build_config_.metric,
+                             dist_epilogue);
+    } else {
+      launch_local_join_wmma(nrow_,
+                             dim3(BLOCK_SIZE),
+                             0,
+                             stream,
+                             graph_.h_graph_new.data_handle(),
+                             h_rev_graph_new_.data_handle(),
+                             d_list_sizes_new_.data_handle(),
+                             h_graph_old_.data_handle(),
+                             h_rev_graph_old_.data_handle(),
+                             d_list_sizes_old_.data_handle(),
+                             NUM_SAMPLES,
+                             typed_ptr,
+                             ndim_,
+                             graph_buffer_.data_handle(),
+                             dists_buffer_.data_handle(),
+                             d_locks_.data_handle(),
+                             l2_norms_.data_handle(),
+                             build_config_.metric,
+                             dist_epilogue);
+    }
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+  };
+
+  if (d_data_half_.has_value()) {
+    // Host fp32 input was downcast to a device-side fp16 buffer because
+    // distances are computed in fp16 (dist_comp_dtype == FP16, or AUTO with dim
+    // > 16).
+    launch_kernel(static_cast<const half*>(d_data_ptr_));
+  } else {
+    // Data stored as input_t: device data used directly, or host data copied
+    // as-is.
+    launch_kernel(static_cast<const input_t*>(d_data_ptr_));
+  }
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::nn_descent::detail

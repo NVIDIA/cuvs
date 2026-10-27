@@ -1,0 +1,43 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/nn_descent.cuh>
+#include <neighbors/detail/reachability.cuh>
+#include <raft/linalg/map.cuh>
+
+extern template void raft::linalg::detail::map<false, int, long, raft::const_op<int>>(
+  cuda::stream_ref, int*, long, raft::const_op<int>);
+
+extern template void raft::linalg::detail::map<false, float, size_t, raft::const_op<float>>(
+  cuda::stream_ref, float*, size_t, raft::const_op<float>);
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+}  // namespace cuvs::neighbors::nn_descent::detail
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+template <typename Data_t, typename Index_t>
+void GNND<Data_t, Index_t>::add_reverse_edges(Index_t* graph_ptr,
+                                              Index_t* h_rev_graph_ptr,
+                                              Index_t* d_rev_graph_ptr,
+                                              int2* list_sizes,
+                                              cudaStream_t stream)
+{
+  raft::matrix::fill(
+    res,
+    raft::make_device_matrix_view<Index_t, int64_t>(d_rev_graph_ptr, nrow_, DEGREE_ON_DEVICE),
+    std::numeric_limits<Index_t>::max());
+  launch_add_rev_edges(nrow_, stream, graph_ptr, d_rev_graph_ptr, NUM_SAMPLES, list_sizes);
+  raft::copy(res,
+             raft::make_host_vector_view(h_rev_graph_ptr, nrow_ * NUM_SAMPLES),
+             raft::make_device_vector_view(d_rev_graph_ptr, nrow_ * NUM_SAMPLES));
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::nn_descent::detail

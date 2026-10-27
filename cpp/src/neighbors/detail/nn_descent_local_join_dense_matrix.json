@@ -1,0 +1,47 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "GNND<const float, int>::local_join",
+    "template_arguments": "<raft::identity_op>",
+    "parameter_types": "cudaStream_t, raft::identity_op",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "gnnd_const_float_int_local_join_identity_op"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "GNND<const __half, int>::local_join",
+    "template_arguments": "<raft::identity_op>",
+    "parameter_types": "cudaStream_t, raft::identity_op",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "gnnd_const_half_int_local_join_identity_op"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "GNND<const int8_t, int>::local_join",
+    "template_arguments": "<raft::identity_op>",
+    "parameter_types": "cudaStream_t, raft::identity_op",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "gnnd_const_int8_t_int_local_join_identity_op"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "GNND<const uint8_t, int>::local_join",
+    "template_arguments": "<raft::identity_op>",
+    "parameter_types": "cudaStream_t, raft::identity_op",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "gnnd_const_uint8_t_int_local_join_identity_op"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "GNND<const float, int>::local_join",
+    "template_arguments": "< cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, float>>",
+    "parameter_types": "cudaStream_t, cuvs::neighbors::detail::reachability::ReachabilityPostProcess<int, float>",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::neighbors::nn_descent::detail",
+    "instantiation_name": "gnnd_const_float_int_local_join_reachabilitypostprocess_int_f32"
+  }
+]

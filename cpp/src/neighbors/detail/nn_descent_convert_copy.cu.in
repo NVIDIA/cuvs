@@ -1,0 +1,40 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/nn_descent.cuh>
+#include <neighbors/detail/reachability.cuh>
+#include <raft/linalg/map.cuh>
+
+extern template void raft::linalg::detail::map<false, int, long, raft::const_op<int>>(
+  cuda::stream_ref, int*, long, raft::const_op<int>);
+
+extern template void raft::linalg::detail::map<false, float, size_t, raft::const_op<float>>(
+  cuda::stream_ref, float*, size_t, raft::const_op<float>);
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+template <typename Src_t, typename Dst_t>
+RAFT_KERNEL convert_copy_kernel(const Src_t* src, Dst_t* dst, size_t n)
+{
+  size_t idx = static_cast<size_t>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx < n) { dst[idx] = static_cast<Dst_t>(src[idx]); }
+}
+
+}  // namespace cuvs::neighbors::nn_descent::detail
+
+namespace cuvs::neighbors::nn_descent::detail {
+
+template <typename Src_t, typename Dst_t>
+void launch_convert_copy_kernel(
+  dim3 grid, dim3 block, size_t shared, cudaStream_t stream, const Src_t* src, Dst_t* dst, size_t n)
+{
+  convert_copy_kernel<<<grid, block, shared, stream>>>(src, dst, n);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::nn_descent::detail
