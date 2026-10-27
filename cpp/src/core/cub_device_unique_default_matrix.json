@@ -1,0 +1,37 @@
+[
+  {
+    "input_type": "int*",
+    "output_type": "int*",
+    "count_type": "int*",
+    "equality_type": "cuda::std::equal_to<>",
+    "inst_abbrev": "i32_count_i32"
+  },
+  {
+    "input_type": "long*",
+    "output_type": "long*",
+    "count_type": "int*",
+    "equality_type": "cuda::std::equal_to<>",
+    "inst_abbrev": "i64_count_i32"
+  },
+  {
+    "input_type": "unsigned int const*",
+    "output_type": "unsigned int*",
+    "count_type": "long*",
+    "equality_type": "cuda::std::equal_to<>",
+    "inst_abbrev": "const_u32_count_i64"
+  },
+  {
+    "input_type": "unsigned int*",
+    "output_type": "unsigned int*",
+    "count_type": "int*",
+    "equality_type": "cuda::std::equal_to<>",
+    "inst_abbrev": "u32_count_i32"
+  },
+  {
+    "input_type": "unsigned int*",
+    "output_type": "unsigned int*",
+    "count_type": "long*",
+    "equality_type": "cuda::std::equal_to<>",
+    "inst_abbrev": "u32_count_i64"
+  }
+]
