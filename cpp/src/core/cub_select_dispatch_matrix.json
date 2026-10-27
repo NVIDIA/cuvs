@@ -1,81 +1,130 @@
 [
   {
-    "return_type": "cudaError_t",
-    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "parameter_types": "void*, size_t&, cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, int*, cuvs::cluster::kmeans::detail::SamplingOp<double, int>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, int*, cuvs::cluster::kmeans::detail::SamplingOp<double, int>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, cuda::std::int64_t, cub::SelectImpl::Select>>",
     "function_qualifiers": "",
-    "_variants": [
-      {
-        "template_arguments": "< cub::SelectImpl::Select, cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, int*, cuvs::cluster::kmeans::detail::SamplingOp<double, int>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, int*, cuvs::cluster::kmeans::detail::SamplingOp<double, int>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, long*, cuvs::cluster::kmeans::detail::SamplingOp<double, long>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, long*, cuvs::cluster::kmeans::detail::SamplingOp<double, long>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, int*, cuvs::cluster::kmeans::detail::SamplingOp<float, int>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, int*, cuvs::cluster::kmeans::detail::SamplingOp<float, int>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, long*, cuvs::cluster::kmeans::detail::SamplingOp<float, long>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, long*, cuvs::cluster::kmeans::detail::SamplingOp<float, long>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, cuda::counting_iterator<int, long>, cub::NullType*, int*, long*, cuvs::distance::detail::sparse::hash_strategy<int, double, 1024>::fits_in_hash_table, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<int, long>, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, cuda::counting_iterator<int, long>, cub::NullType*, int*, long*, cuvs::distance::detail::sparse::hash_strategy<int, double, 1024>::fits_in_hash_table, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<int, long>, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, cuda::counting_iterator<int, long>, cub::NullType*, int*, long*, cuvs::distance::detail::sparse::hash_strategy<int, float, 1024>::fits_in_hash_table, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<int, long>, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, cuda::counting_iterator<int, long>, cub::NullType*, int*, long*, cuvs::distance::detail::sparse::hash_strategy<int, float, 1024>::fits_in_hash_table, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<int, long>, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, cuda::counting_iterator<long, __int128>, cub::NullType*, long*, long*, cuvs::detail::container_start<unsigned int const*>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, cuda::counting_iterator<long, __int128>, cub::NullType*, long*, long*, cuvs::detail::container_start<unsigned int const*>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, cuda::counting_iterator<long, __int128>, cub::NullType*, long*, long*, cuvs::detail::container_start<unsigned int*>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, cuda::counting_iterator<long, __int128>, cub::NullType*, long*, long*, cuvs::detail::container_start<unsigned int*>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::SelectPotentiallyInPlace, float*, cub::NullType*, float*, long*, cub::NullType, cuda::std::equal_to<float>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<float*, cub::NullType*, float*, cuda::std::int64_t, cub::SelectImpl::SelectPotentiallyInPlace>>",
-        "parameter_types": "void*, size_t&, float*, cub::NullType*, float*, long*, cub::NullType, cuda::std::equal_to<float>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<float*, cub::NullType*, float*, cuda::std::int64_t, cub::SelectImpl::SelectPotentiallyInPlace>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, int*, cub::NullType*, int*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<int*, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, int*, cub::NullType*, int*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<int*, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, long*, cub::NullType*, long*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<long*, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, long*, cub::NullType*, long*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<long*, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, thrust::counting_iterator<long>, cub::NullType*, long*, long*, cuvs::detail::bitset_row_filter<__half, long, unsigned int, float>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<thrust::counting_iterator<long>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, thrust::counting_iterator<long>, cub::NullType*, long*, long*, cuvs::detail::bitset_row_filter<__half, long, unsigned int, float>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<thrust::counting_iterator<long>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, thrust::counting_iterator<long>, cub::NullType*, long*, long*, cuvs::detail::bitset_row_filter<float, long, unsigned int, float>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<thrust::counting_iterator<long>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, thrust::counting_iterator<long>, cub::NullType*, long*, long*, cuvs::detail::bitset_row_filter<float, long, unsigned int, float>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<thrust::counting_iterator<long>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, cub::NullType*, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, long*, raft::sparse::solver::new_edges_functor<int, float>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types< thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, cub::NullType*, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, cub::NullType*, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, long*, raft::sparse::solver::new_edges_functor<int, float>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types< thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, cub::NullType*, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, cub::NullType*, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, long*, raft::sparse::solver::new_edges_functor<long, float>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types< thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, cub::NullType*, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, cub::NullType*, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, long*, raft::sparse::solver::new_edges_functor<long, float>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types< thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, cub::NullType*, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, unsigned int const*, cub::NullType*, unsigned int*, long*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<unsigned int const*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, unsigned int const*, cub::NullType*, unsigned int*, long*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<unsigned int const*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, unsigned int*, cub::NullType*, unsigned int*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<unsigned int*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, unsigned int*, cub::NullType*, unsigned int*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<unsigned int*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      },
-      {
-        "template_arguments": "< cub::SelectImpl::Select, unsigned int*, cub::NullType*, unsigned int*, long*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<unsigned int*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
-        "parameter_types": "void*, size_t&, unsigned int*, cub::NullType*, unsigned int*, long*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<unsigned int*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>"
-      }
-    ]
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "sample_f64_i32"
+  },
+  {
+    "parameter_types": "void*, size_t&, cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, long*, cuvs::cluster::kmeans::detail::SamplingOp<double, long>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, long*, cuvs::cluster::kmeans::detail::SamplingOp<double, long>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<double*, long, double>, cub::NullType*, raft::KeyValuePair<long, double>*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "sample_f64_i64"
+  },
+  {
+    "parameter_types": "void*, size_t&, cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, int*, cuvs::cluster::kmeans::detail::SamplingOp<float, int>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, int*, cuvs::cluster::kmeans::detail::SamplingOp<float, int>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "sample_f32_i32"
+  },
+  {
+    "parameter_types": "void*, size_t&, cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, long*, cuvs::cluster::kmeans::detail::SamplingOp<float, long>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, long*, cuvs::cluster::kmeans::detail::SamplingOp<float, long>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cub::ArgIndexInputIterator<float*, long, float>, cub::NullType*, raft::KeyValuePair<long, float>*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "sample_f32_i64"
+  },
+  {
+    "parameter_types": "void*, size_t&, cuda::counting_iterator<int, long>, cub::NullType*, int*, long*, cuvs::distance::detail::sparse::hash_strategy<int, double, 1024>::fits_in_hash_table, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<int, long>, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, cuda::counting_iterator<int, long>, cub::NullType*, int*, long*, cuvs::distance::detail::sparse::hash_strategy<int, double, 1024>::fits_in_hash_table, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<int, long>, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "sparse_hash_f64"
+  },
+  {
+    "parameter_types": "void*, size_t&, cuda::counting_iterator<int, long>, cub::NullType*, int*, long*, cuvs::distance::detail::sparse::hash_strategy<int, float, 1024>::fits_in_hash_table, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<int, long>, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, cuda::counting_iterator<int, long>, cub::NullType*, int*, long*, cuvs::distance::detail::sparse::hash_strategy<int, float, 1024>::fits_in_hash_table, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<int, long>, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "sparse_hash_f32"
+  },
+  {
+    "parameter_types": "void*, size_t&, cuda::counting_iterator<long, __int128>, cub::NullType*, long*, long*, cuvs::detail::container_start<unsigned int const*>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, cuda::counting_iterator<long, __int128>, cub::NullType*, long*, long*, cuvs::detail::container_start<unsigned int const*>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "roaring_const_u32"
+  },
+  {
+    "parameter_types": "void*, size_t&, cuda::counting_iterator<long, __int128>, cub::NullType*, long*, long*, cuvs::detail::container_start<unsigned int*>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, cuda::counting_iterator<long, __int128>, cub::NullType*, long*, long*, cuvs::detail::container_start<unsigned int*>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "roaring_u32"
+  },
+  {
+    "parameter_types": "void*, size_t&, float*, cub::NullType*, float*, long*, cub::NullType, cuda::std::equal_to<float>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<float*, cub::NullType*, float*, cuda::std::int64_t, cub::SelectImpl::SelectPotentiallyInPlace>",
+    "template_arguments": "< cub::SelectImpl::SelectPotentiallyInPlace, float*, cub::NullType*, float*, long*, cub::NullType, cuda::std::equal_to<float>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<float*, cub::NullType*, float*, cuda::std::int64_t, cub::SelectImpl::SelectPotentiallyInPlace>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "unique_in_place_f32_i64"
+  },
+  {
+    "parameter_types": "void*, size_t&, int*, cub::NullType*, int*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<int*, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, int*, cub::NullType*, int*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<int*, cub::NullType*, int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "unique_i32_i32_count_i32_equal_void"
+  },
+  {
+    "parameter_types": "void*, size_t&, long*, cub::NullType*, long*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<long*, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, long*, cub::NullType*, long*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<long*, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "unique_i64_i64_count_i32_equal_void"
+  },
+  {
+    "parameter_types": "void*, size_t&, thrust::counting_iterator<long>, cub::NullType*, long*, long*, cuvs::detail::bitset_row_filter<__half, long, unsigned int, float>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<thrust::counting_iterator<long>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, thrust::counting_iterator<long>, cub::NullType*, long*, long*, cuvs::detail::bitset_row_filter<__half, long, unsigned int, float>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<thrust::counting_iterator<long>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "bitset_f16"
+  },
+  {
+    "parameter_types": "void*, size_t&, thrust::counting_iterator<long>, cub::NullType*, long*, long*, cuvs::detail::bitset_row_filter<float, long, unsigned int, float>, cub::NullType, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<thrust::counting_iterator<long>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, thrust::counting_iterator<long>, cub::NullType*, long*, long*, cuvs::detail::bitset_row_filter<float, long, unsigned int, float>, cub::NullType, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<thrust::counting_iterator<long>, cub::NullType*, long*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "bitset_f32"
+  },
+  {
+    "parameter_types": "void*, size_t&, unsigned int const*, cub::NullType*, unsigned int*, long*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<unsigned int const*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, unsigned int const*, cub::NullType*, unsigned int*, long*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<unsigned int const*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "unique_const_u32_u32_count_i64_equal_void"
+  },
+  {
+    "parameter_types": "void*, size_t&, unsigned int*, cub::NullType*, unsigned int*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<unsigned int*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, unsigned int*, cub::NullType*, unsigned int*, int*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<unsigned int*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "unique_u32_u32_count_i32_equal_void"
+  },
+  {
+    "parameter_types": "void*, size_t&, unsigned int*, cub::NullType*, unsigned int*, long*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cudaStream_t, cub::detail::select::policy_selector_from_types<unsigned int*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>",
+    "template_arguments": "< cub::SelectImpl::Select, unsigned int*, cub::NullType*, unsigned int*, long*, cub::NullType, cuda::std::equal_to<void>, cuda::std::int64_t, cub::detail::select::policy_selector_from_types<unsigned int*, cub::NullType*, unsigned int*, cuda::std::int64_t, cub::SelectImpl::Select>>",
+    "function_qualifiers": "",
+    "qualified_function": "cuvs::detail::cub_select_dispatch",
+    "return_type": "cudaError_t",
+    "inst_abbrev": "unique_u32_u32_count_i64_equal_void"
   }
 ]

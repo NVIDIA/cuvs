@@ -4,6 +4,7 @@
     "qualified_function": "cuvs::spatial::knn::detail::utils::launch_copy_selected",
     "template_arguments": "",
     "parameter_types": "unsigned long, unsigned long, CUstream_st*, unsigned long, unsigned long, float const*, unsigned int const*, unsigned long, float*, unsigned long",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "ulong_ulong_stream_ptr_ulong_ulong_f32_c_ptr_u32_c_ptr_ulong_f32_ptr_ulong"
   }
 ]

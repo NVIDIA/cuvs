@@ -1,24 +1,33 @@
 [
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "cuvs::detail::thrust_scatter",
     "template_arguments": "",
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "rmm::exec_policy_nosync const&, float*, float*, long*, float*"
+        "parameter_types": "rmm::exec_policy_nosync const&, float*, float*, long*, float*",
+        "instantiation_name": "exec_policy_nosync_c_ref_f32_ptr_f32_ptr_long_ptr_f32_ptr"
       },
       {
-        "parameter_types": "rmm::exec_policy_nosync const&, int*, int*, int*, int*"
+        "parameter_types": "rmm::exec_policy_nosync const&, int*, int*, int*, int*",
+        "instantiation_name": "exec_policy_nosync_c_ref_int_ptr_int_ptr_int_ptr_int_ptr"
       },
       {
-        "parameter_types": "rmm::exec_policy_nosync const&, long*, long*, long*, long*"
+        "parameter_types": "rmm::exec_policy_nosync const&, long*, long*, long*, long*",
+        "instantiation_name": "exec_policy_nosync_c_ref_long_ptr_long_ptr_long_ptr_long_ptr"
       },
       {
-        "parameter_types": "rmm::exec_policy_nosync const&, raft::KeyValuePair<int, float>*, raft::KeyValuePair<int, float>*, int*, raft::KeyValuePair<int, float>*"
+        "parameter_types": "rmm::exec_policy_nosync const&, raft::KeyValuePair<int, float>*, raft::KeyValuePair<int, float>*, int*, raft::KeyValuePair<int, float>*",
+        "instantiation_name": "exec_policy_nosync_c_ref_key_value_int_f32_ptr_key_value_int_f32_ptr_int_ptr_key_value_int_f32_ptr"
       },
       {
-        "parameter_types": "rmm::exec_policy_nosync const&, raft::KeyValuePair<long, float>*, raft::KeyValuePair<long, float>*, long*, raft::KeyValuePair<long, float>*"
+        "parameter_types": "rmm::exec_policy_nosync const&, raft::KeyValuePair<long, float>*, raft::KeyValuePair<long, float>*, long*, raft::KeyValuePair<long, float>*",
+        "instantiation_name": "exec_policy_nosync_c_ref_key_value_long_f32_ptr_key_value_long_f32_ptr_long_ptr_key_value_long_f32_ptr"
+      },
+      {
+        "parameter_types": "rmm::exec_policy_nosync const&, float*, float*, int*, float*",
+        "instantiation_name": "exec_policy_nosync_c_ref_f32_ptr_f32_ptr_int_ptr_f32_ptr"
       }
     ]
   }

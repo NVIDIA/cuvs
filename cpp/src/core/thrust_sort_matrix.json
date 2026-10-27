@@ -1,27 +1,33 @@
 [
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "cuvs::detail::thrust_sort",
     "template_arguments": "",
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "rmm::exec_policy_nosync const&, int*, int*, cuda::std::greater<int>"
+        "parameter_types": "rmm::exec_policy_nosync const&, int*, int*, cuda::std::greater<int>",
+        "instantiation_name": "exec_policy_nosync_c_ref_int_ptr_int_ptr_greater_int"
       },
       {
-        "parameter_types": "thrust::cuda_cub::par_t const&, __half*, __half*"
+        "parameter_types": "thrust::cuda_cub::par_t const&, __half*, __half*",
+        "instantiation_name": "par_t_c_ref_f16_ptr_f16_ptr"
       },
       {
-        "parameter_types": "thrust::cuda_cub::par_t const&, double*, double*"
+        "parameter_types": "thrust::cuda_cub::par_t const&, double*, double*",
+        "instantiation_name": "par_t_c_ref_f64_ptr_f64_ptr"
       },
       {
-        "parameter_types": "thrust::cuda_cub::par_t const&, float*, float*"
+        "parameter_types": "thrust::cuda_cub::par_t const&, float*, float*",
+        "instantiation_name": "par_t_c_ref_f32_ptr_f32_ptr"
       },
       {
-        "parameter_types": "rmm::exec_policy_nosync const&, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, cuvs::cluster::agglomerative::detail::mst_edge_less"
+        "parameter_types": "rmm::exec_policy_nosync const&, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, thrust::zip_iterator<cuda::std::tuple<int*, int*, float*>>, cuvs::cluster::agglomerative::detail::mst_edge_less",
+        "instantiation_name": "exec_policy_nosync_c_ref_zip_iterator_tuple_int_ptr_int_ptr_f32_ptr_zip_iterator_tuple_int_ptr_int_ptr_f32_ptr_mst_edge_less"
       },
       {
-        "parameter_types": "rmm::exec_policy_nosync const&, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, cuvs::cluster::agglomerative::detail::mst_edge_less"
+        "parameter_types": "rmm::exec_policy_nosync const&, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, thrust::zip_iterator<cuda::std::tuple<long*, long*, float*>>, cuvs::cluster::agglomerative::detail::mst_edge_less",
+        "instantiation_name": "exec_policy_nosync_c_ref_zip_iterator_tuple_long_ptr_long_ptr_f32_ptr_zip_iterator_tuple_long_ptr_long_ptr_f32_ptr_mst_edge_less"
       }
     ]
   }

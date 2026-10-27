@@ -1,0 +1,42 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::gatherImpl",
+    "template_arguments": "< thrust::transform_iterator<cuvs::spatial::knn::detail::utils::mapping<float>, float const*, thrust::use_default, float>, long const*, long const*, raft::const_op<bool>, raft::identity_op, float*, long>",
+    "parameter_types": "thrust::transform_iterator<cuvs::spatial::knn::detail::utils::mapping<float>, float const*, thrust::use_default, float>, long, long, long, long const*, long const*, long, float*, raft::const_op<bool>, raft::identity_op, cudaStream_t",
+    "function_qualifiers": "",
+    "instantiation_name": "raft_matrix_detail_gatherimpl_transform_mapping_f32_f32_c_ptr_use_default_f32_long_c_ptr_long_c_ptr_c_op_bool_identity_op_f32_ptr_long"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::gatherImpl",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<__half*, long const*, long const*, raft::const_op<bool>, raft::identity_op, __half*, long>",
+        "parameter_types": "__half*, long, long, long, long const*, long const*, long, __half*, raft::const_op<bool>, raft::identity_op, cudaStream_t",
+        "instantiation_name": "raft_matrix_detail_gatherimpl_f16_ptr_long_c_ptr_long_c_ptr_c_op_bool_identity_op_f16_ptr_long"
+      },
+      {
+        "template_arguments": "<float*, long const*, long const*, raft::const_op<bool>, raft::identity_op, float*, long>",
+        "parameter_types": "float*, long, long, long, long const*, long const*, long, float*, raft::const_op<bool>, raft::identity_op, cudaStream_t",
+        "instantiation_name": "raft_matrix_detail_gatherimpl_f32_ptr_long_c_ptr_long_c_ptr_c_op_bool_identity_op_f32_ptr_long"
+      },
+      {
+        "template_arguments": "<float*, int const*, int const*, raft::const_op<bool>, raft::identity_op, float*, int>",
+        "parameter_types": "float*, int, int, int, int const*, int const*, int, float*, raft::const_op<bool>, raft::identity_op, cudaStream_t",
+        "instantiation_name": "raft_matrix_detail_gatherimpl_f32_ptr_int_c_ptr_int_c_ptr_c_op_bool_identity_op_f32_ptr_int"
+      },
+      {
+        "template_arguments": "<double*, long const*, long const*, raft::const_op<bool>, raft::identity_op, double*, long>",
+        "parameter_types": "double*, long, long, long, long const*, long const*, long, double*, raft::const_op<bool>, raft::identity_op, cudaStream_t",
+        "instantiation_name": "raft_matrix_detail_gatherimpl_f64_ptr_long_c_ptr_long_c_ptr_c_op_bool_identity_op_f64_ptr_long"
+      },
+      {
+        "template_arguments": "<double*, int const*, int const*, raft::const_op<bool>, raft::identity_op, double*, int>",
+        "parameter_types": "double*, int, int, int, int const*, int const*, int, double*, raft::const_op<bool>, raft::identity_op, cudaStream_t",
+        "instantiation_name": "raft_matrix_detail_gatherimpl_f64_ptr_int_c_ptr_int_c_ptr_c_op_bool_identity_op_f64_ptr_int"
+      }
+    ]
+  }
+]

@@ -29,4 +29,6 @@ void thrust_sort(Policy const& policy, Iterator first, Iterator last, Compare co
 
 }  // namespace cuvs::detail
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
