@@ -8,6 +8,7 @@
 #include "../../core/gather_launchers.hpp"
 
 #include "../../core/cub_runtime_launchers.hpp"
+#include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -59,6 +60,30 @@
 #include <variant>
 
 namespace cuvs::neighbors::detail {
+
+CUVS_EXPORT void apply_tiled_l2_distance(raft::resources const& handle,
+                                         float* dist,
+                                         size_t query_size,
+                                         size_t centroid_size,
+                                         size_t row_offset,
+                                         size_t col_offset,
+                                         float const* row_norms,
+                                         float const* col_norms,
+                                         bool sqrt);
+CUVS_EXPORT void apply_tiled_cosine_distance(raft::resources const& handle,
+                                             float* dist,
+                                             size_t query_size,
+                                             size_t centroid_size,
+                                             size_t row_offset,
+                                             size_t col_offset,
+                                             float const* row_norms,
+                                             float const* col_norms);
+CUVS_EXPORT void transpose_brute_force_half(raft::resources const& handle,
+                                            __half* in,
+                                            __half* out,
+                                            int n_rows,
+                                            int n_cols,
+                                            cudaStream_t stream);
 
 /**
  * Calculates brute force knn, using a fixed memory budget
@@ -207,31 +232,50 @@ void tiled_brute_force_knn(const raft::resources& handle,
         auto dist      = temp_distances.data();
         bool sqrt      = metric == cuvs::distance::DistanceType::L2SqrtExpanded;
 
-        raft::linalg::map_offset(
-          handle,
-          raft::make_device_vector_view(dist, current_query_size * current_centroid_size),
-          [=] __device__(IndexType idx) {
-            IndexType row = i + (idx / current_centroid_size);
-            IndexType col = j + (idx % current_centroid_size);
+        if constexpr (std::is_same_v<DistanceT, float> && std::is_same_v<IndexType, int64_t> &&
+                      std::is_same_v<DistanceEpilogue, raft::identity_op>) {
+          apply_tiled_l2_distance(handle,
+                                  dist,
+                                  current_query_size,
+                                  current_centroid_size,
+                                  i,
+                                  j,
+                                  row_norms,
+                                  col_norms,
+                                  sqrt);
+        } else {
+          raft::linalg::map_offset(
+            handle,
+            raft::make_device_vector_view(dist, current_query_size * current_centroid_size),
+            [=] __device__(IndexType idx) {
+              IndexType row = i + (idx / current_centroid_size);
+              IndexType col = j + (idx % current_centroid_size);
 
-            cuvs::distance::detail::ops::l2_exp_cutlass_op<DistanceT, DistanceT> l2_op(sqrt);
-            auto val = l2_op(row_norms[row], col_norms[col], dist[idx]);
-            return distance_epilogue(val, row, col);
-          });
+              cuvs::distance::detail::ops::l2_exp_cutlass_op<DistanceT, DistanceT> l2_op(sqrt);
+              auto val = l2_op(row_norms[row], col_norms[col], dist[idx]);
+              return distance_epilogue(val, row, col);
+            });
+        }
       } else if (metric == cuvs::distance::DistanceType::CosineExpanded) {
         auto row_norms = precomputed_search_norms ? precomputed_search_norms : search_norms.data();
         auto col_norms = precomputed_index_norms ? precomputed_index_norms : index_norms.data();
         auto dist      = temp_distances.data();
 
-        raft::linalg::map_offset(
-          handle,
-          raft::make_device_vector_view(dist, current_query_size * current_centroid_size),
-          [=] __device__(IndexType idx) {
-            IndexType row = i + (idx / current_centroid_size);
-            IndexType col = j + (idx % current_centroid_size);
-            auto val      = DistanceT(1.0) - dist[idx] / DistanceT(row_norms[row] * col_norms[col]);
-            return distance_epilogue(val, row, col);
-          });
+        if constexpr (std::is_same_v<DistanceT, float> && std::is_same_v<IndexType, int64_t> &&
+                      std::is_same_v<DistanceEpilogue, raft::identity_op>) {
+          apply_tiled_cosine_distance(
+            handle, dist, current_query_size, current_centroid_size, i, j, row_norms, col_norms);
+        } else {
+          raft::linalg::map_offset(
+            handle,
+            raft::make_device_vector_view(dist, current_query_size * current_centroid_size),
+            [=] __device__(IndexType idx) {
+              IndexType row = i + (idx / current_centroid_size);
+              IndexType col = j + (idx % current_centroid_size);
+              auto val = DistanceT(1.0) - dist[idx] / DistanceT(row_norms[row] * col_norms[col]);
+              return distance_epilogue(val, row, col);
+            });
+        }
       } else {
         // if we're not l2 distance, and we have a distance epilogue - run it now
         if constexpr (!std::is_same_v<DistanceEpilogue, raft::identity_op>) {
@@ -424,7 +468,11 @@ void brute_force_knn_impl(
   rmm::device_uvector<value_t> search_row_major(0, userStream);
   if (!rowMajorQuery) {
     search_row_major.resize(n * D, userStream);
-    raft::linalg::transpose(handle, search, search_row_major.data(), n, D, userStream.get());
+    if constexpr (std::is_same_v<value_t, __half>) {
+      transpose_brute_force_half(handle, search, search_row_major.data(), n, D, userStream.get());
+    } else {
+      raft::linalg::transpose(handle, search, search_row_major.data(), n, D, userStream.get());
+    }
     search = search_row_major.data();
   }
 
@@ -501,7 +549,11 @@ void brute_force_knn_impl(
           if (!rowMajorIndex) {
             index = index_row_major.data() + total_rows_processed * D;
             total_rows_processed += sizes[i];
-            raft::linalg::transpose(handle, input[i], index, sizes[i], D, stream.get());
+            if constexpr (std::is_same_v<value_t, __half>) {
+              transpose_brute_force_half(handle, input[i], index, sizes[i], D, stream.get());
+            } else {
+              raft::linalg::transpose(handle, input[i], index, sizes[i], D, stream.get());
+            }
           }
 
           tiled_brute_force_knn<value_t, IdxType>(stream_pool_handle,

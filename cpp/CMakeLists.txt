@@ -1821,6 +1821,9 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/ball_cover/detail/ball_cover/registers_pass_one.cu
     src/neighbors/ball_cover/detail/ball_cover/registers_pass_two.cu
     src/neighbors/brute_force.cu
+    src/neighbors/brute_force_tiled_l2_distance.cu
+    src/neighbors/brute_force_tiled_cosine_distance.cu
+    src/neighbors/brute_force_transpose_half.cu
     src/neighbors/brute_force_serialize.cu
     src/neighbors/cagra.cpp
     ${cagra_build_inst_files}
