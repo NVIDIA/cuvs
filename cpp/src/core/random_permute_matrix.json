@@ -7,19 +7,23 @@
     "_variants": [
       {
         "template_arguments": "<float, int>",
-        "parameter_types": "int*, int, int, cudaStream_t"
+        "parameter_types": "int*, int, int, cudaStream_t",
+        "instantiation_name": "f32_int"
       },
       {
         "template_arguments": "<float, int64_t>",
-        "parameter_types": "int64_t*, int64_t, int64_t, cudaStream_t"
+        "parameter_types": "int64_t*, int64_t, int64_t, cudaStream_t",
+        "instantiation_name": "f32_i64"
       },
       {
         "template_arguments": "<double, int>",
-        "parameter_types": "int*, int, int, cudaStream_t"
+        "parameter_types": "int*, int, int, cudaStream_t",
+        "instantiation_name": "f64_int"
       },
       {
         "template_arguments": "<double, int64_t>",
-        "parameter_types": "int64_t*, int64_t, int64_t, cudaStream_t"
+        "parameter_types": "int64_t*, int64_t, int64_t, cudaStream_t",
+        "instantiation_name": "f64_i64"
       }
     ]
   }

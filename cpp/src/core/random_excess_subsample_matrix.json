@@ -6,12 +6,14 @@
       {
         "template_arguments": "<int, int>",
         "parameter_types": "raft::resources const&, raft::random::RngState&, int, int",
-        "function_qualifiers": " -> raft::device_vector<int, int>"
+        "function_qualifiers": " -> raft::device_vector<int, int>",
+        "instantiation_name": "cuvs_detail_random_excess_subsample_int_int"
       },
       {
         "template_arguments": "<int64_t, int64_t>",
         "parameter_types": "raft::resources const&, raft::random::RngState&, int64_t, int64_t",
-        "function_qualifiers": " -> raft::device_vector<int64_t, int64_t>"
+        "function_qualifiers": " -> raft::device_vector<int64_t, int64_t>",
+        "instantiation_name": "cuvs_detail_random_excess_subsample_i64_i64"
       }
     ]
   },
@@ -22,12 +24,14 @@
       {
         "template_arguments": "<int, int>",
         "parameter_types": "raft::resources const&, raft::random::RngState&, int, int",
-        "function_qualifiers": " -> raft::device_vector<int, int>"
+        "function_qualifiers": " -> raft::device_vector<int, int>",
+        "instantiation_name": "raft_random_detail_excess_subsample_int_int"
       },
       {
         "template_arguments": "<int64_t, int64_t>",
         "parameter_types": "raft::resources const&, raft::random::RngState&, int64_t, int64_t",
-        "function_qualifiers": " -> raft::device_vector<int64_t, int64_t>"
+        "function_qualifiers": " -> raft::device_vector<int64_t, int64_t>",
+        "instantiation_name": "raft_random_detail_excess_subsample_i64_i64"
       }
     ]
   }

@@ -11,6 +11,8 @@
 #include <raft/linalg/map.cuh>
 #include <raft/sparse/solver/lanczos.cuh>
 
+#include <type_traits>
+
 extern template void raft::linalg::detail::map<false, float, int, raft::const_op<float>>(
   cuda::stream_ref, float*, int, raft::const_op<float>);
 
@@ -48,10 +50,28 @@ int lanczos_compute_eigenpairs(
   raft::device_vector_view<T, uint32_t, raft::col_major> values,
   raft::device_matrix_view<T, uint32_t, raft::col_major> vectors)
 {
-  return raft::sparse::solver::lanczos_compute_eigenpairs(
-    res, config, matrix, initial, values, vectors);
+  static_assert(std::is_integral_v<NnzIndex> && std::is_signed_v<NnzIndex> &&
+                sizeof(NnzIndex) <= sizeof(int64_t));
+  if constexpr (std::is_same_v<NnzIndex, int64_t>) {
+    return raft::sparse::solver::lanczos_compute_eigenpairs(
+      res, config, matrix, initial, values, vectors);
+  } else {
+    // Only widen the host NNZ count; matrix storage and index types stay the same.
+    auto structure      = matrix.structure_view();
+    auto wide_structure = raft::make_device_coordinate_structure_view<Index, Index, int64_t>(
+      structure.get_rows(), structure.get_cols(), structure.get_n_rows(), structure.get_n_cols());
+    auto wide_matrix =
+      raft::make_device_coo_matrix_view(matrix.get_elements().data(), wide_structure);
+    return cuvs::detail::lanczos_compute_eigenpairs<Index, T, int64_t>(
+      res, config, wide_matrix, initial, values, vectors);
+  }
 }
 
 }  // namespace cuvs::detail
 
-@primitive_instantiations@
+// clang-format off
+@random_rng_extern_instantiations@
+@lanczos_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

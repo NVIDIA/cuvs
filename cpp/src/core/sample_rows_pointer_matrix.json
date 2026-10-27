@@ -6,31 +6,38 @@
     "_variants": [
       {
         "template_arguments": "<float, int>",
-        "parameter_types": "raft::resources const&, raft::random::RngState, const float*, int, int, raft::device_matrix_view<float, int>"
+        "parameter_types": "raft::resources const&, raft::random::RngState, const float*, int, int, raft::device_matrix_view<float, int>",
+        "instantiation_name": "f32_int"
       },
       {
         "template_arguments": "<float, int64_t>",
-        "parameter_types": "raft::resources const&, raft::random::RngState, const float*, int64_t, int64_t, raft::device_matrix_view<float, int64_t>"
+        "parameter_types": "raft::resources const&, raft::random::RngState, const float*, int64_t, int64_t, raft::device_matrix_view<float, int64_t>",
+        "instantiation_name": "f32_i64"
       },
       {
         "template_arguments": "<double, int>",
-        "parameter_types": "raft::resources const&, raft::random::RngState, const double*, int, int, raft::device_matrix_view<double, int>"
+        "parameter_types": "raft::resources const&, raft::random::RngState, const double*, int, int, raft::device_matrix_view<double, int>",
+        "instantiation_name": "f64_int"
       },
       {
         "template_arguments": "<double, int64_t>",
-        "parameter_types": "raft::resources const&, raft::random::RngState, const double*, int64_t, int64_t, raft::device_matrix_view<double, int64_t>"
+        "parameter_types": "raft::resources const&, raft::random::RngState, const double*, int64_t, int64_t, raft::device_matrix_view<double, int64_t>",
+        "instantiation_name": "f64_i64"
       },
       {
         "template_arguments": "<half, int64_t>",
-        "parameter_types": "raft::resources const&, raft::random::RngState, const half*, int64_t, int64_t, raft::device_matrix_view<half, int64_t>"
+        "parameter_types": "raft::resources const&, raft::random::RngState, const half*, int64_t, int64_t, raft::device_matrix_view<half, int64_t>",
+        "instantiation_name": "half_i64"
       },
       {
         "template_arguments": "<int8_t, int64_t>",
-        "parameter_types": "raft::resources const&, raft::random::RngState, const int8_t*, int64_t, int64_t, raft::device_matrix_view<int8_t, int64_t>"
+        "parameter_types": "raft::resources const&, raft::random::RngState, const int8_t*, int64_t, int64_t, raft::device_matrix_view<int8_t, int64_t>",
+        "instantiation_name": "int8_t_i64"
       },
       {
         "template_arguments": "<uint8_t, int64_t>",
-        "parameter_types": "raft::resources const&, raft::random::RngState, const uint8_t*, int64_t, int64_t, raft::device_matrix_view<uint8_t, int64_t>"
+        "parameter_types": "raft::resources const&, raft::random::RngState, const uint8_t*, int64_t, int64_t, raft::device_matrix_view<uint8_t, int64_t>",
+        "instantiation_name": "uint8_t_i64"
       }
     ]
   }

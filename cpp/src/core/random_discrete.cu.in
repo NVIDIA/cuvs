@@ -20,4 +20,8 @@ void discrete(raft::resources const& res,
 
 }  // namespace cuvs::detail::random
 
-@primitive_instantiations@
+// clang-format off
+@random_rng_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

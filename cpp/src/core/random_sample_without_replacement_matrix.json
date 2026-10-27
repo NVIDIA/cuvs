@@ -1,0 +1,14 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::random::sampleWithoutReplacement",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<int64_t, float, int64_t>",
+        "parameter_types": "raft::resources const&, raft::random::RngState&, int64_t*, int64_t*, const int64_t*, const float*, int64_t, int64_t",
+        "instantiation_name": "i64_f32_i64"
+      }
+    ]
+  }
+]

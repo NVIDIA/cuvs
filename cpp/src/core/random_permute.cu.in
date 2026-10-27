@@ -5,16 +5,17 @@
 
 #include <core/cub_ptx_query.hpp>
 #include <core/random_launchers.hpp>
-#include <raft/random/permute.cuh>
 
 namespace cuvs::detail::random {
 
 template <typename T, typename Index>
 void permute(Index* indices, Index columns, Index rows, cudaStream_t stream)
 {
-  raft::random::permute<T, Index, Index>(indices, nullptr, nullptr, columns, rows, true, stream);
+  permute_indices(indices, columns, rows, stream);
 }
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
 
 }  // namespace cuvs::detail::random

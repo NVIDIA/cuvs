@@ -39,6 +39,9 @@ template <typename Index, typename MatrixIndex = Index>
 auto excess_subsample(raft::resources const&, raft::random::RngState&, Index, Index)
   -> raft::device_vector<Index, Index>;
 
+template <typename Index>
+void permute_indices(Index* indices, Index columns, Index rows, cudaStream_t stream);
+
 template <typename T, typename Index>
 void permute(Index* indices, Index columns, Index rows, cudaStream_t stream);
 

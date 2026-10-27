@@ -6,15 +6,18 @@
     "_variants": [
       {
         "template_arguments": "<float, uint32_t>",
-        "parameter_types": "raft::resources const&, raft::random::RngState&, float*, uint32_t, float, float"
+        "parameter_types": "raft::resources const&, raft::random::RngState&, float*, uint32_t, float, float",
+        "instantiation_name": "f32_u32"
       },
       {
         "template_arguments": "<float, size_t>",
-        "parameter_types": "raft::resources const&, raft::random::RngState&, float*, size_t, float, float"
+        "parameter_types": "raft::resources const&, raft::random::RngState&, float*, size_t, float, float",
+        "instantiation_name": "f32_size_t"
       },
       {
         "template_arguments": "<double, size_t>",
-        "parameter_types": "raft::resources const&, raft::random::RngState&, double*, size_t, double, double"
+        "parameter_types": "raft::resources const&, raft::random::RngState&, double*, size_t, double, double",
+        "instantiation_name": "f64_size_t"
       }
     ]
   }

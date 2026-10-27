@@ -1,0 +1,169 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::random::detail::call_rng_kernel",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, double*, int, raft::random::detail::UniformDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, double*, int, raft::random::detail::UniformDistParams<double>",
+        "instantiation_name": "uniform_f64_i32_pc"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, double*, int, raft::random::detail::UniformDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, double*, int, raft::random::detail::UniformDistParams<double>",
+        "instantiation_name": "uniform_f64_i32_philox"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, double*, long, raft::random::detail::UniformDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, double*, long, raft::random::detail::UniformDistParams<double>",
+        "instantiation_name": "uniform_f64_i64_pc"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, double*, long, raft::random::detail::UniformDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, double*, long, raft::random::detail::UniformDistParams<double>",
+        "instantiation_name": "uniform_f64_i64_philox"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, double*, unsigned int, raft::random::detail::UniformDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, double*, unsigned int, raft::random::detail::UniformDistParams<double>",
+        "instantiation_name": "uniform_f64_u32_pc"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, double*, unsigned int, raft::random::detail::UniformDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, double*, unsigned int, raft::random::detail::UniformDistParams<double>",
+        "instantiation_name": "uniform_f64_u32_philox"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, double*, unsigned long, raft::random::detail::UniformDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, double*, unsigned long, raft::random::detail::UniformDistParams<double>",
+        "instantiation_name": "uniform_f64_u64_pc"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, double*, unsigned long, raft::random::detail::UniformDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, double*, unsigned long, raft::random::detail::UniformDistParams<double>",
+        "instantiation_name": "uniform_f64_u64_philox"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, float*, int, raft::random::detail::UniformDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, float*, int, raft::random::detail::UniformDistParams<float>",
+        "instantiation_name": "uniform_f32_i32_pc"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, float*, int, raft::random::detail::UniformDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, float*, int, raft::random::detail::UniformDistParams<float>",
+        "instantiation_name": "uniform_f32_i32_philox"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, float*, long, raft::random::detail::SamplingParams<float, long>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, float*, long, raft::random::detail::SamplingParams<float, long>",
+        "instantiation_name": "sampling_f32_i64_pc"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, float*, long, raft::random::detail::UniformDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, float*, long, raft::random::detail::UniformDistParams<float>",
+        "instantiation_name": "uniform_f32_i64_pc"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, float*, long, raft::random::detail::SamplingParams<float, long>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, float*, long, raft::random::detail::SamplingParams<float, long>",
+        "instantiation_name": "sampling_f32_i64_philox"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, float*, long, raft::random::detail::UniformDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, float*, long, raft::random::detail::UniformDistParams<float>",
+        "instantiation_name": "uniform_f32_i64_philox"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, float*, unsigned int, raft::random::detail::UniformDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, float*, unsigned int, raft::random::detail::UniformDistParams<float>",
+        "instantiation_name": "uniform_f32_u32_pc"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, float*, unsigned int, raft::random::detail::UniformDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, float*, unsigned int, raft::random::detail::UniformDistParams<float>",
+        "instantiation_name": "uniform_f32_u32_philox"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, float*, unsigned long, raft::random::detail::UniformDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, float*, unsigned long, raft::random::detail::UniformDistParams<float>",
+        "instantiation_name": "uniform_f32_u64_pc"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, float*, unsigned long, raft::random::detail::UniformDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, float*, unsigned long, raft::random::detail::UniformDistParams<float>",
+        "instantiation_name": "uniform_f32_u64_philox"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, int*, unsigned long, raft::random::detail::UniformIntDistParams<int, unsigned int>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, int*, unsigned long, raft::random::detail::UniformIntDistParams<int, unsigned int>",
+        "instantiation_name": "uniformint_i32_u64_pc_u32"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, int*, unsigned long, raft::random::detail::UniformIntDistParams<int, unsigned long>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, int*, unsigned long, raft::random::detail::UniformIntDistParams<int, unsigned long>",
+        "instantiation_name": "uniformint_i32_u64_pc_u64"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, int*, unsigned long, raft::random::detail::UniformIntDistParams<int, unsigned int>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, int*, unsigned long, raft::random::detail::UniformIntDistParams<int, unsigned int>",
+        "instantiation_name": "uniformint_i32_u64_philox_u32"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, int*, unsigned long, raft::random::detail::UniformIntDistParams<int, unsigned long>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, int*, unsigned long, raft::random::detail::UniformIntDistParams<int, unsigned long>",
+        "instantiation_name": "uniformint_i32_u64_philox_u64"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, long*, unsigned long, raft::random::detail::UniformIntDistParams<long, unsigned int>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, long*, unsigned long, raft::random::detail::UniformIntDistParams<long, unsigned int>",
+        "instantiation_name": "uniformint_i64_u64_pc_u32"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PCGenerator, long*, unsigned long, raft::random::detail::UniformIntDistParams<long, unsigned long>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, long*, unsigned long, raft::random::detail::UniformIntDistParams<long, unsigned long>",
+        "instantiation_name": "uniformint_i64_u64_pc_u64"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, long*, unsigned long, raft::random::detail::UniformIntDistParams<long, unsigned int>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, long*, unsigned long, raft::random::detail::UniformIntDistParams<long, unsigned int>",
+        "instantiation_name": "uniformint_i64_u64_philox_u32"
+      },
+      {
+        "template_arguments": "<1, raft::random::detail::PhiloxGenerator, long*, unsigned long, raft::random::detail::UniformIntDistParams<long, unsigned long>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, long*, unsigned long, raft::random::detail::UniformIntDistParams<long, unsigned long>",
+        "instantiation_name": "uniformint_i64_u64_philox_u64"
+      },
+      {
+        "template_arguments": "<2, raft::random::detail::PCGenerator, double*, unsigned long, raft::random::detail::NormalDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, double*, unsigned long, raft::random::detail::NormalDistParams<double>",
+        "instantiation_name": "normal_f64_u64_pc"
+      },
+      {
+        "template_arguments": "<2, raft::random::detail::PhiloxGenerator, double*, unsigned long, raft::random::detail::NormalDistParams<double>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, double*, unsigned long, raft::random::detail::NormalDistParams<double>",
+        "instantiation_name": "normal_f64_u64_philox"
+      },
+      {
+        "template_arguments": "<2, raft::random::detail::PCGenerator, float*, unsigned int, raft::random::detail::NormalDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, float*, unsigned int, raft::random::detail::NormalDistParams<float>",
+        "instantiation_name": "normal_f32_u32_pc"
+      },
+      {
+        "template_arguments": "<2, raft::random::detail::PhiloxGenerator, float*, unsigned int, raft::random::detail::NormalDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, float*, unsigned int, raft::random::detail::NormalDistParams<float>",
+        "instantiation_name": "normal_f32_u32_philox"
+      },
+      {
+        "template_arguments": "<2, raft::random::detail::PCGenerator, float*, unsigned long, raft::random::detail::NormalDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PCGenerator> const&, raft::random::RngState&, cudaStream_t, float*, unsigned long, raft::random::detail::NormalDistParams<float>",
+        "instantiation_name": "normal_f32_u64_pc"
+      },
+      {
+        "template_arguments": "<2, raft::random::detail::PhiloxGenerator, float*, unsigned long, raft::random::detail::NormalDistParams<float>>",
+        "parameter_types": "raft::random::detail::DeviceState<raft::random::detail::PhiloxGenerator> const&, raft::random::RngState&, cudaStream_t, float*, unsigned long, raft::random::detail::NormalDistParams<float>",
+        "instantiation_name": "normal_f32_u64_philox"
+      }
+    ]
+  }
+]

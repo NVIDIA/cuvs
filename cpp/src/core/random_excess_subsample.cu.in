@@ -29,4 +29,14 @@ auto excess_subsample(raft::resources const& res,
 
 }  // namespace cuvs::detail::random
 
-@primitive_instantiations@
+extern template auto raft::random::detail::excess_subsample<int, int>(
+  raft::resources const&, raft::random::RngState&, int, int) -> raft::device_vector<int, int>;
+extern template auto raft::random::detail::excess_subsample<int64_t, int64_t>(
+  raft::resources const&, raft::random::RngState&, int64_t, int64_t)
+  -> raft::device_vector<int64_t, int64_t>;
+
+// clang-format off
+@random_rng_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
