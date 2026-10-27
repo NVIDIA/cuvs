@@ -27,6 +27,8 @@ cudaError_t sort_reverse_pairs(void* storage,
   return cub::DeviceMergeSort::SortPairs(storage, bytes, keys, values, count, compare, stream);
 }
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
 
 }  // namespace cuvs::neighbors::vamana::detail
