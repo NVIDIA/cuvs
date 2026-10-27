@@ -4,13 +4,15 @@
     "qualified_function": "thrust::cuda_cub::exclusive_scan",
     "template_arguments": "<rmm::thrust_exec_policy_t, thrust::device_ptr<int>, thrust::device_ptr<int>, int, ::cuda::std::plus<void>>",
     "parameter_types": "thrust::cuda_cub::execution_policy<rmm::thrust_exec_policy_t>&, thrust::device_ptr<int>, thrust::device_ptr<int>, thrust::device_ptr<int>, int, ::cuda::std::plus<void>",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "thrust_exec_policy_t_device_ptr_int_device_ptr_int_int_plus_void"
   },
   {
     "return_type": "thrust::device_ptr<long>",
     "qualified_function": "thrust::cuda_cub::exclusive_scan",
     "template_arguments": "<rmm::thrust_exec_policy_t, thrust::device_ptr<long>, thrust::device_ptr<long>, long, ::cuda::std::plus<void>>",
     "parameter_types": "thrust::cuda_cub::execution_policy<rmm::thrust_exec_policy_t>&, thrust::device_ptr<long>, thrust::device_ptr<long>, thrust::device_ptr<long>, long, ::cuda::std::plus<void>",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "thrust_exec_policy_t_device_ptr_long_device_ptr_long_long_plus_void"
   }
 ]
