@@ -26,33 +26,6 @@ extern template void raft::linalg::detail::map<false, uint32_t, int64_t, raft::c
 
 namespace cuvs::neighbors::cagra::detail::graph {
 
-namespace {
-
-template <typename IdxT, typename OutputMatrixView>
-__global__ void kern_make_rev_graph_k(
-  OutputMatrixView output_graph,                                // [graph_size, degree]
-  raft::device_matrix_view<IdxT, int64_t> rev_graph,            // [graph_size, degree]
-  raft::device_vector_view<uint32_t, int64_t> rev_graph_count,  // [graph_size]
-  uint64_t k)
-{
-  const uint64_t tid  = threadIdx.x + (blockDim.x * blockIdx.x);
-  const uint64_t tnum = blockDim.x * gridDim.x;
-
-  const uint64_t graph_size          = rev_graph.extent(0);
-  const uint32_t rev_graph_degree    = rev_graph.extent(1);
-  const uint32_t output_graph_degree = output_graph.extent(1);
-
-  for (uint64_t src_id = tid; src_id < graph_size; src_id += tnum) {
-    IdxT dest_id = output_graph(src_id, k);
-    if (dest_id >= graph_size) continue;
-
-    const uint32_t pos = atomicAdd(&rev_graph_count(dest_id), 1);
-    if (pos < rev_graph_degree) { rev_graph(dest_id, pos) = static_cast<IdxT>(src_id); }
-  }
-}
-
-}  // namespace
-
 template <typename IdxT, typename AccessorOutputGraph>
 void make_reverse_graph_gpu(
   raft::resources const& res,
@@ -78,8 +51,14 @@ void make_reverse_graph_gpu(
     dim3 threads(256, 1, 1);
     dim3 blocks(1024, 1, 1);
     for (uint64_t k = 0; k < output_graph_degree; k++) {
-      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-        output_graph, d_rev_graph, d_rev_graph_count, k);
+      launch_make_rev_graph_k<IdxT>(blocks,
+                                    threads,
+                                    0,
+                                    raft::resource::get_cuda_stream(res).get(),
+                                    output_graph,
+                                    d_rev_graph,
+                                    d_rev_graph_count,
+                                    k);
     }
   } else {
     auto d_dest_nodes = raft::make_device_matrix<IdxT, int64_t>(res, graph_size, 1);
@@ -93,8 +72,14 @@ void make_reverse_graph_gpu(
 
       dim3 threads(256, 1, 1);
       dim3 blocks(1024, 1, 1);
-      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-        d_dest_nodes.view(), d_rev_graph, d_rev_graph_count, 0);
+      launch_make_rev_graph_k<IdxT>(blocks,
+                                    threads,
+                                    0,
+                                    raft::resource::get_cuda_stream(res).get(),
+                                    d_dest_nodes.view(),
+                                    d_rev_graph,
+                                    d_rev_graph_count,
+                                    0);
       raft::resource::sync_stream(res);
       RAFT_LOG_DEBUG("# Making reverse graph on GPUs: %lu / %u    \r", k, output_graph_degree);
     }
@@ -105,6 +90,8 @@ void make_reverse_graph_gpu(
 
 namespace cuvs::neighbors::cagra::detail::graph {
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
 
-}
+}  // namespace cuvs::neighbors::cagra::detail::graph

@@ -10,7 +10,9 @@
 #include <raft/core/mdspan.hpp>
 #include <raft/core/resources.hpp>
 
+#include <cstddef>
 #include <cstdint>
+#include <cuda_runtime_api.h>
 
 namespace cuvs::neighbors::cagra::detail::graph {
 
@@ -84,5 +86,93 @@ void prune_graph_gpu(
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorKnnGraph> knn_graph,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph>
     output_graph);
+
+template <typename IdxT>
+void launch_merge_graph(dim3 grid,
+                        dim3 block,
+                        size_t shared_bytes,
+                        cudaStream_t stream,
+                        raft::device_matrix_view<IdxT, int64_t> output_graph,
+                        raft::device_matrix_view<IdxT, int64_t> rev_graph,
+                        raft::device_vector_view<uint32_t, int64_t> rev_graph_count,
+                        raft::device_matrix_view<IdxT, int64_t> mst_graph,
+                        raft::device_matrix_view<IdxT, int64_t> mst_graph_num_edges,
+                        const uint32_t batch_size,
+                        const uint32_t batch_id,
+                        bool guarantee_connectivity,
+                        uint32_t* check_num_protected_edges);
+
+template <typename IdxT>
+void launch_make_rev_graph_k(dim3 grid,
+                             dim3 block,
+                             size_t shared_bytes,
+                             cudaStream_t stream,
+                             raft::device_matrix_view<IdxT, int64_t> output_graph,
+                             raft::device_matrix_view<IdxT, int64_t> rev_graph,
+                             raft::device_vector_view<uint32_t, int64_t> rev_graph_count,
+                             uint64_t k);
+
+template <typename IdxT>
+void launch_fused_prune(dim3 grid,
+                        dim3 block,
+                        size_t shared_bytes,
+                        cudaStream_t stream,
+                        raft::device_matrix_view<IdxT, int64_t> knn_graph,
+                        raft::device_matrix_view<IdxT, int64_t> output_graph,
+                        const uint32_t batch_size,
+                        const uint32_t batch_id,
+                        uint32_t* const d_invalid_neighbor_list,
+                        uint64_t* const stats);
+
+template <typename IdxT>
+void launch_mst_opt_update_graph(dim3 grid,
+                                 dim3 block,
+                                 size_t shared_bytes,
+                                 cudaStream_t stream,
+                                 IdxT* mst_graph,
+                                 const IdxT* candidate_edges,
+                                 IdxT* outgoing_num_edges,
+                                 IdxT* incoming_num_edges,
+                                 const IdxT* outgoing_max_edges,
+                                 const IdxT* incoming_max_edges,
+                                 const IdxT* label,
+                                 const uint32_t graph_size,
+                                 const uint32_t graph_degree,
+                                 uint64_t* stats);
+
+template <typename IdxT>
+void launch_mst_opt_labeling(dim3 grid,
+                             dim3 block,
+                             size_t shared_bytes,
+                             cudaStream_t stream,
+                             IdxT* label,
+                             const IdxT* mst_graph,
+                             const uint32_t graph_size,
+                             const uint32_t graph_degree,
+                             uint64_t* stats);
+
+template <typename IdxT>
+void launch_mst_opt_cluster_size(dim3 grid,
+                                 dim3 block,
+                                 size_t shared_bytes,
+                                 cudaStream_t stream,
+                                 IdxT* cluster_size,
+                                 const IdxT* label,
+                                 const uint32_t graph_size,
+                                 uint64_t* stats);
+
+template <typename IdxT>
+void launch_mst_opt_postprocessing(dim3 grid,
+                                   dim3 block,
+                                   size_t shared_bytes,
+                                   cudaStream_t stream,
+                                   IdxT* outgoing_num_edges,
+                                   IdxT* incoming_num_edges,
+                                   IdxT* outgoing_max_edges,
+                                   IdxT* incoming_max_edges,
+                                   const IdxT* cluster_size,
+                                   const uint32_t graph_size,
+                                   const uint32_t graph_degree,
+                                   uint64_t* stats);
 
 }  // namespace cuvs::neighbors::cagra::detail::graph

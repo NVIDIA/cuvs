@@ -65,112 +65,6 @@ __device__ void warp_shift_array_one_right(uint32_t lane_id, T* array, uint64_t 
   }
 }
 
-template <typename IdxT,
-          uint32_t num_warps,
-          class OutputGraphView,
-          class MstGraphView,
-          class MstNumEdgesView>
-__global__ void kern_merge_graph(
-  OutputGraphView output_graph,                                 // [batch_size, output_graph_degree]
-  raft::device_matrix_view<IdxT, int64_t> rev_graph,            // [graph_size, output_graph_degree]
-  raft::device_vector_view<uint32_t, int64_t> rev_graph_count,  // [graph_size]
-  MstGraphView mst_graph,                                       // [batch_size, output_graph_degree]
-  MstNumEdgesView mst_graph_num_edges,                          // [batch_size, 1]
-  const uint32_t batch_size,
-  const uint32_t batch_id,
-  bool guarantee_connectivity,
-  uint32_t* check_num_protected_edges)
-{
-  // Check assumption we have at least one warp per row of the batch
-  assert(blockDim.x == raft::WarpSize * num_warps);
-  assert(gridDim.x * num_warps >= batch_size);
-
-  const uint64_t graph_size          = rev_graph.extent(0);
-  const uint32_t output_graph_degree = output_graph.extent(1);
-  const uint32_t mst_graph_degree    = mst_graph.extent(1);
-
-  extern __shared__ unsigned char smem_buf[];
-
-  const uint32_t wid     = threadIdx.x / raft::WarpSize;
-  const uint32_t lane_id = threadIdx.x % raft::WarpSize;
-
-  IdxT* smem_sorted_output_graph =
-    reinterpret_cast<IdxT*>(smem_buf + wid * output_graph_degree * sizeof(IdxT));
-
-  const uint32_t nid_batch = blockIdx.x * num_warps + wid;
-  const uint64_t nid       = static_cast<uint64_t>(nid_batch) +
-                       (static_cast<uint64_t>(batch_size) * static_cast<uint64_t>(batch_id));
-
-  if (nid >= graph_size) { return; }
-
-  const auto current_mst_graph_num_edges =
-    guarantee_connectivity ? mst_graph_num_edges(nid_batch, 0) : 0;
-  // If guarantee_connectivity == true, use a temporal list to merge the
-  // neighbor lists of the graphs.
-  if (guarantee_connectivity) {
-    for (uint32_t i = lane_id; i < current_mst_graph_num_edges; i += raft::WarpSize) {
-      smem_sorted_output_graph[i] = mst_graph(nid_batch, i);
-    }
-    __syncwarp();
-    for (uint32_t pruned_j = 0, output_j = current_mst_graph_num_edges;
-         (pruned_j < output_graph_degree) && (output_j < output_graph_degree);
-         pruned_j++) {
-      const auto v     = output_graph(nid_batch, pruned_j);
-      unsigned int dup = 0;
-      for (uint32_t m = lane_id; m < output_j; m += raft::WarpSize) {
-        if (v == smem_sorted_output_graph[m]) {
-          dup = 1;
-          break;
-        }
-      }
-
-      auto warp_dup = raft::ballot(dup);
-      if (warp_dup == 0) {
-        if (lane_id == 0) smem_sorted_output_graph[output_j] = v;
-        output_j++;
-      }
-      __syncwarp();
-    }
-  }
-
-  else {
-    for (uint32_t i = lane_id; i < output_graph_degree; i += raft::WarpSize) {
-      smem_sorted_output_graph[i] = output_graph(nid_batch, i);
-    }
-    __syncwarp();
-  }
-
-  const auto num_protected_edges = max(current_mst_graph_num_edges, output_graph_degree / 2);
-
-  if (num_protected_edges > output_graph_degree) {
-    check_num_protected_edges[0] = 0u;
-    return;
-  }
-  if (num_protected_edges == output_graph_degree) { return; }
-
-  auto kr = min(rev_graph_count(nid), output_graph_degree);
-
-  while (kr) {
-    kr -= 1;
-    const auto rev_graph_value = rev_graph(nid, kr);
-    if (rev_graph_value < graph_size) {
-      uint64_t pos =
-        warp_pos_in_array<IdxT>(rev_graph_value, smem_sorted_output_graph, output_graph_degree);
-      if (pos < num_protected_edges) { continue; }
-      uint64_t num_shift = pos - num_protected_edges;
-      if (pos >= output_graph_degree) { num_shift = output_graph_degree - num_protected_edges - 1; }
-      warp_shift_array_one_right<IdxT>(
-        lane_id, smem_sorted_output_graph + num_protected_edges, num_shift);
-      if (lane_id == 0) { smem_sorted_output_graph[num_protected_edges] = rev_graph_value; }
-      __syncwarp();
-    }
-  }
-
-  for (uint32_t i = lane_id; i < output_graph_degree; i += raft::WarpSize) {
-    output_graph(nid_batch, i) = smem_sorted_output_graph[i];
-  }
-}
-
 }  // namespace
 
 template <typename IdxT, typename AccessorOutputGraph>
@@ -237,19 +131,19 @@ void merge_graph_gpu(
     auto mst_graph_view           = (*d_mst_graph).view();
     auto mst_graph_num_edges_view = (*d_mst_graph_num_edges).view();
     auto output_view              = (*d_output_graph).view();
-    kern_merge_graph<IdxT, num_warps>
-      <<<blocks_merge,
-         threads_merge,
-         merge_smem_size,
-         raft::resource::get_cuda_stream(res).get()>>>(output_view,
-                                                       d_rev_graph,
-                                                       d_rev_graph_count,
-                                                       mst_graph_view,
-                                                       mst_graph_num_edges_view,
-                                                       batch_size,
-                                                       i_batch,
-                                                       guarantee_connectivity,
-                                                       d_check_num_protected_edges.data_handle());
+    launch_merge_graph<IdxT>(blocks_merge,
+                             threads_merge,
+                             merge_smem_size,
+                             raft::resource::get_cuda_stream(res).get(),
+                             output_view,
+                             d_rev_graph,
+                             d_rev_graph_count,
+                             mst_graph_view,
+                             mst_graph_num_edges_view,
+                             batch_size,
+                             i_batch,
+                             guarantee_connectivity,
+                             d_check_num_protected_edges.data_handle());
 
     d_output_graph.prefetch_next_batch();
     d_mst_graph.prefetch_next_batch();
@@ -278,6 +172,8 @@ void merge_graph_gpu(
 
 namespace cuvs::neighbors::cagra::detail::graph {
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
 
-}
+}  // namespace cuvs::neighbors::cagra::detail::graph

@@ -7,11 +7,13 @@
     "_variants": [
       {
         "template_arguments": "<uint32_t, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::host>, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::host>>",
-        "parameter_types": "raft::resources const&, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::host>>, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::host>>, bool, bool"
+        "parameter_types": "raft::resources const&, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::host>>, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::host>>, bool, bool",
+        "instantiation_name": "u32_host_device_accessor_default_accessor_u32_host_host_device_accessor_default_accessor_u32_host"
       },
       {
         "template_arguments": "<uint32_t, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::device>, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::device>>",
-        "parameter_types": "raft::resources const&, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::device>>, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::device>>, bool, bool"
+        "parameter_types": "raft::resources const&, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::device>>, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::device>>, bool, bool",
+        "instantiation_name": "u32_host_device_accessor_default_accessor_u32_device_host_device_accessor_default_accessor_u32_device"
       }
     ]
   }

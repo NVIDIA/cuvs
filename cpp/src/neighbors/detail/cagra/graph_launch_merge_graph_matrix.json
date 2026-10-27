@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::neighbors::cagra::detail::graph::launch_merge_graph",
+    "template_arguments": "<uint32_t>",
+    "parameter_types": "dim3, dim3, size_t, cudaStream_t, raft::device_matrix_view<uint32_t, int64_t>, raft::device_matrix_view<uint32_t, int64_t>, raft::device_vector_view<uint32_t, int64_t>, raft::device_matrix_view<uint32_t, int64_t>, raft::device_matrix_view<uint32_t, int64_t>, const uint32_t, const uint32_t, bool, uint32_t*",
+    "function_qualifiers": "",
+    "instantiation_name": "u32"
+  }
+]

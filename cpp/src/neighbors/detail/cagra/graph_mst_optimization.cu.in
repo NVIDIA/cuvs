@@ -33,232 +33,6 @@ __device__ __host__ LabelT get_root_label(IdxT i, const LabelT* label)
   return l;
 }
 
-template <class IdxT>
-__global__ void kern_mst_opt_update_graph(IdxT* mst_graph,  // [graph_size, graph_degree]
-                                          const IdxT* candidate_edges,     // [graph_size]
-                                          IdxT* outgoing_num_edges,        // [graph_size]
-                                          IdxT* incoming_num_edges,        // [graph_size]
-                                          const IdxT* outgoing_max_edges,  // [graph_size]
-                                          const IdxT* incoming_max_edges,  // [graph_size]
-                                          const IdxT* label,               // [graph_size]
-                                          const uint32_t graph_size,
-                                          const uint32_t graph_degree,
-                                          uint64_t* stats)
-{
-  const uint64_t i = threadIdx.x + (blockDim.x * blockIdx.x);
-  if (i >= graph_size) return;
-
-  int ret = 0;  // 0: No edge, 1: Direct edge, 2: Alternate edge, 3: Failure
-
-  if (outgoing_num_edges[i] >= outgoing_max_edges[i]) return;
-  uint64_t j = candidate_edges[i];
-  if (j >= graph_size) return;
-  const uint32_t ri = get_root_label(i, label);
-  const uint32_t rj = get_root_label(j, label);
-  if (ri == rj) return;
-
-  // Try to add a direct edge to destination node with different label.
-  if (incoming_num_edges[j] < incoming_max_edges[j]) {
-    ret = 1;
-    // Check to avoid duplication
-    for (uint64_t kj = 0; kj < graph_degree; kj++) {
-      uint64_t l = mst_graph[(graph_degree * j) + kj];
-      if (l >= graph_size) continue;
-      const uint32_t rl = get_root_label(l, label);
-      if (ri == rl) {
-        ret = 0;
-        break;
-      }
-    }
-    if (ret == 0) return;
-
-    ret     = 0;
-    auto kj = atomicAdd(incoming_num_edges + j, (IdxT)1);
-    if (kj < incoming_max_edges[j]) {
-      auto ki                                      = outgoing_num_edges[i];
-      outgoing_num_edges[i]                        = ki + 1;
-      mst_graph[(graph_degree * (i)) + ki]         = j;  // outgoing
-      mst_graph[(graph_degree * (j + 1)) - 1 - kj] = i;  // incoming
-      ret                                          = 1;
-    }
-  }
-  if (ret > 0) {
-    atomicAdd((unsigned long long int*)stats + ret, 1);
-    return;
-  }
-
-  // Try to add an edge to an alternate node instead
-  ret = 3;
-  for (uint64_t kj = 0; kj < graph_degree; kj++) {
-    uint64_t l = mst_graph[(graph_degree * (j + 1)) - 1 - kj];
-    if (l >= graph_size) continue;
-    uint32_t rl = get_root_label(l, label);
-    if (ri == rl) {
-      ret = 0;
-      break;
-    }
-    if (incoming_num_edges[l] >= incoming_max_edges[l]) continue;
-
-    // Check to avoid duplication
-    for (uint64_t kl = 0; kl < graph_degree; kl++) {
-      uint64_t m = mst_graph[(graph_degree * l) + kl];
-      if (m >= graph_size) continue;
-      uint32_t rm = get_root_label(m, label);
-      if (ri == rm) {
-        ret = 0;
-        break;
-      }
-    }
-    if (ret == 0) { break; }
-
-    auto kl = atomicAdd(incoming_num_edges + l, (IdxT)1);
-    if (kl < incoming_max_edges[l]) {
-      auto ki                                      = outgoing_num_edges[i]++;
-      mst_graph[(graph_degree * (i)) + ki]         = l;  // outgoing
-      mst_graph[(graph_degree * (l + 1)) - 1 - kl] = i;  // incoming
-      ret                                          = 2;
-      break;
-    }
-  }
-  if (ret > 0) { atomicAdd((unsigned long long int*)stats + ret, 1); }
-}
-
-template <class IdxT>
-__global__ void kern_mst_opt_labeling(IdxT* label,            // [graph_size]
-                                      const IdxT* mst_graph,  // [graph_size, graph_degree]
-                                      const uint32_t graph_size,
-                                      const uint32_t graph_degree,
-                                      uint64_t* stats)
-{
-  const uint64_t i = threadIdx.x + (blockDim.x * blockIdx.x);
-
-  __shared__ uint32_t smem_updated[1];
-  if (threadIdx.x == 0) { smem_updated[0] = 0; }
-  __syncthreads();
-
-  if (i < graph_size) {
-    for (uint64_t ki = 0; ki < graph_degree; ki++) {
-      uint64_t j = mst_graph[(graph_degree * i) + ki];
-      if (j >= graph_size) continue;
-
-      IdxT li = label[i];
-      IdxT ri = get_root_label(i, label);
-      if (ri < li) { atomicMin(label + i, ri); }
-      IdxT lj = label[j];
-      IdxT rj = get_root_label(j, label);
-      if (rj < lj) { atomicMin(label + j, rj); }
-      if (ri == rj) continue;
-
-      if (ri > rj) {
-        atomicCAS(label + i, ri, rj);
-      } else if (rj > ri) {
-        atomicCAS(label + j, rj, ri);
-      }
-      smem_updated[0] = 1;
-    }
-  }
-
-  __syncthreads();
-  if ((threadIdx.x == 0) && (smem_updated[0] > 0)) { stats[0] = 1; }
-}
-
-template <class IdxT>
-__global__ void kern_mst_opt_cluster_size(IdxT* cluster_size,  // [graph_size]
-                                          const IdxT* label,   // [graph_size]
-                                          const uint32_t graph_size,
-                                          uint64_t* stats)
-{
-  const uint64_t i = threadIdx.x + (blockDim.x * blockIdx.x);
-
-  __shared__ uint64_t smem_num_clusters[1];
-  if (threadIdx.x == 0) { smem_num_clusters[0] = 0; }
-  __syncthreads();
-
-  if (i < graph_size) {
-    IdxT ri = get_root_label(i, label);
-    if (ri == i) {
-      atomicAdd((unsigned long long int*)smem_num_clusters, 1);
-    } else {
-      atomicAdd(cluster_size + ri, cluster_size[i]);
-      cluster_size[i] = 0;
-    }
-  }
-
-  __syncthreads();
-  if ((threadIdx.x == 0) && (smem_num_clusters[0] > 0)) {
-    atomicAdd((unsigned long long int*)stats, (unsigned long long int)(smem_num_clusters[0]));
-  }
-}
-
-template <class IdxT>
-__global__ void kern_mst_opt_postprocessing(IdxT* outgoing_num_edges,  // [graph_size]
-                                            IdxT* incoming_num_edges,  // [graph_size]
-                                            IdxT* outgoing_max_edges,  // [graph_size]
-                                            IdxT* incoming_max_edges,  // [graph_size]
-                                            const IdxT* cluster_size,  // [graph_size]
-                                            const uint32_t graph_size,
-                                            const uint32_t graph_degree,
-                                            uint64_t* stats)
-{
-  const uint64_t i = threadIdx.x + (blockDim.x * blockIdx.x);
-  __shared__ uint64_t smem_cluster_size_min[1];
-  __shared__ uint64_t smem_cluster_size_max[1];
-  __shared__ uint64_t smem_total_outgoing_edges[1];
-  __shared__ uint64_t smem_total_incoming_edges[1];
-  if (threadIdx.x == 0) {
-    smem_cluster_size_min[0]     = stats[0];
-    smem_cluster_size_max[0]     = stats[1];
-    smem_total_outgoing_edges[0] = 0;
-    smem_total_incoming_edges[0] = 0;
-  }
-  __syncthreads();
-
-  if (i < graph_size) {
-    // Adjust incoming_num_edges
-    if (incoming_num_edges[i] > incoming_max_edges[i]) {
-      incoming_num_edges[i] = incoming_max_edges[i];
-    }
-
-    // Calculate min/max of cluster_size
-    if (cluster_size[i] > 0) {
-      if (smem_cluster_size_min[0] > cluster_size[i]) {
-        atomicMin((unsigned long long int*)smem_cluster_size_min,
-                  (unsigned long long int)(cluster_size[i]));
-      }
-      if (smem_cluster_size_max[0] < cluster_size[i]) {
-        atomicMax((unsigned long long int*)smem_cluster_size_max,
-                  (unsigned long long int)(cluster_size[i]));
-      }
-    }
-
-    // Calculate total number of outgoing/incoming edges
-    atomicAdd((unsigned long long int*)smem_total_outgoing_edges,
-              (unsigned long long int)(outgoing_num_edges[i]));
-    atomicAdd((unsigned long long int*)smem_total_incoming_edges,
-              (unsigned long long int)(incoming_num_edges[i]));
-
-    // Adjust incoming/outgoing_max_edges
-    if (outgoing_num_edges[i] == outgoing_max_edges[i]) {
-      if (outgoing_num_edges[i] + incoming_num_edges[i] < graph_degree) {
-        outgoing_max_edges[i] += 1;
-        incoming_max_edges[i] -= 1;
-      }
-    }
-  }
-
-  __syncthreads();
-  if (threadIdx.x == 0) {
-    atomicMin((unsigned long long int*)stats + 0,
-              (unsigned long long int)(smem_cluster_size_min[0]));
-    atomicMax((unsigned long long int*)stats + 1,
-              (unsigned long long int)(smem_cluster_size_max[0]));
-    atomicAdd((unsigned long long int*)stats + 2,
-              (unsigned long long int)(smem_total_outgoing_edges[0]));
-    atomicAdd((unsigned long long int*)stats + 3,
-              (unsigned long long int)(smem_total_incoming_edges[0]));
-  }
-}
-
 }  // namespace
 
 template <typename IdxT, typename AccessorKnnGraph>
@@ -434,17 +208,20 @@ void mst_optimization(
       constexpr uint64_t n_threads = 256;
       const dim3 threads(n_threads, 1, 1);
       const dim3 blocks(raft::ceildiv<uint64_t>(graph_size, n_threads), 1, 1);
-      kern_mst_opt_update_graph<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-        d_mst_graph_ptr,
-        d_candidate_edges_ptr,
-        d_outgoing_num_edges_ptr,
-        d_incoming_num_edges_ptr,
-        d_outgoing_max_edges_ptr,
-        d_incoming_max_edges_ptr,
-        d_label_ptr,
-        graph_size,
-        mst_graph_degree,
-        d_stats_ptr);
+      launch_mst_opt_update_graph<IdxT>(blocks,
+                                        threads,
+                                        0,
+                                        raft::resource::get_cuda_stream(res).get(),
+                                        d_mst_graph_ptr,
+                                        d_candidate_edges_ptr,
+                                        d_outgoing_num_edges_ptr,
+                                        d_incoming_num_edges_ptr,
+                                        d_outgoing_max_edges_ptr,
+                                        d_incoming_max_edges_ptr,
+                                        d_label_ptr,
+                                        graph_size,
+                                        mst_graph_degree,
+                                        d_stats_ptr);
 
       raft::copy(res, stats.view(), raft::make_const_mdspan(d_stats.view()));
       raft::resource::sync_stream(res);
@@ -480,8 +257,15 @@ void mst_optimization(
         constexpr uint64_t n_threads = 256;
         const dim3 threads(n_threads, 1, 1);
         const dim3 blocks((graph_size + n_threads - 1) / n_threads, 1, 1);
-        kern_mst_opt_labeling<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-          d_label_ptr, d_mst_graph_ptr, graph_size, mst_graph_degree, d_stats_ptr);
+        launch_mst_opt_labeling<IdxT>(blocks,
+                                      threads,
+                                      0,
+                                      raft::resource::get_cuda_stream(res).get(),
+                                      d_label_ptr,
+                                      d_mst_graph_ptr,
+                                      graph_size,
+                                      mst_graph_degree,
+                                      d_stats_ptr);
 
         raft::copy(res,
                    raft::make_host_vector_view(stats_ptr, int64_t(1)),
@@ -514,8 +298,14 @@ void mst_optimization(
       constexpr uint64_t n_threads = 256;
       const dim3 threads(n_threads, 1, 1);
       const dim3 blocks(raft::ceildiv<uint64_t>(graph_size, n_threads), 1, 1);
-      kern_mst_opt_cluster_size<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-        d_cluster_size_ptr, d_label_ptr, graph_size, d_stats_ptr);
+      launch_mst_opt_cluster_size<IdxT>(blocks,
+                                        threads,
+                                        0,
+                                        raft::resource::get_cuda_stream(res).get(),
+                                        d_cluster_size_ptr,
+                                        d_label_ptr,
+                                        graph_size,
+                                        d_stats_ptr);
 
       raft::copy(res,
                  raft::make_host_vector_view(stats_ptr, int64_t(1)),
@@ -555,18 +345,18 @@ void mst_optimization(
       constexpr uint64_t n_threads = 256;
       const dim3 threads(n_threads, 1, 1);
       const dim3 blocks((graph_size + n_threads - 1) / n_threads, 1, 1);
-      kern_mst_opt_postprocessing<<<blocks,
-                                    threads,
-                                    0,
-                                    raft::resource::get_cuda_stream(res).get()>>>(
-        d_outgoing_num_edges_ptr,
-        d_incoming_num_edges_ptr,
-        d_outgoing_max_edges_ptr,
-        d_incoming_max_edges_ptr,
-        d_cluster_size_ptr,
-        graph_size,
-        mst_graph_degree,
-        d_stats_ptr);
+      launch_mst_opt_postprocessing<IdxT>(blocks,
+                                          threads,
+                                          0,
+                                          raft::resource::get_cuda_stream(res).get(),
+                                          d_outgoing_num_edges_ptr,
+                                          d_incoming_num_edges_ptr,
+                                          d_outgoing_max_edges_ptr,
+                                          d_incoming_max_edges_ptr,
+                                          d_cluster_size_ptr,
+                                          graph_size,
+                                          mst_graph_degree,
+                                          d_stats_ptr);
 
       raft::copy(res, stats.view(), raft::make_const_mdspan(d_stats.view()));
       raft::resource::sync_stream(res);
@@ -666,6 +456,8 @@ void mst_optimization(
 
 namespace cuvs::neighbors::cagra::detail::graph {
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
 
-}
+}  // namespace cuvs::neighbors::cagra::detail::graph

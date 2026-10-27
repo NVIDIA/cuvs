@@ -1450,33 +1450,30 @@ if(NOT BUILD_CPU_ONLY)
     list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
-  # Keep every primitive function in its own CUDA translation unit.
   foreach(
     primitive IN
     ITEMS src/neighbors/detail/cagra/graph_optimization
           src/neighbors/detail/cagra/graph_log_incoming_edges_histogram
           src/neighbors/detail/cagra/graph_check_duplicates_and_out_of_range
+          src/neighbors/detail/cagra/graph_launch_merge_graph
+          src/neighbors/detail/cagra/graph_launch_make_rev_graph_k
+          src/neighbors/detail/cagra/graph_launch_fused_prune
+          src/neighbors/detail/cagra/graph_launch_mst_opt_update_graph
+          src/neighbors/detail/cagra/graph_launch_mst_opt_labeling
+          src/neighbors/detail/cagra/graph_launch_mst_opt_cluster_size
+          src/neighbors/detail/cagra/graph_launch_mst_opt_postprocessing
           src/neighbors/detail/cagra/graph_merge_graph_gpu
           src/neighbors/detail/cagra/graph_make_reverse_graph_gpu
           src/neighbors/detail/cagra/graph_mst_opt_update_graph
           src/neighbors/detail/cagra/graph_mst_optimization
           src/neighbors/detail/cagra/graph_prune_graph_gpu
   )
-    set(primitive_instantiations)
-    generate_string_matrix(
-      primitive_instantiations
-      MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
-      ITEM_FORMAT
-      "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-      GLUE
-      "\n"
+    generate_inst_matrix(
+      cuvs_primitive_sources
+      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
+      OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/${primitive}_@instantiation_name@.cu"
     )
-    configure_file(
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
-      "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu" @ONLY
-    )
-    list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
   add_library(

@@ -5,6 +5,7 @@
     "template_arguments": "<uint32_t>",
     "parameter_types": "uint32_t*, uint32_t*, uint32_t*, uint32_t*, uint32_t*, uint32_t*, uint32_t*, uint32_t, uint32_t, uint64_t, int&, int&, int&",
     "function_qualifiers": "",
-    "namespace_context": "cuvs::neighbors::cagra::detail::graph"
+    "namespace_context": "cuvs::neighbors::cagra::detail::graph",
+    "instantiation_name": "u32"
   }
 ]
