@@ -17,4 +17,9 @@ void addScalar(OutT* out, const InT* in, const InT scalar, IdxType len, cudaStre
   return raft::linalg::addScalar(out, in, scalar, len, stream);
 }
 
+template void addScalar<int64_t, int64_t, int64_t>(
+  int64_t*, const int64_t*, int64_t, int64_t, cudaStream_t);
+template void addScalar<uint32_t, uint32_t, int64_t>(
+  uint32_t*, const uint32_t*, uint32_t, int64_t, cudaStream_t);
+
 }  // namespace cuvs::detail

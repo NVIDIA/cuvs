@@ -1,6 +1,6 @@
 [
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "cuvs::detail::add",
     "template_arguments": "",
     "function_qualifiers": "",
@@ -22,6 +22,18 @@
       },
       {
         "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned long long const, long, raft::row_major>, raft::device_vector_view<unsigned long long const, long, raft::row_major>, raft::device_vector_view<unsigned long long, long, raft::row_major>"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<float const, int, raft::row_major>, raft::device_vector_view<float const, int, raft::row_major>, raft::device_vector_view<float, int, raft::row_major>"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<float const, long, raft::row_major>, raft::device_vector_view<float const, long, raft::row_major>, raft::device_vector_view<float, long, raft::row_major>"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<double const, int, raft::row_major>, raft::device_vector_view<double const, int, raft::row_major>, raft::device_vector_view<double, int, raft::row_major>"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<double const, long, raft::row_major>, raft::device_vector_view<double const, long, raft::row_major>, raft::device_vector_view<double, long, raft::row_major>"
       }
     ]
   }

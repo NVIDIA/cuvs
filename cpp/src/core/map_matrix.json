@@ -51,7 +51,7 @@
     ]
   },
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "cuvs::detail::map",
     "template_arguments": "",
     "function_qualifiers": "",
@@ -262,6 +262,12 @@
       },
       {
         "parameter_types": "raft::resources const&, raft::device_vector_view<long, long, raft::row_major>, cuvs::sparse::neighbors::detail::LookupColorOp<long, float>, raft::device_vector_view<raft::KeyValuePair<long, float> const, long, raft::row_major>"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<long, unsigned int> const, long, raft::row_major>, raft::device_vector_view<unsigned int, long, raft::row_major>, raft::compose_op<raft::cast_op<unsigned int>, raft::key_op>"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<float, long, raft::row_major>, raft::cast_op<float>, raft::device_matrix_view<unsigned int const, long, raft::row_major>"
       }
     ]
   },
