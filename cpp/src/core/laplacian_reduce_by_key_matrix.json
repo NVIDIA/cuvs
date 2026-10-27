@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "::cuda::std::pair<::cuda::discard_iterator, float*>",
+    "qualified_function": "thrust::reduce_by_key",
+    "template_arguments": "<thrust::detail::execute_with_allocator<rmm::mr::thrust_allocator<char>, thrust::cuda_cub::execute_on_stream_nosync_base>, int*, float*, ::cuda::discard_iterator, float*>",
+    "parameter_types": "const thrust::detail::execution_policy_base<thrust::detail::execute_with_allocator<rmm::mr::thrust_allocator<char>, thrust::cuda_cub::execute_on_stream_nosync_base>>&, int*, int*, float*, ::cuda::discard_iterator, float*",
+    "function_qualifiers": "",
+    "instantiation_name": "f32"
+  },
+  {
+    "return_type": "::cuda::std::pair<::cuda::discard_iterator, double*>",
+    "qualified_function": "thrust::reduce_by_key",
+    "template_arguments": "<thrust::detail::execute_with_allocator<rmm::mr::thrust_allocator<char>, thrust::cuda_cub::execute_on_stream_nosync_base>, int*, double*, ::cuda::discard_iterator, double*>",
+    "parameter_types": "const thrust::detail::execution_policy_base<thrust::detail::execute_with_allocator<rmm::mr::thrust_allocator<char>, thrust::cuda_cub::execute_on_stream_nosync_base>>&, int*, int*, double*, ::cuda::discard_iterator, double*",
+    "function_qualifiers": "",
+    "instantiation_name": "f64"
+  }
+]

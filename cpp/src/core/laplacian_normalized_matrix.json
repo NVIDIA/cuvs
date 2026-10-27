@@ -4,27 +4,31 @@
     "qualified_function": "cuvs::detail::laplacian_normalized",
     "template_arguments": "",
     "parameter_types": "raft::resources const&, raft::coo_matrix_view<double, int, int, int, true>, raft::device_vector_view<double, int, raft::row_major>",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "coo_matrix_view_f64_int_int_int_true_vector_f64_int_row"
   },
   {
     "return_type": "raft::coo_matrix< std::remove_const<double>::type, std::remove_const<int>::type, std::remove_const<int>::type, std::remove_const<long>::type, true, raft::device_container_policy, (raft::SparsityType)0, std::conditional<true, raft::coordinate_structure<std::remove_const<int>::type, std::remove_const<int>::type, std::remove_const<long>::type, true, raft::device_container_policy>, raft::coordinate_structure_view<std::remove_const<int>::type, std::remove_const<int>::type, std::remove_const<long>::type, true>>::type>",
     "qualified_function": "cuvs::detail::laplacian_normalized",
     "template_arguments": "",
     "parameter_types": "raft::resources const&, raft::coo_matrix_view<double, int, int, long, true>, raft::device_vector_view<double, int, raft::row_major>",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "coo_matrix_view_f64_int_int_long_true_vector_f64_int_row"
   },
   {
     "return_type": "raft::coo_matrix< std::remove_const<float>::type, std::remove_const<int>::type, std::remove_const<int>::type, std::remove_const<int>::type, true, raft::device_container_policy, (raft::SparsityType)0, std::conditional<true, raft::coordinate_structure<std::remove_const<int>::type, std::remove_const<int>::type, std::remove_const<int>::type, true, raft::device_container_policy>, raft::coordinate_structure_view<std::remove_const<int>::type, std::remove_const<int>::type, std::remove_const<int>::type, true>>::type>",
     "qualified_function": "cuvs::detail::laplacian_normalized",
     "template_arguments": "",
     "parameter_types": "raft::resources const&, raft::coo_matrix_view<float, int, int, int, true>, raft::device_vector_view<float, int, raft::row_major>",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "coo_matrix_view_f32_int_int_int_true_vector_f32_int_row"
   },
   {
     "return_type": "raft::coo_matrix< std::remove_const<float>::type, std::remove_const<int>::type, std::remove_const<int>::type, std::remove_const<long>::type, true, raft::device_container_policy, (raft::SparsityType)0, std::conditional<true, raft::coordinate_structure<std::remove_const<int>::type, std::remove_const<int>::type, std::remove_const<long>::type, true, raft::device_container_policy>, raft::coordinate_structure_view<std::remove_const<int>::type, std::remove_const<int>::type, std::remove_const<long>::type, true>>::type>",
     "qualified_function": "cuvs::detail::laplacian_normalized",
     "template_arguments": "",
     "parameter_types": "raft::resources const&, raft::coo_matrix_view<float, int, int, long, true>, raft::device_vector_view<float, int, raft::row_major>",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "coo_matrix_view_f32_int_int_long_true_vector_f32_int_row"
   }
 ]

@@ -1499,34 +1499,34 @@ if(NOT BUILD_CPU_ONLY)
     list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
-  # Keep every primitive function in its own CUDA translation unit.
-  foreach(
-    primitive IN
-    ITEMS src/core/compute_duplicates_mask
-          src/core/compute_graph_laplacian
-          src/core/coo_degree
-          src/core/coo_remove_scalar
-          src/core/coo_sort
-          src/core/laplacian_normalized
-          src/core/masked_matmul
-          src/core/symmetrize
-          src/core/symmetrize_connectivity_graph
+  generate_string_matrix(
+    compute_graph_laplacian_detail_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/compute_graph_laplacian_detail_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
   )
-    set(primitive_instantiations)
-    generate_string_matrix(
-      primitive_instantiations
-      MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
-      ITEM_FORMAT
-      "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-      GLUE
-      "\n"
+  generate_string_matrix(
+    laplacian_reduce_by_key_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/laplacian_reduce_by_key_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+  foreach(
+    primitive IN ITEMS src/core/compute_graph_laplacian src/core/compute_graph_laplacian_detail
+                       src/core/laplacian_reduce_by_key src/core/symmetrize
+  )
+    generate_inst_matrix(
+      cuvs_primitive_sources
+      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
+      OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/${primitive}_@instantiation_name@.cu"
     )
-    configure_file(
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
-      "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu" @ONLY
-    )
-    list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
   add_library(
