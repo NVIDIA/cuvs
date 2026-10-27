@@ -16,6 +16,7 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/norm.cuh>
@@ -25,6 +26,8 @@
 #include <rmm/device_uvector.hpp>
 
 #include <cublas_v2.h>
+#include <cuda/iterator>
+#include <thrust/for_each.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -136,28 +139,6 @@ RAFT_KERNEL int8_postprocess_kernel(std::int32_t* scores,
   }
 }
 
-template <typename IdxT>
-RAFT_KERNEL int8_scatter_candidates_kernel(float const* input_distances,
-                                           IdxT const* input_indices,
-                                           int64_t n_queries,
-                                           int64_t input_cols,
-                                           int64_t output_cols,
-                                           int64_t output_offset,
-                                           int64_t index_offset,
-                                           float* output_distances,
-                                           IdxT* output_indices)
-{
-  auto const size = n_queries * input_cols;
-  for (int64_t index = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; index < size;
-       index += static_cast<int64_t>(gridDim.x) * blockDim.x) {
-    auto const row              = index / input_cols;
-    auto const col              = index % input_cols;
-    auto const out_index        = row * output_cols + output_offset + col;
-    output_distances[out_index] = input_distances[index];
-    output_indices[out_index]   = input_indices[index] + static_cast<IdxT>(index_offset);
-  }
-}
-
 inline unsigned int8_grid_size(int64_t size)
 {
   return static_cast<unsigned>(
@@ -243,14 +224,14 @@ void int8_brute_force_search(
 
   auto const n_tiles = raft::ceildiv(static_cast<size_t>(n), tile_cols);
   int64_t candidate_cols{};
-  for (size_t tile = 0; tile < n_tiles; ++tile) {
-    auto const first = tile * tile_cols;
-    candidate_cols += std::min<int64_t>(k, n - static_cast<int64_t>(first));
+  if (n_tiles > 1) {
+    for (size_t tile = 0; tile < n_tiles; ++tile) {
+      auto const first = tile * tile_cols;
+      candidate_cols += std::min<int64_t>(k, n - static_cast<int64_t>(first));
+    }
   }
 
   rmm::device_uvector<std::int32_t> scores(tile_rows * tile_cols, stream);
-  rmm::device_uvector<float> scratch_distances(tile_rows * k, stream);
-  rmm::device_uvector<IdxT> scratch_indices(tile_rows * k, stream);
   rmm::device_uvector<float> candidate_distances(tile_rows * candidate_cols, stream);
   rmm::device_uvector<IdxT> candidate_indices(tile_rows * candidate_cols, stream);
   rmm::device_uvector<std::int8_t> padded_dataset(0, stream);
@@ -260,6 +241,8 @@ void int8_brute_force_search(
 
   for (int64_t query_offset = 0; query_offset < m; query_offset += tile_rows) {
     auto const current_queries = std::min<int64_t>(tile_rows, m - query_offset);
+    auto* distances_ptr        = distances.data_handle() + query_offset * k;
+    auto* indices_ptr          = neighbors.data_handle() + query_offset * k;
     int64_t candidate_offset   = 0;
     for (int64_t dataset_offset = 0; dataset_offset < n; dataset_offset += tile_cols) {
       auto const current_rows = std::min<int64_t>(tile_cols, n - dataset_offset);
@@ -310,39 +293,48 @@ void int8_brute_force_search(
           reinterpret_cast<float const*>(scores.data()), current_queries, tile_cols),
         std::nullopt,
         raft::make_device_matrix_view<float, int64_t, raft::row_major>(
-          scratch_distances.data(), current_queries, current_k),
+          distances_ptr, current_queries, current_k),
         raft::make_device_matrix_view<IdxT, int64_t, raft::row_major>(
-          scratch_indices.data(), current_queries, current_k),
+          indices_ptr, current_queries, current_k),
         select_min,
         true);
 
-      int8_scatter_candidates_kernel<<<int8_grid_size(current_queries * current_k),
-                                       kInt8BlockSize,
-                                       0,
-                                       stream.get()>>>(scratch_distances.data(),
-                                                       scratch_indices.data(),
-                                                       current_queries,
-                                                       current_k,
-                                                       candidate_cols,
-                                                       candidate_offset,
-                                                       dataset_offset,
-                                                       candidate_distances.data(),
-                                                       candidate_indices.data());
-      RAFT_CUDA_TRY(cudaPeekAtLastError());
-      candidate_offset += current_k;
+      if (n_tiles > 1) {
+        // Group tile winners by query and convert tile-local IDs to dataset IDs.
+        const float* in_distances = distances_ptr;
+        const IdxT* in_indices    = indices_ptr;
+        float* out_distances      = candidate_distances.data();
+        IdxT* out_indices         = candidate_indices.data();
+        auto count                = cuda::make_counting_iterator<int64_t>(0);
+        thrust::for_each(raft::resource::get_thrust_policy(res),
+                         count,
+                         count + current_queries * current_k,
+                         [=] __device__(int64_t i) {
+                           auto const row           = i / current_k;
+                           auto const col           = i % current_k;
+                           auto const out_index     = row * candidate_cols + candidate_offset + col;
+                           out_distances[out_index] = in_distances[i];
+                           out_indices[out_index] =
+                             in_indices[i] + static_cast<IdxT>(dataset_offset);
+                         });
+        candidate_offset += current_k;
+      }
     }
 
-    cuvs::selection::select_k(res,
-                              raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
-                                candidate_distances.data(), current_queries, candidate_cols),
-                              raft::make_device_matrix_view<const IdxT, int64_t, raft::row_major>(
-                                candidate_indices.data(), current_queries, candidate_cols),
-                              raft::make_device_matrix_view<float, int64_t, raft::row_major>(
-                                distances.data_handle() + query_offset * k, current_queries, k),
-                              raft::make_device_matrix_view<IdxT, int64_t, raft::row_major>(
-                                neighbors.data_handle() + query_offset * k, current_queries, k),
-                              select_min,
-                              true);
+    if (n_tiles > 1) {
+      cuvs::selection::select_k(
+        res,
+        raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
+          candidate_distances.data(), current_queries, candidate_cols),
+        raft::make_device_matrix_view<const IdxT, int64_t, raft::row_major>(
+          candidate_indices.data(), current_queries, candidate_cols),
+        raft::make_device_matrix_view<float, int64_t, raft::row_major>(
+          distances_ptr, current_queries, k),
+        raft::make_device_matrix_view<IdxT, int64_t, raft::row_major>(
+          indices_ptr, current_queries, k),
+        select_min,
+        true);
+    }
   }
 
   if (needs_norms && !cosine) {
