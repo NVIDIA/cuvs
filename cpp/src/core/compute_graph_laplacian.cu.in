@@ -1,0 +1,80 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_scan_launchers.hpp>
+
+#include <core/spectral_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/util/cuda_utils.cuh>
+#include <raft/util/device_atomics.cuh>
+
+#include <raft/sparse/linalg/laplacian.cuh>
+
+extern template void raft::linalg::detail::map<false, double, int, raft::const_op<double>>(
+  cuda::stream_ref, double*, int, raft::const_op<double>);
+
+extern template void raft::linalg::detail::map<false, int, int, raft::const_op<int>>(
+  cuda::stream_ref, int*, int, raft::const_op<int>);
+
+extern template void raft::linalg::detail::map<false, float, int, raft::const_op<float>>(
+  cuda::stream_ref, float*, int, raft::const_op<float>);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::const_op<float>>(
+  cuda::stream_ref, float*, long, raft::const_op<float>);
+
+extern template void raft::sparse::op::detail::coo_sort<float, int, int>(
+  bool, int, int, int, int*, int*, float*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<float, int, long>(
+  bool, int, int, long, int*, int*, float*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<double, int, int>(
+  bool, int, int, int, int*, int*, double*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<double, int, long>(
+  bool, int, int, long, int*, int*, double*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<float, int, unsigned long>(
+  bool, int, int, unsigned long, int*, int*, float*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<float, long, unsigned long>(
+  bool, long, long, unsigned long, long*, long*, float*, cudaStream_t);
+
+namespace cuvs::detail {
+
+template <typename ElementType, typename IndptrType, typename IndicesType, typename NZType>
+raft::device_csr_matrix<std::remove_const_t<ElementType>,
+                        std::remove_const_t<IndptrType>,
+                        std::remove_const_t<IndicesType>,
+                        std::remove_const_t<NZType>>
+compute_graph_laplacian(
+  raft::resources const& res,
+  raft::device_csr_matrix_view<ElementType, IndptrType, IndicesType, NZType> input)
+
+{
+  return raft::sparse::linalg::compute_graph_laplacian(res, input);
+}
+
+template <typename ElementType, typename RowType, typename ColType, typename NZType>
+raft::device_coo_matrix<ElementType, RowType, ColType, NZType> compute_graph_laplacian(
+  raft::resources const& res,
+  raft::device_coo_matrix_view<ElementType, RowType, ColType, NZType> input)
+
+{
+  return raft::sparse::linalg::compute_graph_laplacian(res, input);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@laplacian_reduce_by_key_extern_instantiations@
+
+@compute_graph_laplacian_detail_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

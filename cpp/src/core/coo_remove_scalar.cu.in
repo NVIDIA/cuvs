@@ -1,0 +1,99 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_reduce_launchers.hpp>
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_scan_launchers.hpp>
+
+#include <core/spectral_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/util/cuda_utils.cuh>
+#include <raft/util/device_atomics.cuh>
+
+#include <raft/sparse/op/filter.cuh>
+
+extern template thrust::device_ptr<int> thrust::cuda_cub::exclusive_scan<rmm::thrust_exec_policy_t,
+                                                                         thrust::device_ptr<int>,
+                                                                         thrust::device_ptr<int>,
+                                                                         int,
+                                                                         ::cuda::std::plus<void>>(
+  thrust::cuda_cub::execution_policy<rmm::thrust_exec_policy_t>&,
+  thrust::device_ptr<int>,
+  thrust::device_ptr<int>,
+  thrust::device_ptr<int>,
+  int,
+  ::cuda::std::plus<void>);
+
+extern template thrust::device_ptr<long> thrust::cuda_cub::exclusive_scan<rmm::thrust_exec_policy_t,
+                                                                          thrust::device_ptr<long>,
+                                                                          thrust::device_ptr<long>,
+                                                                          long,
+                                                                          ::cuda::std::plus<void>>(
+  thrust::cuda_cub::execution_policy<rmm::thrust_exec_policy_t>&,
+  thrust::device_ptr<long>,
+  thrust::device_ptr<long>,
+  thrust::device_ptr<long>,
+  long,
+  ::cuda::std::plus<void>);
+
+extern template void raft::sparse::linalg::detail::coo_degree<64, int, int, int>(int const*,
+                                                                                 int,
+                                                                                 int*,
+                                                                                 cudaStream_t);
+
+extern template void raft::sparse::linalg::detail::coo_degree<64, int, long, long>(int const*,
+                                                                                   long,
+                                                                                   long*,
+                                                                                   cudaStream_t);
+
+namespace cuvs::detail {
+
+template <typename T, typename idx_t, typename nnz_t>
+void coo_remove_scalar(const idx_t* rows,
+                       const idx_t* cols,
+                       const T* vals,
+                       nnz_t nnz,
+                       idx_t* crows,
+                       idx_t* ccols,
+                       T* cvals,
+                       nnz_t* cnnz,
+                       nnz_t* cur_cnnz,
+                       T scalar,
+                       idx_t n,
+                       cudaStream_t stream)
+
+{
+  return raft::sparse::op::coo_remove_scalar(
+    rows, cols, vals, nnz, crows, ccols, cvals, cnnz, cur_cnnz, scalar, n, stream);
+}
+
+template <typename T, typename idx_t, typename nnz_t>
+void coo_remove_scalar(raft::sparse::COO<T, idx_t, nnz_t>* in,
+                       raft::sparse::COO<T, idx_t, nnz_t>* out,
+                       T scalar,
+                       cudaStream_t stream)
+
+{
+  return raft::sparse::op::coo_remove_scalar(in, out, scalar, stream);
+}
+
+template <int TPB_X, typename T, typename idx_t, typename nnz_t>
+void coo_remove_scalar(raft::resources const& handle,
+                       raft::device_coo_matrix_view<const T, idx_t, idx_t, nnz_t> in,
+                       raft::host_scalar_view<const T> scalar,
+                       raft::device_coo_matrix<T, idx_t, idx_t, nnz_t>& out)
+
+{
+  return raft::sparse::op::coo_remove_scalar<TPB_X>(handle, in, scalar, out);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

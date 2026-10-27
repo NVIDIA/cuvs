@@ -1,0 +1,65 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/coo_sort_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/util/cuda_utils.cuh>
+#include <raft/util/device_atomics.cuh>
+
+#include <raft/sparse/op/sort.cuh>
+
+#include <cub/device/device_merge_sort.cuh>
+
+extern template void raft::sparse::op::detail::coo_sort<float, int, int>(
+  bool, int, int, int, int*, int*, float*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<float, int, long>(
+  bool, int, int, long, int*, int*, float*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<double, int, int>(
+  bool, int, int, int, int*, int*, double*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<double, int, long>(
+  bool, int, int, long, int*, int*, double*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<float, int, unsigned long>(
+  bool, int, int, unsigned long, int*, int*, float*, cudaStream_t);
+
+extern template void raft::sparse::op::detail::coo_sort<float, long, unsigned long>(
+  bool, long, long, unsigned long, long*, long*, float*, cudaStream_t);
+
+namespace cuvs::detail {
+
+template <typename T, typename IdxT, typename nnz_t>
+void coo_sort(IdxT m, IdxT n, nnz_t nnz, IdxT* rows, IdxT* cols, T* vals, cudaStream_t stream)
+
+{
+  return raft::sparse::op::coo_sort(m, n, nnz, rows, cols, vals, stream);
+}
+
+template <typename T, typename IdxT, typename nnz_t>
+void coo_sort(
+  raft::resources const& handle, IdxT m, IdxT n, nnz_t nnz, IdxT* rows, IdxT* cols, T* vals)
+
+{
+  return raft::sparse::op::coo_sort(handle, m, n, nnz, rows, cols, vals);
+}
+
+template <typename T, typename IdxT, typename nnz_t>
+void coo_sort(COO<T, IdxT, nnz_t>* const in, cudaStream_t stream)
+
+{
+  return raft::sparse::op::coo_sort(in, stream);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@coo_merge_kernel_extern_instantiations@
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

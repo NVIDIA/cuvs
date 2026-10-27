@@ -5,6 +5,7 @@
 
 #pragma once
 #include "../../core/map_launchers.hpp"
+#include "../../core/spectral_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/all_neighbors.hpp>
 
@@ -93,13 +94,13 @@ void knn_graph(raft::resources const& res,
                     raft::cast_op<value_idx>{},
                     raft::make_const_mdspan(indices_64_view));
 
-  raft::sparse::linalg::symmetrize(res,
-                                   rows.data(),
-                                   indices.data(),
-                                   data.data(),
-                                   static_cast<value_idx>(m),
-                                   static_cast<value_idx>(k),
-                                   nnz,
-                                   out);
+  cuvs::detail::symmetrize(res,
+                           rows.data(),
+                           indices.data(),
+                           data.data(),
+                           static_cast<value_idx>(m),
+                           static_cast<value_idx>(k),
+                           nnz,
+                           out);
 }
 };  // namespace cuvs::neighbors::detail

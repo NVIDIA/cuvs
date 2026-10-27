@@ -1,0 +1,19 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::sparse::linalg::detail::coo_degree",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<64, int, int, int>",
+        "parameter_types": "int const*, int, int*, cudaStream_t",
+        "instantiation_name": "64_int_int_int"
+      },
+      {
+        "template_arguments": "<64, int, long, long>",
+        "parameter_types": "int const*, long, long*, cudaStream_t",
+        "instantiation_name": "64_int_long_long"
+      }
+    ]
+  }
+]

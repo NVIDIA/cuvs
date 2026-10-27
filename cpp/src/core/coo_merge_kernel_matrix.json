@@ -1,0 +1,86 @@
+[
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned long long, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned long long, cuda::std::tuple<int, int>*, float*, raft::sparse::op::detail::TupleComp, unsigned long long*, unsigned long long, cub::detail::vsmem_t)",
+    "method": "MergeSortMergeKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortMergeKernel<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned long long, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>, float>",
+    "instantiation_name": "i32_f32_u64_MergeSortMergeKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned long long, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, cuda::std::tuple<int, int>*, unsigned long long, unsigned long long, unsigned long long*, raft::sparse::op::detail::TupleComp, unsigned long long, int)",
+    "method": "MergeSortPartitionKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortPartitionKernel<thrust::zip_iterator<cuda::std::tuple<int*, int*>>, unsigned long long, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>>",
+    "instantiation_name": "i32_f32_u64_MergeSortPartitionKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned long long, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned long long, cuda::std::tuple<int, int>*, float*, raft::sparse::op::detail::TupleComp, cub::detail::vsmem_t)",
+    "method": "MergeSortBlockSortKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortBlockSortKernel<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned long long, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>, float>",
+    "instantiation_name": "i32_f32_u64_MergeSortBlockSortKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned int, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned int, cuda::std::tuple<int, int>*, float*, raft::sparse::op::detail::TupleComp, unsigned int*, unsigned int, cub::detail::vsmem_t)",
+    "method": "MergeSortMergeKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortMergeKernel<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned int, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>, float>",
+    "instantiation_name": "i32_f32_u32_MergeSortMergeKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned int, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, cuda::std::tuple<int, int>*, unsigned int, unsigned int, unsigned int*, raft::sparse::op::detail::TupleComp, unsigned int, int)",
+    "method": "MergeSortPartitionKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortPartitionKernel<thrust::zip_iterator<cuda::std::tuple<int*, int*>>, unsigned int, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>>",
+    "instantiation_name": "i32_f32_u32_MergeSortPartitionKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned int, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned int, cuda::std::tuple<int, int>*, float*, raft::sparse::op::detail::TupleComp, cub::detail::vsmem_t)",
+    "method": "MergeSortBlockSortKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortBlockSortKernel<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned int, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>, float>",
+    "instantiation_name": "i32_f32_u32_MergeSortBlockSortKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned long long, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned long long, cuda::std::tuple<int, int>*, double*, raft::sparse::op::detail::TupleComp, unsigned long long*, unsigned long long, cub::detail::vsmem_t)",
+    "method": "MergeSortMergeKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortMergeKernel<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned long long, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>, double>",
+    "instantiation_name": "i32_f64_u64_MergeSortMergeKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned long long, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, cuda::std::tuple<int, int>*, unsigned long long, unsigned long long, unsigned long long*, raft::sparse::op::detail::TupleComp, unsigned long long, int)",
+    "method": "MergeSortPartitionKernel",
+    "kernel_expression": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned long long, raft::sparse::op::detail::TupleComp>::MergeSortPartitionKernel()",
+    "instantiation_name": "i32_f64_u64_MergeSortPartitionKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned long long, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned long long, cuda::std::tuple<int, int>*, double*, raft::sparse::op::detail::TupleComp, cub::detail::vsmem_t)",
+    "method": "MergeSortBlockSortKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortBlockSortKernel<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned long long, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>, double>",
+    "instantiation_name": "i32_f64_u64_MergeSortBlockSortKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned int, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned int, cuda::std::tuple<int, int>*, double*, raft::sparse::op::detail::TupleComp, unsigned int*, unsigned int, cub::detail::vsmem_t)",
+    "method": "MergeSortMergeKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortMergeKernel<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned int, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>, double>",
+    "instantiation_name": "i32_f64_u32_MergeSortMergeKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned int, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, cuda::std::tuple<int, int>*, unsigned int, unsigned int, unsigned int*, raft::sparse::op::detail::TupleComp, unsigned int, int)",
+    "method": "MergeSortPartitionKernel",
+    "kernel_expression": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, float*, unsigned int, raft::sparse::op::detail::TupleComp>::MergeSortPartitionKernel()",
+    "instantiation_name": "i32_f64_u32_MergeSortPartitionKernel"
+  },
+  {
+    "provider_type": "cub::detail::merge_sort::DeviceMergeSortKernelSource<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned int, raft::sparse::op::detail::TupleComp>",
+    "pointer_type": "void (*)(bool, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned int, cuda::std::tuple<int, int>*, double*, raft::sparse::op::detail::TupleComp, cub::detail::vsmem_t)",
+    "method": "MergeSortBlockSortKernel",
+    "kernel_expression": "&cub::detail::merge_sort::DeviceMergeSortBlockSortKernel<cub::detail::merge_sort::policy_selector_from_types<thrust::zip_iterator<cuda::std::tuple<int*, int*>>>, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, thrust::zip_iterator<cuda::std::tuple<int*, int*>>, double*, unsigned int, raft::sparse::op::detail::TupleComp, cuda::std::tuple<int, int>, double>",
+    "instantiation_name": "i32_f64_u32_MergeSortBlockSortKernel"
+  }
+]

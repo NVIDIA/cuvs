@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/cub_runtime_launchers.hpp"
+#include "../../core/spectral_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -55,12 +56,6 @@
 #include <optional>
 #include <set>
 #include <variant>
-
-extern template void raft::sparse::convert::detail::calc_nnz_by_rows<unsigned int, long, long>(
-  raft::resources const&, unsigned int const*, long, long, long*, size_t&, long&);
-
-extern template void raft::sparse::convert::detail::gpu_repeat_csr<long, long>(
-  raft::resources const&, long const*, long const*, long, long, long*, long*);
 
 namespace cuvs::neighbors::detail {
 
@@ -848,7 +843,7 @@ void brute_force_search_filtered(
 
     std::visit(
       [&](const auto& actual_view) {
-        raft::sparse::linalg::masked_matmul(res, queries, dataset_view, actual_view, csr_view);
+        cuvs::detail::masked_matmul(res, queries, dataset_view, actual_view, csr_view);
       },
       *filter_view);
 

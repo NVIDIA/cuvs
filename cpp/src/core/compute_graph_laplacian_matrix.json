@@ -1,0 +1,34 @@
+[
+  {
+    "return_type": "raft::coo_matrix< double, int, int, int, true, raft::device_container_policy, (raft::SparsityType)0, std::conditional<true, raft::coordinate_structure<int, int, int, true, raft::device_container_policy>, raft::coordinate_structure_view<int, int, int, true>>::type>",
+    "qualified_function": "cuvs::detail::compute_graph_laplacian",
+    "template_arguments": "",
+    "parameter_types": "raft::resources const&, raft::coo_matrix_view<double, int, int, int, true>",
+    "function_qualifiers": "",
+    "instantiation_name": "cuvs_detail_compute_graph_laplacian_coo_matrix_view_f64_int_int_int_true"
+  },
+  {
+    "return_type": "raft::coo_matrix< double, int, int, long, true, raft::device_container_policy, (raft::SparsityType)0, std::conditional<true, raft::coordinate_structure<int, int, long, true, raft::device_container_policy>, raft::coordinate_structure_view<int, int, long, true>>::type>",
+    "qualified_function": "cuvs::detail::compute_graph_laplacian",
+    "template_arguments": "",
+    "parameter_types": "raft::resources const&, raft::coo_matrix_view<double, int, int, long, true>",
+    "function_qualifiers": "",
+    "instantiation_name": "cuvs_detail_compute_graph_laplacian_coo_matrix_view_f64_int_int_long_true"
+  },
+  {
+    "return_type": "raft::coo_matrix< float, int, int, int, true, raft::device_container_policy, (raft::SparsityType)0, std::conditional<true, raft::coordinate_structure<int, int, int, true, raft::device_container_policy>, raft::coordinate_structure_view<int, int, int, true>>::type>",
+    "qualified_function": "cuvs::detail::compute_graph_laplacian",
+    "template_arguments": "",
+    "parameter_types": "raft::resources const&, raft::coo_matrix_view<float, int, int, int, true>",
+    "function_qualifiers": "",
+    "instantiation_name": "cuvs_detail_compute_graph_laplacian_coo_matrix_view_f32_int_int_int_true"
+  },
+  {
+    "return_type": "raft::coo_matrix< float, int, int, long, true, raft::device_container_policy, (raft::SparsityType)0, std::conditional<true, raft::coordinate_structure<int, int, long, true, raft::device_container_policy>, raft::coordinate_structure_view<int, int, long, true>>::type>",
+    "qualified_function": "cuvs::detail::compute_graph_laplacian",
+    "template_arguments": "",
+    "parameter_types": "raft::resources const&, raft::coo_matrix_view<float, int, int, long, true>",
+    "function_qualifiers": "",
+    "instantiation_name": "cuvs_detail_compute_graph_laplacian_coo_matrix_view_f32_int_int_long_true"
+  }
+]

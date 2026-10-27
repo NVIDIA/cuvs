@@ -8,6 +8,9 @@
 
 #include "../../../core/cub_runtime_launchers.hpp"
 #include "../../../core/prefix_scans_launchers.hpp"
+
+#include "../../../core/coo_sort_launchers.hpp"
+#include "../../../core/spectral_launchers.hpp"
 #include "../../../distance/masked_nn.cuh"
 #include <cuvs/distance/distance.hpp>
 
@@ -601,7 +604,7 @@ void cross_component_nn(
    */
   // Compute mask of duplicates
   rmm::device_uvector<value_idx> out_index(n_rows + 1, stream);
-  raft::sparse::op::compute_duplicates_mask(
+  cuvs::detail::compute_duplicates_mask(
     out_index.data(), colors.data(), nn_colors.data(), n_rows, stream.get());
 
   cuvs::detail::thrust_exclusive_scan(raft::resource::get_thrust_policy(handle),
@@ -628,7 +631,7 @@ void cross_component_nn(
   /**
    * Symmetrize resulting edge list
    */
-  raft::sparse::linalg::symmetrize(
+  cuvs::detail::symmetrize(
     handle, min_edges.rows(), min_edges.cols(), min_edges.vals(), n_rows, n_rows, size, out);
 }
 

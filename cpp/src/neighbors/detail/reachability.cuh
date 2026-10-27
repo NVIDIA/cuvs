@@ -4,6 +4,7 @@
  */
 
 #pragma once
+#include "../../core/spectral_launchers.hpp"
 #include "./knn_brute_force.cuh"
 
 #include <raft/core/resource/cuda_stream.hpp>
@@ -215,14 +216,14 @@ void mutual_reachability_graph(const raft::resources& handle,
       return c / min_samples;
     });
 
-  raft::sparse::linalg::symmetrize(handle,
-                                   coo_rows.data(),
-                                   inds.data(),
-                                   dists.data(),
-                                   m,
-                                   m,
-                                   static_cast<nnz_t>(min_samples * m),
-                                   out);
+  cuvs::detail::symmetrize(handle,
+                           coo_rows.data(),
+                           inds.data(),
+                           dists.data(),
+                           m,
+                           m,
+                           static_cast<nnz_t>(min_samples * m),
+                           out);
 
   raft::sparse::convert::sorted_coo_to_csr(out.rows(), out.nnz, indptr, m + 1, stream);
 

@@ -1,0 +1,84 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_transform_launchers.hpp>
+
+#include <core/cub_scan_launchers.hpp>
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/spectral_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/util/cuda_utils.cuh>
+#include <raft/util/device_atomics.cuh>
+
+#include <raft/sparse/linalg/masked_matmul.cuh>
+
+extern template void raft::sparse::linalg::detail::faster_dot_on_csr<long, __half, float>(
+  raft::resources const&,
+  float*,
+  long,
+  long const*,
+  long const*,
+  __half const*,
+  __half const*,
+  long,
+  long);
+
+extern template void raft::sparse::linalg::detail::faster_dot_on_csr<long, float, float>(
+  raft::resources const&,
+  float*,
+  long,
+  long const*,
+  long const*,
+  float const*,
+  float const*,
+  long,
+  long);
+
+extern template void
+raft::sparse::convert::detail::fill_indices_by_rows<unsigned int, long, long, true>(
+  raft::resources const&, unsigned int const*, long*, long, long, long, long*, long*, long, size_t);
+
+extern template void raft::sparse::convert::detail::calc_nnz_by_rows<unsigned int, long, long>(
+  raft::resources const&, unsigned int const*, long, long, long*, size_t&, long&);
+
+extern template void raft::sparse::convert::detail::gpu_repeat_csr<long, long>(
+  raft::resources const&, long const*, long const*, long, long, long*, long*);
+
+namespace cuvs::detail {
+
+template <typename value_t, typename output_t, typename index_t, typename nnz_t, typename bitmap_t>
+void masked_matmul(raft::resources const& handle,
+                   raft::device_matrix_view<const value_t, index_t, raft::row_major> A,
+                   raft::device_matrix_view<const value_t, index_t, raft::row_major> B,
+                   raft::core::bitmap_view<bitmap_t, index_t> mask,
+                   raft::device_csr_matrix_view<output_t, index_t, index_t, nnz_t> C,
+                   std::optional<raft::host_scalar_view<output_t>> alpha,
+                   std::optional<raft::host_scalar_view<output_t>> beta)
+
+{
+  return raft::sparse::linalg::masked_matmul(handle, A, B, mask, C, alpha, beta);
+}
+
+template <typename value_t, typename output_t, typename index_t, typename nnz_t, typename bitset_t>
+void masked_matmul(raft::resources const& handle,
+                   raft::device_matrix_view<const value_t, index_t, raft::row_major> A,
+                   raft::device_matrix_view<const value_t, index_t, raft::row_major> B,
+                   raft::core::bitset_view<bitset_t, index_t> mask,
+                   raft::device_csr_matrix_view<output_t, index_t, index_t, nnz_t> C,
+                   std::optional<raft::host_scalar_view<output_t>> alpha,
+                   std::optional<raft::host_scalar_view<output_t>> beta)
+
+{
+  return raft::sparse::linalg::masked_matmul(handle, A, B, mask, C, alpha, beta);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

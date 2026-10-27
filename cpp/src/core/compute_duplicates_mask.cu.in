@@ -1,0 +1,36 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/coo_sort_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/util/cuda_utils.cuh>
+#include <raft/util/device_atomics.cuh>
+
+#include <raft/sparse/op/reduce.cuh>
+
+extern template void raft::sparse::op::detail::compute_duplicates_mask<int, size_t>(
+  int*, int const*, int const*, size_t, cudaStream_t);
+
+extern template void raft::sparse::op::detail::compute_duplicates_mask<long, size_t>(
+  long*, long const*, long const*, size_t, cudaStream_t);
+
+namespace cuvs::detail {
+
+template <typename value_idx>
+void compute_duplicates_mask(
+  value_idx* mask, const value_idx* rows, const value_idx* cols, size_t nnz, cudaStream_t stream)
+
+{
+  return raft::sparse::op::compute_duplicates_mask(mask, rows, cols, nnz, stream);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

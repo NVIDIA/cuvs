@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/spectral_launchers.hpp"
 #include "../../neighbors/detail/reachability.cuh"
 #include "agglomerative.cuh"
 #include "connectivities.cuh"
@@ -82,14 +83,14 @@ void build_mr_linkage(
       auto coo_rows = raft::make_device_vector<value_idx, value_idx>(handle, min_samples * m);
       cuvs::detail::map_offset(handle, coo_rows.view(), raft::div_const_op<value_idx>(min_samples));
 
-      raft::sparse::linalg::symmetrize(handle,
-                                       coo_rows.data_handle(),
-                                       inds.data_handle(),
-                                       dists.data_handle(),
-                                       static_cast<value_idx>(m),
-                                       static_cast<value_idx>(m),
-                                       static_cast<nnz_t>(min_samples * m),
-                                       mr_coo.value());
+      cuvs::detail::symmetrize(handle,
+                               coo_rows.data_handle(),
+                               inds.data_handle(),
+                               dists.data_handle(),
+                               static_cast<value_idx>(m),
+                               static_cast<value_idx>(m),
+                               static_cast<nnz_t>(min_samples * m),
+                               mr_coo.value());
     }  // scope to drop inds and dists matrices early
     auto mr_indptr = raft::make_device_vector<value_idx, value_idx>(handle, m + 1);
     raft::sparse::convert::sorted_coo_to_csr(

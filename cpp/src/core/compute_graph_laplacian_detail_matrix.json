@@ -1,0 +1,34 @@
+[
+  {
+    "return_type": "raft::device_coo_matrix<float, int, int, int>",
+    "qualified_function": "raft::sparse::linalg::detail::compute_graph_laplacian",
+    "template_arguments": "<float, int, int, int>",
+    "parameter_types": "raft::resources const&, raft::device_coo_matrix_view<float, int, int, int>",
+    "function_qualifiers": "",
+    "instantiation_name": "raft_sparse_linalg_detail_compute_graph_laplacian_f32_int_int_int"
+  },
+  {
+    "return_type": "raft::device_coo_matrix<float, int, int, long>",
+    "qualified_function": "raft::sparse::linalg::detail::compute_graph_laplacian",
+    "template_arguments": "<float, int, int, long>",
+    "parameter_types": "raft::resources const&, raft::device_coo_matrix_view<float, int, int, long>",
+    "function_qualifiers": "",
+    "instantiation_name": "raft_sparse_linalg_detail_compute_graph_laplacian_f32_int_int_long"
+  },
+  {
+    "return_type": "raft::device_coo_matrix<double, int, int, int>",
+    "qualified_function": "raft::sparse::linalg::detail::compute_graph_laplacian",
+    "template_arguments": "<double, int, int, int>",
+    "parameter_types": "raft::resources const&, raft::device_coo_matrix_view<double, int, int, int>",
+    "function_qualifiers": "",
+    "instantiation_name": "raft_sparse_linalg_detail_compute_graph_laplacian_f64_int_int_int"
+  },
+  {
+    "return_type": "raft::device_coo_matrix<double, int, int, long>",
+    "qualified_function": "raft::sparse::linalg::detail::compute_graph_laplacian",
+    "template_arguments": "<double, int, int, long>",
+    "parameter_types": "raft::resources const&, raft::device_coo_matrix_view<double, int, int, long>",
+    "function_qualifiers": "",
+    "instantiation_name": "raft_sparse_linalg_detail_compute_graph_laplacian_f64_int_int_long"
+  }
+]
