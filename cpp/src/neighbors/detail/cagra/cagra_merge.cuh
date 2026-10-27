@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../../core/bitset_count_launchers.hpp"
 #include <cuvs/neighbors/cagra.hpp>
 
 #include "cagra_merge_scaffold.cuh"
@@ -52,7 +53,7 @@ int64_t merged_dataset_size(
   if (row_filter.get_filter_type() == cuvs::neighbors::filtering::FilterType::Bitset) {
     auto const& actual_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>&>(row_filter);
-    return actual_filter.view().count(handle);
+    return cuvs::detail::count_bits(handle, actual_filter.view());
   }
   RAFT_EXPECTS(row_filter.get_filter_type() == cuvs::neighbors::filtering::FilterType::None,
                "Only none and bitset filters are supported inside cagra::merge");

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../core/bitset_count_launchers.hpp"
 #include "detail/ann_utils.cuh"
 #include "detail/cagra/add_nodes.cuh"
 #include "detail/cagra/cagra_build.cuh"
@@ -435,8 +436,9 @@ inline float bitset_filtering_rate(
     total_rows += partition_rows[i];
     const bool filtered = i < partition_bitsets.size() && partition_bitsets[i].data() != nullptr &&
                           partition_bitsets[i].size() > 0;
-    kept_rows +=
-      filtered ? static_cast<int64_t>(partition_bitsets[i].count(res)) : partition_rows[i];
+    kept_rows += filtered
+                   ? static_cast<int64_t>(cuvs::detail::count_bits(res, partition_bitsets[i]))
+                   : partition_rows[i];
   }
   const float rate = static_cast<float>(total_rows - kept_rows) / static_cast<float>(total_rows);
   return std::min(std::max(rate, 0.0f), 0.999f);

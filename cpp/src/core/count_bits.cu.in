@@ -1,0 +1,54 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/bitset_count_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/core/bitmap.cuh>
+
+extern template void raft::popc<uint8_t, uint32_t>(
+  raft::resources const&,
+  raft::device_vector_view<const uint8_t, uint32_t>,
+  raft::host_scalar_view<const uint32_t, uint32_t>,
+  raft::device_scalar_view<uint32_t>);
+extern template void raft::popc<uint16_t, uint32_t>(
+  raft::resources const&,
+  raft::device_vector_view<const uint16_t, uint32_t>,
+  raft::host_scalar_view<const uint32_t, uint32_t>,
+  raft::device_scalar_view<uint32_t>);
+extern template void raft::popc<uint32_t, uint32_t>(
+  raft::resources const&,
+  raft::device_vector_view<const uint32_t, uint32_t>,
+  raft::host_scalar_view<const uint32_t, uint32_t>,
+  raft::device_scalar_view<uint32_t>);
+extern template void raft::popc<uint32_t, int64_t>(
+  raft::resources const&,
+  raft::device_vector_view<const uint32_t, int64_t>,
+  raft::host_scalar_view<const int64_t, int64_t>,
+  raft::device_scalar_view<int64_t>);
+extern template void raft::popc<uint64_t, int64_t>(
+  raft::resources const&,
+  raft::device_vector_view<const uint64_t, int64_t>,
+  raft::host_scalar_view<const int64_t, int64_t>,
+  raft::device_scalar_view<int64_t>);
+
+namespace cuvs::detail {
+
+template <typename Bits, typename Index>
+Index count_bits(raft::resources const& handle, raft::core::bitset_view<Bits, Index> view)
+{
+  return view.count(handle);
+}
+
+template <typename Bits, typename Index>
+Index count_bits(raft::resources const& handle, raft::core::bitmap_view<Bits, Index> view)
+{
+  return view.count(handle);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::detail

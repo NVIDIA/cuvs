@@ -1,0 +1,19 @@
+[
+  {
+    "return_type": "int64_t",
+    "qualified_function": "count_bits",
+    "template_arguments": "<uint32_t, int64_t>",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::detail",
+    "_variants": [
+      {
+        "parameter_types": "raft::resources const&, raft::core::bitset_view<uint32_t, int64_t>",
+        "instantiation_name": "u32_i64_bitset_view_u32_i64"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::core::bitmap_view<uint32_t, int64_t>",
+        "instantiation_name": "u32_i64_bitmap_view_u32_i64"
+      }
+    ]
+  }
+]
