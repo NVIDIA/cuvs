@@ -1,0 +1,84 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include <neighbors/detail/cagra/graph_optimization_launchers.hpp>
+
+#include <neighbors/detail/cagra/cagra_helpers.hpp>
+#include <neighbors/detail/cagra/utils.hpp>
+
+#include <core/nvtx.hpp>
+#include <core/omp_wrapper.hpp>
+#include <raft/core/logger.hpp>
+#include <raft/util/cuda_utils.cuh>
+
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <type_traits>
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+namespace {
+
+template <class IdxT, class LabelT>
+__device__ __host__ LabelT get_root_label(IdxT i, const LabelT* label)
+{
+  LabelT l = label[i];
+  while (l != label[l]) {
+    l = label[l];
+  }
+  return l;
+}
+
+template <class IdxT>
+__global__ void kern_mst_opt_cluster_size(IdxT* cluster_size,  // [graph_size]
+                                          const IdxT* label,   // [graph_size]
+                                          const uint32_t graph_size,
+                                          uint64_t* stats)
+{
+  const uint64_t i = threadIdx.x + (blockDim.x * blockIdx.x);
+
+  __shared__ uint64_t smem_num_clusters[1];
+  if (threadIdx.x == 0) { smem_num_clusters[0] = 0; }
+  __syncthreads();
+
+  if (i < graph_size) {
+    IdxT ri = get_root_label(i, label);
+    if (ri == i) {
+      atomicAdd((unsigned long long int*)smem_num_clusters, 1);
+    } else {
+      atomicAdd(cluster_size + ri, cluster_size[i]);
+      cluster_size[i] = 0;
+    }
+  }
+
+  __syncthreads();
+  if ((threadIdx.x == 0) && (smem_num_clusters[0] > 0)) {
+    atomicAdd((unsigned long long int*)stats, (unsigned long long int)(smem_num_clusters[0]));
+  }
+}
+
+}  // namespace
+
+template <typename IdxT>
+void launch_mst_opt_cluster_size(dim3 grid,
+                                 dim3 block,
+                                 size_t shared_bytes,
+                                 cudaStream_t stream,
+                                 IdxT* cluster_size,
+                                 const IdxT* label,
+                                 const uint32_t graph_size,
+                                 uint64_t* stats)
+{
+  kern_mst_opt_cluster_size<IdxT>
+    <<<grid, block, shared_bytes, stream>>>(cluster_size, label, graph_size, stats);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::cagra::detail::graph

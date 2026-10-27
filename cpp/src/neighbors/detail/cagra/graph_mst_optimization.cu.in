@@ -1,0 +1,463 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include <neighbors/detail/cagra/graph_optimization_launchers.hpp>
+
+#include <neighbors/detail/cagra/cagra_helpers.hpp>
+#include <neighbors/detail/cagra/utils.hpp>
+
+#include <core/nvtx.hpp>
+#include <core/omp_wrapper.hpp>
+#include <raft/core/logger.hpp>
+#include <raft/util/cuda_utils.cuh>
+
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <type_traits>
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+namespace {
+
+template <class IdxT, class LabelT>
+__device__ __host__ LabelT get_root_label(IdxT i, const LabelT* label)
+{
+  LabelT l = label[i];
+  while (l != label[l]) {
+    l = label[l];
+  }
+  return l;
+}
+
+}  // namespace
+
+template <typename IdxT, typename AccessorKnnGraph>
+void mst_optimization(
+  raft::resources const& res,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorKnnGraph> input_graph,
+  raft::host_matrix_view<IdxT, int64_t, raft::row_major> output_graph,
+  raft::host_vector_view<uint32_t, int64_t> mst_graph_num_edges,
+  bool use_gpu)
+{
+  if (use_gpu) {
+    RAFT_LOG_DEBUG("# MST optimization on GPU");
+  } else {
+    RAFT_LOG_DEBUG("# MST optimization on CPU");
+  }
+  const double time_mst_opt_start = optimization_time();
+
+  const IdxT graph_size              = input_graph.extent(0);
+  const uint32_t input_graph_degree  = input_graph.extent(1);
+  const uint32_t output_graph_degree = output_graph.extent(1);
+
+  // Allocate temporal arrays
+  const uint32_t mst_graph_degree = output_graph_degree;
+  auto mst_graph              = raft::make_host_matrix<IdxT, int64_t>(graph_size, mst_graph_degree);
+  auto outgoing_max_edges     = raft::make_host_vector<IdxT, int64_t>(graph_size);
+  auto incoming_max_edges     = raft::make_host_vector<IdxT, int64_t>(graph_size);
+  auto outgoing_num_edges     = raft::make_host_vector<IdxT, int64_t>(graph_size);
+  auto incoming_num_edges     = raft::make_host_vector<IdxT, int64_t>(graph_size);
+  auto label                  = raft::make_host_vector<IdxT, int64_t>(graph_size);
+  auto cluster_size           = raft::make_host_vector<IdxT, int64_t>(graph_size);
+  auto candidate_edges        = raft::make_host_vector<IdxT, int64_t>(graph_size);
+  auto mst_graph_ptr          = mst_graph.data_handle();
+  auto outgoing_max_edges_ptr = outgoing_max_edges.data_handle();
+  auto incoming_max_edges_ptr = incoming_max_edges.data_handle();
+  auto outgoing_num_edges_ptr = outgoing_num_edges.data_handle();
+  auto incoming_num_edges_ptr = incoming_num_edges.data_handle();
+  auto label_ptr              = label.data_handle();
+  auto cluster_size_ptr       = cluster_size.data_handle();
+  auto candidate_edges_ptr    = candidate_edges.data_handle();
+
+  // Initialize arrays
+#pragma omp parallel for
+  for (uint64_t i = 0; i < graph_size; i++) {
+    for (uint64_t k = 0; k < mst_graph_degree; k++) {
+      // mst_graph_ptr[(mst_graph_degree * i) + k] = graph_size;
+      mst_graph(i, k) = graph_size;
+    }
+    outgoing_max_edges_ptr[i] = 2;
+    incoming_max_edges_ptr[i] = mst_graph_degree - outgoing_max_edges_ptr[i];
+    outgoing_num_edges_ptr[i] = 0;
+    incoming_num_edges_ptr[i] = 0;
+    label_ptr[i]              = i;
+    cluster_size_ptr[i]       = 1;
+  }
+
+  // Allocate arrays on GPU
+  uint32_t d_graph_size = graph_size;
+  if (!use_gpu) {
+    // (*) If GPU is not used, arrays of size 0 are created.
+    d_graph_size = 0;
+  }
+  auto d_mst_graph_num_edges = raft::make_device_vector<IdxT, int64_t>(res, d_graph_size);
+  auto d_mst_graph = raft::make_device_matrix<IdxT, int64_t>(res, d_graph_size, mst_graph_degree);
+  auto d_outgoing_max_edges      = raft::make_device_vector<IdxT, int64_t>(res, d_graph_size);
+  auto d_incoming_max_edges      = raft::make_device_vector<IdxT, int64_t>(res, d_graph_size);
+  auto d_outgoing_num_edges      = raft::make_device_vector<IdxT, int64_t>(res, d_graph_size);
+  auto d_incoming_num_edges      = raft::make_device_vector<IdxT, int64_t>(res, d_graph_size);
+  auto d_label                   = raft::make_device_vector<IdxT, int64_t>(res, d_graph_size);
+  auto d_cluster_size            = raft::make_device_vector<IdxT, int64_t>(res, d_graph_size);
+  auto d_candidate_edges         = raft::make_device_vector<IdxT, int64_t>(res, d_graph_size);
+  auto d_mst_graph_num_edges_ptr = d_mst_graph_num_edges.data_handle();
+  auto d_mst_graph_ptr           = d_mst_graph.data_handle();
+  auto d_outgoing_max_edges_ptr  = d_outgoing_max_edges.data_handle();
+  auto d_incoming_max_edges_ptr  = d_incoming_max_edges.data_handle();
+  auto d_outgoing_num_edges_ptr  = d_outgoing_num_edges.data_handle();
+  auto d_incoming_num_edges_ptr  = d_incoming_num_edges.data_handle();
+  auto d_label_ptr               = d_label.data_handle();
+  auto d_cluster_size_ptr        = d_cluster_size.data_handle();
+  auto d_candidate_edges_ptr     = d_candidate_edges.data_handle();
+
+  constexpr int stats_size = 4;
+  auto stats               = raft::make_host_vector<uint64_t, int64_t>(stats_size);
+  auto d_stats             = raft::make_device_vector<uint64_t, int64_t>(res, stats_size);
+  auto stats_ptr           = stats.data_handle();
+  auto d_stats_ptr         = d_stats.data_handle();
+
+  if (use_gpu) {
+    raft::copy(res, d_mst_graph.view(), raft::make_const_mdspan(mst_graph.view()));
+    raft::copy(
+      res, d_outgoing_num_edges.view(), raft::make_const_mdspan(outgoing_num_edges.view()));
+    raft::copy(
+      res, d_incoming_num_edges.view(), raft::make_const_mdspan(incoming_num_edges.view()));
+    raft::copy(
+      res, d_outgoing_max_edges.view(), raft::make_const_mdspan(outgoing_max_edges.view()));
+    raft::copy(
+      res, d_incoming_max_edges.view(), raft::make_const_mdspan(incoming_max_edges.view()));
+    raft::copy(res, d_label.view(), raft::make_const_mdspan(label.view()));
+    raft::copy(res, d_cluster_size.view(), raft::make_const_mdspan(cluster_size.view()));
+  }
+
+  IdxT num_clusters     = 0;
+  IdxT num_clusters_pre = graph_size;
+  IdxT cluster_size_min = graph_size;
+  IdxT cluster_size_max = 0;
+  for (uint64_t k = 0; k <= input_graph_degree; k++) {
+    int num_direct    = 0;
+    int num_alternate = 0;
+    int num_failure   = 0;
+
+    // 1. Prepare candidate edges
+    if (k == input_graph_degree) {
+      // If the number of clusters does not converge to 1, then edges are
+      // made from all nodes not belonging to the main cluster to any node
+      // in the main cluster.
+      raft::copy(res, cluster_size.view(), raft::make_const_mdspan(d_cluster_size.view()));
+      raft::copy(res, label.view(), raft::make_const_mdspan(d_label.view()));
+      raft::resource::sync_stream(res);
+      uint32_t main_cluster_label = graph_size;
+#pragma omp parallel for reduction(min : main_cluster_label)
+      for (uint64_t i = 0; i < graph_size; i++) {
+        if ((cluster_size_ptr[i] == cluster_size_max) && (main_cluster_label > i)) {
+          main_cluster_label = i;
+        }
+      }
+#pragma omp parallel for
+      for (uint64_t i = 0; i < graph_size; i++) {
+        candidate_edges_ptr[i] = graph_size;
+        if (label_ptr[i] == main_cluster_label) continue;
+        uint64_t j = i;
+        while (label_ptr[j] != main_cluster_label) {
+          constexpr uint32_t ofst = 97;
+          j                       = (j + ofst) % graph_size;
+        }
+        candidate_edges_ptr[i] = j;
+      }
+    } else {
+      // Copy rank-k edges from the input knn graph to 'candidate_edges'
+      if constexpr (AccessorKnnGraph::is_host_accessible) {
+#pragma omp parallel for
+        for (uint64_t i = 0; i < graph_size; i++) {
+          candidate_edges_ptr[i] = input_graph(i, k);
+        }
+      } else {
+        // handle device knn graph
+        RAFT_CUDA_TRY(cudaMemcpy2DAsync(candidate_edges_ptr,
+                                        sizeof(IdxT),
+                                        &input_graph(0, k),
+                                        input_graph_degree * sizeof(IdxT),
+                                        1 * sizeof(IdxT),  // width
+                                        graph_size,
+                                        cudaMemcpyDeviceToHost,
+                                        raft::resource::get_cuda_stream(res).get()));
+        raft::resource::sync_stream(res);
+
+        // FIXME: use submdspan and raft::copy once supported
+        /*auto column_view = cuda::std::submdspan(input_graph,
+                                                  cuda::std::tuple{uint64_t(0),
+        uint64_t(graph_size)}, cuda::std::tuple{uint64_t(k), uint64_t(k+1)}); raft::copy(res,
+        candidate_edges.view(), raft::make_const_mdspan(column_view));*/
+      }
+    }
+
+    // 2. Update MST graph
+    //  * Try to add candidate edges to MST graph
+    if (use_gpu) {
+      raft::copy(res, d_candidate_edges.view(), raft::make_const_mdspan(candidate_edges.view()));
+      stats_ptr[0] = 0;
+      stats_ptr[1] = num_direct;
+      stats_ptr[2] = num_alternate;
+      stats_ptr[3] = num_failure;
+      raft::copy(res, d_stats.view(), raft::make_const_mdspan(stats.view()));
+
+      constexpr uint64_t n_threads = 256;
+      const dim3 threads(n_threads, 1, 1);
+      const dim3 blocks(raft::ceildiv<uint64_t>(graph_size, n_threads), 1, 1);
+      launch_mst_opt_update_graph<IdxT>(blocks,
+                                        threads,
+                                        0,
+                                        raft::resource::get_cuda_stream(res).get(),
+                                        d_mst_graph_ptr,
+                                        d_candidate_edges_ptr,
+                                        d_outgoing_num_edges_ptr,
+                                        d_incoming_num_edges_ptr,
+                                        d_outgoing_max_edges_ptr,
+                                        d_incoming_max_edges_ptr,
+                                        d_label_ptr,
+                                        graph_size,
+                                        mst_graph_degree,
+                                        d_stats_ptr);
+
+      raft::copy(res, stats.view(), raft::make_const_mdspan(d_stats.view()));
+      raft::resource::sync_stream(res);
+      num_direct    = stats_ptr[1];
+      num_alternate = stats_ptr[2];
+      num_failure   = stats_ptr[3];
+    } else {
+      mst_opt_update_graph(mst_graph_ptr,
+                           candidate_edges_ptr,
+                           outgoing_num_edges_ptr,
+                           incoming_num_edges_ptr,
+                           outgoing_max_edges_ptr,
+                           incoming_max_edges_ptr,
+                           label_ptr,
+                           graph_size,
+                           mst_graph_degree,
+                           k,
+                           num_direct,
+                           num_alternate,
+                           num_failure);
+    }
+
+    // 3. Labeling
+    uint32_t flag_update = 1;
+    while (flag_update) {
+      flag_update = 0;
+      if (use_gpu) {
+        stats_ptr[0] = flag_update;
+        raft::copy(res,
+                   raft::make_device_vector_view(d_stats_ptr, int64_t(1)),
+                   raft::make_host_vector_view(stats_ptr, int64_t(1)));
+
+        constexpr uint64_t n_threads = 256;
+        const dim3 threads(n_threads, 1, 1);
+        const dim3 blocks((graph_size + n_threads - 1) / n_threads, 1, 1);
+        launch_mst_opt_labeling<IdxT>(blocks,
+                                      threads,
+                                      0,
+                                      raft::resource::get_cuda_stream(res).get(),
+                                      d_label_ptr,
+                                      d_mst_graph_ptr,
+                                      graph_size,
+                                      mst_graph_degree,
+                                      d_stats_ptr);
+
+        raft::copy(res,
+                   raft::make_host_vector_view(stats_ptr, int64_t(1)),
+                   raft::make_device_vector_view(d_stats_ptr, int64_t(1)));
+        raft::resource::sync_stream(res);
+        flag_update = stats_ptr[0];
+      } else {
+#pragma omp parallel for reduction(+ : flag_update)
+        for (uint64_t i = 0; i < graph_size; i++) {
+          for (uint64_t ki = 0; ki < mst_graph_degree; ki++) {
+            uint64_t j = mst_graph_ptr[(mst_graph_degree * i) + ki];
+            if (j >= graph_size) continue;
+            if (label_ptr[i] > label_ptr[j]) {
+              flag_update += 1;
+              label_ptr[i] = label_ptr[j];
+            }
+          }
+        }
+      }
+    }
+
+    // 4. Calculate the number of clusters and the size of each cluster
+    num_clusters = 0;
+    if (use_gpu) {
+      stats_ptr[0] = num_clusters;
+      raft::copy(res,
+                 raft::make_device_vector_view(d_stats_ptr, int64_t(1)),
+                 raft::make_host_vector_view(stats_ptr, int64_t(1)));
+
+      constexpr uint64_t n_threads = 256;
+      const dim3 threads(n_threads, 1, 1);
+      const dim3 blocks(raft::ceildiv<uint64_t>(graph_size, n_threads), 1, 1);
+      launch_mst_opt_cluster_size<IdxT>(blocks,
+                                        threads,
+                                        0,
+                                        raft::resource::get_cuda_stream(res).get(),
+                                        d_cluster_size_ptr,
+                                        d_label_ptr,
+                                        graph_size,
+                                        d_stats_ptr);
+
+      raft::copy(res,
+                 raft::make_host_vector_view(stats_ptr, int64_t(1)),
+                 raft::make_device_vector_view(d_stats_ptr, int64_t(1)));
+      raft::resource::sync_stream(res);
+      num_clusters = stats_ptr[0];
+    } else {
+#pragma omp parallel for reduction(+ : num_clusters)
+      for (uint64_t i = 0; i < graph_size; i++) {
+        uint64_t ri = get_root_label(i, label_ptr);
+        if (ri == i) {
+          num_clusters += 1;
+        } else {
+#pragma omp atomic update
+          cluster_size_ptr[ri] += cluster_size_ptr[i];
+          cluster_size_ptr[i] = 0;
+        }
+      }
+    }
+
+    // 5. Postprocessings
+    //  * Adjust incoming_num_edges
+    //  * Calculate the min/max size of clusters.
+    //  * Calculate the total number of outgoing/incoming edges
+    //  * Increase the limit of outgoing edges as needed
+    cluster_size_min              = graph_size;
+    cluster_size_max              = 0;
+    uint64_t total_outgoing_edges = 0;
+    uint64_t total_incoming_edges = 0;
+    if (use_gpu) {
+      stats_ptr[0] = cluster_size_min;
+      stats_ptr[1] = cluster_size_max;
+      stats_ptr[2] = total_outgoing_edges;
+      stats_ptr[3] = total_incoming_edges;
+      raft::copy(res, d_stats.view(), raft::make_const_mdspan(stats.view()));
+
+      constexpr uint64_t n_threads = 256;
+      const dim3 threads(n_threads, 1, 1);
+      const dim3 blocks((graph_size + n_threads - 1) / n_threads, 1, 1);
+      launch_mst_opt_postprocessing<IdxT>(blocks,
+                                          threads,
+                                          0,
+                                          raft::resource::get_cuda_stream(res).get(),
+                                          d_outgoing_num_edges_ptr,
+                                          d_incoming_num_edges_ptr,
+                                          d_outgoing_max_edges_ptr,
+                                          d_incoming_max_edges_ptr,
+                                          d_cluster_size_ptr,
+                                          graph_size,
+                                          mst_graph_degree,
+                                          d_stats_ptr);
+
+      raft::copy(res, stats.view(), raft::make_const_mdspan(d_stats.view()));
+      raft::resource::sync_stream(res);
+      cluster_size_min     = stats_ptr[0];
+      cluster_size_max     = stats_ptr[1];
+      total_outgoing_edges = stats_ptr[2];
+      total_incoming_edges = stats_ptr[3];
+    } else {
+#pragma omp parallel for
+      for (uint64_t i = 0; i < graph_size; i++) {
+        if (incoming_num_edges_ptr[i] > incoming_max_edges_ptr[i]) {
+          incoming_num_edges_ptr[i] = incoming_max_edges_ptr[i];
+        }
+      }
+
+#pragma omp parallel for reduction(max : cluster_size_max) reduction(min : cluster_size_min)
+      for (uint64_t i = 0; i < graph_size; i++) {
+        if (cluster_size_ptr[i] == 0) continue;
+        cluster_size_min = min(cluster_size_min, cluster_size_ptr[i]);
+        cluster_size_max = max(cluster_size_max, cluster_size_ptr[i]);
+      }
+
+#pragma omp parallel for reduction(+ : total_outgoing_edges, total_incoming_edges)
+      for (uint64_t i = 0; i < graph_size; i++) {
+        total_outgoing_edges += outgoing_num_edges_ptr[i];
+        total_incoming_edges += incoming_num_edges_ptr[i];
+      }
+
+      bool check_num_mst_edges = true;
+#pragma omp parallel for
+      for (uint64_t i = 0; i < graph_size; i++) {
+        if (outgoing_num_edges_ptr[i] < outgoing_max_edges_ptr[i]) continue;
+        if (outgoing_num_edges_ptr[i] + incoming_num_edges_ptr[i] == mst_graph_degree) continue;
+        if (outgoing_num_edges_ptr[i] + incoming_num_edges_ptr[i] > mst_graph_degree) {
+          check_num_mst_edges = false;
+        }
+        outgoing_max_edges_ptr[i] += 1;
+        incoming_max_edges_ptr[i] = mst_graph_degree - outgoing_max_edges_ptr[i];
+      }
+      RAFT_EXPECTS(check_num_mst_edges, "Some nodes have too many MST graph edges.");
+    }
+
+    // 6. Show stats
+    if (num_clusters != num_clusters_pre) {
+      std::string msg = "# k: " + std::to_string(k);
+      msg += ", num_clusters: " + std::to_string(num_clusters);
+      msg += ", cluster_size: " + std::to_string(cluster_size_min) + " to " +
+             std::to_string(cluster_size_max);
+      msg += ", total_num_edges: " + std::to_string(total_outgoing_edges) + ", " +
+             std::to_string(total_incoming_edges);
+      if (num_alternate + num_failure > 0) {
+        msg += ", alternate: " + std::to_string(num_alternate);
+        if (num_failure > 0) { msg += ", failure: " + std::to_string(num_failure); }
+      }
+      RAFT_LOG_DEBUG("%s", msg.c_str());
+    }
+    RAFT_EXPECTS(num_clusters > 0, "No clusters could not be created in MST optimization.");
+    RAFT_EXPECTS(total_outgoing_edges == total_incoming_edges,
+                 "The numbers of incoming and outcoming edges are mismatch.");
+    if (num_clusters == 1) { break; }
+    num_clusters_pre = num_clusters;
+  }
+
+  // The edges that make up the MST are stored as edges in the output graph.
+  if (use_gpu) {
+    raft::copy(res, mst_graph.view(), raft::make_const_mdspan(d_mst_graph.view()));
+    raft::resource::sync_stream(res);
+  }
+#pragma omp parallel for
+  for (uint64_t i = 0; i < graph_size; i++) {
+    uint64_t k = 0;
+    for (uint64_t kj = 0; kj < mst_graph_degree; kj++) {
+      uint64_t j = mst_graph(i, kj);
+      if (j >= graph_size) continue;
+
+      // Check to avoid duplication
+      auto flag_match = false;
+      for (uint64_t ki = 0; ki < k; ki++) {
+        if (j == output_graph(i, ki)) {
+          flag_match = true;
+          break;
+        }
+      }
+      if (flag_match) continue;
+
+      output_graph(i, k) = j;
+      k += 1;
+    }
+    mst_graph_num_edges(i) = k;
+  }
+
+  const double time_mst_opt_end = optimization_time();
+  RAFT_LOG_DEBUG("# MST optimization time: %.1lf sec", time_mst_opt_end - time_mst_opt_start);
+}
+
+}  // namespace cuvs::neighbors::cagra::detail::graph
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::cagra::detail::graph

@@ -1,0 +1,179 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include <neighbors/detail/cagra/graph_optimization_launchers.hpp>
+
+#include <neighbors/detail/cagra/cagra_helpers.hpp>
+#include <neighbors/detail/cagra/utils.hpp>
+
+#include <core/nvtx.hpp>
+#include <core/omp_wrapper.hpp>
+#include <raft/core/logger.hpp>
+#include <raft/util/cuda_utils.cuh>
+
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <type_traits>
+
+#include <neighbors/detail/ann_utils.cuh>
+
+#include <cooperative_groups.h>
+#include <cooperative_groups/reduce.h>
+
+namespace cg = cooperative_groups;
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+namespace {
+
+template <typename T>
+__device__ unsigned int warp_pos_in_array(T val, const T* array, uint64_t num)
+{
+  unsigned int ret       = num;
+  const uint32_t lane_id = threadIdx.x % 32;
+  for (uint64_t i = lane_id; i < num; i += 32) {
+    if (val == array[i]) {
+      ret = i;
+      break;
+    }
+  }
+
+  cg::thread_block block         = cg::this_thread_block();
+  cg::thread_block_tile<32> warp = cg::tiled_partition<32>(block);
+  ret                            = cg::reduce(warp, ret, cg::less<unsigned int>());
+  return ret;
+}
+
+template <typename T>
+__device__ void warp_shift_array_one_right(uint32_t lane_id, T* array, uint64_t num)
+{
+  if (num == 0) { return; }
+  for (auto chunk_end = static_cast<int64_t>(num); chunk_end >= 1; chunk_end -= 31) {
+    const int64_t chunk_start_lo = chunk_end - 31;
+    const int64_t chunk_start    = (chunk_start_lo > 0) ? chunk_start_lo : 0;
+    const int64_t k              = chunk_start + static_cast<int64_t>(lane_id);
+    T val{};
+    const bool read_active = (k <= chunk_end);
+    if (read_active) { val = array[k]; }
+    const T shifted         = raft::shfl_up(val, 1);
+    const bool write_active = (lane_id > 0) && read_active;
+    if (write_active) { array[k] = shifted; }
+  }
+}
+
+}  // namespace
+
+template <typename IdxT, typename AccessorOutputGraph>
+void merge_graph_gpu(
+  raft::resources const& res,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph>
+    output_graph,
+  raft::device_matrix_view<IdxT, int64_t> d_rev_graph,
+  raft::device_vector_view<uint32_t, int64_t> d_rev_graph_count,
+  raft::host_matrix_view<IdxT, int64_t> mst_graph,
+  raft::host_vector_view<uint32_t, int64_t> mst_graph_num_edges,
+  bool guarantee_connectivity)
+{
+  const uint64_t graph_size          = output_graph.extent(0);
+  const uint64_t output_graph_degree = output_graph.extent(1);
+
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> block_scope(
+    "cagra::graph::optimize/combine");
+
+  const double merge_graph_start = optimization_time();
+
+  auto d_check_num_protected_edges = raft::make_device_scalar<uint32_t>(res, 1u);
+
+  uint32_t batch_size =
+    static_cast<uint32_t>(std::min<uint64_t>(graph_size, helpers::kOptimizeBatchSize));
+  const uint32_t num_batch = raft::div_rounding_up_safe<uint64_t>(graph_size, batch_size);
+
+  namespace bli                       = cuvs::spatial::knn::detail::utils;
+  auto [copy_stream, enable_prefetch] = bli::get_prefetch_stream(res);
+  auto workspace_mr                   = raft::resource::get_workspace_resource_ref(res);
+
+  bli::batch_load_iterator<
+    raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph>>
+    d_output_graph(res,
+                   output_graph,
+                   batch_size,
+                   copy_stream,
+                   workspace_mr,
+                   enable_prefetch,
+                   /*initialize=*/true,
+                   /*host_writeback=*/true);
+
+  bli::batch_load_iterator<raft::host_matrix_view<IdxT, int64_t>> d_mst_graph(
+    res, mst_graph, batch_size, copy_stream, workspace_mr, enable_prefetch);
+
+  bli::batch_load_iterator<raft::host_matrix_view<uint32_t, int64_t>> d_mst_graph_num_edges(
+    res,
+    raft::make_host_matrix_view<uint32_t, int64_t>(
+      mst_graph_num_edges.data_handle(), mst_graph_num_edges.extent(0), 1l),
+    batch_size,
+    copy_stream,
+    workspace_mr,
+    enable_prefetch);
+
+  d_output_graph.prefetch_next_batch();
+  d_mst_graph.prefetch_next_batch();
+  d_mst_graph_num_edges.prefetch_next_batch();
+
+  const uint32_t num_warps = 4;
+  const dim3 threads_merge(raft::WarpSize * num_warps, 1, 1);
+  const dim3 blocks_merge(raft::ceildiv(batch_size, num_warps), 1, 1);
+  const size_t merge_smem_size = num_warps * output_graph_degree * sizeof(IdxT);
+  for (uint32_t i_batch = 0; i_batch < num_batch; i_batch++) {
+    auto mst_graph_view           = (*d_mst_graph).view();
+    auto mst_graph_num_edges_view = (*d_mst_graph_num_edges).view();
+    auto output_view              = (*d_output_graph).view();
+    launch_merge_graph<IdxT>(blocks_merge,
+                             threads_merge,
+                             merge_smem_size,
+                             raft::resource::get_cuda_stream(res).get(),
+                             output_view,
+                             d_rev_graph,
+                             d_rev_graph_count,
+                             mst_graph_view,
+                             mst_graph_num_edges_view,
+                             batch_size,
+                             i_batch,
+                             guarantee_connectivity,
+                             d_check_num_protected_edges.data_handle());
+
+    d_output_graph.prefetch_next_batch();
+    d_mst_graph.prefetch_next_batch();
+    d_mst_graph_num_edges.prefetch_next_batch();
+    ++d_output_graph;
+    ++d_mst_graph;
+    ++d_mst_graph_num_edges;
+  }
+
+  uint32_t check_num_protected_edges = 1u;
+  raft::copy(res,
+             raft::make_host_scalar_view(&check_num_protected_edges),
+             d_check_num_protected_edges.view());
+  raft::resource::sync_stream(res);
+  const auto merge_graph_end = optimization_time();
+  RAFT_EXPECTS(check_num_protected_edges,
+               "Failed to merge the MST, pruned, and reverse edge graphs. "
+               "Some nodes have too "
+               "many MST optimization edges.");
+
+  RAFT_LOG_DEBUG("# Time for merging graphs: %.1lf ms",
+                 (merge_graph_end - merge_graph_start) * 1000.0);
+}
+
+}  // namespace cuvs::neighbors::cagra::detail::graph
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::cagra::detail::graph

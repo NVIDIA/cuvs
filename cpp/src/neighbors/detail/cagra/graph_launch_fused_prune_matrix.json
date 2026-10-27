@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::neighbors::cagra::detail::graph::launch_fused_prune",
+    "template_arguments": "<uint32_t>",
+    "parameter_types": "dim3, dim3, size_t, cudaStream_t, raft::device_matrix_view<uint32_t, int64_t>, raft::device_matrix_view<uint32_t, int64_t>, const uint32_t, const uint32_t, uint32_t* const, uint64_t* const",
+    "function_qualifiers": "",
+    "instantiation_name": "u32"
+  }
+]

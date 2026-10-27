@@ -1,0 +1,20 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "merge_graph_gpu",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::neighbors::cagra::detail::graph",
+    "_variants": [
+      {
+        "template_arguments": "<uint32_t, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::host>>",
+        "parameter_types": "raft::resources const&, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::host>>, raft::device_matrix_view<uint32_t, int64_t>, raft::device_vector_view<uint32_t, int64_t>, raft::host_matrix_view<uint32_t, int64_t>, raft::host_vector_view<uint32_t, int64_t>, bool",
+        "instantiation_name": "u32_host_device_accessor_default_accessor_u32_host"
+      },
+      {
+        "template_arguments": "<uint32_t, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::device>>",
+        "parameter_types": "raft::resources const&, raft::mdspan<uint32_t, raft::matrix_extent<int64_t>, raft::row_major, raft::host_device_accessor<cuda::std::default_accessor<uint32_t>, raft::memory_type::device>>, raft::device_matrix_view<uint32_t, int64_t>, raft::device_vector_view<uint32_t, int64_t>, raft::host_matrix_view<uint32_t, int64_t>, raft::host_vector_view<uint32_t, int64_t>, bool",
+        "instantiation_name": "u32_host_device_accessor_default_accessor_u32_device"
+      }
+    ]
+  }
+]

@@ -1,0 +1,135 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include <neighbors/detail/cagra/graph_optimization_launchers.hpp>
+
+#include <neighbors/detail/cagra/cagra_helpers.hpp>
+#include <neighbors/detail/cagra/utils.hpp>
+
+#include <core/nvtx.hpp>
+#include <core/omp_wrapper.hpp>
+#include <raft/core/logger.hpp>
+#include <raft/util/cuda_utils.cuh>
+
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <type_traits>
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+namespace {
+
+template <class IdxT, class LabelT>
+__device__ __host__ LabelT get_root_label(IdxT i, const LabelT* label)
+{
+  LabelT l = label[i];
+  while (l != label[l]) {
+    l = label[l];
+  }
+  return l;
+}
+
+template <class IdxT>
+__global__ void kern_mst_opt_postprocessing(IdxT* outgoing_num_edges,  // [graph_size]
+                                            IdxT* incoming_num_edges,  // [graph_size]
+                                            IdxT* outgoing_max_edges,  // [graph_size]
+                                            IdxT* incoming_max_edges,  // [graph_size]
+                                            const IdxT* cluster_size,  // [graph_size]
+                                            const uint32_t graph_size,
+                                            const uint32_t graph_degree,
+                                            uint64_t* stats)
+{
+  const uint64_t i = threadIdx.x + (blockDim.x * blockIdx.x);
+  __shared__ uint64_t smem_cluster_size_min[1];
+  __shared__ uint64_t smem_cluster_size_max[1];
+  __shared__ uint64_t smem_total_outgoing_edges[1];
+  __shared__ uint64_t smem_total_incoming_edges[1];
+  if (threadIdx.x == 0) {
+    smem_cluster_size_min[0]     = stats[0];
+    smem_cluster_size_max[0]     = stats[1];
+    smem_total_outgoing_edges[0] = 0;
+    smem_total_incoming_edges[0] = 0;
+  }
+  __syncthreads();
+
+  if (i < graph_size) {
+    // Adjust incoming_num_edges
+    if (incoming_num_edges[i] > incoming_max_edges[i]) {
+      incoming_num_edges[i] = incoming_max_edges[i];
+    }
+
+    // Calculate min/max of cluster_size
+    if (cluster_size[i] > 0) {
+      if (smem_cluster_size_min[0] > cluster_size[i]) {
+        atomicMin((unsigned long long int*)smem_cluster_size_min,
+                  (unsigned long long int)(cluster_size[i]));
+      }
+      if (smem_cluster_size_max[0] < cluster_size[i]) {
+        atomicMax((unsigned long long int*)smem_cluster_size_max,
+                  (unsigned long long int)(cluster_size[i]));
+      }
+    }
+
+    // Calculate total number of outgoing/incoming edges
+    atomicAdd((unsigned long long int*)smem_total_outgoing_edges,
+              (unsigned long long int)(outgoing_num_edges[i]));
+    atomicAdd((unsigned long long int*)smem_total_incoming_edges,
+              (unsigned long long int)(incoming_num_edges[i]));
+
+    // Adjust incoming/outgoing_max_edges
+    if (outgoing_num_edges[i] == outgoing_max_edges[i]) {
+      if (outgoing_num_edges[i] + incoming_num_edges[i] < graph_degree) {
+        outgoing_max_edges[i] += 1;
+        incoming_max_edges[i] -= 1;
+      }
+    }
+  }
+
+  __syncthreads();
+  if (threadIdx.x == 0) {
+    atomicMin((unsigned long long int*)stats + 0,
+              (unsigned long long int)(smem_cluster_size_min[0]));
+    atomicMax((unsigned long long int*)stats + 1,
+              (unsigned long long int)(smem_cluster_size_max[0]));
+    atomicAdd((unsigned long long int*)stats + 2,
+              (unsigned long long int)(smem_total_outgoing_edges[0]));
+    atomicAdd((unsigned long long int*)stats + 3,
+              (unsigned long long int)(smem_total_incoming_edges[0]));
+  }
+}
+
+}  // namespace
+
+template <typename IdxT>
+void launch_mst_opt_postprocessing(dim3 grid,
+                                   dim3 block,
+                                   size_t shared_bytes,
+                                   cudaStream_t stream,
+                                   IdxT* outgoing_num_edges,
+                                   IdxT* incoming_num_edges,
+                                   IdxT* outgoing_max_edges,
+                                   IdxT* incoming_max_edges,
+                                   const IdxT* cluster_size,
+                                   const uint32_t graph_size,
+                                   const uint32_t graph_degree,
+                                   uint64_t* stats)
+{
+  kern_mst_opt_postprocessing<IdxT><<<grid, block, shared_bytes, stream>>>(outgoing_num_edges,
+                                                                           incoming_num_edges,
+                                                                           outgoing_max_edges,
+                                                                           incoming_max_edges,
+                                                                           cluster_size,
+                                                                           graph_size,
+                                                                           graph_degree,
+                                                                           stats);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::cagra::detail::graph

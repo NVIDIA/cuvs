@@ -1,0 +1,95 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include <neighbors/detail/cagra/graph_optimization_launchers.hpp>
+
+#include <neighbors/detail/cagra/cagra_helpers.hpp>
+#include <neighbors/detail/cagra/utils.hpp>
+
+#include <core/nvtx.hpp>
+#include <core/omp_wrapper.hpp>
+#include <raft/core/logger.hpp>
+#include <raft/util/cuda_utils.cuh>
+
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <type_traits>
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+template <typename IdxT, typename AccessorOutputGraph>
+void log_incoming_edges_histogram(
+  raft::resources const& res,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph>
+    output_graph)
+{
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> block_scope(
+    "cagra::graph::optimize/check_edges");
+  const uint64_t graph_size          = output_graph.extent(0);
+  const uint64_t output_graph_degree = output_graph.extent(1);
+
+  // copy to host if required
+  IdxT* output_graph_ptr = nullptr;
+  int64_t buffer_size    = AccessorOutputGraph::is_host_accessible ? graph_size : 0;
+  auto host_copy_output_graph =
+    raft::make_host_matrix<IdxT, int64_t>(buffer_size, output_graph_degree);
+  if constexpr (AccessorOutputGraph::is_host_accessible) {
+    output_graph_ptr = output_graph.data_handle();
+  } else {
+    raft::copy(res, host_copy_output_graph.view(), output_graph);
+    output_graph_ptr = host_copy_output_graph.data_handle();
+  }
+
+  auto in_edge_count     = raft::make_host_vector<uint32_t, int64_t>(graph_size);
+  auto in_edge_count_ptr = in_edge_count.data_handle();
+#pragma omp parallel for
+  for (uint64_t i = 0; i < graph_size; i++) {
+    in_edge_count_ptr[i] = 0;
+  }
+#pragma omp parallel for
+  for (uint64_t i = 0; i < graph_size; i++) {
+    for (uint64_t k = 0; k < output_graph_degree; k++) {
+      const uint64_t j = output_graph_ptr[k + (output_graph_degree * i)];
+      if (j >= graph_size) continue;
+#pragma omp atomic
+      in_edge_count_ptr[j] += 1;
+    }
+  }
+  auto hist     = raft::make_host_vector<uint32_t, int64_t>(output_graph_degree);
+  auto hist_ptr = hist.data_handle();
+  for (uint64_t k = 0; k < output_graph_degree; k++) {
+    hist_ptr[k] = 0;
+  }
+#pragma omp parallel for
+  for (uint64_t i = 0; i < graph_size; i++) {
+    uint32_t count = in_edge_count_ptr[i];
+    if (count >= output_graph_degree) continue;
+#pragma omp atomic
+    hist_ptr[count] += 1;
+  }
+  RAFT_LOG_DEBUG("# Histogram for number of incoming edges\n");
+  uint32_t sum_hist = 0;
+  for (uint64_t k = 0; k < output_graph_degree; k++) {
+    sum_hist += hist_ptr[k];
+    RAFT_LOG_DEBUG("# %3lu, %8u, %lf, (%8u, %lf)\n",
+                   k,
+                   hist_ptr[k],
+                   (double)hist_ptr[k] / graph_size,
+                   sum_hist,
+                   (double)sum_hist / graph_size);
+  }
+}
+
+}  // namespace cuvs::neighbors::cagra::detail::graph
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::cagra::detail::graph

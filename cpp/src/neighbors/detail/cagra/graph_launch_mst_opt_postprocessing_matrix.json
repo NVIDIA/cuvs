@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::neighbors::cagra::detail::graph::launch_mst_opt_postprocessing",
+    "template_arguments": "<uint32_t>",
+    "parameter_types": "dim3, dim3, size_t, cudaStream_t, uint32_t*, uint32_t*, uint32_t*, uint32_t*, const uint32_t*, const uint32_t, const uint32_t, uint64_t*",
+    "function_qualifiers": "",
+    "instantiation_name": "u32"
+  }
+]

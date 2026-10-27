@@ -1,0 +1,138 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include <neighbors/detail/cagra/graph_optimization_launchers.hpp>
+
+#include <neighbors/detail/cagra/cagra_helpers.hpp>
+#include <neighbors/detail/cagra/utils.hpp>
+
+#include <core/nvtx.hpp>
+#include <core/omp_wrapper.hpp>
+#include <raft/core/logger.hpp>
+#include <raft/util/cuda_utils.cuh>
+
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <type_traits>
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+template <typename IdxT, typename AccessorKnnGraph, typename AccessorOutputGraph>
+void optimize(
+  raft::resources const& res_const,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorKnnGraph> knn_graph,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph> new_graph,
+  const bool guarantee_connectivity,
+  const bool use_gpu_for_mst_optimization)
+{
+  RAFT_LOG_DEBUG(
+    "# Pruning kNN graph (size=%lu, degree=%lu)\n", knn_graph.extent(0), knn_graph.extent(1));
+
+  // TODO(achirkin): come up with a reasonable API to initialize a non-empty stream pool.
+  // raft::resource::set_cuda_stream_pool below modifies the resource, so it cannot be const.
+  // The optimize() is a heavy function, so copying the resource and creating a private stream pool
+  // is not a big overhead.
+  raft::resources res{res_const};
+
+  // large temporary memory for large arrays, e.g. everything >= O(graph_size)
+  auto large_tmp_mr = raft::resource::get_large_workspace_resource_ref(res);
+  // temporary memory for small arrays, e.g. everything <= O(batchsize * graph_degree)
+  auto default_ws_mr = raft::resource::get_workspace_resource_ref(res);
+
+  // create a stream pool if not already present
+  if (!res.has_resource_factory(raft::resource::resource_type::CUDA_STREAM_POOL) ||
+      raft::resource::get_stream_pool_size(res) < 1) {
+    raft::resource::set_cuda_stream_pool(res, std::make_shared<rmm::cuda_stream_pool>(1));
+  }
+
+  RAFT_EXPECTS(knn_graph.extent(0) == new_graph.extent(0),
+               "Each input array is expected to have the same number of rows");
+  RAFT_EXPECTS(new_graph.extent(1) <= knn_graph.extent(1),
+               "output graph cannot have more columns than input graph");
+  // const uint64_t input_graph_degree  = knn_graph.extent(1);
+  const uint64_t knn_graph_degree    = knn_graph.extent(1);
+  const uint64_t output_graph_degree = new_graph.extent(1);
+  const uint64_t graph_size          = new_graph.extent(0);
+
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
+    "cagra::graph::optimize(%zu, %zu, %u)", graph_size, knn_graph_degree, output_graph_degree);
+
+  // MST optimization
+  // currently, only using GPU path for MST optimization
+  int64_t mst_graph_size = guarantee_connectivity ? graph_size : 0;
+  auto mst_graph =
+    raft::make_host_matrix<IdxT, int64_t, raft::row_major>(mst_graph_size, output_graph_degree);
+  auto mst_graph_num_edges = raft::make_host_vector<uint32_t, int64_t>(mst_graph_size);
+
+  if (guarantee_connectivity) {
+    raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> block_scope(
+      "cagra::graph::optimize/check_connectivity");
+    RAFT_LOG_INFO("MST optimization is used to guarantee graph connectivity.");
+    mst_optimization<IdxT>(
+      res, knn_graph, mst_graph.view(), mst_graph_num_edges.view(), use_gpu_for_mst_optimization);
+
+    for (uint64_t i = 0; i < graph_size; i++) {
+      if (i < 8 || i >= graph_size - 8) {
+        RAFT_LOG_DEBUG("# mst_graph_num_edges[%lu]: %u\n", i, mst_graph_num_edges(i));
+      }
+    }
+  }
+
+  // prune graph -- will always use GPU path
+  {
+    prune_graph_gpu<IdxT>(res, knn_graph, new_graph);
+  }
+
+  // reverse graph creation will always use the GPU / large workspace resource
+  auto d_rev_graph = raft::make_device_mdarray<IdxT>(
+    res, large_tmp_mr, raft::make_extents<int64_t>(graph_size, output_graph_degree));
+
+  // This should use the default workspace resource for random access / atomics
+  auto d_rev_graph_count = raft::make_device_mdarray<uint32_t>(
+    res, default_ws_mr, raft::make_extents<int64_t>(graph_size));
+
+  const double time_make_start = optimization_time();
+
+  make_reverse_graph_gpu<IdxT>(res, new_graph, d_rev_graph.view(), d_rev_graph_count.view());
+
+  raft::resource::sync_stream(res);
+
+  const double time_make_end = optimization_time();
+  RAFT_LOG_DEBUG("\n# Making reverse graph time: %.1lf ms",
+                 (time_make_end - time_make_start) * 1000.0);
+
+  // merge graph -- will always use GPU path
+  {
+    merge_graph_gpu<IdxT>(res,
+                          new_graph,
+                          d_rev_graph.view(),
+                          d_rev_graph_count.view(),
+                          mst_graph.view(),
+                          mst_graph_num_edges.view(),
+                          guarantee_connectivity);
+  }
+
+  raft::resource::sync_stream(res);
+
+  // These host-side checks are expensive (O(N*D^2)) and only used as debug
+  // diagnostics, so only run them when debug logging is active at runtime.
+  if (raft::default_logger().should_log(rapids_logger::level_enum::debug)) {
+    log_incoming_edges_histogram<IdxT, AccessorOutputGraph>(res, new_graph);
+
+    check_duplicates_and_out_of_range<IdxT, AccessorOutputGraph>(res, new_graph);
+  }
+}
+
+}  // namespace cuvs::neighbors::cagra::detail::graph
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::cagra::detail::graph

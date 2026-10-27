@@ -1,0 +1,84 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include <neighbors/detail/cagra/graph_optimization_launchers.hpp>
+
+#include <neighbors/detail/cagra/cagra_helpers.hpp>
+#include <neighbors/detail/cagra/utils.hpp>
+
+#include <core/nvtx.hpp>
+#include <core/omp_wrapper.hpp>
+#include <raft/core/logger.hpp>
+#include <raft/util/cuda_utils.cuh>
+
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <type_traits>
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+template <typename IdxT, typename AccessorOutputGraph>
+void check_duplicates_and_out_of_range(
+  raft::resources const& res,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph>
+    output_graph)
+{
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> block_scope(
+    "cagra::graph::optimize/check_duplicates");
+
+  const uint64_t graph_size          = output_graph.extent(0);
+  const uint64_t output_graph_degree = output_graph.extent(1);
+
+  // copy to host if required
+  IdxT* output_graph_ptr = nullptr;
+  int64_t buffer_size    = AccessorOutputGraph::is_host_accessible ? graph_size : 0;
+  auto host_copy_output_graph =
+    raft::make_host_matrix<IdxT, int64_t>(buffer_size, output_graph_degree);
+  if constexpr (AccessorOutputGraph::is_host_accessible) {
+    output_graph_ptr = output_graph.data_handle();
+  } else {
+    raft::copy(res, host_copy_output_graph.view(), output_graph);
+    output_graph_ptr = host_copy_output_graph.data_handle();
+  }
+
+  uint64_t num_dup = 0;
+  uint64_t num_oor = 0;
+#pragma omp parallel for reduction(+ : num_dup) reduction(+ : num_oor)
+  for (uint64_t i = 0; i < graph_size; i++) {
+    auto my_out_graph = output_graph_ptr + (output_graph_degree * i);
+    for (uint32_t j = 0; j < output_graph_degree; j++) {
+      const auto neighbor_a = my_out_graph[j];
+
+      if (neighbor_a >= graph_size) {
+        num_oor++;
+        continue;
+      }
+
+      for (uint32_t k = j + 1; k < output_graph_degree; k++) {
+        const auto neighbor_b = my_out_graph[k];
+        if (neighbor_a == neighbor_b) {
+          num_dup++;
+          break;
+        }
+      }
+    }
+  }
+  RAFT_EXPECTS(
+    num_dup == 0, "%lu duplicated node(s) are found in the generated CAGRA graph", num_dup);
+  RAFT_EXPECTS(
+    num_oor == 0, "%lu out-of-range index node(s) are found in the generated CAGRA graph", num_oor);
+}
+
+}  // namespace cuvs::neighbors::cagra::detail::graph
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::cagra::detail::graph

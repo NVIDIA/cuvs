@@ -4,6 +4,7 @@
  */
 
 #include "cagra_helpers.hpp"
+#include "graph_optimization_launchers.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -11,6 +12,8 @@
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 #include <utility>
+
+#include <sys/time.h>
 
 namespace cuvs::neighbors::cagra::helpers {
 namespace {
@@ -252,3 +255,12 @@ std::pair<size_t, size_t> cagra_build_mem_usage(raft::resources const& res,
 }
 
 }  // namespace cuvs::neighbors::cagra::helpers
+
+namespace cuvs::neighbors::cagra::detail::graph {
+double optimization_time()
+{
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return ((double)tv.tv_sec + (double)tv.tv_usec * 1e-6);
+}
+}  // namespace cuvs::neighbors::cagra::detail::graph

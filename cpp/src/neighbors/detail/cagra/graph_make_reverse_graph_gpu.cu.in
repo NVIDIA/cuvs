@@ -1,0 +1,97 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+#include <neighbors/detail/cagra/graph_optimization_launchers.hpp>
+
+#include <neighbors/detail/cagra/cagra_helpers.hpp>
+#include <neighbors/detail/cagra/utils.hpp>
+
+#include <core/nvtx.hpp>
+#include <core/omp_wrapper.hpp>
+#include <raft/core/logger.hpp>
+#include <raft/util/cuda_utils.cuh>
+
+#include <algorithm>
+#include <climits>
+#include <iostream>
+#include <memory>
+#include <random>
+#include <type_traits>
+
+#include <raft/linalg/map.cuh>
+
+extern template void raft::linalg::detail::map<false, uint32_t, int64_t, raft::const_op<uint32_t>>(
+  cuda::stream_ref, uint32_t*, int64_t, raft::const_op<uint32_t>);
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+template <typename IdxT, typename AccessorOutputGraph>
+void make_reverse_graph_gpu(
+  raft::resources const& res,
+  raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph>
+    output_graph,
+  raft::device_matrix_view<IdxT, int64_t> d_rev_graph,
+  raft::device_vector_view<uint32_t, int64_t> d_rev_graph_count)
+{
+  const uint64_t graph_size          = output_graph.extent(0);
+  const uint64_t output_graph_degree = output_graph.extent(1);
+
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> block_scope(
+    "cagra::graph::optimize/reverse");
+
+  //
+  // Make reverse graph
+  //
+  raft::matrix::fill(res, d_rev_graph, IdxT(-1));
+  raft::matrix::fill(res, d_rev_graph_count, uint32_t(0));
+
+  if constexpr (AccessorOutputGraph::is_device_accessible) {
+    // output graph is fully device accessible, so we need no copy to device
+    dim3 threads(256, 1, 1);
+    dim3 blocks(1024, 1, 1);
+    for (uint64_t k = 0; k < output_graph_degree; k++) {
+      launch_make_rev_graph_k<IdxT>(blocks,
+                                    threads,
+                                    0,
+                                    raft::resource::get_cuda_stream(res).get(),
+                                    output_graph,
+                                    d_rev_graph,
+                                    d_rev_graph_count,
+                                    k);
+    }
+  } else {
+    auto d_dest_nodes = raft::make_device_matrix<IdxT, int64_t>(res, graph_size, 1);
+    auto dest_nodes   = raft::make_host_vector<IdxT, int64_t>(graph_size);
+    for (uint64_t k = 0; k < output_graph_degree; k++) {
+#pragma omp parallel for
+      for (uint64_t i = 0; i < graph_size; i++) {
+        dest_nodes(i) = output_graph(i, k);
+      }
+      raft::copy(res, d_dest_nodes.view(), raft::make_const_mdspan(dest_nodes.view()));
+
+      dim3 threads(256, 1, 1);
+      dim3 blocks(1024, 1, 1);
+      launch_make_rev_graph_k<IdxT>(blocks,
+                                    threads,
+                                    0,
+                                    raft::resource::get_cuda_stream(res).get(),
+                                    d_dest_nodes.view(),
+                                    d_rev_graph,
+                                    d_rev_graph_count,
+                                    0);
+      raft::resource::sync_stream(res);
+      RAFT_LOG_DEBUG("# Making reverse graph on GPUs: %lu / %u    \r", k, output_graph_degree);
+    }
+  }
+}
+
+}  // namespace cuvs::neighbors::cagra::detail::graph
+
+namespace cuvs::neighbors::cagra::detail::graph {
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::cagra::detail::graph
