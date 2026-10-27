@@ -15,6 +15,18 @@
 
 #include <raft/sparse/linalg/laplacian.cuh>
 
+extern template void raft::linalg::detail::
+  map<false, float, int, raft::sparse::linalg::detail::zero_to_one_functor, float>(
+    cuda::stream_ref, float*, int, raft::sparse::linalg::detail::zero_to_one_functor, float const*);
+
+extern template void raft::linalg::detail::
+  map<false, double, int, raft::sparse::linalg::detail::zero_to_one_functor, double>(
+    cuda::stream_ref,
+    double*,
+    int,
+    raft::sparse::linalg::detail::zero_to_one_functor,
+    double const*);
+
 extern template void raft::linalg::detail::map<false, double, int, raft::sqrt_op, double>(
   cuda::stream_ref, double*, int, raft::sqrt_op, double const*);
 
