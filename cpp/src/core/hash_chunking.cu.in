@@ -1,0 +1,55 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_device_flagged_if_launchers.hpp>
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_compact_launchers.hpp>
+
+#include <raft/core/resource/cuda_stream.hpp>
+#include <raft/util/cuda_utils.cuh>
+#include <raft/util/cudart_utils.hpp>
+#include <rmm/exec_policy.hpp>
+
+#include <distance/detail/sparse/coo_spmv_strategies/hash_strategy.cuh>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <thrust/copy.h>
+
+namespace cuvs::distance::detail::sparse {
+
+template <typename value_idx, typename value_t, int tpb>
+void hash_strategy<value_idx, value_t, tpb>::chunking_needed(
+  const value_idx* indptr,
+  const value_idx n_rows,
+  rmm::device_uvector<value_idx>& mask_indptr,
+  std::tuple<value_idx, value_idx>& n_rows_divided,
+  cudaStream_t stream)
+{
+  auto policy = raft::resource::get_thrust_policy(this->config.handle);
+
+  auto less                   = thrust::copy_if(policy,
+                              cuda::make_counting_iterator(value_idx(0)),
+                              cuda::make_counting_iterator(n_rows),
+                              mask_indptr.data(),
+                              fits_in_hash_table(indptr, 0, capacity_threshold * map_size));
+  std::get<0>(n_rows_divided) = less - mask_indptr.data();
+
+  auto more = thrust::copy_if(
+    policy,
+    cuda::make_counting_iterator(value_idx(0)),
+    cuda::make_counting_iterator(n_rows),
+    less,
+    fits_in_hash_table(
+      indptr, capacity_threshold * map_size, std::numeric_limits<value_idx>::max()));
+  std::get<1>(n_rows_divided) = more - less;
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::distance::detail::sparse

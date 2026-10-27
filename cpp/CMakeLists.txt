@@ -1726,6 +1726,36 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_sort_shared_kernels_@instantiation_name@.cu"
   )
 
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/brute_force_search_gathered_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/brute_force_search_gathered.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/brute_force_search_gathered_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_select_if_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_select_if.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_select_if_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/hash_chunking_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/hash_chunking.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/hash_chunking_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/brute_force_knn_impl_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/brute_force_knn_impl.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/brute_force_knn_impl_@inst_abbrev@.cu"
+  )
+
   add_library(
     cuvs_objs OBJECT
     ${cuvs_primitive_sources}
@@ -1735,6 +1765,7 @@ if(NOT BUILD_CPU_ONLY)
     src/core/cub_sort_keys_descending.cu
     src/core/has_non_finite.cu
     src/core/mask_distance_tile.cu
+    src/core/roaring_build.cu
     src/core/thrust_for_each.cu
     src/core/thrust_reduce_by_key.cu
     src/core/thrust_stable_sort_by_key.cu
@@ -1790,6 +1821,9 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/ball_cover/detail/ball_cover/registers_pass_one.cu
     src/neighbors/ball_cover/detail/ball_cover/registers_pass_two.cu
     src/neighbors/brute_force.cu
+    src/neighbors/brute_force_tiled_l2_distance.cu
+    src/neighbors/brute_force_tiled_cosine_distance.cu
+    src/neighbors/brute_force_transpose_half.cu
     src/neighbors/brute_force_serialize.cu
     src/neighbors/cagra.cpp
     ${cagra_build_inst_files}

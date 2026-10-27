@@ -6,8 +6,9 @@
 #include <cuvs/core/roaring_allowlist.hpp>
 
 #include "nvtx.hpp"
+#include "roaring_build.hpp"
 
-#include <cuco/roaring_bitmap.cuh>
+#include <cuco/roaring_bitmap_ref.cuh>
 
 #include <raft/core/copy.cuh>
 #include <raft/core/error.hpp>
@@ -49,9 +50,7 @@ namespace {
  * @see https://github.com/NVIDIA/cuCollections/pull/839
  */
 
-using ref_type              = cuco::experimental::roaring_bitmap_ref<std::uint32_t>;
-using cuco_bitmap_allocator = rmm::mr::polymorphic_allocator<cuda::std::byte>;
-using cuco_bitmap_type = cuco::experimental::roaring_bitmap<std::uint32_t, cuco_bitmap_allocator>;
+using ref_type = cuco::experimental::roaring_bitmap_ref<std::uint32_t>;
 
 void validate_dataset_rows(std::size_t dataset_rows)
 {
@@ -61,10 +60,7 @@ void validate_dataset_rows(std::size_t dataset_rows)
                "dataset_rows exceeds the uint32_t Roaring key domain.");
 }
 
-struct device_build_result {
-  std::unique_ptr<cuco_bitmap_type> owner;
-  std::size_t cardinality{};
-};
+using device_build_result = cuvs::detail::roaring_build_result;
 
 device_build_result build_from_device_ids(
   raft::resources const& res,
@@ -76,31 +72,26 @@ device_build_result build_from_device_ids(
   auto const size   = static_cast<std::size_t>(ids.extent(0));
   if (size == 0) { return {}; }
 
-  cuco_bitmap_allocator allocator{};
-  auto bitmap            = pre_sorted ? cuco_bitmap_type::from_sorted_unique_indices(
-                               ids.data_handle(), ids.data_handle() + size, allocator, stream)
-                                      : cuco_bitmap_type::from_indices(
-                               ids.data_handle(), ids.data_handle() + size, allocator, stream);
-  auto owner             = std::make_unique<cuco_bitmap_type>(std::move(bitmap));
-  auto const cardinality = static_cast<std::size_t>(owner->size());
-  return {std::move(owner), cardinality};
+  return cuvs::detail::build_roaring_bitmap(ids.data_handle(), size, pre_sorted, stream);
 }
 
 }  // namespace
 
 struct roaring_allowlist::impl {
-  std::unique_ptr<cuco_bitmap_type> owner;
+  cuvs::detail::roaring_owner_ptr owner;
   std::optional<ref_type> host_reference;
   rmm::device_uvector<ref_type> device_reference;
   std::size_t cardinality_{};
   std::size_t dataset_rows_{};
+  std::size_t storage_bytes_{};
 
   impl(raft::resources const& res, std::size_t dataset_rows, device_build_result&& built)
     : owner(std::move(built.owner)),
-      host_reference(owner ? std::make_optional(owner->ref()) : std::nullopt),
+      host_reference(std::move(built.reference)),
       device_reference(owner ? 1 : 0, raft::resource::get_cuda_stream(res)),
       cardinality_(built.cardinality),
-      dataset_rows_(dataset_rows)
+      dataset_rows_(dataset_rows),
+      storage_bytes_(built.storage_bytes)
   {
     static_assert(std::is_trivially_copyable_v<ref_type>);
     if (host_reference) {
@@ -160,7 +151,7 @@ bool roaring_allowlist::empty() const noexcept { return cardinality() == 0; }
 std::size_t roaring_allowlist::size_bytes() const noexcept
 {
   auto bytes = impl_->device_reference.size() * sizeof(ref_type);
-  if (impl_->owner) { bytes += static_cast<std::size_t>(impl_->owner->size_bytes()); }
+  bytes += impl_->storage_bytes_;
   return bytes;
 }
 

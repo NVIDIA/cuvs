@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <neighbors/detail/knn_brute_force.cuh>
+
+namespace {
+
+using inst_data_t = @data_type@;
+
+}  // namespace
+
+template void cuvs::neighbors::detail::brute_force_knn_impl<int64_t, int64_t, inst_data_t, float>(
+  raft::resources const&,
+  std::vector<inst_data_t*>&,
+  std::vector<int64_t>&,
+  int64_t,
+  inst_data_t*,
+  int64_t,
+  int64_t*,
+  float*,
+  int64_t,
+  bool,
+  bool,
+  std::vector<int64_t>*,
+  cuvs::distance::DistanceType,
+  float,
+  std::vector<float*>*,
+  float const*);

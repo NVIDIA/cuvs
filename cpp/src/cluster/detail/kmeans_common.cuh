@@ -6,6 +6,8 @@
 #include "../../core/cub_runtime_launchers.hpp"
 
 #include "../../core/gather_launchers.hpp"
+
+#include "../../core/cub_compaction_launchers.hpp"
 #include "../../distance/distance.cuh"
 #include "../../distance/top_1_nn.cuh"
 #include <cstdint>
@@ -73,31 +75,6 @@ void compute_fp32_tf32_norms(raft::resources const& handle,
                              raft::device_vector_view<float, IndexT> fp32_norms,
                              raft::device_vector_view<float, IndexT> tf32_norms,
                              bool take_sqrt = false);
-
-template <typename DataT, typename IndexT>
-struct SamplingOp {
-  DataT* rnd;
-  uint8_t* flag;
-  DataT cluster_cost;
-  double oversampling_factor;
-  IndexT n_clusters;
-
-  CUB_RUNTIME_FUNCTION __forceinline__
-  SamplingOp(DataT c, double l, IndexT k, DataT* rand, uint8_t* ptr)
-    : cluster_cost(c), oversampling_factor(l), n_clusters(k), rnd(rand), flag(ptr)
-  {
-  }
-
-  __host__ __device__ __forceinline__ bool operator()(
-    const raft::KeyValuePair<ptrdiff_t, DataT>& a) const
-  {
-    DataT prob_threshold = (DataT)rnd[a.key];
-
-    DataT prob_x = ((oversampling_factor * n_clusters * a.value) / cluster_cost);
-
-    return !flag[a.key] && (prob_x > prob_threshold);
-  }
-};
 
 template <typename DataT, typename IndexT>
 using MinClusterAndDistanceResult = cuvs::distance::Top1nnResultView<DataT, IndexT>;
@@ -368,25 +345,25 @@ void sampleCentroids(raft::resources const& handle,
   auto sampledMinClusterDistance =
     raft::make_device_vector<raft::KeyValuePair<ptrdiff_t, DataT>, IndexT>(handle, n_local_samples);
   size_t temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceSelect::If(nullptr,
-                                      temp_storage_bytes,
-                                      ip_itr,
-                                      sampledMinClusterDistance.data_handle(),
-                                      nSelected.data_handle(),
-                                      n_local_samples,
-                                      select_op,
-                                      stream));
+  RAFT_CUDA_TRY(cuvs::detail::cub_select_if(nullptr,
+                                            temp_storage_bytes,
+                                            ip_itr,
+                                            sampledMinClusterDistance.data_handle(),
+                                            nSelected.data_handle(),
+                                            n_local_samples,
+                                            select_op,
+                                            stream));
 
   workspace.resize(temp_storage_bytes, stream);
 
-  RAFT_CUDA_TRY(cub::DeviceSelect::If(workspace.data(),
-                                      temp_storage_bytes,
-                                      ip_itr,
-                                      sampledMinClusterDistance.data_handle(),
-                                      nSelected.data_handle(),
-                                      n_local_samples,
-                                      select_op,
-                                      stream));
+  RAFT_CUDA_TRY(cuvs::detail::cub_select_if(workspace.data(),
+                                            temp_storage_bytes,
+                                            ip_itr,
+                                            sampledMinClusterDistance.data_handle(),
+                                            nSelected.data_handle(),
+                                            n_local_samples,
+                                            select_op,
+                                            stream));
 
   IndexT nPtsSampledInRank = 0;
   raft::copy(handle,

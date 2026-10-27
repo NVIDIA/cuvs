@@ -1,0 +1,40 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_device_select_if_launchers.hpp>
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_compact_launchers.hpp>
+
+#include <core/cub_compaction_launchers.hpp>
+#include <cub/device/device_select.cuh>
+#include <cub/iterator/arg_index_input_iterator.cuh>
+#include <cuvs/core/cuda_fp16.hpp>
+
+namespace cuvs::detail {
+
+template <typename InputIt,
+          typename OutputIt,
+          typename CountIt,
+          typename NumItems,
+          typename Predicate>
+cudaError_t cub_select_if(void* storage,
+                          size_t& bytes,
+                          InputIt input,
+                          OutputIt output,
+                          CountIt selected,
+                          NumItems count,
+                          Predicate predicate,
+                          cudaStream_t stream)
+{
+  return cub::DeviceSelect::If(storage, bytes, input, output, selected, count, predicate, stream);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::detail

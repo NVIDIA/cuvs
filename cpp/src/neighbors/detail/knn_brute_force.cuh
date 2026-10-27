@@ -8,6 +8,7 @@
 #include "../../core/gather_launchers.hpp"
 
 #include "../../core/cub_runtime_launchers.hpp"
+#include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -59,6 +60,30 @@
 #include <variant>
 
 namespace cuvs::neighbors::detail {
+
+CUVS_EXPORT void apply_tiled_l2_distance(raft::resources const& handle,
+                                         float* dist,
+                                         size_t query_size,
+                                         size_t centroid_size,
+                                         size_t row_offset,
+                                         size_t col_offset,
+                                         float const* row_norms,
+                                         float const* col_norms,
+                                         bool sqrt);
+CUVS_EXPORT void apply_tiled_cosine_distance(raft::resources const& handle,
+                                             float* dist,
+                                             size_t query_size,
+                                             size_t centroid_size,
+                                             size_t row_offset,
+                                             size_t col_offset,
+                                             float const* row_norms,
+                                             float const* col_norms);
+CUVS_EXPORT void transpose_brute_force_half(raft::resources const& handle,
+                                            __half* in,
+                                            __half* out,
+                                            int n_rows,
+                                            int n_cols,
+                                            cudaStream_t stream);
 
 /**
  * Calculates brute force knn, using a fixed memory budget
@@ -207,31 +232,50 @@ void tiled_brute_force_knn(const raft::resources& handle,
         auto dist      = temp_distances.data();
         bool sqrt      = metric == cuvs::distance::DistanceType::L2SqrtExpanded;
 
-        raft::linalg::map_offset(
-          handle,
-          raft::make_device_vector_view(dist, current_query_size * current_centroid_size),
-          [=] __device__(IndexType idx) {
-            IndexType row = i + (idx / current_centroid_size);
-            IndexType col = j + (idx % current_centroid_size);
+        if constexpr (std::is_same_v<DistanceT, float> && std::is_same_v<IndexType, int64_t> &&
+                      std::is_same_v<DistanceEpilogue, raft::identity_op>) {
+          apply_tiled_l2_distance(handle,
+                                  dist,
+                                  current_query_size,
+                                  current_centroid_size,
+                                  i,
+                                  j,
+                                  row_norms,
+                                  col_norms,
+                                  sqrt);
+        } else {
+          raft::linalg::map_offset(
+            handle,
+            raft::make_device_vector_view(dist, current_query_size * current_centroid_size),
+            [=] __device__(IndexType idx) {
+              IndexType row = i + (idx / current_centroid_size);
+              IndexType col = j + (idx % current_centroid_size);
 
-            cuvs::distance::detail::ops::l2_exp_cutlass_op<DistanceT, DistanceT> l2_op(sqrt);
-            auto val = l2_op(row_norms[row], col_norms[col], dist[idx]);
-            return distance_epilogue(val, row, col);
-          });
+              cuvs::distance::detail::ops::l2_exp_cutlass_op<DistanceT, DistanceT> l2_op(sqrt);
+              auto val = l2_op(row_norms[row], col_norms[col], dist[idx]);
+              return distance_epilogue(val, row, col);
+            });
+        }
       } else if (metric == cuvs::distance::DistanceType::CosineExpanded) {
         auto row_norms = precomputed_search_norms ? precomputed_search_norms : search_norms.data();
         auto col_norms = precomputed_index_norms ? precomputed_index_norms : index_norms.data();
         auto dist      = temp_distances.data();
 
-        raft::linalg::map_offset(
-          handle,
-          raft::make_device_vector_view(dist, current_query_size * current_centroid_size),
-          [=] __device__(IndexType idx) {
-            IndexType row = i + (idx / current_centroid_size);
-            IndexType col = j + (idx % current_centroid_size);
-            auto val      = DistanceT(1.0) - dist[idx] / DistanceT(row_norms[row] * col_norms[col]);
-            return distance_epilogue(val, row, col);
-          });
+        if constexpr (std::is_same_v<DistanceT, float> && std::is_same_v<IndexType, int64_t> &&
+                      std::is_same_v<DistanceEpilogue, raft::identity_op>) {
+          apply_tiled_cosine_distance(
+            handle, dist, current_query_size, current_centroid_size, i, j, row_norms, col_norms);
+        } else {
+          raft::linalg::map_offset(
+            handle,
+            raft::make_device_vector_view(dist, current_query_size * current_centroid_size),
+            [=] __device__(IndexType idx) {
+              IndexType row = i + (idx / current_centroid_size);
+              IndexType col = j + (idx % current_centroid_size);
+              auto val = DistanceT(1.0) - dist[idx] / DistanceT(row_norms[row] * col_norms[col]);
+              return distance_epilogue(val, row, col);
+            });
+        }
       } else {
         // if we're not l2 distance, and we have a distance epilogue - run it now
         if constexpr (!std::is_same_v<DistanceEpilogue, raft::identity_op>) {
@@ -424,7 +468,11 @@ void brute_force_knn_impl(
   rmm::device_uvector<value_t> search_row_major(0, userStream);
   if (!rowMajorQuery) {
     search_row_major.resize(n * D, userStream);
-    raft::linalg::transpose(handle, search, search_row_major.data(), n, D, userStream.get());
+    if constexpr (std::is_same_v<value_t, __half>) {
+      transpose_brute_force_half(handle, search, search_row_major.data(), n, D, userStream.get());
+    } else {
+      raft::linalg::transpose(handle, search, search_row_major.data(), n, D, userStream.get());
+    }
     search = search_row_major.data();
   }
 
@@ -501,7 +549,11 @@ void brute_force_knn_impl(
           if (!rowMajorIndex) {
             index = index_row_major.data() + total_rows_processed * D;
             total_rows_processed += sizes[i];
-            raft::linalg::transpose(handle, input[i], index, sizes[i], D, stream.get());
+            if constexpr (std::is_same_v<value_t, __half>) {
+              transpose_brute_force_half(handle, input[i], index, sizes[i], D, stream.get());
+            } else {
+              raft::linalg::transpose(handle, input[i], index, sizes[i], D, stream.get());
+            }
           }
 
           tiled_brute_force_knn<value_t, IdxType>(stream_pool_handle,
@@ -663,73 +715,7 @@ void brute_force_search_gathered(
   IdxT n_pass,
   raft::device_matrix_view<IdxT, IdxT, raft::row_major> neighbors,
   raft::device_matrix_view<DistanceT, IdxT, raft::row_major> distances,
-  std::optional<raft::device_vector_view<const DistanceT, IdxT>> query_norms = std::nullopt)
-{
-  auto policy    = raft::resource::get_thrust_policy(res);
-  IdxT n_queries = queries.extent(0);
-  IdxT n_dataset = idx.dataset().extent(0);
-  IdxT dim       = idx.dataset().extent(1);
-  IdxT k         = neighbors.extent(1);
-
-  // 1. enumerate the rows the filter keeps
-  auto passing = raft::make_device_vector<IdxT, IdxT>(res, n_pass);
-  thrust::copy_if(policy,
-                  thrust::make_counting_iterator<IdxT>(0),
-                  thrust::make_counting_iterator<IdxT>(n_dataset),
-                  passing.data_handle(),
-                  [filter_view] __device__(IdxT i) { return filter_view.test(i); });
-
-  // 2. compact those rows, and their norms, into a dense dataset
-  auto gathered = raft::make_device_matrix<T, IdxT, raft::row_major>(res, n_pass, dim);
-  cuvs::detail::gather(
-    res,
-    raft::make_device_matrix_view<const T, IdxT, raft::row_major>(
-      idx.dataset().data_handle(), n_dataset, dim),
-    raft::make_device_vector_view<const IdxT, IdxT>(passing.data_handle(), n_pass),
-    gathered.view());
-
-  auto gathered_norms =
-    raft::make_device_vector<DistanceT, IdxT>(res, idx.has_norms() ? n_pass : 0);
-  if (idx.has_norms()) {
-    thrust::gather(policy,
-                   passing.data_handle(),
-                   passing.data_handle() + n_pass,
-                   idx.norms().data_handle(),
-                   gathered_norms.data_handle());
-  }
-
-  // 3. ordinary unfiltered search over the compacted dataset
-  auto compact_neighbors = raft::make_device_matrix<IdxT, IdxT, raft::row_major>(res, n_queries, k);
-  std::vector<T*> dataset    = {gathered.data_handle()};
-  std::vector<int64_t> sizes = {static_cast<int64_t>(n_pass)};
-  std::vector<DistanceT*> norms;
-  if (idx.has_norms()) { norms.push_back(gathered_norms.data_handle()); }
-
-  brute_force_knn_impl<int64_t, IdxT, T, DistanceT>(
-    res,
-    dataset,
-    sizes,
-    dim,
-    const_cast<T*>(queries.data_handle()),
-    n_queries,
-    compact_neighbors.data_handle(),
-    distances.data_handle(),
-    k,
-    true,
-    true,
-    nullptr,
-    idx.metric(),
-    idx.metric_arg(),
-    norms.size() ? &norms : nullptr,
-    query_norms ? query_norms->data_handle() : nullptr);
-
-  // 4. translate compacted row numbers back into the original dataset's numbering
-  thrust::gather(policy,
-                 compact_neighbors.data_handle(),
-                 compact_neighbors.data_handle() + compact_neighbors.size(),
-                 passing.data_handle(),
-                 neighbors.data_handle());
-}
+  std::optional<raft::device_vector_view<const DistanceT, IdxT>> query_norms = std::nullopt);
 
 template <typename T, typename IdxT, typename BitsT, typename DistanceT = float>
 void brute_force_search_filtered(
@@ -981,4 +967,61 @@ cuvs::neighbors::brute_force::index<T, DistT> build(
   return cuvs::neighbors::brute_force::index<T, DistT>(
     res, dataset, std::move(norms), metric, metric_arg);
 }
+
+extern template void brute_force_search_gathered<float, int64_t, uint32_t, float>(
+  raft::resources const&,
+  const cuvs::neighbors::brute_force::index<float, float>&,
+  raft::device_matrix_view<const float, int64_t, raft::row_major>,
+  const cuvs::core::bitset_view<uint32_t, int64_t>&,
+  int64_t,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  std::optional<raft::device_vector_view<const float, int64_t>>);
+
+extern template void brute_force_knn_impl<int64_t, int64_t, float, float>(
+  raft::resources const&,
+  std::vector<float*>&,
+  std::vector<int64_t>&,
+  int64_t,
+  float*,
+  int64_t,
+  int64_t*,
+  float*,
+  int64_t,
+  bool,
+  bool,
+  std::vector<int64_t>*,
+  cuvs::distance::DistanceType,
+  float,
+  std::vector<float*>*,
+  float const*);
+
+extern template void brute_force_search_gathered<__half, int64_t, uint32_t, float>(
+  raft::resources const&,
+  const cuvs::neighbors::brute_force::index<__half, float>&,
+  raft::device_matrix_view<const __half, int64_t, raft::row_major>,
+  const cuvs::core::bitset_view<uint32_t, int64_t>&,
+  int64_t,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major>,
+  raft::device_matrix_view<float, int64_t, raft::row_major>,
+  std::optional<raft::device_vector_view<const float, int64_t>>);
+
+extern template void brute_force_knn_impl<int64_t, int64_t, __half, float>(
+  raft::resources const&,
+  std::vector<__half*>&,
+  std::vector<int64_t>&,
+  int64_t,
+  __half*,
+  int64_t,
+  int64_t*,
+  float*,
+  int64_t,
+  bool,
+  bool,
+  std::vector<int64_t>*,
+  cuvs::distance::DistanceType,
+  float,
+  std::vector<float*>*,
+  float const*);
+
 }  // namespace cuvs::neighbors::detail
