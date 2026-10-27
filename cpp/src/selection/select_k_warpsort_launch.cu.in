@@ -4,11 +4,89 @@
  */
 
 #include <core/cub_ptx_query.hpp>
+#include <core/selection_launchers.hpp>
 
 #include <cuvs/core/cuda_fp16.hpp>
 #include <raft/matrix/detail/select_warpsort.cuh>
 
 namespace raft::matrix::detail::select::warpsort {
-@primitive_instantiations@
+
+namespace {
+using selection_value_type = @data_type@;
+using selection_index_type = @index_type@;
+}  // namespace
+
+template <>
+void select_k_<@sort_type@, selection_value_type, selection_index_type, @row_layout@>(
+  bool dry_run,
+  int num_of_block,
+  int num_of_warp,
+  const selection_value_type* in,
+  const selection_index_type* in_idx,
+  const selection_index_type* in_indptr,
+  size_t batch_size,
+  size_t len,
+  int k,
+  selection_value_type* out,
+  selection_index_type* out_idx,
+  bool select_min,
+  cuda::stream_ref stream,
+  rmm::device_async_resource_ref mr)
+{
+  rmm::device_uvector<selection_value_type> tmp_val(num_of_block * k * batch_size, stream, mr);
+  rmm::device_uvector<selection_index_type> tmp_idx(num_of_block * k * batch_size, stream, mr);
+
+  if (dry_run) { return; }
+
+  int capacity   = bound_by_power_of_two(k);
+  int warp_width = std::min(capacity, WarpSize);
+
+  selection_value_type* result_val = (num_of_block == 1) ? out : tmp_val.data();
+  selection_index_type* result_idx = (num_of_block == 1) ? out_idx : tmp_idx.data();
+  int block_dim                    = num_of_warp * warp_width;
+  int smem_size =
+    calc_smem_size_for_block_wide<selection_value_type, selection_index_type>(num_of_warp, k);
+
+  smem_size = std::max<int>(
+    smem_size,
+    @sort_type@<1, true, selection_value_type, selection_index_type>::mem_required(block_dim));
+
+  cuvs::detail::
+    warpsort_launch_setup<@sort_type@, selection_value_type, selection_index_type, @row_layout@>::kernel(
+      k,
+      select_min,
+      batch_size,
+      len,
+      num_of_block,
+      block_dim,
+      smem_size,
+      in,
+      in_idx,
+      in_indptr,
+      result_val,
+      result_idx,
+      stream);
+
+  if (num_of_block > 1) {
+    // a second pass to merge the results if necessary
+    cuvs::detail::warpsort_launch_setup<
+      @sort_type@,
+      selection_value_type,
+      selection_index_type,
+      select::dense_layout<selection_index_type>>::kernel(k,
+                                                          select_min,
+                                                          batch_size,
+                                                          k * num_of_block,
+                                                          1,
+                                                          block_dim,
+                                                          smem_size,
+                                                          tmp_val.data(),
+                                                          tmp_idx.data(),
+                                                          nullptr,
+                                                          out,
+                                                          out_idx,
+                                                          stream);
+  }
+}
 
 }  // namespace raft::matrix::detail::select::warpsort

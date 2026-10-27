@@ -6,52 +6,67 @@
     "_variants": [
       {
         "template_arguments": "<float, int, 8, 512, raft::matrix::detail::select::dense_layout<int>>",
-        "parameter_types": "raft::resources const&, float const*, int const*, int, int, int, float*, int*, bool, bool, int const*"
+        "parameter_types": "raft::resources const&, float const*, int const*, int, int, int, float*, int*, bool, bool, int const*",
+        "instantiation_name": "f32_int_8_512_dense_layout_int"
       },
       {
         "template_arguments": "<float, int, 11, 512, raft::matrix::detail::select::dense_layout<int>>",
-        "parameter_types": "raft::resources const&, float const*, int const*, int, int, int, float*, int*, bool, bool, int const*"
+        "parameter_types": "raft::resources const&, float const*, int const*, int, int, int, float*, int*, bool, bool, int const*",
+        "instantiation_name": "f32_int_11_512_dense_layout_int"
       },
       {
         "template_arguments": "<float, int64_t, 8, 512, raft::matrix::detail::select::dense_layout<int64_t>>",
-        "parameter_types": "raft::resources const&, float const*, int64_t const*, int, int64_t, int64_t, float*, int64_t*, bool, bool, int64_t const*"
+        "parameter_types": "raft::resources const&, float const*, int64_t const*, int, int64_t, int64_t, float*, int64_t*, bool, bool, int64_t const*",
+        "instantiation_name": "f32_i64_8_512_dense_layout_i64"
       },
       {
         "template_arguments": "<float, int64_t, 11, 512, raft::matrix::detail::select::dense_layout<int64_t>>",
-        "parameter_types": "raft::resources const&, float const*, int64_t const*, int, int64_t, int64_t, float*, int64_t*, bool, bool, int64_t const*"
+        "parameter_types": "raft::resources const&, float const*, int64_t const*, int, int64_t, int64_t, float*, int64_t*, bool, bool, int64_t const*",
+        "instantiation_name": "f32_i64_11_512_dense_layout_i64"
       },
       {
         "template_arguments": "<float, uint32_t, 8, 512, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "raft::resources const&, float const*, uint32_t const*, int, uint32_t, uint32_t, float*, uint32_t*, bool, bool, uint32_t const*"
+        "parameter_types": "raft::resources const&, float const*, uint32_t const*, int, uint32_t, uint32_t, float*, uint32_t*, bool, bool, uint32_t const*",
+        "instantiation_name": "f32_u32_8_512_dense_layout_u32"
       },
       {
         "template_arguments": "<float, uint32_t, 11, 512, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "raft::resources const&, float const*, uint32_t const*, int, uint32_t, uint32_t, float*, uint32_t*, bool, bool, uint32_t const*"
+        "parameter_types": "raft::resources const&, float const*, uint32_t const*, int, uint32_t, uint32_t, float*, uint32_t*, bool, bool, uint32_t const*",
+        "instantiation_name": "f32_u32_11_512_dense_layout_u32"
       },
       {
         "template_arguments": "<__half, uint32_t, 8, 512, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "raft::resources const&, __half const*, uint32_t const*, int, uint32_t, uint32_t, __half*, uint32_t*, bool, bool, uint32_t const*"
+        "parameter_types": "raft::resources const&, __half const*, uint32_t const*, int, uint32_t, uint32_t, __half*, uint32_t*, bool, bool, uint32_t const*",
+        "instantiation_name": "f16_u32_8_512_dense_layout_u32"
       },
       {
         "template_arguments": "<__half, uint32_t, 11, 512, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "raft::resources const&, __half const*, uint32_t const*, int, uint32_t, uint32_t, __half*, uint32_t*, bool, bool, uint32_t const*"
+        "parameter_types": "raft::resources const&, __half const*, uint32_t const*, int, uint32_t, uint32_t, __half*, uint32_t*, bool, bool, uint32_t const*",
+        "instantiation_name": "f16_u32_11_512_dense_layout_u32"
       },
       {
         "template_arguments": "<int, uint32_t, 8, 512, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "raft::resources const&, int const*, uint32_t const*, int, uint32_t, uint32_t, int*, uint32_t*, bool, bool, uint32_t const*"
+        "parameter_types": "raft::resources const&, int const*, uint32_t const*, int, uint32_t, uint32_t, int*, uint32_t*, bool, bool, uint32_t const*",
+        "instantiation_name": "int_u32_8_512_dense_layout_u32"
       },
       {
         "template_arguments": "<int, uint32_t, 11, 512, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "raft::resources const&, int const*, uint32_t const*, int, uint32_t, uint32_t, int*, uint32_t*, bool, bool, uint32_t const*"
+        "parameter_types": "raft::resources const&, int const*, uint32_t const*, int, uint32_t, uint32_t, int*, uint32_t*, bool, bool, uint32_t const*",
+        "instantiation_name": "int_u32_11_512_dense_layout_u32"
       },
       {
         "template_arguments": "<float, int64_t, 8, 512, raft::matrix::detail::select::csr_layout<int64_t>>",
-        "parameter_types": "raft::resources const&, float const*, int64_t const*, int, int64_t, int64_t, float*, int64_t*, bool, bool, int64_t const*"
+        "parameter_types": "raft::resources const&, float const*, int64_t const*, int, int64_t, int64_t, float*, int64_t*, bool, bool, int64_t const*",
+        "instantiation_name": "f32_i64_8_512_csr_layout_i64",
+        "grid_dimension_declaration": "extern template unsigned raft::matrix::detail::select::radix::impl::calc_grid_dim<float, int64_t, 8, 512>(int, int64_t, int);"
       },
       {
         "template_arguments": "<float, int64_t, 11, 512, raft::matrix::detail::select::csr_layout<int64_t>>",
-        "parameter_types": "raft::resources const&, float const*, int64_t const*, int, int64_t, int64_t, float*, int64_t*, bool, bool, int64_t const*"
+        "parameter_types": "raft::resources const&, float const*, int64_t const*, int, int64_t, int64_t, float*, int64_t*, bool, bool, int64_t const*",
+        "instantiation_name": "f32_i64_11_512_csr_layout_i64",
+        "grid_dimension_declaration": "extern template unsigned raft::matrix::detail::select::radix::impl::calc_grid_dim<float, int64_t, 11, 512>(int, int64_t, int);"
       }
-    ]
+    ],
+    "grid_dimension_declaration": ""
   }
 ]

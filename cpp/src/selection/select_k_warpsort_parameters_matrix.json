@@ -1,0 +1,151 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "calc_launch_parameter",
+    "parameter_types": "raft::resources const&, size_t, size_t, int, int*, int*",
+    "function_qualifiers": "",
+    "namespace_context": "raft::matrix::detail::select::warpsort",
+    "_variants": [
+      {
+        "template_arguments": "<warp_sort_filtered, float, int>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_filtered_f32_int",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "int"
+      },
+      {
+        "template_arguments": "<warp_sort_immediate, float, int>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_immediate_f32_int",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "int"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed, float, int>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_f32_int",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "int"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed_ext, float, int>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_ext_f32_int",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "int"
+      },
+      {
+        "template_arguments": "<warp_sort_filtered, float, int64_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_filtered_f32_i64",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "int64_t"
+      },
+      {
+        "template_arguments": "<warp_sort_immediate, float, int64_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_immediate_f32_i64",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "int64_t"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed, float, int64_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_f32_i64",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "int64_t"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed_ext, float, int64_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_ext_f32_i64",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "int64_t"
+      },
+      {
+        "template_arguments": "<warp_sort_filtered, float, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_filtered_f32_u32",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_immediate, float, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_immediate_f32_u32",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed, float, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_f32_u32",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed_ext, float, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_ext_f32_u32",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_filtered, __half, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_filtered_f16_u32",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "__half",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_immediate, __half, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_immediate_f16_u32",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "__half",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed, __half, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_f16_u32",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "__half",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed_ext, __half, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_ext_f16_u32",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "__half",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_filtered, int, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_filtered_int_u32",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "int",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_immediate, int, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_immediate_int_u32",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "int",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed, int, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_int_u32",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "int",
+        "index_type": "uint32_t"
+      },
+      {
+        "template_arguments": "<warp_sort_distributed_ext, int, uint32_t>",
+        "instantiation_name": "calc_launch_parameter_warp_sort_distributed_ext_int_u32",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "int",
+        "index_type": "uint32_t"
+      }
+    ]
+  }
+]

@@ -1,174 +1,225 @@
 [
   {
     "return_type": "void",
-    "qualified_function": "calc_launch_parameter",
-    "parameter_types": "raft::resources const&, size_t, size_t, int, int*, int*",
-    "function_qualifiers": "",
-    "namespace_context": "raft::matrix::detail::select::warpsort",
-    "_variants": [
-      {
-        "template_arguments": "<warp_sort_filtered, float, int>"
-      },
-      {
-        "template_arguments": "<warp_sort_immediate, float, int>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed, float, int>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed_ext, float, int>"
-      },
-      {
-        "template_arguments": "<warp_sort_filtered, float, int64_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_immediate, float, int64_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed, float, int64_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed_ext, float, int64_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_filtered, float, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_immediate, float, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed, float, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed_ext, float, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_filtered, __half, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_immediate, __half, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed, __half, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed_ext, __half, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_filtered, int, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_immediate, int, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed, int, uint32_t>"
-      },
-      {
-        "template_arguments": "<warp_sort_distributed_ext, int, uint32_t>"
-      }
-    ]
-  },
-  {
-    "return_type": "void",
     "qualified_function": "select_k_",
     "function_qualifiers": "",
     "namespace_context": "raft::matrix::detail::select::warpsort",
     "_variants": [
       {
         "template_arguments": "<warp_sort_filtered, float, int, raft::matrix::detail::select::dense_layout<int>>",
-        "parameter_types": "bool, int, int, float const*, int const*, int const*, size_t, size_t, int, float*, int*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int const*, int const*, size_t, size_t, int, float*, int*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_filtered_f32_int_dense_layout_int",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "int",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int>"
       },
       {
         "template_arguments": "<warp_sort_immediate, float, int, raft::matrix::detail::select::dense_layout<int>>",
-        "parameter_types": "bool, int, int, float const*, int const*, int const*, size_t, size_t, int, float*, int*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int const*, int const*, size_t, size_t, int, float*, int*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_immediate_f32_int_dense_layout_int",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "int",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int>"
       },
       {
         "template_arguments": "<warp_sort_distributed, float, int, raft::matrix::detail::select::dense_layout<int>>",
-        "parameter_types": "bool, int, int, float const*, int const*, int const*, size_t, size_t, int, float*, int*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int const*, int const*, size_t, size_t, int, float*, int*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_f32_int_dense_layout_int",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "int",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int>"
       },
       {
         "template_arguments": "<warp_sort_distributed_ext, float, int, raft::matrix::detail::select::dense_layout<int>>",
-        "parameter_types": "bool, int, int, float const*, int const*, int const*, size_t, size_t, int, float*, int*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int const*, int const*, size_t, size_t, int, float*, int*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_ext_f32_int_dense_layout_int",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "int",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int>"
       },
       {
         "template_arguments": "<warp_sort_filtered, float, int64_t, raft::matrix::detail::select::dense_layout<int64_t>>",
-        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_filtered_f32_i64_dense_layout_i64",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int64_t>"
       },
       {
         "template_arguments": "<warp_sort_immediate, float, int64_t, raft::matrix::detail::select::dense_layout<int64_t>>",
-        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_immediate_f32_i64_dense_layout_i64",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int64_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed, float, int64_t, raft::matrix::detail::select::dense_layout<int64_t>>",
-        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_f32_i64_dense_layout_i64",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int64_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed_ext, float, int64_t, raft::matrix::detail::select::dense_layout<int64_t>>",
-        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_ext_f32_i64_dense_layout_i64",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<int64_t>"
       },
       {
         "template_arguments": "<warp_sort_filtered, float, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, float const*, uint32_t const*, uint32_t const*, size_t, size_t, int, float*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, uint32_t const*, uint32_t const*, size_t, size_t, int, float*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_filtered_f32_u32_dense_layout_u32",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_immediate, float, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, float const*, uint32_t const*, uint32_t const*, size_t, size_t, int, float*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, uint32_t const*, uint32_t const*, size_t, size_t, int, float*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_immediate_f32_u32_dense_layout_u32",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed, float, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, float const*, uint32_t const*, uint32_t const*, size_t, size_t, int, float*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, uint32_t const*, uint32_t const*, size_t, size_t, int, float*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_f32_u32_dense_layout_u32",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed_ext, float, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, float const*, uint32_t const*, uint32_t const*, size_t, size_t, int, float*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, uint32_t const*, uint32_t const*, size_t, size_t, int, float*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_ext_f32_u32_dense_layout_u32",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_filtered, __half, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, __half const*, uint32_t const*, uint32_t const*, size_t, size_t, int, __half*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, __half const*, uint32_t const*, uint32_t const*, size_t, size_t, int, __half*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_filtered_f16_u32_dense_layout_u32",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "__half",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_immediate, __half, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, __half const*, uint32_t const*, uint32_t const*, size_t, size_t, int, __half*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, __half const*, uint32_t const*, uint32_t const*, size_t, size_t, int, __half*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_immediate_f16_u32_dense_layout_u32",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "__half",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed, __half, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, __half const*, uint32_t const*, uint32_t const*, size_t, size_t, int, __half*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, __half const*, uint32_t const*, uint32_t const*, size_t, size_t, int, __half*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_f16_u32_dense_layout_u32",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "__half",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed_ext, __half, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, __half const*, uint32_t const*, uint32_t const*, size_t, size_t, int, __half*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, __half const*, uint32_t const*, uint32_t const*, size_t, size_t, int, __half*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_ext_f16_u32_dense_layout_u32",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "__half",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_filtered, int, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, int const*, uint32_t const*, uint32_t const*, size_t, size_t, int, int*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, int const*, uint32_t const*, uint32_t const*, size_t, size_t, int, int*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_filtered_int_u32_dense_layout_u32",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "int",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_immediate, int, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, int const*, uint32_t const*, uint32_t const*, size_t, size_t, int, int*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, int const*, uint32_t const*, uint32_t const*, size_t, size_t, int, int*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_immediate_int_u32_dense_layout_u32",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "int",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed, int, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, int const*, uint32_t const*, uint32_t const*, size_t, size_t, int, int*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, int const*, uint32_t const*, uint32_t const*, size_t, size_t, int, int*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_int_u32_dense_layout_u32",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "int",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed_ext, int, uint32_t, raft::matrix::detail::select::dense_layout<uint32_t>>",
-        "parameter_types": "bool, int, int, int const*, uint32_t const*, uint32_t const*, size_t, size_t, int, int*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, int const*, uint32_t const*, uint32_t const*, size_t, size_t, int, int*, uint32_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_ext_int_u32_dense_layout_u32",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "int",
+        "index_type": "uint32_t",
+        "row_layout": "raft::matrix::detail::select::dense_layout<uint32_t>"
       },
       {
         "template_arguments": "<warp_sort_filtered, float, int64_t, raft::matrix::detail::select::csr_layout<int64_t>>",
-        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_filtered_f32_i64_csr_layout_i64",
+        "sort_type": "warp_sort_filtered",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::csr_layout<int64_t>"
       },
       {
         "template_arguments": "<warp_sort_immediate, float, int64_t, raft::matrix::detail::select::csr_layout<int64_t>>",
-        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_immediate_f32_i64_csr_layout_i64",
+        "sort_type": "warp_sort_immediate",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::csr_layout<int64_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed, float, int64_t, raft::matrix::detail::select::csr_layout<int64_t>>",
-        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_f32_i64_csr_layout_i64",
+        "sort_type": "warp_sort_distributed",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::csr_layout<int64_t>"
       },
       {
         "template_arguments": "<warp_sort_distributed_ext, float, int64_t, raft::matrix::detail::select::csr_layout<int64_t>>",
-        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref"
+        "parameter_types": "bool, int, int, float const*, int64_t const*, int64_t const*, size_t, size_t, int, float*, int64_t*, bool, cuda::stream_ref, rmm::device_async_resource_ref",
+        "instantiation_name": "select_k_warp_sort_distributed_ext_f32_i64_csr_layout_i64",
+        "sort_type": "warp_sort_distributed_ext",
+        "data_type": "float",
+        "index_type": "int64_t",
+        "row_layout": "raft::matrix::detail::select::csr_layout<int64_t>"
       }
     ]
   }

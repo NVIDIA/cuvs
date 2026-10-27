@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cuda/stream>
 #include <optional>
 #include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdspan.hpp>
@@ -46,4 +47,32 @@ void select_k(raft::resources const& handle,
               bool select_min,
               bool sorted                        = false,
               raft::matrix::SelectAlgo algorithm = raft::matrix::SelectAlgo::kAuto);
+
+struct warpsort_launch_params {
+  int block_size;
+  int min_grid_size;
+};
+
+template <template <int, bool, typename, typename> class WarpSortClass,
+          typename T,
+          typename IdxT,
+          typename RowLayout>
+struct warpsort_launch_setup {
+  static warpsort_launch_params calc_optimal_params(int k, int block_size_limit);
+
+  static void kernel(int k,
+                     bool select_min,
+                     size_t batch_size,
+                     size_t len,
+                     int num_blocks,
+                     int block_dim,
+                     size_t smem_size,
+                     const T* in_key,
+                     const IdxT* in_idx,
+                     const IdxT* in_indptr,
+                     T* out_key,
+                     IdxT* out_idx,
+                     cuda::stream_ref stream);
+};
+
 }  // namespace cuvs::detail
