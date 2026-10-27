@@ -1,0 +1,33 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/radix_sorting_launchers.hpp>
+#include <cub/device/device_radix_sort.cuh>
+
+namespace cuvs::detail {
+
+template <typename KeyIn, typename KeyOut, typename ValueIn, typename ValueOut, typename NumItems>
+cudaError_t cub_sort_pairs(void* storage,
+                           size_t& bytes,
+                           KeyIn keys_in,
+                           KeyOut keys_out,
+                           ValueIn values_in,
+                           ValueOut values_out,
+                           NumItems count,
+                           int begin_bit,
+                           int end_bit,
+                           cudaStream_t stream)
+{
+  return cub::DeviceRadixSort::SortPairs(
+    storage, bytes, keys_in, keys_out, values_in, values_out, count, begin_bit, end_bit, stream);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::detail

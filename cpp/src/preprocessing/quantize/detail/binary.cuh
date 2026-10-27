@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/radix_sorting_launchers.hpp"
 #include <cuvs/preprocessing/quantize/binary.hpp>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
@@ -236,7 +237,7 @@ auto train(raft::resources const& res,
 
       for (uint32_t i = 0; i < dim_chunk; i++) {
         auto start_ptr = transposed_sampled_dataset_chunk.data_handle() + i * num_samples;
-        thrust::sort(thrust::device, start_ptr, start_ptr + num_samples);
+        cuvs::detail::thrust_sort(thrust::device, start_ptr, start_ptr + num_samples);
       }
 
       raft::copy_matrix(threshold_ptr + dim_offset,
