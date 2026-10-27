@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/mapped_sum_launchers.hpp"
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/add.cuh>
@@ -316,7 +317,7 @@ DataT silhouette_score(
   raft::matrix::fill(
     handle, raft::make_device_vector_view<DataT, int>(d_avgSilhouetteScore.data(), 1), DataT(0));
 
-  raft::linalg::mapThenSumReduce<DataT, raft::identity_op>(d_avgSilhouetteScore.data(),
+  cuvs::detail::mapThenSumReduce<DataT, raft::identity_op>(d_avgSilhouetteScore.data(),
                                                            nRows,
                                                            raft::identity_op(),
                                                            stream,

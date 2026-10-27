@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/mapped_sum_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/map_then_reduce.cuh>
+
+namespace cuvs::detail {
+
+template <typename InType,
+          typename MapOp,
+          typename IdxType,
+          int TPB,
+          typename... Args,
+          typename OutType>
+void mapThenSumReduce(
+  OutType* out, IdxType len, MapOp map, cudaStream_t stream, const InType* in, Args... args)
+
+{
+  return raft::linalg::mapThenSumReduce<InType, MapOp, IdxType, TPB, Args...>(
+    out, len, map, stream, in, args...);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
