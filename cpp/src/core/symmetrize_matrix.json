@@ -1,15 +1,17 @@
 [
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "cuvs::detail::symmetrize",
     "template_arguments": "",
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "raft::resources const&, int const*, int const*, float const*, int, int, unsigned long, raft::sparse::detail::COO<float, int, unsigned long>&"
+        "parameter_types": "raft::resources const&, int const*, int const*, float const*, int, int, unsigned long, raft::sparse::detail::COO<float, int, unsigned long>&",
+        "instantiation_name": "int_c_ptr_int_c_ptr_f32_c_ptr_int_int_ulong_coo_f32_int_ulong_ref"
       },
       {
-        "parameter_types": "raft::resources const&, long const*, long const*, float const*, long, long, unsigned long, raft::sparse::detail::COO<float, long, unsigned long>&"
+        "parameter_types": "raft::resources const&, long const*, long const*, float const*, long, long, unsigned long, raft::sparse::detail::COO<float, long, unsigned long>&",
+        "instantiation_name": "long_c_ptr_long_c_ptr_f32_c_ptr_long_long_ulong_coo_f32_long_ulong_ref"
       }
     ]
   }

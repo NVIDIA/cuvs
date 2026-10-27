@@ -1,15 +1,17 @@
 [
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "cuvs::detail::compute_duplicates_mask",
     "template_arguments": "",
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "int*, int const*, int const*, unsigned long, CUstream_st*"
+        "parameter_types": "int*, int const*, int const*, unsigned long, CUstream_st*",
+        "instantiation_name": "cuvs_detail_compute_duplicates_mask_int_ptr_int_c_ptr_int_c_ptr_ulong_stream_ptr"
       },
       {
-        "parameter_types": "long*, long const*, long const*, unsigned long, CUstream_st*"
+        "parameter_types": "long*, long const*, long const*, unsigned long, CUstream_st*",
+        "instantiation_name": "cuvs_detail_compute_duplicates_mask_long_ptr_long_c_ptr_long_c_ptr_ulong_stream_ptr"
       }
     ]
   },
@@ -20,11 +22,13 @@
     "_variants": [
       {
         "template_arguments": "<int, unsigned long>",
-        "parameter_types": "int*, int const*, int const*, unsigned long, cudaStream_t"
+        "parameter_types": "int*, int const*, int const*, unsigned long, cudaStream_t",
+        "instantiation_name": "raft_sparse_op_detail_compute_duplicates_mask_int_ulong"
       },
       {
         "template_arguments": "<long, unsigned long>",
-        "parameter_types": "long*, long const*, long const*, unsigned long, cudaStream_t"
+        "parameter_types": "long*, long const*, long const*, unsigned long, cudaStream_t",
+        "instantiation_name": "raft_sparse_op_detail_compute_duplicates_mask_long_ulong"
       }
     ]
   }

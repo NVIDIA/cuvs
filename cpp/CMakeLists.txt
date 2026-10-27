@@ -1457,13 +1457,11 @@ if(NOT BUILD_CPU_ONLY)
   foreach(
     primitive IN
     ITEMS src/core/compute_duplicates_mask
-          src/core/compute_graph_laplacian
           src/core/coo_degree
           src/core/coo_remove_scalar
           src/core/coo_sort
           src/core/laplacian_normalized
           src/core/masked_matmul
-          src/core/symmetrize
           src/core/symmetrize_connectivity_graph
   )
     set(primitive_instantiations)
@@ -1560,9 +1558,29 @@ if(NOT BUILD_CPU_ONLY)
   )
 
   generate_string_matrix(
+    compute_graph_laplacian_detail_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/compute_graph_laplacian_detail_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
+  generate_string_matrix(
     gather_detail_extern_instantiations
     MATRIX_JSON_FILE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/gather_detail_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
+  generate_string_matrix(
+    laplacian_reduce_by_key_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/laplacian_reduce_by_key_matrix.json"
     ITEM_FORMAT
     "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
     GLUE
@@ -2203,6 +2221,38 @@ if(NOT BUILD_CPU_ONLY)
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_mixed_scan_kernels.cu.in"
     OUTPUT_FILE_FORMAT
       "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_mixed_scan_kernels_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/compute_graph_laplacian_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/compute_graph_laplacian.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/compute_graph_laplacian_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/core/compute_graph_laplacian_detail_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/compute_graph_laplacian_detail.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/compute_graph_laplacian_detail_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/laplacian_reduce_by_key_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/laplacian_reduce_by_key.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/laplacian_reduce_by_key_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/symmetrize_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/symmetrize.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/symmetrize_@instantiation_name@.cu"
   )
 
   add_library(

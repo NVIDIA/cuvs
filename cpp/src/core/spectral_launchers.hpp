@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cuvs/core/export.hpp>
 #include <optional>
 #include <raft/core/bitmap.hpp>
 #include <raft/core/bitset.hpp>
@@ -51,14 +52,14 @@ laplacian_normalized(raft::resources const& res,
                      raft::device_vector_view<ElementType, RowType> diagonal_out);
 
 template <typename value_idx, typename value_t, typename nnz_t>
-void symmetrize(raft::resources const& handle,
-                const value_idx* rows,
-                const value_idx* cols,
-                const value_t* vals,
-                value_idx m,
-                value_idx n,
-                nnz_t nnz,
-                raft::sparse::COO<value_t, value_idx, nnz_t>& out);
+CUVS_EXPORT void symmetrize(raft::resources const& handle,
+                            const value_idx* rows,
+                            const value_idx* cols,
+                            const value_t* vals,
+                            value_idx m,
+                            value_idx n,
+                            nnz_t nnz,
+                            raft::sparse::COO<value_t, value_idx, nnz_t>& out);
 
 template <typename value_t, typename output_t, typename index_t, typename nnz_t, typename bitmap_t>
 void masked_matmul(raft::resources const& handle,
