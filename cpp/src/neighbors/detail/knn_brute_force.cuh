@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/cub_runtime_launchers.hpp"
+#include "../../core/thrust_indexed_copy_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -689,11 +690,11 @@ void brute_force_search_gathered(
   auto gathered_norms =
     raft::make_device_vector<DistanceT, IdxT>(res, idx.has_norms() ? n_pass : 0);
   if (idx.has_norms()) {
-    thrust::gather(policy,
-                   passing.data_handle(),
-                   passing.data_handle() + n_pass,
-                   idx.norms().data_handle(),
-                   gathered_norms.data_handle());
+    cuvs::detail::thrust_gather(policy,
+                                passing.data_handle(),
+                                passing.data_handle() + n_pass,
+                                idx.norms().data_handle(),
+                                gathered_norms.data_handle());
   }
 
   // 3. ordinary unfiltered search over the compacted dataset
@@ -722,11 +723,11 @@ void brute_force_search_gathered(
     query_norms ? query_norms->data_handle() : nullptr);
 
   // 4. translate compacted row numbers back into the original dataset's numbering
-  thrust::gather(policy,
-                 compact_neighbors.data_handle(),
-                 compact_neighbors.data_handle() + compact_neighbors.size(),
-                 passing.data_handle(),
-                 neighbors.data_handle());
+  cuvs::detail::thrust_gather(policy,
+                              compact_neighbors.data_handle(),
+                              compact_neighbors.data_handle() + compact_neighbors.size(),
+                              passing.data_handle(),
+                              neighbors.data_handle());
 }
 
 template <typename T, typename IdxT, typename BitsT, typename DistanceT = float>

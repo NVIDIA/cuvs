@@ -1,0 +1,30 @@
+[
+  {
+    "return_type": "CUVS_EXPORT float*",
+    "qualified_function": "cuvs::detail::thrust_gather",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "rmm::exec_policy_nosync const&, long*, long*, float const*, float*",
+        "instantiation_name": "exec_policy_nosync_c_ref_long_ptr_long_ptr_f32_c_ptr_f32_ptr"
+      },
+      {
+        "parameter_types": "rmm::exec_policy_nosync const&, long*, long*, float*, float*",
+        "instantiation_name": "exec_policy_nosync_c_ref_long_ptr_long_ptr_f32_ptr_f32_ptr"
+      },
+      {
+        "parameter_types": "rmm::exec_policy_nosync const&, int*, int*, float*, float*",
+        "instantiation_name": "exec_policy_nosync_c_ref_int_ptr_int_ptr_f32_ptr_f32_ptr"
+      }
+    ]
+  },
+  {
+    "return_type": "CUVS_EXPORT long*",
+    "qualified_function": "cuvs::detail::thrust_gather",
+    "template_arguments": "",
+    "parameter_types": "rmm::exec_policy_nosync const&, long*, long*, long*, long*",
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_long_ptr_long_ptr_long_ptr_long_ptr"
+  }
+]

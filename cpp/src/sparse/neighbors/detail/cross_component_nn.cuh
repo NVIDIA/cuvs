@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../../core/cub_runtime_launchers.hpp"
+#include "../../../core/thrust_indexed_copy_launchers.hpp"
 #include "../../../distance/masked_nn.cuh"
 #include <cuvs/distance/distance.hpp>
 
@@ -164,11 +165,11 @@ struct MutualReachabilityFixConnectivitiesRedOp {
   void gather(const raft::resources& handle, value_idx* map)
   {
     auto tmp_core_dists = raft::make_device_vector<value_t>(handle, m);
-    thrust::gather(raft::resource::get_thrust_policy(handle),
-                   map,
-                   map + m,
-                   core_dists,
-                   tmp_core_dists.data_handle());
+    cuvs::detail::thrust_gather(raft::resource::get_thrust_policy(handle),
+                                map,
+                                map + m,
+                                core_dists,
+                                tmp_core_dists.data_handle());
     raft::copy_async(
       core_dists, tmp_core_dists.data_handle(), m, raft::resource::get_cuda_stream(handle));
   }
@@ -446,7 +447,7 @@ void sort_by_color(raft::resources const& handle,
 {
   auto exec_policy   = raft::resource::get_thrust_policy(handle);
   auto arg_sort_iter = cuda::make_counting_iterator<value_idx>(0);
-  thrust::copy(exec_policy, arg_sort_iter, arg_sort_iter + n_rows, src_indices);
+  cuvs::detail::thrust_copy(exec_policy, arg_sort_iter, arg_sort_iter + n_rows, src_indices);
 
   auto keys = thrust::make_zip_iterator(
     cuda::std::make_tuple(colors, nn_colors, (raft::KeyValuePair<value_idx, value_t>*)kvp));

@@ -1,0 +1,28 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+#include <core/cub_transform_launchers.hpp>
+#include <core/thrust_indexed_copy_launchers.hpp>
+#include <cuda/iterator>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <rmm/exec_policy.hpp>
+#include <thrust/copy.h>
+#include <thrust/gather.h>
+#include <thrust/iterator/permutation_iterator.h>
+
+namespace cuvs::detail {
+
+template <typename Policy, typename Input, typename Output>
+Output thrust_copy(Policy const& policy, Input first, Input last, Output output)
+{
+  return thrust::copy(policy, first, last, output);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

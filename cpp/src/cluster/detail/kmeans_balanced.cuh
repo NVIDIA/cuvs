@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/thrust_indexed_copy_launchers.hpp"
 #include "kmeans_common.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -1432,11 +1433,11 @@ auto build_fine_clusters(const raft::resources& handle,
                            raft::make_device_matrix_view<MathT, IdxT>(mc_trainset_norm, k, 1),
                            static_cast<MathT>(transformed_dim));
       } else {
-        thrust::gather(raft::resource::get_thrust_policy(handle),
-                       mc_trainset_ids,
-                       mc_trainset_ids + k,
-                       dataset_norm_mptr,
-                       mc_trainset_norm);
+        cuvs::detail::thrust_gather(raft::resource::get_thrust_policy(handle),
+                                    mc_trainset_ids,
+                                    mc_trainset_ids + k,
+                                    dataset_norm_mptr,
+                                    mc_trainset_norm);
       }
     }
 
