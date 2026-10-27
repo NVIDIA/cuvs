@@ -1,0 +1,50 @@
+[
+  {
+    "provider_type": "cuvs::detail::reduce_launch::argmin_f32_i32",
+    "pointer_type": "cuvs::detail::reduce_launch::argmin_f32_i32_SingleTileSecondKernel_pointer",
+    "method": "SingleTileSecondKernel",
+    "kernel_function": "cub::detail::reduce::DeviceReduceSingleTileKernel",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<cub::KeyValuePair<int, float>, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, (cuda::execution::determinism::__determinism_t)1>, cub::KeyValuePair<int, float>*, cub::KeyValuePair<int, float>*, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, cub::detail::reduce::empty_problem_init_t<cub::KeyValuePair<int, float> >, cub::KeyValuePair<int, float>, cuda::std::identity",
+    "instantiation_name": "argmin_f32_i32_SingleTileSecondKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::reduce_launch::argmin_f32_i32",
+    "pointer_type": "cuvs::detail::reduce_launch::argmin_f32_i32_ReductionKernel_pointer",
+    "method": "ReductionKernel",
+    "kernel_function": "cub::detail::reduce::DeviceReduceKernel",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<cub::KeyValuePair<int, float>, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, (cuda::execution::determinism::__determinism_t)1>, true, cub::ArgIndexInputIterator<float*, int, float>, cub::KeyValuePair<int, float>*, int, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, cub::KeyValuePair<int, float>, cub::detail::reduce::empty_problem_init_t<cub::KeyValuePair<int, float> >, cuda::std::identity",
+    "instantiation_name": "argmin_f32_i32_ReductionKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::reduce_launch::argmin_f32_i32",
+    "pointer_type": "cuvs::detail::reduce_launch::argmin_f32_i32_SingleTileKernel_pointer",
+    "method": "SingleTileKernel",
+    "kernel_function": "cub::detail::reduce::DeviceReduceSingleTileKernel",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<cub::KeyValuePair<int, float>, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, (cuda::execution::determinism::__determinism_t)1>, cub::ArgIndexInputIterator<float*, int, float>, cub::KeyValuePair<int, float>*, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, cub::detail::reduce::empty_problem_init_t<cub::KeyValuePair<int, float> >, cub::KeyValuePair<int, float>, cuda::std::identity",
+    "instantiation_name": "argmin_f32_i32_SingleTileKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::reduce_launch::argmin_f64_i32",
+    "pointer_type": "cuvs::detail::reduce_launch::argmin_f64_i32_SingleTileSecondKernel_pointer",
+    "method": "SingleTileSecondKernel",
+    "kernel_function": "cub::detail::reduce::DeviceReduceSingleTileKernel",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<cub::KeyValuePair<int, double>, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, (cuda::execution::determinism::__determinism_t)1>, cub::KeyValuePair<int, double>*, cub::KeyValuePair<int, double>*, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, cub::detail::reduce::empty_problem_init_t<cub::KeyValuePair<int, double> >, cub::KeyValuePair<int, double>, cuda::std::identity",
+    "instantiation_name": "argmin_f64_i32_SingleTileSecondKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::reduce_launch::argmin_f64_i32",
+    "pointer_type": "cuvs::detail::reduce_launch::argmin_f64_i32_ReductionKernel_pointer",
+    "method": "ReductionKernel",
+    "kernel_function": "cub::detail::reduce::DeviceReduceKernel",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<cub::KeyValuePair<int, double>, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, (cuda::execution::determinism::__determinism_t)1>, true, cub::ArgIndexInputIterator<double*, int, double>, cub::KeyValuePair<int, double>*, int, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, cub::KeyValuePair<int, double>, cub::detail::reduce::empty_problem_init_t<cub::KeyValuePair<int, double> >, cuda::std::identity",
+    "instantiation_name": "argmin_f64_i32_ReductionKernel"
+  },
+  {
+    "provider_type": "cuvs::detail::reduce_launch::argmin_f64_i32",
+    "pointer_type": "cuvs::detail::reduce_launch::argmin_f64_i32_SingleTileKernel_pointer",
+    "method": "SingleTileKernel",
+    "kernel_function": "cub::detail::reduce::DeviceReduceSingleTileKernel",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<cub::KeyValuePair<int, double>, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, (cuda::execution::determinism::__determinism_t)1>, cub::ArgIndexInputIterator<double*, int, double>, cub::KeyValuePair<int, double>*, int, cub::detail::arg_reduce_op<cuda::std::less<void> >, cub::detail::reduce::empty_problem_init_t<cub::KeyValuePair<int, double> >, cub::KeyValuePair<int, double>, cuda::std::identity",
+    "instantiation_name": "argmin_f64_i32_SingleTileKernel"
+  }
+]
