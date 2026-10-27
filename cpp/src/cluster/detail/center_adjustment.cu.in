@@ -113,19 +113,21 @@ auto adjust_centers(const raft::resources& handle,
   raft::update_device(receiver_clusters.data(), host_receiver_clusters.data(), n_pairs, stream);
   raft::update_device(donor_clusters.data(), host_donor_clusters.data(), n_pairs, stream);
   const dim3 grid_dim(raft::ceildiv(n_pairs, static_cast<IdxT>(kBlockDimY)), 1, 1);
-  adjust_centers_kernel<kBlockDimY>
-    <<<grid_dim, block_dim, 0, stream.get()>>>(centers,
-                                               n_pairs,
-                                               dim,
-                                               dataset,
-                                               n_rows,
-                                               labels,
-                                               receiver_clusters.data(),
-                                               donor_clusters.data(),
-                                               centroid_offset,
-                                               ofst,
-                                               update_count.data(),
-                                               mapping_op);
+  launch_adjust_centers(grid_dim,
+                        block_dim,
+                        stream.get(),
+                        centers,
+                        n_pairs,
+                        dim,
+                        dataset,
+                        n_rows,
+                        labels,
+                        receiver_clusters.data(),
+                        donor_clusters.data(),
+                        centroid_offset,
+                        ofst,
+                        update_count.data(),
+                        mapping_op);
   auto n_updates = update_count.value(stream);  // NB: rmm scalar performs the sync
   RAFT_EXPECTS(n_updates == n_pairs, "Balanced k-means failed to update all adjusted centers");
   return n_updates > 0;

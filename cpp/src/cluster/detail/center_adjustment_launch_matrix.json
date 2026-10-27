@@ -1,0 +1,42 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "launch_adjust_centers",
+    "template_arguments": "<__half const*, float, long, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>>",
+    "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, __half const*, long, const unsigned int*, const long*, const long*, float, long, long*, cuvs::spatial::knn::detail::utils::mapping<float>",
+    "function_qualifiers": "",
+    "instantiation_name": "kernel_0"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_adjust_centers",
+    "template_arguments": "<float const*, float, long, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>>",
+    "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, float const*, long, const unsigned int*, const long*, const long*, float, long, long*, cuvs::spatial::knn::detail::utils::mapping<float>",
+    "function_qualifiers": "",
+    "instantiation_name": "kernel_1"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_adjust_centers",
+    "template_arguments": "<signed char const*, float, long, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>>",
+    "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, signed char const*, long, const unsigned int*, const long*, const long*, float, long, long*, cuvs::spatial::knn::detail::utils::mapping<float>",
+    "function_qualifiers": "",
+    "instantiation_name": "kernel_2"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_adjust_centers",
+    "template_arguments": "<unsigned char const*, float, long, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>>",
+    "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, unsigned char const*, long, const unsigned int*, const long*, const long*, float, long, long*, cuvs::spatial::knn::detail::utils::mapping<float>",
+    "function_qualifiers": "",
+    "instantiation_name": "kernel_3"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_adjust_centers",
+    "template_arguments": "<thrust::transform_iterator<cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>, thrust::counting_iterator<long, thrust::use_default, thrust::use_default, thrust::use_default, thrust::__compile_time_value<1>>, thrust::use_default, thrust::use_default>, float, long, unsigned int, raft::identity_op>",
+    "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, thrust::transform_iterator<cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>, thrust::counting_iterator<long, thrust::use_default, thrust::use_default, thrust::use_default, thrust::__compile_time_value<1>>, thrust::use_default, thrust::use_default>, long, const unsigned int*, const long*, const long*, float, long, long*, raft::identity_op",
+    "function_qualifiers": "",
+    "instantiation_name": "kernel_4"
+  }
+]

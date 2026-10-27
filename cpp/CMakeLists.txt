@@ -1431,7 +1431,9 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
 
-  foreach(primitive IN ITEMS src/cluster/detail/center_adjustment)
+  foreach(primitive IN ITEMS src/cluster/detail/center_adjustment
+                             src/cluster/detail/center_adjustment_launch
+  )
     generate_inst_matrix(
       cuvs_primitive_sources
       MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
