@@ -39,14 +39,14 @@ void copy_distance_tile(raft::resources const& handle,
 
 }  // namespace cuvs::detail
 
-template void cuvs::detail::copy_distance_tile(raft::resources const&,
-                                               float const*,
-                                               long const*,
-                                               float*,
-                                               long*,
-                                               unsigned long,
-                                               unsigned long,
-                                               unsigned long,
-                                               unsigned long,
-                                               unsigned long,
-                                               unsigned long);
+template CUVS_EXPORT void cuvs::detail::copy_distance_tile(raft::resources const&,
+                                                           float const*,
+                                                           long const*,
+                                                           float*,
+                                                           long*,
+                                                           unsigned long,
+                                                           unsigned long,
+                                                           unsigned long,
+                                                           unsigned long,
+                                                           unsigned long,
+                                                           unsigned long);
