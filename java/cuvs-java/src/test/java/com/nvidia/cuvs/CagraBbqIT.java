@@ -21,7 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * CAGRA indices built from BBQ quantizers via {@link CagraIndex.Builder#withBbqDataset}.
+ * CAGRA indices built from BBQ quantizers via {@link CagraIndex.Builder#fromBbq(BbqQuantizer)}.
  *
  * <p>{@code gpuSearchBaselineWithoutBbq} is a control: the same search over a graph plain CAGRA
  * built from the same vectors. If it regresses alongside the BBQ case, look at the search
@@ -99,13 +99,8 @@ public class CagraBbqIT extends CuVSTestCase {
       CuVSMatrix dense = newDenseDataset(resources);
       try (CagraIndex index =
               CagraIndex.newBuilder(resources)
-                  .withIndexParams(
-                      new CagraIndexParams.Builder()
-                          .withMetric(CuvsDistanceType.L2Expanded)
-                          .withGraphDegree(32)
-                          .withIntermediateGraphDegree(64)
-                          .build())
-                  .withDataset(dense)
+                  .fromDataset(dense)
+                  .withIndexParams(params())
                   .build();
           CuVSMatrix queryVectors = CuVSMatrix.ofArray(queries)) {
         CagraQuery query =
@@ -151,6 +146,32 @@ public class CagraBbqIT extends CuVSTestCase {
         assertTrue(
             "graph is mostly self-references (" + selfLoops + " of " + ROWS * degree + ")",
             selfLoops < ROWS * degree / 10);
+      }
+    }
+  }
+
+  /**
+   * Without parameters a BBQ build uses the quantizers' metric, not the L2Expanded default of
+   * {@link CagraIndexParams.Builder}: nn-descent requires its metric to match the quantizers', so
+   * an inner-product quantizer only builds if the metric was carried over. The rest of the
+   * parameters keep their defaults, which shows in the graph degree.
+   */
+  @Test
+  public void buildsWithTheQuantizersMetricByDefault() throws Throwable {
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        Quantizer quantizer = newQuantizer(resources, CuvsDistanceType.InnerProduct);
+        CagraIndex index = CagraIndex.newBuilder(resources).fromBbq(quantizer.quantizer()).build();
+        CuVSMatrix graph = index.getGraph()) {
+      assertEquals("one adjacency row per vector", ROWS, graph.size());
+      assertEquals(
+          "the default graph degree",
+          new CagraIndexParams.Builder().build().getGraphDegree(),
+          graph.columns());
+      for (int[] neighbors : readAdjacency(graph)) {
+        for (int neighbor : neighbors) {
+          assertTrue(
+              "neighbor id " + neighbor + " is out of range", neighbor >= 0 && neighbor < ROWS);
+        }
       }
     }
   }
@@ -213,24 +234,65 @@ public class CagraBbqIT extends CuVSTestCase {
     }
   }
 
-  /** A build takes one or two encoded representations; anything else is a usage error. */
+  /**
+   * Two encodings of the same vectors build in either order, because cuVS picks the role of each
+   * one from its layout. The 2-bit encoding decodes to the same values as the 1-bit one, so the
+   * asymmetric distances equal the symmetric 1-bit ones and recall is held to the same floor.
+   */
   @Test
-  public void buildRejectsAnUnusableQuantizerCount() throws Throwable {
+  public void asymmetricPairBuildsInEitherOrder() throws Throwable {
+    try (CuVSResources resources = CheckedCuVSResources.create();
+        Quantizer oneBit = newQuantizer(resources);
+        Quantizer twoBit = newTransposed2bQuantizer(resources);
+        CuVSMatrix queryVectors = CuVSMatrix.ofArray(queries)) {
+      for (boolean oneBitFirst : new boolean[] {true, false}) {
+        var first = oneBitFirst ? oneBit : twoBit;
+        var second = oneBitFirst ? twoBit : oneBit;
+        // Owned by the index once built, so it is not closed here.
+        CuVSMatrix dense = newDenseDataset(resources);
+        try (CagraIndex index =
+            CagraIndex.newBuilder(resources)
+                .fromBbq(first.quantizer(), second.quantizer())
+                .withDenseDataset(dense)
+                .withIndexParams(params())
+                .build()) {
+          CagraQuery query =
+              new CagraQuery.Builder(resources)
+                  .withTopK(TOP_K)
+                  .withSearchParams(searchParams())
+                  .withQueryVectors(queryVectors)
+                  .withMapping(SearchResults.IDENTITY_MAPPING)
+                  .build();
+          assertRecall(
+              first.quantizer().getLayout() + " + " + second.quantizer().getLayout(),
+              index.search(query));
+        }
+      }
+    }
+  }
+
+  /**
+   * The deprecated varargs setter is the only way left to pass a number of quantizers other than
+   * one or two, so the check behind it stays covered until the setter is removed.
+   */
+  @Test
+  @SuppressWarnings("removal")
+  public void deprecatedSetterRejectsAnUnusableQuantizerCount() throws Throwable {
     try (CuVSResources resources = CheckedCuVSResources.create();
         Quantizer quantizer = newQuantizer(resources)) {
       var q = quantizer.quantizer();
       assertThrows(
           "a build needs at least one representation",
           IllegalArgumentException.class,
-          () -> bbqIndex(resources, new BbqQuantizer[] {}, null));
+          () -> CagraIndex.newBuilder(resources).withBbqDataset().build());
       assertThrows(
           "three representations are more than the native side accepts",
           IllegalArgumentException.class,
-          () -> bbqIndex(resources, new BbqQuantizer[] {q, q, q}, null));
+          () -> CagraIndex.newBuilder(resources).withBbqDataset(q, q, q).build());
       assertThrows(
           "a null representation should be caught before it reaches native code",
           NullPointerException.class,
-          () -> bbqIndex(resources, new BbqQuantizer[] {q, null}, null));
+          () -> CagraIndex.newBuilder(resources).withBbqDataset(q, null).build());
     }
   }
 
@@ -262,8 +324,7 @@ public class CagraBbqIT extends CuVSTestCase {
                 .build();
         var failure =
             assertThrows(
-                IllegalArgumentException.class,
-                () -> bbqIndex(resources, new BbqQuantizer[] {withHostComponent}, null));
+                IllegalArgumentException.class, () -> bbqIndex(resources, withHostComponent, null));
         assertTrue(
             "the message should name the offending component, but was: " + failure.getMessage(),
             failure.getMessage().contains("rowNorm"));
@@ -351,7 +412,7 @@ public class CagraBbqIT extends CuVSTestCase {
                 .withMetric(CuvsDistanceType.L2Expanded)
                 .withCentroidNormSq(q.getCentroidNormSq())
                 .build();
-        try (CagraIndex index = bbqIndex(resources, new BbqQuantizer[] {withStridedCodes}, null);
+        try (CagraIndex index = bbqIndex(resources, withStridedCodes, null);
             CuVSMatrix graph = index.getGraph()) {
           assertEquals("one adjacency row per vector", ROWS, graph.size());
         }
@@ -397,11 +458,11 @@ public class CagraBbqIT extends CuVSTestCase {
                 IllegalArgumentException.class,
                 () ->
                     CagraIndex.newBuilder(resources)
+                        .fromBbq(padded)
                         .withIndexParams(
                             new CagraIndexParams.Builder()
                                 .withMetric(CuvsDistanceType.L2Expanded)
                                 .build())
-                        .withBbqDataset(padded)
                         .build());
         assertTrue(
             "the message should name the offending component, but was: " + failure.getMessage(),
@@ -477,23 +538,25 @@ public class CagraBbqIT extends CuVSTestCase {
 
   private static CagraIndex bbqIndex(
       CuVSResources resources, Quantizer quantizer, CuVSMatrix dataset) throws Throwable {
-    return bbqIndex(resources, new BbqQuantizer[] {quantizer.quantizer()}, dataset);
+    return bbqIndex(resources, quantizer.quantizer(), dataset);
   }
 
   private static CagraIndex bbqIndex(
-      CuVSResources resources, BbqQuantizer[] quantizers, CuVSMatrix dataset) throws Throwable {
-    var params =
-        new CagraIndexParams.Builder()
-            .withMetric(CuvsDistanceType.L2Expanded)
-            .withGraphDegree(32)
-            .withIntermediateGraphDegree(64)
-            .build();
-    var builder =
-        CagraIndex.newBuilder(resources).withIndexParams(params).withBbqDataset(quantizers);
+      CuVSResources resources, BbqQuantizer quantizer, CuVSMatrix dataset) throws Throwable {
+    var builder = CagraIndex.newBuilder(resources).fromBbq(quantizer).withIndexParams(params());
     if (dataset != null) {
-      builder = builder.withDataset(dataset);
+      builder.withDenseDataset(dataset);
     }
     return builder.build();
+  }
+
+  /** The same graph shape for every build here, with and without BBQ. */
+  private static CagraIndexParams params() {
+    return new CagraIndexParams.Builder()
+        .withMetric(CuvsDistanceType.L2Expanded)
+        .withGraphDegree(32)
+        .withIntermediateGraphDegree(64)
+        .build();
   }
 
   private float[][] randomVectors(int count) {
@@ -551,6 +614,67 @@ public class CagraBbqIT extends CuVSTestCase {
    * searches score candidates against the dense dataset rather than against the codes.
    */
   private Quantizer newQuantizer(CuVSResources resources) {
+    return newQuantizer(resources, CuvsDistanceType.L2Expanded);
+  }
+
+  private Quantizer newQuantizer(CuVSResources resources, CuvsDistanceType metric) {
+    OneBitCodes oneBit = encodeOneBit(metric);
+    float[] delta = new float[ROWS];
+    float[] sumDelta = new float[ROWS];
+    for (int i = 0; i < ROWS; i++) {
+      // One step for 1-bit codes, so each component lands on 0 or 1.
+      delta[i] = oneBit.upper()[i] - oneBit.lower()[i];
+      sumDelta[i] = delta[i] * oneBit.sums()[i];
+    }
+    return upload(
+        resources,
+        BbqQuantizer.CodeLayout.PACKED_1B,
+        oneBit.codes(),
+        oneBit.sums(),
+        delta,
+        sumDelta,
+        oneBit);
+  }
+
+  /**
+   * A TRANSPOSED_2B encoding of {@link #dataset}, derived from the 1-bit one instead of quantized
+   * afresh. On the same interval, the 2-bit code {@code 3c} decodes to exactly the value the 1-bit
+   * code {@code c} does, because the 2-bit step is a third of the 1-bit one. Both bit planes of
+   * {@code 3c} equal {@code c}, so each row is the 1-bit row twice, plane after plane, as
+   * {@code pack_codes} in the C++ reference lays them out.
+   */
+  private Quantizer newTransposed2bQuantizer(CuVSResources resources) {
+    OneBitCodes oneBit = encodeOneBit(CuvsDistanceType.L2Expanded);
+    byte[][] codes = new byte[ROWS][2 * CODE_BYTES];
+    int[] sums = new int[ROWS];
+    float[] delta = new float[ROWS];
+    float[] sumDelta = new float[ROWS];
+    for (int i = 0; i < ROWS; i++) {
+      System.arraycopy(oneBit.codes()[i], 0, codes[i], 0, CODE_BYTES);
+      System.arraycopy(oneBit.codes()[i], 0, codes[i], CODE_BYTES, CODE_BYTES);
+      sums[i] = 3 * oneBit.sums()[i];
+      delta[i] = (oneBit.upper()[i] - oneBit.lower()[i]) / 3;
+      sumDelta[i] = delta[i] * sums[i];
+    }
+    return upload(
+        resources, BbqQuantizer.CodeLayout.TRANSPOSED_2B, codes, sums, delta, sumDelta, oneBit);
+  }
+
+  /** The host-side result of {@link #encodeOneBit(CuvsDistanceType)}. */
+  private record OneBitCodes(
+      CuvsDistanceType metric,
+      byte[][] codes,
+      float[] lower,
+      float[] upper,
+      float[] corrections,
+      int[] sums,
+      float[] rowNorms,
+      float[] centroid,
+      float centroidNormSq) {}
+
+  private OneBitCodes encodeOneBit(CuvsDistanceType metric) {
+    boolean euclidean =
+        metric == CuvsDistanceType.L2Expanded || metric == CuvsDistanceType.L2SqrtExpanded;
     float[] centroid = new float[DIM];
     for (float[] row : dataset) {
       for (int d = 0; d < DIM; d++) {
@@ -569,8 +693,6 @@ public class CagraBbqIT extends CuVSTestCase {
     float[] corrections = new float[ROWS];
     int[] sums = new int[ROWS];
     float[] rowNorms = new float[ROWS];
-    float[] delta = new float[ROWS];
-    float[] sumDelta = new float[ROWS];
 
     for (int i = 0; i < ROWS; i++) {
       float[] centred = new float[DIM];
@@ -578,10 +700,12 @@ public class CagraBbqIT extends CuVSTestCase {
       float min = Float.MAX_VALUE;
       float max = -Float.MAX_VALUE;
       float centredNormSq = 0.0f;
+      float centroidDot = 0.0f;
       double mean = 0.0;
       double var = 0.0;
       for (int d = 0; d < DIM; d++) {
         origNormSq += dataset[i][d] * dataset[i][d];
+        centroidDot += dataset[i][d] * centroid[d];
         centred[d] = dataset[i][d] - centroid[d];
         min = Math.min(min, centred[d]);
         max = Math.max(max, centred[d]);
@@ -595,7 +719,6 @@ public class CagraBbqIT extends CuVSTestCase {
       // kMinimumMseGrid[0] from the C++ reference, i.e. the 1-bit row.
       float a = (float) clamp(-0.798 * stddev + mean, min, max);
       float b = (float) clamp(0.798 * stddev + mean, min, max);
-      // One step for 1-bit codes, so each component lands on 0 or 1.
       float step = b - a;
       int sum = 0;
       for (int d = 0; d < DIM; d++) {
@@ -606,17 +729,28 @@ public class CagraBbqIT extends CuVSTestCase {
 
       lower[i] = a;
       upper[i] = b;
-      // L2Expanded is euclidean, so the correction carries the centred norm.
-      corrections[i] = centredNormSq;
+      // As in the C++ reference: the centred norm for a euclidean metric, otherwise the original
+      // vector's dot product with the centroid.
+      corrections[i] = euclidean ? centredNormSq : centroidDot;
       sums[i] = sum;
       rowNorms[i] = origNormSq;
-      delta[i] = b - a;
-      sumDelta[i] = delta[i] * sum;
     }
+    return new OneBitCodes(
+        metric, codes, lower, upper, corrections, sums, rowNorms, centroid, centroidNormSq);
+  }
 
+  /** Uploads one encoding to device memory; the components that don't depend on it come shared. */
+  private static Quantizer upload(
+      CuVSResources resources,
+      BbqQuantizer.CodeLayout layout,
+      byte[][] codes,
+      int[] sums,
+      float[] delta,
+      float[] sumDelta,
+      OneBitCodes shared) {
     List<CuVSMatrix> owned = new ArrayList<>();
     var codesBuilder =
-        CuVSMatrix.deviceBuilder(resources, ROWS, CODE_BYTES, CuVSMatrix.DataType.BYTE);
+        CuVSMatrix.deviceBuilder(resources, ROWS, codes[0].length, CuVSMatrix.DataType.BYTE);
     for (byte[] row : codes) {
       codesBuilder.addVector(row);
     }
@@ -624,17 +758,17 @@ public class CagraBbqIT extends CuVSTestCase {
     BbqQuantizer quantizer =
         new BbqQuantizer.Builder()
             .withCodes(track(owned, codesBuilder.build()))
-            .withLowerIntervals(track(owned, deviceVector(resources, lower)))
-            .withUpperIntervals(track(owned, deviceVector(resources, upper)))
-            .withAdditionalCorrections(track(owned, deviceVector(resources, corrections)))
+            .withLowerIntervals(track(owned, deviceVector(resources, shared.lower())))
+            .withUpperIntervals(track(owned, deviceVector(resources, shared.upper())))
+            .withAdditionalCorrections(track(owned, deviceVector(resources, shared.corrections())))
             .withQuantizedComponentSums(track(owned, deviceVector(resources, sums)))
-            .withCentroid(track(owned, deviceRow(resources, centroid)))
+            .withCentroid(track(owned, deviceRow(resources, shared.centroid())))
             .withDequantDelta(track(owned, deviceVector(resources, delta)))
             .withDequantSumDelta(track(owned, deviceVector(resources, sumDelta)))
-            .withRowNorm(track(owned, deviceVector(resources, rowNorms)))
-            .withLayout(BbqQuantizer.CodeLayout.PACKED_1B)
-            .withMetric(CuvsDistanceType.L2Expanded)
-            .withCentroidNormSq(centroidNormSq)
+            .withRowNorm(track(owned, deviceVector(resources, shared.rowNorms())))
+            .withLayout(layout)
+            .withMetric(shared.metric())
+            .withCentroidNormSq(shared.centroidNormSq())
             .build();
     return new Quantizer(quantizer, owned);
   }

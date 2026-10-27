@@ -1327,7 +1327,7 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
     params.graph_degree,
     npartitions);
 
-  auto dataset_view   = dataset.view();
+  auto dataset_view   = cuvs::neighbors::dense_row_major_view(dataset);
   size_t dataset_size = dataset.n_rows();
   size_t dataset_dim  = dataset.dim();
 
@@ -1593,13 +1593,14 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
               auto sub_dataset_view = raft::make_const_mdspan(sub_dataset_tight.view());
               std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>>
                 sub_dataset_padded;
-              auto sub_dataset_dev = [&]() {
+              auto sub_dataset_dev =
+                [&]() -> cuvs::neighbors::device_padded_dataset_view<T, int64_t> {
                 if (cuvs::neighbors::matrix_row_width_matches_cagra_required(sub_dataset_view)) {
                   return cuvs::neighbors::make_device_padded_dataset_view(res, sub_dataset_view);
                 }
                 sub_dataset_padded =
                   cuvs::neighbors::make_device_padded_dataset(res, sub_dataset_view);
-                return sub_dataset_padded->as_dataset_view();
+                return sub_dataset_padded->view();
               }();
               auto direct_index =
                 ::cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT>(
