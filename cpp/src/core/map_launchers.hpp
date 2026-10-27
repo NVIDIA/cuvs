@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cuvs/core/export.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/operators.hpp>
@@ -16,14 +17,14 @@ template <typename OutType,
           typename... InTypes,
           typename = raft::enable_if_output_device_mdspan<OutType>,
           typename = raft::enable_if_input_device_mdspan<InTypes...>>
-void map(const raft::resources& res, OutType out, Func f, InTypes... ins);
+CUVS_EXPORT void map(const raft::resources& res, OutType out, Func f, InTypes... ins);
 
 template <typename InType1,
           typename OutType,
           typename Func,
           typename = raft::enable_if_output_device_mdspan<OutType>,
           typename = raft::enable_if_input_device_mdspan<InType1>>
-void map(const raft::resources& res, InType1 in1, OutType out, Func f);
+CUVS_EXPORT void map(const raft::resources& res, InType1 in1, OutType out, Func f);
 
 template <typename InType1,
           typename InType2,
@@ -31,7 +32,7 @@ template <typename InType1,
           typename Func,
           typename = raft::enable_if_output_device_mdspan<OutType>,
           typename = raft::enable_if_input_device_mdspan<InType1, InType2>>
-void map(const raft::resources& res, InType1 in1, InType2 in2, OutType out, Func f);
+CUVS_EXPORT void map(const raft::resources& res, InType1 in1, InType2 in2, OutType out, Func f);
 
 template <typename InType1,
           typename InType2,
@@ -40,7 +41,8 @@ template <typename InType1,
           typename Func,
           typename = raft::enable_if_output_device_mdspan<OutType>,
           typename = raft::enable_if_input_device_mdspan<InType1, InType2, InType3>>
-void map(const raft::resources& res, InType1 in1, InType2 in2, InType3 in3, OutType out, Func f);
+CUVS_EXPORT void map(
+  const raft::resources& res, InType1 in1, InType2 in2, InType3 in3, OutType out, Func f);
 
 template <typename OutType,
           typename Func,
@@ -77,13 +79,13 @@ void map_offset(
 
 namespace cuvs::detail {
 template <typename InT, typename OutT = InT, typename IdxType = int>
-void add(OutT* out, const InT* in1, const InT* in2, IdxType len, cudaStream_t stream);
+CUVS_EXPORT void add(OutT* out, const InT* in1, const InT* in2, IdxType len, cudaStream_t stream);
 
 template <typename InType,
           typename OutType,
           typename = raft::enable_if_input_device_mdspan<InType>,
           typename = raft::enable_if_output_device_mdspan<OutType>>
-void add(raft::resources const& handle, InType in1, InType in2, OutType out);
+CUVS_EXPORT void add(raft::resources const& handle, InType in1, InType in2, OutType out);
 
 template <typename InT, typename OutT = InT, typename IdxType = int>
 void addScalar(OutT* out, const InT* in, const InT scalar, IdxType len, cudaStream_t stream);
