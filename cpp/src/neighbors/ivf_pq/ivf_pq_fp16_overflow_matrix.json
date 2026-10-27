@@ -1,0 +1,42 @@
+[
+  {
+    "data_type": "__half",
+    "memory_type": "raft::memory_type::host",
+    "inst_abbrev": "f16_host"
+  },
+  {
+    "data_type": "__half",
+    "memory_type": "raft::memory_type::device",
+    "inst_abbrev": "f16_device"
+  },
+  {
+    "data_type": "float",
+    "memory_type": "raft::memory_type::host",
+    "inst_abbrev": "f32_host"
+  },
+  {
+    "data_type": "float",
+    "memory_type": "raft::memory_type::device",
+    "inst_abbrev": "f32_device"
+  },
+  {
+    "data_type": "signed char",
+    "memory_type": "raft::memory_type::host",
+    "inst_abbrev": "i8_host"
+  },
+  {
+    "data_type": "signed char",
+    "memory_type": "raft::memory_type::device",
+    "inst_abbrev": "i8_device"
+  },
+  {
+    "data_type": "unsigned char",
+    "memory_type": "raft::memory_type::host",
+    "inst_abbrev": "u8_host"
+  },
+  {
+    "data_type": "unsigned char",
+    "memory_type": "raft::memory_type::device",
+    "inst_abbrev": "u8_device"
+  }
+]
