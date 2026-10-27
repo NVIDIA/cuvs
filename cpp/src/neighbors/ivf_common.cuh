@@ -12,7 +12,6 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
-#include <raft/linalg/map.cuh>
 #include <raft/matrix/detail/select_warpsort.cuh>  // matrix::detail::select::warpsort::warp_sort_distributed
 
 namespace cuvs::neighbors::ivf::detail {
@@ -111,34 +110,6 @@ __device__ inline auto find_chunk_ix(uint32_t& sample_ix,  // NOLINT
   return ix_min;
 }
 
-template <int BlockDim, typename IdxT, typename DbIdxT>
-__launch_bounds__(BlockDim) RAFT_KERNEL
-  postprocess_neighbors_kernel(IdxT* neighbors_out,                // [n_queries, topk]
-                               const uint32_t* neighbors_in,       // [n_queries, topk]
-                               const DbIdxT* const* db_indices,    // [n_clusters][..]
-                               const uint32_t* clusters_to_probe,  // [n_queries, n_probes]
-                               const uint32_t* chunk_indices,      // [n_queries, n_probes]
-                               uint32_t n_queries,
-                               uint32_t n_probes,
-                               uint32_t topk)
-{
-  static_assert(!raft::is_narrowing_v<uint32_t, IdxT>,
-                "IdxT must be able to represent all values of uint32_t");
-  const uint64_t i        = threadIdx.x + BlockDim * uint64_t(blockIdx.x);
-  const uint32_t query_ix = i / uint64_t(topk);
-  if (query_ix >= n_queries) { return; }
-  const uint32_t k = i % uint64_t(topk);
-  neighbors_in += query_ix * topk;
-  neighbors_out += query_ix * topk;
-  chunk_indices += query_ix * n_probes;
-  clusters_to_probe += query_ix * n_probes;
-  uint32_t data_ix        = neighbors_in[k];
-  const uint32_t chunk_ix = find_chunk_ix(data_ix, n_probes, chunk_indices);
-  const bool valid        = chunk_ix < n_probes;
-  neighbors_out[k] = valid ? static_cast<IdxT>(db_indices[clusters_to_probe[chunk_ix]][data_ix])
-                           : kOutOfBoundsRecord<IdxT>;
-}
-
 /**
  * Transform found sample indices into the corresponding database indices
  * (as stored in index.indices()).
@@ -146,6 +117,7 @@ __launch_bounds__(BlockDim) RAFT_KERNEL
  * probed clusters / defined by the `chunk_indices`.
  * We assume the searched sample sizes (for a single query) fit into `uint32_t`.
  */
+// Defined and explicitly instantiated in ivf_common.cu so searches share one kernel owner.
 template <typename IdxT, typename DbIdxT>
 void postprocess_neighbors(IdxT* neighbors_out,                // [n_queries, topk]
                            const uint32_t* neighbors_in,       // [n_queries, topk]
@@ -155,20 +127,7 @@ void postprocess_neighbors(IdxT* neighbors_out,                // [n_queries, to
                            uint32_t n_queries,
                            uint32_t n_probes,
                            uint32_t topk,
-                           cuda::stream_ref stream)
-{
-  constexpr int kPNThreads = 256;
-  const int pn_blocks      = raft::div_rounding_up_unsafe<size_t>(n_queries * topk, kPNThreads);
-  postprocess_neighbors_kernel<kPNThreads, IdxT>
-    <<<pn_blocks, kPNThreads, 0, stream.get()>>>(neighbors_out,
-                                                 neighbors_in,
-                                                 db_indices,
-                                                 clusters_to_probe,
-                                                 chunk_indices,
-                                                 n_queries,
-                                                 n_probes,
-                                                 topk);
-}
+                           cuda::stream_ref stream);
 
 /**
  * Post-process the scores depending on the metric type;
@@ -182,76 +141,7 @@ void postprocess_distances(const raft::resources& res,
                            uint32_t n_queries,
                            uint32_t topk,
                            float scaling_factor,
-                           bool account_for_max_close)
-{
-  constexpr bool needs_cast = !std::is_same<ScoreInT, ScoreOutT>::value;
-  const bool needs_copy     = ((void*)in) != ((void*)out);
-  size_t len                = size_t(n_queries) * size_t(topk);
-  auto out_view             = raft::make_device_vector_view<ScoreOutT, size_t>(out, len);
-  auto in_view              = raft::make_device_vector_view<const ScoreInT, size_t>(in, len);
-  switch (metric) {
-    case distance::DistanceType::L2Unexpanded:
-    case distance::DistanceType::L2Expanded: {
-      if (scaling_factor != 1.0) {
-        cuvs::detail::map(
-          res,
-          out_view,
-          raft::compose_op(raft::mul_const_op<ScoreOutT>{scaling_factor * scaling_factor},
-                           raft::cast_op<ScoreOutT>{}),
-          raft::make_const_mdspan(in_view));
-      } else if (needs_cast || needs_copy) {
-        cuvs::detail::map(
-          res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
-      }
-    } break;
-    case distance::DistanceType::L2SqrtUnexpanded:
-    case distance::DistanceType::L2SqrtExpanded: {
-      if (scaling_factor != 1.0) {
-        cuvs::detail::map(res,
-                          out_view,
-                          raft::compose_op{raft::mul_const_op<ScoreOutT>{scaling_factor},
-                                           raft::sqrt_op{},
-                                           raft::cast_op<ScoreOutT>{}},
-                          raft::make_const_mdspan(in_view));
-      } else if (needs_cast) {
-        cuvs::detail::map(res,
-                          out_view,
-                          raft::compose_op{raft::sqrt_op{}, raft::cast_op<ScoreOutT>{}},
-                          raft::make_const_mdspan(in_view));
-      } else {
-        cuvs::detail::map(res, out_view, raft::sqrt_op{}, raft::make_const_mdspan(in_view));
-      }
-    } break;
-    case distance::DistanceType::CosineExpanded:
-    case distance::DistanceType::InnerProduct: {
-      float factor = (account_for_max_close ? -1.0 : 1.0) * scaling_factor * scaling_factor;
-      if (factor != 1.0) {
-        cuvs::detail::map(
-          res,
-          out_view,
-          raft::compose_op(raft::mul_const_op<ScoreOutT>{factor}, raft::cast_op<ScoreOutT>{}),
-          raft::make_const_mdspan(in_view));
-      } else if (needs_cast || needs_copy) {
-        cuvs::detail::map(
-          res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
-      }
-    } break;
-    case distance::DistanceType::BitwiseHamming: break;
-    case distance::DistanceType::L1: {
-      if (scaling_factor != 1.0) {
-        cuvs::detail::map(res,
-                          out_view,
-                          raft::compose_op(raft::mul_const_op<ScoreOutT>{scaling_factor},
-                                           raft::cast_op<ScoreOutT>{}),
-                          raft::make_const_mdspan(in_view));
-      } else if (needs_cast || needs_copy) {
-        cuvs::detail::map(
-          res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
-      }
-    } break;
-    default: RAFT_FAIL("Unexpected metric.");
-  }
-}
+                           bool account_for_max_close);
 
 /** Update the state of the dependent index members. */
 template <typename Index>

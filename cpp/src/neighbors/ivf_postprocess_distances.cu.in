@@ -1,0 +1,94 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/map_launchers.hpp>
+#include <neighbors/ivf_common.cuh>
+
+namespace cuvs::neighbors::ivf::detail {
+
+template <typename ScoreInT, typename ScoreOutT>
+void postprocess_distances(const raft::resources& res,
+                           ScoreOutT* out,      // [n_queries, topk]
+                           const ScoreInT* in,  // [n_queries, topk]
+                           distance::DistanceType metric,
+                           uint32_t n_queries,
+                           uint32_t topk,
+                           float scaling_factor,
+                           bool account_for_max_close)
+{
+  constexpr bool needs_cast = !std::is_same<ScoreInT, ScoreOutT>::value;
+  const bool needs_copy     = ((void*)in) != ((void*)out);
+  size_t len                = size_t(n_queries) * size_t(topk);
+  auto out_view             = raft::make_device_vector_view<ScoreOutT, size_t>(out, len);
+  auto in_view              = raft::make_device_vector_view<const ScoreInT, size_t>(in, len);
+  switch (metric) {
+    case distance::DistanceType::L2Unexpanded:
+    case distance::DistanceType::L2Expanded: {
+      if (scaling_factor != 1.0) {
+        cuvs::detail::map(
+          res,
+          out_view,
+          raft::compose_op(raft::mul_const_op<ScoreOutT>{scaling_factor * scaling_factor},
+                           raft::cast_op<ScoreOutT>{}),
+          raft::make_const_mdspan(in_view));
+      } else if (needs_cast || needs_copy) {
+        cuvs::detail::map(
+          res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
+      }
+    } break;
+    case distance::DistanceType::L2SqrtUnexpanded:
+    case distance::DistanceType::L2SqrtExpanded: {
+      if (scaling_factor != 1.0) {
+        cuvs::detail::map(res,
+                          out_view,
+                          raft::compose_op{raft::mul_const_op<ScoreOutT>{scaling_factor},
+                                           raft::sqrt_op{},
+                                           raft::cast_op<ScoreOutT>{}},
+                          raft::make_const_mdspan(in_view));
+      } else if (needs_cast) {
+        cuvs::detail::map(res,
+                          out_view,
+                          raft::compose_op{raft::sqrt_op{}, raft::cast_op<ScoreOutT>{}},
+                          raft::make_const_mdspan(in_view));
+      } else {
+        cuvs::detail::map(res, out_view, raft::sqrt_op{}, raft::make_const_mdspan(in_view));
+      }
+    } break;
+    case distance::DistanceType::CosineExpanded:
+    case distance::DistanceType::InnerProduct: {
+      float factor = (account_for_max_close ? -1.0 : 1.0) * scaling_factor * scaling_factor;
+      if (factor != 1.0) {
+        cuvs::detail::map(
+          res,
+          out_view,
+          raft::compose_op(raft::mul_const_op<ScoreOutT>{factor}, raft::cast_op<ScoreOutT>{}),
+          raft::make_const_mdspan(in_view));
+      } else if (needs_cast || needs_copy) {
+        cuvs::detail::map(
+          res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
+      }
+    } break;
+    case distance::DistanceType::BitwiseHamming: break;
+    case distance::DistanceType::L1: {
+      if (scaling_factor != 1.0) {
+        cuvs::detail::map(res,
+                          out_view,
+                          raft::compose_op(raft::mul_const_op<ScoreOutT>{scaling_factor},
+                                           raft::cast_op<ScoreOutT>{}),
+                          raft::make_const_mdspan(in_view));
+      } else if (needs_cast || needs_copy) {
+        cuvs::detail::map(
+          res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
+      }
+    } break;
+    default: RAFT_FAIL("Unexpected metric.");
+  }
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::ivf::detail

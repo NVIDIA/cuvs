@@ -1,0 +1,20 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "postprocess_neighbors",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::neighbors::ivf::detail",
+    "_variants": [
+      {
+        "template_arguments": "<uint32_t, int64_t>",
+        "parameter_types": "uint32_t *neighbors_out, const uint32_t *neighbors_in, const int64_t *const *db_indices, const uint32_t *clusters_to_probe, const uint32_t *chunk_indices, uint32_t n_queries, uint32_t n_probes, uint32_t topk, cuda::stream_ref stream",
+        "instantiation_name": "u32_i64"
+      },
+      {
+        "template_arguments": "<int64_t, int64_t>",
+        "parameter_types": "int64_t *neighbors_out, const uint32_t *neighbors_in, const int64_t *const *db_indices, const uint32_t *clusters_to_probe, const uint32_t *chunk_indices, uint32_t n_queries, uint32_t n_probes, uint32_t topk, cuda::stream_ref stream",
+        "instantiation_name": "i64_i64"
+      }
+    ]
+  }
+]

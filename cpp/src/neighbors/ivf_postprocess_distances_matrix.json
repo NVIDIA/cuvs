@@ -1,0 +1,20 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "postprocess_distances",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::neighbors::ivf::detail",
+    "_variants": [
+      {
+        "template_arguments": "<float, float>",
+        "parameter_types": "const raft::resources &, float *, const float *, distance::DistanceType, uint32_t, uint32_t, float, bool",
+        "instantiation_name": "f32_f32"
+      },
+      {
+        "template_arguments": "<half, float>",
+        "parameter_types": "const raft::resources &, float *, const half *, distance::DistanceType, uint32_t, uint32_t, float, bool",
+        "instantiation_name": "half_f32"
+      }
+    ]
+  }
+]
