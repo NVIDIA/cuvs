@@ -72,4 +72,10 @@ void reduce_rows_by_key(
 
 }  // namespace cuvs::detail
 
-@primitive_instantiations@
+// clang-format off
+@reduce_rows_by_key_helpers_extern_instantiations@
+
+@reduce_rows_by_key_detail_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
