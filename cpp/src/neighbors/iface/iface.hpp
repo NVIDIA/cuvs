@@ -99,30 +99,25 @@ void build(const raft::resources& handle,
       // Explicitly form a host_matrix_view so the call always resolves to the host build
       // regardless of the mdspan Accessor type (both branches compile for all Accessors;
       // at runtime this else branch is only reached when data_handle() is host memory).
-      // Wrap in host_padded_dataset_view directly (graph build is CPU-side; CUDA alignment
+      // Wrap in host_standard_dataset_view (graph build is CPU-side; CUDA alignment
       // is not required here — the device dataset is padded separately below).
       auto host_view = raft::make_host_matrix_view<const T, int64_t, raft::row_major>(
         index_dataset.data_handle(), index_dataset.extent(0), index_dataset.extent(1));
       if constexpr (std::is_same<AnnIndexType, cagra::device_padded_index<T, IdxT>>::value) {
-        cuvs::neighbors::host_padded_dataset_view<T, int64_t> host_padded(
-          host_view, static_cast<uint32_t>(host_view.extent(1)));
-        auto host_idx   = cuvs::neighbors::cagra::build(handle, cagra_params, host_padded);
-        auto padded_r   = cuvs::neighbors::make_device_padded_dataset(handle, index_dataset);
-        auto device_idx = cuvs::neighbors::cagra::update_dataset(
-          handle, std::move(host_idx), padded_r->as_dataset_view());
+        auto host_standard = cuvs::neighbors::make_host_standard_dataset_view(host_view);
+        auto host_idx      = cuvs::neighbors::cagra::build(handle, cagra_params, host_standard);
+        auto padded_r      = cuvs::neighbors::make_device_padded_dataset(handle, index_dataset);
+        auto device_idx =
+          cuvs::neighbors::cagra::update_dataset(handle, std::move(host_idx), padded_r->view());
         interface.cagra_owned_padded_dataset_ = std::move(padded_r);
         interface.cagra_owned_standard_dataset_.reset();
         interface.index_.emplace(std::move(device_idx));
       } else {
         auto host_standard = cuvs::neighbors::make_host_standard_dataset_view(host_view);
         auto host_idx      = cuvs::neighbors::cagra::build(handle, cagra_params, host_standard);
-        auto standard_r    = cuvs::neighbors::make_device_standard_dataset(
-          handle,
-          index_dataset,
-          static_cast<uint32_t>(index_dataset.extent(1)),
-          static_cast<uint32_t>(index_dataset.stride(0)));
-        auto device_idx = cuvs::neighbors::cagra::update_dataset(
-          handle, std::move(host_idx), standard_r->as_dataset_view());
+        auto standard_r    = cuvs::neighbors::make_device_standard_dataset(handle, index_dataset);
+        auto device_idx =
+          cuvs::neighbors::cagra::update_dataset(handle, std::move(host_idx), standard_r->view());
         interface.cagra_owned_standard_dataset_ = std::move(standard_r);
         interface.cagra_owned_padded_dataset_.reset();
         interface.index_.emplace(std::move(device_idx));
