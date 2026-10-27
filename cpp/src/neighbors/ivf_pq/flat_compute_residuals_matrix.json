@@ -7,31 +7,38 @@
     "_variants": [
       {
         "template_arguments": "<__half, long>",
-        "parameter_types": "const raft::resources&, float*, long, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const __half*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType"
+        "parameter_types": "const raft::resources&, float*, long, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const __half*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType",
+        "instantiation_name": "f16_long"
       },
       {
         "template_arguments": "<float, long>",
-        "parameter_types": "const raft::resources&, float*, long, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const float*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType"
+        "parameter_types": "const raft::resources&, float*, long, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const float*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType",
+        "instantiation_name": "f32_long"
       },
       {
         "template_arguments": "<float, unsigned int>",
-        "parameter_types": "const raft::resources&, float*, unsigned int, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const float*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType"
+        "parameter_types": "const raft::resources&, float*, unsigned int, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const float*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType",
+        "instantiation_name": "f32_u32"
       },
       {
         "template_arguments": "<signed char, long>",
-        "parameter_types": "const raft::resources&, float*, long, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const signed char*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType"
+        "parameter_types": "const raft::resources&, float*, long, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const signed char*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType",
+        "instantiation_name": "i8_long"
       },
       {
         "template_arguments": "<signed char, unsigned int>",
-        "parameter_types": "const raft::resources&, float*, unsigned int, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const signed char*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType"
+        "parameter_types": "const raft::resources&, float*, unsigned int, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const signed char*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType",
+        "instantiation_name": "i8_u32"
       },
       {
         "template_arguments": "<unsigned char, long>",
-        "parameter_types": "const raft::resources&, float*, long, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const unsigned char*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType"
+        "parameter_types": "const raft::resources&, float*, long, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const unsigned char*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType",
+        "instantiation_name": "u8_long"
       },
       {
         "template_arguments": "<unsigned char, unsigned int>",
-        "parameter_types": "const raft::resources&, float*, unsigned int, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const unsigned char*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType"
+        "parameter_types": "const raft::resources&, float*, unsigned int, raft::device_matrix_view<const float, uint32_t, raft::row_major>, raft::device_matrix_view<const float, uint32_t, raft::row_major>, const unsigned char*, std::variant<uint32_t, const uint32_t*>, rmm::device_async_resource_ref, cuvs::distance::DistanceType",
+        "instantiation_name": "u8_u32"
       }
     ]
   }
