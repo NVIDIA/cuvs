@@ -3,9 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <core/reduction_launchers.hpp>
 #include <neighbors/detail/ann_utils.cuh>
 
 #include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/coalesced_reduction.cuh>
 #include <raft/linalg/strided_reduction.cuh>
 
 extern template void raft::linalg::detail::map<false, double, int, raft::const_op<double>, double>(
@@ -52,4 +54,12 @@ raft::linalg::detail::map<false, float, long, raft::plug_const_op<float, raft::m
 extern template void raft::linalg::detail::map<false, float, long, raft::sqrt_op, float>(
   cuda::stream_ref, float*, long, raft::sqrt_op, float const*);
 
-@primitive_instantiations@
+// clang-format off
+@coalesced_dispatch_extern_instantiations@
+@strided_dispatch_extern_instantiations@
+@strided_launch_extern_instantiations@
+@coalesced_thin_extern_instantiations@
+@coalesced_thick_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
