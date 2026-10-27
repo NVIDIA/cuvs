@@ -6,10 +6,12 @@
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<float const, long, raft::row_major>, raft::device_vector_view<int, long, raft::row_major>"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<float const, long, raft::row_major>, raft::device_vector_view<int, long, raft::row_major>",
+        "instantiation_name": "matrix_f32_c_long_row_vector_int_long_row"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<float const, long, raft::row_major>, raft::device_vector_view<unsigned int, long, raft::row_major>"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<float const, long, raft::row_major>, raft::device_vector_view<unsigned int, long, raft::row_major>",
+        "instantiation_name": "matrix_f32_c_long_row_vector_u32_long_row"
       }
     ]
   }
