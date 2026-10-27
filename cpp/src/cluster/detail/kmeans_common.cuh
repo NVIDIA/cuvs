@@ -9,6 +9,7 @@
 
 #include "../../core/gather_launchers.hpp"
 #include "../../core/matrix_broadcast_launchers.hpp"
+#include "../../core/random_launchers.hpp"
 #include "../../distance/distance.cuh"
 #include "../../distance/top_1_nn.cuh"
 #include <cstdint>
@@ -34,7 +35,6 @@
 #include <raft/linalg/reduce_cols_by_key.cuh>
 #include <raft/linalg/reduce_rows_by_key.cuh>
 #include <raft/matrix/gather.cuh>
-#include <raft/random/permute.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
@@ -458,13 +458,8 @@ void shuffleAndGather(raft::resources const& handle,
   auto indices = raft::make_device_vector<IndexT, IndexT>(handle, n_samples);
 
   // shuffle indices on device
-  raft::random::permute<DataT, IndexT, IndexT>(indices.data_handle(),
-                                               nullptr,
-                                               nullptr,
-                                               (IndexT)in.extent(1),
-                                               (IndexT)in.extent(0),
-                                               true,
-                                               stream);
+  cuvs::detail::random::permute<DataT, IndexT>(
+    indices.data_handle(), (IndexT)in.extent(1), (IndexT)in.extent(0), stream);
 
   cuvs::detail::gather((DataT*)in.data_handle(),
                        in.extent(1),

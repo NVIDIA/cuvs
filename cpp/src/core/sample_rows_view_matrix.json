@@ -1,0 +1,70 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::sample_rows",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<__half const, long, raft::layout_stride>, raft::device_matrix_view<__half, long, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_f16_c_long_layout_stride_matrix_f16_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<__half const, long, raft::row_major>, raft::device_matrix_view<__half, long, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_f16_c_long_row_matrix_f16_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<double const, int, raft::row_major>, raft::device_matrix_view<double, int, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_f64_c_int_row_matrix_f64_int_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<double const, long, raft::layout_stride>, raft::device_matrix_view<double, long, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_f64_c_long_layout_stride_matrix_f64_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<double const, long, raft::row_major>, raft::device_matrix_view<double, long, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_f64_c_long_row_matrix_f64_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<float const, int, raft::row_major>, raft::device_matrix_view<float, int, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_f32_c_int_row_matrix_f32_int_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<float const, long, raft::layout_stride>, raft::device_matrix_view<float, long, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_f32_c_long_layout_stride_matrix_f32_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<float const, long, raft::row_major>, raft::device_matrix_view<float, long, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_f32_c_long_row_matrix_f32_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<signed char const, long, raft::row_major>, raft::device_matrix_view<signed char, long, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_i8_c_long_row_matrix_i8_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::device_matrix_view<unsigned char const, long, raft::row_major>, raft::device_matrix_view<unsigned char, long, raft::row_major>",
+        "instantiation_name": "rngstate_matrix_u8_c_long_row_matrix_u8_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::host_matrix_view<__half const, long, raft::row_major>, raft::device_matrix_view<__half, long, raft::row_major>",
+        "instantiation_name": "rngstate_host_matrix_view_f16_c_long_row_matrix_f16_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::host_matrix_view<double const, long, raft::row_major>, raft::device_matrix_view<double, long, raft::row_major>",
+        "instantiation_name": "rngstate_host_matrix_view_f64_c_long_row_matrix_f64_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::host_matrix_view<float const, long, raft::row_major>, raft::device_matrix_view<float, long, raft::row_major>",
+        "instantiation_name": "rngstate_host_matrix_view_f32_c_long_row_matrix_f32_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::host_matrix_view<signed char const, long, raft::row_major>, raft::device_matrix_view<signed char, long, raft::row_major>",
+        "instantiation_name": "rngstate_host_matrix_view_i8_c_long_row_matrix_i8_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::random::RngState, raft::host_matrix_view<unsigned char const, long, raft::row_major>, raft::device_matrix_view<unsigned char, long, raft::row_major>",
+        "instantiation_name": "rngstate_host_matrix_view_u8_c_long_row_matrix_u8_long_row"
+      }
+    ]
+  }
+]

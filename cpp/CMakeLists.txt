@@ -1505,6 +1505,16 @@ if(NOT BUILD_CPU_ONLY)
   )
 
   generate_string_matrix(
+    lanczos_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/lanczos_compute_eigenpairs_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
+  generate_string_matrix(
     map_detail_extern_instantiations
     MATRIX_JSON_FILE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/map_detail_matrix.json"
@@ -1528,6 +1538,16 @@ if(NOT BUILD_CPU_ONLY)
     pca_array_extern_instantiations
     MATRIX_JSON_FILE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/pca_array_transforms_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
+  generate_string_matrix(
+    random_rng_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_rng_dispatch_matrix.json"
     ITEM_FORMAT
     "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
     GLUE
@@ -1865,6 +1885,100 @@ if(NOT BUILD_CPU_ONLY)
 
   generate_inst_matrix(
     cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/lanczos_compute_eigenpairs_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/lanczos_compute_eigenpairs.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/lanczos_compute_eigenpairs_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_discrete_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_discrete.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/random_discrete_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_excess_subsample_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_excess_subsample.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/random_excess_subsample_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_normal_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_normal.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/random_normal_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_permute_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_permute.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/random_permute_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_permute_indices_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_permute_indices.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/random_permute_indices_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_rng_dispatch_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_rng_dispatch.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/random_rng_dispatch_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_sample_without_replacement_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_sample_without_replacement.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/random_sample_without_replacement_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_uniform_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/random_uniform.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/random_uniform_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sample_rows_allocating_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sample_rows_allocating.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/sample_rows_allocating_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sample_rows_pointer_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sample_rows_pointer.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/sample_rows_pointer_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sample_rows_view_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sample_rows_view.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/sample_rows_view_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/add_matrix.json"
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/add.cu.in"
     OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/add_@instantiation_name@.cu"
@@ -1982,6 +2096,8 @@ if(NOT BUILD_CPU_ONLY)
     src/core/thrust_reduce_by_key.cu
     src/core/thrust_stable_sort_by_key.cu
     src/core/thrust_transform.cu
+    src/neighbors/ivf_rabitq/gpu_index/exrabitq_fused_launch.cu
+    src/neighbors/ivf_rabitq/gpu_index/random_scaling_factors_launch.cu
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}

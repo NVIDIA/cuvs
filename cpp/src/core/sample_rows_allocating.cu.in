@@ -1,0 +1,27 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/sample_rows.hpp>
+#include <raft/core/host_mdspan.hpp>
+
+namespace cuvs::detail {
+
+template <typename T, typename Index, typename Accessor, typename Layout>
+raft::device_matrix<T, Index> sample_rows(
+  raft::resources const& res,
+  raft::random::RngState state,
+  raft::mdspan<const T, raft::matrix_extent<Index>, Layout, Accessor> dataset,
+  Index n_samples)
+{
+  auto output = raft::make_device_matrix<T, Index>(res, n_samples, dataset.extent(1));
+  sample_rows(res, state, dataset, output.view());
+  return output;
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

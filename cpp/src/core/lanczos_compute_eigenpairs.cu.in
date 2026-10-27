@@ -1,0 +1,77 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_transform_launchers.hpp>
+
+#include <core/cub_ptx_query.hpp>
+#include <core/lanczos.hpp>
+#include <raft/linalg/coalesced_reduction.cuh>
+#include <raft/linalg/map.cuh>
+#include <raft/sparse/solver/lanczos.cuh>
+
+#include <type_traits>
+
+extern template void raft::linalg::detail::map<false, float, int, raft::const_op<float>>(
+  cuda::stream_ref, float*, int, raft::const_op<float>);
+
+extern template void raft::linalg::detail::map<false, float, unsigned int, raft::const_op<float>>(
+  cuda::stream_ref, float*, unsigned int, raft::const_op<float>);
+
+extern template void raft::linalg::detail::map<false, double, int, raft::const_op<double>>(
+  cuda::stream_ref, double*, int, raft::const_op<double>);
+
+extern template void raft::linalg::detail::map<false, double, unsigned int, raft::const_op<double>>(
+  cuda::stream_ref, double*, unsigned int, raft::const_op<double>);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<float, float, unsigned int, raft::sq_op, raft::add_op, raft::sqrt_op>(
+    bool,
+    float*,
+    float const*,
+    unsigned int,
+    unsigned int,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::sqrt_op);
+
+namespace cuvs::detail {
+
+template <typename Index, typename T, typename NnzIndex>
+int lanczos_compute_eigenpairs(
+  raft::resources const& res,
+  raft::sparse::solver::lanczos_solver_config<T> const& config,
+  raft::device_coo_matrix_view<T, Index, Index, NnzIndex> matrix,
+  std::optional<raft::device_vector_view<T, uint32_t, raft::row_major>> initial,
+  raft::device_vector_view<T, uint32_t, raft::col_major> values,
+  raft::device_matrix_view<T, uint32_t, raft::col_major> vectors)
+{
+  static_assert(std::is_integral_v<NnzIndex> && std::is_signed_v<NnzIndex> &&
+                sizeof(NnzIndex) <= sizeof(int64_t));
+  if constexpr (std::is_same_v<NnzIndex, int64_t>) {
+    return raft::sparse::solver::lanczos_compute_eigenpairs(
+      res, config, matrix, initial, values, vectors);
+  } else {
+    // Only widen the host NNZ count; matrix storage and index types stay the same.
+    auto structure      = matrix.structure_view();
+    auto wide_structure = raft::make_device_coordinate_structure_view<Index, Index, int64_t>(
+      structure.get_rows(), structure.get_cols(), structure.get_n_rows(), structure.get_n_cols());
+    auto wide_matrix =
+      raft::make_device_coo_matrix_view(matrix.get_elements().data(), wide_structure);
+    return cuvs::detail::lanczos_compute_eigenpairs<Index, T, int64_t>(
+      res, config, wide_matrix, initial, values, vectors);
+  }
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@random_rng_extern_instantiations@
+@lanczos_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

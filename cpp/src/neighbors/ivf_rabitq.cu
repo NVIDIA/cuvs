@@ -12,10 +12,10 @@
 #include "../core/nvtx.hpp"
 #include "detail/ann_utils.cuh"
 
+#include "../core/sample_rows.hpp"
 #include <raft/core/operators.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/reduce.cuh>
-#include <raft/matrix/sample_rows.cuh>
 #include <raft/util/cudart_utils.hpp>
 
 namespace cuvs::neighbors::ivf_rabitq {
@@ -125,7 +125,7 @@ auto build(raft::resources const& handle,
         "max_train_points_per_cluster, or set large_workspace_resource appropriately.");
       throw;
     }
-    raft::matrix::sample_rows<T, int64_t>(handle, random_state, dataset, trainset.view());
+    cuvs::detail::sample_rows<T, int64_t>(handle, random_state, dataset, trainset.view());
 
     // perform k-means clustering
     // NB: here cluster_centers is used as if it is [n_clusters, data_dim] not [n_clusters,

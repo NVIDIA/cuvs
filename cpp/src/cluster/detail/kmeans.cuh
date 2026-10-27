@@ -12,6 +12,8 @@
 #include "../../core/matrix_broadcast_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../../core/reduction_launchers.hpp"
+
+#include "../../core/random_launchers.hpp"
 #include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"
 #include "kmeans_common.cuh"
@@ -19,6 +21,7 @@
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
 
+#include "../../core/sample_rows.hpp"
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
@@ -43,8 +46,6 @@
 #include <raft/linalg/reduce_cols_by_key.cuh>
 #include <raft/matrix/gather.cuh>
 #include <raft/matrix/init.cuh>
-#include <raft/matrix/sample_rows.cuh>
-#include <raft/random/rng.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
@@ -267,7 +268,7 @@ void kmeansPlusPlus(raft::resources const& handle,
     // Choose 'n_trials' centroid candidates from X with probability proportional to the squared
     // distance to the nearest existing cluster
 
-    raft::random::discrete(handle, rng, indices_view, const_weights_view);
+    cuvs::detail::random::discrete(handle, rng, indices_view, const_weights_view);
     cuvs::detail::gather(handle, const_X_view, const_indices_view, candidates_view);
 
     // Calculate pairwise distance between X and the centroid candidates
@@ -525,7 +526,7 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
 
     // <<<< Step-4 >>> : Sample each point x in X independently and identify new
     // potentialCentroids
-    raft::random::uniform(
+    cuvs::detail::random::uniform(
       handle, rng, uniformRands.data_handle(), uniformRands.extent(0), (DataT)0, (DataT)1);
 
     cuvs::cluster::kmeans::detail::SamplingOp<DataT, IndexT> select_op(
@@ -781,7 +782,7 @@ void kmeans_fit(
     raft::random::RngState random_state(iter_params.rng_state.seed);
 
     if (iter_params.init == cuvs::cluster::kmeans::params::InitMethod::Random) {
-      raft::matrix::sample_rows(handle, random_state, X, centroidsRawData);
+      cuvs::detail::sample_rows(handle, random_state, X, centroidsRawData);
     } else if (iter_params.init == cuvs::cluster::kmeans::params::InitMethod::KMeansPlusPlus) {
       auto run_kmeanspp = [&](raft::device_matrix_view<const DataT, IndexT> init_data) {
         if (iter_params.oversampling_factor == 0)
@@ -794,7 +795,7 @@ void kmeans_fit(
       if constexpr (data_on_device) {
         run_kmeanspp(X);
       } else {
-        raft::matrix::sample_rows(handle, random_state, X, init_sample->view());
+        cuvs::detail::sample_rows(handle, random_state, X, init_sample->view());
         run_kmeanspp(raft::make_const_mdspan(init_sample->view()));
       }
     } else {

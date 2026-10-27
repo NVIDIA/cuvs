@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../../core/nvtx.hpp"
+#include "../../../core/sample_rows.hpp"
 #include "../../../util/kvikio_io.hpp"
 
 #include <raft/core/copy.cuh>
@@ -186,7 +187,7 @@ void ace_get_partition_labels(
   cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
   // Sampling vectors from dataset. Uses float conversion on host instead of
-  // raft::matrix::sample_rows to minimize GPU memory usage.
+  // cuvs::detail::sample_rows to minimize GPU memory usage.
   // TODO(julianmi): Switch to sample_rows when https://github.com/NVIDIA/cuvs/issues/1461 is
   // addressed.
   size_t n_samples         = dataset_size * sampling_rate;

@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/sample_rows.hpp>
+#include <raft/core/host_mdspan.hpp>
+
+namespace cuvs::detail {
+
+template <typename T, typename Index, typename Accessor, typename Layout>
+void sample_rows(raft::resources const& res,
+                 raft::random::RngState state,
+                 raft::mdspan<const T, raft::matrix_extent<Index>, Layout, Accessor> dataset,
+                 raft::device_matrix_view<T, Index> output)
+{
+  static_assert(std::is_same_v<Layout, raft::row_major> ||
+                std::is_same_v<Layout, raft::layout_stride>);
+  RAFT_EXPECTS(dataset.extent(1) == output.extent(1),
+               "dataset dims must match, but received %ld vs %ld",
+               static_cast<long>(dataset.extent(1)),
+               static_cast<long>(output.extent(1)));
+  sample_rows<T, Index>(
+    res, state, dataset.data_handle(), dataset.stride(0), dataset.extent(0), output);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

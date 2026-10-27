@@ -4,6 +4,7 @@
  */
 
 #include "../../core/nvtx.hpp"
+#include "../../core/random_launchers.hpp"
 #include "ivf_pq_build.cuh"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
@@ -247,7 +248,7 @@ void make_rotation_matrix(raft::resources const& handle,
   if (force_random_rotation || !inplace) {
     rmm::device_uvector<float> buf(inplace ? 0 : n * n, stream);
     float* mat = inplace ? rotation_matrix : buf.data();
-    raft::random::normal(handle, rng, mat, n * n, 0.0f, 1.0f);
+    cuvs::detail::random::normal(handle, rng, mat, n * n, 0.0f, 1.0f);
     raft::linalg::detail::qrGetQ_inplace(handle, mat, n, n, stream.get());
     if (!inplace) { raft::copy_matrix(rotation_matrix, n_cols, mat, n, n_cols, n_rows, stream); }
   } else {

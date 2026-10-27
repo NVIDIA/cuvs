@@ -9,6 +9,7 @@
 #include <cuvs/neighbors/all_neighbors.hpp>
 #include <cuvs/preprocessing/spectral_embedding.hpp>
 
+#include "../../../core/lanczos.hpp"
 #include <raft/core/device_coo_matrix.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/handle.hpp>
@@ -22,7 +23,6 @@
 #include <raft/sparse/linalg/laplacian.cuh>
 #include <raft/sparse/linalg/symmetrize.cuh>
 #include <raft/sparse/op/filter.cuh>
-#include <raft/sparse/solver/lanczos.cuh>
 #include <raft/sparse/solver/lanczos_types.hpp>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
@@ -75,7 +75,7 @@ void compute_eigenpairs(raft::resources const& handle,
   auto eigenvectors =
     raft::make_device_matrix<DataT, int, raft::col_major>(handle, n_samples, config.n_components);
 
-  raft::sparse::solver::lanczos_compute_eigenpairs<int, DataT>(
+  cuvs::detail::lanczos_compute_eigenpairs<int, DataT>(
     handle, config, laplacian_view, std::nullopt, eigenvalues.view(), eigenvectors.view());
 
   if (spectral_embedding_config.norm_laplacian) {

@@ -7,6 +7,8 @@
 #include "../../core/map_launchers.hpp"
 #include "../../core/mnmg_comms.cuh"
 #include "../../core/reduction_launchers.hpp"
+
+#include "../../core/random_launchers.hpp"
 #include "kmeans.cuh"
 #include "kmeans_common.cuh"
 #include "kmeans_mg_batched_init.cuh"
@@ -25,7 +27,6 @@
 #include <raft/linalg/add.cuh>
 #include <raft/linalg/norm.cuh>
 #include <raft/matrix/init.cuh>
-#include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>
 
 #include <rmm/device_scalar.hpp>
@@ -332,7 +333,8 @@ void initKMeansPlusPlus_distributed(
     if (n_local > 0) {
       auto rands_view =
         raft::make_device_vector_view<DataT, IndexT>(uniformRands.data_handle(), n_local);
-      raft::random::uniform(handle, rng, rands_view.data_handle(), n_local, DataT{0}, DataT{1});
+      cuvs::detail::random::uniform(
+        handle, rng, rands_view.data_handle(), n_local, DataT{0}, DataT{1});
     }
 
     // Sample per partition; collect into a rank-local concatenated buffer.

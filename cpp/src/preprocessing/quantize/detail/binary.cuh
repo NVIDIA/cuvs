@@ -7,6 +7,7 @@
 
 #include "../../../core/map_launchers.hpp"
 #include "../../../core/reduction_launchers.hpp"
+#include "../../../core/sample_rows.hpp"
 #include <cuvs/preprocessing/quantize/binary.hpp>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
@@ -15,9 +16,6 @@
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/transpose.cuh>
 #include <raft/matrix/init.cuh>
-#include <raft/matrix/sample_rows.cuh>
-#include <raft/random/rng.cuh>
-#include <raft/random/sample_without_replacement.cuh>
 #include <raft/stats/mean.cuh>
 #include <raft/util/cudart_utils.hpp>
 #include <thrust/execution_policy.h>
@@ -226,7 +224,7 @@ auto train(raft::resources const& res,
         raft::make_device_matrix_view<T, int64_t>(sampled_dataset_chunk.data_handle(),
                                                   static_cast<int64_t>(num_samples),
                                                   static_cast<int64_t>(dim_chunk));
-      raft::matrix::sample_rows(
+      cuvs::detail::sample_rows(
         res,
         rng,
         raft::make_device_strided_matrix_view<const T, int64_t>(

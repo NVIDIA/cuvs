@@ -8,11 +8,12 @@
 //
 
 #include "../../../core/map_launchers.hpp"
+#include "../../../core/random_launchers.hpp"
 #include "../../detail/smem_utils.cuh"
 #include "../utils/reductions.cuh"
 #include "quantizer_gpu.cuh"
 
-#include <curand_kernel.h>
+#include "scaling_factor_launch.hpp"
 
 #include <rmm/device_buffer.hpp>
 #include <rmm/device_uvector.hpp>
@@ -23,7 +24,6 @@
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/norm_types.hpp>
 #include <raft/linalg/normalize.cuh>
-#include <raft/random/rng.cuh>
 
 #include <cub/device/device_reduce.cuh>
 
@@ -83,17 +83,6 @@ void exrabitq_codes_and_factors_fused(const int* d_bin_XP,
                                       size_t EX_BITS,
                                       float const_scaling_factor,
                                       raft::resources const& handle);
-
-void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
-                                          const float* d_XP_norm,
-                                          float* d_XP,
-                                          uint8_t* d_long_code,
-                                          float* d_ex_factor,
-                                          const float* d_centroid,
-                                          size_t num_points,
-                                          size_t D,
-                                          size_t EX_BITS,
-                                          raft::resources const& handle);
 
 //---------------------------------------------------------------------------
 // Kernel: subtract_normalize_binarize_Kernel (Fused)
@@ -878,7 +867,7 @@ float DataQuantizerGPU::get_const_scaling_factors(raft::resources const& handle,
   // random matrix with normal distribution
   auto rand = raft::make_device_matrix<double, size_t>(handle, kConstNum, dim);
   raft::random::RngState rng(7ULL);
-  raft::random::normal(handle, rng, rand.data_handle(), kConstNum * dim, 0., 1.);
+  cuvs::detail::random::normal(handle, rng, rand.data_handle(), kConstNum * dim, 0., 1.);
   // row-wise normalization
   auto row_normalized = raft::make_device_matrix<double, size_t>(handle, kConstNum, dim);
   raft::linalg::row_normalize<raft::linalg::L2Norm, double, size_t>(
@@ -906,425 +895,6 @@ float DataQuantizerGPU::get_const_scaling_factors(raft::resources const& handle,
   return (float)t_const;
 }
 
-namespace {
-
-extern __constant__ float d_kTightStart_opt[9] = {
-  0.0f,
-  0.15f,
-  0.20f,
-  0.52f,
-  0.59f,
-  0.71f,
-  0.75f,
-  0.77f,
-  0.81f,
-};
-
-__device__ float compute_best_rescale_parallel(
-  float* s_xp_norm, int D, int EX_BITS, float* reuse_space, int BlockSize)
-{
-  int tid              = threadIdx.x;
-  constexpr float kEps = 1e-5f;
-  constexpr int kNEnum = 10;
-
-  //=========================================================================
-  // Step 1: Find maximum value using parallel reduction
-  //=========================================================================
-  float local_max = 0.0f;
-  for (int i = tid; i < D; i += BlockSize) {
-    local_max = fmaxf(local_max, fabsf(s_xp_norm[i]));
-  }
-
-  // Block-level reduction for max
-  float* s_reduce;
-  s_reduce      = reuse_space;
-  s_reduce[tid] = local_max;
-  __syncthreads();
-
-  for (int stride = BlockSize / 2; stride > 0; stride >>= 1) {
-    if (tid < stride) { s_reduce[tid] = fmaxf(s_reduce[tid], s_reduce[tid + stride]); }
-    __syncthreads();
-  }
-
-  float max_o = s_reduce[0];  // full max, already visible to all threads via the reduction's sync
-  if (max_o < kEps) return 1.0f;
-
-  //=========================================================================
-  // Step 2: Each thread evaluates multiple critical points
-  //=========================================================================
-  float t_end   = static_cast<float>((1 << EX_BITS) - 1 + kNEnum) / max_o;
-  float t_start = t_end * d_kTightStart_opt[EX_BITS];
-
-  //=========================================================================
-  // Phase 1: Coarse grid search
-  //=========================================================================
-  const int COARSE_SAMPLES = 64;  // Though not fully utilize each thread, but very fast
-  float best_coarse_ip     = 0.0f;
-  float best_coarse_t      = t_start;
-
-  for (int i = tid; i < COARSE_SAMPLES; i += BlockSize) {
-    float t = t_start + (t_end - t_start) * i / (COARSE_SAMPLES - 1);
-
-    // Quick approximate evaluation (sample subset of dimensions)
-    float numerator       = 0.0f;
-    float sqr_denominator = static_cast<float>(D) * 0.25f;
-
-    // Full evaluation for coarse grid
-    for (int j = 0; j < D; j++) {
-      float val     = fabsf(s_xp_norm[j]);
-      int quantized = min(static_cast<int>((t * val) + kEps), (1 << EX_BITS) - 1);
-      numerator += (quantized + 0.5f) * val;
-      sqr_denominator += quantized * quantized + quantized;
-    }
-
-    float ip = numerator / sqrtf(sqr_denominator);
-    if (ip > best_coarse_ip) {
-      best_coarse_ip = ip;
-      best_coarse_t  = t;
-    }
-  }
-
-  // Parallel reduction to find best coarse point
-  float* s_coarse_ip;
-  s_coarse_ip = reuse_space + BlockSize;
-  float* s_coarse_t;
-  s_coarse_t       = s_coarse_ip + BlockSize;
-  s_coarse_ip[tid] = best_coarse_ip;
-  s_coarse_t[tid]  = best_coarse_t;
-  __syncthreads();
-
-  for (int stride = BlockSize / 2; stride > 0; stride >>= 1) {
-    if (tid < stride) {
-      if (s_coarse_ip[tid + stride] > s_coarse_ip[tid]) {
-        s_coarse_ip[tid] = s_coarse_ip[tid + stride];
-        s_coarse_t[tid]  = s_coarse_t[tid + stride];
-      }
-    }
-    __syncthreads();
-  }
-
-  //=========================================================================
-  // Phase 2: Fine search around best coarse point
-  //=========================================================================
-  float center_t   = s_coarse_t[0];
-  float range      = (t_end - t_start) / COARSE_SAMPLES;
-  float fine_start = fmaxf(t_start, center_t - range);
-  float fine_end   = fminf(t_end, center_t + range);
-
-  const int FINE_SAMPLES = 32;
-  float best_fine_ip     = 0.0f;
-  float best_fine_t      = center_t;
-
-  for (int i = tid; i < FINE_SAMPLES; i += BlockSize) {
-    float t = fine_start + (fine_end - fine_start) * i / (FINE_SAMPLES - 1);
-
-    // Full evaluation
-    float numerator       = 0.0f;
-    float sqr_denominator = static_cast<float>(D) * 0.25f;
-
-    for (int j = 0; j < D; j++) {
-      float val     = fabsf(s_xp_norm[j]);
-      int quantized = min(static_cast<int>((t * val) + kEps), (1 << EX_BITS) - 1);
-      numerator += (quantized + 0.5f) * val;
-      sqr_denominator += quantized * quantized + quantized;
-    }
-
-    float ip = numerator / sqrtf(sqr_denominator);
-    if (ip > best_fine_ip) {
-      best_fine_ip = ip;
-      best_fine_t  = t;
-    }
-  }
-
-  // Final reduction
-  float* s_fine_ip;
-  s_fine_ip = s_coarse_ip;
-  float* s_fine_t;
-  s_fine_t       = s_coarse_t;
-  s_fine_ip[tid] = best_fine_ip;
-  s_fine_t[tid]  = best_fine_t;
-  __syncthreads();
-
-  for (int stride = BlockSize / 2; stride > 0; stride >>= 1) {
-    if (tid < stride) {
-      if (s_fine_ip[tid + stride] > s_fine_ip[tid]) {
-        s_fine_ip[tid] = s_fine_ip[tid + stride];
-        s_fine_t[tid]  = s_fine_t[tid + stride];
-      }
-    }
-    __syncthreads();
-  }
-
-  return s_fine_t[0];
-}
-
-template <unsigned int BlockSize>
-__global__ void exrabitq_fused_kernel_batch_ori(
-  // Inputs
-  const int* __restrict__ d_bin_XP,
-  const float* __restrict__ d_XP_norm,
-  const float* __restrict__ d_XP,
-  const float* __restrict__ d_centroid,
-  size_t num_points,
-  size_t D,
-  size_t EX_BITS,
-  float kConstEpsilon,
-  // Outputs
-  uint8_t* d_long_code,
-  float* d_ex_factor)
-{
-  //=========================================================================
-  // Setup: One block per row
-  //=========================================================================
-  int row = blockIdx.x;
-  if (row >= num_points) return;
-
-  // Dynamically allocated shared memory for one row's data.
-  extern __shared__ float s_mem[];
-  float* s_xp_norm    = s_mem;
-  uint8_t* s_tmp_code = (uint8_t*)(s_xp_norm + D);
-
-  int tid = threadIdx.x;
-
-  //=========================================================================
-  // Step 1: Coalesced load of all necessary data into shared memory
-  //=========================================================================
-  // Load data
-  for (int j = tid; j < D; j += BlockSize) {
-    s_xp_norm[j] = d_XP_norm[row * D + j];
-    // Note: s_bin_xp, s_xp not loaded yet - we'll reuse as workspace
-  }
-  // Compute scaling factor (reusing unused buffers)
-  float const_scaling_factor =
-    compute_best_rescale_parallel(s_xp_norm,
-                                  D,
-                                  EX_BITS,
-                                  (s_xp_norm + D),  // Reused as workspace
-                                  BlockSize);
-
-  //=========================================================================
-  // Part A: ExRaBitQ Code Generation
-  //=========================================================================
-  const int mask          = (1 << EX_BITS) - 1;
-  float thread_ipnorm_sum = 0.0f;
-
-  // Parallel quantization and start of ip_norm reduction
-  for (int j = tid; j < D; j += BlockSize) {
-    float val    = fabsf(s_xp_norm[j]);
-    int code_val = static_cast<int>((const_scaling_factor * val) + 1e-5f);
-    if (code_val >= (1 << EX_BITS)) code_val = (1 << EX_BITS) - 1;
-    s_tmp_code[j] = static_cast<uint8_t>(code_val);
-    thread_ipnorm_sum += (code_val + 0.5f) * val;
-  }
-
-  // Parallel bit-flipping
-  for (int j = tid; j < D; j += BlockSize) {
-    if (d_bin_XP[row * D + j] == 0) { s_tmp_code[j] = (~s_tmp_code[j]) & mask; }
-  }
-
-  // Finish ip_norm reduction
-  float total_ipnorm = blockReduceSum(thread_ipnorm_sum);
-  float ip_norm_inv  = 1.0f;
-  if (tid == 0) {
-    float inv   = 1.0f / total_ipnorm;
-    ip_norm_inv = isfinite(inv) ? inv : 1.0f;
-  }
-  // Broadcast ip_norm_inv to all threads in the block
-  ip_norm_inv = __shfl_sync(0xffffffff, ip_norm_inv, 0);
-
-  //=========================================================================
-  // Part B: Factor Computation
-  //=========================================================================
-  float l2_sqr = 0.f, ip_resi_xucb = 0.f, ip_cent_xucb = 0.f, xu_sq = 0.f;
-
-  for (size_t j = tid; j < D; j += BlockSize) {
-    float res  = d_XP[row * D + j];
-    int xu_pre = s_tmp_code[j];
-    xu_pre += static_cast<int>(res >= 0) << EX_BITS;
-    float xu = float(xu_pre) - (static_cast<float>(1 << EX_BITS) - 0.5f);
-    float c  = d_centroid[j];
-    l2_sqr += res * res;
-    ip_resi_xucb += res * xu;
-    ip_cent_xucb += c * xu;
-    xu_sq += xu * xu;
-  }
-
-  // Perform parallel reductions for all factor components
-  l2_sqr       = blockReduceSum(l2_sqr);
-  ip_resi_xucb = blockReduceSum(ip_resi_xucb);
-  ip_cent_xucb = blockReduceSum(ip_cent_xucb);
-  xu_sq        = blockReduceSum(xu_sq);
-
-  // Thread 0 computes and writes the final factors
-  if (tid == 0) {
-    float denom = ip_resi_xucb;
-    if (denom == 0.0f) denom = INFINITY;
-    float l2_norm = sqrtf(fmaxf(l2_sqr, 0.f));
-
-    float fadd     = l2_sqr + 2.f * l2_sqr * ip_cent_xucb / denom;
-    float frescale = -2.f * l2_norm * ip_norm_inv;
-
-    float ratio     = (l2_sqr * xu_sq) / (ip_resi_xucb * ip_resi_xucb);
-    float inner     = (ratio - 1.f) / fmaxf(float(D - 1), 1.f);
-    float tmp_error = l2_norm * kConstEpsilon * sqrtf(fmaxf(inner, 0.f));
-
-    size_t base           = 2 * row;
-    d_ex_factor[base + 0] = fadd;
-    d_ex_factor[base + 1] = frescale;
-  }
-
-  //=========================================================================
-  // Part C: Pack and Write Long Code (MINIMAL READS, PARALLEL, COALESCED)
-  //=========================================================================
-  int long_code_length = (D * EX_BITS + 7) / 8;
-  uint8_t* out_ptr     = d_long_code + row * long_code_length;
-
-  if (EX_BITS == 8) {
-    for (int j = tid; j < D; j += BlockSize)
-      out_ptr[j] = s_tmp_code[j];
-  } else {
-    const int num_codes_to_read = (8 + EX_BITS - 2) / EX_BITS + 1;
-    for (int out_byte_idx = tid; out_byte_idx < long_code_length; out_byte_idx += BlockSize) {
-      int start_bit       = out_byte_idx * 8;
-      int start_code_idx  = start_bit / EX_BITS;
-      int bit_offset      = start_bit % EX_BITS;
-      uint64_t bit_buffer = 0;
-
-      switch (num_codes_to_read) {
-        case 2:
-          if (start_code_idx < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx];
-          bit_buffer <<= EX_BITS;
-          if (start_code_idx + 1 < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx + 1];
-          break;
-        case 3:
-          if (start_code_idx < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx];
-          bit_buffer <<= EX_BITS;
-          if (start_code_idx + 1 < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx + 1];
-          bit_buffer <<= EX_BITS;
-          if (start_code_idx + 2 < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx + 2];
-          break;
-        case 4:
-          if (start_code_idx < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx];
-          bit_buffer <<= EX_BITS;
-          if (start_code_idx + 1 < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx + 1];
-          bit_buffer <<= EX_BITS;
-          if (start_code_idx + 2 < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx + 2];
-          bit_buffer <<= EX_BITS;
-          if (start_code_idx + 3 < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx + 3];
-          break;
-        default:
-          for (int k = 0; k < num_codes_to_read; ++k) {
-            bit_buffer <<= EX_BITS;
-            if (start_code_idx + k < D) bit_buffer |= (uint64_t)s_tmp_code[start_code_idx + k];
-          }
-          break;
-      }
-      int total_bits_in_buffer = num_codes_to_read * EX_BITS;
-      int shift                = total_bits_in_buffer - bit_offset - 8;
-      uint8_t out_byte         = (shift >= 0) ? (uint8_t)(bit_buffer >> shift) : 0;
-      out_ptr[out_byte_idx]    = out_byte;
-    }
-  }
-}
-
-//---------------------------------------------------------------------------
-// Host function: exrabitq_codes_batch (Optimized)
-// No fast quantization version
-void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
-                                          const float* d_XP_norm,
-                                          float* d_XP,
-                                          uint8_t* d_long_code,
-                                          float* d_ex_factor,
-                                          const float* d_centroid,
-                                          size_t num_points,
-                                          size_t D,
-                                          size_t EX_BITS,
-                                          raft::resources const& handle)
-{
-  auto stream = raft::resource::get_cuda_stream(handle);
-
-  const unsigned int BlockSize = 256;  // A good default, can be tuned
-  dim3 gridDim(num_points);
-  dim3 blockDim(BlockSize);
-
-  // Calculate required shared memory size
-  size_t shared_mem_size = D * sizeof(float) +         // s_xp_norm
-                           D * sizeof(uint8_t) +       // s_tmp_code
-                           BlockSize * sizeof(float);  // s_partials for reduction
-
-  if (shared_mem_size <= D * sizeof(float) + 3 * BlockSize * sizeof(float)) {
-    shared_mem_size =
-      D * sizeof(float) +
-      3 * BlockSize *
-        sizeof(float);  // Make sure there are space to reuse for finding scaling factors
-  }
-
-  exrabitq_fused_kernel_batch_ori<BlockSize>
-    <<<gridDim, blockDim, shared_mem_size, stream.get()>>>(d_bin_XP,
-                                                           d_XP_norm,
-                                                           d_XP,
-                                                           d_centroid,
-                                                           num_points,
-                                                           D,
-                                                           EX_BITS,
-                                                           1.9f,  // kConstEpsilon
-                                                           d_long_code,
-                                                           d_ex_factor);
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
-  raft::resource::sync_stream(handle);
-}
-
-__global__ void fully_fused_kernel(float* __restrict__ output_factors,
-                                   const int rows,
-                                   const int cols,
-                                   const int ex_bits,
-                                   unsigned long long seed)
-{
-  const int row_id = blockIdx.x;
-  if (row_id >= rows) return;
-
-  const int tid        = threadIdx.x;
-  const int block_size = blockDim.x;
-
-  // Calculate shared memory layout
-  // row_data: cols floats
-  // reuse_space: 3 * block_size floats (for best_rescale computation)
-  extern __shared__ float shared_mem[];
-  float* row_data    = shared_mem;
-  float* reuse_space = &row_data[cols];  // No reduction_buffer needed!
-
-  // Initialize RNG state per thread
-  curandState rng_state;
-  curand_init(seed, row_id * block_size + tid, 0, &rng_state);
-
-  // Generate random Gaussian values and calculate L2 norm
-  float local_sum = 0.0f;
-  for (int i = tid; i < cols; i += block_size) {
-    float val   = curand_normal(&rng_state);
-    row_data[i] = val;
-    local_sum += val * val;
-  }
-
-  float norm_squared = blockReduceSum(local_sum);
-
-  // full block sum only available on lane 0 of warp 0 (see definition of blockReduceSum); need to
-  // make inv_norm a shared variable
-  __shared__ float inv_norm;
-  if (tid == 0) { inv_norm = rsqrtf(norm_squared); }
-  __syncthreads();
-
-  for (int i = tid; i < cols; i += block_size) {
-    row_data[i] = fabsf(row_data[i] * inv_norm);
-  }
-
-  float rescale_factor =
-    compute_best_rescale_parallel(row_data, cols, ex_bits, reuse_space, block_size);
-
-  if (tid == 0) { output_factors[row_id] = rescale_factor; }
-}
-
-}  // anonymous namespace
-
 float DataQuantizerGPU::get_const_scaling_factors_fully_gpu(size_t dim, size_t ex_bits)
 {
   constexpr long kConstNum = 100;
@@ -1343,16 +913,9 @@ float DataQuantizerGPU::get_const_scaling_factors_fully_gpu(size_t dim, size_t e
                             ) *
                            sizeof(float);
 
-  unsigned long long seed     = time(nullptr);
-  auto kernel_fn              = fully_fused_kernel;  // decay to function pointer for std::atomic
-  auto const& kernel_launcher = [&]() {
-    kernel_fn<<<kConstNum, block_size, shared_mem_size, stream_.get()>>>(
-      d_factors.data(), kConstNum, dim, ex_bits, seed);
-  };
-  cudaKernel_t cuda_kernel;
-  RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel_fn)));
-  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<std::decay_t<decltype(kernel_fn)>>(
-    static_cast<std::uint32_t>(shared_mem_size), kernel_launcher, cuda_kernel);
+  unsigned long long seed = time(nullptr);
+  launch_random_scaling_factors(
+    d_factors.data(), kConstNum, dim, ex_bits, seed, block_size, shared_mem_size, stream_.get());
   RAFT_CUDA_TRY(cudaGetLastError());
 
   // Use CUB for reduction - handles any size optimally

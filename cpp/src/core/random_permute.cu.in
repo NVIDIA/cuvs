@@ -1,0 +1,21 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+#include <core/random_launchers.hpp>
+
+namespace cuvs::detail::random {
+
+template <typename T, typename Index>
+void permute(Index* indices, Index columns, Index rows, cudaStream_t stream)
+{
+  permute_indices(indices, columns, rows, stream);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::detail::random

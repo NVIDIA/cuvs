@@ -1,0 +1,122 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+#include <core/sample_rows.hpp>
+#include <raft/matrix/gather.cuh>
+#include <raft/matrix/sample_rows.cuh>
+
+extern template void raft::matrix::detail::gatherImpl<__half*,
+                                                      long const*,
+                                                      long const*,
+                                                      raft::const_op<bool>,
+                                                      raft::identity_op,
+                                                      __half*,
+                                                      long>(__half*,
+                                                            long,
+                                                            long,
+                                                            long,
+                                                            long const*,
+                                                            long const*,
+                                                            long,
+                                                            __half*,
+                                                            raft::const_op<bool>,
+                                                            raft::identity_op,
+                                                            cudaStream_t);
+
+extern template void raft::matrix::detail::gatherImpl<float*,
+                                                      long const*,
+                                                      long const*,
+                                                      raft::const_op<bool>,
+                                                      raft::identity_op,
+                                                      float*,
+                                                      long>(float*,
+                                                            long,
+                                                            long,
+                                                            long,
+                                                            long const*,
+                                                            long const*,
+                                                            long,
+                                                            float*,
+                                                            raft::const_op<bool>,
+                                                            raft::identity_op,
+                                                            cudaStream_t);
+
+extern template void raft::matrix::detail::
+  gatherImpl<float*, int const*, int const*, raft::const_op<bool>, raft::identity_op, float*, int>(
+    float*,
+    int,
+    int,
+    int,
+    int const*,
+    int const*,
+    int,
+    float*,
+    raft::const_op<bool>,
+    raft::identity_op,
+    cudaStream_t);
+
+extern template void raft::matrix::detail::gatherImpl<double*,
+                                                      long const*,
+                                                      long const*,
+                                                      raft::const_op<bool>,
+                                                      raft::identity_op,
+                                                      double*,
+                                                      long>(double*,
+                                                            long,
+                                                            long,
+                                                            long,
+                                                            long const*,
+                                                            long const*,
+                                                            long,
+                                                            double*,
+                                                            raft::const_op<bool>,
+                                                            raft::identity_op,
+                                                            cudaStream_t);
+
+extern template void raft::matrix::detail::gatherImpl<double*,
+                                                      int const*,
+                                                      int const*,
+                                                      raft::const_op<bool>,
+                                                      raft::identity_op,
+                                                      double*,
+                                                      int>(double*,
+                                                           int,
+                                                           int,
+                                                           int,
+                                                           int const*,
+                                                           int const*,
+                                                           int,
+                                                           double*,
+                                                           raft::const_op<bool>,
+                                                           raft::identity_op,
+                                                           cudaStream_t);
+
+extern template auto raft::random::detail::excess_subsample<int, int>(
+  raft::resources const&, raft::random::RngState&, int, int) -> raft::device_vector<int, int>;
+extern template auto raft::random::detail::excess_subsample<int64_t, int64_t>(
+  raft::resources const&, raft::random::RngState&, int64_t, int64_t)
+  -> raft::device_vector<int64_t, int64_t>;
+
+namespace cuvs::detail {
+
+template <typename T, typename Index>
+void sample_rows(raft::resources const& res,
+                 raft::random::RngState state,
+                 const T* input,
+                 Index stride,
+                 Index n_rows,
+                 raft::device_matrix_view<T, Index> output)
+{
+  raft::matrix::detail::sample_rows(res, state, input, stride, n_rows, output);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@random_rng_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

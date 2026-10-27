@@ -1,0 +1,39 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::random::uniform",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<float, int>",
+        "parameter_types": "raft::resources const&, raft::random::RngState&, float*, int, float, float",
+        "instantiation_name": "f32_int"
+      },
+      {
+        "template_arguments": "<float, int64_t>",
+        "parameter_types": "raft::resources const&, raft::random::RngState&, float*, int64_t, float, float",
+        "instantiation_name": "f32_i64"
+      },
+      {
+        "template_arguments": "<float, size_t>",
+        "parameter_types": "raft::resources const&, raft::random::RngState&, float*, size_t, float, float",
+        "instantiation_name": "f32_size_t"
+      },
+      {
+        "template_arguments": "<double, int>",
+        "parameter_types": "raft::resources const&, raft::random::RngState&, double*, int, double, double",
+        "instantiation_name": "f64_int"
+      },
+      {
+        "template_arguments": "<double, int64_t>",
+        "parameter_types": "raft::resources const&, raft::random::RngState&, double*, int64_t, double, double",
+        "instantiation_name": "f64_i64"
+      },
+      {
+        "template_arguments": "<double, size_t>",
+        "parameter_types": "raft::resources const&, raft::random::RngState&, double*, size_t, double, double",
+        "instantiation_name": "f64_size_t"
+      }
+    ]
+  }
+]

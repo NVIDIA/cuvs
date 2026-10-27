@@ -5,6 +5,8 @@
 
 #include "../../../core/gather_launchers.hpp"
 #include "../../../core/reduction_launchers.hpp"
+
+#include "../../../core/random_launchers.hpp"
 #include <chrono>
 #include <cmath>
 #include <cuvs/neighbors/common.hpp>
@@ -368,7 +370,7 @@ auto sample_training_residuals(
   int64_t n_dim = dataset.extent(1);
 
   raft::device_vector<int64_t, int64_t> train_indices =
-    raft::random::excess_subsample<int64_t, int64_t>(
+    cuvs::detail::random::excess_subsample<int64_t, int64_t>(
       res, random_state, dataset.extent(0), n_samples);
 
   auto trainset = raft::make_device_matrix<T, int64_t>(res, n_samples, n_dim);

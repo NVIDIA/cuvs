@@ -8,6 +8,7 @@
 #include "../../core/map_launchers.hpp"
 
 #include "../../core/gather_launchers.hpp"
+#include "../../core/random_launchers.hpp"
 #include "common.cuh"
 #include "registers.hpp"
 #include <cuvs/neighbors/ball_cover.hpp>
@@ -20,7 +21,6 @@
 #include <raft/linalg/map.cuh>
 #include <raft/matrix/copy.cuh>
 #include <raft/matrix/init.cuh>
-#include <raft/random/rng.cuh>
 #include <raft/sparse/convert/csr.cuh>
 #include <raft/util/cuda_utils.cuh>
 
@@ -68,14 +68,14 @@ void sample_landmarks(raft::resources const& handle,
    * 1. Randomly sample sqrt(n) points from X
    */
   raft::random::RngState rng_state(12345);
-  raft::random::sampleWithoutReplacement(handle,
-                                         rng_state,
-                                         R_indices.data(),
-                                         R_1nn_cols2.data(),
-                                         index.get_R_1nn_cols().data_handle(),
-                                         R_1nn_ones.data(),
-                                         (value_idx)index.n_landmarks,
-                                         (value_idx)index.m);
+  cuvs::detail::random::sampleWithoutReplacement(handle,
+                                                 rng_state,
+                                                 R_indices.data(),
+                                                 R_1nn_cols2.data(),
+                                                 index.get_R_1nn_cols().data_handle(),
+                                                 R_1nn_ones.data(),
+                                                 (value_idx)index.n_landmarks,
+                                                 (value_idx)index.m);
 
   auto x = index.get_X();
   auto r = index.get_R();

@@ -1,0 +1,19 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "permute_indices",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<int>",
+        "parameter_types": "int*, int, int, cudaStream_t",
+        "instantiation_name": "i32"
+      },
+      {
+        "template_arguments": "<int64_t>",
+        "parameter_types": "int64_t*, int64_t, int64_t, cudaStream_t",
+        "instantiation_name": "i64"
+      }
+    ]
+  }
+]

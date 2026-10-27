@@ -20,6 +20,7 @@
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
 
+#include "../../core/sample_rows.hpp"
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/kvp.hpp>
@@ -36,8 +37,6 @@
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/norm.cuh>
 #include <raft/matrix/init.cuh>
-#include <raft/matrix/sample_rows.cuh>
-#include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>
 
 #include <rmm/device_scalar.hpp>

@@ -10,6 +10,7 @@
 #include <cuvs/neighbors/scann.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
 
+#include "../../../core/sample_rows.hpp"
 #include <cuda_bf16.h>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
@@ -20,9 +21,7 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/matrix/copy.cuh>
-#include <raft/matrix/sample_rows.cuh>
 #include <raft/matrix/slice.cuh>
-#include <raft/random/rng.cuh>
 
 #include "scann_avq.cuh"
 #include "scann_common.cuh"
@@ -85,7 +84,7 @@ void train_kmeans(
     throw;
   }
 
-  raft::matrix::sample_rows(res, random_state, dataset, trainset.view());
+  cuvs::detail::sample_rows(res, random_state, dataset, trainset.view());
 
   if (type == cuvs::cluster::kmeans::kmeans_type::KMeansBalanced) {
     cuvs::cluster::kmeans::balanced_params kmeans_params;

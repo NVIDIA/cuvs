@@ -1,0 +1,42 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_compact_launchers.hpp>
+
+#include <core/cub_ptx_query.hpp>
+#include <core/random_launchers.hpp>
+#include <raft/linalg/map.cuh>
+#include <raft/random/rng.cuh>
+
+extern template void raft::linalg::detail::map<true, int, int, raft::identity_op>(
+  cuda::stream_ref, int*, int, raft::identity_op);
+
+extern template void raft::linalg::detail::map<true, long, long, raft::identity_op>(
+  cuda::stream_ref, long*, long, raft::identity_op);
+
+namespace cuvs::detail::random {
+
+template <typename Index, typename MatrixIndex>
+auto excess_subsample(raft::resources const& res,
+                      raft::random::RngState& state,
+                      Index n,
+                      Index n_samples) -> raft::device_vector<Index, Index>
+{
+  return raft::random::excess_subsample<Index, MatrixIndex>(res, state, n, n_samples);
+}
+
+}  // namespace cuvs::detail::random
+
+extern template auto raft::random::detail::excess_subsample<int, int>(
+  raft::resources const&, raft::random::RngState&, int, int) -> raft::device_vector<int, int>;
+extern template auto raft::random::detail::excess_subsample<int64_t, int64_t>(
+  raft::resources const&, raft::random::RngState&, int64_t, int64_t)
+  -> raft::device_vector<int64_t, int64_t>;
+
+// clang-format off
+@random_rng_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

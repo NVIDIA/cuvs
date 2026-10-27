@@ -1,0 +1,29 @@
+[
+  {
+    "return_type": "int",
+    "qualified_function": "cuvs::detail::lanczos_compute_eigenpairs",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<int, float, int>",
+        "parameter_types": "raft::resources const&, raft::sparse::solver::lanczos_solver_config<float> const&, raft::device_coo_matrix_view<float, int, int, int>, std::optional<raft::device_vector_view<float, uint32_t, raft::row_major>>, raft::device_vector_view<float, uint32_t, raft::col_major>, raft::device_matrix_view<float, uint32_t, raft::col_major>",
+        "instantiation_name": "int_f32_int"
+      },
+      {
+        "template_arguments": "<int, float, int64_t>",
+        "parameter_types": "raft::resources const&, raft::sparse::solver::lanczos_solver_config<float> const&, raft::device_coo_matrix_view<float, int, int, int64_t>, std::optional<raft::device_vector_view<float, uint32_t, raft::row_major>>, raft::device_vector_view<float, uint32_t, raft::col_major>, raft::device_matrix_view<float, uint32_t, raft::col_major>",
+        "instantiation_name": "int_f32_i64"
+      },
+      {
+        "template_arguments": "<int, double, int>",
+        "parameter_types": "raft::resources const&, raft::sparse::solver::lanczos_solver_config<double> const&, raft::device_coo_matrix_view<double, int, int, int>, std::optional<raft::device_vector_view<double, uint32_t, raft::row_major>>, raft::device_vector_view<double, uint32_t, raft::col_major>, raft::device_matrix_view<double, uint32_t, raft::col_major>",
+        "instantiation_name": "int_f64_int"
+      },
+      {
+        "template_arguments": "<int, double, int64_t>",
+        "parameter_types": "raft::resources const&, raft::sparse::solver::lanczos_solver_config<double> const&, raft::device_coo_matrix_view<double, int, int, int64_t>, std::optional<raft::device_vector_view<double, uint32_t, raft::row_major>>, raft::device_vector_view<double, uint32_t, raft::col_major>, raft::device_matrix_view<double, uint32_t, raft::col_major>",
+        "instantiation_name": "int_f64_i64"
+      }
+    ]
+  }
+]
