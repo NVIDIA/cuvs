@@ -1,0 +1,16 @@
+[
+  {
+    "inst_abbrev": "sum_i32_u32_exclusive_pointer",
+    "pointer_type": "cuvs::detail::scan_launch::sum_i32_u32_exclusive_pointer_InitKernel_pointer",
+    "provider": "cuvs::detail::scan_launch::sum_i32_u32_exclusive_pointer",
+    "method": "InitKernel",
+    "canonical_provider": "cuvs::detail::scan_launch::sum_i32_u32_inclusive_pointer"
+  },
+  {
+    "inst_abbrev": "sum_i32_ulong_exclusive_pointer",
+    "pointer_type": "cuvs::detail::scan_launch::sum_i32_ulong_exclusive_pointer_InitKernel_pointer",
+    "provider": "cuvs::detail::scan_launch::sum_i32_ulong_exclusive_pointer",
+    "method": "InitKernel",
+    "canonical_provider": "cuvs::detail::scan_launch::sum_i32_ulong_inclusive_pointer"
+  }
+]

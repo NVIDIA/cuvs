@@ -1431,33 +1431,58 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
 
-  # Keep every primitive function in its own CUDA translation unit.
   foreach(primitive IN ITEMS src/core/cub_exclusive_sum src/core/exclusive_scan_dispatch
                              src/core/thrust_exclusive_scan src/core/thrust_inclusive_scan
   )
-    set(primitive_instantiations)
-    generate_string_matrix(
-      primitive_instantiations
-      MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
-      ITEM_FORMAT
-      "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-      GLUE
-      "\n"
+    generate_inst_matrix(
+      cuvs_primitive_sources
+      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
+      OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/${primitive}_@instantiation_name@.cu"
     )
-    configure_file(
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
-      "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu" @ONLY
-    )
-    list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_scan_@inst_abbrev@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_init_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_init.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_scan_init_@inst_abbrev@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_init_alias_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_init_alias.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_scan_init_alias_@inst_abbrev@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_shared_kernels_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_scan_shared_kernels.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_scan_shared_kernels_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_mixed_scan_kernels_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_mixed_scan_kernels.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_mixed_scan_kernels_@instantiation_name@.cu"
+  )
 
   add_library(
     cuvs_objs OBJECT
     ${cuvs_primitive_sources}
     src/core/cub_ptx_query.cu
-    src/core/cub_scan.cu
-    src/core/cub_scan_init.cu
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}
