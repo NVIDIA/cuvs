@@ -25,7 +25,7 @@ public final class OmpThreadScope implements AutoCloseable {
 
   /**
    * Applies {@code numThreads} for the current thread until the returned scope is closed. A value
-   * of zero or less leaves the current setting untouched, so native code uses the OpenMP default.
+   * of zero or less leaves the calling thread's current setting untouched.
    */
   public static OmpThreadScope of(int numThreads) {
     if (numThreads <= 0) {
