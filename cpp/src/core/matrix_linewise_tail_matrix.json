@@ -1,0 +1,50 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::matrixLinewiseVecColsTail",
+    "template_arguments": "<float, int64_t, 32ul, raft::add_op, float>",
+    "parameter_types": "float*, const float*, int64_t, int64_t, int64_t, int64_t, raft::add_op, cudaStream_t, const float*",
+    "function_qualifiers": "",
+    "instantiation_name": "cols_f32_i64_add_op"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::matrixLinewiseVecColsTail",
+    "template_arguments": "<float, int64_t, 32ul, raft::sub_op, float>",
+    "parameter_types": "float*, const float*, int64_t, int64_t, int64_t, int64_t, raft::sub_op, cudaStream_t, const float*",
+    "function_qualifiers": "",
+    "instantiation_name": "cols_f32_i64_sub_op"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::matrixLinewiseVecColsTail",
+    "template_arguments": "<float, uint64_t, 32ul, raft::sub_op, float>",
+    "parameter_types": "float*, const float*, uint64_t, uint64_t, uint64_t, uint64_t, raft::sub_op, cudaStream_t, const float*",
+    "function_qualifiers": "",
+    "instantiation_name": "cols_f32_u64_sub_op"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::matrixLinewiseVecRowsTail",
+    "template_arguments": "<float, int64_t, 32ul, raft::add_op, float>",
+    "parameter_types": "float*, const float*, int64_t, int64_t, int64_t, int64_t, raft::add_op, cudaStream_t, const float*",
+    "function_qualifiers": "",
+    "instantiation_name": "rows_f32_i64_add_op"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::matrixLinewiseVecRowsTail",
+    "template_arguments": "<float, int64_t, 32ul, raft::sub_op, float>",
+    "parameter_types": "float*, const float*, int64_t, int64_t, int64_t, int64_t, raft::sub_op, cudaStream_t, const float*",
+    "function_qualifiers": "",
+    "instantiation_name": "rows_f32_i64_sub_op"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::matrixLinewiseVecRowsTail",
+    "template_arguments": "<float, uint64_t, 32ul, raft::sub_op, float>",
+    "parameter_types": "float*, const float*, uint64_t, uint64_t, uint64_t, uint64_t, raft::sub_op, cudaStream_t, const float*",
+    "function_qualifiers": "",
+    "instantiation_name": "rows_f32_u64_sub_op"
+  }
+]

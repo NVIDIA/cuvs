@@ -24,4 +24,6 @@ void zero_self_diagonal(cudaStream_t stream, Distance* out_dists, Index rows, In
 
 }  // namespace cuvs::detail
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

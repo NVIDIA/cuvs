@@ -6,174 +6,20 @@
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "double*, double const*, int, int, double, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op"
+        "parameter_types": "double*, double const*, int, int, double, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "cuvs_detail_coalescedreduction_f64_ptr_f64_c_ptr_int_int_f64_stream_ptr_bool_identity_op_min_op_identity_op"
       },
       {
-        "parameter_types": "double*, double const*, long, long, double, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op"
+        "parameter_types": "double*, double const*, long, long, double, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "cuvs_detail_coalescedreduction_f64_ptr_f64_c_ptr_long_long_f64_stream_ptr_bool_identity_op_min_op_identity_op"
       },
       {
-        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op"
+        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "cuvs_detail_coalescedreduction_f32_ptr_f32_c_ptr_int_int_f32_stream_ptr_bool_identity_op_min_op_identity_op"
       },
       {
-        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op"
-      }
-    ]
-  },
-  {
-    "return_type": "void",
-    "qualified_function": "raft::linalg::detail::coalescedReduction",
-    "function_qualifiers": "",
-    "_variants": [
-      {
-        "template_arguments": "<float, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, float*, float const*, long, long, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<__half, float, int, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, float*, __half const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<__half, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, float*, __half const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<__half, float, int, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, __half const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "< __half, float, long, raft::compose_op<raft::sq_op, cuvs::spatial::knn::detail::utils::mapping<float>>, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, __half const*, long, long, float, CUstream_st*, bool, raft::compose_op<raft::sq_op, cuvs::spatial::knn::detail::utils::mapping<float>>, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "< __half, float, long, raft::compose_op<raft::sq_op, raft::plug_const_op<float, raft::div_op>, raft::cast_op<float>>, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, __half const*, long, long, float, CUstream_st*, bool, raft::compose_op<raft::sq_op, raft::plug_const_op<float, raft::div_op>, raft::cast_op<float>>, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "<__half, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, float*, __half const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<__half, float, long, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, __half const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "<double, double, int, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, double*, double const*, int, int, double, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<double, double, int, raft::identity_op, raft::min_op, raft::identity_op>",
-        "parameter_types": "bool, double*, double const*, int, int, double, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<double, double, int, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, double*, double const*, int, int, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<double, double, int, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, double*, double const*, int, int, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "<double, double, long, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, double*, double const*, long, long, double, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<double, double, long, raft::identity_op, raft::min_op, raft::identity_op>",
-        "parameter_types": "bool, double*, double const*, long, long, double, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<double, double, long, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, double*, double const*, long, long, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<double, double, long, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, double*, double const*, long, long, double, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "<float, float, int, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, float*, float const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<float, float, int, raft::identity_op, raft::min_op, raft::identity_op>",
-        "parameter_types": "bool, float*, float const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<float, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, float*, float const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<float, float, int, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, float const*, int, int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "< float, float, long, raft::compose_op<raft::sq_op, cuvs::spatial::knn::detail::utils::mapping<float>>, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, float const*, long, long, float, CUstream_st*, bool, raft::compose_op<raft::sq_op, cuvs::spatial::knn::detail::utils::mapping<float>>, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "< float, float, long, raft::compose_op<raft::sq_op, raft::plug_const_op<float, raft::div_op>, raft::cast_op<float>>, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, float const*, long, long, float, CUstream_st*, bool, raft::compose_op<raft::sq_op, raft::plug_const_op<float, raft::div_op>, raft::cast_op<float>>, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "<float, float, long, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<float, float, long, raft::identity_op, raft::add_op, raft::plug_const_op<float, raft::mul_op>>",
-        "parameter_types": "bool, float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::plug_const_op<float, raft::mul_op>"
-      },
-      {
-        "template_arguments": "<float, float, long, raft::identity_op, raft::min_op, raft::identity_op>",
-        "parameter_types": "bool, float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<float, float, long, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, float const*, long, long, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "<float, float, unsigned int, raft::sq_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "bool, float*, float const*, unsigned int, unsigned int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "<float, float, unsigned int, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, float const*, unsigned int, unsigned int, float, CUstream_st*, bool, raft::sq_op, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "< signed char, float, long, raft::compose_op<raft::sq_op, cuvs::spatial::knn::detail::utils::mapping<float>>, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, signed char const*, long, long, float, CUstream_st*, bool, raft::compose_op<raft::sq_op, cuvs::spatial::knn::detail::utils::mapping<float>>, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "< signed char, float, long, raft::compose_op<raft::sq_op, raft::plug_const_op<float, raft::div_op>, raft::cast_op<float>>, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, signed char const*, long, long, float, CUstream_st*, bool, raft::compose_op<raft::sq_op, raft::plug_const_op<float, raft::div_op>, raft::cast_op<float>>, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "< unsigned char, float, long, raft::compose_op<raft::sq_op, cuvs::spatial::knn::detail::utils::mapping<float>>, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, unsigned char const*, long, long, float, CUstream_st*, bool, raft::compose_op<raft::sq_op, cuvs::spatial::knn::detail::utils::mapping<float>>, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "< unsigned char, float, long, raft::compose_op<raft::sq_op, raft::plug_const_op<float, raft::div_op>, raft::cast_op<float>>, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "bool, float*, unsigned char const*, long, long, float, CUstream_st*, bool, raft::compose_op<raft::sq_op, raft::plug_const_op<float, raft::div_op>, raft::cast_op<float>>, raft::add_op, raft::sqrt_op"
-      }
-    ]
-  },
-  {
-    "return_type": "void",
-    "qualified_function": "raft::linalg::detail::coalescedReductionThin",
-    "function_qualifiers": "",
-    "_variants": [
-      {
-        "template_arguments": "< raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, int, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "< raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, int, raft::identity_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::sqrt_op"
-      },
-      {
-        "template_arguments": "< raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, long, raft::identity_op, raft::add_op, raft::identity_op>",
-        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::identity_op"
-      },
-      {
-        "template_arguments": "< raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, long, raft::identity_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::add_op, raft::sqrt_op"
+        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "cuvs_detail_coalescedreduction_f32_ptr_f32_c_ptr_long_long_f32_stream_ptr_bool_identity_op_min_op_identity_op"
       }
     ]
   }

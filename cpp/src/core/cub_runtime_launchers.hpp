@@ -35,7 +35,8 @@ cudaError_t cub_merge_sort_keys(
   void* storage, size_t& bytes, T* keys, Count count, cudaStream_t stream);
 
 template <typename Policy, typename Input, typename Map, typename Output>
-void thrust_scatter(Policy const& policy, Input first, Input last, Map map, Output output);
+CUVS_EXPORT void thrust_scatter(
+  Policy const& policy, Input first, Input last, Map map, Output output);
 
 template <typename Policy, typename Iterator>
 Iterator thrust_max_element(Policy const& policy, Iterator first, Iterator last);
@@ -72,17 +73,17 @@ void mask_distance_tile(raft::resources const& handle,
                         Distance masked_distance);
 
 template <typename Index, typename Distance>
-void copy_distance_tile(raft::resources const& handle,
-                        const Distance* in_distances,
-                        const Index* in_indices,
-                        Distance* out_distances,
-                        Index* out_indices,
-                        size_t current_query_size,
-                        size_t current_k,
-                        size_t temp_out_cols,
-                        size_t j,
-                        size_t k,
-                        size_t tile_cols);
+CUVS_EXPORT void copy_distance_tile(raft::resources const& handle,
+                                    const Distance* in_distances,
+                                    const Index* in_indices,
+                                    Distance* out_distances,
+                                    Index* out_indices,
+                                    size_t current_query_size,
+                                    size_t current_k,
+                                    size_t temp_out_cols,
+                                    size_t j,
+                                    size_t k,
+                                    size_t tile_cols);
 
 template <typename Index, typename Distance>
 void zero_self_diagonal(cudaStream_t stream, Distance* out_dists, Index rows, Index b_nrows);
