@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../../core/map_launchers.hpp"
+#include <cuvs/core/export.hpp>
 
 #include "../../../core/gather_launchers.hpp"
 
@@ -484,12 +485,12 @@ void sort_by_color(raft::resources const& handle,
  * @param[in] stream cuda stream for which to order cuda operations
  */
 template <typename value_idx, typename value_t>
-void min_components_by_color(raft::sparse::COO<value_t, value_idx>& coo,
-                             const value_idx* out_index,
-                             const value_idx* indices,
-                             const raft::KeyValuePair<value_idx, value_t>* kvp,
-                             size_t nnz,
-                             cudaStream_t stream);
+CUVS_EXPORT void min_components_by_color(raft::sparse::COO<value_t, value_idx>& coo,
+                                         const value_idx* out_index,
+                                         const value_idx* indices,
+                                         const raft::KeyValuePair<value_idx, value_t>* kvp,
+                                         size_t nnz,
+                                         cudaStream_t stream);
 
 /**
  * Connects the components of an otherwise unconnected knn graph

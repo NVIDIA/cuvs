@@ -1,6 +1,6 @@
 [
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "compress_to_bits",
     "template_arguments": "<uint64_t, void>",
     "parameter_types": "raft::resources const&, raft::device_matrix_view<const bool, int, raft::layout_c_contiguous>, raft::device_matrix_view<uint64_t, int, raft::layout_c_contiguous>",

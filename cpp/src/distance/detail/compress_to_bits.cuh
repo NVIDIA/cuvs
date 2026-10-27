@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include <cuvs/core/export.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 
@@ -25,8 +26,9 @@ namespace cuvs::distance::detail {
  *                          Note: the division (`/`) is a ceilDiv.
  */
 template <typename T = uint64_t, typename = std::enable_if_t<std::is_integral<T>::value>>
-void compress_to_bits(raft::resources const& handle,
-                      raft::device_matrix_view<const bool, int, raft::layout_c_contiguous> in,
-                      raft::device_matrix_view<T, int, raft::layout_c_contiguous> out);
+CUVS_EXPORT void compress_to_bits(
+  raft::resources const& handle,
+  raft::device_matrix_view<const bool, int, raft::layout_c_contiguous> in,
+  raft::device_matrix_view<T, int, raft::layout_c_contiguous> out);
 
 }  // namespace cuvs::distance::detail
