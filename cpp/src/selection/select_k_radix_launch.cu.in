@@ -18,7 +18,9 @@ extern template void
 raft::linalg::detail::map<true, uint32_t, size_t, raft::mod_const_op<uint32_t>>(
   cuda::stream_ref, uint32_t*, size_t, raft::mod_const_op<uint32_t>);
 // clang-format off
-@grid_dimension_declaration@
+#if @share_grid_dimension@
+@grid_dimension_declaration@;
+#endif
 
 template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
 // clang-format on
