@@ -19,11 +19,11 @@
       },
       {
         "parameter_types": "rmm::exec_policy_nosync const&, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*>>, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*>>, thrust::zip_iterator<cuda::std::tuple<int*>>, cuvs::sparse::neighbors::detail::TupleComp",
-        "instantiation_name": "exec_policy_nosync_c_ref_zip_iterator_tuple_int_ptr_int_ptr_key_value_int_f32_ptr_zip_iterator_tuple_int_ptr_int_ptr_key_value_int_f32_ptr_zip_iterator_tuple_int_ptr_tuplecomp"
+        "instantiation_name": "mst_coo_i32_tuplecomp"
       },
       {
         "parameter_types": "rmm::exec_policy_nosync const&, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*>>, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*>>, thrust::zip_iterator<cuda::std::tuple<long*>>, cuvs::sparse::neighbors::detail::TupleComp",
-        "instantiation_name": "exec_policy_nosync_c_ref_zip_iterator_tuple_long_ptr_long_ptr_key_value_long_f32_ptr_zip_iterator_tuple_long_ptr_long_ptr_key_value_long_f32_ptr_zip_iterator_tuple_long_ptr_tuplecomp"
+        "instantiation_name": "mst_coo_i64_tuplecomp"
       },
       {
         "parameter_types": "thrust::device_ptr<int>, thrust::device_ptr<int>, thrust::zip_iterator<cuda::std::tuple<thrust::device_ptr<int>, thrust::device_ptr<float>>>",
