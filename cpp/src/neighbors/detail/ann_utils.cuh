@@ -252,16 +252,6 @@ inline void memzero(T* ptr, IdxT n_elems, cuda::stream_ref stream)
 }
 
 template <typename T, typename IdxT>
-static __global__ void outer_add_kernel(const T* a, IdxT len_a, const T* b, IdxT len_b, T* c)
-{
-  IdxT gid = threadIdx.x + blockDim.x * static_cast<IdxT>(blockIdx.x);
-  IdxT i   = gid / len_b;
-  IdxT j   = gid % len_b;
-  if (i >= len_a) return;
-  c[gid] = (a == nullptr ? T(0) : a[i]) + (b == nullptr ? T(0) : b[j]);
-}
-
-template <typename T, typename IdxT>
 static __global__ void block_copy_kernel(const IdxT* in_offsets,
                                          const IdxT* out_offsets,
                                          IdxT n_blocks,
@@ -337,12 +327,10 @@ void block_copy(const IdxT* in_offsets,
  * @param stream
  */
 template <typename T, typename IdxT>
-void outer_add(const T* a, IdxT len_a, const T* b, IdxT len_b, T* c, cuda::stream_ref stream)
-{
-  dim3 threads(128, 1, 1);
-  dim3 blocks(raft::ceildiv<IdxT>(len_a * len_b, threads.x), 1, 1);
-  outer_add_kernel<<<blocks, threads, 0, stream.get()>>>(a, len_a, b, len_b, c);
-}
+void outer_add(const T* a, IdxT len_a, const T* b, IdxT len_b, T* c, cuda::stream_ref stream);
+
+extern template void outer_add<float, int64_t>(
+  const float*, int64_t, const float*, int64_t, float*, cuda::stream_ref);
 
 template <typename T, typename S, typename IdxT, typename LabelT>
 static __global__ void copy_selected_kernel(
