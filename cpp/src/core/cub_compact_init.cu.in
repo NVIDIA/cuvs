@@ -1,0 +1,21 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_compact_launchers.hpp>
+#include <core/cub_device_unique_launchers.hpp>
+#include <core/cub_ptx_query.hpp>
+
+namespace {
+
+using inst_pointer_t  = @pointer_type@;
+using inst_provider_t = @provider@;
+
+}  // namespace
+
+template <>
+CUB_RUNTIME_FUNCTION inst_pointer_t inst_provider_t ::CompactInitKernel()
+{
+  return &cub::detail::scan::DeviceCompactInitKernel<@kernel_arguments@>;
+}
