@@ -911,16 +911,11 @@ void search(raft::resources const& res,
             raft::device_matrix_view<const T, int64_t, LayoutT> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<DistT, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::brute_force::search_params& params,
             const cuvs::neighbors::filtering::base_filter& sample_filter_ref)
 {
   if constexpr (std::is_same_v<T, std::int8_t>) {
     try {
       dynamic_cast<const cuvs::neighbors::filtering::none_sample_filter&>(sample_filter_ref);
-      if (params.int8_path == cuvs::neighbors::brute_force::int8_search_path::fused) {
-        return int8_fused_brute_force_search<int64_t, LayoutT>(
-          res, idx, queries, neighbors, distances);
-      }
       return int8_brute_force_search<int64_t, LayoutT>(res, idx, queries, neighbors, distances);
     } catch (const std::bad_cast&) {
       RAFT_FAIL("filtered search is not available for INT8 brute-force indexes");

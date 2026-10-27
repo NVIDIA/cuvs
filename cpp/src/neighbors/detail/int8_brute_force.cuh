@@ -6,7 +6,6 @@
 #pragma once
 
 #include "./faiss_distance_utils.h"
-#include "./fused_l2_knn.cuh"
 
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
@@ -173,80 +172,6 @@ inline bool int8_supported_metric(cuvs::distance::DistanceType metric)
          metric == cuvs::distance::DistanceType::L2Unexpanded ||
          metric == cuvs::distance::DistanceType::L2SqrtUnexpanded ||
          metric == cuvs::distance::DistanceType::CosineExpanded;
-}
-
-template <typename IdxT, typename QueryLayoutT>
-void int8_fused_brute_force_search(
-  raft::resources const& res,
-  cuvs::neighbors::brute_force::index<std::int8_t, float> const& index,
-  raft::device_matrix_view<const std::int8_t, int64_t, QueryLayoutT> queries,
-  raft::device_matrix_view<IdxT, int64_t, raft::row_major> neighbors,
-  raft::device_matrix_view<float, int64_t, raft::row_major> distances)
-{
-  auto const n = static_cast<int64_t>(index.size());
-  auto const m = static_cast<int64_t>(queries.extent(0));
-  auto const d = static_cast<int64_t>(index.dim());
-  auto const k = static_cast<int64_t>(neighbors.extent(1));
-  RAFT_EXPECTS(distances.extent(0) == queries.extent(0) &&
-                 distances.extent(1) == neighbors.extent(1) &&
-                 neighbors.extent(0) == queries.extent(0),
-               "Output shapes must match the number of queries and k");
-  RAFT_EXPECTS(queries.extent(1) == d, "Number of columns in queries must match brute force index");
-  RAFT_EXPECTS(k >= 1 && k <= n, "k must satisfy 1 <= k <= index size");
-  RAFT_EXPECTS(k <= 64, "INT8 fused brute-force search requires k <= 64");
-  RAFT_EXPECTS(n <= std::numeric_limits<int>::max() - (int8_fused_l2_policy::Nblk - 1) &&
-                 m <= std::numeric_limits<int>::max() - (int8_fused_l2_policy::Mblk - 1),
-               "INT8 fused brute-force row counts are too large for INT32 tile planning");
-  RAFT_EXPECTS(index.metric() == cuvs::distance::DistanceType::L2Expanded ||
-                 index.metric() == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                 index.metric() == cuvs::distance::DistanceType::L2Unexpanded ||
-                 index.metric() == cuvs::distance::DistanceType::L2SqrtUnexpanded,
-               "INT8 fused brute-force search supports only L2 metrics");
-  RAFT_EXPECTS(d > 0 && d <= std::numeric_limits<std::int32_t>::max() / (255 * 255),
-               "INT8 fused brute-force dimension is out of range for INT32 L2 accumulation");
-  if (m == 0) { return; }
-
-  auto const stream = raft::resource::get_cuda_stream(res);
-  auto queries_storage =
-    std::optional<raft::device_matrix<std::int8_t, int64_t, raft::row_major>>{};
-  auto queries_ptr = queries.data_handle();
-  if constexpr (std::is_same_v<QueryLayoutT, raft::col_major>) {
-    queries_storage = raft::make_device_matrix<std::int8_t, int64_t, raft::row_major>(res, m, d);
-    raft::copy(res, queries_storage->view(), queries);
-    queries_ptr = queries_storage->data_handle();
-  }
-
-  size_t workspace_size = 0;
-  rmm::device_uvector<char> workspace(0, stream);
-  auto run = [&] {
-    fusedL2UnexpKnn<std::int8_t, std::int32_t, float, IdxT, false, true>(
-      m,
-      n,
-      d,
-      d,
-      d,
-      n,
-      queries_ptr,
-      index.dataset().data_handle(),
-      false,
-      distances.data_handle(),
-      neighbors.data_handle(),
-      k,
-      stream.get(),
-      workspace.data(),
-      workspace_size);
-  };
-  run();
-  if (workspace_size > 0) {
-    workspace.resize(workspace_size, stream);
-    run();
-  }
-
-  if (index.metric() == cuvs::distance::DistanceType::L2SqrtExpanded ||
-      index.metric() == cuvs::distance::DistanceType::L2SqrtUnexpanded) {
-    auto values = raft::make_device_vector_view<float, int64_t>(distances.data_handle(), m * k);
-    raft::linalg::map(res, values, raft::sqrt_op{}, raft::make_const_mdspan(values));
-  }
 }
 
 template <typename IdxT, typename QueryLayoutT>

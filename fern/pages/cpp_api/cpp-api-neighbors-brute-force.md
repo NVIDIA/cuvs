@@ -6,27 +6,6 @@ slug: api-reference/cpp-api-neighbors-brute-force
 
 _Source header: `cuvs/neighbors/brute_force.hpp`_
 
-## Types
-
-<a id="neighbors-brute-force-int8-search-path"></a>
-### neighbors::brute_force::int8_search_path
-
-Execution path for INT8 brute-force search.
-
-```cpp
-enum class int8_search_path {
-  cublas,
-  fused
-};
-```
-
-**Values**
-
-| Name | Value |
-| --- | --- |
-| `cublas` | `` |
-| `fused` | `` |
-
 ## Bruteforce index
 
 <a id="neighbors-brute-force-index"></a>
@@ -472,7 +451,7 @@ raft::device_matrix_view<const std::int8_t, int64_t, raft::row_major> dataset)
 -> cuvs::neighbors::brute_force::index<std::int8_t, float>;
 ```
 
-INT8 search returns FLOAT32 distances. The default cuBLAS path uses INT32 dot-product accumulation and requires a positive vector dimension divisible by four, at most 131068. The fused SIMT path supports L2 metrics with k &lt;= 64 and dimensions from 1 through 33025.
+INT8 search uses cuBLAS with INT32 dot-product accumulation and returns FLOAT32 distances. The vector dimension must be positive, divisible by four, and at most 131068.
 
 **Parameters**
 
