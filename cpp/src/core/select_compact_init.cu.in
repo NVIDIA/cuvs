@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_compact_launchers.hpp>
+#include <core/cub_ptx_query.hpp>
+
+namespace cuvs::detail {
+template <typename Count>
+cudaError_t launch_compact_init(CUB_DETAIL_DEFAULT_KERNEL_LAUNCHER_FACTORY launcher_factory,
+                                int grid,
+                                int threads,
+                                cub::ScanTileState<int> state,
+                                int tiles,
+                                Count* selected,
+                                cudaStream_t stream)
+{
+  return launcher_factory(grid, threads, 0, stream)
+    .doit(cub::detail::scan::DeviceCompactInitKernel<cub::ScanTileState<int>, Count*>,
+          state,
+          tiles,
+          selected);
+}
+}  // namespace cuvs::detail
+
+// clang-format off
+template cudaError_t cuvs::detail::launch_compact_init<@count_type@>(
+  CUB_DETAIL_DEFAULT_KERNEL_LAUNCHER_FACTORY, int, int, cub::ScanTileState<int>,
+  int, @count_type@*, cudaStream_t);
+// clang-format on

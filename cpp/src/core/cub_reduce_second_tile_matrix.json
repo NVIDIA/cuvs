@@ -1,0 +1,18 @@
+[
+  {
+    "inst_abbrev": "sum_i64_u32_values",
+    "pointer_type": "cuvs::detail::reduce_launch::sum_second_0_0_SingleTileSecondKernel_pointer",
+    "provider": "cuvs::detail::reduce_launch::sum_second_0_0",
+    "method": "SingleTileSecondKernel",
+    "kernel_function": "cub::detail::reduce::DeviceReduceSingleTileKernel",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types< long, unsigned int, cuda::std::plus<long>, (cuda::execution::determinism::__determinism_t)1>, long*, long*, int, cuda::std::plus<long>, long, long, cuda::std::identity"
+  },
+  {
+    "inst_abbrev": "sum_i64_u64_values",
+    "pointer_type": "cuvs::detail::reduce_launch::sum_second_1_0_SingleTileSecondKernel_pointer",
+    "provider": "cuvs::detail::reduce_launch::sum_second_1_0",
+    "method": "SingleTileSecondKernel",
+    "kernel_function": "cub::detail::reduce::DeviceReduceSingleTileKernel",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types< long, unsigned long long, cuda::std::plus<long>, (cuda::execution::determinism::__determinism_t)1>, long*, long*, int, cuda::std::plus<long>, long, long, cuda::std::identity"
+  }
+]

@@ -573,9 +573,10 @@ void reconstruct_vpq_queries(raft::resources const& res,
                              uint32_t batch_size,
                              raft::device_matrix_view<T, int64_t> output)
 {
-  auto const& vpq_dset     = vpq_view.dset();
-  const uint32_t dim       = vpq_dset.dim();
-  const uint32_t pq_len    = vpq_dset.pq_len();
+  auto const codes         = vpq_view.data_const_view();
+  auto const books         = vpq_view.manifest_view();
+  const uint32_t dim       = vpq_view.dim();
+  const uint32_t pq_len    = books.pq_len();
   const uint32_t output_ld = static_cast<uint32_t>(output.extent(1));
   const uint32_t threads   = std::min(dim, 256u);
   RAFT_EXPECTS(output_ld >= dim,
@@ -585,10 +586,10 @@ void reconstruct_vpq_queries(raft::resources const& res,
 
   kern_reconstruct_vpq_queries<T, MathT>
     <<<batch_size, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-      vpq_dset.data.data_handle(),
-      vpq_dset.encoded_row_length(),
-      vpq_dset.vq_code_book.data_handle(),
-      vpq_dset.pq_code_book.data_handle(),
+      codes.data_handle(),
+      codes.extent(1),
+      books.vq_code_book.data_handle(),
+      books.pq_code_book.data_handle(),
       dim,
       pq_len,
       offset,
@@ -741,14 +742,15 @@ auto iterative_build_graph(raft::resources const& res,
     vpq_dataset      = dataset;
   } else {
     auto const required_stride = cuvs::neighbors::cagra_required_row_width<T>(dataset.dim());
-    RAFT_EXPECTS(dataset.stride() == required_stride,
+    auto const stride          = static_cast<uint32_t>(dataset.data_const_view().stride(0));
+    RAFT_EXPECTS(stride == required_stride,
                  "iterative CAGRA build requires a CAGRA-aligned device dataset "
                  "(stride %u, required %u). Pass a device_padded_dataset_view, or a "
                  "device_standard_dataset_view whose row width already matches "
                  "cagra_required_row_width.",
-                 dataset.stride(),
+                 stride,
                  required_stride);
-    dev_dataset      = dataset.view();
+    dev_dataset      = cuvs::neighbors::dense_row_major_view(dataset);
     logical_dim      = dataset.dim();
     final_graph_size = static_cast<uint64_t>(dataset.n_rows());
   }
@@ -912,8 +914,11 @@ auto iterative_build_graph(raft::resources const& res,
     } else {
       auto dev_dataset_view = raft::make_device_matrix_view<const T, int64_t>(
         dev_dataset.data_handle(), static_cast<int64_t>(curr_graph_size), dev_dataset.extent(1));
-      cuvs::neighbors::device_padded_dataset_view<T, int64_t> sub_padded(dev_dataset_view,
-                                                                         logical_dim);
+      auto sub_padded = cuvs::neighbors::detail::make_dense_view<
+        cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(dev_dataset_view.data_handle(),
+                                                                 dev_dataset_view.extent(0),
+                                                                 logical_dim,
+                                                                 dev_dataset_view.extent(1));
       auto idx = cuvs::neighbors::cagra::update_dataset(
         res, cuvs::neighbors::cagra::device_padded_index<T, IdxT>(res, params.metric), sub_padded);
       idx.update_graph(res, raft::make_const_mdspan(dev_graph.view()));
@@ -1096,13 +1101,14 @@ auto build_from_host_matrix(raft::resources const& res,
         "device_standard_dataset_view). Host datasets can use IVF-PQ or NN-descent "
         "graph construction.");
     }
-    return build_cagra_host_graph_from_knn_params<T, IdxT>(res,
-                                                           params,
-                                                           knn_build_params,
-                                                           static_cast<int64_t>(n_rows),
-                                                           intermediate_degree,
-                                                           graph_degree,
-                                                           dataset.view());
+    return build_cagra_host_graph_from_knn_params<T, IdxT>(
+      res,
+      params,
+      knn_build_params,
+      static_cast<int64_t>(n_rows),
+      intermediate_degree,
+      graph_degree,
+      cuvs::neighbors::dense_row_major_view(dataset));
   }();
 
   RAFT_LOG_TRACE("Graph optimized, creating index");
@@ -1149,13 +1155,14 @@ auto build_from_device_matrix(raft::resources const& res,
     auto cagra_graph = iterative_build_graph<T, IdxT>(res, params, device_dataset);
     idx.update_graph(res, std::move(cagra_graph));
   } else {
-    auto cagra_graph = build_cagra_host_graph_from_knn_params<T, IdxT>(res,
-                                                                       params,
-                                                                       knn_build_params,
-                                                                       device_dataset.n_rows(),
-                                                                       intermediate_degree,
-                                                                       graph_degree,
-                                                                       device_dataset.view());
+    auto cagra_graph = build_cagra_host_graph_from_knn_params<T, IdxT>(
+      res,
+      params,
+      knn_build_params,
+      device_dataset.n_rows(),
+      intermediate_degree,
+      graph_degree,
+      cuvs::neighbors::dense_row_major_view(device_dataset));
     idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
   }
 
