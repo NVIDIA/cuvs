@@ -1,0 +1,17 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/ann_utils.cuh>
+#include <sparse/neighbors/detail/cross_component_nn.cuh>
+
+#include <core/map_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/map.cuh>
+#include <raft/sparse/linalg/detail/laplacian.cuh>
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

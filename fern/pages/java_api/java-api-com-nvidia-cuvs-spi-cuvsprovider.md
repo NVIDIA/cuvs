@@ -336,7 +336,7 @@ CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams,
 ```
 
 Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
-`rowFilter`. See CagraIndexParams, BitSet) for the
+`rowFilter`. See `CagraIndex#merge(CagraIndex[], CagraIndexParams, BitSet)` for the
 meaning of the filter.
 
 **Parameters**
