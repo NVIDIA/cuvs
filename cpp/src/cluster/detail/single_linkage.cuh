@@ -7,6 +7,8 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/spectral_launchers.hpp"
+
+#include "../../core/bitmap_csr_conversion_launchers.hpp"
 #include "../../neighbors/detail/reachability.cuh"
 #include "agglomerative.cuh"
 #include "connectivities.cuh"
@@ -93,7 +95,7 @@ void build_mr_linkage(
                                mr_coo.value());
     }  // scope to drop inds and dists matrices early
     auto mr_indptr = raft::make_device_vector<value_idx, value_idx>(handle, m + 1);
-    raft::sparse::convert::sorted_coo_to_csr(
+    cuvs::detail::sorted_coo_to_csr(
       mr_coo.value().rows(), mr_coo.value().nnz, mr_indptr.data_handle(), m + 1, stream.get());
 
     auto rows_view    = raft::make_device_vector_view<const value_idx, nnz_t>(mr_coo.value().rows(),

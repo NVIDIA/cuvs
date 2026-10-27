@@ -5,6 +5,8 @@
 #pragma once
 
 #include "../../../core/gather_launchers.hpp"
+
+#include "../../../core/bitmap_csr_conversion_launchers.hpp"
 #include <cuvs/neighbors/cagra.hpp>
 
 #include "cagra_merge_scaffold.cuh"
@@ -179,7 +181,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
       handle, 1, static_cast<std::size_t>(merged_rows));
     indices_csr.initialize_sparsity(final_rows);
 
-    actual_filter.view().to_csr(handle, indices_csr);
+    cuvs::detail::bitset_to_csr(handle, actual_filter.view(), indices_csr);
 
     auto csr_indices  = indices_csr.structure_view().get_indices();
     auto indices_view = raft::make_device_vector_view<const int64_t, int64_t>(

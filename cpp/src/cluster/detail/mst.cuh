@@ -7,6 +7,8 @@
 
 #include "../../core/radix_sorting_launchers.hpp"
 #include "../../core/unique_labels_launchers.hpp"
+
+#include "../../core/bitmap_csr_conversion_launchers.hpp"
 #include "../../sparse/neighbors/cross_component_nn.cuh"
 #include "raft/core/device_mdspan.hpp"
 #include "raft/core/operators.hpp"
@@ -144,7 +146,7 @@ void connect_knn_graph(
                                                                   min(n, default_col_batch_size));
 
   rmm::device_uvector<value_idx> indptr2(m + 1, stream);
-  raft::sparse::convert::sorted_coo_to_csr(
+  cuvs::detail::sorted_coo_to_csr(
     connected_edges.rows(), connected_edges.nnz, indptr2.data(), m + 1, stream.get());
 
   // On the second call, we hand the MST the original colors
@@ -314,8 +316,7 @@ void connect_knn_graph(
   cuvs::detail::thrust_sort_by_key(rows_begin, rows_begin + sym_nnz, zipped_begin);
 
   rmm::device_uvector<value_idx> indptr2(m + 1, stream);
-  raft::sparse::convert::sorted_coo_to_csr(
-    sym_rows.data(), sym_nnz, indptr2.data(), m + 1, stream.get());
+  cuvs::detail::sorted_coo_to_csr(sym_rows.data(), sym_nnz, indptr2.data(), m + 1, stream.get());
 
   // On the second call, we hand the MST the original colors
   // and the new set of edges and let it restart the optimization process
@@ -374,74 +375,6 @@ void build_sorted_mst(
   size_t nnz,
   red_op reduction_op,
   cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2SqrtExpanded,
-  int max_iter                        = 10)
-{
-  auto stream = raft::resource::get_cuda_stream(handle);
-
-  // We want to have MST initialize colors on first call.
-  auto mst_coo = raft::sparse::solver::mst<value_idx, value_idx, value_t, double>(
-    handle, indptr, indices, pw_dists, (value_idx)m, nnz, color, stream.get(), false, true);
-
-  int iters        = 1;
-  int n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream.get());
-
-  // Pinned memory is reachable by the GPU, but keeps taking the host path.
-  auto const x_type   = raft::get_pointer_memory_info(X).type;
-  bool data_on_device = x_type == raft::memory_type::device || x_type == raft::memory_type::managed;
-
-  while (n_components > 1 && iters < max_iter) {
-    if (data_on_device) {
-      connect_knn_graph<value_idx, value_t>(
-        handle,
-        raft::make_device_matrix_view<const value_t, value_idx>(X, m, n),
-        mst_coo,
-        m,
-        n,
-        color,
-        reduction_op);
-    } else {
-      connect_knn_graph<value_idx, value_t>(
-        handle,
-        raft::make_host_matrix_view<const value_t, value_idx>(X, m, n),
-        mst_coo,
-        m,
-        n,
-        color,
-        reduction_op,
-        metric);
-    }
-
-    iters++;
-
-    n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream.get());
-  }
-
-  /**
-   * The `max_iter` argument was introduced only to prevent the potential for an infinite loop.
-   * Ideally the log2(n) guarantees of the MST should be enough to connect KNN graphs with a
-   * massive number of data samples in very few iterations. If it does not, there are 3 likely
-   * reasons why (in order of their likelihood):
-   * 1. There is a bug in this code somewhere
-   * 2. Either the given KNN graph wasn't generated from X or the same metric is not being used
-   *    to generate the 1-nn (currently only L2SqrtExpanded is supported).
-   * 3. max_iter was not large enough to connect the graph (less likely).
-   *
-   * Note that a KNN graph generated from 50 random isotropic balls (with significant overlap)
-   * was able to be connected in a single iteration.
-   */
-  RAFT_EXPECTS(n_components == 1,
-               "KNN graph could not be connected in %d iterations. "
-               "Please verify that the input knn graph is generated from X "
-               "(and the same distance metric used),"
-               " or increase 'max_iter'",
-               max_iter);
-
-  sort_mst_edges(
-    handle, mst_coo.src.data(), mst_coo.dst.data(), mst_coo.weights.data(), mst_coo.n_edges);
-
-  raft::copy_async(mst_src, mst_coo.src.data(), mst_coo.n_edges, stream.get());
-  raft::copy_async(mst_dst, mst_coo.dst.data(), mst_coo.n_edges, stream.get());
-  raft::copy_async(mst_weight, mst_coo.weights.data(), mst_coo.n_edges, stream.get());
-}
+  int max_iter                        = 10);
 
 };  // namespace  cuvs::cluster::agglomerative::detail

@@ -1,0 +1,35 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_scan_launchers.hpp>
+
+#include <core/bitmap_csr_conversion_launchers.hpp>
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_radix_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/sparse/convert/csr.cuh>
+
+namespace cuvs::detail {
+
+template <typename T, typename nnz_type, typename outT>
+void sorted_coo_to_csr(const T* rows, nnz_type nnz, outT* row_ind, int m, cudaStream_t stream)
+
+{
+  return raft::sparse::convert::sorted_coo_to_csr(rows, nnz, row_ind, m, stream);
+}
+
+template <typename T, typename outT>
+void sorted_coo_to_csr(raft::sparse::COO<T>* coo, outT* row_ind, cudaStream_t stream)
+
+{
+  return raft::sparse::convert::sorted_coo_to_csr(coo, row_ind, stream);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

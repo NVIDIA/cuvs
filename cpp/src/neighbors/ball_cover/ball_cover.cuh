@@ -10,6 +10,8 @@
 #include "../../core/gather_launchers.hpp"
 #include "../../core/radix_sorting_launchers.hpp"
 #include "../../core/thrust_fill_launchers.hpp"
+
+#include "../../core/bitmap_csr_conversion_launchers.hpp"
 #include "common.cuh"
 #include "registers.hpp"
 #include <cuvs/neighbors/ball_cover.hpp>
@@ -133,11 +135,11 @@ void construct_landmark_1nn(raft::resources const& handle,
                                    NNComp());
 
   // convert to CSR for fast lookup
-  raft::sparse::convert::sorted_coo_to_csr(R_1nn_inds.data_handle(),
-                                           index.m,
-                                           index.get_R_indptr().data_handle(),
-                                           index.n_landmarks + 1,
-                                           raft::resource::get_cuda_stream(handle).get());
+  cuvs::detail::sorted_coo_to_csr(R_1nn_inds.data_handle(),
+                                  index.m,
+                                  index.get_R_indptr().data_handle(),
+                                  index.n_landmarks + 1,
+                                  raft::resource::get_cuda_stream(handle).get());
 
   // reorder X to allow aligned access
   cuvs::detail::copy_rows<value_t, value_idx>(

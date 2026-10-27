@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/bitmap_csr_conversion_launchers.hpp"
 #include "../../neighbors/detail/knn_graph.cuh"
 #include "./kmeans_common.cuh"
 #include <cuvs/cluster/agglomerative.hpp>
@@ -91,7 +92,7 @@ struct distance_graph_impl<Linkage::KNN_GRAPH, value_idx, value_t> {
       raft::make_const_mdspan(cols_view),
       raft::make_const_mdspan(vals_in_view));
 
-    raft::sparse::convert::sorted_coo_to_csr(
+    cuvs::detail::sorted_coo_to_csr(
       knn_graph_coo.rows(), knn_graph_coo.nnz, indptr.data(), m + 1, stream.get());
 
     // TODO: Wouldn't need to copy here if we could compute knn

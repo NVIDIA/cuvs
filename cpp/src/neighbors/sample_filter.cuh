@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../core/bitmap_csr_conversion_launchers.hpp"
 #include <cuvs/neighbors/common.hpp>
 #include <raft/core/bitmap.cuh>
 #include <raft/core/bitset.cuh>
@@ -15,12 +16,6 @@
 
 #include <cstddef>
 #include <cstdint>
-
-extern template void raft::sparse::convert::detail::calc_nnz_by_rows<unsigned int, long, long>(
-  raft::resources const&, unsigned int const*, long, long, long*, size_t&, long&);
-
-extern template void raft::sparse::convert::detail::gpu_repeat_csr<long, long>(
-  raft::resources const&, long const*, long const*, long, long, long*, long*);
 
 namespace cuvs::neighbors::filtering {
 
@@ -110,7 +105,7 @@ template <typename bitset_t, typename index_t>
 template <typename csr_matrix_t>
 void bitset_filter<bitset_t, index_t>::to_csr(raft::resources const& handle, csr_matrix_t& csr)
 {
-  raft::sparse::convert::bitset_to_csr(handle, bitset_view_, csr);
+  cuvs::detail::bitset_to_csr(handle, bitset_view_, csr);
 }
 
 template <typename bitmap_t, typename index_t>
@@ -134,7 +129,7 @@ template <typename bitmap_t, typename index_t>
 template <typename csr_matrix_t>
 void bitmap_filter<bitmap_t, index_t>::to_csr(raft::resources const& handle, csr_matrix_t& csr)
 {
-  raft::sparse::convert::bitmap_to_csr(handle, bitmap_view_, csr);
+  cuvs::detail::bitmap_to_csr(handle, bitmap_view_, csr);
 }
 
 struct none_filter_args_t {};

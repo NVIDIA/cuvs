@@ -1535,6 +1535,16 @@ if(NOT BUILD_CPU_ONLY)
   )
 
   generate_string_matrix(
+    get_matrix_diagonal_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/get_matrix_diagonal_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
+  generate_string_matrix(
     laplacian_reduce_by_key_extern_instantiations
     MATRIX_JSON_FILE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/laplacian_reduce_by_key_matrix.json"
@@ -1565,9 +1575,49 @@ if(NOT BUILD_CPU_ONLY)
   )
 
   generate_string_matrix(
+    min_components_by_color_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/min_components_by_color_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
+  generate_string_matrix(
+    mst_initialization_map_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/mst_initialization_map_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
+  generate_string_matrix(
+    mst_solver_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/mst_solver_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
+  generate_string_matrix(
     pca_array_extern_instantiations
     MATRIX_JSON_FILE
     "${CMAKE_CURRENT_SOURCE_DIR}/src/core/pca_array_transforms_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+
+  generate_string_matrix(
+    scatter_inplace_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/scatter_inplace_matrix.json"
     ITEM_FORMAT
     "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
     GLUE
@@ -2092,6 +2142,69 @@ if(NOT BUILD_CPU_ONLY)
 
   generate_inst_matrix(
     cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/build_sorted_mst_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/build_sorted_mst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/build_sorted_mst_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/min_components_by_color_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/min_components_by_color.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/min_components_by_color_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/mst_solver_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/mst_solver.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/mst_solver_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/mst_initialization_map_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/mst_initialization_map.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/mst_initialization_map_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/compress_to_bits_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/compress_to_bits.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/compress_to_bits_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/get_matrix_diagonal_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/get_matrix_diagonal.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/get_matrix_diagonal_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/scatter_inplace_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/scatter_inplace.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/scatter_inplace_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sorted_coo_to_csr_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sorted_coo_to_csr.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/sorted_coo_to_csr_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/matrix_fill_matrix.json"
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/matrix_fill.cu.in"
     OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/matrix_fill_@instantiation_name@.cu"
@@ -2346,6 +2459,8 @@ if(NOT BUILD_CPU_ONLY)
   add_library(
     cuvs_objs OBJECT
     ${cuvs_primitive_sources}
+    src/core/bitmap_to_csr.cu
+    src/core/bitset_to_csr.cu
     src/core/calc_nnz_by_rows.cu
     src/core/coo_symmetrize.cu
     src/core/copy_distance_tile.cu

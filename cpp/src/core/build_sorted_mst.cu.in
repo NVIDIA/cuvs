@@ -1,0 +1,120 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_device_flagged_if_launchers.hpp>
+#include <core/cub_device_unique_launchers.hpp>
+
+#include <core/cub_transform_launchers.hpp>
+
+#include <core/cub_compact_launchers.hpp>
+
+#include <cluster/detail/mst.cuh>
+#include <core/cub_ptx_query.hpp>
+#include <core/cub_scan_launchers.hpp>
+
+#include <core/cub_radix_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/sparse/solver/mst.cuh>
+
+namespace cuvs::cluster::agglomerative::detail {
+
+template <typename value_idx, typename value_t, typename red_op>
+void build_sorted_mst(raft::resources const& handle,
+                      const value_t* X,
+                      const value_idx* indptr,
+                      const value_idx* indices,
+                      const value_t* pw_dists,
+                      size_t m,
+                      size_t n,
+                      value_idx* mst_src,
+                      value_idx* mst_dst,
+                      value_t* mst_weight,
+                      value_idx* color,
+                      size_t nnz,
+                      red_op reduction_op,
+                      cuvs::distance::DistanceType metric,
+                      int max_iter)
+{
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  // We want to have MST initialize colors on first call.
+  auto mst_coo = raft::sparse::solver::mst<value_idx, value_idx, value_t, double>(
+    handle, indptr, indices, pw_dists, (value_idx)m, nnz, color, stream.get(), false, true);
+
+  int iters        = 1;
+  int n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream.get());
+
+  // Pinned memory is reachable by the GPU, but keeps taking the host path.
+  auto const x_type   = raft::get_pointer_memory_info(X).type;
+  bool data_on_device = x_type == raft::memory_type::device || x_type == raft::memory_type::managed;
+
+  while (n_components > 1 && iters < max_iter) {
+    if (data_on_device) {
+      connect_knn_graph<value_idx, value_t>(
+        handle,
+        raft::make_device_matrix_view<const value_t, value_idx>(X, m, n),
+        mst_coo,
+        m,
+        n,
+        color,
+        reduction_op);
+    } else {
+      connect_knn_graph<value_idx, value_t>(
+        handle,
+        raft::make_host_matrix_view<const value_t, value_idx>(X, m, n),
+        mst_coo,
+        m,
+        n,
+        color,
+        reduction_op,
+        metric);
+    }
+
+    iters++;
+
+    n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream.get());
+  }
+
+  /**
+   * The `max_iter` argument was introduced only to prevent the potential for an infinite loop.
+   * Ideally the log2(n) guarantees of the MST should be enough to connect KNN graphs with a
+   * massive number of data samples in very few iterations. If it does not, there are 3 likely
+   * reasons why (in order of their likelihood):
+   * 1. There is a bug in this code somewhere
+   * 2. Either the given KNN graph wasn't generated from X or the same metric is not being used
+   *    to generate the 1-nn (currently only L2SqrtExpanded is supported).
+   * 3. max_iter was not large enough to connect the graph (less likely).
+   *
+   * Note that a KNN graph generated from 50 random isotropic balls (with significant overlap)
+   * was able to be connected in a single iteration.
+   */
+  RAFT_EXPECTS(n_components == 1,
+               "KNN graph could not be connected in %d iterations. "
+               "Please verify that the input knn graph is generated from X "
+               "(and the same distance metric used),"
+               " or increase 'max_iter'",
+               max_iter);
+
+  sort_mst_edges(
+    handle, mst_coo.src.data(), mst_coo.dst.data(), mst_coo.weights.data(), mst_coo.n_edges);
+
+  raft::copy_async(mst_src, mst_coo.src.data(), mst_coo.n_edges, stream.get());
+  raft::copy_async(mst_dst, mst_coo.dst.data(), mst_coo.n_edges, stream.get());
+  raft::copy_async(mst_weight, mst_coo.weights.data(), mst_coo.n_edges, stream.get());
+}
+
+}  // namespace cuvs::cluster::agglomerative::detail
+
+// clang-format off
+@get_matrix_diagonal_extern_instantiations@
+
+@scatter_inplace_extern_instantiations@
+
+@min_components_by_color_extern_instantiations@
+
+@mst_solver_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

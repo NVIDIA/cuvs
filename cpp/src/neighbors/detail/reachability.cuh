@@ -5,6 +5,8 @@
 
 #pragma once
 #include "../../core/spectral_launchers.hpp"
+
+#include "../../core/bitmap_csr_conversion_launchers.hpp"
 #include "./knn_brute_force.cuh"
 
 #include <raft/core/resource/cuda_stream.hpp>
@@ -225,7 +227,7 @@ void mutual_reachability_graph(const raft::resources& handle,
                            static_cast<nnz_t>(min_samples * m),
                            out);
 
-  raft::sparse::convert::sorted_coo_to_csr(out.rows(), out.nnz, indptr, m + 1, stream);
+  cuvs::detail::sorted_coo_to_csr(out.rows(), out.nnz, indptr, m + 1, stream);
 
   // self-loops get max distance
   auto rows_view     = raft::make_device_vector_view<const value_idx, nnz_t>(out.rows(), out.nnz);
