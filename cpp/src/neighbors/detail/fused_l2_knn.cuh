@@ -10,6 +10,7 @@
 
 #include <cub/util_type.cuh>
 
+#include <cstdint>
 #include <limits>
 
 #include "../../distance/detail/distance.cuh"
@@ -502,6 +503,25 @@ __launch_bounds__(Policy::Nthreads, 2) RAFT_KERNEL fusedL2kNN(const DataT* x,
   obj.run();
 }
 
+template <typename DataT, typename AccT>
+struct fused_l2_row_policy {
+  using type = typename raft::linalg::Policy2x8<AccT, 1>::Policy;
+};
+
+struct int8_fused_l2_policy : raft::linalg::KernelPolicy<std::int8_t, 1, 16, 2, 8, 8, 32> {
+  using base = raft::linalg::KernelPolicy<std::int8_t, 1, 16, 2, 8, 8, 32>;
+
+  // The fused multi-tile merge reuses the operand shared-memory region for up to 256
+  // key/value pairs per output row. Float policies already reserve at least this much.
+  static constexpr int SmemSize =
+    base::Mblk * 256 * sizeof(cub::KeyValuePair<std::uint32_t, std::int32_t>);
+};
+
+template <>
+struct fused_l2_row_policy<std::int8_t, std::int32_t> {
+  using type = int8_fused_l2_policy;
+};
+
 template <typename DataT,
           typename AccT,
           typename OutT,
@@ -525,10 +545,7 @@ void fusedL2UnexpKnnImpl(const DataT* x,
                          void* workspace,
                          size_t& worksize)
 {
-  typedef typename raft::linalg::Policy2x8<AccT, 1>::Policy RowPolicy;
-  typedef typename raft::linalg::Policy4x4<AccT, VecLen>::ColPolicy ColPolicy;
-
-  typedef typename std::conditional<true, RowPolicy, ColPolicy>::type KPolicy;
+  using KPolicy = typename fused_l2_row_policy<DataT, AccT>::type;
 
   ASSERT(isRowMajor, "Only Row major inputs are allowed");
 
@@ -710,10 +727,7 @@ void fusedL2ExpKnnImpl(const DataT* x,
                        void* workspace,
                        size_t& worksize)
 {
-  typedef typename raft::linalg::Policy2x8<AccT, 1>::Policy RowPolicy;
-  typedef typename raft::linalg::Policy4x4<AccT, VecLen>::ColPolicy ColPolicy;
-
-  typedef typename std::conditional<true, RowPolicy, ColPolicy>::type KPolicy;
+  using KPolicy = typename fused_l2_row_policy<DataT, AccT>::type;
 
   ASSERT(isRowMajor, "Only Row major inputs are allowed");
 

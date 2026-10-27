@@ -56,8 +56,8 @@ struct l2_unexp_distance_op {
 
   template <typename Policy>
   DI void epilog(AccT acc[Policy::AccRowsPerTh][Policy::AccColsPerTh],
-                 AccT* regxn,
-                 AccT* regyn,
+                 void* regxn,
+                 void* regyn,
                  IdxT gridStrideX,
                  IdxT gridStrideY) const
   {

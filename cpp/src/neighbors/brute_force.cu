@@ -114,12 +114,26 @@ index<T, DistT>::index(raft::resources const& res,
   // api, which isn't supported
   // Instead, transpose the input matrices if they are passed as col-major.
   // (note: we're doing the transpose here to avoid doing per query)
-  raft::linalg::transpose(res,
-                          const_cast<T*>(dataset_view.data_handle()),
-                          dataset_.data_handle(),
-                          dataset_view.extent(0),
-                          dataset_view.extent(1),
-                          raft::resource::get_cuda_stream(res).get());
+  auto const stream = raft::resource::get_cuda_stream(res);
+  if constexpr (std::is_same_v<T, std::int8_t>) {
+    auto const size = dataset_view.extent(0) * dataset_view.extent(1);
+    cuvs::neighbors::detail::
+      int8_col_major_to_row_major_kernel<<<cuvs::neighbors::detail::int8_grid_size(size),
+                                           cuvs::neighbors::detail::kInt8BlockSize,
+                                           0,
+                                           stream.get()>>>(dataset_view.data_handle(),
+                                                           dataset_.data_handle(),
+                                                           dataset_view.extent(0),
+                                                           dataset_view.extent(1));
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+  } else {
+    raft::linalg::transpose(res,
+                            const_cast<T*>(dataset_view.data_handle()),
+                            dataset_.data_handle(),
+                            dataset_view.extent(0),
+                            dataset_view.extent(1),
+                            stream.get());
+  }
   dataset_view_ = raft::make_const_mdspan(dataset_.view());
 }
 
@@ -144,12 +158,26 @@ index<T, DistT>::index(raft::resources const& res,
   // api, which isn't supported
   // Instead, transpose the input matrices if they are passed as col-major.
   // (note: we're doing the transpose here to avoid doing per query)
-  raft::linalg::transpose(res,
-                          const_cast<T*>(dataset_view.data_handle()),
-                          dataset_.data_handle(),
-                          dataset_view.extent(0),
-                          dataset_view.extent(1),
-                          raft::resource::get_cuda_stream(res).get());
+  auto const stream = raft::resource::get_cuda_stream(res);
+  if constexpr (std::is_same_v<T, std::int8_t>) {
+    auto const size = dataset_view.extent(0) * dataset_view.extent(1);
+    cuvs::neighbors::detail::
+      int8_col_major_to_row_major_kernel<<<cuvs::neighbors::detail::int8_grid_size(size),
+                                           cuvs::neighbors::detail::kInt8BlockSize,
+                                           0,
+                                           stream.get()>>>(dataset_view.data_handle(),
+                                                           dataset_.data_handle(),
+                                                           dataset_view.extent(0),
+                                                           dataset_view.extent(1));
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+  } else {
+    raft::linalg::transpose(res,
+                            const_cast<T*>(dataset_view.data_handle()),
+                            dataset_.data_handle(),
+                            dataset_view.extent(0),
+                            dataset_view.extent(1),
+                            stream.get());
+  }
   dataset_view_ = raft::make_const_mdspan(dataset_.view());
 }
 
@@ -215,7 +243,7 @@ void index<T, DistT>::update_dataset(
               const cuvs::neighbors::filtering::base_filter& sample_filter)                     \
   {                                                                                             \
     detail::search<T, int64_t, DistT, raft::row_major>(                                         \
-      res, idx, queries, neighbors, distances, sample_filter);                                  \
+      res, idx, queries, neighbors, distances, params, sample_filter);                          \
   }                                                                                             \
   void search(raft::resources const& res,                                                       \
               const cuvs::neighbors::brute_force::index<T, DistT>& idx,                         \
@@ -225,7 +253,13 @@ void index<T, DistT>::update_dataset(
               const cuvs::neighbors::filtering::base_filter& sample_filter)                     \
   {                                                                                             \
     detail::search<T, int64_t, DistT, raft::row_major>(                                         \
-      res, idx, queries, neighbors, distances, sample_filter);                                  \
+      res,                                                                                      \
+      idx,                                                                                      \
+      queries,                                                                                  \
+      neighbors,                                                                                \
+      distances,                                                                                \
+      cuvs::neighbors::brute_force::search_params{},                                            \
+      sample_filter);                                                                           \
   }                                                                                             \
   void search(raft::resources const& res,                                                       \
               const cuvs::neighbors::brute_force::search_params& params,                        \
@@ -236,7 +270,7 @@ void index<T, DistT>::update_dataset(
               const cuvs::neighbors::filtering::base_filter& sample_filter)                     \
   {                                                                                             \
     detail::search<T, int64_t, DistT, raft::col_major>(                                         \
-      res, idx, queries, neighbors, distances, sample_filter);                                  \
+      res, idx, queries, neighbors, distances, params, sample_filter);                          \
   }                                                                                             \
   void search(raft::resources const& res,                                                       \
               const cuvs::neighbors::brute_force::index<T, DistT>& idx,                         \
@@ -246,14 +280,22 @@ void index<T, DistT>::update_dataset(
               const cuvs::neighbors::filtering::base_filter& sample_filter)                     \
   {                                                                                             \
     detail::search<T, int64_t, DistT, raft::col_major>(                                         \
-      res, idx, queries, neighbors, distances, sample_filter);                                  \
+      res,                                                                                      \
+      idx,                                                                                      \
+      queries,                                                                                  \
+      neighbors,                                                                                \
+      distances,                                                                                \
+      cuvs::neighbors::brute_force::search_params{},                                            \
+      sample_filter);                                                                           \
   }
 
 CUVS_INST_BFKNN(float, float);
 CUVS_INST_BFKNN(half, float);
+CUVS_INST_BFKNN(std::int8_t, float);
 
 template class cuvs::neighbors::brute_force::index<float, float>;
 template class cuvs::neighbors::brute_force::index<half, float>;
+template class cuvs::neighbors::brute_force::index<std::int8_t, float>;
 
 #undef CUVS_INST_BFKNN
 
