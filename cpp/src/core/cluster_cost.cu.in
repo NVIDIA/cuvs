@@ -5,6 +5,7 @@
 
 #include <cluster/detail/cluster_cost_launchers.hpp>
 #include <cluster/detail/kmeans_common.cuh>
+#include <core/cluster_cost_reduce_launchers.hpp>
 #include <core/cub_ptx_query.hpp>
 #include <cub/device/device_reduce.cuh>
 #include <cuvs/core/cuda_fp16.hpp>

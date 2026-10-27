@@ -1440,6 +1440,23 @@ if(NOT BUILD_CPU_ONLY)
     )
   endforeach()
 
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cluster_cost_second_pass_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cluster_cost_second_pass.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/cluster_cost_second_pass_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cluster_cost_second_pass_alias_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cluster_cost_second_pass_alias.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/cluster_cost_second_pass_alias_@instantiation_name@.cu"
+  )
+
   add_library(
     cuvs_objs OBJECT
     ${cuvs_primitive_sources}

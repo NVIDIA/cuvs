@@ -1,0 +1,16 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cluster_cost_reduce_launchers.hpp>
+#include <core/cub_ptx_query.hpp>
+
+using provider_type = cuvs::detail::cluster_cost_reduce_launch::@provider_alias@;
+using pointer_type  = cuvs::detail::cluster_cost_reduce_launch::@provider_alias@_pointer;
+
+template <>
+__host__ __device__ pointer_type provider_type::SingleTileSecondKernel()
+{
+  return &cub::detail::reduce::DeviceReduceSingleTileKernel<@kernel_arguments@>;
+}
