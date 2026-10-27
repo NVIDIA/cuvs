@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/cub_scalar_reduction_launchers.hpp"
 #include "../detail/haversine_distance.cuh"
 #include "common.cuh"
 #include "registers.hpp"
@@ -1290,7 +1291,7 @@ void rbc_eps_pass(raft::resources const& handle,
 
   if (vd != nullptr) {
     value_idx sum =
-      thrust::reduce(raft::resource::get_thrust_policy(handle), vd, vd + n_query_rows);
+      cuvs::detail::thrust_reduce(raft::resource::get_thrust_policy(handle), vd, vd + n_query_rows);
     // copy sum to last element
     RAFT_CUDA_TRY(cudaMemcpyAsync(vd + n_query_rows,
                                   &sum,
@@ -1446,11 +1447,11 @@ void rbc_eps_pass(raft::resources const& handle,
                                                           max_k_in,
                                                           tmp.data());
 
-    int64_t actual_max = thrust::reduce(raft::resource::get_thrust_policy(handle),
-                                        vd_ptr,
-                                        vd_ptr + n_query_rows,
-                                        (value_idx)0,
-                                        cuda::maximum<value_idx>());
+    int64_t actual_max = cuvs::detail::thrust_reduce(raft::resource::get_thrust_policy(handle),
+                                                     vd_ptr,
+                                                     vd_ptr + n_query_rows,
+                                                     (value_idx)0,
+                                                     cuda::maximum<value_idx>());
 
     if (actual_max > max_k_in) {
       // ceil vd to max_k

@@ -7,6 +7,7 @@
 // Created by Stardust on 3/10/25.
 //
 
+#include "../../../core/cub_scalar_reduction_launchers.hpp"
 #include "../../detail/smem_utils.cuh"
 #include "../utils/reductions.cuh"
 #include "quantizer_gpu.cuh"
@@ -1356,17 +1357,17 @@ float DataQuantizerGPU::get_const_scaling_factors_fully_gpu(size_t dim, size_t e
 
   // Use CUB for reduction - handles any size optimally
   size_t temp_storage_bytes = 0;
-  cub::DeviceReduce::Sum(
+  cuvs::detail::cub_reduce_sum(
     nullptr, temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum, stream_.get());
 
   {
     rmm::device_buffer d_temp_storage(temp_storage_bytes, stream_);
-    cub::DeviceReduce::Sum(d_temp_storage.data(),
-                           temp_storage_bytes,
-                           d_factors.data(),
-                           d_sum.data(),
-                           kConstNum,
-                           stream_.get());
+    cuvs::detail::cub_reduce_sum(d_temp_storage.data(),
+                                 temp_storage_bytes,
+                                 d_factors.data(),
+                                 d_sum.data(),
+                                 kConstNum,
+                                 stream_.get());
   }
   RAFT_CUDA_TRY(cudaGetLastError());
 

@@ -4,6 +4,7 @@
  */
 
 #include "../../../core/cub_runtime_launchers.hpp"
+#include "../../../core/cub_scalar_reduction_launchers.hpp"
 #include <cub/device/device_histogram.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
@@ -143,13 +144,13 @@ void sum_reduce_vector(raft::resources const& dev_resources,
 
   size_t temp_storage_bytes = 0;
 
-  cub::DeviceReduce::Sum(
+  cuvs::detail::cub_reduce_sum(
     nullptr, temp_storage_bytes, v.data_handle(), s.data_handle(), v.extent(0), stream);
 
   rmm::device_uvector<char> temp_storage(temp_storage_bytes, stream, device_memory);
   // cudaMalloc(&d_temp_storage, temp_storage_bytes);
 
-  cub::DeviceReduce::Sum(
+  cuvs::detail::cub_reduce_sum(
     temp_storage.data(), temp_storage_bytes, v.data_handle(), s.data_handle(), v.extent(0), stream);
 
   // raft::resource::sync_stream(dev_resources, stream);

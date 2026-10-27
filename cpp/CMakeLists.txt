@@ -1575,14 +1575,23 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/core/select_compact_init_@instantiation_name@.cu"
   )
 
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_reduce_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/thrust_reduce.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/thrust_reduce_@instantiation_name@.cu"
+  )
+
   add_library(
     cuvs_objs OBJECT
     ${cuvs_primitive_sources}
     src/core/copy_distance_tile.cu
     src/core/cub_max.cu
     src/core/cub_ptx_query.cu
+    src/core/cub_reduce_sum.cu
     src/core/has_non_finite.cu
     src/core/mask_distance_tile.cu
+    src/core/rabitq_probed_counts.cu
     src/core/thrust_for_each.cu
     src/core/thrust_reduce_by_key.cu
     src/core/thrust_stable_sort_by_key.cu
@@ -1686,7 +1695,6 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/ivf_rabitq/gpu_index/searcher_gpu.cu
     src/neighbors/ivf_rabitq/gpu_index/searcher_gpu_shared_mem_opt.cu
     src/neighbors/ivf_rabitq/gpu_index/searcher_gpu_quantize_query.cu
-    src/neighbors/ivf_rabitq/utils/searcher_gpu_utils.cu
     src/neighbors/ivf_sq_index.cpp
     src/neighbors/ivf_sq/ivf_sq_build_extend_float_uint8_t_int64_t.cu
     src/neighbors/ivf_sq/ivf_sq_build_extend_half_uint8_t_int64_t.cu

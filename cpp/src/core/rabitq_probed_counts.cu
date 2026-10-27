@@ -3,22 +3,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "searcher_gpu_utils.hpp"
-
+#include "../neighbors/ivf_rabitq/utils/searcher_gpu_utils.hpp"
+#include "cub_ptx_query.hpp"
+#include "cub_scalar_reduction_launchers.hpp"
+#include <cuvs/core/cuda_fp16.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
-#include <raft/core/resources.hpp>
-
 #include <thrust/for_each.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/reduce.h>
 
-#include <cuda_runtime.h>
-
 namespace cuvs::neighbors::ivf_rabitq::detail {
 
-// finds the maximum cluster size among clusters to be probed and, optionally, the maximum number of
-// vectors probed for any single query
 void get_max_probed_cluster_size_and_vectors_count(
   raft::resources const& handle,
   const ClusterQueryPair* d_cluster_query_pairs,
@@ -58,11 +54,12 @@ void get_max_probed_cluster_size_and_vectors_count(
     });
   raft::copy(&max_probed_cluster_size, d_max_probed_cluster_size_ptr, 1, stream);
   if (get_max_probed_vectors_count) {
-    max_probed_vectors_count = thrust::reduce(raft::resource::get_thrust_policy(handle),
-                                              d_probed_vectors_count_ptr,
-                                              d_probed_vectors_count_ptr + num_queries,
-                                              0,
-                                              thrust::maximum<size_t>());
+    max_probed_vectors_count =
+      cuvs::detail::thrust_reduce(raft::resource::get_thrust_policy(handle),
+                                  d_probed_vectors_count_ptr,
+                                  d_probed_vectors_count_ptr + num_queries,
+                                  0,
+                                  thrust::maximum<size_t>());
   }
 }
 
