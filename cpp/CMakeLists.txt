@@ -1443,11 +1443,13 @@ if(NOT BUILD_CPU_ONLY)
       GLUE
       "\n"
     )
-    configure_file(
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
-      "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu" @ONLY
+    # One matrix entry keeps all specializations of the function in the same CUDA owner.
+    generate_inst_matrix(
+      cuvs_primitive_sources
+      MATRIX_JSON_STRING "{\"primitive\": \"${primitive}\"}"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
+      OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/@primitive@.cu"
     )
-    list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
   add_library(
