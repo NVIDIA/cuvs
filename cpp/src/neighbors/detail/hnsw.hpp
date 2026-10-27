@@ -423,7 +423,8 @@ from_cagra(raft::resources const& res,
   // move cagra graph to host or access it from host if available
   auto host_graph_view = cagra_index.graph();
   auto host_graph      = raft::make_host_matrix<uint32_t, int64_t>(0, 0);
-  if (!raft::is_host_accessible(raft::memory_type_from_pointer(host_graph_view.data_handle()))) {
+  if (!raft::is_host_accessible(
+        raft::get_pointer_memory_info(host_graph_view.data_handle()).type)) {
     // copy cagra graph to host
     host_graph = raft::make_host_matrix<uint32_t, int64_t>(host_graph_view.extent(0),
                                                            host_graph_view.extent(1));
