@@ -38,5 +38,13 @@
     "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, thrust::transform_iterator<cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>, thrust::counting_iterator<long, thrust::use_default, thrust::use_default, thrust::use_default, thrust::__compile_time_value<1>>, thrust::use_default, thrust::use_default>, long, const unsigned int*, const long*, const long*, float, long, long*, raft::identity_op",
     "function_qualifiers": "",
     "instantiation_name": "bitwise_f32_i64_u32_identity"
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "launch_adjust_centers",
+    "template_arguments": "<unsigned char const*, float, long, unsigned int, raft::identity_op>",
+    "parameter_types": "dim3, dim3, cudaStream_t, float*, long, long, unsigned char const*, long, const unsigned int*, const long*, const long*, float, long, long*, raft::identity_op",
+    "function_qualifiers": "",
+    "instantiation_name": "u8_i64_u32_identity"
   }
 ]

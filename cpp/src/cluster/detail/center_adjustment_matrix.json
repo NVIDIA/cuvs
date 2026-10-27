@@ -34,6 +34,11 @@
         "template_arguments": "<thrust::transform_iterator<cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>, thrust::counting_iterator<long, thrust::use_default, thrust::use_default, thrust::use_default, thrust::__compile_time_value<1>>, thrust::use_default, thrust::use_default>, float, long, unsigned int, unsigned long long, raft::identity_op>",
         "parameter_types": "raft::resources const&, float*, long, long, thrust::transform_iterator<cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>, thrust::counting_iterator<long, thrust::use_default, thrust::use_default, thrust::use_default, thrust::__compile_time_value<1>>, thrust::use_default, thrust::use_default>, long, unsigned int const*, unsigned long long const*, float, float, float, cuvs::cluster::kmeans::balanced_donor_selection, raft::identity_op, rmm::device_async_resource_ref",
         "instantiation_name": "bitwise_f32_i64_u32_u64_identity"
+      },
+      {
+        "template_arguments": "< unsigned char const*, float, long, unsigned int, unsigned long long, raft::identity_op>",
+        "parameter_types": "raft::resources const &, float *, long, long, unsigned char const *, long, unsigned int const *, unsigned long long const *, float, float, float, cuvs::cluster::kmeans::balanced_donor_selection, raft::identity_op, rmm::device_async_resource_ref",
+        "instantiation_name": "u8_i64_u32_u64_identity"
       }
     ]
   }
