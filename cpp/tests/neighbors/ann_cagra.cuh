@@ -69,9 +69,8 @@ void cagra_build_into_index(
   cagra::device_padded_index<DataT>& index)
 {
   if (ace_host_dataset.has_value()) {
-    cuvs::neighbors::host_padded_dataset_view<DataT, int64_t> host_view(
-      *ace_host_dataset, static_cast<uint32_t>(ace_host_dataset->extent(1)));
-    auto host_idx = cagra::build(res, params, host_view);
+    auto host_view = cuvs::neighbors::make_host_standard_dataset_view(*ace_host_dataset);
+    auto host_idx  = cagra::build(res, params, host_view);
     // In-memory ACE returns graph-only; attach device padded storage for search.
     index = cagra::update_dataset(res, std::move(host_idx), padded);
     return;
@@ -1330,14 +1329,13 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         indices.push_back(&index0);
         indices.push_back(&index1);
 
-        auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
+        using padded_t      = cuvs::neighbors::device_padded_dataset<DataT, int64_t>;
+        auto merged_dataset = padded_t(cuvs::neighbors::detail::make_dense_array<padded_t>(
           handle_,
           ps.n_rows - static_cast<int64_t>(test_cagra_sample_filter::offset),
-          static_cast<int64_t>(index0.dataset().stride()));
-        auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
-          std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
-        auto merge_idx = cuvs::neighbors::cagra::merge(
-          handle_, index_params, indices, merged_dataset.as_dataset_view(), bitset_filter_obj);
+          static_cast<uint32_t>(ps.dim)));
+        auto merge_idx      = cuvs::neighbors::cagra::merge(
+          handle_, index_params, indices, std::as_const(merged_dataset).view(), bitset_filter_obj);
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
           search_queries.data(), ps.n_queries, ps.dim);
@@ -1578,19 +1576,18 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
           // The merged index holds only a view, so merged_dataset must outlive it.
           auto const merged_rows =
             static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size());
-          auto merged_matrix = raft::make_device_matrix<DataT, int64_t>(
-            handle_, merged_rows, static_cast<int64_t>(index0.dataset().stride()));
-          auto merged_dataset = cuvs::neighbors::device_padded_dataset<DataT, int64_t>(
-            std::move(merged_matrix), static_cast<uint32_t>(ps.dim));
+          using padded_t      = cuvs::neighbors::device_padded_dataset<DataT, int64_t>;
+          auto merged_dataset = padded_t(cuvs::neighbors::detail::make_dense_array<padded_t>(
+            handle_, merged_rows, static_cast<uint32_t>(ps.dim)));
           auto merged_idx =
             ps.physical_merge_params.has_value()
               ? cagra::merge(handle_,
                              index_params,
                              indices_to_merge,
-                             merged_dataset.as_dataset_view(),
+                             std::as_const(merged_dataset).view(),
                              *ps.physical_merge_params)
               : cagra::merge(
-                  handle_, index_params, indices_to_merge, merged_dataset.as_dataset_view());
+                  handle_, index_params, indices_to_merge, std::as_const(merged_dataset).view());
           cagra::search(handle_,
                         search_params,
                         merged_idx,
