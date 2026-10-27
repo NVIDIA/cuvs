@@ -63,6 +63,27 @@ void row_normalize(raft::resources const& handle,
   }
 }
 
-@primitive_instantiations@
+extern template void
+cuvs::detail::row_normalize<float, long, raft::sq_op, raft::add_op, raft::sqrt_op>(
+  raft::resources const&,
+  cuda::std::mdspan<
+    float const,
+    cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>,
+    cuda::std::layout_right,
+    raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>,
+  cuda::std::mdspan<
+    float,
+    cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>,
+    cuda::std::layout_right,
+    raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>,
+  float,
+  raft::sq_op,
+  raft::add_op,
+  raft::sqrt_op,
+  float);
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
 
 }  // namespace cuvs::detail
