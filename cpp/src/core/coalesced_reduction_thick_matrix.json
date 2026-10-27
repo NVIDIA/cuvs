@@ -1,0 +1,69 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::coalescedReductionThickLaunch",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, double, double, int, raft::identity_op, raft::min_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, raft::identity_op, raft::min_op",
+        "instantiation_name": "p_256_64_f64_f64_i32_id_min"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, double, double, long, raft::identity_op, raft::min_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, raft::identity_op, raft::min_op",
+        "instantiation_name": "p_256_64_f64_f64_i64_id_min"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, float, float, int, raft::identity_op, raft::min_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, raft::identity_op, raft::min_op",
+        "instantiation_name": "p_256_64_f32_f32_i32_id_min"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, float, float, long, raft::identity_op, raft::min_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, raft::identity_op, raft::min_op",
+        "instantiation_name": "p_256_64_f32_f32_i64_id_min"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, __half, float, int, raft::sq_op, raft::add_op>",
+        "parameter_types": "float*, __half const*, int, int, float, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "p_256_64_f16_f32_i32_sq_add"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, __half, float, long, raft::sq_op, raft::add_op>",
+        "parameter_types": "float*, __half const*, long, long, float, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "p_256_64_f16_f32_i64_sq_add"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, double, double, int, raft::sq_op, raft::add_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "p_256_64_f64_f64_i32_sq_add"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, double, double, long, raft::sq_op, raft::add_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "p_256_64_f64_f64_i64_sq_add"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, float, float, int, raft::sq_op, raft::add_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "p_256_64_f32_f32_i32_sq_add"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, float, float, long, raft::identity_op, raft::add_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, raft::identity_op, raft::add_op",
+        "instantiation_name": "p_256_64_f32_f32_i64_id_add"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, float, float, long, raft::sq_op, raft::add_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "p_256_64_f32_f32_i64_sq_add"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThickPolicy<256, 64>, float, float, unsigned int, raft::sq_op, raft::add_op>",
+        "parameter_types": "float*, float const*, unsigned int, unsigned int, float, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "p_256_64_f32_f32_u32_sq_add"
+      }
+    ]
+  }
+]
