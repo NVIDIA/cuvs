@@ -8,7 +8,9 @@
 
 #include <raft/linalg/coalesced_reduction.cuh>
 #include <raft/matrix/init.cuh>
+#include <raft/util/cuda_dev_essentials.cuh>
 #include <raft/util/kernel_launch.hpp>
+#include <raft/util/reduction.cuh>
 
 #include <rmm/device_uvector.hpp>
 
@@ -66,20 +68,18 @@ RAFT_KERNEL refine_distance_kernel(const float* x,
                                    IndexT n_features,
                                    bool apply_sqrt)
 {
-  constexpr int kWarp = 32;
-  const auto row = static_cast<int64_t>(blockIdx.x) * (blockDim.x / kWarp) + threadIdx.x / kWarp;
-  const int lane = threadIdx.x % kWarp;
+  const auto row =
+    static_cast<int64_t>(blockIdx.x) * (blockDim.x / raft::WarpSize) + threadIdx.x / raft::WarpSize;
   if (row >= static_cast<int64_t>(n_rows)) { return; }
+  const int lane  = raft::laneId();
   const float* xr = x + row * n_features;
   const float* cr = centroids + static_cast<int64_t>(nearest_index(nearest[row])) * n_features;
   float acc       = 0;
-  for (int64_t j = lane; j < n_features; j += kWarp) {
+  for (int64_t j = lane; j < n_features; j += raft::WarpSize) {
     const float diff = xr[j] - cr[j];
     acc              = fmaf(diff, diff, acc);
   }
-  for (int offset = kWarp / 2; offset > 0; offset /= 2) {
-    acc += __shfl_down_sync(0xffffffffu, acc, offset);
-  }
+  acc = raft::warpReduce(acc);
   if (lane == 0) { distance[row] = apply_sqrt ? sqrtf(acc) : acc; }
 }
 
@@ -94,11 +94,10 @@ void refine_distance(raft::resources const& handle,
                      bool apply_sqrt)
 {
   constexpr int kRowsPerBlock = 8;  // one warp per row
-  const auto blocks =
-    static_cast<unsigned>((static_cast<int64_t>(n_rows) + kRowsPerBlock - 1) / kRowsPerBlock);
+  const auto blocks = static_cast<unsigned>(raft::ceildiv<int64_t>(n_rows, kRowsPerBlock));
   raft::launch_kernel(handle,
                       blocks,
-                      32 * kRowsPerBlock,
+                      raft::WarpSize * kRowsPerBlock,
                       refine_distance_kernel<IndexT, NearestT>,
                       x,
                       centroids,
