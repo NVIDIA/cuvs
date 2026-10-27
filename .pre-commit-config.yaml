@@ -176,6 +176,7 @@ repos:
             cpp/cmake/thirdparty/cmake/FindCUDAToolkit[.]cmake$|
             cpp/cmake/modules/FindAVX[.]cmake$|
             cpp/src/neighbors/detail/faiss_distance_utils[.]h$|
+            cpp/src/core/cub_histogram_launchers[.]hpp$|
             cpp/src/distance/detail/fused_distance_nn/gemm[.]h$|
             cpp/src/distance/detail/fused_distance_nn/epilogue[.]cuh$|
             cpp/src/distance/detail/fused_distance_nn/predicated_tile_iterator_normvec_smem[.]h$|
@@ -185,6 +186,10 @@ repos:
             cpp/src/distance/detail/fused_distance_nn/custom_epilogue_with_broadcast[.]h$|
             rust/cuvs-sys/src/bindings[.]rs$
           )
+      - id: verify-copyright
+        name: verify-copyright-cub
+        args: [--fix, --spdx, "--spdx-license-identifier=Apache-2.0 AND BSD-3-Clause"]
+        files: ^cpp/src/core/cub_histogram_launchers[.]hpp$
       - id: verify-copyright
         name: verify-copyright-cmake
         args: [--fix, --spdx, "--spdx-license-identifier=Apache-2.0 AND BSD-3-Clause"]

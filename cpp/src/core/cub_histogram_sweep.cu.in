@@ -1,0 +1,44 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_histogram_launchers.hpp>
+#include <core/cub_ptx_query.hpp>
+
+namespace cuvs::detail::histogram_launch {
+template <typename Policy,
+          int Bins,
+          int Channels,
+          int ActiveChannels,
+          typename Samples,
+          typename Counter,
+          typename PrivatizedDecode,
+          typename OutputDecode,
+          typename Offset>
+CUB_RUNTIME_FUNCTION sweep_pointer_t<Policy,
+                                     Bins,
+                                     Channels,
+                                     ActiveChannels,
+                                     Samples,
+                                     Counter,
+                                     PrivatizedDecode,
+                                     OutputDecode,
+                                     Offset>
+sweep()
+{
+  return &cub::detail::histogram::DeviceHistogramSweepKernel<Policy,
+                                                             Bins,
+                                                             Channels,
+                                                             ActiveChannels,
+                                                             Samples,
+                                                             Counter,
+                                                             PrivatizedDecode,
+                                                             OutputDecode,
+                                                             Offset>;
+}
+}  // namespace cuvs::detail::histogram_launch
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@();
+// clang-format on

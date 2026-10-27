@@ -1,0 +1,62 @@
+[
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned long long, 1, 1, true>, 1, unsigned long long, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned long long, 1, 1, true>, 1, unsigned long long, int>",
+    "instantiation_name": "u32_count_u64_offset_i32"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<int, float, 1, 1, true>, 1, float, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<int, float, 1, 1, true>, 1, float, int>",
+    "instantiation_name": "i32_count_f32_offset_i32"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<long, double, 1, 1, true>, 1, double, long>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<long, double, 1, 1, true>, 1, double, long>",
+    "instantiation_name": "i64_count_f64_offset_i64"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<long, double, 1, 1, true>, 1, double, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<long, double, 1, 1, true>, 1, double, int>",
+    "instantiation_name": "i64_count_f64_offset_i32"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<long, float, 1, 1, true>, 1, float, long>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<long, float, 1, 1, true>, 1, float, long>",
+    "instantiation_name": "i64_count_f32_offset_i64"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<long, float, 1, 1, true>, 1, float, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<long, float, 1, 1, true>, 1, float, int>",
+    "instantiation_name": "i64_count_f32_offset_i32"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned int, 1, 1, true>, 1, unsigned int, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned int, 1, 1, true>, 1, unsigned int, int>",
+    "instantiation_name": "u32_count_u32_offset_i32"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<int, double, 1, 1, true>, 1, double, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<int, double, 1, 1, true>, 1, double, int>",
+    "instantiation_name": "i32_count_f64_offset_i32"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<int, int, 1, 1, true>, 1, int, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<int, int, 1, 1, true>, 1, int, int>",
+    "instantiation_name": "i32_count_i32_offset_i32"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::init_pointer_t<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned int, 1, 1, true>, 1, unsigned int, long>",
+    "qualified_function": "cuvs::detail::histogram_launch::init",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned int, 1, 1, true>, 1, unsigned int, long>",
+    "instantiation_name": "u32_count_u32_offset_i64"
+  }
+]
