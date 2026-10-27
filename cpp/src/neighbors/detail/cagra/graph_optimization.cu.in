@@ -19,8 +19,6 @@
 #include <random>
 #include <type_traits>
 
-#include <sys/time.h>
-
 namespace cuvs::neighbors::cagra::detail::graph {
 
 template <typename IdxT, typename AccessorKnnGraph, typename AccessorOutputGraph>
@@ -129,15 +127,6 @@ void optimize(
   }
 }
 
-}  // namespace cuvs::neighbors::cagra::detail::graph
-
-namespace cuvs::neighbors::cagra::detail::graph {
-double optimization_time()
-{
-  struct timeval tv;
-  gettimeofday(&tv, NULL);
-  return ((double)tv.tv_sec + (double)tv.tv_usec * 1e-6);
-}
 }  // namespace cuvs::neighbors::cagra::detail::graph
 
 namespace cuvs::neighbors::cagra::detail::graph {
