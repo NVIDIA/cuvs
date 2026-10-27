@@ -38,4 +38,6 @@ cudaError_t cub_merge_sort_keys(
 
 }  // namespace cuvs::detail
 
-@primitive_instantiations@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
