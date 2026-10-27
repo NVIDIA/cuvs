@@ -24,6 +24,12 @@ struct IvfSqScanPlanner : rtcx::algorithm_planner {
     this->add_static_fragment<fragment_tag_ivf_sq_scan<Capacity>>();
   }
 
+  template <int Capacity>
+  void add_entrypoint_stable()
+  {
+    this->add_static_fragment<fragment_tag_ivf_sq_scan_stable<Capacity>>();
+  }
+
   template <typename FilterTag>
   void add_filter_device_function()
   {
