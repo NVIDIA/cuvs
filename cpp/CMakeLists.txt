@@ -1431,7 +1431,6 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
 
-  # Keep every primitive function in its own CUDA translation unit.
   foreach(
     primitive IN
     ITEMS src/core/cub_argmin
@@ -1459,7 +1458,6 @@ if(NOT BUILD_CPU_ONLY)
     list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
-  # Keep every primitive function in its own CUDA translation unit.
   foreach(primitive IN ITEMS src/core/cub_sort_pairs src/core/thrust_sort
                              src/core/thrust_sort_by_key
   )
