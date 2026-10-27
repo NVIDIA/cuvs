@@ -3,22 +3,104 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "cub_device_roaring_select_launchers.hpp"
-
+#include "cub_compact_launchers.hpp"
 #include "cub_device_select_if_launchers.hpp"
 #include "cub_device_unique_launchers.hpp"
-
-#include "cub_radix_launchers.hpp"
-
 #include "cub_ptx_query.hpp"
-
-#include "cub_compact_launchers.hpp"
-
+#include "cub_radix_launchers.hpp"
 #include "roaring_build.hpp"
 #include <cuco/roaring_bitmap.cuh>
 #include <cuda/std/cstddef>
 #include <cuvs/core/cuda_fp16.hpp>
 #include <rmm/mr/polymorphic_allocator.hpp>
+
+// These host bridges keep cuCO's implementation header in the bitmap device owner.
+template <>
+CUB_RUNTIME_FUNCTION cudaError_t
+cub::DeviceSelect::If<cuda::counting_iterator<long, __int128>,
+                      long*,
+                      long*,
+                      cuco::experimental::detail::is_container_start<unsigned int const*>,
+                      cudaStream_t,
+                      0>(
+  void* storage,
+  size_t& bytes,
+  cuda::counting_iterator<long, __int128> input,
+  long* output,
+  long* selected,
+  cuda::std::int64_t items,
+  cuco::experimental::detail::is_container_start<unsigned int const*> predicate,
+  const cudaStream_t& environment)
+{
+  _CCCL_NVTX_RANGE_SCOPE_IF(storage, "cub::DeviceSelect::If");
+  return cub::detail::dispatch_with_env_and_tuning<
+    cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>,
+                                                    cub::NullType*,
+                                                    long*,
+                                                    cuda::std::int64_t,
+                                                    cub::SelectImpl::Select>>(
+    storage,
+    bytes,
+    environment,
+    [&](auto selector, void* temporary, size_t& temporary_bytes, auto stream) {
+      return cuvs::detail::cub_select_dispatch<cub::SelectImpl::Select>(
+        temporary,
+        temporary_bytes,
+        input,
+        static_cast<cub::NullType*>(nullptr),
+        output,
+        selected,
+        cuvs::detail::container_start<unsigned int const*>{predicate.indices,
+                                                           &predicate.state->num_indices},
+        cub::NullType{},
+        items,
+        stream,
+        selector);
+    });
+}
+
+template <>
+CUB_RUNTIME_FUNCTION cudaError_t
+cub::DeviceSelect::If<cuda::counting_iterator<long, __int128>,
+                      long*,
+                      long*,
+                      cuco::experimental::detail::is_container_start<unsigned int*>,
+                      cudaStream_t,
+                      0>(void* storage,
+                         size_t& bytes,
+                         cuda::counting_iterator<long, __int128> input,
+                         long* output,
+                         long* selected,
+                         cuda::std::int64_t items,
+                         cuco::experimental::detail::is_container_start<unsigned int*> predicate,
+                         const cudaStream_t& environment)
+{
+  _CCCL_NVTX_RANGE_SCOPE_IF(storage, "cub::DeviceSelect::If");
+  return cub::detail::dispatch_with_env_and_tuning<
+    cub::detail::select::policy_selector_from_types<cuda::counting_iterator<long, __int128>,
+                                                    cub::NullType*,
+                                                    long*,
+                                                    cuda::std::int64_t,
+                                                    cub::SelectImpl::Select>>(
+    storage,
+    bytes,
+    environment,
+    [&](auto selector, void* temporary, size_t& temporary_bytes, auto stream) {
+      return cuvs::detail::cub_select_dispatch<cub::SelectImpl::Select>(
+        temporary,
+        temporary_bytes,
+        input,
+        static_cast<cub::NullType*>(nullptr),
+        output,
+        selected,
+        cuvs::detail::container_start<unsigned int*>{predicate.indices,
+                                                     &predicate.state->num_indices},
+        cub::NullType{},
+        items,
+        stream,
+        selector);
+    });
+}
 
 namespace cuvs::detail {
 

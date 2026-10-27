@@ -1538,14 +1538,6 @@ if(NOT BUILD_CPU_ONLY)
 
   generate_inst_matrix(
     cuvs_primitive_sources
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_device_roaring_select_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_device_roaring_select.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_device_roaring_select_@inst_abbrev@.cu"
-  )
-
-  generate_inst_matrix(
-    cuvs_primitive_sources
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/brute_force_knn_impl_matrix.json"
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/brute_force_knn_impl.cu.in"
     OUTPUT_FILE_FORMAT
