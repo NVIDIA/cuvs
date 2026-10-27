@@ -1,0 +1,53 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_device_unique_launchers.hpp>
+
+namespace {
+
+using inst_input_t  = @input_type@;
+using inst_output_t = @output_type@;
+using inst_count_t  = @count_type@;
+
+}  // namespace
+
+template <>
+CUB_RUNTIME_FUNCTION cudaError_t
+cub::DeviceSelect::Unique<inst_input_t, inst_output_t, inst_count_t, cudaStream_t, 0>(
+  void* storage,
+  size_t& bytes,
+  inst_input_t input,
+  inst_output_t output,
+  inst_count_t selected,
+  cuda::std::int64_t items,
+  const cudaStream_t& environment)
+{
+  _CCCL_NVTX_RANGE_SCOPE_IF(storage, "cub::DeviceSelect::Unique");
+  return cub::detail::dispatch_with_env_and_tuning<
+    cub::detail::select::policy_selector_from_types<inst_input_t,
+                                                    cub::NullType*,
+                                                    inst_output_t,
+                                                    cuda::std::int64_t,
+                                                    cub::SelectImpl::Select>>(
+    storage,
+    bytes,
+    environment,
+    [&](auto selector, void* temporary, size_t& temporary_bytes, auto stream) {
+      return cuvs::detail::cub_select_dispatch<cub::SelectImpl::Select>(
+        temporary,
+        temporary_bytes,
+        input,
+        static_cast<cub::NullType*>(nullptr),
+        output,
+        selected,
+        cub::NullType{},
+        cuda::std::equal_to<>{},
+        items,
+        stream,
+        selector);
+    });
+}

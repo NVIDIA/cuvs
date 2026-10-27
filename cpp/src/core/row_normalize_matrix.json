@@ -7,23 +7,28 @@
     "_variants": [
       {
         "template_arguments": "<(raft::linalg::NormType)2, double, unsigned long>",
-        "parameter_types": "raft::resources const&, cuda::std::mdspan< double const, cuda::std::extents<unsigned long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<double const>, (raft::memory_type)2>>, cuda::std::mdspan< double, cuda::std::extents<unsigned long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<double>, (raft::memory_type)2>>, double"
+        "parameter_types": "raft::resources const&, cuda::std::mdspan< double const, cuda::std::extents<unsigned long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<double const>, (raft::memory_type)2>>, cuda::std::mdspan< double, cuda::std::extents<unsigned long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<double>, (raft::memory_type)2>>, double",
+        "instantiation_name": "normtype_2_f64_ulong"
       },
       {
         "template_arguments": "<(raft::linalg::NormType)2, float, long>",
-        "parameter_types": "raft::resources const&, cuda::std::mdspan< float const, cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>, cuda::std::mdspan< float, cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float"
+        "parameter_types": "raft::resources const&, cuda::std::mdspan< float const, cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>, cuda::std::mdspan< float, cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float",
+        "instantiation_name": "normtype_2_f32_long"
       },
       {
         "template_arguments": "<(raft::linalg::NormType)2, float, unsigned int>",
-        "parameter_types": "raft::resources const&, cuda::std::mdspan< float const, cuda::std::extents<unsigned int, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>, cuda::std::mdspan< float, cuda::std::extents<unsigned int, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float"
+        "parameter_types": "raft::resources const&, cuda::std::mdspan< float const, cuda::std::extents<unsigned int, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>, cuda::std::mdspan< float, cuda::std::extents<unsigned int, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float",
+        "instantiation_name": "normtype_2_f32_u32"
       },
       {
         "template_arguments": "<(raft::linalg::NormType)2, float, unsigned long>",
-        "parameter_types": "raft::resources const&, cuda::std::mdspan< float const, cuda::std::extents<unsigned long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>, cuda::std::mdspan< float, cuda::std::extents<unsigned long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float"
+        "parameter_types": "raft::resources const&, cuda::std::mdspan< float const, cuda::std::extents<unsigned long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>, cuda::std::mdspan< float, cuda::std::extents<unsigned long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float",
+        "instantiation_name": "normtype_2_f32_ulong"
       },
       {
         "template_arguments": "<float, long, raft::sq_op, raft::add_op, raft::sqrt_op>",
-        "parameter_types": "raft::resources const&, cuda::std::mdspan< float const, cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>, cuda::std::mdspan< float, cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float, raft::sq_op, raft::add_op, raft::sqrt_op, float"
+        "parameter_types": "raft::resources const&, cuda::std::mdspan< float const, cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>, cuda::std::mdspan< float, cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float, raft::sq_op, raft::add_op, raft::sqrt_op, float",
+        "instantiation_name": "f32_long_sq_op_add_op_sqrt_op"
       }
     ]
   }

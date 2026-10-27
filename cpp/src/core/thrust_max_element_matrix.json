@@ -4,13 +4,15 @@
     "qualified_function": "cuvs::detail::thrust_max_element",
     "template_arguments": "",
     "parameter_types": "rmm::exec_policy_nosync const&, thrust::device_ptr<int const>, thrust::device_ptr<int const>",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_device_ptr_int_c_device_ptr_int_c"
   },
   {
     "return_type": "unsigned int const*",
     "qualified_function": "cuvs::detail::thrust_max_element",
     "template_arguments": "",
     "parameter_types": "rmm::exec_policy const&, unsigned int const*, unsigned int const*",
-    "function_qualifiers": ""
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_c_ref_u32_c_ptr_u32_c_ptr"
   }
 ]

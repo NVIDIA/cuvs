@@ -1,0 +1,22 @@
+[
+  {
+    "data_type": "float",
+    "index_type": "int",
+    "inst_abbrev": "f32_i32"
+  },
+  {
+    "data_type": "float",
+    "index_type": "int64_t",
+    "inst_abbrev": "f32_i64"
+  },
+  {
+    "data_type": "double",
+    "index_type": "int",
+    "inst_abbrev": "f64_i32"
+  },
+  {
+    "data_type": "double",
+    "index_type": "int64_t",
+    "inst_abbrev": "f64_i64"
+  }
+]
