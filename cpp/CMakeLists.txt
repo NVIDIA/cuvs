@@ -1431,50 +1431,32 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
 
-  # Keep every primitive function in its own CUDA translation unit.
-  foreach(primitive IN ITEMS src/core/copy_rows src/core/gather)
-    set(primitive_instantiations)
-    generate_string_matrix(
-      primitive_instantiations
-      MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
-      ITEM_FORMAT
-      "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-      GLUE
-      "\n"
+  generate_string_matrix(
+    gather_detail_extern_instantiations
+    MATRIX_JSON_FILE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/gather_detail_matrix.json"
+    ITEM_FORMAT
+    "extern template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
+    GLUE
+    "\n"
+  )
+  foreach(primitive IN ITEMS src/core/copy_rows src/core/gather src/core/gather_detail)
+    generate_inst_matrix(
+      cuvs_primitive_sources
+      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
+      OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/${primitive}_@instantiation_name@.cu"
     )
-    configure_file(
-      "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
-      "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu" @ONLY
-    )
-    list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
-  set(primitive_instantiations_0)
-  generate_string_matrix(
-    primitive_instantiations_0
-    MATRIX_JSON_FILE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/copy_selected_matrix_0.json"
-    ITEM_FORMAT
-    "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-    GLUE
-    "\n"
-  )
-  set(primitive_instantiations_1)
-  generate_string_matrix(
-    primitive_instantiations_1
-    MATRIX_JSON_FILE
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/copy_selected_matrix_1.json"
-    ITEM_FORMAT
-    "template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@@semicolon@"
-    GLUE
-    "\n"
-  )
-  configure_file(
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/core/copy_selected.cu.in"
-    "${CMAKE_CURRENT_BINARY_DIR}/src/core/copy_selected.cu" @ONLY
-  )
-  list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/src/core/copy_selected.cu")
+  foreach(primitive IN ITEMS src/core/copy_selected src/core/launch_copy_selected)
+    generate_inst_matrix(
+      cuvs_primitive_sources
+      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}_matrix.json"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/${primitive}.cu.in"
+      OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/${primitive}_@instantiation_name@.cu"
+    )
+  endforeach()
 
   add_library(
     cuvs_objs OBJECT

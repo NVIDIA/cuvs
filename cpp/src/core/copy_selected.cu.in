@@ -8,38 +8,6 @@
 #include <core/cub_ptx_query.hpp>
 #include <cuvs/core/cuda_fp16.hpp>
 
-@primitive_instantiations_0@
-
-  namespace cuvs::spatial::knn::detail::utils
-{
-  template <typename T, typename S, typename IdxT, typename LabelT>
-  static __global__ void copy_selected_kernel(
-    IdxT n_rows, IdxT n_cols, const S* src, const LabelT* row_ids, IdxT ld_src, T* dst, IdxT ld_dst)
-  {
-    IdxT gid   = threadIdx.x + blockDim.x * static_cast<IdxT>(blockIdx.x);
-    IdxT j     = gid % n_cols;
-    IdxT i_dst = gid / n_cols;
-    if (i_dst >= n_rows) return;
-    auto i_src              = static_cast<IdxT>(row_ids[i_dst]);
-    dst[ld_dst * i_dst + j] = mapping<T>{}(src[ld_src * i_src + j]);
-  }
-
-  template <typename T, typename S, typename IdxT, typename LabelT>
-  void launch_copy_selected(IdxT grid,
-                            IdxT block,
-                            cudaStream_t stream,
-                            IdxT n_rows,
-                            IdxT n_cols,
-                            const S* src,
-                            const LabelT* row_ids,
-                            IdxT ld_src,
-                            T* dst,
-                            IdxT ld_dst)
-  {
-    copy_selected_kernel<T, S>
-      <<<grid, block, 0, stream>>>(n_rows, n_cols, src, row_ids, ld_src, dst, ld_dst);
-  }
-
-}  // namespace cuvs::spatial::knn::detail::utils
-
-@primitive_instantiations_1@
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
