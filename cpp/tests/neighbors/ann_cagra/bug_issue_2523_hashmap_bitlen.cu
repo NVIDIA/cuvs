@@ -5,7 +5,7 @@
 
 #include <gtest/gtest.h>
 
-#include "../cagra_padded_build_helpers.hpp"
+#include "../cagra_padded_build_helpers.cuh"
 #include <cuvs/neighbors/cagra.hpp>
 
 #include <raft/core/device_mdarray.hpp>

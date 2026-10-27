@@ -5,7 +5,7 @@
 
 #include "../test_utils.cuh"
 #include "ann_utils.cuh"
-#include "cagra_padded_build_helpers.hpp"
+#include "cagra_padded_build_helpers.cuh"
 
 #include <cstdint>
 #include <cuda/stream>

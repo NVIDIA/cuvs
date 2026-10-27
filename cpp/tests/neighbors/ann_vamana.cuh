@@ -10,7 +10,7 @@
 #include <cuda/stream>
 #include <raft/core/resource/cuda_stream.hpp>
 
-#include "cagra_padded_build_helpers.hpp"
+#include "cagra_padded_build_helpers.cuh"
 #include "naive_knn.cuh"
 
 #include <cuvs/distance/distance.hpp>
