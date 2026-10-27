@@ -171,9 +171,21 @@ inline auto run_main(int argc, char** argv) -> int
         parse_string_flag(argv[i], "--override_kv", new_override_kv)) {
       if (!new_override_kv.empty()) {
         auto kvv = split(new_override_kv, ':');
+        if (kvv.size() < 2) {
+          log_error("Invalid --override_kv=%s, expected <key>:<value1>[:<value2>...]",
+                    new_override_kv.c_str());
+          return -1;
+        }
         std::vector<nlohmann::json> vals{};
         for (std::size_t j = 1; j < kvv.size(); j++) {
-          vals.push_back(nlohmann::json::parse(kvv[j]));
+          try {
+            vals.push_back(nlohmann::json::parse(kvv[j]));
+          } catch (const nlohmann::json::parse_error&) {
+            log_error("Invalid --override_kv value '%s', expected JSON (quote strings: '\"%s\"')",
+                      kvv[j].c_str(),
+                      kvv[j].c_str());
+            return -1;
+          }
         }
         override_kv.emplace_back(kvv[0], vals);
         new_override_kv = "";

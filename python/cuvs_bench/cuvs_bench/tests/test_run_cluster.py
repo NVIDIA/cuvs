@@ -107,6 +107,10 @@ def test_prepare_conf():
     conf = prepare_conf(dataset_conf, "a", "base", group_conf, 10)
     assert conf["dataset"]["subset_size"] == 10
 
+    # Data types the C++ benchmark cannot read are rejected up front.
+    with pytest.raises(ValueError, match="supports float32"):
+        prepare_conf({"name": "d", "base_file": "d/x.ibin"}, "a", "base", {})
+
 
 def test_convert_json_to_csv_cluster(tmp_path):
     os.makedirs(tmp_path / "d" / "result" / "cluster")
@@ -206,6 +210,10 @@ def test_cli_executable_failure(dataset_dir, gpu_present):
     )
     assert result.exit_code != 0
     assert "cuvs_kmeans,test" in str(result.exception)
+    # The partial output is removed so that the next run retries it.
+    assert not (
+        dataset_dir / "blobs" / "result" / "cluster" / "cuvs_kmeans,test.json"
+    ).exists()
 
 
 def test_cli_end_to_end(dataset_dir):

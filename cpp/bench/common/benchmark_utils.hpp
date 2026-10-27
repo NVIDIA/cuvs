@@ -91,7 +91,7 @@ inline auto parse_bool_flag(const char* arg, const char* pat, bool& result) -> b
 inline auto parse_string_flag(const char* arg, const char* pat, std::string& result) -> bool
 {
   auto n = strlen(pat);
-  if (strncmp(pat, arg, strlen(pat)) == 0) {
+  if (strncmp(pat, arg, n) == 0 && arg[n] == '=') {
     result = arg + n + 1;
     return true;
   }

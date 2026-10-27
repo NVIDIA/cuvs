@@ -60,10 +60,17 @@ def prepare_conf(
 ) -> dict:
     """Build the JSON configuration consumed by a ``*_CLUSTER_BENCH`` binary."""
     base_file = dataset_conf["base_file"]
+    dtype = np.dtype(dtype_from_filename(base_file)).name
+    if dtype not in _CPP_DTYPES:
+        raise ValueError(
+            f"Dataset '{dataset_conf['name']}' ({base_file}) has data type "
+            f"{dtype}; the clustering benchmark supports "
+            f"{', '.join(_CPP_DTYPES)} (.fbin, .f16bin, .u8bin, .i8bin)"
+        )
     dataset = {
         "name": dataset_conf["name"],
         "base_file": base_file,
-        "dtype": _CPP_DTYPES[np.dtype(dtype_from_filename(base_file)).name],
+        "dtype": _CPP_DTYPES[dtype],
     }
     subset_size = subset_size or dataset_conf.get("subset_size")
     if subset_size:
@@ -149,6 +156,9 @@ def run_cluster_benchmark(
             out_files.append(out_json.removesuffix(".json") + ".csv")
         except subprocess.CalledProcessError as e:
             failures.append(f"{algo},{group} (exit code {e.returncode})")
+            # A partial output would be skipped as done on the next run.
+            if os.path.exists(out_json):
+                os.remove(out_json)
         finally:
             os.remove(conf_file)
 
