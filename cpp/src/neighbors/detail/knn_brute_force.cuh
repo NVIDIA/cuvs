@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/reduction_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -117,7 +118,7 @@ void tiled_brute_force_knn(const raft::resources& handle,
     // cosine needs the l2norm, where as l2 distances needs the squared norm
     if (metric == cuvs::distance::DistanceType::CosineExpanded) {
       if (!precomputed_search_norms) {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle,
           raft::make_device_matrix_view<const ElementType, IndexType, raft::row_major>(
             search, m, d),
@@ -125,7 +126,7 @@ void tiled_brute_force_knn(const raft::resources& handle,
           raft::sqrt_op{});
       }
       if (!precomputed_index_norms) {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle,
           raft::make_device_matrix_view<const ElementType, IndexType, raft::row_major>(index, n, d),
           raft::make_device_vector_view<DistanceT, IndexType>(index_norms.data(), n),
@@ -133,14 +134,14 @@ void tiled_brute_force_knn(const raft::resources& handle,
       }
     } else {
       if (!precomputed_search_norms) {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle,
           raft::make_device_matrix_view<const ElementType, IndexType, raft::row_major>(
             search, m, d),
           raft::make_device_vector_view<DistanceT, IndexType>(search_norms.data(), m));
       }
       if (!precomputed_index_norms) {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle,
           raft::make_device_matrix_view<const ElementType, IndexType, raft::row_major>(index, n, d),
           raft::make_device_vector_view<DistanceT, IndexType>(index_norms.data(), n));
@@ -858,7 +859,7 @@ void brute_force_search_filtered(
       if (metric == cuvs::distance::DistanceType::CosineExpanded) {
         if (!query_norms) {
           query_norms_ = raft::make_device_vector<DistanceT, IdxT>(res, n_queries);
-          raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+          cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
             res,
             raft::make_device_matrix_view<const T, IdxT, raft::row_major>(
               queries.data_handle(), n_queries, dim),
@@ -868,7 +869,7 @@ void brute_force_search_filtered(
       } else {
         if (!query_norms) {
           query_norms_ = raft::make_device_vector<DistanceT, IdxT>(res, n_queries);
-          raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+          cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
             res,
             raft::make_device_matrix_view<const T, IdxT, raft::row_major>(
               queries.data_handle(), n_queries, dim),
@@ -972,10 +973,10 @@ cuvs::neighbors::brute_force::index<T, DistT> build(
     norms = raft::make_device_vector<DistT, int64_t>(res, dataset.extent(0));
     // cosine needs the l2norm, where as l2 distances needs the squared norm
     if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         res, dataset_view, norms->view(), raft::sqrt_op{});
     } else {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         res, dataset_view, norms->view());
     }
   }

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../core/reduction_launchers.hpp"
 #include "detail/ann_utils.cuh"
 #include "detail/cagra/add_nodes.cuh"
 #include "detail/cagra/cagra_build.cuh"
@@ -65,7 +66,7 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
   // first scale the dataset and then compute norms
   auto scaled_sq_op = raft::compose_op(
     raft::sq_op{}, raft::div_const_op<float>{float(kScale)}, raft::cast_op<float>());
-  raft::linalg::reduce<raft::Apply::ALONG_ROWS>(res,
+  cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(res,
                                                 *rm_dataset,
                                                 dataset_norms_->view(),
                                                 (float)0,

@@ -1,0 +1,34 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::mean",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<__half const, long, raft::row_major>, raft::device_vector_view<float, long, raft::row_major>",
+        "instantiation_name": "matrix_f16_c_long_row_vector_f32_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<double const, long, raft::row_major>, raft::device_vector_view<double, long, raft::row_major>, bool",
+        "instantiation_name": "matrix_f64_c_long_row_vector_f64_long_row_bool"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<float const, long, raft::row_major>, raft::device_vector_view<float, long, raft::row_major>",
+        "instantiation_name": "matrix_f32_c_long_row_vector_f32_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<float const, long, raft::row_major>, raft::device_vector_view<float, long, raft::row_major>, bool",
+        "instantiation_name": "matrix_f32_c_long_row_vector_f32_long_row_bool"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<signed char const, long, raft::row_major>, raft::device_vector_view<float, long, raft::row_major>",
+        "instantiation_name": "matrix_i8_c_long_row_vector_f32_long_row"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<unsigned char const, long, raft::row_major>, raft::device_vector_view<float, long, raft::row_major>",
+        "instantiation_name": "matrix_u8_c_long_row_vector_f32_long_row"
+      }
+    ]
+  }
+]

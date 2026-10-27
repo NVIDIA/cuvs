@@ -7,6 +7,7 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
 
@@ -414,14 +415,14 @@ void extend_inplace(raft::resources const& handle,
 
   auto compute_center_norms = [&]() {
     if (index->metric() == cuvs::distance::DistanceType::CosineExpanded) {
-      raft::linalg::rowNorm<raft::linalg::L2Norm, true>(index->center_norms()->data_handle(),
+      cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(index->center_norms()->data_handle(),
                                                         index->centers().data_handle(),
                                                         dim,
                                                         n_lists,
                                                         stream.get(),
                                                         raft::sqrt_op{});
     } else {
-      raft::linalg::rowNorm<raft::linalg::L2Norm, true>(index->center_norms()->data_handle(),
+      cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(index->center_norms()->data_handle(),
                                                         index->centers().data_handle(),
                                                         dim,
                                                         n_lists,

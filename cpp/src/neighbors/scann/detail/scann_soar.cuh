@@ -5,6 +5,7 @@
 
 #include "../../../core/map_launchers.hpp"
 #include "../../../core/matrix_broadcast_launchers.hpp"
+#include "../../../core/reduction_launchers.hpp"
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
@@ -92,7 +93,7 @@ void compute_soar_labels(raft::resources const& dev_resources,
   auto centers_transpose =
     raft::make_device_matrix<T, int64_t>(dev_resources, centers.extent(1), centers.extent(0));
 
-  raft::linalg::reduce<raft::Apply::ALONG_ROWS>(dev_resources,
+  cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(dev_resources,
                                                 raft::make_const_mdspan(centers),
                                                 centers_norm.view(),
                                                 0.0f,

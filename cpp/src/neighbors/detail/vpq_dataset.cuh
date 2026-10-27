@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
 
@@ -190,7 +191,7 @@ auto train_vq(const raft::resources& res, const vpq_params& params, const Datase
   if (vq_n_centers == 1) {
     auto vq_centers_view =
       raft::make_device_vector_view<MathT, ix_t>(vq_centers.data_handle(), dim);
-    raft::stats::mean(res, vq_trainset_view, vq_centers_view);
+    cuvs::detail::mean(res, vq_trainset_view, vq_centers_view);
   } else {
     auto vq_centers_view =
       raft::make_device_matrix_view<MathT, ix_t>(vq_centers.data_handle(), vq_n_centers, dim);

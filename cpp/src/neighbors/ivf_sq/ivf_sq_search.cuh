@@ -7,6 +7,7 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include "../detail/ann_utils.cuh"
 #include "../ivf_common.cuh"
 #include "../sample_filter.cuh"
@@ -410,7 +411,7 @@ void search_impl(raft::resources const& handle,
     case cuvs::distance::DistanceType::L2SqrtExpanded: {
       alpha = -2.0f;
       beta  = 1.0f;
-      raft::linalg::rowNorm<raft::linalg::L2Norm, true>(query_norm_dev->data_handle(),
+      cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(query_norm_dev->data_handle(),
                                                         converted_queries_ptr,
                                                         static_cast<int64_t>(dim),
                                                         static_cast<int64_t>(n_queries),
@@ -424,7 +425,7 @@ void search_impl(raft::resources const& handle,
       break;
     }
     case cuvs::distance::DistanceType::CosineExpanded: {
-      raft::linalg::rowNorm<raft::linalg::L2Norm, true>(query_norm_dev->data_handle(),
+      cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(query_norm_dev->data_handle(),
                                                         converted_queries_ptr,
                                                         static_cast<int64_t>(dim),
                                                         static_cast<int64_t>(n_queries),

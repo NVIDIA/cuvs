@@ -7,6 +7,7 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include "../detail/ann_utils.cuh"
 #include "../ivf_common.cuh"                  // cuvs::neighbors::detail::ivf
 #include "ivf_flat_interleaved_scan_ext.cuh"  // interleaved_scan
@@ -112,7 +113,7 @@ void search_impl(raft::resources const& handle,
     case cuvs::distance::DistanceType::L2SqrtExpanded: {
       alpha = -2.0f;
       beta  = 1.0f;
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const float, IdxT, raft::row_major>(
           converted_queries_ptr, static_cast<IdxT>(n_queries), static_cast<IdxT>(index.dim())),
@@ -129,7 +130,7 @@ void search_impl(raft::resources const& handle,
       break;
     }
     case cuvs::distance::DistanceType::CosineExpanded: {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const float, IdxT, raft::row_major>(
           converted_queries_ptr, static_cast<IdxT>(n_queries), static_cast<IdxT>(index.dim())),

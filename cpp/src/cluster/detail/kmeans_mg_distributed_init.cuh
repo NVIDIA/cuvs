@@ -6,6 +6,7 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/mnmg_comms.cuh"
+#include "../../core/reduction_launchers.hpp"
 #include "kmeans.cuh"
 #include "kmeans_common.cuh"
 #include "kmeans_mg_batched_init.cuh"
@@ -293,7 +294,7 @@ void initKMeansPlusPlus_distributed(
       X_parts[p].data_handle(), part_rows, n_features);
     auto norm_slice = raft::make_device_vector_view<DataT, IndexT>(
       L2NormX.data_handle() + part_offsets[p], part_rows);
-    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, x_slice, norm_slice);
+    cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, x_slice, norm_slice);
   }
 
   // Step 2: psi <- phi_X(C).

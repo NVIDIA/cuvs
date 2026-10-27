@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include "../kmeans.cuh"
 #include "kmeans.cuh"
 #include "kmeans_batch_loader.cuh"
@@ -397,11 +398,11 @@ void mnmg_fit(
         cuvs::cluster::kmeans::detail::compute_fp32_tf32_norms(
           dev_res, batch_view, norm_view, tf32_norm_view);
       } else {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           dev_res, batch_view, norm_view);
       }
     } else {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         dev_res, batch_view, norm_view);
     }
   };

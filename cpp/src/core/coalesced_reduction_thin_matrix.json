@@ -1,0 +1,249 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::coalescedReductionThin",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<16, 128, 8, true>, double, double, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_16_128_8_true_f64_f64_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<16, 128, 8, true>, double, double, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_16_128_8_true_f64_f64_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<16, 128, 8, true>, float, float, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_16_128_8_true_f32_f32_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<16, 128, 8, true>, float, float, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_16_128_8_true_f32_f32_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<2, 128, 8, true>, double, double, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_2_128_8_true_f64_f64_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<2, 128, 8, true>, double, double, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_2_128_8_true_f64_f64_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<2, 128, 8, true>, float, float, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_2_128_8_true_f32_f32_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<2, 128, 8, true>, float, float, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_2_128_8_true_f32_f32_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, double, double, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f64_f64_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, double, double, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f64_f64_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f32_f32_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f32_f32_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 4, false>, double, double, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_4_false_f64_f64_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 4, false>, double, double, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_4_false_f64_f64_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 4, false>, float, float, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_4_false_f32_f32_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 4, false>, float, float, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_4_false_f32_f32_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 8, true>, double, double, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_8_true_f64_f64_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 8, true>, double, double, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_8_true_f64_f64_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 8, true>, float, float, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_8_true_f32_f32_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 8, true>, float, float, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_32_128_8_true_f32_f32_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<4, 128, 8, true>, double, double, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_4_128_8_true_f64_f64_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<4, 128, 8, true>, double, double, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_4_128_8_true_f64_f64_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<4, 128, 8, true>, float, float, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_4_128_8_true_f32_f32_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<4, 128, 8, true>, float, float, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_4_128_8_true_f32_f32_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<8, 128, 8, true>, double, double, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_8_128_8_true_f64_f64_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<8, 128, 8, true>, double, double, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_8_128_8_true_f64_f64_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<8, 128, 8, true>, float, float, int, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_8_128_8_true_f32_f32_i32_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<8, 128, 8, true>, float, float, long, raft::identity_op, raft::min_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "p_8_128_8_true_f32_f32_i64_id_min_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<16, 128, 8, true>, float, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_16_128_8_true_f32_f32_i32_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<16, 128, 8, true>, float, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_16_128_8_true_f32_f32_i64_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<2, 128, 8, true>, float, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_2_128_8_true_f32_f32_i32_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<2, 128, 8, true>, float, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_2_128_8_true_f32_f32_i64_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, double, double, int, raft::identity_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, bool, raft::identity_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f64_f64_i32_id_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, double, double, long, raft::identity_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "double*, double const*, long, long, double, cudaStream_t, bool, raft::identity_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f64_f64_i64_id_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, int, raft::identity_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::identity_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f32_f32_i32_id_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, int, raft::identity_op, raft::add_op, raft::sqrt_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::identity_op, raft::add_op, raft::sqrt_op",
+        "instantiation_name": "p_32_128_1_false_f32_f32_i32_id_add_sqrt"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f32_f32_i32_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, long, raft::identity_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::identity_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f32_f32_i64_id_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, long, raft::identity_op, raft::add_op, raft::sqrt_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::identity_op, raft::add_op, raft::sqrt_op",
+        "instantiation_name": "p_32_128_1_false_f32_f32_i64_id_add_sqrt"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>, float, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_1_false_f32_f32_i64_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 4, false>, float, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_4_false_f32_f32_i32_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 4, false>, float, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_4_false_f32_f32_i64_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 8, true>, float, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_8_true_f32_f32_i32_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<32, 128, 8, true>, float, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_32_128_8_true_f32_f32_i64_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<4, 128, 8, true>, float, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_4_128_8_true_f32_f32_i32_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<4, 128, 8, true>, float, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_4_128_8_true_f32_f32_i64_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<8, 128, 8, true>, float, float, int, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_8_128_8_true_f32_f32_i32_sq_add_id"
+      },
+      {
+        "template_arguments": "<raft::linalg::detail::ReductionThinPolicy<8, 128, 8, true>, float, float, long, raft::sq_op, raft::add_op, raft::identity_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, bool, raft::sq_op, raft::add_op, raft::identity_op",
+        "instantiation_name": "p_8_128_8_true_f32_f32_i64_sq_add_id"
+      }
+    ]
+  }
+]

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/pca_launchers.hpp"
 #include <cuvs/preprocessing/pca.hpp>
 
 #include <raft/core/device_mdspan.hpp>
@@ -40,7 +41,7 @@ void fit(raft::resources const& handle,
          bool flip_signs_based_on_U)
 {
   auto raft_prms = to_raft_params(config);
-  raft::linalg::pca_fit(handle,
+  cuvs::detail::pca_fit(handle,
                         raft_prms,
                         input,
                         components,
@@ -66,7 +67,7 @@ void fit_transform(raft::resources const& handle,
                    bool flip_signs_based_on_U)
 {
   auto raft_prms = to_raft_params(config);
-  raft::linalg::pca_fit_transform(handle,
+  cuvs::detail::pca_fit_transform(handle,
                                   raft_prms,
                                   input,
                                   trans_input,
@@ -89,7 +90,7 @@ void transform(raft::resources const& handle,
                raft::device_matrix_view<DataT, IndexT, LayoutPolicy> trans_input)
 {
   auto raft_prms = to_raft_params(config);
-  raft::linalg::pca_transform(handle, raft_prms, input, components, singular_vals, mu, trans_input);
+  cuvs::detail::pca_transform(handle, raft_prms, input, components, singular_vals, mu, trans_input);
 }
 
 template <typename DataT, typename IndexT, typename LayoutPolicy>
@@ -102,7 +103,7 @@ void inverse_transform(raft::resources const& handle,
                        raft::device_matrix_view<DataT, IndexT, LayoutPolicy> output)
 {
   auto raft_prms = to_raft_params(config);
-  raft::linalg::pca_inverse_transform(
+  cuvs::detail::pca_inverse_transform(
     handle, raft_prms, trans_input, components, singular_vals, mu, output);
 }
 

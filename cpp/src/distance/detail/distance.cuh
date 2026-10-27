@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include "distance_ops/all_ops.cuh"
 #include "pairwise_matrix/dispatch.cuh"
 
@@ -143,7 +144,7 @@ void distance_impl(raft::resources const& handle,
   // perhaps the use of stridedSummationKernel could be causing this,
   // need to investigate and fix.
   if (x == y && is_row_major) {
-    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+    cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
       handle,
       raft::make_device_matrix_view<const DataT, IdxT, raft::row_major>(x, std::max(m, n), k),
       raft::make_device_vector_view<AccT, IdxT>(x_norm, std::max(m, n)),
@@ -153,14 +154,14 @@ void distance_impl(raft::resources const& handle,
       raft::add_op());
     sq_x_norm += std::max(m, n);
     sq_y_norm = sq_x_norm;
-    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+    cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
       handle,
       raft::make_device_matrix_view<const DataT, IdxT, raft::row_major>(x, std::max(m, n), k),
       raft::make_device_vector_view(sq_x_norm, std::max(m, n)));
   } else {
     y_norm += m;
     if (is_row_major) {
-      raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+      cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::row_major>(x, m, k),
         raft::make_device_vector_view<AccT, IdxT>(x_norm, m),
@@ -168,7 +169,7 @@ void distance_impl(raft::resources const& handle,
         false,
         raft::identity_op(),
         raft::add_op());
-      raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+      cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::row_major>(y, n, k),
         raft::make_device_vector_view<AccT, IdxT>(y_norm, n),
@@ -177,7 +178,7 @@ void distance_impl(raft::resources const& handle,
         raft::identity_op(),
         raft::add_op());
     } else {
-      raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+      cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::col_major>(x, m, k),
         raft::make_device_vector_view<AccT, IdxT>(x_norm, m),
@@ -185,7 +186,7 @@ void distance_impl(raft::resources const& handle,
         false,
         raft::identity_op(),
         raft::add_op());
-      raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+      cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::col_major>(y, n, k),
         raft::make_device_vector_view<AccT, IdxT>(y_norm, n),
@@ -198,20 +199,20 @@ void distance_impl(raft::resources const& handle,
     sq_x_norm += (m + n);
     sq_y_norm = sq_x_norm + m;
     if (is_row_major) {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::row_major>(x, m, k),
         raft::make_device_vector_view(sq_x_norm, m));
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::row_major>(y, n, k),
         raft::make_device_vector_view(sq_y_norm, n));
     } else {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::col_major>(x, m, k),
         raft::make_device_vector_view(sq_x_norm, m));
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::col_major>(y, n, k),
         raft::make_device_vector_view(sq_y_norm, n));
@@ -255,7 +256,7 @@ void distance_impl(raft::resources const& handle,
   // perhaps the use of stridedSummationKernel could be causing this,
   // need to investigate and fix.
   if (x == y && is_row_major) {
-    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+    cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
       handle,
       raft::make_device_matrix_view<const DataT, IdxT, raft::row_major>(x, std::max(m, n), k),
       raft::make_device_vector_view(x_norm, std::max(m, n)),
@@ -263,23 +264,23 @@ void distance_impl(raft::resources const& handle,
   } else {
     y_norm += m;
     if (is_row_major) {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::row_major>(x, m, k),
         raft::make_device_vector_view(x_norm, m),
         raft::sqrt_op{});
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::row_major>(y, n, k),
         raft::make_device_vector_view(y_norm, n),
         raft::sqrt_op{});
     } else {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::col_major>(x, m, k),
         raft::make_device_vector_view(x_norm, m),
         raft::sqrt_op{});
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle,
         raft::make_device_matrix_view<const DataT, IdxT, raft::col_major>(y, n, k),
         raft::make_device_vector_view(y_norm, n),
@@ -586,19 +587,19 @@ void distance_impl_l2_expanded(  // NOTE: different name
   // perhaps the use of stridedSummationKernel could be causing this,
   // need to investigate and fix.
   if ((x == y) && is_row_major) {
-    raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+    cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(
       x_norm, x, k, std::max(m, n), stream, raft::identity_op{});
   } else {
     y_norm += m;
     if (is_row_major) {
-      raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+      cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(
         x_norm, x, k, m, stream, raft::identity_op{});
-      raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+      cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(
         y_norm, y, k, n, stream, raft::identity_op{});
     } else {
-      raft::linalg::rowNorm<raft::linalg::L2Norm, false>(
+      cuvs::detail::rowNorm<raft::linalg::L2Norm, false>(
         x_norm, x, k, m, stream, raft::identity_op{});
-      raft::linalg::rowNorm<raft::linalg::L2Norm, false>(
+      cuvs::detail::rowNorm<raft::linalg::L2Norm, false>(
         y_norm, y, k, n, stream, raft::identity_op{});
     }
   }

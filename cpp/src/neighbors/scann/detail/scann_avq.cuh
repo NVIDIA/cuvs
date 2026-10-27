@@ -5,6 +5,7 @@
 
 #include "../../../core/map_launchers.hpp"
 #include "../../../core/matrix_broadcast_launchers.hpp"
+#include "../../../core/reduction_launchers.hpp"
 #include <cub/device/device_histogram.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
@@ -219,7 +220,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
   // Compute and scale norms
   auto norms = raft::make_device_vector<float, int64_t>(dev_resources, x.extent(0));
 
-  raft::linalg::norm<raft::linalg::NormType::L2Norm, raft::Apply::ALONG_ROWS>(
+  cuvs::detail::norm<raft::linalg::NormType::L2Norm, raft::Apply::ALONG_ROWS>(
     dev_resources, raft::make_const_mdspan(x), norms.view());
 
   // Compute || x_i || ^ 0.5 * (eta -3)
@@ -253,7 +254,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
     x_eta_1.view(),
     raft::mul_op());
 
-  raft::linalg::reduce<raft::Apply::ALONG_COLUMNS>(
+  cuvs::detail::reduce<raft::Apply::ALONG_COLUMNS>(
     dev_resources,
     raft::make_const_mdspan(x_eta_1.view()),
     raft::make_device_vector_view<float, int64_t>(avq_centroid.data_handle(), x_eta_1.extent(1)),
@@ -311,7 +312,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
 
   auto dots = raft::make_device_vector<float, int64_t>(dev_resources, x.extent(1));
 
-  raft::linalg::reduce<raft::Apply::ALONG_COLUMNS>(
+  cuvs::detail::reduce<raft::Apply::ALONG_COLUMNS>(
     dev_resources, raft::make_const_mdspan(x), dots.view(), 0.0f);
 
   raft::linalg::dot(dev_resources,

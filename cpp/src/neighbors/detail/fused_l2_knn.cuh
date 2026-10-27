@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
+#include "../../core/reduction_launchers.hpp"
 #include "faiss_select/Select.cuh"
 #include <raft/core/operators.hpp>
 #include <raft/linalg/norm.cuh>
@@ -782,10 +783,10 @@ void fusedL2ExpKnnImpl(const DataT* x,
       AccT* xn_ = (AccT*)workspace;
       workspace = xn_ + m;
       if (isRowMajor) {
-        raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+        cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(
           xn_, x, k, m, stream, raft::identity_op{});
       } else {
-        raft::linalg::rowNorm<raft::linalg::L2Norm, false>(
+        cuvs::detail::rowNorm<raft::linalg::L2Norm, false>(
           xn_, x, k, m, stream, raft::identity_op{});
       }
       xn = xn_;
@@ -796,10 +797,10 @@ void fusedL2ExpKnnImpl(const DataT* x,
       } else {
         AccT* yn_ = (AccT*)(workspace);
         if (isRowMajor) {
-          raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+          cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(
             yn_, y, k, n, stream, raft::identity_op{});
         } else {
-          raft::linalg::rowNorm<raft::linalg::L2Norm, false>(
+          cuvs::detail::rowNorm<raft::linalg::L2Norm, false>(
             yn_, y, k, n, stream, raft::identity_op{});
         }
         yn = yn_;

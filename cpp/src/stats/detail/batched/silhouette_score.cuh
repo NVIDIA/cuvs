@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/reduction_launchers.hpp"
 #include "../silhouette_score.cuh"
 
 #include <raft/core/device_mdspan.hpp>
@@ -252,7 +253,7 @@ value_t silhouette_score(
   // n_rows x n_labels matrix, so writing an n_rows vector at b_ptr aliases
   // matrix elements that may still be read by the reduction.
   rmm::device_uvector<value_t> b_min(n_rows, stream);
-  raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+  cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
     handle,
     raft::make_device_matrix_view<const value_t, value_idx, raft::row_major>(
       b_ptr, n_rows, n_labels),
@@ -272,7 +273,7 @@ value_t silhouette_score(
       raft::make_device_vector_view<const value_t, value_idx>(b_min.data(), n_rows)));
 
   auto sum = raft::make_device_vector<value_t, value_idx>(handle, 1);
-  raft::linalg::reduce<raft::Apply::ALONG_COLUMNS>(
+  cuvs::detail::reduce<raft::Apply::ALONG_COLUMNS>(
     handle,
     raft::make_device_matrix_view<const value_t, value_idx, raft::row_major>(a_ptr, n_rows, 1),
     sum.view(),

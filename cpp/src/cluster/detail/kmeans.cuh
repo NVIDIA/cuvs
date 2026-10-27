@@ -7,6 +7,7 @@
 #include "../../core/map_launchers.hpp"
 #include "../../core/matrix_broadcast_launchers.hpp"
 #include "../../core/nvtx.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"
 #include "kmeans_common.cuh"
@@ -214,11 +215,11 @@ void kmeansPlusPlus(raft::resources const& handle,
                                 metric == cuvs::distance::DistanceType::CosineExpanded);
         tf32_normx_view = raft::make_const_mdspan(Tf32NormX.view());
       } else {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, X, L2NormX.view());
       }
     } else {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
     }
   }
 
@@ -285,7 +286,7 @@ void kmeansPlusPlus(raft::resources const& handle,
 
     // Calculate costPerCandidate[n_trials] where costPerCandidate[i] is the cluster cost when using
     // centroid candidate-i
-    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+    cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
       handle,
       raft::make_device_matrix_view<const DataT, IndexT, raft::row_major>(
         minDistBuf.data_handle(), minDistBuf.extent(0), minDistBuf.extent(1)),
@@ -466,11 +467,11 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
                                 metric == cuvs::distance::DistanceType::CosineExpanded);
         tf32_normx_view = raft::make_const_mdspan(Tf32NormX.view());
       } else {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, X, L2NormX.view());
       }
     } else {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
     }
   }
 
@@ -939,11 +940,11 @@ void kmeans_fit(
           raft::make_device_vector_view<float, IndexT>(Tf32NormBatch.data_handle(), batch_size);
         compute_fp32_tf32_norms(handle, batch_view, norm_view, tf32_norm_view);
       } else {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, batch_view, norm_view);
       }
     } else {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle, batch_view, norm_view);
     }
   };
@@ -1316,11 +1317,11 @@ void kmeans_predict(raft::resources const& handle,
                                 metric == cuvs::distance::DistanceType::CosineExpanded);
         tf32_normx_view = raft::make_const_mdspan(Tf32NormX.view());
       } else {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, X, L2NormX.view());
       }
     } else {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
     }
   }
 

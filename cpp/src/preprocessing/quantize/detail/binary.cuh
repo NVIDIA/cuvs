@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../../core/map_launchers.hpp"
+#include "../../../core/reduction_launchers.hpp"
 #include <cuvs/preprocessing/quantize/binary.hpp>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
@@ -183,7 +184,7 @@ auto train(raft::resources const& res,
   if (params.threshold == cuvs::preprocessing::quantize::binary::bit_threshold::mean) {
     // stats::mean does not support F16
     if constexpr (!std::is_same_v<T, half>) {
-      raft::stats::mean(
+      cuvs::detail::mean(
         res, dataset, raft::make_device_vector_view<T, int64_t>(threshold_ptr, dataset_dim), false);
     } else {
       // Use a custom CUDA kernel because 1) raft::stats::mean does not support f16 and 2) it is

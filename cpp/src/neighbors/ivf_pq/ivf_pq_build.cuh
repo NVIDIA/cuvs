@@ -8,6 +8,7 @@
 #include "../../core/map_launchers.hpp"
 #include "../../core/matrix_broadcast_launchers.hpp"
 #include "../../core/nvtx.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
 #include "../ivf_pq_impl.hpp"
@@ -277,7 +278,7 @@ inline void pad_centers_with_norms(raft::resources const& res,
   raft::copy_matrix(padded_centers, dim_ext, centers, dim, dim, n_lists, stream);
 
   rmm::device_uvector<float> center_norms(n_lists, stream);
-  raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+  cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
     res,
     raft::make_device_matrix_view<const float, uint32_t, raft::row_major>(centers, n_lists, dim),
     raft::make_device_vector_view<float, uint32_t>(center_norms.data(), n_lists));

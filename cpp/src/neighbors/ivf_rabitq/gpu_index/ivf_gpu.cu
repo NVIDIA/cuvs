@@ -8,6 +8,7 @@
 //
 
 #include "../../../core/omp_wrapper.hpp"
+#include "../../../core/reduction_launchers.hpp"
 #include "../../../util/serialize_validation.hpp"
 #include "../../detail/ann_utils.cuh"
 #include "../utils/reductions.cuh"
@@ -212,7 +213,7 @@ void IVFGPU::compute_centroid_norms()
   centroid_norms_     = raft::make_device_vector<float, int64_t>(handle_, num_centroids);
   auto centroids_view = raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
     initializer->GetCentroid(0), num_centroids, num_padded_dim);
-  raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+  cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
     handle_, centroids_view, centroid_norms_.view());
 }
 
@@ -991,7 +992,7 @@ void IVFGPU::PrepareClusterSearchInputs(
   //  (2) outer_add writes (q_norm + c_norm) into centroid_distances, overwriting the prior
   //      uninitialized contents of the freshly-allocated SearcherGPU scratch buffer
   //  (3) matmul with beta=1 accumulates -2 * Q * C^T on top
-  raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+  cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
     searcher_handle,
     queries,
     raft::make_device_vector_view<float, int64_t>(searcher.get_q_norms(), batch_size));

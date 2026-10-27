@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/reduction_launchers.hpp"
 #include <chrono>
 #include <cmath>
 #include <cuvs/neighbors/common.hpp>
@@ -295,7 +296,7 @@ void quantize_bfloat16_noise_shaped(raft::resources const& res,
   auto norms  = raft::make_device_vector<float, IdxT>(res, n_rows);
 
   // populate square norms
-  raft::linalg::norm<raft::linalg::NormType::L2Norm, raft::Apply::ALONG_ROWS>(
+  cuvs::detail::norm<raft::linalg::NormType::L2Norm, raft::Apply::ALONG_ROWS>(
     res, dataset, norms.view());
 
   constexpr int64_t kBlockSize = 256;

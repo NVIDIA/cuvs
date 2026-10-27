@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include <memory>
 #include <type_traits>
 
@@ -81,10 +82,10 @@ struct brute_force_storage {
       auto norms_view =
         raft::make_device_vector_view<T>(norms->data() + num_rows_used, new_vectors.extent(0));
       if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-        raft::linalg::norm<raft::linalg::NormType::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::NormType::L2Norm, raft::Apply::ALONG_ROWS>(
           res, new_vectors, norms_view, raft::sqrt_op{});
       } else {
-        raft::linalg::norm<raft::linalg::NormType::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::NormType::L2Norm, raft::Apply::ALONG_ROWS>(
           res, new_vectors, norms_view);
       }
     }

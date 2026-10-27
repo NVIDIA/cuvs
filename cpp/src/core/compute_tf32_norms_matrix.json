@@ -1,0 +1,20 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "compute_tf32_norms",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::detail",
+    "_variants": [
+      {
+        "template_arguments": "<int>",
+        "parameter_types": "raft::resources const&, const float*, float*, int, int, bool",
+        "instantiation_name": "int"
+      },
+      {
+        "template_arguments": "<int64_t>",
+        "parameter_types": "raft::resources const&, const float*, float*, int64_t, int64_t, bool",
+        "instantiation_name": "i64"
+      }
+    ]
+  }
+]

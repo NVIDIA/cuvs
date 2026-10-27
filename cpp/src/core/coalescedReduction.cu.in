@@ -1,0 +1,93 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/ann_utils.cuh>
+
+#include <core/reduction_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/coalesced_reduction.cuh>
+#include <raft/linalg/map.cuh>
+#include <raft/linalg/strided_reduction.cuh>
+
+extern template void raft::linalg::detail::map<false, double, int, raft::const_op<double>, double>(
+  cuda::stream_ref, double*, int, raft::const_op<double>, double const*);
+
+extern template void raft::linalg::detail::map<false, double, int, raft::identity_op, double>(
+  cuda::stream_ref, double*, int, raft::identity_op, double const*);
+
+extern template void raft::linalg::detail::map<false, double, int, raft::sqrt_op, double>(
+  cuda::stream_ref, double*, int, raft::sqrt_op, double const*);
+
+extern template void raft::linalg::detail::map<false, double, long, raft::const_op<double>, double>(
+  cuda::stream_ref, double*, long, raft::const_op<double>, double const*);
+
+extern template void raft::linalg::detail::map<false, double, long, raft::identity_op, double>(
+  cuda::stream_ref, double*, long, raft::identity_op, double const*);
+
+extern template void
+raft::linalg::detail::map<false, double, long, raft::plug_const_op<double, raft::mul_op>, double>(
+  cuda::stream_ref, double*, long, raft::plug_const_op<double, raft::mul_op>, double const*);
+
+extern template void raft::linalg::detail::map<false, float, int, raft::const_op<float>, float>(
+  cuda::stream_ref, float*, int, raft::const_op<float>, float const*);
+
+extern template void raft::linalg::detail::map<false, float, int, raft::identity_op, float>(
+  cuda::stream_ref, float*, int, raft::identity_op, float const*);
+
+extern template void raft::linalg::detail::map<false, float, int, raft::sqrt_op, float>(
+  cuda::stream_ref, float*, int, raft::sqrt_op, float const*);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::const_op<float>, float>(
+  cuda::stream_ref, float*, long, raft::const_op<float>, float const*);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::const_op<float>>(
+  cuda::stream_ref, float*, long, raft::const_op<float>);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::identity_op, float>(
+  cuda::stream_ref, float*, long, raft::identity_op, float const*);
+
+extern template void
+raft::linalg::detail::map<false, float, long, raft::plug_const_op<float, raft::mul_op>, float>(
+  cuda::stream_ref, float*, long, raft::plug_const_op<float, raft::mul_op>, float const*);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::sqrt_op, float>(
+  cuda::stream_ref, float*, long, raft::sqrt_op, float const*);
+
+namespace cuvs::detail {
+
+template <typename InType,
+          typename OutType,
+          typename IdxType,
+          typename MainLambda,
+          typename ReduceLambda,
+          typename FinalLambda>
+void coalescedReduction(OutType* dots,
+                        const InType* data,
+                        IdxType D,
+                        IdxType N,
+                        OutType init,
+                        cudaStream_t stream,
+                        bool inplace,
+                        MainLambda main_op,
+                        ReduceLambda reduce_op,
+                        FinalLambda final_op)
+
+{
+  return raft::linalg::coalescedReduction(
+    dots, data, D, N, init, stream, inplace, main_op, reduce_op, final_op);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@coalesced_dispatch_extern_instantiations@
+@strided_dispatch_extern_instantiations@
+@strided_launch_extern_instantiations@
+@coalesced_thin_extern_instantiations@
+@coalesced_thick_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

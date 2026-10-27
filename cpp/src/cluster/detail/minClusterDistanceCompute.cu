@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../core/reduction_launchers.hpp"
 #include "../../distance/top_1_nn.cuh"
 #include "kmeans_common.cuh"
 
@@ -32,17 +33,6 @@ void* reserve_aligned_workspace(rmm::device_uvector<char>& workspace,
   const auto aligned   = (candidate + alignment - 1) / alignment * alignment;
   return reinterpret_cast<void*>(aligned);
 }
-
-struct tf32_square_op {
-  template <typename IndexT>
-  __device__ float operator()(float value, IndexT) const
-  {
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
-    value = nvcuda::wmma::__float_to_tf32(value);
-#endif
-    return value * value;
-  }
-};
 
 struct compensated_sum {
   float sum;
@@ -121,25 +111,6 @@ __global__ void fp32_tf32_norms_kernel(const float* input,
       fp32_norms[row]       = take_sqrt ? sqrtf(fp32_norm) : fp32_norm;
       tf32_norms[row]       = take_sqrt ? sqrtf(tf32_norm) : tf32_norm;
     }
-  }
-}
-
-template <typename IndexT>
-void compute_tf32_norms(raft::resources const& handle,
-                        const float* matrix,
-                        float* norms,
-                        IndexT rows,
-                        IndexT cols,
-                        bool take_sqrt)
-{
-  auto input  = raft::make_device_matrix_view<const float, IndexT>(matrix, rows, cols);
-  auto output = raft::make_device_vector_view<float, IndexT>(norms, rows);
-  if (take_sqrt) {
-    raft::linalg::coalesced_reduction(
-      handle, input, output, 0.0f, false, tf32_square_op{}, raft::add_op{}, raft::sqrt_op{});
-  } else {
-    raft::linalg::coalesced_reduction(
-      handle, input, output, 0.0f, false, tf32_square_op{}, raft::add_op{}, raft::identity_op{});
   }
 }
 
@@ -250,7 +221,7 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
           L2NormBuf_OR_DistBuf.resize(n_clusters, stream);
           auto* y_norm_output = L2NormBuf_OR_DistBuf.data();
           y_norm              = y_norm_output;
-          compute_tf32_norms(
+          cuvs::detail::compute_tf32_norms(
             handle, centroids.data_handle(), y_norm_output, n_clusters, n_features, take_sqrt);
         } else {
           const auto x_norm_bytes = sizeof(DataT) * static_cast<std::size_t>(n_samples);
@@ -260,14 +231,14 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
           L2NormBuf_OR_DistBuf.resize(y_norm_offset + static_cast<std::size_t>(n_clusters), stream);
           x_norm = L2NormBuf_OR_DistBuf.data();
           y_norm = x_norm + y_norm_offset;
-          compute_tf32_norms(
+          cuvs::detail::compute_tf32_norms(
             handle, X.data_handle(), L2NormBuf_OR_DistBuf.data(), n_samples, n_features, take_sqrt);
-          compute_tf32_norms(handle,
-                             centroids.data_handle(),
-                             L2NormBuf_OR_DistBuf.data() + y_norm_offset,
-                             n_clusters,
-                             n_features,
-                             take_sqrt);
+          cuvs::detail::compute_tf32_norms(handle,
+                                           centroids.data_handle(),
+                                           L2NormBuf_OR_DistBuf.data() + y_norm_offset,
+                                           n_clusters,
+                                           n_features,
+                                           take_sqrt);
         }
       }
     }
@@ -276,10 +247,10 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
       auto centroids_norm =
         raft::make_device_vector_view<DataT, IndexT>(L2NormBuf_OR_DistBuf.data(), n_clusters);
       if (take_sqrt) {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, centroids, centroids_norm, raft::sqrt_op{});
       } else {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, centroids, centroids_norm);
       }
       y_norm = L2NormBuf_OR_DistBuf.data();
@@ -463,7 +434,7 @@ void minClusterDistanceCompute(
           L2NormBuf_OR_DistBuf.resize(n_clusters, stream);
           auto* y_norm_output = L2NormBuf_OR_DistBuf.data();
           y_norm              = y_norm_output;
-          compute_tf32_norms(
+          cuvs::detail::compute_tf32_norms(
             handle, centroids.data_handle(), y_norm_output, n_clusters, n_features, take_sqrt);
         } else {
           const auto x_norm_bytes = sizeof(DataT) * static_cast<std::size_t>(n_samples);
@@ -473,14 +444,14 @@ void minClusterDistanceCompute(
           L2NormBuf_OR_DistBuf.resize(y_norm_offset + static_cast<std::size_t>(n_clusters), stream);
           x_norm = L2NormBuf_OR_DistBuf.data();
           y_norm = x_norm + y_norm_offset;
-          compute_tf32_norms(
+          cuvs::detail::compute_tf32_norms(
             handle, X.data_handle(), L2NormBuf_OR_DistBuf.data(), n_samples, n_features, take_sqrt);
-          compute_tf32_norms(handle,
-                             centroids.data_handle(),
-                             L2NormBuf_OR_DistBuf.data() + y_norm_offset,
-                             n_clusters,
-                             n_features,
-                             take_sqrt);
+          cuvs::detail::compute_tf32_norms(handle,
+                                           centroids.data_handle(),
+                                           L2NormBuf_OR_DistBuf.data() + y_norm_offset,
+                                           n_clusters,
+                                           n_features,
+                                           take_sqrt);
         }
       }
     }
@@ -489,10 +460,10 @@ void minClusterDistanceCompute(
       auto centroids_norm =
         raft::make_device_vector_view<DataT, IndexT>(L2NormBuf_OR_DistBuf.data(), n_clusters);
       if (take_sqrt) {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, centroids_const, centroids_norm, raft::sqrt_op{});
       } else {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, centroids_const, centroids_norm);
       }
       y_norm = L2NormBuf_OR_DistBuf.data();
@@ -555,7 +526,7 @@ void minClusterDistanceCompute(
         raft::make_device_matrix_view<DataT, IndexT>(pairwiseDistance.data_handle(), ns, nc);
       pairwise_distance_kmeans<DataT, IndexT>(
         handle, datasetView, centroidsView, pairwiseDistanceView, metric);
-      raft::linalg::coalescedReduction(minDistanceView.data_handle(),
+      cuvs::detail::coalescedReduction(minDistanceView.data_handle(),
                                        pairwiseDistanceView.data_handle(),
                                        pairwiseDistanceView.extent(1),
                                        pairwiseDistanceView.extent(0),

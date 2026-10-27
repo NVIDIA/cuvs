@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/reduction_launchers.hpp"
 #include "gmm_kernels.cuh"
 
 #include <cuvs/cluster/gmm.hpp>
@@ -728,7 +729,7 @@ void update_precisions(raft::resources const& handle,
   } else {
     size_t total = cov_elems(ct, d, K);
     rmm::device_scalar<T> d_min_var(stream);
-    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+    cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
       handle,
       raft::make_device_matrix_view<const T, int64_t>(covariances, 1, (int64_t)total),
       raft::make_device_vector_view<T, int64_t>(d_min_var.data(), 1),
@@ -836,7 +837,7 @@ T mean_device(raft::resources const& handle, const T* v, int n)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
   rmm::device_scalar<T> d_sum(stream);
-  raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+  cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
     handle,
     raft::make_device_matrix_view<const T, int64_t>(v, 1, (int64_t)n),
     raft::make_device_vector_view<T, int64_t>(d_sum.data(), 1),

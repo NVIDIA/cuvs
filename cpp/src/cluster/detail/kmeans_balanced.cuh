@@ -7,6 +7,7 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/matrix_broadcast_launchers.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include "kmeans_common.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -495,7 +496,7 @@ void compute_norm(const raft::resources& handle,
     0, stream, mr.value_or(raft::resource::get_workspace_resource_ref(handle)));
 
   if constexpr (std::is_same_v<T, half> && std::is_same_v<MathT, float>) {
-    raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+    cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(
       dataset_norm, dataset, dim, n_rows, stream.get());
     auto norms = raft::make_device_vector_view<MathT, IdxT>(dataset_norm, n_rows);
     cuvs::detail::map(handle,
@@ -521,7 +522,7 @@ void compute_norm(const raft::resources& handle,
     dataset_ptr = static_cast<const MathT*>(mapped_dataset.data());
   }
 
-  raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+  cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
     handle,
     raft::make_device_matrix_view<const MathT, IdxT, raft::row_major>(dataset_ptr, n_rows, dim),
     raft::make_device_vector_view<MathT, IdxT>(dataset_norm, n_rows),
@@ -595,7 +596,7 @@ bool predict_core_half(const raft::resources& handle,
                       raft::make_device_vector_view<half, IdxT>(
                         scratch.centers.data(), static_cast<IdxT>(scratch.centers.size())),
                       raft::cast_op<half>{});
-    raft::linalg::rowNorm<raft::linalg::L2Norm, true>(scratch.centers_norm.data(),
+    cuvs::detail::rowNorm<raft::linalg::L2Norm, true>(scratch.centers_norm.data(),
                                                       scratch.centers.data(),
                                                       native_dim,
                                                       native_clusters,

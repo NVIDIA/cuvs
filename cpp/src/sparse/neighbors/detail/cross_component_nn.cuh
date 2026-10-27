@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../../core/map_launchers.hpp"
+#include "../../../core/reduction_launchers.hpp"
 #include "../../../distance/masked_nn.cuh"
 #include <cuvs/distance/distance.hpp>
 
@@ -327,7 +328,7 @@ void perform_1nn(raft::resources const& handle,
     colors_group_idxs.data_handle() + 1, n_components);
 
   auto x_norm = raft::make_device_vector<value_t, value_idx>(handle, (value_idx)n_rows);
-  raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+  cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
     handle,
     raft::make_device_matrix_view<const value_t, value_idx, raft::row_major>(X, n_rows, n_cols),
     x_norm.view());

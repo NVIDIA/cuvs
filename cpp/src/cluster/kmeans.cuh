@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../core/map_launchers.hpp"
+#include "../core/reduction_launchers.hpp"
 #include "detail/kmeans.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 #include <raft/core/copy.cuh>
@@ -346,7 +347,7 @@ void cluster_cost(
   rmm::device_uvector<char> workspace(n_samples * sizeof(IndexT), stream);
 
   auto x_norms = raft::make_device_vector<DataT>(handle, n_samples);
-  raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, x_norms.view());
+  cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, x_norms.view());
 
   auto min_cluster_distance = raft::make_device_vector<DataT>(handle, n_samples);
   rmm::device_uvector<DataT> l2_norm_or_distance_buffer(0, stream);

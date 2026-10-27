@@ -1,0 +1,39 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::stridedReductionLaunch",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<__half, float, int, raft::sq_op, raft::add_op>",
+        "parameter_types": "float*, __half const*, int, int, float, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "f16_f32_i32_sq_add"
+      },
+      {
+        "template_arguments": "<__half, float, long, raft::sq_op, raft::add_op>",
+        "parameter_types": "float*, __half const*, long, long, float, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "f16_f32_i64_sq_add"
+      },
+      {
+        "template_arguments": "<double, double, int, raft::sq_op, raft::add_op>",
+        "parameter_types": "double*, double const*, int, int, double, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "f64_f64_i32_sq_add"
+      },
+      {
+        "template_arguments": "<float, float, int, raft::sq_op, raft::add_op>",
+        "parameter_types": "float*, float const*, int, int, float, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "f32_f32_i32_sq_add"
+      },
+      {
+        "template_arguments": "<float, float, long, raft::identity_op, raft::add_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, raft::identity_op, raft::add_op",
+        "instantiation_name": "f32_f32_i64_id_add"
+      },
+      {
+        "template_arguments": "<float, float, long, raft::sq_op, raft::add_op>",
+        "parameter_types": "float*, float const*, long, long, float, cudaStream_t, raft::sq_op, raft::add_op",
+        "instantiation_name": "f32_f32_i64_sq_add"
+      }
+    ]
+  }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::coalescedReduction",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "double*, double const*, int, int, double, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "cuvs_detail_coalescedreduction_f64_ptr_f64_c_ptr_int_int_f64_stream_ptr_bool_identity_op_min_op_identity_op"
+      },
+      {
+        "parameter_types": "double*, double const*, long, long, double, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "cuvs_detail_coalescedreduction_f64_ptr_f64_c_ptr_long_long_f64_stream_ptr_bool_identity_op_min_op_identity_op"
+      },
+      {
+        "parameter_types": "float*, float const*, int, int, float, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "cuvs_detail_coalescedreduction_f32_ptr_f32_c_ptr_int_int_f32_stream_ptr_bool_identity_op_min_op_identity_op"
+      },
+      {
+        "parameter_types": "float*, float const*, long, long, float, CUstream_st*, bool, raft::identity_op, raft::min_op, raft::identity_op",
+        "instantiation_name": "cuvs_detail_coalescedreduction_f32_ptr_f32_c_ptr_long_long_f32_stream_ptr_bool_identity_op_min_op_identity_op"
+      }
+    ]
+  }
+]

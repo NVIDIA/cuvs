@@ -1,0 +1,166 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/reduction_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/coalesced_reduction.cuh>
+#include <raft/linalg/strided_reduction.cuh>
+#include <raft/stats/mean.cuh>
+
+extern template void raft::linalg::detail::stridedReduction<
+  unsigned char,
+  float,
+  long,
+  raft::cast_op<float>,
+  raft::add_op,
+  raft::plug_const_op<float, raft::mul_op>>(float*,
+                                            unsigned char const*,
+                                            long,
+                                            long,
+                                            float,
+                                            CUstream_st*,
+                                            bool,
+                                            raft::cast_op<float>,
+                                            raft::add_op,
+                                            raft::plug_const_op<float, raft::mul_op>);
+
+extern template void raft::linalg::detail::stridedReduction<
+  double,
+  double,
+  long,
+  raft::identity_op,
+  raft::add_op,
+  raft::plug_const_op<double, raft::mul_op>>(double*,
+                                             double const*,
+                                             long,
+                                             long,
+                                             double,
+                                             CUstream_st*,
+                                             bool,
+                                             raft::identity_op,
+                                             raft::add_op,
+                                             raft::plug_const_op<double, raft::mul_op>);
+
+extern template void raft::linalg::detail::stridedReduction<
+  signed char,
+  float,
+  long,
+  raft::cast_op<float>,
+  raft::add_op,
+  raft::plug_const_op<float, raft::mul_op>>(float*,
+                                            signed char const*,
+                                            long,
+                                            long,
+                                            float,
+                                            CUstream_st*,
+                                            bool,
+                                            raft::cast_op<float>,
+                                            raft::add_op,
+                                            raft::plug_const_op<float, raft::mul_op>);
+
+extern template void raft::linalg::detail::stridedReduction<
+  __half,
+  float,
+  long,
+  raft::cast_op<float>,
+  raft::add_op,
+  raft::plug_const_op<float, raft::mul_op>>(float*,
+                                            __half const*,
+                                            long,
+                                            long,
+                                            float,
+                                            CUstream_st*,
+                                            bool,
+                                            raft::cast_op<float>,
+                                            raft::add_op,
+                                            raft::plug_const_op<float, raft::mul_op>);
+
+extern template void raft::linalg::detail::stridedReduction<
+  float,
+  float,
+  long,
+  raft::identity_op,
+  raft::add_op,
+  raft::plug_const_op<float, raft::mul_op>>(float*,
+                                            float const*,
+                                            long,
+                                            long,
+                                            float,
+                                            CUstream_st*,
+                                            bool,
+                                            raft::identity_op,
+                                            raft::add_op,
+                                            raft::plug_const_op<float, raft::mul_op>);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::const_op<float>, float>(
+  cuda::stream_ref, float*, long, raft::const_op<float>, float const*);
+
+extern template void raft::linalg::detail::map<false, double, long, raft::const_op<double>, double>(
+  cuda::stream_ref, double*, long, raft::const_op<double>, double const*);
+
+extern template void
+raft::linalg::detail::map<false, float, long, raft::plug_const_op<float, raft::mul_op>, float>(
+  cuda::stream_ref, float*, long, raft::plug_const_op<float, raft::mul_op>, float const*);
+
+extern template void
+raft::linalg::detail::map<false, double, long, raft::plug_const_op<double, raft::mul_op>, double>(
+  cuda::stream_ref, double*, long, raft::plug_const_op<double, raft::mul_op>, double const*);
+
+namespace cuvs::detail {
+
+template <bool rowMajor, typename Type, typename IdxType>
+void mean(Type* mu, const Type* data, IdxType D, IdxType N, cudaStream_t stream)
+
+{
+  return raft::stats::mean<rowMajor>(mu, data, D, N, stream);
+}
+
+template <bool rowMajor, typename Type, typename IdxType>
+void mean(Type* mu, const Type* data, IdxType D, IdxType N, bool sample, cudaStream_t stream)
+
+{
+  return raft::stats::mean<rowMajor>(mu, data, D, N, sample, stream);
+}
+
+template <typename in_value_t, typename out_value_t, typename idx_t, typename layout_t>
+void mean(raft::resources const& handle,
+          raft::device_matrix_view<const in_value_t, idx_t, layout_t> data,
+          raft::device_vector_view<out_value_t, idx_t> mu)
+
+{
+  return raft::stats::mean(handle, data, mu);
+}
+
+template <typename value_t, typename idx_t, typename layout_t>
+void mean(raft::resources const& handle,
+          raft::device_matrix_view<const value_t, idx_t, layout_t> data,
+          raft::device_vector_view<value_t, idx_t> mu)
+
+{
+  return raft::stats::mean(handle, data, mu);
+}
+
+template <typename value_t, typename idx_t, typename layout_t>
+void mean(raft::resources const& handle,
+          raft::device_matrix_view<const value_t, idx_t, layout_t> data,
+          raft::device_vector_view<value_t, idx_t> mu,
+          bool sample)
+
+{
+  return raft::stats::mean(handle, data, mu, sample);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@coalesced_dispatch_extern_instantiations@
+@strided_dispatch_extern_instantiations@
+@strided_launch_extern_instantiations@
+@coalesced_thin_extern_instantiations@
+@coalesced_thick_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

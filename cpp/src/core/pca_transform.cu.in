@@ -1,0 +1,93 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/pca_launchers.hpp>
+#include <core/reduction_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/coalesced_reduction.cuh>
+#include <raft/linalg/pca.cuh>
+#include <raft/linalg/strided_reduction.cuh>
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecCols<float, long, 8ul, 256, raft::sub_op, float>(
+  float*, float const*, long, long, raft::sub_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecCols<float, long, 4ul, 256, raft::sub_op, float>(
+  float*, float const*, long, long, raft::sub_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecCols<float, long, 16ul, 256, raft::sub_op, float>(
+  float*, float const*, long, long, raft::sub_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecCols<float, long, 8ul, 256, raft::add_op, float>(
+  float*, float const*, long, long, raft::add_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecCols<float, long, 4ul, 256, raft::add_op, float>(
+  float*, float const*, long, long, raft::add_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecCols<float, long, 16ul, 256, raft::add_op, float>(
+  float*, float const*, long, long, raft::add_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecRows<float, long, 8ul, 256, raft::sub_op, float>(
+  float*, float const*, long, long, raft::sub_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecRows<float, long, 4ul, 256, raft::sub_op, float>(
+  float*, float const*, long, long, raft::sub_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecRows<float, long, 16ul, 256, raft::sub_op, float>(
+  float*, float const*, long, long, raft::sub_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecRows<float, long, 8ul, 256, raft::add_op, float>(
+  float*, float const*, long, long, raft::add_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecRows<float, long, 4ul, 256, raft::add_op, float>(
+  float*, float const*, long, long, raft::add_op, CUstream_st*, float const*);
+
+extern template void
+raft::matrix::detail::matrixLinewiseVecRows<float, long, 16ul, 256, raft::add_op, float>(
+  float*, float const*, long, long, raft::add_op, CUstream_st*, float const*);
+
+extern template void
+raft::linalg::detail::map<false, float, long, raft::plug_const_op<float, raft::mul_op>, float>(
+  cuda::stream_ref, float*, long, raft::plug_const_op<float, raft::mul_op>, float const*);
+
+namespace cuvs::detail {
+
+template <typename math_t, typename idx_t, typename LayoutPolicy>
+void pca_transform(raft::resources const& handle,
+                   const raft::linalg::paramsPCA& prms,
+                   raft::device_matrix_view<math_t, idx_t, LayoutPolicy> input,
+                   raft::device_matrix_view<math_t, idx_t, LayoutPolicy> components,
+                   raft::device_vector_view<math_t, idx_t> singular_vals,
+                   raft::device_vector_view<math_t, idx_t> mu,
+                   raft::device_matrix_view<math_t, idx_t, LayoutPolicy> trans_input)
+
+{
+  return raft::linalg::pca_transform(
+    handle, prms, input, components, singular_vals, mu, trans_input);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@coalesced_dispatch_extern_instantiations@
+@strided_dispatch_extern_instantiations@
+@strided_launch_extern_instantiations@
+@coalesced_thin_extern_instantiations@
+@coalesced_thick_extern_instantiations@
+@pca_array_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

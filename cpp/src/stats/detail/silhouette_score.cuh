@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/reduction_launchers.hpp"
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/add.cuh>
@@ -293,7 +294,7 @@ DataT silhouette_score(
     });
 
   // calculating row-wise minimum
-  raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+  cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
     handle,
     raft::make_device_matrix_view<const DataT, int, raft::row_major>(
       averageDistanceBetweenSampleAndCluster.data(), nRows, nLabels),

@@ -1,0 +1,31 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/reduction_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/sparse/linalg/norm.cuh>
+
+namespace cuvs::detail {
+
+template <typename Type, typename IdxType, typename Lambda>
+void rowNormCsr(raft::resources const& handle,
+                const IdxType* ia,
+                const Type* data,
+                const IdxType nnz,
+                const IdxType N,
+                Type* norm,
+                raft::linalg::NormType type,
+                Lambda fin_op)
+
+{
+  return raft::sparse::linalg::rowNormCsr(handle, ia, data, nnz, N, norm, type, fin_op);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

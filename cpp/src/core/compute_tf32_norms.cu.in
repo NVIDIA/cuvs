@@ -1,0 +1,150 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/reduction_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <mma.h>
+#include <raft/linalg/coalesced_reduction.cuh>
+#include <raft/linalg/norm.cuh>
+#include <raft/linalg/strided_reduction.cuh>
+
+extern template void raft::linalg::detail::coalescedReductionThin<
+  raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>,
+  float,
+  float,
+  int,
+  raft::identity_op,
+  raft::add_op,
+  raft::identity_op>(float*,
+                     float const*,
+                     int,
+                     int,
+                     float,
+                     CUstream_st*,
+                     bool,
+                     raft::identity_op,
+                     raft::add_op,
+                     raft::identity_op);
+
+extern template void raft::linalg::detail::coalescedReductionThin<
+  raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>,
+  float,
+  float,
+  int,
+  raft::identity_op,
+  raft::add_op,
+  raft::sqrt_op>(float*,
+                 float const*,
+                 int,
+                 int,
+                 float,
+                 CUstream_st*,
+                 bool,
+                 raft::identity_op,
+                 raft::add_op,
+                 raft::sqrt_op);
+
+extern template void raft::linalg::detail::coalescedReductionThin<
+  raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>,
+  float,
+  float,
+  long,
+  raft::identity_op,
+  raft::add_op,
+  raft::identity_op>(float*,
+                     float const*,
+                     long,
+                     long,
+                     float,
+                     CUstream_st*,
+                     bool,
+                     raft::identity_op,
+                     raft::add_op,
+                     raft::identity_op);
+
+extern template void raft::linalg::detail::coalescedReductionThin<
+  raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>,
+  float,
+  float,
+  long,
+  raft::identity_op,
+  raft::add_op,
+  raft::sqrt_op>(float*,
+                 float const*,
+                 long,
+                 long,
+                 float,
+                 CUstream_st*,
+                 bool,
+                 raft::identity_op,
+                 raft::add_op,
+                 raft::sqrt_op);
+
+// clang-format off
+@coalesced_dispatch_extern_instantiations@
+@strided_dispatch_extern_instantiations@
+@strided_launch_extern_instantiations@
+@coalesced_thin_extern_instantiations@
+@coalesced_thick_extern_instantiations@
+  // clang-format on
+
+  namespace cuvs::cluster::kmeans::detail
+{
+  namespace {
+
+  struct tf32_square_op {
+    template <typename IndexT>
+    __device__ float operator()(float value, IndexT) const
+    {
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
+      value = nvcuda::wmma::__float_to_tf32(value);
+#endif
+      return value * value;
+    }
+  };
+
+  }  // namespace
+
+}  // namespace cuvs::cluster::kmeans::detail
+
+namespace cuvs::detail {
+
+template <typename IndexT>
+void compute_tf32_norms(raft::resources const& handle,
+                        const float* matrix,
+                        float* norms,
+                        IndexT rows,
+                        IndexT cols,
+                        bool take_sqrt)
+{
+  auto input  = raft::make_device_matrix_view<const float, IndexT>(matrix, rows, cols);
+  auto output = raft::make_device_vector_view<float, IndexT>(norms, rows);
+  if (take_sqrt) {
+    raft::linalg::coalesced_reduction(handle,
+                                      input,
+                                      output,
+                                      0.0f,
+                                      false,
+                                      cuvs::cluster::kmeans::detail::tf32_square_op{},
+                                      raft::add_op{},
+                                      raft::sqrt_op{});
+  } else {
+    raft::linalg::coalesced_reduction(handle,
+                                      input,
+                                      output,
+                                      0.0f,
+                                      false,
+                                      cuvs::cluster::kmeans::detail::tf32_square_op{},
+                                      raft::add_op{},
+                                      raft::identity_op{});
+  }
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::detail

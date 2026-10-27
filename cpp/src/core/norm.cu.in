@@ -1,0 +1,383 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/reduction_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/coalesced_reduction.cuh>
+#include <raft/linalg/norm.cuh>
+#include <raft/linalg/strided_reduction.cuh>
+
+extern template void raft::linalg::detail::
+  stridedReduction<float, float, long, raft::sq_op, raft::add_op, raft::sqrt_op>(float*,
+                                                                                 float const*,
+                                                                                 long,
+                                                                                 long,
+                                                                                 float,
+                                                                                 CUstream_st*,
+                                                                                 bool,
+                                                                                 raft::sq_op,
+                                                                                 raft::add_op,
+                                                                                 raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  stridedReduction<float, float, long, raft::sq_op, raft::add_op, raft::identity_op>(
+    float*,
+    float const*,
+    long,
+    long,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void
+raft::linalg::detail::stridedReduction<float, float, int, raft::sq_op, raft::add_op, raft::sqrt_op>(
+  float*,
+  float const*,
+  int,
+  int,
+  float,
+  CUstream_st*,
+  bool,
+  raft::sq_op,
+  raft::add_op,
+  raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  stridedReduction<float, float, int, raft::sq_op, raft::add_op, raft::identity_op>(
+    float*,
+    float const*,
+    int,
+    int,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::
+  stridedReduction<double, double, int, raft::sq_op, raft::add_op, raft::sqrt_op>(double*,
+                                                                                  double const*,
+                                                                                  int,
+                                                                                  int,
+                                                                                  double,
+                                                                                  CUstream_st*,
+                                                                                  bool,
+                                                                                  raft::sq_op,
+                                                                                  raft::add_op,
+                                                                                  raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  stridedReduction<double, double, int, raft::sq_op, raft::add_op, raft::identity_op>(
+    double*,
+    double const*,
+    int,
+    int,
+    double,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::
+  stridedReduction<__half, float, long, raft::sq_op, raft::add_op, raft::sqrt_op>(float*,
+                                                                                  __half const*,
+                                                                                  long,
+                                                                                  long,
+                                                                                  float,
+                                                                                  CUstream_st*,
+                                                                                  bool,
+                                                                                  raft::sq_op,
+                                                                                  raft::add_op,
+                                                                                  raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  stridedReduction<__half, float, long, raft::sq_op, raft::add_op, raft::identity_op>(
+    float*,
+    __half const*,
+    long,
+    long,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::
+  stridedReduction<__half, float, int, raft::sq_op, raft::add_op, raft::sqrt_op>(float*,
+                                                                                 __half const*,
+                                                                                 int,
+                                                                                 int,
+                                                                                 float,
+                                                                                 CUstream_st*,
+                                                                                 bool,
+                                                                                 raft::sq_op,
+                                                                                 raft::add_op,
+                                                                                 raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  stridedReduction<__half, float, int, raft::sq_op, raft::add_op, raft::identity_op>(
+    float*,
+    __half const*,
+    int,
+    int,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<float, float, long, raft::sq_op, raft::add_op, raft::sqrt_op>(bool,
+                                                                                   float*,
+                                                                                   float const*,
+                                                                                   long,
+                                                                                   long,
+                                                                                   float,
+                                                                                   CUstream_st*,
+                                                                                   bool,
+                                                                                   raft::sq_op,
+                                                                                   raft::add_op,
+                                                                                   raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<float, float, unsigned int, raft::sq_op, raft::add_op, raft::sqrt_op>(
+    bool,
+    float*,
+    float const*,
+    unsigned int,
+    unsigned int,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<float, float, unsigned int, raft::sq_op, raft::add_op, raft::identity_op>(
+    bool,
+    float*,
+    float const*,
+    unsigned int,
+    unsigned int,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<float, float, int, raft::sq_op, raft::add_op, raft::sqrt_op>(bool,
+                                                                                  float*,
+                                                                                  float const*,
+                                                                                  int,
+                                                                                  int,
+                                                                                  float,
+                                                                                  CUstream_st*,
+                                                                                  bool,
+                                                                                  raft::sq_op,
+                                                                                  raft::add_op,
+                                                                                  raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<float, float, int, raft::sq_op, raft::add_op, raft::identity_op>(
+    bool,
+    float*,
+    float const*,
+    int,
+    int,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<double, double, long, raft::sq_op, raft::add_op, raft::sqrt_op>(bool,
+                                                                                     double*,
+                                                                                     double const*,
+                                                                                     long,
+                                                                                     long,
+                                                                                     double,
+                                                                                     CUstream_st*,
+                                                                                     bool,
+                                                                                     raft::sq_op,
+                                                                                     raft::add_op,
+                                                                                     raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<double, double, long, raft::sq_op, raft::add_op, raft::identity_op>(
+    bool,
+    double*,
+    double const*,
+    long,
+    long,
+    double,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<double, double, int, raft::sq_op, raft::add_op, raft::sqrt_op>(bool,
+                                                                                    double*,
+                                                                                    double const*,
+                                                                                    int,
+                                                                                    int,
+                                                                                    double,
+                                                                                    CUstream_st*,
+                                                                                    bool,
+                                                                                    raft::sq_op,
+                                                                                    raft::add_op,
+                                                                                    raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<double, double, int, raft::sq_op, raft::add_op, raft::identity_op>(
+    bool,
+    double*,
+    double const*,
+    int,
+    int,
+    double,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<__half, float, long, raft::sq_op, raft::add_op, raft::sqrt_op>(bool,
+                                                                                    float*,
+                                                                                    __half const*,
+                                                                                    long,
+                                                                                    long,
+                                                                                    float,
+                                                                                    CUstream_st*,
+                                                                                    bool,
+                                                                                    raft::sq_op,
+                                                                                    raft::add_op,
+                                                                                    raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<__half, float, long, raft::sq_op, raft::add_op, raft::identity_op>(
+    bool,
+    float*,
+    __half const*,
+    long,
+    long,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<__half, float, int, raft::sq_op, raft::add_op, raft::sqrt_op>(bool,
+                                                                                   float*,
+                                                                                   __half const*,
+                                                                                   int,
+                                                                                   int,
+                                                                                   float,
+                                                                                   CUstream_st*,
+                                                                                   bool,
+                                                                                   raft::sq_op,
+                                                                                   raft::add_op,
+                                                                                   raft::sqrt_op);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<__half, float, int, raft::sq_op, raft::add_op, raft::identity_op>(
+    bool,
+    float*,
+    __half const*,
+    int,
+    int,
+    float,
+    CUstream_st*,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::identity_op, float>(
+  cuda::stream_ref, float*, long, raft::identity_op, float const*);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::const_op<float>, float>(
+  cuda::stream_ref, float*, long, raft::const_op<float>, float const*);
+
+extern template void raft::linalg::detail::map<false, float, int, raft::identity_op, float>(
+  cuda::stream_ref, float*, int, raft::identity_op, float const*);
+
+extern template void raft::linalg::detail::map<false, float, int, raft::const_op<float>, float>(
+  cuda::stream_ref, float*, int, raft::const_op<float>, float const*);
+
+extern template void raft::linalg::detail::map<false, double, int, raft::identity_op, double>(
+  cuda::stream_ref, double*, int, raft::identity_op, double const*);
+
+extern template void raft::linalg::detail::map<false, double, int, raft::const_op<double>, double>(
+  cuda::stream_ref, double*, int, raft::const_op<double>, double const*);
+
+extern template void raft::linalg::detail::map<false, double, int, raft::sqrt_op, double>(
+  cuda::stream_ref, double*, int, raft::sqrt_op, double const*);
+
+extern template void raft::linalg::detail::map<false, float, long, raft::sqrt_op, float>(
+  cuda::stream_ref, float*, long, raft::sqrt_op, float const*);
+
+extern template void raft::linalg::detail::map<false, float, int, raft::sqrt_op, float>(
+  cuda::stream_ref, float*, int, raft::sqrt_op, float const*);
+
+extern template void raft::linalg::detail::
+  coalescedReduction<float, float, long, raft::sq_op, raft::add_op, raft::identity_op>(
+    bool,
+    float*,
+    float const*,
+    long,
+    long,
+    float,
+    cudaStream_t,
+    bool,
+    raft::sq_op,
+    raft::add_op,
+    raft::identity_op);
+
+namespace cuvs::detail {
+
+template <NormType norm_type,
+          raft::Apply apply,
+          typename ElementType,
+          typename OutputType,
+          typename LayoutPolicy,
+          typename IndexType,
+          typename Lambda>
+void norm(raft::resources const& handle,
+          raft::device_matrix_view<const ElementType, IndexType, LayoutPolicy> in,
+          raft::device_vector_view<OutputType, IndexType> out,
+          Lambda fin_op)
+{
+  raft::linalg::norm<norm_type, apply>(handle, in, out, fin_op);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@coalesced_dispatch_extern_instantiations@
+@strided_dispatch_extern_instantiations@
+@strided_launch_extern_instantiations@
+@coalesced_thin_extern_instantiations@
+@coalesced_thick_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

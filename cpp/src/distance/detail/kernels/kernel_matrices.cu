@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/reduction_launchers.hpp"
 #include "../../../distance/distance.cuh"
 #include <cuvs/distance/grammian.hpp>
 
@@ -469,13 +470,13 @@ void RBFKernel<math_t>::matrixRowNormL2(raft::resources const& handle,
   auto n_rows = matrix.extent(0);
   auto n_cols = matrix.extent(1);
   if (is_row_major) {
-    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+    cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
       handle,
       raft::make_device_matrix_view<const math_t, int, raft::row_major>(
         matrix.data_handle(), n_rows, n_cols),
       raft::make_device_vector_view(target, n_rows));
   } else {
-    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+    cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
       handle,
       raft::make_device_matrix_view<const math_t, int, raft::col_major>(
         matrix.data_handle(), n_rows, n_cols),
@@ -489,13 +490,13 @@ void RBFKernel<math_t>::matrixRowNormL2(raft::resources const& handle,
                                         math_t* target)
 {
   auto matrix_structure = matrix.structure_view();
-  raft::sparse::linalg::rowNormCsr(handle,
-                                   matrix_structure.get_indptr().data(),
-                                   matrix.get_elements().data(),
-                                   matrix_structure.get_nnz(),
-                                   matrix_structure.get_n_rows(),
-                                   target,
-                                   raft::linalg::NormType::L2Norm);
+  cuvs::detail::rowNormCsr(handle,
+                           matrix_structure.get_indptr().data(),
+                           matrix.get_elements().data(),
+                           matrix_structure.get_nnz(),
+                           matrix_structure.get_n_rows(),
+                           target,
+                           raft::linalg::NormType::L2Norm);
 }
 
 /** Evaluate kernel matrix using RBF kernel.

@@ -1,0 +1,43 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/pca_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+
+namespace cuvs::detail {
+
+template <typename math_t, typename idx_t, typename LayoutPolicy>
+void pca_fit_transform(raft::resources const& handle,
+                       const raft::linalg::paramsPCA& prms,
+                       raft::device_matrix_view<math_t, idx_t, LayoutPolicy> input,
+                       raft::device_matrix_view<math_t, idx_t, LayoutPolicy> trans_input,
+                       raft::device_matrix_view<math_t, idx_t, LayoutPolicy> components,
+                       raft::device_vector_view<math_t, idx_t> explained_var,
+                       raft::device_vector_view<math_t, idx_t> explained_var_ratio,
+                       raft::device_vector_view<math_t, idx_t> singular_vals,
+                       raft::device_vector_view<math_t, idx_t> mu,
+                       raft::device_scalar_view<math_t, idx_t> noise_vars,
+                       bool flip_signs_based_on_U)
+
+{
+  cuvs::detail::pca_fit(handle,
+                        prms,
+                        input,
+                        components,
+                        explained_var,
+                        explained_var_ratio,
+                        singular_vals,
+                        mu,
+                        noise_vars,
+                        flip_signs_based_on_U);
+  cuvs::detail::pca_transform(handle, prms, input, components, singular_vals, mu, trans_input);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

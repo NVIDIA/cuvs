@@ -7,6 +7,7 @@
 
 #include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
+#include "../../core/reduction_launchers.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
 
@@ -351,10 +352,10 @@ void extend(raft::resources const& handle,
       auto norms_view = raft::make_device_vector_view<float, uint32_t>(
         index->center_norms()->data_handle(), n_lists);
       if (index->metric() == cuvs::distance::DistanceType::CosineExpanded) {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, centers_view, norms_view, raft::sqrt_op{});
       } else {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+        cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, centers_view, norms_view);
       }
       RAFT_LOG_TRACE_VEC(index->center_norms()->data_handle(), std::min<uint32_t>(dim, 20));
@@ -365,10 +366,10 @@ void extend(raft::resources const& handle,
     auto norms_view =
       raft::make_device_vector_view<float, uint32_t>(index->center_norms()->data_handle(), n_lists);
     if (index->metric() == cuvs::distance::DistanceType::CosineExpanded) {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle, centers_view, norms_view, raft::sqrt_op{});
     } else {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+      cuvs::detail::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
         handle, centers_view, norms_view);
     }
     RAFT_LOG_TRACE_VEC(index->center_norms()->data_handle(), std::min<uint32_t>(dim, 20));

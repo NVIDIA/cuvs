@@ -8,6 +8,7 @@
 #include "../../../core/map_launchers.hpp"
 #include "../../../core/matrix_broadcast_launchers.hpp"
 #include "../../../core/nvtx.hpp"
+#include "../../../core/reduction_launchers.hpp"
 #include "factory.cuh"
 #include "sample_filter_utils.cuh"
 #include "search_multi_cta.cuh"
@@ -303,7 +304,7 @@ void search_main(raft::resources const& res,
     // first scale the queries and then compute norms
     auto scaled_sq_op = raft::compose_op(
       raft::sq_op{}, raft::div_const_op<DistanceT>{DistanceT(kScale)}, raft::cast_op<DistanceT>());
-    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+    cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
       res,
       raft::make_device_matrix_view<const T, int64_t, raft::row_major>(
         queries.data_handle(), queries.extent(0), queries.extent(1)),
@@ -528,7 +529,7 @@ void search_multi_partition(
     if (needs_query_norms) {
       auto scaled_sq_op =
         raft::compose_op(raft::sq_op{}, cuvs::spatial::knn::detail::utils::mapping<DistanceT>{});
-      raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+      cuvs::detail::reduce<raft::Apply::ALONG_ROWS>(
         res,
         raft::make_device_matrix_view<const T, int64_t, raft::row_major>(
           queries.data_handle() + static_cast<size_t>(qid) * dim, chunk_queries, dim),
