@@ -1459,6 +1459,15 @@ if(NOT BUILD_CPU_ONLY)
     list(APPEND cuvs_primitive_sources "${CMAKE_CURRENT_BINARY_DIR}/${primitive}.cu")
   endforeach()
 
+  generate_inst_matrix(
+    cuvs_primitive_sources
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/ivf_pq_fp16_overflow_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/ivf_pq_fp16_overflow.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/ivf_pq_fp16_overflow_@inst_abbrev@.cu"
+  )
+
   add_library(
     cuvs_objs OBJECT
     ${cuvs_primitive_sources}
@@ -1476,7 +1485,6 @@ if(NOT BUILD_CPU_ONLY)
     src/core/thrust_reduce_by_key.cu
     src/core/thrust_stable_sort_by_key.cu
     src/core/thrust_transform.cu
-    src/neighbors/ivf_pq/ivf_pq_fp16_overflow.cu
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}
