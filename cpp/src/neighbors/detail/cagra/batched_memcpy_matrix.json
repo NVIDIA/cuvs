@@ -7,15 +7,18 @@
     "_variants": [
       {
         "template_arguments": "<float, float>",
-        "parameter_types": "float*, uint64_t, const float*, uint64_t, uint64_t, uint64_t, cudaStream_t"
+        "parameter_types": "float*, uint64_t, const float*, uint64_t, uint64_t, uint64_t, cudaStream_t",
+        "instantiation_name": "f32_f32"
       },
       {
         "template_arguments": "<uint32_t, uint32_t>",
-        "parameter_types": "uint32_t*, uint64_t, const uint32_t*, uint64_t, uint64_t, uint64_t, cudaStream_t"
+        "parameter_types": "uint32_t*, uint64_t, const uint32_t*, uint64_t, uint64_t, uint64_t, cudaStream_t",
+        "instantiation_name": "u32_u32"
       },
       {
         "template_arguments": "<int64_t, uint32_t>",
-        "parameter_types": "int64_t*, uint64_t, const uint32_t*, uint64_t, uint64_t, uint64_t, cudaStream_t"
+        "parameter_types": "int64_t*, uint64_t, const uint32_t*, uint64_t, uint64_t, uint64_t, cudaStream_t",
+        "instantiation_name": "i64_u32"
       }
     ]
   }
