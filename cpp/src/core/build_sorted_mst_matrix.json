@@ -7,15 +7,15 @@
     "_variants": [
       {
         "parameter_types": "raft::resources const&, float const*, int const*, int const*, float const*, unsigned long, unsigned long, int*, int*, float*, int*, unsigned long, cuvs::sparse::neighbors::detail::FixConnectivitiesRedOp<int, float>, cuvs::distance::DistanceType, int",
-        "instantiation_name": "f32_c_ptr_int_c_ptr_int_c_ptr_f32_c_ptr_ulong_ulong_int_ptr_int_ptr_f32_ptr_int_ptr_ulong_fixconnectivitiesredop_int_f32_distancetype_int"
+        "instantiation_name": "f32_i32_connectivities"
       },
       {
         "parameter_types": "raft::resources const&, float const*, long const*, long const*, float const*, unsigned long, unsigned long, long*, long*, float*, long*, unsigned long, cuvs::sparse::neighbors::detail::FixConnectivitiesRedOp<long, float>, cuvs::distance::DistanceType, int",
-        "instantiation_name": "f32_c_ptr_long_c_ptr_long_c_ptr_f32_c_ptr_ulong_ulong_long_ptr_long_ptr_f32_ptr_long_ptr_ulong_fixconnectivitiesredop_long_f32_distancetype_int"
+        "instantiation_name": "f32_i64_connectivities"
       },
       {
         "parameter_types": "raft::resources const&, float const*, long const*, long const*, float const*, unsigned long, unsigned long, long*, long*, float*, long*, unsigned long, cuvs::sparse::neighbors::detail::MutualReachabilityFixConnectivitiesRedOp<long, float>, cuvs::distance::DistanceType, int",
-        "instantiation_name": "f32_c_ptr_long_c_ptr_long_c_ptr_f32_c_ptr_ulong_ulong_long_ptr_long_ptr_f32_ptr_long_ptr_ulong_mutualreachabilityfixconnectivitiesredop_long_f32_distancetype_int"
+        "instantiation_name": "f32_i64_mutual_reachability"
       }
     ]
   }
