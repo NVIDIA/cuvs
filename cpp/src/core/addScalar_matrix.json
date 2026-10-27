@@ -1,0 +1,19 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "addScalar",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "instantiation_name": "i64_i64_i64",
+        "template_arguments": "<int64_t, int64_t, int64_t>",
+        "parameter_types": "int64_t*, const int64_t*, int64_t, int64_t, cudaStream_t"
+      },
+      {
+        "instantiation_name": "u32_u32_i64",
+        "template_arguments": "<uint32_t, uint32_t, int64_t>",
+        "parameter_types": "uint32_t*, const uint32_t*, uint32_t, int64_t, cudaStream_t"
+      }
+    ]
+  }
+]

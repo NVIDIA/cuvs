@@ -1,0 +1,20 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+#include <core/cub_reduce_launchers.hpp>
+
+namespace {
+using provider_t = @provider_type@;
+using pointer_t  = @pointer_type@;
+}  // namespace
+
+// clang-format off
+template <>
+__host__ __device__ pointer_t provider_t::@method@()
+// clang-format on
+{
+  return &@kernel_function@<@kernel_arguments@>;
+}

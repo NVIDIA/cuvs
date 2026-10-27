@@ -6,11 +6,13 @@
     "_variants": [
       {
         "template_arguments": "<64, int, int, int>",
-        "parameter_types": "int const*, int, int*, cudaStream_t"
+        "parameter_types": "int const*, int, int*, cudaStream_t",
+        "instantiation_name": "64_int_int_int"
       },
       {
         "template_arguments": "<64, int, long, long>",
-        "parameter_types": "int const*, long, long*, cudaStream_t"
+        "parameter_types": "int const*, long, long*, cudaStream_t",
+        "instantiation_name": "64_int_long_long"
       }
     ]
   }

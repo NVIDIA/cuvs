@@ -7,15 +7,18 @@
     "_variants": [
       {
         "template_arguments": "<int*, int*, int>",
-        "parameter_types": "void*, unsigned long&, int*, int*, int, cudaStream_t"
+        "parameter_types": "void*, unsigned long&, int*, int*, int, cudaStream_t",
+        "instantiation_name": "int_ptr_int_ptr_int"
       },
       {
         "template_arguments": "<unsigned int*, unsigned int*, int>",
-        "parameter_types": "void*, unsigned long&, unsigned int*, unsigned int*, int, cudaStream_t"
+        "parameter_types": "void*, unsigned long&, unsigned int*, unsigned int*, int, cudaStream_t",
+        "instantiation_name": "u32_ptr_u32_ptr_int"
       },
       {
         "template_arguments": "<unsigned long long*, unsigned long*, unsigned long>",
-        "parameter_types": "void*, unsigned long&, unsigned long long*, unsigned long*, unsigned long, cudaStream_t"
+        "parameter_types": "void*, unsigned long&, unsigned long long*, unsigned long*, unsigned long, cudaStream_t",
+        "instantiation_name": "u64_ptr_ulong_ptr_ulong"
       }
     ]
   }

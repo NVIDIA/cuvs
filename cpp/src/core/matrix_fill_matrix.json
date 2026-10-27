@@ -1,99 +1,149 @@
 [
   {
-    "return_type": "void",
+    "return_type": "CUVS_EXPORT void",
     "qualified_function": "cuvs::detail::matrix_fill",
     "template_arguments": "",
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "raft::resources const&, cuda::std::mdspan< double, cuda::std::extents<unsigned int, 1ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<double>, (raft::memory_type)2>>, double"
+        "parameter_types": "raft::resources const&, cuda::std::mdspan< double, cuda::std::extents<unsigned int, 1ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<double>, (raft::memory_type)2>>, double",
+        "instantiation_name": "mdspan_f64_extents_u32_1ul_layout_right_host_device_accessor_default_accessor_f64_memory_type_2_f64"
       },
       {
-        "parameter_types": "raft::resources const&, cuda::std::mdspan< float, cuda::std::extents<unsigned int, 1ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float"
+        "parameter_types": "raft::resources const&, cuda::std::mdspan< float, cuda::std::extents<unsigned int, 1ul>, cuda::std::layout_right, raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>, float",
+        "instantiation_name": "mdspan_f32_extents_u32_1ul_layout_right_host_device_accessor_default_accessor_f32_memory_type_2_f32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<double, int, raft::row_major>, double"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<double, int, raft::row_major>, double",
+        "instantiation_name": "matrix_f64_int_row_f64"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<double, long, raft::row_major>, double"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<double, long, raft::row_major>, double",
+        "instantiation_name": "matrix_f64_long_row_f64"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<float, int, raft::row_major>, float"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<float, int, raft::row_major>, float",
+        "instantiation_name": "matrix_f32_int_row_f32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<float, long, raft::row_major>, float"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<float, long, raft::row_major>, float",
+        "instantiation_name": "matrix_f32_long_row_f32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<float, unsigned long, raft::row_major>, float"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<float, unsigned long, raft::row_major>, float",
+        "instantiation_name": "matrix_f32_ulong_row_f32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<int, long, raft::row_major>, int"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<int, long, raft::row_major>, int",
+        "instantiation_name": "matrix_int_long_row_int"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<long, long, raft::row_major>, long"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<long, long, raft::row_major>, long",
+        "instantiation_name": "matrix_long_long_row_long"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<long, unsigned long, raft::row_major>, long"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<long, unsigned long, raft::row_major>, long",
+        "instantiation_name": "matrix_long_ulong_row_long"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_matrix_view<unsigned int, long, raft::row_major>, unsigned int"
+        "parameter_types": "raft::resources const&, raft::device_matrix_view<unsigned int, long, raft::row_major>, unsigned int",
+        "instantiation_name": "matrix_u32_long_row_u32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<bool, long, raft::row_major>, bool"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<bool, long, raft::row_major>, bool",
+        "instantiation_name": "vector_bool_long_row_bool"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<double, int, raft::row_major>, double"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<double, int, raft::row_major>, double",
+        "instantiation_name": "vector_f64_int_row_f64"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<double, long, raft::row_major>, double"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<double, long, raft::row_major>, double",
+        "instantiation_name": "vector_f64_long_row_f64"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<float, int, raft::row_major>, float"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<float, int, raft::row_major>, float",
+        "instantiation_name": "vector_f32_int_row_f32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<float, long, raft::row_major>, float"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<float, long, raft::row_major>, float",
+        "instantiation_name": "vector_f32_long_row_f32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<float, unsigned long, raft::row_major>, float"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<float, unsigned long, raft::row_major>, float",
+        "instantiation_name": "vector_f32_ulong_row_f32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<int, unsigned long, raft::row_major>, int"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<int, unsigned long, raft::row_major>, int",
+        "instantiation_name": "vector_int_ulong_row_int"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<long, long, raft::row_major>, long"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<long, long, raft::row_major>, long",
+        "instantiation_name": "vector_long_long_row_long"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<long, unsigned int, raft::row_major>, long"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<long, unsigned int, raft::row_major>, long",
+        "instantiation_name": "vector_long_u32_row_long"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<long, unsigned long, raft::row_major>, long"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<long, unsigned long, raft::row_major>, long",
+        "instantiation_name": "vector_long_ulong_row_long"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<int, double>, int, raft::row_major>, raft::KeyValuePair<int, double>"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<int, double>, int, raft::row_major>, raft::KeyValuePair<int, double>",
+        "instantiation_name": "vector_key_value_int_f64_int_row_key_value_int_f64"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<int, float>, int, raft::row_major>, raft::KeyValuePair<int, float>"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<int, float>, int, raft::row_major>, raft::KeyValuePair<int, float>",
+        "instantiation_name": "vector_key_value_int_f32_int_row_key_value_int_f32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<long, double>, long, raft::row_major>, raft::KeyValuePair<long, double>"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<long, double>, long, raft::row_major>, raft::KeyValuePair<long, double>",
+        "instantiation_name": "vector_key_value_long_f64_long_row_key_value_long_f64"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<long, float>, long, raft::row_major>, raft::KeyValuePair<long, float>"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<long, float>, long, raft::row_major>, raft::KeyValuePair<long, float>",
+        "instantiation_name": "vector_key_value_long_f32_long_row_key_value_long_f32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, long, raft::row_major>, unsigned int"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, long, raft::row_major>, unsigned int",
+        "instantiation_name": "vector_u32_long_row_u32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, unsigned int, raft::row_major>, unsigned int"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, unsigned int, raft::row_major>, unsigned int",
+        "instantiation_name": "vector_u32_u32_row_u32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, unsigned long, raft::row_major>, unsigned int"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, unsigned long, raft::row_major>, unsigned int",
+        "instantiation_name": "vector_u32_ulong_row_u32"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned long, int, raft::row_major>, unsigned long"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned long, int, raft::row_major>, unsigned long",
+        "instantiation_name": "vector_ulong_int_row_ulong"
       },
       {
-        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned long, unsigned long, raft::row_major>, unsigned long"
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned long, unsigned long, raft::row_major>, unsigned long",
+        "instantiation_name": "vector_ulong_ulong_row_ulong"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<raft::KeyValuePair<long, unsigned int>, long, raft::row_major>, raft::KeyValuePair<long, unsigned int>",
+        "instantiation_name": "vector_key_value_long_u32_long_row_key_value_long_u32"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned char, int, raft::row_major>, unsigned char",
+        "instantiation_name": "vector_u8_int_row_u8"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned char, long, raft::row_major>, unsigned char",
+        "instantiation_name": "vector_u8_long_row_u8"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, int, raft::row_major>, unsigned int",
+        "instantiation_name": "vector_u32_int_row_u32"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<long, int, raft::row_major>, long",
+        "instantiation_name": "vector_long_int_row_long"
       }
     ]
   }

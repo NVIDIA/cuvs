@@ -6,10 +6,12 @@
     "function_qualifiers": "",
     "_variants": [
       {
-        "parameter_types": "int, int, int, int*, int*, float*, CUstream_st*"
+        "parameter_types": "int, int, int, int*, int*, float*, CUstream_st*",
+        "instantiation_name": "cuvs_detail_coo_sort_int_int_int_int_ptr_int_ptr_f32_ptr_stream_ptr"
       },
       {
-        "parameter_types": "int, int, long, int*, int*, float*, CUstream_st*"
+        "parameter_types": "int, int, long, int*, int*, float*, CUstream_st*",
+        "instantiation_name": "cuvs_detail_coo_sort_int_int_long_int_ptr_int_ptr_f32_ptr_stream_ptr"
       }
     ]
   },
@@ -20,27 +22,33 @@
     "_variants": [
       {
         "template_arguments": "<float, int, int>",
-        "parameter_types": "bool, int, int, int, int*, int*, float*, cudaStream_t"
+        "parameter_types": "bool, int, int, int, int*, int*, float*, cudaStream_t",
+        "instantiation_name": "raft_sparse_op_detail_coo_sort_f32_int_int"
       },
       {
         "template_arguments": "<float, int, long>",
-        "parameter_types": "bool, int, int, long, int*, int*, float*, cudaStream_t"
+        "parameter_types": "bool, int, int, long, int*, int*, float*, cudaStream_t",
+        "instantiation_name": "raft_sparse_op_detail_coo_sort_f32_int_long"
       },
       {
         "template_arguments": "<double, int, int>",
-        "parameter_types": "bool, int, int, int, int*, int*, double*, cudaStream_t"
+        "parameter_types": "bool, int, int, int, int*, int*, double*, cudaStream_t",
+        "instantiation_name": "raft_sparse_op_detail_coo_sort_f64_int_int"
       },
       {
         "template_arguments": "<double, int, long>",
-        "parameter_types": "bool, int, int, long, int*, int*, double*, cudaStream_t"
+        "parameter_types": "bool, int, int, long, int*, int*, double*, cudaStream_t",
+        "instantiation_name": "raft_sparse_op_detail_coo_sort_f64_int_long"
       },
       {
         "template_arguments": "<float, int, unsigned long>",
-        "parameter_types": "bool, int, int, unsigned long, int*, int*, float*, cudaStream_t"
+        "parameter_types": "bool, int, int, unsigned long, int*, int*, float*, cudaStream_t",
+        "instantiation_name": "raft_sparse_op_detail_coo_sort_f32_int_ulong"
       },
       {
         "template_arguments": "<float, long, unsigned long>",
-        "parameter_types": "bool, long, long, unsigned long, long*, long*, float*, cudaStream_t"
+        "parameter_types": "bool, long, long, unsigned long, long*, long*, float*, cudaStream_t",
+        "instantiation_name": "raft_sparse_op_detail_coo_sort_f32_long_ulong"
       }
     ]
   }

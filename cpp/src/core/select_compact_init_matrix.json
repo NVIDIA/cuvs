@@ -1,0 +1,10 @@
+[
+  {
+    "count_type": "int",
+    "instantiation_name": "i32"
+  },
+  {
+    "count_type": "long",
+    "instantiation_name": "i64"
+  }
+]

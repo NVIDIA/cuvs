@@ -7,11 +7,13 @@
     "_variants": [
       {
         "template_arguments": "<int>",
-        "parameter_types": "raft::resources const&, raft::device_coo_matrix_view<const float, int, int, int>, raft::device_coo_matrix<float, int, int, int>&"
+        "parameter_types": "raft::resources const&, raft::device_coo_matrix_view<const float, int, int, int>, raft::device_coo_matrix<float, int, int, int>&",
+        "instantiation_name": "int"
       },
       {
         "template_arguments": "<int64_t>",
-        "parameter_types": "raft::resources const&, raft::device_coo_matrix_view<const float, int, int, int64_t>, raft::device_coo_matrix<float, int, int, int64_t>&"
+        "parameter_types": "raft::resources const&, raft::device_coo_matrix_view<const float, int, int, int64_t>, raft::device_coo_matrix<float, int, int, int64_t>&",
+        "instantiation_name": "i64"
       }
     ]
   }

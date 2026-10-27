@@ -1,0 +1,18 @@
+[
+  {
+    "inst_abbrev": "f32_keys_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::f32_keys_u64_ascending_RadixSortSingleTileKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::f32_keys_u64_ascending",
+    "method": "RadixSortSingleTileKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortSingleTileKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<float, cub::NullType, unsigned long long>, (cub::SortOrder)0, float, cub::NullType, unsigned long long, cub::detail::identity_decomposer_t"
+  },
+  {
+    "inst_abbrev": "u32_keys_u64_ascending",
+    "pointer_type": "cuvs::detail::radix_launch::u32_keys_u64_ascending_RadixSortSingleTileKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::u32_keys_u64_ascending",
+    "method": "RadixSortSingleTileKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortSingleTileKernel",
+    "kernel_arguments": "cub::detail::radix_sort:: policy_selector_from_types<unsigned int, cub::NullType, unsigned long long>, (cub::SortOrder)0, unsigned int, cub::NullType, unsigned long long, cub::detail::identity_decomposer_t"
+  }
+]

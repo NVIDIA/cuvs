@@ -1,0 +1,26 @@
+[
+  {
+    "provider_type": "cuvs::detail::transform_launch::copy_counting_i64",
+    "pointer_type": "cuvs::detail::transform_launch::copy_counting_i64_TransformKernel_pointer",
+    "method": "TransformKernel",
+    "kernel_function": "cub::detail::transform::transform_kernel",
+    "kernel_arguments": "cub::detail::transform::policy_selector_from_types<false, true, cuda::std::tuple<cuda::counting_iterator<long, __int128> >, long*>, long, cuda::always_true, cuda::__callable_permitting_copied_arguments<cuda::std::identity>, long*, cuda::counting_iterator<long, __int128>",
+    "instantiation_name": "copy_counting_i64"
+  },
+  {
+    "provider_type": "cuvs::detail::transform_launch::gather_f32",
+    "pointer_type": "cuvs::detail::transform_launch::gather_f32_TransformKernel_pointer",
+    "method": "TransformKernel",
+    "kernel_function": "cub::detail::transform::transform_kernel",
+    "kernel_arguments": "cub::detail::transform::policy_selector_from_types<true, true, cuda::std::tuple<thrust::permutation_iterator<float*, long*> >, float*>, long, cuda::always_true, cuda::std::identity, float*, thrust::permutation_iterator<float*, long*>",
+    "instantiation_name": "gather_f32"
+  },
+  {
+    "provider_type": "cuvs::detail::transform_launch::copy_counting_i32",
+    "pointer_type": "cuvs::detail::transform_launch::copy_counting_i32_TransformKernel_pointer",
+    "method": "TransformKernel",
+    "kernel_function": "cub::detail::transform::transform_kernel",
+    "kernel_arguments": "cub::detail::transform::policy_selector_from_types<false, true, cuda::std::tuple<cuda::counting_iterator<int, long> >, int*>, long, cuda::always_true, cuda::__callable_permitting_copied_arguments<cuda::std::identity>, int*, cuda::counting_iterator<int, long>",
+    "instantiation_name": "copy_counting_i32"
+  }
+]

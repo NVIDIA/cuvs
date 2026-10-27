@@ -6,11 +6,17 @@
 #pragma once
 
 #include <cstdint>
+#include <cuvs/core/export.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/core/types.hpp>
 #include <raft/linalg/norm_types.hpp>
+
+namespace cuvs::spatial::knn::detail::utils {
+template <typename T>
+struct mapping;
+}
 
 namespace cuvs::detail {
 using raft::Apply;
@@ -35,10 +41,10 @@ template <NormType norm_type,
           typename LayoutPolicy,
           typename IndexType,
           typename Lambda = raft::identity_op>
-void norm(raft::resources const& handle,
-          raft::device_matrix_view<const ElementType, IndexType, LayoutPolicy> in,
-          raft::device_vector_view<OutputType, IndexType> out,
-          Lambda fin_op = raft::identity_op());
+CUVS_EXPORT void norm(raft::resources const& handle,
+                      raft::device_matrix_view<const ElementType, IndexType, LayoutPolicy> in,
+                      raft::device_vector_view<OutputType, IndexType> out,
+                      Lambda fin_op = raft::identity_op());
 
 template <Apply apply,
           typename InElementType,

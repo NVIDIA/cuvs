@@ -137,3 +137,75 @@ cuvs::detail::transform_launch::transform_5::TransformKernel();
 template <>
 __host__ __device__ cuvs::detail::transform_launch::transform_6_TransformKernel_pointer
 cuvs::detail::transform_launch::transform_6::TransformKernel();
+
+namespace cuvs::detail::transform_launch {
+using copy_counting_i64 = cub::detail::transform::TransformKernelSource<
+  cub::detail::transform::policy_selector_from_types<
+    false,
+    true,
+    cuda::std::tuple<cuda::counting_iterator<long, __int128>>,
+    long*>,
+  long,
+  cuda::std::tuple<cuda::counting_iterator<long, __int128>>,
+  long*,
+  cuda::always_true,
+  cuda::__callable_permitting_copied_arguments<cuda::std::identity>>;
+using gather_f32 = cub::detail::transform::TransformKernelSource<
+  cub::detail::transform::policy_selector_from_types<
+    true,
+    true,
+    cuda::std::tuple<thrust::permutation_iterator<float*, long*>>,
+    float*>,
+  long,
+  cuda::std::tuple<thrust::permutation_iterator<float*, long*>>,
+  float*,
+  cuda::always_true,
+  cuda::std::identity>;
+using copy_counting_i32 = cub::detail::transform::TransformKernelSource<
+  cub::detail::transform::policy_selector_from_types<
+    false,
+    true,
+    cuda::std::tuple<cuda::counting_iterator<int, long>>,
+    int*>,
+  long,
+  cuda::std::tuple<cuda::counting_iterator<int, long>>,
+  int*,
+  cuda::always_true,
+  cuda::__callable_permitting_copied_arguments<cuda::std::identity>>;
+using copy_counting_i64_TransformKernel_pointer =
+  void (*)(long,
+           int,
+           bool,
+           cuda::always_true,
+           cuda::__callable_permitting_copied_arguments<cuda::std::identity>,
+           long*,
+           cub::detail::transform::kernel_arg<cuda::counting_iterator<long, __int128>>);
+using gather_f32_TransformKernel_pointer =
+  void (*)(long,
+           int,
+           bool,
+           cuda::always_true,
+           cuda::std::identity,
+           float*,
+           cub::detail::transform::kernel_arg<thrust::permutation_iterator<float*, long*>>);
+using copy_counting_i32_TransformKernel_pointer =
+  void (*)(long,
+           int,
+           bool,
+           cuda::always_true,
+           cuda::__callable_permitting_copied_arguments<cuda::std::identity>,
+           int*,
+           cub::detail::transform::kernel_arg<cuda::counting_iterator<int, long>>);
+}  // namespace cuvs::detail::transform_launch
+
+template <>
+__host__ __device__ cuvs::detail::transform_launch::copy_counting_i64_TransformKernel_pointer
+cuvs::detail::transform_launch::copy_counting_i64::TransformKernel();
+
+template <>
+__host__ __device__ cuvs::detail::transform_launch::gather_f32_TransformKernel_pointer
+cuvs::detail::transform_launch::gather_f32::TransformKernel();
+
+template <>
+__host__ __device__ cuvs::detail::transform_launch::copy_counting_i32_TransformKernel_pointer
+cuvs::detail::transform_launch::copy_counting_i32::TransformKernel();
