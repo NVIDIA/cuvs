@@ -8,6 +8,7 @@
 #include "ann_utils.cuh"
 #include "neighbors_device_intrinsics.cuh"
 #include "nn_descent_gnnd.hpp"
+#include "promoted_i4_warp_mma.cuh"
 
 #include "../../core/nvtx.hpp"
 #include "../../core/omp_wrapper.hpp"
@@ -1325,7 +1326,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
 
   constexpr int QUERY_ROW_BYTES = 128;
   constexpr int BBQ_PAD         = alignof(uint32_t);
-  // The document buffer is normally only the A operand (two rows broadcast across a warp), so it
+  // The document buffer is normally only the A operand (one row broadcast across a warp), so it
   // needs no bank-conflict pad. Under SelfJoin it doubles as the B operand in phase 1 (32
   // consecutive columns at one byte offset), so it needs the same skew the query buffer gets.
   constexpr int DOC_PAD = SelfJoin ? BBQ_PAD : 0;
@@ -1342,7 +1343,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   // Document-side (row axis) dequant factors, indexed by list position -- shared by both phases
   // below since rows are always the `new_neighbors`/document side in both, so this is staged once
   // and never restaged. At a given accumulation step, up to MAX_NUM_BI_SAMPLES threads share the
-  // same row0 (see the pair_idx assignment below), so caching avoids up to 64x redundant scattered
+  // same row (see the pair_idx assignment below), so caching avoids up to 64x redundant scattered
   // global reads
   __shared__ bbq_dequant_factors s_document_factors[MAX_NUM_BI_SAMPLES];
 
@@ -1417,9 +1418,8 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   constexpr int query_plane_tile_u32 = query_plane_tile / 4;
   const int n_tiles                  = raft::ceildiv(plane_bytes, plane_tile);
 
-  // with NUM_SAMPLES=32, BLOCK_SIZE=256, pairs_per_thread = 32 * 64 / 512 = 4
-  constexpr int num_row_pairs    = MAX_NUM_BI_SAMPLES / 2;
-  constexpr int num_pairs        = num_row_pairs * MAX_NUM_BI_SAMPLES;
+  // One (row, col) cell per pair: pairs_per_thread = 64 * 64 / 512 = 8.
+  constexpr int num_pairs        = MAX_NUM_BI_SAMPLES * MAX_NUM_BI_SAMPLES;
   constexpr int pairs_per_thread = (num_pairs + BLOCK_SIZE - 1) / BLOCK_SIZE;
 
   // Every thread's column is invariant across its pairs_per_thread iterations, so fetch it once
@@ -1430,8 +1430,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     my_col_factors = get_dequant_factors(dataset_query, new_neighbors[my_col]);
   }
 
-  uint32_t acc0[pairs_per_thread] = {};
-  uint32_t acc1[pairs_per_thread] = {};
+  uint32_t acc[pairs_per_thread] = {};
   for (int step = 0; step < n_tiles; ++step) {
     const bool last_tile   = (step == n_tiles - 1);
     const int num_load     = last_tile ? plane_bytes - step * plane_tile : plane_tile;
@@ -1473,9 +1472,9 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     for (int k = 0; k < pairs_per_thread; ++k) {
       const int pair_idx = tx + k * BLOCK_SIZE;
       if (pair_idx >= num_pairs) continue;
-      const int row0 = (pair_idx / MAX_NUM_BI_SAMPLES) * 2;
-      const int col  = pair_idx % MAX_NUM_BI_SAMPLES;
-      if (col >= new_size) continue;
+      const int row = pair_idx / MAX_NUM_BI_SAMPLES;
+      const int col = pair_idx % MAX_NUM_BI_SAMPLES;
+      if (row >= new_size || col >= new_size) continue;
       // Phase 1 B operand: s_doc_vec under SelfJoin (see the staging note above).
       const uint8_t* row_b;
       if constexpr (SelfJoin) {
@@ -1483,13 +1482,8 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
       } else {
         row_b = s_query_vec[col];
       }
-      cuvs::preprocessing::quantize::bbq::bbq_code_inner_product_2x1<DocumentLayout,
-                                                                     QueryLayout,
-                                                                     document_planes,
-                                                                     query_planes,
-                                                                     doc_row_bytes,
-                                                                     QUERY_ROW_BYTES>(
-        s_doc_vec[row0], s_doc_vec[row0 + 1], row_b, acc0[k], acc1[k]);
+      acc[k] += cuvs::preprocessing::quantize::bbq::code_inner_product(
+        s_doc_vec[row], DocumentLayout, row_b, QueryLayout, doc_row_bytes);
     }
     __syncthreads();
   }
@@ -1497,40 +1491,22 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   for (int k = 0; k < pairs_per_thread; ++k) {
     const int pair_idx = tx + k * BLOCK_SIZE;
     if (pair_idx >= num_pairs) continue;
-    const int row0 = (pair_idx / MAX_NUM_BI_SAMPLES) * 2;
-    const int col  = pair_idx % MAX_NUM_BI_SAMPLES;
-    if (col >= new_size) continue;
-    const int distance0    = row0 * SKEWED_MAX_NUM_BI_SAMPLES + col;
-    const Index_t query_id = new_neighbors[col];
-    // row0 (unlike row0 + 1 below) isn't otherwise bounded by new_size -- gate it explicitly so a
-    // stale/garbage new_neighbors[row0] past the real list never reaches a dataset_document lookup
-    // (row_norm, for CosineExpanded); the cell is provably never read downstream either way, since
-    // the min-search loops below only visit idx_in_list < new_size.
-    if (row0 < new_size) {
-      const Index_t doc_id0  = new_neighbors[row0];
-      s_distances[distance0] = bbq_calculate_metric(acc0[k],
-                                                    s_document_factors[row0],
-                                                    my_col_factors,
-                                                    dataset_document,
-                                                    dataset_query,
-                                                    metric,
-                                                    dist_epilogue,
-                                                    doc_id0,
-                                                    query_id);
-    }
-    if (row0 + 1 < new_size) {
-      const Index_t doc_id1 = new_neighbors[row0 + 1];
-      s_distances[distance0 + SKEWED_MAX_NUM_BI_SAMPLES] =
-        bbq_calculate_metric(acc1[k],
-                             s_document_factors[row0 + 1],
-                             my_col_factors,
-                             dataset_document,
-                             dataset_query,
-                             metric,
-                             dist_epilogue,
-                             doc_id1,
-                             query_id);
-    }
+    const int row = pair_idx / MAX_NUM_BI_SAMPLES;
+    const int col = pair_idx % MAX_NUM_BI_SAMPLES;
+    // Gating row keeps a stale new_neighbors[row] past the real list from reaching a
+    // dataset_document lookup (row_norm, for CosineExpanded); the min-search loops below only
+    // visit idx_in_list < new_size, so the cell is never read either way.
+    if (row >= new_size || col >= new_size) continue;
+    s_distances[row * SKEWED_MAX_NUM_BI_SAMPLES + col] =
+      bbq_calculate_metric(acc[k],
+                           s_document_factors[row],
+                           my_col_factors,
+                           dataset_document,
+                           dataset_query,
+                           metric,
+                           dist_epilogue,
+                           new_neighbors[row],
+                           new_neighbors[col]);
   }
   __syncthreads();
 
@@ -1561,8 +1537,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     my_old_col_factors = get_dequant_factors(dataset_query, old_neighbors[my_old_col]);
   }
 
-  uint32_t acc0_old[pairs_per_thread] = {};
-  uint32_t acc1_old[pairs_per_thread] = {};
+  uint32_t acc_old[pairs_per_thread] = {};
   for (int step = 0; step < n_tiles; ++step) {
     const bool last_tile   = (step == n_tiles - 1);
     const int num_load     = last_tile ? plane_bytes - step * plane_tile : plane_tile;
@@ -1598,16 +1573,11 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     for (int k = 0; k < pairs_per_thread; ++k) {
       const int pair_idx = tx + k * BLOCK_SIZE;
       if (pair_idx >= num_pairs) continue;
-      const int row0 = (pair_idx / MAX_NUM_BI_SAMPLES) * 2;
-      const int col  = pair_idx % MAX_NUM_BI_SAMPLES;
-      if (col >= old_size) continue;
-      cuvs::preprocessing::quantize::bbq::bbq_code_inner_product_2x1<DocumentLayout,
-                                                                     QueryLayout,
-                                                                     document_planes,
-                                                                     query_planes,
-                                                                     doc_row_bytes,
-                                                                     QUERY_ROW_BYTES>(
-        s_doc_vec[row0], s_doc_vec[row0 + 1], s_query_vec[col], acc0_old[k], acc1_old[k]);
+      const int row = pair_idx / MAX_NUM_BI_SAMPLES;
+      const int col = pair_idx % MAX_NUM_BI_SAMPLES;
+      if (row >= new_size || col >= old_size) continue;
+      acc_old[k] += cuvs::preprocessing::quantize::bbq::code_inner_product(
+        s_doc_vec[row], DocumentLayout, s_query_vec[col], QueryLayout, doc_row_bytes);
     }
     __syncthreads();
   }
@@ -1615,38 +1585,19 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   for (int k = 0; k < pairs_per_thread; ++k) {
     const int pair_idx = tx + k * BLOCK_SIZE;
     if (pair_idx >= num_pairs) continue;
-    const int row0 = (pair_idx / MAX_NUM_BI_SAMPLES) * 2;
-    const int col  = pair_idx % MAX_NUM_BI_SAMPLES;
-    if (col >= old_size) continue;
-    const int distance0    = row0 * SKEWED_MAX_NUM_BI_SAMPLES + col;
-    const Index_t query_id = old_neighbors[col];
-    // See the identical row0 < new_size gate in phase 1 above -- same reasoning (row0 isn't
-    // otherwise bounded, and this cell is never read downstream either way).
-    if (row0 < new_size) {
-      const Index_t doc_id0  = new_neighbors[row0];
-      s_distances[distance0] = bbq_calculate_metric(acc0_old[k],
-                                                    s_document_factors[row0],
-                                                    my_old_col_factors,
-                                                    dataset_document,
-                                                    dataset_query,
-                                                    metric,
-                                                    dist_epilogue,
-                                                    doc_id0,
-                                                    query_id);
-    }
-    if (row0 + 1 < new_size) {
-      const Index_t doc_id1 = new_neighbors[row0 + 1];
-      s_distances[distance0 + SKEWED_MAX_NUM_BI_SAMPLES] =
-        bbq_calculate_metric(acc1_old[k],
-                             s_document_factors[row0 + 1],
-                             my_old_col_factors,
-                             dataset_document,
-                             dataset_query,
-                             metric,
-                             dist_epilogue,
-                             doc_id1,
-                             query_id);
-    }
+    const int row = pair_idx / MAX_NUM_BI_SAMPLES;
+    const int col = pair_idx % MAX_NUM_BI_SAMPLES;
+    if (row >= new_size || col >= old_size) continue;
+    s_distances[row * SKEWED_MAX_NUM_BI_SAMPLES + col] =
+      bbq_calculate_metric(acc_old[k],
+                           s_document_factors[row],
+                           my_old_col_factors,
+                           dataset_document,
+                           dataset_query,
+                           metric,
+                           dist_epilogue,
+                           new_neighbors[row],
+                           old_neighbors[col]);
   }
   __syncthreads();
 
@@ -1682,41 +1633,27 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   }
 }
 
-// Masks one nibble half of a packed-4b fragment into `dst`, normalised to 0..15. The high half is
-// shifted down so both halves reach the MMA at the same scale and can share one accumulator.
-template <bool High, typename FragT>
-__device__ __forceinline__ void select_packed_nibble(const FragT& src, FragT& dst)
-{
-  constexpr int kWords = FragT::num_elements / 4;
-  static_assert(FragT::num_elements % 4 == 0, "fragment must be a whole number of u32 words");
-  const auto* w = reinterpret_cast<const uint32_t*>(src.x);
-  auto* d       = reinterpret_cast<uint32_t*>(dst.x);
-#pragma unroll
-  for (int i = 0; i < kWords; ++i) {
-    d[i] = High ? ((w[i] >> 4) & 0x0f0f0f0fu) : (w[i] & 0x0f0f0f0fu);
-  }
-}
-
 // int4 tensor-core BBQ local join, covering both the symmetric (one quantizer, self-join) and
-// asymmetric (two quantizers) cases. Modeled on local_join_kernel_wmma: nvcuda::wmma fragments
-// (u4 x u4 -> s32, shape m8n8k32) replace the popc/dp4a inner product; the accumulator lives in
-// registers across the whole K reduction and is stored to s_distances once per (row-tile,
-// col-tile), not accumulated into shared memory every step like the scalar kernel.
-//
-// Warp tiling: num_warps = BLOCK_SIZE/32 warps arranged as a WARPS_PER_DIM x WARPS_PER_DIM square
-// grid (WARPS_PER_DIM=4 so 4x4=16=num_warps), each warp owning a (MAX_NUM_BI_SAMPLES/WARPS_PER_DIM)
-// region of the MAX_NUM_BI_SAMPLES x MAX_NUM_BI_SAMPLES output matrix, same as
-// local_join_kernel_wmma's WMMA_M=N=16 warp assignment. Since int4 MMA tiles are MMA_M x MMA_N
-// (8x8, the only shape nvcuda::wmma exposes for u4), each warp covers its region via a
-// SUB_PER_DIM x SUB_PER_DIM grid of native tiles instead of a single call -- SUB_PER_DIM is a
-// forced consequence of (MAX_NUM_BI_SAMPLES/MMA_M) / WARPS_PER_DIM, not an arbitrary choice.
+// asymmetric (two quantizers) cases. Modeled on local_join_kernel_wmma: a warp-level i4 MMA (see
+// promoted_i4_warp_mma.cuh) replaces the popc/dp4a inner product; the accumulator lives in
+// registers across the whole K reduction and is stored to s_distances once per phase, not
+// accumulated into shared memory every step like the scalar kernel.
 template <bbq_code_layout DocumentLayout,
           bbq_code_layout QueryLayout,
           typename DataT,
           typename Index_t,
           typename ID_t = InternalID_t<Index_t>,
           typename DistEpilogue_t>
-RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
+RAFT_KERNEL
+#ifdef __CUDA_ARCH__
+// Same minBlocksPerMultiprocessor = 4 arches as local_join_kernel_wmma
+#if (__CUDA_ARCH__) == 700 || (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || \
+  (__CUDA_ARCH__) == 1000
+__launch_bounds__(BLOCK_SIZE, 4)
+#else
+__launch_bounds__(BLOCK_SIZE)
+#endif
+#endif
   local_join_kernel_bbq_wmma(const Index_t* graph_new,
                              const Index_t* rev_graph_new,
                              const int2* sizes_new,
@@ -1732,42 +1669,23 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              cuvs::distance::DistanceType metric,
                              DistEpilogue_t dist_epilogue)
 {
-// The staged bytes are packed 4b; the MMA reads them as u8 and splits the nibbles here rather than
-// leaving it to ptxas. u4 MMA is native only through sm_89, and past that ptxas emits this same
-// split out of line, once per MMA. Inlining it keeps the IMMAs in the loop body on every arch, and
-// the 16x16x16 tile u8 allows drops SUB_PER_DIM to 1.
 #if (__CUDA_ARCH__ >= 750)
-  using namespace nvcuda;
-  constexpr int MMA_M = 16;
-  constexpr int MMA_N = 16;
-  // A k-step reads 16 packed bytes = 32 codes; each nibble half is a separate MMA over MMA_K.
-  constexpr int MMA_K = 16;
-  // num_warps = BLOCK_SIZE/32 = 16, arranged as a square WARPS_PER_DIM x WARPS_PER_DIM grid since
-  // 4*4=16 matches exactly; the static_assert is what actually enforces this holds for the
-  // current BLOCK_SIZE, WARPS_PER_DIM itself isn't derived (no trivial constexpr integer sqrt).
+  // The warps form a square WARPS_PER_DIM x WARPS_PER_DIM grid, each owning a WARP_TILE x WARP_TILE
+  // block of the MAX_NUM_BI_SAMPLES x MAX_NUM_BI_SAMPLES output; warp_mma covers that block with
+  // whatever native MMA shape it uses. WARPS_PER_DIM isn't derived (no trivial constexpr integer
+  // sqrt), so the static_assert ties it to BLOCK_SIZE.
   constexpr int WARPS_PER_DIM = 4;
   static_assert(WARPS_PER_DIM * WARPS_PER_DIM == BLOCK_SIZE / raft::warp_size(),
                 "warp grid must be square and match num_warps = BLOCK_SIZE/32");
-  // Each warp owns a WARP_TILE x WARP_TILE region of the MAX_NUM_BI_SAMPLES x MAX_NUM_BI_SAMPLES
-  // output matrix. TILES_PER_DIM is how many native MMA_M x MMA_N tiles span one output dimension;
-  // SUB_PER_DIM (native tiles per warp per dim) is a forced consequence of TILES_PER_DIM /
-  // WARPS_PER_DIM, not an arbitrary choice -- it's 2 here only because 8/4=2 for these particular
-  // MAX_NUM_BI_SAMPLES/MMA_M/WARPS_PER_DIM values.
-  static_assert(MAX_NUM_BI_SAMPLES % MMA_M == 0 && MMA_M == MMA_N,
-                "MAX_NUM_BI_SAMPLES must divide evenly into square MMA_MxMMA_N tiles");
-  constexpr int TILES_PER_DIM = MAX_NUM_BI_SAMPLES / MMA_M;
-  static_assert(TILES_PER_DIM % WARPS_PER_DIM == 0,
-                "warps must evenly tile the native MMA tiles in each output dimension");
-  constexpr int SUB_PER_DIM = TILES_PER_DIM / WARPS_PER_DIM;
-  constexpr int WARP_TILE   = SUB_PER_DIM * MMA_M;
+  constexpr int WARP_TILE = MAX_NUM_BI_SAMPLES / WARPS_PER_DIM;
+  static_assert(MAX_NUM_BI_SAMPLES % WARPS_PER_DIM == 0, "warps must evenly tile the output");
 
   constexpr int BBQ_ROW_BYTES = 128;
   constexpr int MMA_PAD       = 16;
-  static_assert(MMA_PAD % 16 == 0, "row padding must preserve 16-byte IMMA row alignment");
-  // Strides are in fragment elements (u8), so plain byte counts, though the data is packed 4b.
-  constexpr int K_STEPS_PER_TILE = BBQ_ROW_BYTES / MMA_K;
-  constexpr int KSTEP_BYTES      = MMA_K;
-  constexpr int ROW_STRIDE_U8    = BBQ_ROW_BYTES + MMA_PAD;
+  // Strides are in bytes, though the data is packed 4b.
+  constexpr int ROW_STRIDE = BBQ_ROW_BYTES + MMA_PAD;
+  using warp_mma           = i4_warp_mma_u8<WARP_TILE, ROW_STRIDE>;
+  static_assert(BBQ_ROW_BYTES % warp_mma::KSTEP_BYTES == 0, "a tile must be whole k-steps");
 
   constexpr int MMA_STORE_STRIDE = SKEWED_MAX_NUM_BI_SAMPLES;
 
@@ -1775,15 +1693,14 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   // operand: the `new` list in phase 1 and the `old` list in phase 2, query quantizer. Under
   // SelfJoin, phase 1 leaves s_col_vec untouched and both fragments read s_row_vec.
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
-  __shared__ __align__(16) uint8_t s_row_vec[MAX_NUM_BI_SAMPLES][BBQ_ROW_BYTES + MMA_PAD];
+  __shared__ __align__(16) uint8_t s_row_vec[MAX_NUM_BI_SAMPLES][ROW_STRIDE];
   // s_col_vec aliases s_distances's memory instead of its own array: their live ranges never
   // overlap (col_vec fully consumed by the kk-loop before distances are stored; distances fully
   // consumed by the min-search loop before the next phase re-stages col_vec).
   __shared__ __align__(16) DistData_t s_distances[MAX_NUM_BI_SAMPLES * MMA_STORE_STRIDE];
-  static_assert(sizeof(s_distances) >= MAX_NUM_BI_SAMPLES * (BBQ_ROW_BYTES + MMA_PAD),
+  static_assert(sizeof(s_distances) >= MAX_NUM_BI_SAMPLES * ROW_STRIDE,
                 "s_col_vec aliases s_distances's memory and must fit inside it");
-  auto(*s_col_vec)[BBQ_ROW_BYTES + MMA_PAD] =
-    reinterpret_cast<uint8_t (*)[BBQ_ROW_BYTES + MMA_PAD]>(s_distances);
+  auto(*s_col_vec)[ROW_STRIDE] = reinterpret_cast<uint8_t(*)[ROW_STRIDE]>(s_distances);
   __shared__ int s_unique_counter[2];
   // Document-side (row axis) dequant factors -- see the identical buffer and full rationale in
   // local_join_kernel_bbq_simt. Staged once below, reused unchanged by both phases (rows are
@@ -1836,25 +1753,21 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   const int warp_id_x = warp_id % WARPS_PER_DIM;
 
   // One phase: accumulate s_row_vec (rows, `new` list) against col_buf over the whole K range,
-  // then store the accumulators to s_distances (converted to final float distances in place right
-  // after). col_buf is s_row_vec itself when phase 1 is a
-  // self-join, otherwise s_col_vec. col_neighbors/col_size select which list the B operand stages.
-  // alias_tag: staging skip and b_frag source
+  // store the raw sums to s_distances, then convert them to final float distances in place.
+  // col_buf is s_row_vec itself when phase 1 is a self-join, otherwise s_col_vec.
+  // col_neighbors/col_size select which list the B operand stages.
   // row_resident: the A operand is already staged from a previous phase, which is only true
   // when the whole row fits one tile (n_tiles == 1) so nothing overwrote it.
   auto run_phase = [&](const Index_t* col_neighbors, int col_size, bool row_resident) {
     const bool alias_col = (DocumentLayout == QueryLayout) && (col_neighbors == new_neighbors);
-    wmma::fragment<wmma::accumulator, MMA_M, MMA_N, MMA_K, int> c_frag[SUB_PER_DIM][SUB_PER_DIM];
-    for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-      for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-        wmma::fill_fragment(c_frag[msub][nsub], 0);
-      }
-    }
-
+    const auto* col_buf  = alias_col ? s_row_vec : s_col_vec;
+    const int row0       = warp_id_y * WARP_TILE;
+    const int col0       = warp_id_x * WARP_TILE;
     // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole block starts
-    // past either extent only produces cells the epilogue discards -- skip its MMA and its store.
-    // Staging is cooperative, so this must not skip either __syncthreads() in the step loop.
-    const bool warp_active = warp_id_y * WARP_TILE < new_size && warp_id_x * WARP_TILE < col_size;
+    // past either extent only produces cells the metric pass discards -- skip its MMA and its
+    // store. Staging is cooperative, so this must not skip either __syncthreads() in the step loop.
+    const bool warp_active = row0 < new_size && col0 < col_size;
+    warp_mma mma;
 
     for (int step = 0; step < n_tiles; ++step) {
       if (!row_resident) {
@@ -1866,76 +1779,29 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
           s_col_vec, dataset_query, col_neighbors, col_size, step, query_row_bytes);
       }
       __syncthreads();
-
-      // a_frag depends only on (msub, kk); b_frag depends only on (nsub, kk) -- load each once
-      // per kk and reuse across the other sub-tile index, instead of reloading redundantly inside
-      // a full msub x nsub x kk cross product.
-      // Deliberately not #pragma unroll'd: full unrolling here keeps more fragment live ranges
-      // simultaneous, driving register pressure up -- letting the compiler pick reduces that at
-      // the cost of some intra-warp ILP.
-      for (int kk = 0; warp_active && kk < K_STEPS_PER_TILE; ++kk) {
-        wmma::fragment<wmma::matrix_a, MMA_M, MMA_N, MMA_K, uint8_t, wmma::row_major>
-          a_frag[SUB_PER_DIM];
-        wmma::fragment<wmma::matrix_b, MMA_M, MMA_N, MMA_K, uint8_t, wmma::col_major>
-          b_frag[SUB_PER_DIM];
-        const auto* col_buf = alias_col ? s_row_vec : s_col_vec;  // compile-time select
-        for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-          const int row0 = warp_id_y * WARP_TILE + msub * MMA_M;
-          wmma::load_matrix_sync(a_frag[msub], s_row_vec[row0] + kk * KSTEP_BYTES, ROW_STRIDE_U8);
-        }
-        for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-          const int col0 = warp_id_x * WARP_TILE + nsub * MMA_N;
-          wmma::load_matrix_sync(b_frag[nsub], col_buf[col0] + kk * KSTEP_BYTES, ROW_STRIDE_U8);
-        }
-        // One scratch fragment per operand, reused across the halves.
-        std::remove_reference_t<decltype(a_frag[0])> a_half[SUB_PER_DIM];
-        std::remove_reference_t<decltype(b_frag[0])> b_half[SUB_PER_DIM];
-        auto accumulate_half = [&](auto high_tag) {
-          constexpr bool High = decltype(high_tag)::value;
-          for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-            select_packed_nibble<High>(a_frag[msub], a_half[msub]);
-          }
-          for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-            select_packed_nibble<High>(b_frag[nsub], b_half[nsub]);
-          }
-          for (int msub = 0; msub < SUB_PER_DIM; ++msub) {
-            for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-              wmma::mma_sync(c_frag[msub][nsub], a_half[msub], b_half[nsub], c_frag[msub][nsub]);
-            }
-          }
-        };
-        accumulate_half(std::false_type{});
-        accumulate_half(std::true_type{});
-      }
+      if (warp_active) { mma.template accumulate<BBQ_ROW_BYTES>(s_row_vec, col_buf, row0, col0); }
       __syncthreads();
     }
 
-    for (int msub = 0; warp_active && msub < SUB_PER_DIM; ++msub) {
-      const int row0 = warp_id_y * WARP_TILE + msub * MMA_M;
-      for (int nsub = 0; nsub < SUB_PER_DIM; ++nsub) {
-        const int col0 = warp_id_x * WARP_TILE + nsub * MMA_N;
-        wmma::store_matrix_sync(
-          reinterpret_cast<int*>(s_distances) + row0 * MMA_STORE_STRIDE + col0,
-          c_frag[msub][nsub],
-          MMA_STORE_STRIDE,
-          wmma::mem_row_major);
-      }
-    }
+    // Storing first ends the accumulators' live range before the metric code runs, instead of
+    // carrying both at once, and spreads the metric over every thread rather than the active warps.
+    using raw_t    = typename warp_mma::raw_t;
+    auto* raw_view = reinterpret_cast<raw_t*>(s_distances);
+    if (warp_active) { mma.template store<MMA_STORE_STRIDE>(raw_view, row0, col0); }
     __syncthreads();
 
-    // Converts store_matrix_sync's raw int32 dot products into final float distances, in place
     // col = i % MAX_NUM_BI_SAMPLES is invariant across a thread's own iterations
     // (BLOCK_SIZE is a multiple of MAX_NUM_BI_SAMPLES), so this thread's column factors are
-    // fetched once and reused below
+    // fetched once and reused below. In a self-join they are the staged document factors.
     const int my_col = tx % MAX_NUM_BI_SAMPLES;
     bbq_dequant_factors my_col_factors{};
     if (my_col < col_size) {
-      my_col_factors = get_dequant_factors(dataset_query, col_neighbors[my_col]);
+      my_col_factors = alias_col ? s_document_factors[my_col]
+                                 : get_dequant_factors(dataset_query, col_neighbors[my_col]);
     }
 
-    // Cell (row, col) is read (as raw int, via this alias) and written (as the final float) at
-    // the same address by the same thread
-    auto* raw_view            = reinterpret_cast<int*>(s_distances);
+    // Cell (row, col) is read (as raw_t, via raw_view) and written (as the final float) at the
+    // same address by the same thread
     constexpr int total_cells = MAX_NUM_BI_SAMPLES * MAX_NUM_BI_SAMPLES;
     for (int i = tx; i < total_cells; i += BLOCK_SIZE) {
       const int row = i / MAX_NUM_BI_SAMPLES;
@@ -1944,7 +1810,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
       const int distance0    = row * MMA_STORE_STRIDE + col;
       const Index_t doc_id   = new_neighbors[row];
       const Index_t query_id = col_neighbors[col];
-      const uint32_t raw     = static_cast<uint32_t>(raw_view[distance0]);
+      const auto raw         = static_cast<uint32_t>(raw_view[distance0]);
       s_distances[distance0] = bbq_calculate_metric(raw,
                                                     s_document_factors[row],
                                                     my_col_factors,
