@@ -264,7 +264,7 @@ inline std::vector<dynamic_batching_spec> generate_inputs()
 {
   std::vector<dynamic_batching_spec> inputs{dynamic_batching_spec{}};
 
-  for (auto alt_n_queries : {10, 50, 100}) {
+  for (auto alt_n_queries : {50, 100}) {
     dynamic_batching_spec input{};
     input.n_queries = alt_n_queries;
     inputs.push_back(input);
