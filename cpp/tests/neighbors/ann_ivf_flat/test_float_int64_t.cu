@@ -7,13 +7,17 @@
 
 #include "../ann_ivf_flat.cuh"
 
+#include <raft/core/pinned_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/linalg/init.cuh>
 #include <raft/matrix/init.cuh>
 
+#include <memory>
 #include <numeric>
 #include <optional>
 #include <sstream>
+#include <vector>
 
 namespace cuvs::neighbors::ivf_flat {
 
@@ -26,6 +30,55 @@ TEST_P(AnnIVFFlatTestF_float, AnnIVFFlat)
 }
 
 INSTANTIATE_TEST_CASE_P(AnnIVFFlatTest, AnnIVFFlatTestF_float, ::testing::ValuesIn(inputs));
+
+TEST(AnnIVFFlatTest, AdaptiveCentersWithPrefetchedHostBatches)
+{
+  raft::resources handle;
+  // Avoid implicit cudaFree synchronization hiding staging-buffer reuse races.
+  raft::resource::set_workspace_to_pool_resource(handle, 64 * 1024 * 1024);
+  raft::resource::set_cuda_stream_pool(handle, std::make_shared<rmm::cuda_stream_pool>(1));
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  // Cross multiple staging-buffer boundaries, including a partial final batch. Distinct values
+  // in each batch expose overwrites by the copy stream during center accumulation.
+  constexpr int64_t batch_rows = 65536;
+  constexpr int64_t rows       = 3 * batch_rows + 17;
+  constexpr int64_t dim        = 32;
+  // Pinned host memory permits the next H2D copy to overlap the center-update kernel.
+  auto dataset = raft::make_pinned_matrix<float, int64_t>(handle, rows, dim);
+  std::vector<double> sums(dim, 0.0);
+  for (int64_t row = 0; row < rows; ++row) {
+    for (int64_t col = 0; col < dim; ++col) {
+      auto value        = float((row / batch_rows + 1) * (col + 1));
+      dataset(row, col) = value;
+      sums[col] += value;
+    }
+  }
+
+  index_params params;
+  params.n_lists                  = 1;
+  params.adaptive_centers         = true;
+  params.add_data_on_build        = false;
+  params.kmeans_trainset_fraction = 1.0;
+  auto training_view =
+    raft::make_host_matrix_view<const float, int64_t>(dataset.data_handle(), 1, dim);
+  auto idx = build(handle, params, training_view);
+  auto data_view =
+    raft::make_host_matrix_view<const float, int64_t>(dataset.data_handle(), rows, dim);
+  extend(handle, data_view, std::nullopt, &idx);
+
+  std::vector<float> center(dim);
+  uint32_t list_size = 0;
+  raft::update_host(center.data(), idx.centers().data_handle(), dim, stream);
+  raft::update_host(&list_size, idx.list_sizes().data_handle(), 1, stream);
+  raft::resource::sync_stream(handle);
+
+  EXPECT_EQ(idx.size(), rows);
+  EXPECT_EQ(list_size, rows);
+  for (int64_t col = 0; col < dim; ++col) {
+    EXPECT_NEAR(center[col], sums[col] / rows, 1e-4) << "column " << col;
+  }
+}
 
 TEST(IVFFlatSerialization, StreamRoundTrip)
 {

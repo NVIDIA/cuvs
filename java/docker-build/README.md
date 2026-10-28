@@ -149,4 +149,4 @@ The Docker build process requires significant memory. For large projects, ensure
 ## Related Documentation
 
 - [cuVS Java API README](../README.md): Main Java API documentation
-- [cuVS Build Instructions](https://docs.rapids.ai/api/cuvs/stable/build/): Native build documentation
+- [cuVS Build Instructions](https://docs.nvidia.com/cuvs/installation): Native build documentation

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -79,6 +79,9 @@ void pairwise_matrix_dispatch(OpT distance_op,
                               cudaStream_t stream,
                               bool is_row_major)
 {
+  RAFT_EXPECTS(m >= 0 && n >= 0 && k >= 0, "Distance dimensions must be non-negative");
+  if (m == 0 || n == 0) { return; }
+
   // Create kernel parameter struct. Flip x and y if column major.
   IdxT ldx    = is_row_major ? k : m;
   IdxT ldy    = is_row_major ? k : n;

@@ -22,8 +22,7 @@ static RuntimeException handleThrowable(Throwable t) throws IOException
 
 A utility method that rethrows known throwable types without changing their identity.
 
-In particular, `Error` instances must not be converted to a \{@link
-RuntimeException\}; callers rely on errors retaining their original type and stack trace.
+In particular, `Error` instances must not be converted to a `RuntimeException`; callers rely on errors retaining their original type and stack trace.
 
 This method never returns normally; its return type exists solely so callers can write
 `throw handleThrowable(t);`, letting the compiler verify that the enclosing statement
@@ -45,7 +44,29 @@ never returns; always throws
 | --- | --- |
 | `IOException` |  |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:43`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:40`_
+
+### closeAll
+
+```java
+static Throwable closeAll(Throwable failure, AutoCloseable... closeables)
+```
+
+Closes every non-null closeable, even if some fail, and returns the first failure with the
+others added as suppressed.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `failure` | a failure already in flight to attach close failures to, or `null` |
+| `closeables` | what to close; `null` entries are skipped |
+
+**Returns**
+
+`failure`, or the first close failure if it is `null`; `null` if nothing failed
+
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:58`_
 
 ### createFloatMatrix
 
@@ -70,54 +91,17 @@ without creating intermediate heap arrays.
 
 an instance of CuVSMatrix
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:63`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:88`_
 
-### createByteMatrix
-
-```java
-static CuVSMatrix createByteMatrix( List<byte[]> data, int bytesPerVector, CuVSResources resources)
-```
-
-A method to build a CuVSMatrix from a list of byte vectors (for binary quantized vectors).
-
-Uses CuVSMatrix.Builder to copy vectors directly to device memory
-without creating intermediate heap arrays.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `data` | The byte vectors (packed bits for binary quantization) |
-| `bytesPerVector` | The number of bytes in each vector |
-| `resources` | The CuVS resources for device matrix creation |
-
-**Returns**
-
-an instance of CuVSMatrix with BYTE data type
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:92`_
-
-### createByteMatrixFromArray
+### createHostByteMatrixFromArray
 
 ```java
-static CuVSMatrix createByteMatrixFromArray( byte[][] data, int bytesPerVector, CuVSResources resources)
+static CuVSHostMatrix createHostByteMatrixFromArray(byte[][] data, int bytesPerVector)
 ```
 
-A method to build a CuVSMatrix from a 2D byte array (for binary quantized vectors).
+Builds a host-memory CuVSMatrix from a 2D byte array.
 
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `data` | The 2D byte array (packed bits for binary quantization) |
-| `bytesPerVector` | The number of bytes in each vector |
-| `resources` | The CuVS resources for device matrix creation |
-
-**Returns**
-
-an instance of CuVSMatrix with BYTE data type
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:119`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:107`_
 
 ### nanosToMillis
 
@@ -137,7 +121,7 @@ A utility method to convert nanoseconds to milliseconds.
 
 milliseconds
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:141`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:188`_
 
 ### cuVSResourcesOrNull
 
@@ -151,7 +135,7 @@ Creates an instance of CuVSResources.
 
 an instance of CuVSResources
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:150`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:197`_
 
 ### handleThrowableWithIgnore
 
@@ -174,33 +158,7 @@ A utility method that conditionally ignores certain throwable objects
 | --- | --- |
 | `IOException` |  |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:178`_
-
-### createListFromMergedVectors
-
-```java
-static List<float[]> createListFromMergedVectors(FloatVectorValues mergedVectorValues) throws IOException
-```
-
-Creates a list of float vectors from the input
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `mergedVectorValues` | instance of `FloatVectorValues` |
-
-**Returns**
-
-a list of float arrays
-
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `IOException` | I/O Exception |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:192`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:225`_
 
 ### info
 
@@ -218,6 +176,6 @@ Utility to print info/debug messages via InfoStream.
 | `component` | the name of the index writer |
 | `msg` | the log message to push via the InfoStream |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:210`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:239`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:26`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:23`_

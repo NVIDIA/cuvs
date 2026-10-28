@@ -28,7 +28,7 @@
 #include <raft/util/vectorized.cuh>
 #include <raft/util/warp_primitives.cuh>
 
-// A temporary stub till https://github.com/rapidsai/raft/pull/2077 is re-merged
+// A temporary stub till https://github.com/NVIDIA/raft/pull/2077 is re-merged
 namespace cuvs::util {
 
 /**
@@ -408,7 +408,7 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_kernel(
 /**
  * Note: `inline_vq_labels` should only be used for CAGRA-Q compatibility or internal use-cases.
  * Otherwise, vq_labels should be preferred.
- * Issue: https://github.com/nvidia/cuvs/issues/1722
+ * Issue: https://github.com/NVIDIA/cuvs/issues/1722
  */
 template <typename MathT, typename IdxT, typename DatasetT>
 void process_and_fill_codes(

@@ -1164,49 +1164,57 @@ if(NOT BUILD_CPU_ONLY)
   endblock()
 
   include(cmake/modules/generate_cutile_kernels.cmake)
-  set(cutile_smoke_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/jit_lto/cutile_smoke")
-  set(cutile_smoke_generated_dir
-      "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/detail/jit_lto/cutile_smoke"
-  )
-  generate_cutile_kernels(
-    cutile_smoke_files
-    KERNEL_DIR "${cutile_smoke_dir}"
-    KERNEL_BASENAME "cutile_smoke"
-    KERNEL_PYTHON "smoke_kernel.py"
-    EXPORT_SCRIPT "export_smoke.py"
-    OUTPUT_DIRECTORY "${cutile_smoke_generated_dir}"
-    MATRIX_JSON_FILE "${cutile_smoke_dir}/cutile_smoke_matrix.json"
-    FRAGMENT_TAG_FORMAT_CUBIN
-      "cuvs::detail::jit_lto::fragment_tag_cutile_smoke_add_cubin<cuvs::detail::jit_lto::@arch_tag@>"
-    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>"
-                              "<cuvs/detail/jit_lto/cutile_smoke_fragments.hpp>"
-  )
-  if(NOT DEFINED CUVS_CUTILE_ENABLED)
-    set(CUVS_CUTILE_ENABLED 0)
+  # cuTile can export sm_107 (Rubin) kernels only starting with CUDA 13.4. CUVS_CUTILE_SM107_ENABLED
+  # hides the sm_107 code paths in the older versions.
+  set(CUVS_CUTILE_SM107_ENABLED 0)
+  set(CUVS_CUTILE_EXCLUDED_GPU_CODES "sm_107")
+  if(CMAKE_CUDA_COMPILER_VERSION VERSION_GREATER_EQUAL 13.4)
+    set(CUVS_CUTILE_SM107_ENABLED 1)
+    set(CUVS_CUTILE_EXCLUDED_GPU_CODES "")
   endif()
-
-  set(fused_1nn_cutile_dir
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/fused_distance_nn/cutile"
-  )
-  set(cutile_fused_1nn_generated_dir
-      "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/distance/fused_1nn/cutile"
-  )
-  set(cutile_fused_1nn_tiles "${cutile_fused_1nn_generated_dir}/fused_1nn_cutile_tiles.hpp")
-  generate_cutile_kernels(
-    cutile_fused_1nn_files
-    KERNEL_DIR "${fused_1nn_cutile_dir}"
-    KERNEL_BASENAME "fused_1nn"
-    KERNEL_PYTHON "fused_1nn_kernel.py"
-    EXPORT_SCRIPT "export_fused_1nn.py"
-    OUTPUT_DIRECTORY "${cutile_fused_1nn_generated_dir}"
-    MATRIX_JSON_FILE "${fused_1nn_cutile_dir}/fused_1nn_cutile_matrix.json"
-    FRAGMENT_TAG_FORMAT_CUBIN
-      "cuvs::distance::detail::fragment_tag_fused_1nn_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@, cuvs::detail::jit_lto::@arch_tag@>"
-    FRAGMENT_TAG_HEADER_FILES
-      "<cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>"
-      "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
-  )
+  cuvs_cutile_setup(CUVS_CUTILE_ENABLED cutile_python cutile_bin2c)
   if(CUVS_CUTILE_ENABLED)
+    set(cutile_smoke_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/jit_lto/cutile_smoke")
+    set(cutile_smoke_generated_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/detail/jit_lto/cutile_smoke"
+    )
+    generate_cutile_kernels(
+      cutile_smoke_files
+      KERNEL_DIR "${cutile_smoke_dir}"
+      KERNEL_BASENAME "cutile_smoke"
+      KERNEL_PYTHON "smoke_kernel.py"
+      EXPORT_SCRIPT "export_smoke.py"
+      OUTPUT_DIRECTORY "${cutile_smoke_generated_dir}"
+      MATRIX_JSON_FILE "${cutile_smoke_dir}/cutile_smoke_matrix.json" PYTHON "${cutile_python}"
+                                                                      BIN2C "${cutile_bin2c}"
+      FRAGMENT_TAG_FORMAT_CUBIN
+        "cuvs::detail::jit_lto::fragment_tag_cutile_smoke_add_cubin<cuvs::detail::jit_lto::@arch_tag@>"
+      FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>"
+                                "<cuvs/detail/jit_lto/cutile_smoke_fragments.hpp>"
+    )
+
+    set(fused_1nn_cutile_dir
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/fused_distance_nn/cutile"
+    )
+    set(cutile_fused_1nn_generated_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/distance/fused_1nn/cutile"
+    )
+    set(cutile_fused_1nn_tiles "${cutile_fused_1nn_generated_dir}/fused_1nn_cutile_tiles.hpp")
+    generate_cutile_kernels(
+      cutile_fused_1nn_files
+      KERNEL_DIR "${fused_1nn_cutile_dir}"
+      KERNEL_BASENAME "fused_1nn"
+      KERNEL_PYTHON "fused_1nn_kernel.py"
+      EXPORT_SCRIPT "export_fused_1nn.py"
+      OUTPUT_DIRECTORY "${cutile_fused_1nn_generated_dir}"
+      MATRIX_JSON_FILE "${fused_1nn_cutile_dir}/fused_1nn_cutile_matrix.json"
+                       PYTHON "${cutile_python}" BIN2C "${cutile_bin2c}"
+      FRAGMENT_TAG_FORMAT_CUBIN
+        "cuvs::distance::detail::fragment_tag_fused_1nn_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@, cuvs::detail::jit_lto::@arch_tag@>"
+      FRAGMENT_TAG_HEADER_FILES
+        "<cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>"
+        "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    )
     generate_string_matrix(
       cutile_fused_1nn_tile_aliases
       MATRIX_JSON_FILE
@@ -1373,11 +1381,31 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_transform_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
   generate_inst_matrix(
+    gmm_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/gmm_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/gmm_inst.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/gmm_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
     nn_descent_inst_files
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_matrix.json"
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_inst.cu.in"
     OUTPUT_FILE_FORMAT
       "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/nn_descent_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    vamana_build_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_build_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/vamana_build_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    vamana_serialize_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_serialize_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/vamana_serialize_inst_data_@data_abbrev@.cu"
   )
   generate_inst_matrix(
     refine_device_inst_files
@@ -1407,8 +1435,7 @@ if(NOT BUILD_CPU_ONLY)
     cuvs_objs OBJECT
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
-    src/cluster/gmm_double.cu
-    src/cluster/gmm_float.cu
+    ${gmm_inst_files}
     src/cluster/kmeans_cluster_cost.cu
     src/cluster/kmeans_fit_double.cu
     src/cluster/kmeans_fit_float.cu
@@ -1476,6 +1503,8 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/composite/index.cu
     $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/cagra.cpp>
     $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/hnsw.cpp>
+    src/neighbors/ivf_binary_index.cpp
+    src/neighbors/ivf_binary/ivf_binary.cu
     src/neighbors/ivf_common.cu
     src/neighbors/ivf_flat_index.cpp
     ${ivf_flat_build_extend_inst_files}
@@ -1521,15 +1550,9 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/sample_filter.cu
     src/neighbors/tiered_index.cu
     src/neighbors/sparse_brute_force.cu
-    src/neighbors/vamana_build_float.cu
-    src/neighbors/vamana_build_half.cu
-    src/neighbors/vamana_build_uint8.cu
-    src/neighbors/vamana_build_int8.cu
-    src/neighbors/vamana_codebooks_float.cu
-    src/neighbors/vamana_serialize_float.cu
-    src/neighbors/vamana_serialize_half.cu
-    src/neighbors/vamana_serialize_uint8.cu
-    src/neighbors/vamana_serialize_int8.cu
+    ${vamana_build_inst_files}
+    src/neighbors/vamana_codebooks.cu
+    ${vamana_serialize_inst_files}
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu
@@ -1572,6 +1595,7 @@ if(NOT BUILD_CPU_ONLY)
   target_compile_definitions(
     cuvs_objs
     PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+            CUVS_CUTILE_SM107_ENABLED=${CUVS_CUTILE_SM107_ENABLED}
             $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:CUVS_BUILD_CAGRA_HNSWLIB>
             $<$<BOOL:${BUILD_MG_ALGOS}>:CUVS_BUILD_MG_ALGOS>
             $<$<BOOL:${CUVS_NVTX}>:NVTX_ENABLED>
@@ -1667,19 +1691,6 @@ if(NOT BUILD_CPU_ONLY)
               $<COMPILE_ONLY:cuco::cuco> CUDA::nvJitLink CUDA::nvrtc rtcx::rtcx kvikio::kvikio
       INTERFACE $<LINK_ONLY:kvikio::kvikio>
     )
-
-    # ensure CUDA symbols aren't relocated to the middle of the debug build binaries
-    file(
-      WRITE "${CMAKE_CURRENT_BINARY_DIR}/fatbin.ld"
-      [=[
-SECTIONS
-{
-.nvFatBinSegment : { *(.nvFatBinSegment) }
-.nv_fatbin : { *(.nv_fatbin) }
-}
-]=]
-    )
-    target_link_options(cuvs PRIVATE $<HOST_LINK:${CMAKE_CURRENT_BINARY_DIR}/fatbin.ld>)
 
   endif()
 

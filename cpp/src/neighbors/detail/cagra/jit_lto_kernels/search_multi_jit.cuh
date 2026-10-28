@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -54,7 +54,9 @@ __device__ void random_pickup_kernel_jit(
   const INDEX_T seed_index_limit = graph_size > 0 ? graph_size : dataset_size;
   const auto args_load           = smem_desc->args.load();
 
-  INDEX_T best_index_team_local;
+  // If no candidate has a distance smaller than the initial value (e.g. all distances are NaN), the
+  // index stays invalid and is not inserted below.
+  INDEX_T best_index_team_local    = utils::get_max_value<INDEX_T>();
   DISTANCE_T best_norm2_team_local = utils::get_max_value<DISTANCE_T>();
   for (unsigned i = 0; i < num_distilation; i++) {
     INDEX_T seed_index;
@@ -76,7 +78,8 @@ __device__ void random_pickup_kernel_jit(
 
   const auto store_gmem_index = global_team_index + (ldr * query_id);
   if ((threadIdx.x & ((1u << team_size_bits) - 1u)) == 0) {
-    if (hashmap::insert(
+    if (best_index_team_local != utils::get_max_value<INDEX_T>() &&
+        hashmap::insert(
           visited_hashmap_ptr + (ldb * query_id), hash_bitlen, best_index_team_local)) {
       result_distances_ptr[store_gmem_index] = best_norm2_team_local;
       result_indices_ptr[store_gmem_index]   = best_index_team_local;

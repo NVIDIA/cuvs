@@ -86,8 +86,9 @@ class kmeans_batch {
 /**
  * Read-only batch loader used only by KMeans.
  *
- * The device specialization is a zero-copy view. The host specialization below owns the
- * two-buffer, cyclic H2D pipeline needed by out-of-core KMeans.
+ * The device specialization is a zero-copy view. The host specialization below owns the cyclic
+ * H2D pipeline used by out-of-core KMeans: two buffers when prefetching is enabled, or one buffer
+ * for serialized execution.
  */
 template <typename DataT, typename IndexT, bool DataOnDevice>
 class kmeans_batch_loader;
@@ -99,12 +100,14 @@ class kmeans_batch_loader<DataT, IndexT, true> {
                       raft::device_matrix_view<const DataT, IndexT> input,
                       IndexT batch_size,
                       cuda::stream_ref copy_stream,
-                      rmm::device_async_resource_ref mr)
+                      rmm::device_async_resource_ref mr,
+                      bool enable_prefetch)
     : kmeans_batch_loader(res,
                           std::vector<raft::device_matrix_view<const DataT, IndexT>>{input},
                           batch_size,
                           copy_stream,
-                          mr)
+                          mr,
+                          enable_prefetch)
   {
   }
 
@@ -112,7 +115,8 @@ class kmeans_batch_loader<DataT, IndexT, true> {
                       std::vector<raft::device_matrix_view<const DataT, IndexT>> const& partitions,
                       IndexT batch_size,
                       cuda::stream_ref,
-                      rmm::device_async_resource_ref)
+                      rmm::device_async_resource_ref,
+                      bool)
     : batch_size_(std::max<std::size_t>(static_cast<std::size_t>(batch_size), 1))
   {
     for (std::size_t partition = 0; partition < partitions.size(); ++partition) {
@@ -159,12 +163,14 @@ class kmeans_batch_loader<DataT, IndexT, false> {
                       raft::host_matrix_view<const DataT, IndexT> input,
                       IndexT batch_size,
                       cuda::stream_ref copy_stream,
-                      rmm::device_async_resource_ref mr)
+                      rmm::device_async_resource_ref mr,
+                      bool enable_prefetch)
     : kmeans_batch_loader(res,
                           std::vector<raft::host_matrix_view<const DataT, IndexT>>{input},
                           batch_size,
                           copy_stream,
-                          mr)
+                          mr,
+                          enable_prefetch)
   {
   }
 
@@ -172,10 +178,12 @@ class kmeans_batch_loader<DataT, IndexT, false> {
                       std::vector<raft::host_matrix_view<const DataT, IndexT>> const& partitions,
                       IndexT batch_size,
                       cuda::stream_ref copy_stream,
-                      rmm::device_async_resource_ref mr)
+                      rmm::device_async_resource_ref mr,
+                      bool enable_prefetch)
     : res_(&res),
       batch_size_(std::max<std::size_t>(static_cast<std::size_t>(batch_size), 1)),
       copy_stream_(copy_stream),
+      enable_prefetch_(enable_prefetch),
       buffer_0_(0, copy_stream, mr),
       buffer_1_(0, copy_stream, mr)
   {
@@ -192,7 +200,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
     }
     buffer_0_.resize(max_batch_elements, copy_stream_);
     buffer_ptrs_[0] = buffer_0_.data();
-    if (batches_.size() > 1) {
+    if (num_slots() > 1) {
       buffer_1_.resize(max_batch_elements, copy_stream_);
       buffer_ptrs_[1] = buffer_1_.data();
     }
@@ -278,7 +286,10 @@ class kmeans_batch_loader<DataT, IndexT, false> {
  private:
   enum class slot_state { empty, staged, acquired, reusable };
 
-  [[nodiscard]] auto num_slots() const noexcept -> int { return batches_.size() > 1 ? 2 : 1; }
+  [[nodiscard]] auto num_slots() const noexcept -> int
+  {
+    return enable_prefetch_ && batches_.size() > 1 ? 2 : 1;
+  }
 
   void append_batches(raft::host_matrix_view<const DataT, IndexT> input, std::size_t partition)
   {
@@ -350,6 +361,7 @@ class kmeans_batch_loader<DataT, IndexT, false> {
   std::size_t batch_size_     = 0;
   std::vector<kmeans_batch_source<raft::host_matrix_view<const DataT, IndexT>>> batches_;
   cuda::stream_ref copy_stream_;
+  bool enable_prefetch_ = false;
   rmm::device_uvector<DataT> buffer_0_;
   rmm::device_uvector<DataT> buffer_1_;
   DataT* buffer_ptrs_[2] = {nullptr, nullptr};

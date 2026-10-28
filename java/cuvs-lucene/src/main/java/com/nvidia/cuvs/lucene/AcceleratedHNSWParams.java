@@ -31,10 +31,7 @@ public class AcceleratedHNSWParams {
     CUSTOM
   }
 
-  /*
-   * TODO: Update boundaries for all parameters when a consensus is reached.
-   * Issue: https://github.com/rapidsai/cuvs-lucene/issues/99
-   */
+  // Bounds for the public CAGRA and HNSW build parameters.
   public static final int MIN_WRITER_THREADS = 1;
   public static final int MAX_WRITER_THREADS = 512;
   public static final int MIN_INT_GRAPH_DEG = 2;
@@ -99,7 +96,8 @@ public class AcceleratedHNSWParams {
    * @param intermediateGraphDegree The intermediate graph degree while building the CAGRA index.
    * @param graphdegree The graph degree to use while building the CAGRA index.
    * @param hnswLayers The number of HNSW layers to build in the HNSW index.
-   * @param maxConn The max connection parameter used when building HNSW index with the fallback mechanism.
+   * @param maxConn The HNSW max connections parameter: the CPU fallback builds with it, and it
+   *     bounds the GPU-built graph to at most 2 * maxConn neighbors per node on level 0.
    * @param beamWidth The beam width parameter used when building HNSW index with the fallback mechanism.
    * @param cagraGraphBuildAlgo The CAGRA graph build algorithm to use [NN_DESCENT, IVF_PQ].
    * @param cuVSIvfPqParams An instance of CuVSIvfPqParams containing IVF_PQ specific parameters.
@@ -356,6 +354,10 @@ public class AcceleratedHNSWParams {
      * Valid range - Minimum: {@value MIN_GRAPH_DEG}, Maximum: {@value MAX_GRAPH_DEG}
      * Default value - {@value DEFAULT_GRAPH_DEGREE}
      *
+     * <p>With the CUSTOM strategy, the degree cuVS builds (this value, lowered to the intermediate
+     * graph degree if that is smaller) must be at most {@code 2 * maxConn}: the graph is written as
+     * an HNSW graph, which holds at most {@code 2 * maxConn} neighbors per node on level 0.
+     *
      * @param graphDegree
      * @return instance of {@link Builder}
      */
@@ -378,9 +380,14 @@ public class AcceleratedHNSWParams {
     }
 
     /**
-     * Set the max connections parameter while building HNSW index with fallback mechanism
+     * Set the HNSW max connections parameter (M)
      * Valid range - Minimum: {@value MIN_MAX_CONN}, Maximum: {@value MAX_MAX_CONN}
      * Default value - {@value DEFAULT_MAX_CONN}
+     *
+     * <p>The CPU fallback builds the graph with it, every segment records it as its M, and it
+     * bounds the GPU-built graph: at most {@code 2 * maxConn} neighbors per node on level 0 (with
+     * the CUSTOM strategy, the graph degree must not exceed that) and at most {@code maxConn} on
+     * the upper layers.
      *
      * @param maxConn the max connections parameter
      * @return instance of {@link Builder}
@@ -513,66 +520,19 @@ public class AcceleratedHNSWParams {
      * @throws IllegalArgumentException
      */
     private void validate() throws IllegalArgumentException {
-      if (writerThreads < MIN_WRITER_THREADS || writerThreads > MAX_WRITER_THREADS) {
-        throw new IllegalArgumentException(
-            "writerThreads not in valid range. Valid range: ["
-                + MIN_WRITER_THREADS
-                + ", "
-                + MAX_WRITER_THREADS
-                + "]");
-      }
-      if (intermediateGraphDegree < MIN_INT_GRAPH_DEG
-          || intermediateGraphDegree > MAX_INT_GRAPH_DEG) {
-        throw new IllegalArgumentException(
-            "intermediateGraphDegree not in valid range. Valid range: ["
-                + MIN_INT_GRAPH_DEG
-                + ", "
-                + MAX_INT_GRAPH_DEG
-                + "]");
-      }
-      if (graphdegree < MIN_GRAPH_DEG || graphdegree > MAX_GRAPH_DEG) {
-        throw new IllegalArgumentException(
-            "graphdegree not in valid range. Valid range: ["
-                + MIN_GRAPH_DEG
-                + ", "
-                + MAX_GRAPH_DEG
-                + "]");
-      }
-      if (hnswLayers < MIN_HNSW_LAYERS || hnswLayers > MAX_HNSW_LAYERS) {
-        throw new IllegalArgumentException(
-            "hnswLayers not in valid range. Valid range: ["
-                + MIN_HNSW_LAYERS
-                + ", "
-                + MAX_HNSW_LAYERS
-                + "]");
-      }
-      if (maxConn < MIN_MAX_CONN || maxConn > MAX_MAX_CONN) {
-        throw new IllegalArgumentException(
-            "maxConn not in valid range. Valid range: ["
-                + MIN_MAX_CONN
-                + ", "
-                + MAX_MAX_CONN
-                + "]");
-      }
-      if (beamWidth < MIN_BEAM_WIDTH || beamWidth > MAX_BEAM_WIDTH) {
-        throw new IllegalArgumentException(
-            "beamWidth not in valid range. Valid range: ["
-                + MIN_BEAM_WIDTH
-                + ", "
-                + MAX_BEAM_WIDTH
-                + "]");
-      }
+      ParameterValidation.checkRange(
+          "writerThreads", writerThreads, MIN_WRITER_THREADS, MAX_WRITER_THREADS);
+      ParameterValidation.checkRange(
+          "intermediateGraphDegree", intermediateGraphDegree, MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG);
+      ParameterValidation.checkRange("graphdegree", graphdegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
+      ParameterValidation.checkRange("hnswLayers", hnswLayers, MIN_HNSW_LAYERS, MAX_HNSW_LAYERS);
+      ParameterValidation.checkRange("maxConn", maxConn, MIN_MAX_CONN, MAX_MAX_CONN);
+      ParameterValidation.checkRange("beamWidth", beamWidth, MIN_BEAM_WIDTH, MAX_BEAM_WIDTH);
       if (Objects.isNull(cagraGraphBuildAlgo)) {
         throw new IllegalArgumentException("cagraGraphBuildAlgo cannot be null.");
       }
-      if (numMergeWorkers < MIN_NUM_MERGE_WORKERS || numMergeWorkers > MAX_NUM_MERGE_WORKERS) {
-        throw new IllegalArgumentException(
-            "numMergeWorkers not in valid range. Valid range: ["
-                + MIN_NUM_MERGE_WORKERS
-                + ", "
-                + MAX_NUM_MERGE_WORKERS
-                + "]");
-      }
+      ParameterValidation.checkRange(
+          "numMergeWorkers", numMergeWorkers, MIN_NUM_MERGE_WORKERS, MAX_NUM_MERGE_WORKERS);
       if (Objects.isNull(strategy)) {
         throw new IllegalArgumentException("strategy cannot be null.");
       }
@@ -582,14 +542,38 @@ public class AcceleratedHNSWParams {
       if (Objects.isNull(hnswHeuristicType)) {
         throw new IllegalArgumentException("hnswHeuristicType cannot be null.");
       }
-      if (nnDescentNumIterations < MIN_NN_DESCENT_NUM_ITERATIONS
-          || nnDescentNumIterations > MAX_NN_DESCENT_NUM_ITERATIONS) {
-        throw new IllegalArgumentException(
-            "nnDescentNumIterations not in valid range. Valid range: ["
-                + MIN_NN_DESCENT_NUM_ITERATIONS
-                + ", "
-                + MAX_NN_DESCENT_NUM_ITERATIONS
-                + "]");
+      ParameterValidation.checkRange(
+          "nnDescentNumIterations",
+          nnDescentNumIterations,
+          MIN_NN_DESCENT_NUM_ITERATIONS,
+          MAX_NN_DESCENT_NUM_ITERATIONS);
+      // The CAGRA graph is written as an HNSW graph with maxConn, which holds at most 2 * maxConn
+      // neighbors per node on level 0. A wider graph is searched fine, but a CPU merge cannot copy
+      // it. Under HEURISTIC, cuVS derives the degree from maxConn and stays within that; under
+      // CUSTOM, cuVS builds the graph degree, lowered to the intermediate graph degree if that is
+      // smaller.
+      if (strategy == Strategy.CUSTOM) {
+        int builtDegree = Math.min(graphdegree, intermediateGraphDegree);
+        int maxDegree = 2 * maxConn;
+        if (builtDegree > maxDegree) {
+          String built =
+              graphdegree <= intermediateGraphDegree
+                  ? "graphDegree " + graphdegree
+                  : "graphDegree "
+                      + graphdegree
+                      + ", lowered by cuVS to intermediateGraphDegree "
+                      + intermediateGraphDegree
+                      + ",";
+          throw new IllegalArgumentException(
+              built
+                  + " is larger than 2 * maxConn ("
+                  + maxDegree
+                  + "), the most neighbors an HNSW graph holds per node: set maxConn to at least "
+                  + Math.ceilDiv(builtDegree, 2)
+                  + " or graphDegree to at most "
+                  + maxDegree
+                  + ".");
+        }
       }
     }
 

@@ -14,8 +14,18 @@ _Source header: `cuvs/neighbors/ivf_pq.hpp`_
 A type for specifying how PQ codebooks are created.
 
 ```cpp
-enum class codebook_gen;
+enum class codebook_gen {
+  PER_SUBSPACE = 0,
+  PER_CLUSTER = 1
+};
 ```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `PER_SUBSPACE` | `0` |
+| `PER_CLUSTER` | `1` |
 
 <a id="neighbors-ivf-pq-list-layout"></a>
 ### neighbors::ivf_pq::list_layout
@@ -23,8 +33,18 @@ enum class codebook_gen;
 A type for specifying the memory layout of PQ codes in IVF lists.
 
 ```cpp
-enum class list_layout;
+enum class list_layout {
+  FLAT = 0,
+  INTERLEAVED = 1
+};
 ```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `FLAT` | `0` |
+| `INTERLEAVED` | `1` |
 
 <a id="neighbors-ivf-pq-index-params-from-dataset"></a>
 ### neighbors::ivf_pq::index_params::from_dataset
@@ -163,7 +183,7 @@ Q_2(y) = q_1(u_1),q_2(u_2),...,q_\{pq_dim\}(u_pq_dim\})
 
 Each quantizer q_i outputs a code with pq_bit bits. The second level quantizers are also defined by k-means clustering in the corresponding sub-space: the reproduction values are the centroids, and the set of reproduction values is the codebook.
 
-When the data dimensionality `dim` is not multiple of `pq_dim`, the feature space is transformed using a random orthogonal matrix to have `rot_dim = pq_dim * pq_len` dimensions (`rot_dim &gt;= dim`).
+When the data dimensionality `dim` is not multiple of `pq_dim`, the feature space is transformed using a random orthogonal matrix to have `rot_dim = pq_dim * pq_len` dimensions (`rot_dim >= dim`).
 
 The second-level quantizers are trained either for each subspace or for each cluster: (a) codebook_gen::PER_SUBSPACE: creates `pq_dim` second-level quantizers - one for each slice of the data along features; (b) codebook_gen::PER_CLUSTER: creates `n_lists` second-level quantizers - one for each first-level cluster. In either case, the centroids are again found using k-means clustering interpreting the data as having pq_len dimensions.
 
@@ -347,7 +367,7 @@ uint32_t pq_len() const noexcept;
 <a id="neighbors-ivf-pq-index-pq-book-size"></a>
 ### neighbors::ivf_pq::index::pq_book_size
 
-The number of vectors in a PQ codebook (`1 &lt;&lt; pq_bits`).
+The number of vectors in a PQ codebook (`1 << pq_bits`).
 
 ```cpp
 uint32_t pq_book_size() const noexcept;

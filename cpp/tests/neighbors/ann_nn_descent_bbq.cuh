@@ -15,6 +15,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cuda/stream>
+
 #include <cfloat>
 #include <cstdint>
 #include <optional>
@@ -110,7 +112,7 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
                                                ps.metric,
                                                ps.layout,
                                                ps.second_dataset_layout.value_or(ps.layout));
-      auto dataset        = owning_dataset.as_dataset_view();
+      auto dataset        = owning_dataset.view();
       nn_descent::index_params index_params;
       index_params.metric                    = ps.metric;
       index_params.graph_degree              = ps.graph_degree;
@@ -148,7 +150,7 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentBbqInputs ps;
   raft::device_matrix<float, int64_t> database;
 };

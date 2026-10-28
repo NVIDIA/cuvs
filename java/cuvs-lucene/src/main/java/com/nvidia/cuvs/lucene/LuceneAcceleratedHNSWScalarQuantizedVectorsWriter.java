@@ -64,6 +64,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
   private final FlatVectorsWriter flatVectorsWriter;
   private final List<FieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
+  private final HostInputMemory hostInputMemory;
   private final AcceleratedHNSWParams acceleratedHNSWParams;
   private IndexOutput hnswMeta = null, hnswVectorIndex = null;
   private boolean finished;
@@ -96,6 +97,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
     this.acceleratedHNSWParams = acceleratedHNSWParams;
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
+    this.hostInputMemory = new HostInputMemory(infoStream, COMPONENT, state.segmentInfo.name);
 
     vemFileName =
         IndexFileNames.segmentFileName(
@@ -146,18 +148,6 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
     return writer;
   }
 
-  private static byte signedToUnsignedByte(byte signedByte) {
-    return (byte) (signedByte & 0xFF);
-  }
-
-  private static byte[] convertSignedToUnsigned(byte[] signedVector) {
-    byte[] unsignedVector = new byte[signedVector.length];
-    for (int i = 0; i < signedVector.length; i++) {
-      unsignedVector[i] = signedToUnsignedByte(signedVector[i]);
-    }
-    return unsignedVector;
-  }
-
   /**
    * Builds the intermediate CAGRA index and builds and writes the HNSW index.
    *
@@ -165,61 +155,60 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    * @param vectors quantized vectors
    * @throws IOException
    */
-  private void writeFieldInternal(FieldInfo fieldInfo, List<?> vectors) throws IOException {
-    if (vectors.size() == 0) {
-      writeEmpty(fieldInfo, hnswMeta);
+  private void writeFieldInternal(FieldInfo fieldInfo, List<byte[]> vectors) throws IOException {
+    int size = vectors.size();
+    if (writeTrivialField(fieldInfo, size)) {
       return;
     }
 
     try {
       int dimensions = fieldInfo.getVectorDimension();
 
-      // Convert 7-bit signed bytes to 8-bit unsigned bytes for cuVS compatibility
-      List<byte[]> unsignedVectors = new ArrayList<>(vectors.size());
-      for (Object signedVector : vectors) {
-        unsignedVectors.add(convertSignedToUnsigned((byte[]) signedVector));
-      }
+      // The scalar quantizer already emits nonnegative bytes for cuVS's unsigned BYTE type.
+      hostInputMemory.withMatrix(
+          fieldInfo.name,
+          size,
+          dimensions,
+          CuVSMatrix.DataType.BYTE,
+          builder -> {
+            for (byte[] vector : vectors) {
+              builder.addVector(vector);
+            }
+            writeNonTrivialField(fieldInfo, builder.build());
+          });
+    } catch (Throwable t) {
+      throw Utils.handleThrowable(t);
+    }
+  }
 
-      // Create CuVSMatrix with BYTE data type (unsigned bytes)
-      CuVSMatrix dataset =
-          Utils.createByteMatrix(unsignedVectors, dimensions, getCuVSResourcesInstance());
-
-      if (dataset.size() < 2) {
-        writeSingleVectorGraph(fieldInfo, unsignedVectors);
-        return;
-      }
-
+  /** Builds and writes an index from an owned scalar-vector matrix. */
+  private void writeNonTrivialField(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
+    try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(dataset)) {
+      int size = (int) dataset.size();
+      int dimensions = fieldInfo.getVectorDimension();
       CagraIndexParams params =
           CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
-
       CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
-              .withDataset(dataset)
+              .fromDataset(dataset)
               .withIndexParams(params)
               .build();
+      ownedIndex.transferTo(cagraIndex);
 
       CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
-
-      int size = (int) dataset.size();
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
-              fieldInfo,
-              size,
               dimensions,
               adjacencyListMatrix,
-              unsignedVectors,
+              dataset,
               acceleratedHNSWParams.getHnswLayers(),
               params,
-              QuantizationType.SCALAR);
+              QuantizationType.SCALAR,
+              acceleratedHNSWParams.getMaxConn());
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-
-      // Write the graph to the vector index
       int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
-
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
-
-      // Write metadata
       writeMeta(
           hnswVectorIndex,
           hnswMeta,
@@ -228,12 +217,24 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
-
-      cagraIndex.close();
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
     } catch (Throwable t) {
-      Utils.handleThrowable(t);
+      throw Utils.handleThrowable(t);
     }
+  }
+
+  /** Writes the empty or one-vector representation, if {@code size} is trivial. */
+  private boolean writeTrivialField(FieldInfo fieldInfo, int size) throws IOException {
+    if (size == 0) {
+      writeEmpty(fieldInfo, hnswMeta, acceleratedHNSWParams.getMaxConn());
+      return true;
+    }
+    if (size == 1) {
+      writeSingleVectorGraph(fieldInfo);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -287,11 +288,9 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    * Builds and writes a single vector graph.
    *
    * @param fieldInfo instance of FieldInfo
-   * @param vectors the list of scalar quantized vectors (already converted to unsigned)
    * @throws IOException I/O Exceptions
    */
-  private void writeSingleVectorGraph(FieldInfo fieldInfo, List<byte[]> vectors)
-      throws IOException {
+  private void writeSingleVectorGraph(FieldInfo fieldInfo) throws IOException {
     // Workaround for CAGRA not supporting single vector indexes
     try {
       int size = 1;
@@ -314,7 +313,8 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
 
     } catch (Throwable t) {
       Utils.handleThrowable(t);
@@ -386,7 +386,7 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
    */
   @Override
   public long ramBytesUsed() {
-    long total = SHALLOW_RAM_BYTES_USED;
+    long total = SHALLOW_RAM_BYTES_USED + hostInputMemory.ramBytesUsed();
     for (var field : fields) {
       total += field.ramBytesUsed();
     }

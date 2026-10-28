@@ -31,7 +31,7 @@ reviews:
   # Path-specific review instructions
   # Note: Detailed C++/CUDA and Python review guidelines are in cpp/REVIEW_GUIDELINES.md and python/REVIEW_GUIDELINES.md
   path_instructions:
-    - path: "docs/**/*"
+    - path: "fern/**/*"
       instructions: |
         For documentation changes, focus on:
         - Accuracy: Verify code examples compile and run correctly
@@ -43,15 +43,15 @@ reviews:
     - path: "c/include/cuvs/**/*"
       instructions: |
         For public C API headers, additionally check:
-        - Doxygen documentation for all public functions/classes
-        - API changes flagged for docs/ updates
+        - Doxygen-style source comments for all public functions/classes, consumed by the Fern API generator
+        - API changes flagged for fern/ updates
         - Breaking changes require deprecation warnings and migration guide updates
 
     - path: "cpp/include/cuvs/**/*"
       instructions: |
         For public C++ API headers, additionally check:
-        - Doxygen documentation for all public functions/classes
-        - API changes flagged for docs/ updates
+        - Doxygen-style source comments for all public functions/classes, consumed by the Fern API generator
+        - API changes flagged for fern/ updates
         - Breaking changes require deprecation warnings and migration guide updates
 
     - path: "notebooks/**/*"
@@ -82,5 +82,5 @@ knowledge_base:
     filePatterns:
       - "cpp/REVIEW_GUIDELINES.md"
       - "python/REVIEW_GUIDELINES.md"
-      - "docs/source/contributing.md"
-      - "docs/source/developer_guide.md"
+      - "fern/pages/contributing.md"
+      - "fern/pages/developer_guide.md"

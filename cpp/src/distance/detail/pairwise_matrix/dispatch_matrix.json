@@ -124,5 +124,26 @@
     ],
     "index_type": "int64_t",
     "index_abbrev": "i64"
+  },
+  {
+    "_data": [
+      {
+        "data_type": "uint8_t",
+        "data_abbrev": "u8",
+        "acc_type": "uint32_t",
+        "acc_abbrev": "u32",
+        "out_type": "uint32_t",
+        "out_abbrev": "u32"
+      }
+    ],
+    "_op": [
+      {
+        "op_type": "cuvs::distance::detail::ops::bitwise_hamming_distance_op",
+        "op_abbrev": "bitwise_hamming",
+        "arch_includes": ""
+      }
+    ],
+    "index_type": "int64_t",
+    "index_abbrev": "i64"
   }
 ]

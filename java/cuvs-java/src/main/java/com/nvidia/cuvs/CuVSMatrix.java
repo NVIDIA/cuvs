@@ -73,7 +73,7 @@ public interface CuVSMatrix extends AutoCloseable {
    * A builder to construct a new matrix one row at a time
    * @param <T> the CuVSMatrix type to build
    */
-  interface Builder<T extends CuVSMatrix> {
+  interface Builder<T extends CuVSMatrix> extends AutoCloseable {
     /**
      * Adds a single vector to the matrix.
      *
@@ -102,7 +102,25 @@ public interface CuVSMatrix extends AutoCloseable {
      */
     void addVector(short[] vector);
 
+    /**
+     * Completes the matrix and transfers ownership to the caller.
+     *
+     * <p>If this method fails, callers should close the builder. Built-in builders then release
+     * matrix storage allocated during builder construction; providers that inherit the default
+     * no-op {@link #close()} implementation do not.
+     */
     T build();
+
+    /**
+     * Closes this builder. Built-in builders release matrix storage unless ownership was
+     * transferred by a successful {@link #build()}.
+     *
+     * <p>The default implementation preserves compatibility with providers compiled before
+     * builders became closeable. Builders that allocate storage before {@link #build()} should
+     * override this method.
+     */
+    @Override
+    default void close() {}
   }
 
   /**

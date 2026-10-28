@@ -26,6 +26,7 @@ import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
+import org.apache.lucene.index.LogDocMergePolicy;
 import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
@@ -75,7 +76,9 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
     }
 
     try (Directory dir = newDirectory(new ByteBuffersDirectory());
-        IndexWriter w = new IndexWriter(dir, newIndexWriterConfig())) {
+        // A random merge policy could merge the two segments before they are checked.
+        IndexWriter w =
+            new IndexWriter(dir, newIndexWriterConfig().setMergePolicy(new LogDocMergePolicy()))) {
       for (int i = 0; i < R; i++) {
         Document doc = new Document();
         doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));

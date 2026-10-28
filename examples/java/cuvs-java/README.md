@@ -4,7 +4,7 @@ This maven project contains examples for CAGRA, HNSW, and Bruteforce algorithms.
 
 ## Prerequisites
 
-- [CuVS libraries](https://docs.rapids.ai/api/cuvs/stable/build/#build-from-source)
+- [CuVS libraries](https://docs.nvidia.com/cuvs/installation#build-from-source)
 - Build the CuVS-Java API
 
 ## Run Examples
