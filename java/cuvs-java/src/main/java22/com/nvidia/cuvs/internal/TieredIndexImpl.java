@@ -420,6 +420,8 @@ public class TieredIndexImpl implements TieredIndex {
       cuvsCagraIndexParams.intermediate_graph_degree(
           cagraParamsSeg, cagraParams.getIntermediateGraphDegree());
       cuvsCagraIndexParams.graph_degree(cagraParamsSeg, cagraParams.getGraphDegree());
+      cuvsCagraIndexParams.variable_graph_degree_fraction(
+          cagraParamsSeg, cagraParams.getVariableGraphDegreeFraction());
       cuvsCagraIndexParams.build_algo(cagraParamsSeg, cagraParams.getCagraGraphBuildAlgo().value);
       cuvsCagraIndexParams.nn_descent_niter(
           cagraParamsSeg, cagraParams.getNNDescentNumIterations());
