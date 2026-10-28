@@ -81,7 +81,7 @@ To use `cuvs-lucene` in a Maven project, add the following dependency to your `p
 <dependency>
   <groupId>com.nvidia.cuvs.lucene</groupId>
   <artifactId>cuvs-lucene</artifactId>
-  <version>26.10.0</version>
+  <version>26.12.0</version>
 </dependency>
 ```
 

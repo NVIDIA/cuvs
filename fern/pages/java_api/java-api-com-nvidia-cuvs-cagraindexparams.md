@@ -508,17 +508,22 @@ public Builder withNumWriterThreads(int numWriterThreads)
 
 Sets the number of writer threads to use for indexing.
 
+This sets the OpenMP thread count for the native build or merge on the calling thread, and
+the previous count is restored afterwards. A value of zero or less leaves the calling
+thread's OpenMP thread count unchanged. That is the OpenMP default (normally one thread per
+core) unless it was set earlier on that thread.
+
 **Parameters**
 
 | Name | Description |
 | --- | --- |
-| `numWriterThreads` | number of writer threads to use |
+| `numWriterThreads` | number of writer threads to use, or zero or less to keep the calling thread's OpenMP thread count |
 
 **Returns**
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:532`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:538`_
 
 ### withCuVSIvfPqParams
 
@@ -538,7 +543,7 @@ Sets the IVF_PQ index parameters.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:543`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:549`_
 
 ### withCuVSAceParams
 
@@ -558,7 +563,7 @@ Sets the ACE index parameters.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:554`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:560`_
 
 ### build
 
@@ -572,6 +577,6 @@ Builds an instance of `CagraIndexParams`.
 
 an instance of `CagraIndexParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:564`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:570`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:18`_
