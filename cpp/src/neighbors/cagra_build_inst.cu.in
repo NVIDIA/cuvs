@@ -43,7 +43,7 @@ void build_knn_graph(raft::resources const& handle,
   cuvs::neighbors::cagra::build_knn_graph<data_t, index_t>(handle, dataset, knn_graph, params);
 }
 
-#define CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(DatasetViewT)                        \
+#define CUVS_INST_CAGRA_BUILD(DatasetViewT)                                   \
   auto build(raft::resources const& res,                                      \
              const cuvs::neighbors::cagra::index_params& params,              \
              DatasetViewT dataset) -> cagra_index_t<DatasetViewT>             \
@@ -51,17 +51,17 @@ void build_knn_graph(raft::resources const& handle,
     return cuvs::neighbors::cagra::build<DatasetViewT>(res, params, dataset); \
   }
 
-CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_device_padded_view_t);
-CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_device_standard_view_t);
-CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_padded_view_t);
-CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_host_standard_view_t);
-CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_bbq_view_t);
+CUVS_INST_CAGRA_BUILD(inst_device_padded_view_t);
+CUVS_INST_CAGRA_BUILD(inst_device_standard_view_t);
+CUVS_INST_CAGRA_BUILD(inst_host_padded_view_t);
+CUVS_INST_CAGRA_BUILD(inst_host_standard_view_t);
+CUVS_INST_CAGRA_BUILD(inst_bbq_view_t);
 
 #if @emit_vpq_build@
-CUVS_DEFINE_CAGRA_BUILD_OVERLOAD(inst_vpq_view_t);
+CUVS_INST_CAGRA_BUILD(inst_vpq_view_t);
 #endif
 
-#undef CUVS_DEFINE_CAGRA_BUILD_OVERLOAD
+#undef CUVS_INST_CAGRA_BUILD
 
 #define CUVS_INST_CAGRA_UPDATE_DATASET(T, IdxT, SrcDatasetViewT, DstDatasetViewT)             \
   auto update_dataset(raft::resources const& res,                                             \
