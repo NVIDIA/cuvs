@@ -132,7 +132,7 @@ class pruned_assignment {
         handle, std::is_same_v<T, half> ? 0 : n_rows_, filter_dim_)),
       filter_centroids_(raft::make_device_matrix<half, int64_t>(handle, n_clusters, filter_dim_)),
       workspace_(raft::make_device_vector<char, int64_t>(
-        handle, cuvs::distance::pruned_top_1_nn_workspace_size(handle, n_rows_)))
+        handle, cuvs::distance::pruned_top_1_nn_workspace_size(n_rows_)))
   {
     auto stream         = raft::resource::get_cuda_stream(handle).get();
     const auto ratios   = pruned_nn::adsampling_ratios(dim_);
