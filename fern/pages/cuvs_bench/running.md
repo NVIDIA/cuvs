@@ -175,7 +175,7 @@ With `--search-device cpu`, `cuvs_bench.run` searches the saved indexes with `fa
 - `OMP_NUM_THREADS` sets the search thread count. Without it, Faiss uses all cores. The thread count is not recorded in the results.
 - Pass `cuvs_bench.plot` the same `-k` and `--batch-size` as the search.
 - Results are written under the `faiss_gpu_cagra_hnsw` name. A regular search of `faiss_gpu_cagra_hnsw` into the same dataset folder replaces them.
-- If you build with a custom `--configuration`, pass the same file on the CPU-only host, because the index names are built from its group and build parameters.
+- The search finds the index files by names generated from the configuration's group and build parameters. If you build with a custom `--configuration`, pass a file on the CPU-only host with the same name, groups, and build parameters, or a subset of them. Its `search` parameters can differ from the build host's, so you can sweep new search parameters without rebuilding.
 
 ## Running with Docker containers
 
