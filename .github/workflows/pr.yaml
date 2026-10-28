@@ -27,7 +27,7 @@ jobs:
       - conda-java-tests
       - conda-lucene-build
       - conda-lucene-tests
-      - conda-lucene-tests-jdk21
+      - conda-lucene-tests-min-jdk
       - rust-build
       - go-build
       - docs-build
@@ -228,7 +228,6 @@ jobs:
           - '!ci/test_cpp.sh'
           - '!ci/test_java.sh'
           - '!ci/test_lucene.sh'
-          - '!ci/test_lucene_jdk21.sh'
           - '!ci/test_standalone_c.sh'
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
@@ -285,7 +284,6 @@ jobs:
           - '!ci/test_cpp.sh'
           - '!ci/test_java.sh'
           - '!ci/test_lucene.sh'
-          - '!ci/test_lucene_jdk21.sh'
           - '!ci/test_python.sh'
           - '!ci/test_standalone_c.sh'
           - '!ci/validate_wheel.sh'
@@ -346,7 +344,6 @@ jobs:
           - '!ci/test_cpp.sh'
           - '!ci/test_java.sh'
           - '!ci/test_lucene.sh'
-          - '!ci/test_lucene_jdk21.sh'
           - '!ci/test_python.sh'
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
@@ -400,7 +397,6 @@ jobs:
           - '!ci/test_cpp.sh'
           - '!ci/test_java.sh'
           - '!ci/test_lucene.sh'
-          - '!ci/test_lucene_jdk21.sh'
           - '!ci/test_python.sh'
           - '!ci/test_standalone_c.sh'
           - '!ci/test_wheel_cuvs.sh'
@@ -648,14 +644,14 @@ jobs:
     with:
       build_type: pull-request
       script: "ci/test_lucene.sh"
-  conda-lucene-tests-jdk21:
-    # Verifies that cuvs-lucene, compiled with --release 21, loads and works without the GPU on
-    # JDK 21, the oldest JDK it supports, by running its test suite against the amd64-built
-    # classes without recompiling -- see ci/test_lucene_jdk21.sh. It runs once, not per CUDA
-    # version: it uses no GPU, so the artifacts of any amd64 entry of the build matrix will do.
-    # This matters because many applications built on Lucene 10 support JDK 21 as their minimum.
-    # cuvs-lucene only uses the GPU on JDK 22+, but it can't stop such an application from starting
-    # on JDK 21, so there it has to load and fall back to the CPU.
+  conda-lucene-tests-min-jdk:
+    # Verifies that cuvs-lucene loads and works without the GPU on the oldest JDK it supports
+    # (java_min_jdk in dependencies.yaml), by running its test suite against the amd64-built
+    # classes without recompiling -- see ci/test_lucene.sh. It runs once, not per CUDA version: it
+    # uses no GPU, so the artifacts of any amd64 entry of the build matrix will do. This matters
+    # because many applications built on Lucene support older JDKs than the 22 that cuvs-java needs
+    # for the GPU. cuvs-lucene can't stop such an application from starting on an older JDK, so
+    # there it has to load and fall back to the CPU.
     needs: conda-lucene-build
     permissions:
       actions: read
@@ -668,7 +664,7 @@ jobs:
       build_type: pull-request
       node_type: cpu8
       matrix_filter: '[map(select(.ARCH == "amd64")) | max_by(.CUDA_VER | split(".") | map(tonumber))]'
-      script: "ci/test_lucene_jdk21.sh"
+      script: "ci/test_lucene.sh --min-jdk"
   rust-build:
     needs: [conda-cpp-build, changed-files]
     permissions:
