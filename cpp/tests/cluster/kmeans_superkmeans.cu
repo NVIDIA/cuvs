@@ -304,7 +304,7 @@ TEST(KmeansSuperKMeans, Pruned)
   // dim tiles (one re-filter)
   constexpr int64_t n_rows     = 300000;
   constexpr int64_t dim        = 768;
-  constexpr int64_t n_clusters = 1100;
+  constexpr int64_t n_clusters = 2200;
   constexpr uint32_t n_iters   = 8;
   constexpr uint64_t seed      = 42;
   raft::handle_t handle;
