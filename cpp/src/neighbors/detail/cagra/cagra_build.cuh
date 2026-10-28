@@ -8,6 +8,7 @@
 #include "../../../util/kvikio_io.hpp"
 #include "../../ivf_pq/ivf_pq_fp16_overflow.cuh"
 #include "cagra_ace.cuh"
+#include "cagra_build_brute_force.cuh"
 #include "cagra_search.cuh"
 #include "graph_core.cuh"
 #include <cuvs/preprocessing/quantize/pq.hpp>
@@ -982,11 +983,12 @@ inline void validate_cagra_knn_graph_build_constraints(index_params const& param
       std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
         knn_build_params) ||
       std::holds_alternative<cagra::graph_build_params::nn_descent_params>(knn_build_params),
-    "IVF_PQ for CAGRA graph build does not support BitwiseHamming as a metric. Please "
+    "The selected CAGRA graph builder does not support BitwiseHamming as a metric. Please "
     "use nn-descent or the iterative CAGRA search build.");
   RAFT_EXPECTS(
     params.metric != cuvs::distance::DistanceType::CosineExpanded ||
       std::holds_alternative<cagra::graph_build_params::ivf_pq_params>(knn_build_params) ||
+      std::holds_alternative<cagra::graph_build_params::brute_force_params>(knn_build_params) ||
       std::holds_alternative<cagra::graph_build_params::nn_descent_params>(knn_build_params),
     "CosineExpanded distance is not supported for iterative CAGRA graph build.");
 
@@ -997,7 +999,8 @@ inline void validate_cagra_knn_graph_build_constraints(index_params const& param
 }
 
 /**
- * Iterative / IVF-PQ / NN-descent KNN graph construction and `optimize` → final host CAGRA graph.
+ * Iterative / IVF-PQ / NN-descent / brute-force KNN graph construction and `optimize` → final host
+ * CAGRA graph.
  *
  * @param knn_graph_dataset  mdspan passed to IVF-PQ / NN-descent `build_knn_graph` (any stride).
  */
@@ -1026,6 +1029,10 @@ auto build_cagra_host_graph_from_knn_params(raft::resources const& res,
       ivf_pq_params.build_params.metric = params.metric;
     }
     build_knn_graph(res, knn_graph_dataset, knn_graph->view(), ivf_pq_params);
+  } else if (std::holds_alternative<graph_build_params::brute_force_params>(knn_build_params)) {
+    auto brute_force_params = std::get<graph_build_params::brute_force_params>(knn_build_params);
+    brute_force_params.build_params.metric = params.metric;
+    build_knn_graph(res, knn_graph_dataset, knn_graph->view(), brute_force_params);
   } else {
     auto nn_descent_params =
       std::get<cagra::graph_build_params::nn_descent_params>(knn_build_params);
