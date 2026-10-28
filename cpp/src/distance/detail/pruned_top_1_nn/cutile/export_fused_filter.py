@@ -78,9 +78,9 @@ def _signature(data_type: str, tile_m: int, tile_n: int, tile_k: int):
         parameters=[
             _matrix(),  # rows (n_rows, d)
             _matrix(),  # centroids (n_centroids, d)
-            _vector(ct.float32, read_only),  # row_norms: ||row||^2 over d'
-            _vector(ct.float32, read_only),  # centroid_norms: ||centroid||^2 over d'
-            _vector(ct.float32, read_only),  # best: each row's current distance
+            _vector(ct.float32, read_only),  # row_norms over d'
+            _vector(ct.float32, read_only),  # centroid_norms over d'
+            _vector(ct.float32, read_only),  # best: current distances
             _vector(ct.int64),  # packed survivors
             _counts(),  # count (n_rows, 1)
             ScalarConstraint(ct.int32),  # n_rows
