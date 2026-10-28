@@ -230,17 +230,10 @@ RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ 
   const int64_t row          = row_order != nullptr ? row_order[blockIdx.x] : blockIdx.x;
   const T* row_values        = rows + row * dim;
   uint32_t best_index        = labels[row];
-  float best                 = dist[row];
-  const float bound          = best;
+  // The row's distance to its current centroid until the last tile's argmin
+  float best = dist[row];
 
-  int64_t* list = lists.packed + row * lists.row_stride;
-  auto put      = [&](uint32_t position, int64_t value) {
-    if (position < kWarpSize) {
-      head[position] = value;
-    } else {
-      list[position] = value;
-    }
-  };
+  int64_t* list   = lists.packed + row * lists.row_stride;
   uint32_t n_left = static_cast<uint32_t>(lists.count[row]);
   if (lane < n_left) { head[lane] = list[lane]; }
   __syncwarp();
@@ -251,24 +244,20 @@ RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ 
     return;
   }
 
-  for (uint32_t d = partial_dim; d < dim && n_left; d += kDimTileSize) {
+  // One pass per dim tile (partial_dim < dim); the last one ends with the argmin
+  for (uint32_t d = partial_dim; n_left; d += kDimTileSize) {
     const bool last = d + kDimTileSize >= dim;
     float row_tile[kDimTileSize / kWarpSize];
 #pragma unroll
     for (uint32_t j = 0; j < kDimTileSize / kWarpSize; j++) {
       row_tile[j] = static_cast<float>(row_values[d + lane + j * kWarpSize]);
     }
-    // After the last tile the distances are complete: the argmin compares them with the best
-    const float threshold = last ? 0.f : bound * ratios[d + kDimTileSize];
-    uint32_t kept         = 0;
-    // The next window is loaded while the current one is computed
-    int64_t next = kWarpSize + lane < n_left ? list[kWarpSize + lane] : 0;
+    uint32_t kept = 0;
     for (uint32_t base = 0; base < n_left; base += kWarpSize) {
       const uint32_t w    = min(kWarpSize, n_left - base);
-      const int64_t entry = base == 0 ? head[lane] : next;
-      if (base > 0 && base + kWarpSize + lane < n_left) { next = list[base + kWarpSize + lane]; }
-      const auto ids = static_cast<uint32_t>(entry >> kSurvivorIdShift);
-      float distance = lane < w ? __int_as_float(static_cast<int32_t>(entry)) : 0.f;
+      const int64_t entry = lane >= w ? 0 : base == 0 ? head[lane] : list[base + lane];
+      const auto ids      = static_cast<uint32_t>(entry >> kSurvivorIdShift);
+      float distance      = __int_as_float(static_cast<int32_t>(entry));
       // Survivor tiles of kSurvivorTileSize, then halving sizes down to 1 for the ones left
       uint32_t i = 0;
       for_each_halving<kSurvivorTileSize>([&](auto tile) {
@@ -279,11 +268,14 @@ RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ 
       });
       if (!last) {
         // The kept survivors go below this window's end, never into a later window
-        const bool keep       = lane < w && distance < threshold;
+        const bool keep       = lane < w && distance < best * ratios[d + kDimTileSize];
         const uint32_t ballot = __ballot_sync(kFullMask, keep);
-        if (keep) { put(kept + __popc(ballot & lanes_below), pack_survivor(ids, distance)); }
+        if (keep) {
+          const uint32_t slot                          = kept + __popc(ballot & lanes_below);
+          (slot < kWarpSize ? head[slot] : list[slot]) = pack_survivor(ids, distance);
+        }
         kept += __popc(ballot);
-      } else if (lane < w && distance < best) {
+      } else if (lane < w && distance < best) {  // after the last tile the distances are full
         best       = distance;
         best_index = centroid_offset + ids;
       }
@@ -292,19 +284,6 @@ RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ 
     n_left = last ? 0 : kept;
   }
 
-  // No tail dims (partial_dim = dim): the first-filter distances are full, the argmin is over the
-  // list itself
-  for (uint32_t base = 0; base < n_left; base += kWarpSize) {
-    const uint32_t position = base + lane;
-    if (position < n_left) {
-      const int64_t entry  = base == 0 ? head[lane] : list[position];
-      const float distance = __int_as_float(static_cast<int32_t>(entry));
-      if (distance < best) {
-        best       = distance;
-        best_index = centroid_offset + static_cast<uint32_t>(entry >> kSurvivorIdShift);
-      }
-    }
-  }
   for (int offset = kWarpSize / 2; offset > 0; offset >>= 1) {
     const uint32_t other_index = __shfl_down_sync(kFullMask, best_index, offset);
     const float other          = __shfl_down_sync(kFullMask, best, offset);
@@ -340,8 +319,8 @@ void prune(const T* rows,
            uint32_t* survivors,
            cudaStream_t stream)
 {
-  RAFT_EXPECTS(partial_dim <= dim && (dim - partial_dim) % kDimTileSize == 0,
-               "Pruned 1-NN needs dim - partial_dim to be a multiple of %u",
+  RAFT_EXPECTS(partial_dim < dim && (dim - partial_dim) % kDimTileSize == 0,
+               "Pruned 1-NN needs partial_dim < dim, dim - partial_dim a multiple of %u",
                kDimTileSize);
   prune_kernel<<<n_rows, kWarpSize, 0, stream>>>(rows,
                                                  row_order,

@@ -238,7 +238,7 @@ struct balanced_params : base_params {
  * row with the fused 1-NN over all dimensions; later iterations compute partial distances over the
  * first 256 dimensions, discard centroids that are unlikely to beat a row's current one (the
  * ADSampling bound, without its random rotation), and finish the remaining dimensions only for the
- * survivors. Pruning applies with more than 256 clusters and at least 256 dimensions, which must
+ * survivors. Pruning applies with more than 256 clusters and more than 256 dimensions, which must
  * then be a multiple of 256; otherwise every iteration assigns with the full 1-NN.
  *
  * The number of clusters is taken from the `centroids` argument. The start centroids are rows

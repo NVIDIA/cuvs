@@ -293,10 +293,10 @@ TEST(KmeansSuperKMeans, Fallback)
   }
 }
 
-/* With more than 256 clusters and a multiple of 256 dims, the iterations after the first prune
- * (on a build and device with the filter's kernels; otherwise they assign in full). The pruning
- * bound is a heuristic without a rotation, so the result is compared with Lloyd's from the same
- * start rows rather than exactly. The labels and inertia come from a full assignment.
+/* With more than 256 clusters and more than 256 dims, a multiple of 256, the iterations after the
+ * first prune (on a build and device with the filter's kernels; otherwise they assign in full). The
+ * pruning bound is a heuristic without a rotation, so the result is compared with Lloyd's from the
+ * same start rows rather than exactly. The labels and inertia come from a full assignment.
  */
 TEST(KmeansSuperKMeans, Pruned)
 {
