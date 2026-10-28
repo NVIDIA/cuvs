@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/matrix_broadcast_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"
@@ -275,7 +276,7 @@ void kmeansPlusPlus(raft::resources const& handle,
     // Outputs minDistanceBuf[n_trials x n_samples] where minDistance[i, :] contains updated
     // minClusterDistance that includes candidate-i
     auto minDistBuf = distBuffer.view();
-    raft::linalg::matrix_vector_op<raft::Apply::ALONG_ROWS>(
+    cuvs::detail::matrix_vector_op<raft::Apply::ALONG_ROWS>(
       handle,
       raft::make_const_mdspan(pwd),
       raft::make_const_mdspan(minClusterDistance.view()),

@@ -4,6 +4,7 @@
  */
 
 #include "../../../core/map_launchers.hpp"
+#include "../../../core/matrix_broadcast_launchers.hpp"
 #include <cub/device/device_histogram.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
@@ -245,7 +246,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
 
   auto x_eta_1 = raft::make_device_matrix<float, int64_t>(dev_resources, x.extent(0), x.extent(1));
 
-  raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
+  cuvs::detail::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
     dev_resources,
     raft::make_const_mdspan(x),
     raft::make_const_mdspan(norms_eta_1.view()),
@@ -261,7 +262,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
   // scale x
   // skipping zero elements in the vector should be ok, since they are norms
   // of dataset vectors
-  raft::linalg::binary_mult_skip_zero<raft::Apply::ALONG_COLUMNS>(
+  cuvs::detail::binary_mult_skip_zero<raft::Apply::ALONG_COLUMNS>(
     dev_resources, x, raft::make_const_mdspan(norms_eta_3.view()));
 
   // x^T x
@@ -274,7 +275,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
   auto x_trans_x = raft::make_device_matrix<float, int64_t, raft::col_major>(
     dev_resources, x.extent(1), x.extent(1));
 
-  raft::matrix::eye(dev_resources, x_trans_x.view());
+  cuvs::detail::eye(dev_resources, x_trans_x.view());
 
   auto eta_m_1       = raft::make_device_scalar<float>(dev_resources, eta - 1);
   auto cublas_handle = raft::resource::get_cublas_handle(dev_resources);

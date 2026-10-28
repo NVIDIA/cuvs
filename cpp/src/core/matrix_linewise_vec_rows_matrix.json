@@ -1,0 +1,54 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::matrix::detail::matrixLinewiseVecRows",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<float, long, 16ul, 256, raft::add_op, float>",
+        "parameter_types": "float*, float const*, long, long, raft::add_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_long_16ul_256_add_op_f32"
+      },
+      {
+        "template_arguments": "<float, long, 16ul, 256, raft::sub_op, float>",
+        "parameter_types": "float*, float const*, long, long, raft::sub_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_long_16ul_256_sub_op_f32"
+      },
+      {
+        "template_arguments": "<float, long, 4ul, 256, raft::add_op, float>",
+        "parameter_types": "float*, float const*, long, long, raft::add_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_long_4ul_256_add_op_f32"
+      },
+      {
+        "template_arguments": "<float, long, 4ul, 256, raft::sub_op, float>",
+        "parameter_types": "float*, float const*, long, long, raft::sub_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_long_4ul_256_sub_op_f32"
+      },
+      {
+        "template_arguments": "<float, long, 8ul, 256, raft::add_op, float>",
+        "parameter_types": "float*, float const*, long, long, raft::add_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_long_8ul_256_add_op_f32"
+      },
+      {
+        "template_arguments": "<float, long, 8ul, 256, raft::sub_op, float>",
+        "parameter_types": "float*, float const*, long, long, raft::sub_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_long_8ul_256_sub_op_f32"
+      },
+      {
+        "template_arguments": "<float, unsigned long, 16ul, 256, raft::sub_op, float>",
+        "parameter_types": "float*, float const*, unsigned long, unsigned long, raft::sub_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_ulong_16ul_256_sub_op_f32"
+      },
+      {
+        "template_arguments": "<float, unsigned long, 4ul, 256, raft::sub_op, float>",
+        "parameter_types": "float*, float const*, unsigned long, unsigned long, raft::sub_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_ulong_4ul_256_sub_op_f32"
+      },
+      {
+        "template_arguments": "<float, unsigned long, 8ul, 256, raft::sub_op, float>",
+        "parameter_types": "float*, float const*, unsigned long, unsigned long, raft::sub_op, CUstream_st*, float const*",
+        "instantiation_name": "f32_ulong_8ul_256_sub_op_f32"
+      }
+    ]
+  }
+]

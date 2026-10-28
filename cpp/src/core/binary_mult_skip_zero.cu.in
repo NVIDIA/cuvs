@@ -1,0 +1,27 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/matrix_broadcast_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/matrix_vector.cuh>
+
+namespace cuvs::detail {
+
+template <Apply apply, typename math_t, typename idx_t, typename layout_t>
+void binary_mult_skip_zero(raft::resources const& handle,
+                           raft::device_matrix_view<math_t, idx_t, layout_t> data,
+                           raft::device_vector_view<const math_t, idx_t> vec)
+
+{
+  return raft::linalg::binary_mult_skip_zero<apply>(handle, data, vec);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@binary_mult_skip_zero_detail_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

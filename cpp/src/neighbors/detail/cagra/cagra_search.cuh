@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../../core/map_launchers.hpp"
+#include "../../../core/matrix_broadcast_launchers.hpp"
 #include "../../../core/nvtx.hpp"
 #include "factory.cuh"
 #include "sample_filter_utils.cuh"
@@ -317,7 +318,7 @@ void search_main(raft::resources const& res,
     const auto k         = distances.extent(1);
     auto query_norms_ptr = query_norms.data_handle();
 
-    raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
+    cuvs::detail::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
       res,
       raft::make_const_mdspan(distances),
       raft::make_const_mdspan(query_norms.view()),
@@ -547,7 +548,7 @@ void search_multi_partition(
       if (indices[i]->metric() == cuvs::distance::DistanceType::CosineExpanded) {
         auto slice_view = raft::make_device_matrix_view<DistanceT, int64_t, raft::row_major>(
           slice_ptr, chunk_queries, per_partition_topk);
-        raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
+        cuvs::detail::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
           res,
           raft::make_const_mdspan(slice_view),
           raft::make_const_mdspan(chunk_query_norms),

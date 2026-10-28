@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/matrix_broadcast_launchers.hpp"
 #include "kmeans_common.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -397,7 +398,7 @@ void calc_centers_and_sizes(const raft::resources& handle,
   auto clusterSizesView = raft::make_device_vector_view<const CounterT>(cluster_sizes, n_clusters);
 
   if (!reset_counters) {
-    raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
+    cuvs::detail::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
       handle, raft::make_const_mdspan(centersView), clusterSizesView, centersView, raft::mul_op{});
   }
 
@@ -470,7 +471,7 @@ void calc_centers_and_sizes(const raft::resources& handle,
       raft::make_device_vector_view<CounterT, IdxT>(cluster_sizes, n_clusters));
   }
 
-  raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(handle,
+  cuvs::detail::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(handle,
                                                              raft::make_const_mdspan(centersView),
                                                              clusterSizesView,
                                                              centersView,

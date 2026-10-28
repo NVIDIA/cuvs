@@ -1,0 +1,10 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::binary_mult_skip_zero",
+    "template_arguments": "<(raft::Apply)1, float>",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<float, long, raft::row_major>, raft::device_vector_view<float const, long, raft::row_major>",
+    "function_qualifiers": "",
+    "instantiation_name": "cuvs_detail_binary_mult_skip_zero_apply_1_f32"
+  }
+]

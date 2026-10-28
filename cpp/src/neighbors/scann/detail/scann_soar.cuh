@@ -4,6 +4,7 @@
  */
 
 #include "../../../core/map_launchers.hpp"
+#include "../../../core/matrix_broadcast_launchers.hpp"
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
@@ -104,7 +105,7 @@ void compute_soar_labels(raft::resources const& dev_resources,
   raft::linalg::gemm(
     dev_resources, residuals_norm.view(), centers_transpose.view(), soar_scores.view());
 
-  raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
+  cuvs::detail::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(
     dev_resources,
     raft::make_const_mdspan(soar_scores.view()),
     raft::make_const_mdspan(dataset_dot_residual.view()),
@@ -138,7 +139,7 @@ void compute_soar_labels(raft::resources const& dev_resources,
                                                               alpha.view(),
                                                               beta.view());
 
-  raft::linalg::matrix_vector_op<raft::Apply::ALONG_ROWS>(
+  cuvs::detail::matrix_vector_op<raft::Apply::ALONG_ROWS>(
     dev_resources,
     raft::make_const_mdspan(soar_scores.view()),
     raft::make_const_mdspan(centers_norm.view()),

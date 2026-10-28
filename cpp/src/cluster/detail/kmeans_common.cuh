@@ -5,6 +5,7 @@
 #pragma once
 
 #include "../../core/map_launchers.hpp"
+#include "../../core/matrix_broadcast_launchers.hpp"
 #include "../../distance/distance.cuh"
 #include "../../distance/top_1_nn.cuh"
 #include <cstdint>
@@ -675,7 +676,7 @@ void finalize_centroids(raft::resources const& handle,
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
-  raft::linalg::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(handle,
+  cuvs::detail::matrix_vector_op<raft::Apply::ALONG_COLUMNS>(handle,
                                                              raft::make_const_mdspan(centroid_sums),
                                                              weight_per_cluster,
                                                              new_centroids,
