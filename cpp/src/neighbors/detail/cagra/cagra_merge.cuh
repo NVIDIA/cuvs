@@ -539,19 +539,4 @@ auto merge(raft::resources const& handle,
     handle, params, merge_params, indices, merged_dataset, preflight);
 }
 
-/** AUTO-algorithm convenience overload matching the base `merge` signature. */
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-auto merge(raft::resources const& handle,
-           cagra::index_params const& params,
-           std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
-           DatasetViewT merged_dataset,
-           cuvs::neighbors::filtering::base_filter const& row_filter)
-  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
-{
-  // Fully qualified: an unqualified call also finds cuvs::neighbors::cagra::merge via ADL on the
-  // index arguments, which is ambiguous with this overload.
-  return cuvs::neighbors::cagra::detail::merge<T, IdxT, DatasetViewT>(
-    handle, params, indices, merged_dataset, cagra::merge_params{}, row_filter);
-}
-
 }  // namespace cuvs::neighbors::cagra::detail
