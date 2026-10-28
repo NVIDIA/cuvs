@@ -183,10 +183,7 @@ def fit(
     params_c.hierarchical_n_iters = params.params.hierarchical_n_iters
     params_c.device_buffer_samples = params.device_buffer_samples
     params_c.init_size = params.params.init_size
-    params_c.ivf_n_lists = params.params.ivf_n_lists
-    params_c.ivf_n_probes = params.params.ivf_n_probes
-    params_c.ivf_max_iter = params.params.ivf_max_iter
-    params_c.ivf_batch_samples = params.params.ivf_batch_samples
+    params_c.centroid_ivf_params = params.params.centroid_ivf_params
 
     with cuda_interruptible():
         check_cuvs(cuvsMultiGpuKMeansFit(

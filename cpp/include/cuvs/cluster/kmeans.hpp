@@ -4,6 +4,7 @@
  */
 #pragma once
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/ivf_flat_params.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
@@ -31,6 +32,17 @@ struct base_params {
  * @defgroup kmeans_params k-means hyperparameters
  * @{
  */
+
+/** IVF-Flat parameters for the index over the current k-means centroids.
+ * Uses the existing IVF-Flat build and search parameter types. The metric must be L2Expanded,
+ * add_data_on_build must be true, and adaptive_centers must be false. Allocation is always
+ * compact because the lists are rebuilt rather than extended; conservative_memory_allocation
+ * has no effect. Custom search metric UDFs are not supported.
+ */
+struct centroid_ivf_params {
+  cuvs::neighbors::ivf_flat::index_params build_params;
+  cuvs::neighbors::ivf_flat::search_params search_params;
+};
 
 /**
  * Simple object to specify hyper-parameters to the kmeans algorithm.
@@ -167,25 +179,17 @@ struct params : base_params {
    */
   int64_t device_buffer_samples = 0;
 
-  /** Number of dense IVF lists over the current centroids. Zero (default) keeps exhaustive
-   * Lloyd assignments. A positive value enables approximate L2Expanded assignments; 512 is a
-   * useful starting point for 300k centroids. Lists are rebuilt every iteration on every rank.
-   * Clamped to n_clusters. Initialization, predict, and final reported inertia stay exhaustive.
+  /** Optional IVF-Flat parameters for approximate Lloyd assignments. Unset (default) keeps
+   * exhaustive assignments. Lists are rebuilt every iteration on every rank. n_lists is
+   * clamped to n_clusters, and n_probes to the number of nonempty lists. Initialization,
+   * predict, and final reported inertia stay exhaustive.
+   *
+   * batch_samples bounds sorted/gathered query groups, independently of device_buffer_samples.
+   * Gather workspace holds up to batch_samples * n_probes * n_features values, plus routing
+   * and primitive workspaces. For 300k centroids, start with n_lists=512, n_probes=32,
+   * kmeans_trainset_fraction=1.0, and batch_samples=8192.
    */
-  int ivf_n_lists = 0;
-
-  /** Coarse lists searched per query, clamped to the number of nonempty lists. */
-  int ivf_n_probes = 32;
-
-  /** Maximum iterations for the coarse k-means fit over the centroids at each rebuild. */
-  int ivf_max_iter = 20;
-
-  /** Queries grouped together before list-local top_1_nn calls. Query/list pairs are sorted
-   * and gathered into dense row-major groups. Gather workspace holds at most
-   * ivf_batch_samples * min(ivf_n_probes, ivf_n_lists) * n_features values, plus routing and
-   * primitive workspaces. Independent of the host staging size device_buffer_samples.
-   */
-  int ivf_batch_samples = 8192;
+  std::optional<cuvs::cluster::kmeans::centroid_ivf_params> centroid_ivf_params = std::nullopt;
 };
 
 /**

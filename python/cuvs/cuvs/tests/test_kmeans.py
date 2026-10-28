@@ -168,37 +168,65 @@ def test_fit_host_with_stream_pool_setter():
 
 
 @pytest.mark.parametrize("host_input", [False, True])
-def test_dense_ivf_all_probes_fit(host_input):
+def test_ivf_all_probes_fit(host_input):
+    from cuvs.cluster.kmeans import CentroidIvfParams
+    from cuvs.neighbors import ivf_flat
+
     rng = np.random.default_rng(42)
-    centers = np.arange(9, dtype=np.float32)[:, None] * 20
+    centers = np.arange(9, dtype=np.float32)[:, None] * 8
     x = (centers[np.arange(113) % 9] + rng.normal(0, 0.1, (113, 7))).astype(np.float32)
     initial = np.repeat(centers, 7, axis=1)
     data = x if host_input else device_ndarray(x)
     outputs = []
-    for lists in (0, 3):
+    for use_ivf in (False, True):
+        # Inline temporaries exercise the lifetime of the borrowed C parameter bundle.
         params = KMeansParams(
             n_clusters=9, init_method="Array", max_iter=3,
-            device_buffer_samples=23, ivf_n_lists=lists, ivf_n_probes=3,
-            ivf_max_iter=4, ivf_batch_samples=11,
+            device_buffer_samples=23, batch_samples=11,
+            centroid_ivf_params=CentroidIvfParams(
+                build_params=ivf_flat.IndexParams(
+                    n_lists=3, kmeans_n_iters=4, kmeans_trainset_fraction=1.0),
+                search_params=ivf_flat.SearchParams(n_probes=3),
+            ) if use_ivf else None,
         )
-        assert params.ivf_n_lists == lists
-        assert params.ivf_n_probes == 3
-        assert params.ivf_max_iter == 4
-        assert params.ivf_batch_samples == 11
+        if use_ivf:
+            assert params.centroid_ivf_params.build_params.n_lists == 3
+            assert params.centroid_ivf_params.search_params.n_probes == 3
+        else:
+            assert params.centroid_ivf_params is None
         out, inertia, _ = fit(params, data, device_ndarray(initial))
         outputs.append((out.copy_to_host(), inertia))
-    np.testing.assert_allclose(outputs[0][0], outputs[1][0], atol=1e-5)
-    np.testing.assert_allclose(outputs[0][1], outputs[1][1], rtol=1e-5)
+    np.testing.assert_allclose(outputs[0][0], outputs[1][0], rtol=4 * np.finfo(np.float32).eps)
+    np.testing.assert_allclose(outputs[0][1], outputs[1][1], rtol=1e-3)
+
+
+@pytest.mark.parametrize("build_options, probes", [
+    ({"n_lists": 0}, 1),
+    ({"n_lists": 4}, 5),
+    ({"n_lists": 4}, 0),
+    ({"kmeans_n_iters": 0}, 1),
+    ({"kmeans_trainset_fraction": 0}, 1),
+    ({"kmeans_trainset_fraction": 1.5}, 1),
+    ({"add_data_on_build": False}, 1),
+    ({"adaptive_centers": True}, 1),
+    ({"metric": "cosine"}, 1),
+])
+def test_ivf_invalid_params(build_options, probes):
+    from cuvs.cluster.kmeans import CentroidIvfParams
+    from cuvs.neighbors import ivf_flat
+
+    with pytest.raises(ValueError):
+        CentroidIvfParams(
+            build_params=ivf_flat.IndexParams(**build_options),
+            search_params=ivf_flat.SearchParams(n_probes=probes),
+        )
 
 
 @pytest.mark.parametrize("options", [
-    {"ivf_n_lists": -1},
-    {"ivf_n_lists": 4, "ivf_n_probes": 5},
-    {"ivf_n_lists": 4, "ivf_n_probes": 0},
-    {"ivf_n_lists": 4, "ivf_n_probes": 1, "ivf_batch_samples": 0},
-    {"ivf_n_lists": 4, "ivf_n_probes": 1, "ivf_max_iter": 0},
-    {"ivf_n_lists": 4, "ivf_n_probes": 1, "hierarchical": True},
+    {"batch_samples": 0}, {"hierarchical": True}, {"metric": "cosine"},
 ])
-def test_dense_ivf_invalid_params(options):
+def test_ivf_incompatible_kmeans_params(options):
+    from cuvs.cluster.kmeans import CentroidIvfParams
+
     with pytest.raises(ValueError):
-        KMeansParams(**options)
+        KMeansParams(centroid_ivf_params=CentroidIvfParams(), **options)

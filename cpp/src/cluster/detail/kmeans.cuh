@@ -8,7 +8,7 @@
 #include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"
 #include "kmeans_common.cuh"
-#include "kmeans_dense_ivf.cuh"
+#include "kmeans_ivf.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
@@ -635,11 +635,9 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
       potentialCentroids.extent(0),
       n_random_clusters);
 
-    // generate `n_random_clusters` centroids
-    cuvs::cluster::kmeans::params rand_params;
-    rand_params.init       = cuvs::cluster::kmeans::params::InitMethod::Random;
-    rand_params.n_clusters = n_random_clusters;
-    initRandom<DataT, IndexT>(handle, rand_params, X, centroidsRawData);
+    // Generate the remaining centroids with the same default seed as the random initializer.
+    // No full params object is needed for this sampling-only operation.
+    shuffleAndGather<DataT, IndexT>(handle, X, centroidsRawData, n_random_clusters, uint64_t{0});
 
     // copy centroids generated during kmeans|| iteration to the buffer
     raft::copy(
@@ -812,9 +810,8 @@ void kmeans_fit(
   DataT* new_centroids_ptr = new_centroids_buf.data();
 
   rmm::device_uvector<char> assignment_output(0, stream);
-  RAFT_EXPECTS(pams.ivf_n_lists >= 0, "ivf_n_lists must be nonnegative");
-  std::optional<dense_ivf_assignment<DataT, IndexT>> ivf;
-  if (pams.ivf_n_lists > 0) { ivf.emplace(handle, pams); }
+  std::optional<ivf_assignment<DataT, IndexT>> ivf;
+  if (pams.centroid_ivf_params.has_value()) { ivf.emplace(handle, pams); }
   auto minClusterDistance = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
   auto batch_weights_buf  = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);

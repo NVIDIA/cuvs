@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/params.hpp>
 #include <raft/core/device_container_policy.hpp>
 #include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -126,16 +127,6 @@ struct vpq_params {
 
 /** The base for approximate KNN index structures. */
 struct index {};
-
-/** The base for KNN index parameters. */
-struct index_params {
-  /** Distance type. */
-  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded;
-  /** The argument used by some distance metrics. */
-  float metric_arg = 2.0f;
-};
-
-struct search_params {};
 
 /**
  * @brief Strategy for merging indices.

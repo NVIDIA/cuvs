@@ -7,6 +7,7 @@
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/distance/distance.h>
+#include <cuvs/neighbors/ivf_flat.h>
 #include <dlpack/dlpack.h>
 #include <stdint.h>
 
@@ -38,6 +39,16 @@ typedef enum {
   Array = 2
 } cuvsKMeansInitMethod;
 
+/** IVF-Flat build/search parameters for the index over k-means centroids.
+ * Initialize these fields using cuvsIvfFlatIndexParamsCreate and
+ * cuvsIvfFlatSearchParamsCreate. Requires L2Expanded, add_data_on_build=true,
+ * and adaptive_centers=false. Allocation is always compact;
+ * conservative_memory_allocation has no effect.
+ */
+struct cuvsKMeansCentroidIvfParams {
+  struct cuvsIvfFlatIndexParams build_params;
+  struct cuvsIvfFlatSearchParams search_params;
+};
 
 /**
  * @brief Hyper-parameters for the kmeans algorithm
@@ -127,18 +138,13 @@ struct cuvsKMeansParams {
    */
   int64_t init_size;
 
-  /** Dense IVF lists over centroids; 0 disables approximate training
-   * assignments (default). L2Expanded only. Rebuilt every iteration. Prediction
-   * and final inertia remain exhaustive.
+  /** Optional IVF-Flat parameters over current centroids. NULL (default) keeps
+   * exhaustive assignments. Rebuilt every iteration; prediction and final
+   * inertia remain exhaustive. batch_samples bounds query grouping. Borrowed:
+   * the caller owns this bundle and must keep it alive through the fit call.
+   * cuvsKMeansParamsDestroy does not free it.
    */
-  int ivf_n_lists;
-  /** Probed nonempty lists (default 32). Must be <= ivf_n_lists when enabled.
-   */
-  int ivf_n_probes;
-  /** Maximum coarse k-means iterations per rebuild (default 20). */
-  int ivf_max_iter;
-  /** Query microbatch for sorted/gathered list-local top-1NN (default 8192). */
-  int ivf_batch_samples;
+  const struct cuvsKMeansCentroidIvfParams *centroid_ivf_params;
 };
 
 typedef struct cuvsKMeansParams* cuvsKMeansParams_t;

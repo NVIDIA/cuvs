@@ -48,7 +48,7 @@ int32_t kExpectedLabels[kNSamples]                = {0, 0, 0, 0, 1, 1, 1, 1};
 // 8 points, each at squared distance 0.5 from its cluster mean -> 4.0.
 constexpr double kExpectedInertia = 4.0;
 
-void test_fit_predict()
+void test_fit_predict(bool use_ivf = false)
 {
   raft::handle_t handle;
   auto stream = raft::resource::get_cuda_stream(handle);
@@ -76,6 +76,23 @@ void test_fit_predict()
   params->tol                  = 1e-6;
   params->init                 = Array;
   params->device_buffer_samples = 0;
+
+  cuvsKMeansCentroidIvfParams ivf{};
+  if (use_ivf) {
+    cuvsIvfFlatIndexParams_t build;
+    cuvsIvfFlatSearchParams_t search;
+    ASSERT_EQ(cuvsIvfFlatIndexParamsCreate(&build), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsIvfFlatSearchParamsCreate(&search), CUVS_SUCCESS);
+    build->n_lists = 2;
+    build->kmeans_n_iters = 4;
+    build->kmeans_trainset_fraction = 1.0;
+    search->n_probes = 2;
+    ivf = {*build, *search};
+    ASSERT_EQ(cuvsIvfFlatIndexParamsDestroy(build), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsIvfFlatSearchParamsDestroy(search), CUVS_SUCCESS);
+    params->centroid_ivf_params = &ivf;
+    params->batch_samples = 3;
+  }
 
   DLManagedTensor dataset_t{};
   cuvs::core::to_dlpack(
@@ -123,7 +140,7 @@ void test_fit_predict()
   ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
 }
 
-void test_fit_host()
+void test_fit_host(bool use_ivf = false)
 {
   raft::handle_t handle;
   auto stream = raft::resource::get_cuda_stream(handle);
@@ -144,6 +161,23 @@ void test_fit_host()
   params->tol                  = 1e-6;
   params->init                 = Array;
   params->device_buffer_samples = 4;  // force at least 2 streamed batches
+
+  cuvsKMeansCentroidIvfParams ivf{};
+  if (use_ivf) {
+    cuvsIvfFlatIndexParams_t build;
+    cuvsIvfFlatSearchParams_t search;
+    ASSERT_EQ(cuvsIvfFlatIndexParamsCreate(&build), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsIvfFlatSearchParamsCreate(&search), CUVS_SUCCESS);
+    build->n_lists = 2;
+    build->kmeans_n_iters = 4;
+    build->kmeans_trainset_fraction = 1.0;
+    search->n_probes = 2;
+    ivf = {*build, *search};
+    ASSERT_EQ(cuvsIvfFlatIndexParamsDestroy(build), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsIvfFlatSearchParamsDestroy(search), CUVS_SUCCESS);
+    params->centroid_ivf_params = &ivf;
+    params->batch_samples = 3;
+  }
 
   DLManagedTensor dataset_t{};
   cuvs::core::to_dlpack(
@@ -183,6 +217,10 @@ TEST(KMeansC, FitPredict) { test_fit_predict(); }
 
 TEST(KMeansC, FitHost) { test_fit_host(); }
 
+TEST(KMeansC, IvfFitPredict) { test_fit_predict(true); }
+
+TEST(KMeansC, IvfFitHost) { test_fit_host(true); }
+
 TEST(KMeansC, ParamsCreateDestroy)
 {
   cuvsKMeansParams_t params = nullptr;
@@ -193,13 +231,12 @@ TEST(KMeansC, ParamsCreateDestroy)
   ASSERT_EQ(cuvsKMeansParamsDestroy(params), CUVS_SUCCESS);
 }
 
-TEST(KMeansC, DenseIvfParameterDefaults)
+TEST(KMeansC, IvfParameterDefaults)
 {
   cuvsKMeansParams_t params;
   ASSERT_EQ(cuvsKMeansParamsCreate(&params), CUVS_SUCCESS);
-  EXPECT_EQ(params->ivf_n_lists, 0);
-  EXPECT_EQ(params->ivf_n_probes, 32);
-  EXPECT_EQ(params->ivf_max_iter, 20);
-  EXPECT_EQ(params->ivf_batch_samples, 8192);
+  EXPECT_EQ(params->centroid_ivf_params, nullptr);
+  cuvsKMeansCentroidIvfParams ivf{};
+  params->centroid_ivf_params = &ivf;  // Destroy must not free this caller-owned bundle.
   EXPECT_EQ(cuvsKMeansParamsDestroy(params), CUVS_SUCCESS);
 }

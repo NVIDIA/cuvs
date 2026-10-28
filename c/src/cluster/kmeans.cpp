@@ -30,17 +30,29 @@ cuvs::cluster::kmeans::params convert_params(const cuvsKMeansParams& params)
   kmeans_params.batch_centroids     = params.batch_centroids;
   kmeans_params.init_size             = params.init_size;
   kmeans_params.device_buffer_samples  = params.device_buffer_samples;
-  kmeans_params.ivf_n_lists       = params.ivf_n_lists;
-  kmeans_params.ivf_n_probes      = params.ivf_n_probes;
-  kmeans_params.ivf_max_iter      = params.ivf_max_iter;
-  kmeans_params.ivf_batch_samples = params.ivf_batch_samples;
+  if (params.centroid_ivf_params != nullptr) {
+    auto &ivf = kmeans_params.centroid_ivf_params.emplace();
+    auto const &bp = params.centroid_ivf_params->build_params;
+    ivf.build_params.metric =
+        static_cast<cuvs::distance::DistanceType>(bp.metric);
+    ivf.build_params.metric_arg = bp.metric_arg;
+    ivf.build_params.n_lists = bp.n_lists;
+    ivf.build_params.kmeans_n_iters = bp.kmeans_n_iters;
+    ivf.build_params.kmeans_trainset_fraction = bp.kmeans_trainset_fraction;
+    ivf.build_params.add_data_on_build = bp.add_data_on_build;
+    ivf.build_params.adaptive_centers = bp.adaptive_centers;
+    ivf.build_params.conservative_memory_allocation =
+        bp.conservative_memory_allocation;
+    ivf.search_params.n_probes =
+        params.centroid_ivf_params->search_params.n_probes;
+  }
   return kmeans_params;
 }
 
 cuvs::cluster::kmeans::balanced_params convert_balanced_params(const cuvsKMeansParams& params)
 {
-  RAFT_EXPECTS(params.ivf_n_lists == 0,
-               "Dense IVF assignment is not supported by hierarchical k-means");
+  RAFT_EXPECTS(params.centroid_ivf_params == nullptr,
+               "IVF assignment is not supported by hierarchical k-means");
   auto kmeans_params    = cuvs::cluster::kmeans::balanced_params();
   kmeans_params.metric  = static_cast<cuvs::distance::DistanceType>(params.metric);
   kmeans_params.n_iters = params.hierarchical_n_iters;
@@ -234,23 +246,20 @@ extern "C" cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* params)
     cuvs::cluster::kmeans::params cpp_params;
     cuvs::cluster::kmeans::balanced_params cpp_balanced_params;
     *params = new cuvsKMeansParams{
-      .metric               = static_cast<cuvsDistanceType>(cpp_params.metric),
-      .n_clusters           = cpp_params.n_clusters,
-      .init                 = static_cast<cuvsKMeansInitMethod>(cpp_params.init),
-      .max_iter             = cpp_params.max_iter,
-      .tol                  = cpp_params.tol,
-      .n_init               = cpp_params.n_init,
-      .oversampling_factor  = cpp_params.oversampling_factor,
-      .batch_samples        = cpp_params.batch_samples,
-      .batch_centroids      = cpp_params.batch_centroids,
-      .hierarchical         = false,
-      .hierarchical_n_iters = static_cast<int>(cpp_balanced_params.n_iters),
-      .device_buffer_samples = cpp_params.device_buffer_samples,
-      .init_size            = cpp_params.init_size,
-      .ivf_n_lists          = cpp_params.ivf_n_lists,
-      .ivf_n_probes         = cpp_params.ivf_n_probes,
-      .ivf_max_iter         = cpp_params.ivf_max_iter,
-      .ivf_batch_samples    = cpp_params.ivf_batch_samples};
+        .metric = static_cast<cuvsDistanceType>(cpp_params.metric),
+        .n_clusters = cpp_params.n_clusters,
+        .init = static_cast<cuvsKMeansInitMethod>(cpp_params.init),
+        .max_iter = cpp_params.max_iter,
+        .tol = cpp_params.tol,
+        .n_init = cpp_params.n_init,
+        .oversampling_factor = cpp_params.oversampling_factor,
+        .batch_samples = cpp_params.batch_samples,
+        .batch_centroids = cpp_params.batch_centroids,
+        .hierarchical = false,
+        .hierarchical_n_iters = static_cast<int>(cpp_balanced_params.n_iters),
+        .device_buffer_samples = cpp_params.device_buffer_samples,
+        .init_size = cpp_params.init_size,
+        .centroid_ivf_params = nullptr};
   });
 }
 

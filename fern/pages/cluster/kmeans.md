@@ -527,28 +527,45 @@ $$
 
 For large `K`, reduce `batch_centroids`. For large `N`, reduce `batch_samples` or use the host streaming fit path when fitting from host data.
 
-## Dense IVF training assignments
+## IVF training assignments
 
-For large centroid sets, enable approximate Lloyd assignments by setting `ivf_n_lists` to a
-positive value. The default, zero, retains exhaustive assignments. For example:
+For large centroid sets, enable approximate Lloyd assignments with `centroid_ivf_params`.
+This groups the existing IVF-Flat build and search parameter structs. The default, `None`,
+retains exhaustive assignments. For example:
 
 ```python
+from cuvs.cluster.kmeans import CentroidIvfParams, KMeansParams
+from cuvs.neighbors import ivf_flat
+
 params = KMeansParams(
     n_clusters=300_000,
-    ivf_n_lists=512,
-    ivf_n_probes=32,
-    ivf_max_iter=20,
-    ivf_batch_samples=8192,
+    centroid_ivf_params=CentroidIvfParams(
+        build_params=ivf_flat.IndexParams(
+            n_lists=512, kmeans_n_iters=20, kmeans_trainset_fraction=1.0,
+        ),
+        search_params=ivf_flat.SearchParams(n_probes=32),
+    ),
+    batch_samples=8192,
     device_buffer_samples=131072,
 )
 ```
 
-These fields are also available in the C and C++ parameter structures. Dense IVF currently
-supports squared Euclidean (`L2Expanded`) distance and standard k-means, including weighted,
-host-batched, and multi-GPU fits. Hierarchical k-means does not support this option.
+In C++, set `params.centroid_ivf_params` to `kmeans::centroid_ivf_params`, which contains
+`ivf_flat::index_params build_params` and `ivf_flat::search_params search_params`. Unset
+(`std::nullopt`) disables IVF. In C, the field borrows a `cuvsKMeansCentroidIvfParams` bundle
+containing the existing IVF-Flat structs by value; the caller keeps it alive through fitting.
+NULL disables IVF, and destroying the k-means params does not destroy the borrowed bundle.
+
+The existing IVF-Flat defaults apply: 1024 lists, 20 coarse iterations, training fraction 0.5,
+and 20 probes. The example explicitly selects the benchmark configuration. A fraction below
+1 uses IVF-Flat's strided coarse-training subsample; all centroids are still indexed. The
+build metric must match k-means (`L2Expanded`), `add_data_on_build` must be true, and
+`adaptive_centers` must be false. Allocation is always compact, so
+`conservative_memory_allocation` has no effect. Custom search metric UDFs are unsupported.
+Weighted, host-batched, and multi-GPU fits are supported; hierarchical k-means is not.
 
 Every Lloyd iteration clusters the current centroids into coarse lists, then stores the fine
-centroids in dense row-major order with their original IDs. Each query selects `ivf_n_probes`
+centroids in row-major order with their original IDs. Each query selects `search_params.n_probes`
 coarse lists. Query/list pairs are sorted by list and the queries are gathered into contiguous
 groups. Each group calls the existing `minClusterAndDistanceCompute` / `top_1_nn` dispatch,
 including the cuTile backend when supported. Existing reductions select the nearest centroid
@@ -556,8 +573,8 @@ across the probed lists. No new distance kernels or modified cuTile kernels are 
 Empty lists are excluded from routing; list and probe counts are capped by the available
 centroids and nonempty lists. Equal distances prefer the smaller original centroid ID.
 
-`ivf_batch_samples` bounds query grouping independently of host staging. The gathered query
-workspace holds up to `ivf_batch_samples * ivf_n_probes * n_features` values, in addition to
+`batch_samples` bounds query grouping independently of host staging. The gathered query
+workspace holds up to `batch_samples * n_probes * n_features` values, in addition to
 routing, output, and primitive workspaces. Lists are reused across queries within a group;
 this does not guarantee a single physical memory read for an entire batch. The existing
 primitive's backend and tile choices are retained. This implementation issues one existing

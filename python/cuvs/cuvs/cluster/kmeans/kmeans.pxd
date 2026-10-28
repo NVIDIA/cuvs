@@ -10,6 +10,9 @@ from libcpp cimport bool
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLDataType, DLManagedTensor
 from cuvs.distance_type cimport cuvsDistanceType
+from cuvs.neighbors.ivf_flat.ivf_flat cimport (
+    cuvsIvfFlatIndexParams, cuvsIvfFlatSearchParams, IndexParams, SearchParams,
+)
 
 
 cdef extern from "cuvs/cluster/kmeans.h" nogil:
@@ -21,6 +24,10 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
     ctypedef enum cuvsKMeansType:
         CUVS_KMEANS_TYPE_KMEANS
         CUVS_KMEANS_TYPE_KMEANS_BALANCED
+
+    ctypedef struct cuvsKMeansCentroidIvfParams:
+        cuvsIvfFlatIndexParams build_params
+        cuvsIvfFlatSearchParams search_params
 
     ctypedef struct cuvsKMeansParams:
         cuvsDistanceType metric,
@@ -36,10 +43,7 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
         int hierarchical_n_iters,
         int64_t device_buffer_samples,
         int64_t init_size
-        int ivf_n_lists
-        int ivf_n_probes
-        int ivf_max_iter
-        int ivf_batch_samples
+        const cuvsKMeansCentroidIvfParams* centroid_ivf_params
 
     ctypedef cuvsKMeansParams* cuvsKMeansParams_t
 
@@ -70,5 +74,12 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
                                       double* cost)
 
 
+cdef class CentroidIvfParams:
+    cdef cuvsKMeansCentroidIvfParams params
+    cdef readonly IndexParams build_params
+    cdef readonly SearchParams search_params
+
+
 cdef class KMeansParams:
     cdef cuvsKMeansParams* params
+    cdef readonly CentroidIvfParams centroid_ivf_params

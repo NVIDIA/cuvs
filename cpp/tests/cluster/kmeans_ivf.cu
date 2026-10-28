@@ -2,7 +2,7 @@
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
-#include "../../src/cluster/detail/kmeans_dense_ivf.cuh"
+#include "../../src/cluster/detail/kmeans_ivf.cuh"
 
 #include <gtest/gtest.h>
 #include <raft/core/resource/cuda_stream_pool.hpp>
@@ -11,10 +11,10 @@
 #include <random>
 
 namespace cuvs::cluster::kmeans {
-namespace dense_ivf_test {
+namespace ivf_test {
 
 template <typename T, typename I>
-void compare_search(bool duplicate, int probes, int batch)
+void compare_search(bool duplicate, int probes, int batch, double fraction = 1.0)
 {
   raft::resources handle;
   auto stream    = raft::resource::get_cuda_stream(handle);
@@ -35,11 +35,13 @@ void compare_search(bool duplicate, int probes, int batch)
   raft::update_device(dc.data_handle(), centers.data(), centers.size(), stream);
   raft::update_device(dq.data_handle(), queries.data(), queries.size(), stream);
   params p;
-  p.ivf_n_lists       = 7;
-  p.ivf_n_probes      = probes;
-  p.ivf_max_iter      = 4;
-  p.ivf_batch_samples = batch;
-  detail::dense_ivf_assignment<T, I> index(handle, p);
+  auto& ivf                                 = p.centroid_ivf_params.emplace();
+  ivf.build_params.n_lists                  = 7;
+  ivf.build_params.kmeans_n_iters           = 4;
+  ivf.build_params.kmeans_trainset_fraction = fraction;
+  ivf.search_params.n_probes                = probes;
+  p.batch_samples                           = batch;
+  detail::ivf_assignment<T, I> index(handle, p);
   for (int rebuild = 0; rebuild < 2; ++rebuild) {
     index.build(raft::make_const_mdspan(dc.view()));
     auto result = index.search(raft::make_const_mdspan(dq.view()));
@@ -75,12 +77,13 @@ void compare_search(bool duplicate, int probes, int batch)
   EXPECT_EQ(empty.size(), 0);
 }
 
-TEST(KmeansDenseIvf, AllProbesFloatInt) { compare_search<float, int>(false, 7, 37); }
-TEST(KmeansDenseIvf, AllProbesFloatInt64) { compare_search<float, int64_t>(false, 7, 131); }
-TEST(KmeansDenseIvf, AllProbesDouble) { compare_search<double, int64_t>(false, 7, 23); }
-TEST(KmeansDenseIvf, LimitedProbesAndTail) { compare_search<float, int64_t>(false, 1, 17); }
-TEST(KmeansDenseIvf, EmptyListsAndOriginalIdTies) { compare_search<float, int64_t>(true, 7, 31); }
-TEST(KmeansDenseIvf, EmptyListsWithOneProbe) { compare_search<float, int>(true, 1, 19); }
+TEST(KmeansIvf, AllProbesFloatInt) { compare_search<float, int>(false, 7, 37); }
+TEST(KmeansIvf, AllProbesFloatInt64) { compare_search<float, int64_t>(false, 7, 131); }
+TEST(KmeansIvf, SubsampledCoarseTraining) { compare_search<float, int>(false, 7, 37, 0.25); }
+TEST(KmeansIvf, AllProbesDouble) { compare_search<double, int64_t>(false, 7, 23); }
+TEST(KmeansIvf, LimitedProbesAndTail) { compare_search<float, int64_t>(false, 1, 17); }
+TEST(KmeansIvf, EmptyListsAndOriginalIdTies) { compare_search<float, int64_t>(true, 7, 31); }
+TEST(KmeansIvf, EmptyListsWithOneProbe) { compare_search<float, int>(true, 1, 19); }
 
 void compare_fit(bool host_input, bool weighted)
 {
@@ -112,14 +115,18 @@ void compare_fit(bool host_input, bool weighted)
   p.max_iter              = 3;
   p.tol                   = 1e-10;
   p.device_buffer_samples = 23;
-  p.ivf_n_probes          = 3;
-  p.ivf_max_iter          = 4;
-  p.ivf_batch_samples     = 11;
+  p.batch_samples         = 11;
   float costs[2]{};
   int64_t iters[2]{};
   std::vector<float> actual[2];
   for (int method = 0; method < 2; ++method) {
-    p.ivf_n_lists = method == 0 ? 0 : 3;
+    if (method == 1) {
+      auto& ivf                                 = p.centroid_ivf_params.emplace();
+      ivf.build_params.n_lists                  = 3;
+      ivf.build_params.kmeans_n_iters           = 4;
+      ivf.build_params.kmeans_trainset_fraction = 1.0;
+      ivf.search_params.n_probes                = 3;
+    }
     raft::update_device(c.data_handle(), initial.data(), initial.size(), stream);
     if (host_input) {
       std::optional<raft::host_vector_view<const float, int64_t>> sw;
@@ -185,27 +192,45 @@ void compare_fit(bool host_input, bool weighted)
   }
   testing::Test::RecordProperty("cpu_reference_inertia", expected_cost);
   testing::Test::RecordProperty("exhaustive_inertia", costs[0]);
-  testing::Test::RecordProperty("dense_ivf_inertia", costs[1]);
+  testing::Test::RecordProperty("ivf_inertia", costs[1]);
   EXPECT_EQ(iters[0], iters[1]);
   EXPECT_GT(iters[1], 1);
 }
-TEST(KmeansDenseIvf, FitDevice) { compare_fit(false, false); }
-TEST(KmeansDenseIvf, FitDeviceWeighted) { compare_fit(false, true); }
-TEST(KmeansDenseIvf, FitPageableBuffered) { compare_fit(true, false); }
-TEST(KmeansDenseIvf, FitPageableBufferedWeighted) { compare_fit(true, true); }
+TEST(KmeansIvf, FitDevice) { compare_fit(false, false); }
+TEST(KmeansIvf, FitDeviceWeighted) { compare_fit(false, true); }
+TEST(KmeansIvf, FitPageableBuffered) { compare_fit(true, false); }
+TEST(KmeansIvf, FitPageableBufferedWeighted) { compare_fit(true, true); }
 
-TEST(KmeansDenseIvf, InvalidParameters)
+TEST(KmeansIvf, InvalidParameters)
 {
   raft::resources handle;
   params p;
-  p.ivf_n_lists = 4;
-  EXPECT_THROW((detail::dense_ivf_assignment<float, int>(handle, p)), raft::logic_error);
-  p.ivf_n_probes      = 1;
-  p.ivf_batch_samples = 0;
-  EXPECT_THROW((detail::dense_ivf_assignment<float, int>(handle, p)), raft::logic_error);
-  p.ivf_batch_samples = 1;
-  p.metric            = cuvs::distance::DistanceType::CosineExpanded;
-  EXPECT_THROW((detail::dense_ivf_assignment<float, int>(handle, p)), raft::logic_error);
+  EXPECT_THROW((detail::ivf_assignment<float, int>(handle, p)), raft::logic_error);
+  auto& ivf  = p.centroid_ivf_params.emplace();
+  auto& bp   = ivf.build_params;
+  bp.n_lists = 4;
+  EXPECT_THROW((detail::ivf_assignment<float, int>(handle, p)), raft::logic_error);
+  ivf.search_params.n_probes = 1;
+  p.batch_samples            = 0;
+  EXPECT_THROW((detail::ivf_assignment<float, int>(handle, p)), raft::logic_error);
+  p.batch_samples             = 1;
+  bp.kmeans_trainset_fraction = 0;
+  EXPECT_THROW((detail::ivf_assignment<float, int>(handle, p)), raft::logic_error);
+  bp.kmeans_trainset_fraction = 1;
+  bp.adaptive_centers         = true;
+  EXPECT_THROW((detail::ivf_assignment<float, int>(handle, p)), raft::logic_error);
+  bp.adaptive_centers  = false;
+  bp.add_data_on_build = false;
+  EXPECT_THROW((detail::ivf_assignment<float, int>(handle, p)), raft::logic_error);
+  bp.add_data_on_build         = true;
+  ivf.search_params.metric_udf = "unsupported";
+  EXPECT_THROW((detail::ivf_assignment<float, int>(handle, p)), raft::logic_error);
+  ivf.search_params.metric_udf.reset();
+  bp.metric = cuvs::distance::DistanceType::CosineExpanded;
+  EXPECT_THROW((detail::ivf_assignment<float, int>(handle, p)), raft::logic_error);
+  bp.metric = cuvs::distance::DistanceType::L2Expanded;
+  p.metric  = cuvs::distance::DistanceType::CosineExpanded;
+  EXPECT_THROW((detail::ivf_assignment<float, int>(handle, p)), raft::logic_error);
 }
-}  // namespace dense_ivf_test
+}  // namespace ivf_test
 }  // namespace cuvs::cluster::kmeans

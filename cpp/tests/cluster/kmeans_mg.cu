@@ -371,7 +371,7 @@ INSTANTIATE_TEST_SUITE_P(KmeansSNMGTests, KmeansSNMGTestD, ::testing::ValuesIn(s
 }  // namespace cuvs
 
 namespace cuvs {
-TEST(KmeansDenseIvfMultiGpu, HostShardsMatchExhaustive)
+TEST(KmeansIvfMultiGpu, HostShardsMatchExhaustive)
 {
   int devices = 0;
   RAFT_CUDA_TRY(cudaGetDeviceCount(&devices));
@@ -399,14 +399,18 @@ TEST(KmeansDenseIvfMultiGpu, HostShardsMatchExhaustive)
   p.max_iter              = 3;
   p.tol                   = 1e-10;
   p.device_buffer_samples = 17;
-  p.ivf_n_probes          = 3;
-  p.ivf_max_iter          = 4;
-  p.ivf_batch_samples     = 11;
+  p.batch_samples         = 11;
   float costs[2]{};
   int64_t iterations[2]{};
   std::vector<float> outputs[2];
   for (int method = 0; method < 2; ++method) {
-    p.ivf_n_lists = method == 0 ? 0 : 3;
+    if (method == 1) {
+      auto& ivf                                 = p.centroid_ivf_params.emplace();
+      ivf.build_params.n_lists                  = 3;
+      ivf.build_params.kmeans_n_iters           = 4;
+      ivf.build_params.kmeans_trainset_fraction = 1.0;
+      ivf.search_params.n_probes                = 3;
+    }
     raft::update_device(centers.data_handle(), initial.data(), initial.size(), stream);
     cuvs::cluster::kmeans::fit(
       clique,

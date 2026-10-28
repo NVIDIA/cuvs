@@ -219,9 +219,8 @@ void mnmg_fit(
   IndexT alloc_batch_size  = device_buffer_samples;
   auto batch_weights       = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   rmm::device_uvector<char> assignment_output(0, stream);
-  RAFT_EXPECTS(params.ivf_n_lists >= 0, "ivf_n_lists must be nonnegative");
-  std::optional<cuvs::cluster::kmeans::detail::dense_ivf_assignment<DataT, IndexT>> ivf;
-  if (params.ivf_n_lists > 0) { ivf.emplace(dev_res, params); }
+  std::optional<cuvs::cluster::kmeans::detail::ivf_assignment<DataT, IndexT>> ivf;
+  if (params.centroid_ivf_params.has_value()) { ivf.emplace(dev_res, params); }
   auto minClusterDistance = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto L2NormBatch        = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto Tf32NormBatch      = raft::make_device_vector<DataT, IndexT>(

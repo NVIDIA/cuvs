@@ -387,6 +387,21 @@ pub enum cuvsKMeansInitMethod {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct cuvsKMeansCentroidIvfParams {
+    pub build_params: cuvsIvfFlatIndexParams,
+    pub search_params: cuvsIvfFlatSearchParams,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of cuvsKMeansCentroidIvfParams"][::std::mem::size_of::<cuvsKMeansCentroidIvfParams>() - 48usize];
+    ["Alignment of cuvsKMeansCentroidIvfParams"][::std::mem::align_of::<cuvsKMeansCentroidIvfParams>() - 8usize];
+    ["Offset of field: cuvsKMeansCentroidIvfParams::build_params"]
+        [::std::mem::offset_of!(cuvsKMeansCentroidIvfParams, build_params) - 0usize];
+    ["Offset of field: cuvsKMeansCentroidIvfParams::search_params"]
+        [::std::mem::offset_of!(cuvsKMeansCentroidIvfParams, search_params) - 40usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct cuvsKMeansParams {
     pub metric: cuvsDistanceType,
     pub n_clusters: ::std::os::raw::c_int,
@@ -401,14 +416,11 @@ pub struct cuvsKMeansParams {
     pub hierarchical_n_iters: ::std::os::raw::c_int,
     pub device_buffer_samples: i64,
     pub init_size: i64,
-    pub ivf_n_lists: ::std::os::raw::c_int,
-    pub ivf_n_probes: ::std::os::raw::c_int,
-    pub ivf_max_iter: ::std::os::raw::c_int,
-    pub ivf_batch_samples: ::std::os::raw::c_int,
+    pub centroid_ivf_params: *const cuvsKMeansCentroidIvfParams,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsKMeansParams"][::std::mem::size_of::<cuvsKMeansParams>() - 88usize];
+    ["Size of cuvsKMeansParams"][::std::mem::size_of::<cuvsKMeansParams>() - 80usize];
     ["Alignment of cuvsKMeansParams"][::std::mem::align_of::<cuvsKMeansParams>() - 8usize];
     ["Offset of field: cuvsKMeansParams::metric"]
         [::std::mem::offset_of!(cuvsKMeansParams, metric) - 0usize];
@@ -436,14 +448,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsKMeansParams, device_buffer_samples) - 56usize];
     ["Offset of field: cuvsKMeansParams::init_size"]
         [::std::mem::offset_of!(cuvsKMeansParams, init_size) - 64usize];
-    ["Offset of field: cuvsKMeansParams::ivf_n_lists"]
-        [::std::mem::offset_of!(cuvsKMeansParams, ivf_n_lists) - 72usize];
-    ["Offset of field: cuvsKMeansParams::ivf_n_probes"]
-        [::std::mem::offset_of!(cuvsKMeansParams, ivf_n_probes) - 76usize];
-    ["Offset of field: cuvsKMeansParams::ivf_max_iter"]
-        [::std::mem::offset_of!(cuvsKMeansParams, ivf_max_iter) - 80usize];
-    ["Offset of field: cuvsKMeansParams::ivf_batch_samples"]
-        [::std::mem::offset_of!(cuvsKMeansParams, ivf_batch_samples) - 84usize];
+    ["Offset of field: cuvsKMeansParams::centroid_ivf_params"]
+        [::std::mem::offset_of!(cuvsKMeansParams, centroid_ivf_params) - 72usize];
 };
 pub type cuvsKMeansParams_t = *mut cuvsKMeansParams;
 unsafe extern "C" {

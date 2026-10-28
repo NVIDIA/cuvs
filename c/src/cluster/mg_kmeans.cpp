@@ -38,10 +38,22 @@ cuvs::cluster::kmeans::params convert_params(const ParamsT& params)
   kmeans_params.batch_centroids      = params.batch_centroids;
   kmeans_params.init_size            = params.init_size;
   kmeans_params.device_buffer_samples = params.device_buffer_samples;
-  kmeans_params.ivf_n_lists       = params.ivf_n_lists;
-  kmeans_params.ivf_n_probes      = params.ivf_n_probes;
-  kmeans_params.ivf_max_iter      = params.ivf_max_iter;
-  kmeans_params.ivf_batch_samples = params.ivf_batch_samples;
+  if (params.centroid_ivf_params != nullptr) {
+    auto &ivf = kmeans_params.centroid_ivf_params.emplace();
+    auto const &bp = params.centroid_ivf_params->build_params;
+    ivf.build_params.metric =
+        static_cast<cuvs::distance::DistanceType>(bp.metric);
+    ivf.build_params.metric_arg = bp.metric_arg;
+    ivf.build_params.n_lists = bp.n_lists;
+    ivf.build_params.kmeans_n_iters = bp.kmeans_n_iters;
+    ivf.build_params.kmeans_trainset_fraction = bp.kmeans_trainset_fraction;
+    ivf.build_params.add_data_on_build = bp.add_data_on_build;
+    ivf.build_params.adaptive_centers = bp.adaptive_centers;
+    ivf.build_params.conservative_memory_allocation =
+        bp.conservative_memory_allocation;
+    ivf.search_params.n_probes =
+        params.centroid_ivf_params->search_params.n_probes;
+  }
   return kmeans_params;
 }
 

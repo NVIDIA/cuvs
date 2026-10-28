@@ -45,6 +45,37 @@ INIT_METHOD_TYPES = {
 
 INIT_METHOD_NAMES = {v: k for k, v in INIT_METHOD_TYPES.items()}
 
+cdef class CentroidIvfParams:
+    """IVF-Flat parameters for approximate centroid assignments.
+
+    Parameters
+    ----------
+    build_params : cuvs.neighbors.ivf_flat.IndexParams, optional
+        Existing IVF-Flat build parameters. Defaults to IndexParams().
+        Requires sqeuclidean, add_data_on_build=True and adaptive_centers=False.
+        conservative_memory_allocation has no effect on the compact lists.
+    search_params : cuvs.neighbors.ivf_flat.SearchParams, optional
+        Existing IVF-Flat search parameters. Defaults to SearchParams().
+    """
+
+    def __init__(self, *, IndexParams build_params=None,
+                 SearchParams search_params=None):
+        self.build_params = build_params if build_params is not None else IndexParams()
+        self.search_params = search_params if search_params is not None else SearchParams()
+        if self.build_params.metric != "sqeuclidean":
+            raise ValueError("Centroid IVF requires sqeuclidean")
+        if not 0 < self.search_params.n_probes <= self.build_params.n_lists:
+            raise ValueError("Require 0 < n_probes <= n_lists")
+        if not 0 < self.build_params.kmeans_n_iters <= 2147483647:
+            raise ValueError("kmeans_n_iters must be positive and fit in int")
+        if not 0 < self.build_params.kmeans_trainset_fraction <= 1:
+            raise ValueError("Require 0 < kmeans_trainset_fraction <= 1")
+        if not self.build_params.add_data_on_build or self.build_params.adaptive_centers:
+            raise ValueError("Require add_data_on_build=True and adaptive_centers=False")
+        self.params.build_params = deref(self.build_params.params)
+        self.params.search_params = deref(self.search_params.params)
+
+
 cdef class KMeansParams:
     """
     Hyper-parameters for the kmeans algorithm
@@ -100,19 +131,13 @@ cdef class KMeansParams:
         excluding algorithm workspaces and optional sample-weight buffers.
         Substitute n_samples for device_buffer_samples in this estimate
         when it is 0.
-    ivf_n_lists : int, optional
-        Dense IVF lists over the current centroids. Default 0 keeps exhaustive
-        assignments. Set 512 for a starting configuration with 300k centroids.
-        Lists are rebuilt every iteration. Only squared Euclidean is supported.
-        Initialization, prediction and final inertia remain exhaustive.
-    ivf_n_probes : int, optional
-        Lists probed per query (default 32), capped at nonempty lists.
-    ivf_max_iter : int, optional
-        Maximum coarse k-means iterations per rebuild (default 20).
-    ivf_batch_samples : int, optional
-        Queries sorted and gathered together for list-local top-1NN (default
-        8192). Gather workspace contains up to batch size times probes times
-        dimensions values; independent of device_buffer_samples.
+    centroid_ivf_params : CentroidIvfParams, optional
+        Existing IVF-Flat build/search parameters for approximate assignments.
+        None (default) keeps exhaustive assignments. Lists are rebuilt every
+        iteration. Only squared Euclidean is supported. Initialization,
+        prediction and final inertia remain exhaustive. batch_samples bounds
+        query grouping; gather workspace contains up to batch_samples times
+        n_probes times dimensions values, independent of device_buffer_samples.
     hierarchical : bool
         Whether to use hierarchical (balanced) kmeans or not
     hierarchical_n_iters : int
@@ -139,10 +164,7 @@ cdef class KMeansParams:
                  device_buffer_samples=None,
                  hierarchical=None,
                  hierarchical_n_iters=None,
-                 ivf_n_lists=None,
-                 ivf_n_probes=None,
-                 ivf_max_iter=None,
-                 ivf_batch_samples=None):
+                 CentroidIvfParams centroid_ivf_params=None):
         if metric is not None:
             self.params.metric = <cuvsDistanceType>DISTANCE_TYPES[metric]
         if n_clusters is not None:
@@ -166,21 +188,14 @@ cdef class KMeansParams:
             self.params.init_size = init_size
         if device_buffer_samples is not None:
             self.params.device_buffer_samples = device_buffer_samples
-        if ivf_n_lists is not None:
-            self.params.ivf_n_lists = ivf_n_lists
-        if ivf_n_probes is not None:
-            self.params.ivf_n_probes = ivf_n_probes
-        if ivf_max_iter is not None:
-            self.params.ivf_max_iter = ivf_max_iter
-        if ivf_batch_samples is not None:
-            self.params.ivf_batch_samples = ivf_batch_samples
-        if self.params.ivf_n_lists < 0:
-            raise ValueError("ivf_n_lists must be nonnegative")
-        if self.params.ivf_n_lists > 0:
-            if not 0 < self.params.ivf_n_probes <= self.params.ivf_n_lists:
-                raise ValueError("Require 0 < ivf_n_probes <= ivf_n_lists")
-            if self.params.ivf_max_iter <= 0 or self.params.ivf_batch_samples <= 0:
-                raise ValueError("IVF iteration and batch limits must be positive")
+        self.centroid_ivf_params = centroid_ivf_params
+        self.params.centroid_ivf_params = NULL
+        if centroid_ivf_params is not None:
+            if self.params.batch_samples <= 0:
+                raise ValueError("batch_samples must be positive for centroid IVF")
+            if self.metric != "sqeuclidean":
+                raise ValueError("Centroid IVF requires sqeuclidean")
+            self.params.centroid_ivf_params = &centroid_ivf_params.params
         if hierarchical is not None:
             self.params.hierarchical = hierarchical
         if hierarchical_n_iters is not None:
@@ -188,8 +203,8 @@ cdef class KMeansParams:
                 raise ValueError("Setting hierarchical_n_iters requires"
                                  " `hierarchical` to be also set to True")
             self.params.hierarchical_n_iters = hierarchical_n_iters
-        if self.params.hierarchical and self.params.ivf_n_lists:
-            raise ValueError("Dense IVF is not supported by hierarchical k-means")
+        if self.params.hierarchical and centroid_ivf_params is not None:
+            raise ValueError("IVF is not supported by hierarchical k-means")
 
     @property
     def metric(self):
@@ -234,22 +249,6 @@ cdef class KMeansParams:
     @property
     def device_buffer_samples(self):
         return self.params.device_buffer_samples
-
-    @property
-    def ivf_n_lists(self):
-        return self.params.ivf_n_lists
-
-    @property
-    def ivf_n_probes(self):
-        return self.params.ivf_n_probes
-
-    @property
-    def ivf_max_iter(self):
-        return self.params.ivf_max_iter
-
-    @property
-    def ivf_batch_samples(self):
-        return self.params.ivf_batch_samples
 
     @property
     def hierarchical(self):

@@ -139,7 +139,7 @@ ConfigureTest(
        cluster/gmm.cu
        cluster/kmeans_predict_batching.cu
        cluster/kmeans_batch_loader.cu
-       cluster/kmeans_dense_ivf.cu
+       cluster/kmeans_ivf.cu
        cluster/linkage.cu
        cluster/connect_knn.cu
        cluster/spectral.cu
