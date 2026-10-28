@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/matrix_argmin_launchers.hpp"
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
@@ -144,5 +145,5 @@ void compute_soar_labels(raft::resources const& dev_resources,
     soar_scores.view(),
     raft::add_op());
 
-  raft::matrix::argmin(dev_resources, raft::make_const_mdspan(soar_scores.view()), soar_labels);
+  cuvs::detail::argmin(dev_resources, raft::make_const_mdspan(soar_scores.view()), soar_labels);
 }

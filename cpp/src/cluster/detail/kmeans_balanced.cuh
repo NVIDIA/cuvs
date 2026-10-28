@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/matrix_argmin_launchers.hpp"
 #include "kmeans_common.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -185,7 +186,7 @@ inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
       auto distances_const_view = raft::make_device_matrix_view<const MathT, IdxT, raft::row_major>(
         distances.data(), n_rows, n_clusters);
       auto labels_view = raft::make_device_vector_view<LabelT, IdxT>(labels, n_rows);
-      raft::matrix::argmin(handle, distances_const_view, labels_view);
+      cuvs::detail::argmin(handle, distances_const_view, labels_view);
       break;
     }
     default: {
