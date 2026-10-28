@@ -170,7 +170,7 @@ python -m cuvs_bench.plot --dataset sift-128-euclidean --dataset-path $DATASET_P
   --algorithms faiss_gpu_cagra_hnsw -k 10 --batch-size 10
 ```
 
-With `--search-device cpu`, `cuvs_bench.run` searches the saved indexes with `faiss_cpu_hnsw_flat`, so no GPU is needed. It uses the same index names, build parameters, and `efSearch` values as the build configuration, so it finds the copied files, and each row of `result/search/faiss_gpu_cagra_hnsw,base,k10,bs10,raw.csv` includes the build time and build parameters from the GPU host.
+With `--search-device cpu`, `cuvs_bench.run` searches the saved indexes with `faiss_cpu_hnsw_flat`, so no GPU is needed. It generates the same index names from the configuration's build parameters, so it finds the copied files, and each row of `result/search/faiss_gpu_cagra_hnsw,base,k10,bs10,raw.csv` includes the build time and build parameters from the GPU host.
 
 - `OMP_NUM_THREADS` sets the search thread count. Without it, Faiss uses all cores. The thread count is not recorded in the results.
 - Pass `cuvs_bench.plot` the same `-k` and `--batch-size` as the search.
