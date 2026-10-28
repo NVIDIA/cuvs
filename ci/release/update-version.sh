@@ -182,6 +182,8 @@ sed_runner "s|/[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}/|/${NEXT_F
 
 # This pattern is deliberately narrow: java/cuvs-lucene/README.md also links to a blog post whose
 # title contains a release number, and that reference must not be rewritten.
-sed_runner "s|<version>[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}</version>|<version>${NEXT_FULL_JAVA_TAG}</version>|g" java/cuvs-lucene/README.md
+for FILE in java/cuvs-lucene/README.md fern/pages/installation/java.md; do
+  sed_runner "s|<version>[[:digit:]]\{2\}\.[[:digit:]]\{2\}\.[[:digit:]]\{1,2\}</version>|<version>${NEXT_FULL_JAVA_TAG}</version>|g" "${FILE}"
+done
 
 sed_runner "s|target/examples-[\.0-9]*-jar|target/examples-${NEXT_FULL_JAVA_TAG}-jar|g" examples/java/cuvs-lucene/README.md
