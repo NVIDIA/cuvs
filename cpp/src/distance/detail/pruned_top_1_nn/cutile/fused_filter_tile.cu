@@ -64,7 +64,8 @@ void launch_fused_filter(const half* rows,
                          float ratio,
                          int partial_dim,
                          int64_t* packed,
-                         int* seg_count,
+                         int* count,
+                         int row_stride,
                          cudaStream_t stream)
 {
   FusedFilterTilePlanner planner;
@@ -86,12 +87,13 @@ void launch_fused_filter(const half* rows,
                           static_cast<const void*>(centroid_norms),
                           static_cast<const void*>(best),
                           static_cast<const void*>(packed),
-                          static_cast<const void*>(seg_count)}) {
+                          static_cast<const void*>(count)}) {
     RAFT_EXPECTS(reinterpret_cast<uintptr_t>(ptr) % 16 == 0,
                  "Pruned 1-NN fused filter: buffers must be 16-byte aligned");
   }
-  const int n_col_tiles     = (n_centroids + tile.tile_n - 1) / tile.tile_n;
-  const int64_t packed_size = int64_t{n_rows} * n_col_tiles * tile.tile_n;
+  RAFT_EXPECTS(row_stride >= n_centroids,
+               "Pruned 1-NN fused filter: a row's region must hold every centroid");
+  const int64_t packed_size = int64_t{n_rows} * row_stride;
   RAFT_EXPECTS(packed_size <= std::numeric_limits<int>::max(),
                "Pruned 1-NN fused filter: too many rows x centroids in one call");
 
@@ -125,6 +127,7 @@ void launch_fused_filter(const half* rows,
                                      int,
                                      int,
                                      float,
+                                     int,
                                      int);
   void* rows_ptr              = const_cast<half*>(rows);
   void* centroids_ptr         = const_cast<half*>(centroids);
@@ -132,7 +135,7 @@ void launch_fused_filter(const half* rows,
   void* centroid_norms_ptr    = const_cast<float*>(centroid_norms);
   void* best_ptr              = const_cast<float*>(best);
   void* packed_ptr            = packed;
-  void* seg_count_ptr         = seg_count;
+  void* count_ptr             = count;
   const int packed_len        = static_cast<int>(packed_size);
   const int unit              = 1;
 
@@ -165,15 +168,16 @@ void launch_fused_filter(const half* rows,
                                                      packed_ptr,
                                                      int{packed_len},
                                                      int{unit},
-                                                     seg_count_ptr,
+                                                     count_ptr,
                                                      int{n_rows},
-                                                     int{n_col_tiles},
-                                                     int{n_col_tiles},
+                                                     int{unit},
+                                                     int{unit},
                                                      int{unit},
                                                      int{n_rows},
                                                      int{n_centroids},
                                                      float{ratio},
-                                                     int{partial_dim});
+                                                     int{partial_dim},
+                                                     int{row_stride});
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 

@@ -9,16 +9,16 @@ distance ||row||^2 + ||centroid||^2 - 2 row.centroid over the first d' dims (FP1
 keeps the pairs under the row's threshold best[row] * ratio, where best is the row's
 distance to its current centroid.
 
-Output, for n_rows rows against n_centroids centroids (n_col_tiles = ceil(n_centroids / TN)):
+Output, for n_rows rows against n_centroids centroids (row_stride >= n_centroids):
 
-  packed     int64, one segment of TN slots per (row, centroid tile), at (row * n_col_tiles + tile) * TN:
-               slots 0 .. count-1   that tile's survivors for that row, in centroid order
-               slots count .. TN-1  not written
-             a survivor: (centroid index) << 32 | (the partial distance's float32 bits)
-  seg_count  int32 (n_rows, n_col_tiles): count, how many slots of each segment are filled
+  packed  int64, row r's survivors at r * row_stride + 0 .. count[r] - 1, in centroid order (the
+          rest not written); a survivor: (centroid index) << 32 | (the partial distance's float32
+          bits)
+  count   int32 (n_rows, 1): each row's survivor count
 
-A segment holds a whole tile, so it cannot overflow, and a survivor's slot is just its rank among
-the row's survivors in that tile: no prefix sum across rows.
+A row's region holds every centroid, so it cannot overflow, and a survivor's slot is its rank among
+the row's survivors: the CTA carries each row's count over the centroid tiles, so there is no
+prefix sum across rows.
 
 d' is a runtime argument and must be a multiple of TK.
 """
@@ -51,11 +51,12 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
         centroid_norms,
         best,
         packed,
-        seg_count,
+        count,
         n_rows,
         n_centroids,
         ratio,
         dp,
+        row_stride,
         tm: ConstInt,
         tn: ConstInt,
         tk: ConstInt,
@@ -73,6 +74,7 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
             ]
             * ratio
         )
+        filled = ct.full((tm, 1), 0, dtype=ct.int32)  # each row's survivors so far
         for centroid_tile in range(n_col_tiles):
             acc = ct.full((tm, tn), 0, dtype=ct.float32)
             for kk in range(dp // tk):
@@ -96,16 +98,17 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
             dist = -2.0 * acc + row_norm + centroid_norm
             centroid_ids = centroid_tile * tn + ct.arange(tn, dtype=ct.int32)[None, :]
             keep = (dist < threshold) & (centroid_ids < n_centroids) & (row_ids < n_rows)
-            # Slot: the start of the (row, tile) segment plus the survivor's rank in the row
+            # Slot: the row's region, after its survivors in the earlier tiles, plus the
+            # survivor's rank in this tile
             keep_i = keep.astype(ct.int32)
-            per_row = ct.sum(keep_i, axis=1, keepdims=True)
-            slot = (row_ids * n_col_tiles + centroid_tile) * tn + ct.cumsum(keep_i, 1) - 1
+            slot = row_ids * row_stride + filled + ct.cumsum(keep_i, 1) - 1
+            filled = filled + ct.sum(keep_i, axis=1, keepdims=True)
             # The distance's bits are masked: widening a negative int32 (a negative float, e.g. a
             # rounded-down 0) to int64 would sign-extend into the index
             index = ct.broadcast_to(centroid_ids, (tm, tn)).astype(ct.int64)
             dist_bits = ct.bitcast(dist, ct.int32).astype(ct.int64) & LOW_32_BITS
             value = ct.bitwise_lshift(index, ID_SHIFT) | dist_bits
             ct.scatter(packed, slot, value, mask=keep)
-            ct.store(seg_count, index=(row_tile, centroid_tile), tile=per_row)
+        ct.store(count, index=(row_tile, 0), tile=filled)
 
     return fused_filter
