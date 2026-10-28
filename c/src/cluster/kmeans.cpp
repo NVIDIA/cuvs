@@ -30,11 +30,17 @@ cuvs::cluster::kmeans::params convert_params(const cuvsKMeansParams& params)
   kmeans_params.batch_centroids     = params.batch_centroids;
   kmeans_params.init_size             = params.init_size;
   kmeans_params.device_buffer_samples  = params.device_buffer_samples;
+  kmeans_params.ivf_n_lists       = params.ivf_n_lists;
+  kmeans_params.ivf_n_probes      = params.ivf_n_probes;
+  kmeans_params.ivf_max_iter      = params.ivf_max_iter;
+  kmeans_params.ivf_batch_samples = params.ivf_batch_samples;
   return kmeans_params;
 }
 
 cuvs::cluster::kmeans::balanced_params convert_balanced_params(const cuvsKMeansParams& params)
 {
+  RAFT_EXPECTS(params.ivf_n_lists == 0,
+               "Dense IVF assignment is not supported by hierarchical k-means");
   auto kmeans_params    = cuvs::cluster::kmeans::balanced_params();
   kmeans_params.metric  = static_cast<cuvs::distance::DistanceType>(params.metric);
   kmeans_params.n_iters = params.hierarchical_n_iters;
@@ -240,7 +246,11 @@ extern "C" cuvsError_t cuvsKMeansParamsCreate(cuvsKMeansParams_t* params)
       .hierarchical         = false,
       .hierarchical_n_iters = static_cast<int>(cpp_balanced_params.n_iters),
       .device_buffer_samples = cpp_params.device_buffer_samples,
-      .init_size            = cpp_params.init_size};
+      .init_size            = cpp_params.init_size,
+      .ivf_n_lists          = cpp_params.ivf_n_lists,
+      .ivf_n_probes         = cpp_params.ivf_n_probes,
+      .ivf_max_iter         = cpp_params.ivf_max_iter,
+      .ivf_batch_samples    = cpp_params.ivf_batch_samples};
   });
 }
 

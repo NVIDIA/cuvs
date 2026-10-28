@@ -526,3 +526,49 @@ $$
 $$
 
 For large `K`, reduce `batch_centroids`. For large `N`, reduce `batch_samples` or use the host streaming fit path when fitting from host data.
+
+## Dense IVF training assignments
+
+For large centroid sets, enable approximate Lloyd assignments by setting `ivf_n_lists` to a
+positive value. The default, zero, retains exhaustive assignments. For example:
+
+```python
+params = KMeansParams(
+    n_clusters=300_000,
+    ivf_n_lists=512,
+    ivf_n_probes=32,
+    ivf_max_iter=20,
+    ivf_batch_samples=8192,
+    device_buffer_samples=131072,
+)
+```
+
+These fields are also available in the C and C++ parameter structures. Dense IVF currently
+supports squared Euclidean (`L2Expanded`) distance and standard k-means, including weighted,
+host-batched, and multi-GPU fits. Hierarchical k-means does not support this option.
+
+Every Lloyd iteration clusters the current centroids into coarse lists, then stores the fine
+centroids in dense row-major order with their original IDs. Each query selects `ivf_n_probes`
+coarse lists. Query/list pairs are sorted by list and the queries are gathered into contiguous
+groups. Each group calls the existing `minClusterAndDistanceCompute` / `top_1_nn` dispatch,
+including the cuTile backend when supported. Existing reductions select the nearest centroid
+across the probed lists. No new distance kernels or modified cuTile kernels are required.
+Empty lists are excluded from routing; list and probe counts are capped by the available
+centroids and nonempty lists. Equal distances prefer the smaller original centroid ID.
+
+`ivf_batch_samples` bounds query grouping independently of host staging. The gathered query
+workspace holds up to `ivf_batch_samples * ivf_n_probes * n_features` values, in addition to
+routing, output, and primitive workspaces. Lists are reused across queries within a group;
+this does not guarantee a single physical memory read for an entire batch. The existing
+primitive's backend and tile choices are retained. This implementation issues one existing
+primitive call per nonempty queried list; it does not use the experimental grouped kernel.
+
+Each GPU keeps the complete centroid index and processes its assigned input shard. The usual
+centroid sum/weight reduction combines ranks before the next rebuild. For pageable host input,
+the batch loader stages into bounded pinned buffers; configuring an auxiliary stream enables
+double buffering. Use a nonblocking auxiliary stream when sharing a legacy CUDA compute stream.
+
+Initialization and `predict` remain exhaustive. Final returned inertia is also computed by the
+existing exhaustive scoring pass, even when training uses approximate assignments. This pass
+can be expensive for large datasets and centroid counts. Probing all nonempty lists removes
+IVF pruning, but the existing backend's floating-point arithmetic can still affect near ties.

@@ -401,10 +401,14 @@ pub struct cuvsKMeansParams {
     pub hierarchical_n_iters: ::std::os::raw::c_int,
     pub device_buffer_samples: i64,
     pub init_size: i64,
+    pub ivf_n_lists: ::std::os::raw::c_int,
+    pub ivf_n_probes: ::std::os::raw::c_int,
+    pub ivf_max_iter: ::std::os::raw::c_int,
+    pub ivf_batch_samples: ::std::os::raw::c_int,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsKMeansParams"][::std::mem::size_of::<cuvsKMeansParams>() - 72usize];
+    ["Size of cuvsKMeansParams"][::std::mem::size_of::<cuvsKMeansParams>() - 88usize];
     ["Alignment of cuvsKMeansParams"][::std::mem::align_of::<cuvsKMeansParams>() - 8usize];
     ["Offset of field: cuvsKMeansParams::metric"]
         [::std::mem::offset_of!(cuvsKMeansParams, metric) - 0usize];
@@ -432,6 +436,14 @@ const _: () = {
         [::std::mem::offset_of!(cuvsKMeansParams, device_buffer_samples) - 56usize];
     ["Offset of field: cuvsKMeansParams::init_size"]
         [::std::mem::offset_of!(cuvsKMeansParams, init_size) - 64usize];
+    ["Offset of field: cuvsKMeansParams::ivf_n_lists"]
+        [::std::mem::offset_of!(cuvsKMeansParams, ivf_n_lists) - 72usize];
+    ["Offset of field: cuvsKMeansParams::ivf_n_probes"]
+        [::std::mem::offset_of!(cuvsKMeansParams, ivf_n_probes) - 76usize];
+    ["Offset of field: cuvsKMeansParams::ivf_max_iter"]
+        [::std::mem::offset_of!(cuvsKMeansParams, ivf_max_iter) - 80usize];
+    ["Offset of field: cuvsKMeansParams::ivf_batch_samples"]
+        [::std::mem::offset_of!(cuvsKMeansParams, ivf_batch_samples) - 84usize];
 };
 pub type cuvsKMeansParams_t = *mut cuvsKMeansParams;
 unsafe extern "C" {

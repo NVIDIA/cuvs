@@ -8,6 +8,7 @@
 #include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"
 #include "kmeans_common.cuh"
+#include "kmeans_dense_ivf.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
@@ -811,6 +812,9 @@ void kmeans_fit(
   DataT* new_centroids_ptr = new_centroids_buf.data();
 
   rmm::device_uvector<char> assignment_output(0, stream);
+  RAFT_EXPECTS(pams.ivf_n_lists >= 0, "ivf_n_lists must be nonnegative");
+  std::optional<dense_ivf_assignment<DataT, IndexT>> ivf;
+  if (pams.ivf_n_lists > 0) { ivf.emplace(handle, pams); }
   auto minClusterDistance = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
   auto batch_weights_buf  = raft::make_device_vector<DataT, IndexT>(handle, device_buffer_samples);
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
@@ -995,6 +999,10 @@ void kmeans_fit(
       raft::matrix::fill(handle, weight_per_cluster.view(), DataT{0});
       raft::matrix::fill(handle, clustering_cost.view(), DataT{0});
 
+      if (ivf) {
+        ivf->build(raft::make_device_matrix_view<const DataT, IndexT>(
+          cur_centroids_ptr, n_clusters, n_features));
+      }
       // Complete iteration setup before starting the cold pipeline, so no potentially blocking
       // CUDA setup remains between the first transfer and its first consumer.
       data_batches.start();
@@ -1047,23 +1055,25 @@ void kmeans_fit(
           }
         }
 
-        process_batch<DataT, IndexT>(handle,
-                                     batch_data_view,
-                                     batch_weights_view,
-                                     centroids_const,
-                                     metric,
-                                     iter_params.batch_samples,
-                                     iter_params.batch_centroids,
-                                     assignment_output,
-                                     l2_const_view,
-                                     tf32_const_view,
-                                     L2NormBuf_OR_DistBuf,
-                                     ws,
-                                     centroid_sums.view(),
-                                     weight_per_cluster.view(),
-                                     clustering_cost.view(),
-                                     batch_workspace,
-                                     batch_cost.view());
+        process_batch<DataT, IndexT>(
+          handle,
+          batch_data_view,
+          batch_weights_view,
+          centroids_const,
+          metric,
+          iter_params.batch_samples,
+          iter_params.batch_centroids,
+          assignment_output,
+          l2_const_view,
+          tf32_const_view,
+          L2NormBuf_OR_DistBuf,
+          ws,
+          centroid_sums.view(),
+          weight_per_cluster.view(),
+          clustering_cost.view(),
+          batch_workspace,
+          batch_cost.view(),
+          ivf ? std::optional{ivf->search(batch_data_view)} : std::nullopt);
 
         // The slot is reusable only after every batch consumer above has been submitted. With two
         // buffers the other slot already holds the next batch; with one buffer, refill this slot

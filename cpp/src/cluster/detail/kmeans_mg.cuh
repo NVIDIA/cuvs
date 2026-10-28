@@ -219,6 +219,9 @@ void mnmg_fit(
   IndexT alloc_batch_size  = device_buffer_samples;
   auto batch_weights       = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   rmm::device_uvector<char> assignment_output(0, stream);
+  RAFT_EXPECTS(params.ivf_n_lists >= 0, "ivf_n_lists must be nonnegative");
+  std::optional<cuvs::cluster::kmeans::detail::dense_ivf_assignment<DataT, IndexT>> ivf;
+  if (params.ivf_n_lists > 0) { ivf.emplace(dev_res, params); }
   auto minClusterDistance = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto L2NormBatch        = raft::make_device_vector<DataT, IndexT>(dev_res, alloc_batch_size);
   auto Tf32NormBatch      = raft::make_device_vector<DataT, IndexT>(
@@ -494,6 +497,7 @@ void mnmg_fit(
       raft::matrix::fill(dev_res, weight_per_cluster.view(), DataT{0});
       raft::matrix::fill(dev_res, clustering_cost.view(), DataT{0});
 
+      if (ivf) { ivf->build(rank_centroids_const); }
       data_batches.start();
       if (weight_batches.has_value()) { weight_batches->start(); }
       for (std::size_t batch_pos = 0; batch_pos < data_batches.num_batches(); ++batch_pos) {
@@ -574,7 +578,8 @@ void mnmg_fit(
           weight_per_cluster.view(),
           raft::make_device_scalar_view(clustering_cost.data_handle()),
           batch_workspace,
-          batch_cost.view());
+          batch_cost.view(),
+          ivf ? std::optional{ivf->search(batch_data_view)} : std::nullopt);
 
         const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
         data_batches.recycle(data_batch, next_batch_pos);

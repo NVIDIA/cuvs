@@ -369,3 +369,61 @@ INSTANTIATE_TEST_SUITE_P(KmeansSNMGTests, KmeansSNMGTestF, ::testing::ValuesIn(s
 INSTANTIATE_TEST_SUITE_P(KmeansSNMGTests, KmeansSNMGTestD, ::testing::ValuesIn(snmg_inputsd));
 
 }  // namespace cuvs
+
+namespace cuvs {
+TEST(KmeansDenseIvfMultiGpu, HostShardsMatchExhaustive)
+{
+  int devices = 0;
+  RAFT_CUDA_TRY(cudaGetDeviceCount(&devices));
+  if (devices < 2) { GTEST_SKIP() << "Requires at least two GPUs"; }
+  raft::device_resources_snmg clique;
+  clique.set_memory_pool(1);
+  clique.set_stream_pool(1);
+  auto stream            = raft::resource::get_cuda_stream(clique);
+  constexpr int64_t rows = 113, dim = 7, clusters = 9;
+  std::vector<float> x(rows * dim), initial(clusters * dim);
+  for (int64_t c = 0; c < clusters; ++c) {
+    for (int64_t d = 0; d < dim; ++d) {
+      initial[c * dim + d] = float(30 * c + d);
+    }
+  }
+  for (int64_t r = 0; r < rows; ++r) {
+    for (int64_t d = 0; d < dim; ++d) {
+      x[r * dim + d] = initial[(r % clusters) * dim + d] + float((r / clusters) % 3);
+    }
+  }
+  auto centers = raft::make_device_matrix<float, int64_t>(clique, clusters, dim);
+  cuvs::cluster::kmeans::params p;
+  p.n_clusters            = clusters;
+  p.init                  = cuvs::cluster::kmeans::params::Array;
+  p.max_iter              = 3;
+  p.tol                   = 1e-10;
+  p.device_buffer_samples = 17;
+  p.ivf_n_probes          = 3;
+  p.ivf_max_iter          = 4;
+  p.ivf_batch_samples     = 11;
+  float costs[2]{};
+  int64_t iterations[2]{};
+  std::vector<float> outputs[2];
+  for (int method = 0; method < 2; ++method) {
+    p.ivf_n_lists = method == 0 ? 0 : 3;
+    raft::update_device(centers.data_handle(), initial.data(), initial.size(), stream);
+    cuvs::cluster::kmeans::fit(
+      clique,
+      p,
+      raft::make_host_matrix_view<const float, int64_t>(x.data(), rows, dim),
+      std::nullopt,
+      centers.view(),
+      raft::make_host_scalar_view(costs + method),
+      raft::make_host_scalar_view(iterations + method));
+    outputs[method].resize(initial.size());
+    raft::update_host(outputs[method].data(), centers.data_handle(), initial.size(), stream);
+    raft::resource::sync_stream(clique);
+  }
+  for (std::size_t i = 0; i < initial.size(); ++i) {
+    EXPECT_NEAR(outputs[0][i], outputs[1][i], 1e-5);
+  }
+  EXPECT_NEAR(costs[0], costs[1], 1e-4);
+  EXPECT_EQ(iterations[0], iterations[1]);
+}
+}  // namespace cuvs

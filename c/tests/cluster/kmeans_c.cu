@@ -192,3 +192,14 @@ TEST(KMeansC, ParamsCreateDestroy)
   EXPECT_GT(params->max_iter, 0);
   ASSERT_EQ(cuvsKMeansParamsDestroy(params), CUVS_SUCCESS);
 }
+
+TEST(KMeansC, DenseIvfParameterDefaults)
+{
+  cuvsKMeansParams_t params;
+  ASSERT_EQ(cuvsKMeansParamsCreate(&params), CUVS_SUCCESS);
+  EXPECT_EQ(params->ivf_n_lists, 0);
+  EXPECT_EQ(params->ivf_n_probes, 32);
+  EXPECT_EQ(params->ivf_max_iter, 20);
+  EXPECT_EQ(params->ivf_batch_samples, 8192);
+  EXPECT_EQ(cuvsKMeansParamsDestroy(params), CUVS_SUCCESS);
+}

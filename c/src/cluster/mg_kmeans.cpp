@@ -38,6 +38,10 @@ cuvs::cluster::kmeans::params convert_params(const ParamsT& params)
   kmeans_params.batch_centroids      = params.batch_centroids;
   kmeans_params.init_size            = params.init_size;
   kmeans_params.device_buffer_samples = params.device_buffer_samples;
+  kmeans_params.ivf_n_lists       = params.ivf_n_lists;
+  kmeans_params.ivf_n_probes      = params.ivf_n_probes;
+  kmeans_params.ivf_max_iter      = params.ivf_max_iter;
+  kmeans_params.ivf_batch_samples = params.ivf_batch_samples;
   return kmeans_params;
 }
 

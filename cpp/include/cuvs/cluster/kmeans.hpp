@@ -166,6 +166,26 @@ struct params : base_params {
    * count. This is ignored by device-data overloads.
    */
   int64_t device_buffer_samples = 0;
+
+  /** Number of dense IVF lists over the current centroids. Zero (default) keeps exhaustive
+   * Lloyd assignments. A positive value enables approximate L2Expanded assignments; 512 is a
+   * useful starting point for 300k centroids. Lists are rebuilt every iteration on every rank.
+   * Clamped to n_clusters. Initialization, predict, and final reported inertia stay exhaustive.
+   */
+  int ivf_n_lists = 0;
+
+  /** Coarse lists searched per query, clamped to the number of nonempty lists. */
+  int ivf_n_probes = 32;
+
+  /** Maximum iterations for the coarse k-means fit over the centroids at each rebuild. */
+  int ivf_max_iter = 20;
+
+  /** Queries grouped together before list-local top_1_nn calls. Query/list pairs are sorted
+   * and gathered into dense row-major groups. Gather workspace holds at most
+   * ivf_batch_samples * min(ivf_n_probes, ivf_n_lists) * n_features values, plus routing and
+   * primitive workspaces. Independent of the host staging size device_buffer_samples.
+   */
+  int ivf_batch_samples = 8192;
 };
 
 /**

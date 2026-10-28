@@ -780,40 +780,45 @@ __device__ void check_convergence(raft::device_scalar_view<const DataT> clusteri
  * @param[inout]  centroid_sums        Running weighted sums [n_clusters x n_features] (added into)
  * @param[inout]  weight_per_cluster   Running weight counts [n_clusters] (added into)
  * @param[inout]  clustering_cost      Running cost scalar (device) (added into)
+ * @param[in]     assignments          Optional precomputed dense-IVF assignments
  * @param[out]    batch_cost           Reusable scratch scalar for this batch's cost
  */
 template <typename DataT, typename IndexT>
-void process_batch(raft::resources const& handle,
-                   raft::device_matrix_view<const DataT, IndexT> batch_data,
-                   raft::device_vector_view<const DataT, IndexT> batch_weights,
-                   raft::device_matrix_view<const DataT, IndexT> centroids,
-                   cuvs::distance::DistanceType metric,
-                   int batch_samples_param,
-                   int batch_centroids_param,
-                   rmm::device_uvector<char>& output_storage,
-                   raft::device_vector_view<const DataT, IndexT> L2NormBatch,
-                   std::optional<raft::device_vector_view<const DataT, IndexT>> Tf32NormBatch,
-                   rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
-                   rmm::device_uvector<char>& workspace,
-                   raft::device_matrix_view<DataT, IndexT> centroid_sums,
-                   raft::device_vector_view<DataT, IndexT> weight_per_cluster,
-                   raft::device_scalar_view<DataT> clustering_cost,
-                   rmm::device_uvector<char>& batch_workspace,
-                   raft::device_scalar_view<DataT> batch_cost)
+void process_batch(
+  raft::resources const& handle,
+  raft::device_matrix_view<const DataT, IndexT> batch_data,
+  raft::device_vector_view<const DataT, IndexT> batch_weights,
+  raft::device_matrix_view<const DataT, IndexT> centroids,
+  cuvs::distance::DistanceType metric,
+  int batch_samples_param,
+  int batch_centroids_param,
+  rmm::device_uvector<char>& output_storage,
+  raft::device_vector_view<const DataT, IndexT> L2NormBatch,
+  std::optional<raft::device_vector_view<const DataT, IndexT>> Tf32NormBatch,
+  rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
+  rmm::device_uvector<char>& workspace,
+  raft::device_matrix_view<DataT, IndexT> centroid_sums,
+  raft::device_vector_view<DataT, IndexT> weight_per_cluster,
+  raft::device_scalar_view<DataT> clustering_cost,
+  rmm::device_uvector<char>& batch_workspace,
+  raft::device_scalar_view<DataT> batch_cost,
+  std::optional<MinClusterAndDistanceResult<DataT, IndexT>> assignments = std::nullopt)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
-  const auto result = minClusterAndDistanceCompute<DataT, IndexT>(handle,
-                                                                  batch_data,
-                                                                  centroids,
-                                                                  output_storage,
-                                                                  L2NormBatch,
-                                                                  L2NormBuf_OR_DistBuf,
-                                                                  metric,
-                                                                  batch_samples_param,
-                                                                  batch_centroids_param,
-                                                                  workspace,
-                                                                  Tf32NormBatch);
+  const auto result = assignments.has_value()
+                        ? *assignments
+                        : minClusterAndDistanceCompute<DataT, IndexT>(handle,
+                                                                      batch_data,
+                                                                      centroids,
+                                                                      output_storage,
+                                                                      L2NormBatch,
+                                                                      L2NormBuf_OR_DistBuf,
+                                                                      metric,
+                                                                      batch_samples_param,
+                                                                      batch_centroids_param,
+                                                                      workspace,
+                                                                      Tf32NormBatch);
 
   auto update_centroids = [&](auto labels) {
     compute_centroid_adjustments(handle,

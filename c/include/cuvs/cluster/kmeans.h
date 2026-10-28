@@ -126,6 +126,19 @@ struct cuvsKMeansParams {
    * or n_samples for device data.
    */
   int64_t init_size;
+
+  /** Dense IVF lists over centroids; 0 disables approximate training
+   * assignments (default). L2Expanded only. Rebuilt every iteration. Prediction
+   * and final inertia remain exhaustive.
+   */
+  int ivf_n_lists;
+  /** Probed nonempty lists (default 32). Must be <= ivf_n_lists when enabled.
+   */
+  int ivf_n_probes;
+  /** Maximum coarse k-means iterations per rebuild (default 20). */
+  int ivf_max_iter;
+  /** Query microbatch for sorted/gathered list-local top-1NN (default 8192). */
+  int ivf_batch_samples;
 };
 
 typedef struct cuvsKMeansParams* cuvsKMeansParams_t;

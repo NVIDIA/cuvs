@@ -165,3 +165,40 @@ def test_fit_host_with_stream_pool_setter():
     assert n_iter >= 1
     assert np.isfinite(inertia)
     assert np.allclose(centroids.copy_to_host(), [[0, 0], [10, 10]], atol=1e-3)
+
+
+@pytest.mark.parametrize("host_input", [False, True])
+def test_dense_ivf_all_probes_fit(host_input):
+    rng = np.random.default_rng(42)
+    centers = np.arange(9, dtype=np.float32)[:, None] * 20
+    x = (centers[np.arange(113) % 9] + rng.normal(0, 0.1, (113, 7))).astype(np.float32)
+    initial = np.repeat(centers, 7, axis=1)
+    data = x if host_input else device_ndarray(x)
+    outputs = []
+    for lists in (0, 3):
+        params = KMeansParams(
+            n_clusters=9, init_method="Array", max_iter=3,
+            device_buffer_samples=23, ivf_n_lists=lists, ivf_n_probes=3,
+            ivf_max_iter=4, ivf_batch_samples=11,
+        )
+        assert params.ivf_n_lists == lists
+        assert params.ivf_n_probes == 3
+        assert params.ivf_max_iter == 4
+        assert params.ivf_batch_samples == 11
+        out, inertia, _ = fit(params, data, device_ndarray(initial))
+        outputs.append((out.copy_to_host(), inertia))
+    np.testing.assert_allclose(outputs[0][0], outputs[1][0], atol=1e-5)
+    np.testing.assert_allclose(outputs[0][1], outputs[1][1], rtol=1e-5)
+
+
+@pytest.mark.parametrize("options", [
+    {"ivf_n_lists": -1},
+    {"ivf_n_lists": 4, "ivf_n_probes": 5},
+    {"ivf_n_lists": 4, "ivf_n_probes": 0},
+    {"ivf_n_lists": 4, "ivf_n_probes": 1, "ivf_batch_samples": 0},
+    {"ivf_n_lists": 4, "ivf_n_probes": 1, "ivf_max_iter": 0},
+    {"ivf_n_lists": 4, "ivf_n_probes": 1, "hierarchical": True},
+])
+def test_dense_ivf_invalid_params(options):
+    with pytest.raises(ValueError):
+        KMeansParams(**options)
