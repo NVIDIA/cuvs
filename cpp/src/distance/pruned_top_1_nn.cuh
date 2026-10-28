@@ -166,11 +166,12 @@ inline void order_rows_by_survivors(raft::resources const& handle,
 
 /**
  * Whether pruned_top_1_nn runs for k features on this build and device: it needs the fused
- * filter's cuTile kernel, and k a positive multiple of detail::pruned_nn::kDimTileSize.
+ * filter's cuTile kernel, and k a multiple of detail::pruned_nn::kDimTileSize above it (the first
+ * filter's dims, with a tail left to prune on).
  */
 inline bool is_pruned_top_1_nn_available(int64_t k)
 {
-  return k > 0 && k % detail::pruned_nn::kDimTileSize == 0 &&
+  return k > detail::pruned_nn::kDimTileSize && k % detail::pruned_nn::kDimTileSize == 0 &&
          detail::pruned_nn::filter_tile().has_value();
 }
 
@@ -224,7 +225,7 @@ void pruned_top_1_nn(raft::resources const& handle,
   using namespace detail::pruned_nn;
   constexpr bool kHalf = std::is_same_v<DataT, half>;
   RAFT_EXPECTS(is_pruned_top_1_nn_available(k),
-               "Pruned 1-NN needs the fused filter's cuTile kernel and k a multiple of %u",
+               "Pruned 1-NN needs the fused filter's cuTile kernel and k a multiple of %u above it",
                kDimTileSize);
   RAFT_EXPECTS(m > 0 && n > 0, "Pruned 1-NN needs rows in x and y");
   RAFT_EXPECTS(params.ratios != nullptr, "Pruned 1-NN needs the pruning ratios");
