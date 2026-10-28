@@ -278,26 +278,23 @@ class ivf_assignment {
   params params_;
   IndexT n_centroids_{}, dim_{}, n_lists_{}, n_probes_{};
   std::vector<IndexT> host_list_offsets_, host_query_offsets_;
-#define IVF_BUFFER(Type, Name) \
-  rmm::device_uvector<Type> Name { 0, raft::resource::get_cuda_stream(handle_) }
-  IVF_BUFFER(DataT, coarse_);
-  IVF_BUFFER(DataT, list_centroids_);
-  IVF_BUFFER(DataT, gathered_queries_);
-  IVF_BUFFER(DataT, routing_distances_);
-  IVF_BUFFER(DataT, probe_distances_);
-  IVF_BUFFER(DataT, norms_);
-  IVF_BUFFER(DataT, norm_or_distance_);
-  IVF_BUFFER(IndexT, list_ids_);
-  IVF_BUFFER(IndexT, centroid_ids_);
-  IVF_BUFFER(IndexT, list_offsets_);
-  IVF_BUFFER(IndexT, probe_ids_);
-  IVF_BUFFER(IndexT, pair_order_);
-  IVF_BUFFER(IndexT, query_offsets_);
-  IVF_BUFFER(kvp, pair_results_);
-  IVF_BUFFER(kvp, output_);
-  IVF_BUFFER(char, native_output_);
-  IVF_BUFFER(char, workspace_);
-#undef IVF_BUFFER
+  rmm::device_uvector<DataT> coarse_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<DataT> list_centroids_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<DataT> gathered_queries_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<DataT> routing_distances_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<DataT> probe_distances_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<DataT> norms_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<DataT> norm_or_distance_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<IndexT> list_ids_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<IndexT> centroid_ids_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<IndexT> list_offsets_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<IndexT> probe_ids_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<IndexT> pair_order_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<IndexT> query_offsets_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<kvp> pair_results_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<kvp> output_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<char> native_output_{0, raft::resource::get_cuda_stream(handle_)};
+  rmm::device_uvector<char> workspace_{0, raft::resource::get_cuda_stream(handle_)};
 };
 
 }  // namespace cuvs::cluster::kmeans::detail
