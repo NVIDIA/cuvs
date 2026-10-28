@@ -245,6 +245,10 @@ struct balanced_params : base_params {
  * sampled at random, as with kmeans::params::InitMethod::Random; all `n_iters` iterations run
  * (there is no convergence test), and an empty cluster keeps its previous centroid.
  *
+ * With a stream pool on the handle (one stream is enough), the pruned assignment's row batches
+ * alternate between the main stream and the pool's, overlapping their kernels, for up to 2 GiB
+ * more workspace.
+ *
  * The following metrics are currently supported:
  *  - L2Expanded
  */
