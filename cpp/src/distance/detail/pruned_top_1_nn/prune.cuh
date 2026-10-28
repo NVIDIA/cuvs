@@ -142,14 +142,13 @@ void distance_to_assigned(const T* rows,
 
 /**
  * The first filter's survivor lists of one row batch x centroid batch (see launch_fused_filter):
- * per (row, centroid tile) a segment of tile_n slots in `packed`, its count in `seg_count`. The
- * pruning kernel compacts a row's survivors in place in the row's segments.
+ * row r's survivors at packed[r * row_stride], count[r] of them. The pruning kernel compacts them
+ * in place.
  */
 struct first_filter_lists {
   int64_t* packed;
-  const int32_t* seg_count;
-  uint32_t n_col_tiles;
-  uint32_t tile_n;
+  const int32_t* count;
+  uint32_t row_stride;
 };
 
 /**
@@ -201,36 +200,6 @@ __device__ __forceinline__ int64_t pack_survivor(uint32_t id, float distance)
 }
 
 /**
- * A row's first-filter survivors, from its segments (`list`, the row's region), compacted to
- * positions [0, n) in centroid order and written with put(position, entry). In place: a chunk's
- * entries are all read before any is written, and a write never passes the read position.
- * Returns n.
- */
-template <typename Put>
-__device__ __forceinline__ uint32_t compact_survivors(const int64_t* list,
-                                                      const int32_t* __restrict__ counts,
-                                                      uint32_t n_col_tiles,
-                                                      uint32_t tile_n,
-                                                      Put&& put)
-{
-  const uint32_t lane = threadIdx.x % kWarpSize;
-  uint32_t n          = 0;
-  for (uint32_t t = 0; t < n_col_tiles; t++) {
-    const auto count = static_cast<uint32_t>(counts[t]);
-    for (uint32_t j0 = 0; j0 < count; j0 += kWarpSize) {
-      const uint32_t j = j0 + lane;
-      int64_t value    = 0;
-      if (j < count) { value = list[t * tile_n + j]; }
-      __syncwarp();
-      if (j < count && (n + j < kWarpSize || n != t * tile_n)) { put(n + j, value); }
-    }
-    n += count;
-  }
-  __syncwarp();
-  return n;
-}
-
-/**
  * A warp per block and row, against one centroid batch: the row's first-filter survivors (partial
  * distances over the first partial_dim dims), the tail dims in dim tiles with a re-filter after
  * each but the last, then the argmin, kept if closer than the row's current centroid. Block b
@@ -238,9 +207,9 @@ __device__ __forceinline__ uint32_t compact_survivors(const int64_t* list,
  * are added to `survivors`.
  *
  * The survivor list stays in the row's region of `lists`, but for its first kWarpSize entries,
- * kept in shared memory; the warp reads it a window of kWarpSize entries at a time, lane l holding
- * entry l, and each re-filter compacts it in place. The launch bounds leave the compiler up to 64
- * registers, for more centroid loads in flight.
+ * copied to shared memory; the warp reads it a window of kWarpSize entries at a time, lane l
+ * holding entry l, and each re-filter compacts it in place. The launch bounds leave the compiler up
+ * to 64 registers, for more centroid loads in flight.
  */
 template <typename T>
 RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ rows,
@@ -264,7 +233,7 @@ RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ 
   float best                 = dist[row];
   const float bound          = best;
 
-  int64_t* list = lists.packed + row * lists.n_col_tiles * lists.tile_n;
+  int64_t* list = lists.packed + row * lists.row_stride;
   auto put      = [&](uint32_t position, int64_t value) {
     if (position < kWarpSize) {
       head[position] = value;
@@ -272,8 +241,9 @@ RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ 
       list[position] = value;
     }
   };
-  uint32_t n_left = compact_survivors(
-    list, lists.seg_count + row * lists.n_col_tiles, lists.n_col_tiles, lists.tile_n, put);
+  uint32_t n_left = static_cast<uint32_t>(lists.count[row]);
+  if (lane < n_left) { head[lane] = list[lane]; }
+  __syncwarp();
   if (lane == 0) { survivors[row] += n_left; }
   if (n_left == 0 ||
       (n_left == 1 &&
