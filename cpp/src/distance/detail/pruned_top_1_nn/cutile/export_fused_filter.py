@@ -57,7 +57,7 @@ def _vector(elem_dtype, alias_groups=()):
     )
 
 
-def _segments():
+def _counts():
     return ArrayConstraint(
         ct.int32,
         ndim=2,
@@ -82,11 +82,12 @@ def _signature(data_type: str, tile_m: int, tile_n: int, tile_k: int):
             _vector(ct.float32, read_only),  # centroid_norms: ||centroid||^2 over d'
             _vector(ct.float32, read_only),  # best: each row's current distance
             _vector(ct.int64),  # packed survivors
-            _segments(),  # seg_count (n_rows, n_col_tiles)
+            _counts(),  # count (n_rows, 1)
             ScalarConstraint(ct.int32),  # n_rows
             ScalarConstraint(ct.int32),  # n_centroids
             ScalarConstraint(ct.float32),  # ratio
             ScalarConstraint(ct.int32),  # d'
+            ScalarConstraint(ct.int32),  # row_stride
             ConstantConstraint(tile_m),
             ConstantConstraint(tile_n),
             ConstantConstraint(tile_k),

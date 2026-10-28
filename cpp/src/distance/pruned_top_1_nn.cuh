@@ -62,16 +62,13 @@ inline auto filter_tile() -> std::optional<fused_filter_tile>
 struct workspace_layout {
   int64_t n_row_batches;
   int64_t n_streams;
-  fused_filter_tile tile;
   std::size_t survivors, sorted_keys, local_ids, batch_offsets, sort_temp, sort_temp_bytes;
-  std::vector<std::size_t> packed, seg_count;
+  std::vector<std::size_t> packed, count;
   std::size_t total_bytes;
 
   workspace_layout(raft::resources const& handle, int64_t m)
   {
-    const auto t = filter_tile();
-    RAFT_EXPECTS(t.has_value(), "Pruned 1-NN needs the fused filter's cuTile kernel");
-    tile                 = *t;
+    RAFT_EXPECTS(filter_tile().has_value(), "Pruned 1-NN needs the fused filter's cuTile kernel");
     n_row_batches        = raft::ceildiv(m, kRowBatchSize);
     const auto pool_size = raft::resource::is_stream_pool_initialized(handle)
                              ? static_cast<int64_t>(raft::resource::get_stream_pool_size(handle))
@@ -100,12 +97,12 @@ struct workspace_layout {
                                                          static_cast<const int64_t*>(nullptr),
                                                          static_cast<const int64_t*>(nullptr)));
     sort_temp = take(sort_temp_bytes);
-    // The first filter's survivor lists, one pair per stream, sized for a whole batch
-    const int64_t batch_rows  = std::min(m, kRowBatchSize);
-    const int64_t n_col_tiles = raft::ceildiv<int64_t>(kCentroidBatchSize, tile.tile_n);
+    // The first filter's survivor lists, one pair per stream: a region of a whole centroid batch
+    // per row of a row batch
+    const int64_t batch_rows = std::min(m, kRowBatchSize);
     for (int64_t s = 0; s < n_streams; s++) {
-      packed.push_back(take(batch_rows * n_col_tiles * tile.tile_n * sizeof(int64_t)));
-      seg_count.push_back(take(batch_rows * n_col_tiles * sizeof(int32_t)));
+      packed.push_back(take(batch_rows * kCentroidBatchSize * sizeof(int64_t)));
+      count.push_back(take(batch_rows * sizeof(int32_t)));
     }
     total_bytes = end;
   }
@@ -265,7 +262,7 @@ void pruned_top_1_nn(raft::resources const& handle,
     float* row_dist       = output.nearest_dist + i;
     const uint32_t* order = params.row_order != nullptr ? params.row_order + i : nullptr;
     auto* packed          = reinterpret_cast<int64_t*>(ws + layout.packed[s]);
-    auto* seg_count       = reinterpret_cast<int32_t*>(ws + layout.seg_count[s]);
+    auto* count           = reinterpret_cast<int32_t*>(ws + layout.count[s]);
     // Each row's bound: its distance to its current neighbor
     distance_to_assigned(rows, n_rows, y, k, row_labels, row_dist, stream);
     for (int64_t j = 0; j < n; j += kCentroidBatchSize) {
@@ -281,7 +278,8 @@ void pruned_top_1_nn(raft::resources const& handle,
                           params.first_ratio,
                           static_cast<int>(kDimTileSize),
                           packed,
-                          seg_count,
+                          count,
+                          static_cast<int>(kCentroidBatchSize),
                           stream);
       prune(rows,
             n_rows,
@@ -291,11 +289,7 @@ void pruned_top_1_nn(raft::resources const& handle,
             k,
             kDimTileSize,
             params.ratios,
-            first_filter_lists{
-              packed,
-              seg_count,
-              static_cast<uint32_t>(raft::ceildiv<int64_t>(n_centroids, layout.tile.tile_n)),
-              static_cast<uint32_t>(layout.tile.tile_n)},
+            first_filter_lists{packed, count, kCentroidBatchSize},
             row_labels,
             row_dist,
             survivors + i,
