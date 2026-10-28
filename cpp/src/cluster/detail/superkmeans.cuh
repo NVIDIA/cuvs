@@ -27,13 +27,13 @@ namespace cuvs::cluster::kmeans::detail::superkmeans {
 
 namespace pruned_nn = cuvs::distance::detail::pruned_nn;
 
-// Pruning works on whole dimension tiles and only pays off with enough centroids to discard; below
-// that every iteration assigns with the full 1-NN.
+// Pruning works on whole dimension tiles past the first filter's, and only pays off with enough
+// centroids to discard; below that every iteration assigns with the full 1-NN.
 constexpr int64_t kMinPrunedK = 256;
 
 inline bool prunes(int64_t n_clusters, int64_t dim)
 {
-  return dim >= pruned_nn::kDimTileSize && n_clusters > kMinPrunedK;
+  return dim > pruned_nn::kDimTileSize && n_clusters > kMinPrunedK;
 }
 
 /** Sum of squared distances of the rows to their assigned centroids. */
