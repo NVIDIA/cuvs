@@ -1,0 +1,51 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_histogram.hpp>
+#include <core/cub_ptx_query.hpp>
+#include <cub/device/device_histogram.cuh>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/util/cudart_utils.hpp>
+
+namespace cuvs::detail {
+
+template <typename CounterT, typename IndexT>
+void count_labels(const uint32_t* labels,
+                  CounterT* counts,
+                  IndexT n_samples,
+                  IndexT n_clusters,
+                  rmm::device_uvector<char>& workspace,
+                  cudaStream_t stream)
+{
+  IndexT num_levels         = n_clusters + 1;
+  IndexT lower_level        = 0;
+  IndexT upper_level        = n_clusters;
+  size_t temp_storage_bytes = 0;
+  RAFT_CUDA_TRY(cuvs::detail::histogram_even(nullptr,
+                                             temp_storage_bytes,
+                                             labels,
+                                             counts,
+                                             num_levels,
+                                             lower_level,
+                                             upper_level,
+                                             n_samples,
+                                             stream));
+  workspace.resize(temp_storage_bytes, stream);
+  RAFT_CUDA_TRY(cuvs::detail::histogram_even(workspace.data(),
+                                             temp_storage_bytes,
+                                             labels,
+                                             counts,
+                                             num_levels,
+                                             lower_level,
+                                             upper_level,
+                                             n_samples,
+                                             stream));
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::detail

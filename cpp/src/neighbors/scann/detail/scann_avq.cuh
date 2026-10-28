@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/cub_histogram.hpp"
 #include <cub/device/device_histogram.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
@@ -68,27 +69,27 @@ void compute_cluster_offsets(raft::resources const& dev_resources,
 
   size_t temp_storage_bytes = 0;
 
-  cub::DeviceHistogram::HistogramEven(nullptr,
-                                      temp_storage_bytes,
-                                      clusters.data_handle(),
-                                      cluster_sizes.data_handle(),
-                                      num_levels,
-                                      lower_level,
-                                      upper_level,
-                                      clusters.extent(0),
-                                      stream);
+  cuvs::detail::histogram_even(nullptr,
+                               temp_storage_bytes,
+                               clusters.data_handle(),
+                               cluster_sizes.data_handle(),
+                               num_levels,
+                               lower_level,
+                               upper_level,
+                               clusters.extent(0),
+                               stream);
 
   rmm::device_uvector<char> temp_storage_hist(temp_storage_bytes, stream, device_memory);
 
-  cub::DeviceHistogram::HistogramEven(temp_storage_hist.data(),
-                                      temp_storage_bytes,
-                                      clusters.data_handle(),
-                                      cluster_sizes.data_handle(),
-                                      num_levels,
-                                      lower_level,
-                                      upper_level,
-                                      clusters.extent(0),
-                                      stream);
+  cuvs::detail::histogram_even(temp_storage_hist.data(),
+                               temp_storage_bytes,
+                               clusters.data_handle(),
+                               cluster_sizes.data_handle(),
+                               num_levels,
+                               lower_level,
+                               upper_level,
+                               clusters.extent(0),
+                               stream);
 
   int num_items = cluster_sizes.extent(0);
 

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/cub_histogram.hpp"
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/add.cuh>
@@ -111,27 +112,27 @@ void countLabels(const LabelT* labels,
 
   rmm::device_uvector<int> countArray(nUniqueLabels, stream);
 
-  RAFT_CUDA_TRY(cub::DeviceHistogram::HistogramEven(nullptr,
-                                                    temp_storage_bytes,
-                                                    labels,
-                                                    binCountArray,
-                                                    num_levels,
-                                                    lower_level,
-                                                    upper_level,
-                                                    nRows,
-                                                    stream));
+  RAFT_CUDA_TRY(cuvs::detail::histogram_even(nullptr,
+                                             temp_storage_bytes,
+                                             labels,
+                                             binCountArray,
+                                             num_levels,
+                                             lower_level,
+                                             upper_level,
+                                             nRows,
+                                             stream));
 
   workspace.resize(temp_storage_bytes, stream);
 
-  RAFT_CUDA_TRY(cub::DeviceHistogram::HistogramEven(workspace.data(),
-                                                    temp_storage_bytes,
-                                                    labels,
-                                                    binCountArray,
-                                                    num_levels,
-                                                    lower_level,
-                                                    upper_level,
-                                                    nRows,
-                                                    stream));
+  RAFT_CUDA_TRY(cuvs::detail::histogram_even(workspace.data(),
+                                             temp_storage_bytes,
+                                             labels,
+                                             binCountArray,
+                                             num_levels,
+                                             lower_level,
+                                             upper_level,
+                                             nRows,
+                                             stream));
 }
 
 /**

@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/cub_histogram.hpp"
 #include "../../distance/distance.cuh"
 #include "../../distance/top_1_nn.cuh"
 #include <cstdint>
@@ -142,37 +143,49 @@ void countLabels(raft::resources const& handle,
                  IndexT n_clusters,
                  rmm::device_uvector<char>& workspace)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
+  if constexpr (std::is_same_v<SampleIteratorT, const uint32_t*> &&
+                (std::is_same_v<CounterT, uint32_t> ||
+                 std::is_same_v<CounterT, unsigned long long>)) {
+    using CubIndexT = std::make_signed_t<IndexT>;
+    cuvs::detail::count_labels(labels,
+                               count,
+                               static_cast<CubIndexT>(n_samples),
+                               static_cast<CubIndexT>(n_clusters),
+                               workspace,
+                               raft::resource::get_cuda_stream(handle).get());
+  } else {
+    cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
 
-  // CUB::DeviceHistogram requires a signed index type
-  typedef typename std::make_signed_t<IndexT> CubIndexT;
+    // CUB::DeviceHistogram requires a signed index type
+    typedef typename std::make_signed_t<IndexT> CubIndexT;
 
-  CubIndexT num_levels  = n_clusters + 1;
-  CubIndexT lower_level = 0;
-  CubIndexT upper_level = n_clusters;
+    CubIndexT num_levels  = n_clusters + 1;
+    CubIndexT lower_level = 0;
+    CubIndexT upper_level = n_clusters;
 
-  size_t temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceHistogram::HistogramEven(nullptr,
-                                                    temp_storage_bytes,
-                                                    labels,
-                                                    count,
-                                                    num_levels,
-                                                    lower_level,
-                                                    upper_level,
-                                                    static_cast<CubIndexT>(n_samples),
-                                                    stream));
+    size_t temp_storage_bytes = 0;
+    RAFT_CUDA_TRY(cuvs::detail::histogram_even(nullptr,
+                                               temp_storage_bytes,
+                                               labels,
+                                               count,
+                                               num_levels,
+                                               lower_level,
+                                               upper_level,
+                                               static_cast<CubIndexT>(n_samples),
+                                               stream));
 
-  workspace.resize(temp_storage_bytes, stream);
+    workspace.resize(temp_storage_bytes, stream);
 
-  RAFT_CUDA_TRY(cub::DeviceHistogram::HistogramEven(workspace.data(),
-                                                    temp_storage_bytes,
-                                                    labels,
-                                                    count,
-                                                    num_levels,
-                                                    lower_level,
-                                                    upper_level,
-                                                    static_cast<CubIndexT>(n_samples),
-                                                    stream));
+    RAFT_CUDA_TRY(cuvs::detail::histogram_even(workspace.data(),
+                                               temp_storage_bytes,
+                                               labels,
+                                               count,
+                                               num_levels,
+                                               lower_level,
+                                               upper_level,
+                                               static_cast<CubIndexT>(n_samples),
+                                               stream));
+  }
 }
 
 /**

@@ -1,0 +1,26 @@
+[
+  {
+    "return_type": "cuvs::detail::histogram_launch::sweep_pointer_t<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned long long, 1, 1, true>, 256, 1, 1, unsigned int const*, unsigned long long, cub::detail::histogram::Transforms<int, int, unsigned int>::ScaleTransform, cub::detail::histogram::Transforms<int, int, unsigned int>::PassThruTransform, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::sweep",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned long long, 1, 1, true>, 256, 1, 1, unsigned int const*, unsigned long long, cub::detail::histogram::Transforms<int, int, unsigned int>::ScaleTransform, cub::detail::histogram::Transforms<int, int, unsigned int>::PassThruTransform, int>",
+    "instantiation_name": "u32_count_u64_offset_i32_bins_256"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::sweep_pointer_t<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned long long, 1, 1, true>, 0, 1, 1, unsigned int const*, unsigned long long, cub::detail::histogram::Transforms<int, int, unsigned int>::ScaleTransform, cub::detail::histogram::Transforms<int, int, unsigned int>::PassThruTransform, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::sweep",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned long long, 1, 1, true>, 0, 1, 1, unsigned int const*, unsigned long long, cub::detail::histogram::Transforms<int, int, unsigned int>::ScaleTransform, cub::detail::histogram::Transforms<int, int, unsigned int>::PassThruTransform, int>",
+    "instantiation_name": "u32_count_u64_offset_i32_bins_0"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::sweep_pointer_t<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned int, 1, 1, true>, 256, 1, 1, unsigned int const*, unsigned int, cub::detail::histogram::Transforms<int, int, unsigned int>::ScaleTransform, cub::detail::histogram::Transforms<int, int, unsigned int>::PassThruTransform, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::sweep",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned int, 1, 1, true>, 256, 1, 1, unsigned int const*, unsigned int, cub::detail::histogram::Transforms<int, int, unsigned int>::ScaleTransform, cub::detail::histogram::Transforms<int, int, unsigned int>::PassThruTransform, int>",
+    "instantiation_name": "u32_count_u32_offset_i32_bins_256"
+  },
+  {
+    "return_type": "cuvs::detail::histogram_launch::sweep_pointer_t<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned int, 1, 1, true>, 0, 1, 1, unsigned int const*, unsigned int, cub::detail::histogram::Transforms<int, int, unsigned int>::ScaleTransform, cub::detail::histogram::Transforms<int, int, unsigned int>::PassThruTransform, int>",
+    "qualified_function": "cuvs::detail::histogram_launch::sweep",
+    "template_arguments": "<cub::detail::histogram::policy_selector_from_types<unsigned int, unsigned int, 1, 1, true>, 0, 1, 1, unsigned int const*, unsigned int, cub::detail::histogram::Transforms<int, int, unsigned int>::ScaleTransform, cub::detail::histogram::Transforms<int, int, unsigned int>::PassThruTransform, int>",
+    "instantiation_name": "u32_count_u32_offset_i32_bins_0"
+  }
+]

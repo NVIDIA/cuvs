@@ -7,6 +7,7 @@
 // Created by Stardust on 2/23/25.
 //
 
+#include "../../../core/cub_histogram.hpp"
 #include "../../../core/omp_wrapper.hpp"
 #include "../../../util/serialize_validation.hpp"
 #include "../../detail/ann_utils.cuh"
@@ -428,27 +429,27 @@ void IVFGPU::construct_on_gpu(const float* device_data,
 
   // Determine temporary device storage requirements
   size_t temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceHistogram::HistogramEven(nullptr,
-                                                    temp_storage_bytes,
-                                                    device_cluster_ids,
-                                                    d_histogram.data(),
-                                                    num_levels,
-                                                    lower_level,
-                                                    upper_level,
-                                                    num_vectors,
-                                                    stream_.get()));
+  RAFT_CUDA_TRY(cuvs::detail::histogram_even(nullptr,
+                                             temp_storage_bytes,
+                                             device_cluster_ids,
+                                             d_histogram.data(),
+                                             num_levels,
+                                             lower_level,
+                                             upper_level,
+                                             num_vectors,
+                                             stream_.get()));
 
   {
     rmm::device_buffer d_temp_storage(temp_storage_bytes, stream_);
-    RAFT_CUDA_TRY(cub::DeviceHistogram::HistogramEven(d_temp_storage.data(),
-                                                      temp_storage_bytes,
-                                                      device_cluster_ids,
-                                                      d_histogram.data(),
-                                                      num_levels,
-                                                      lower_level,
-                                                      upper_level,
-                                                      num_vectors,
-                                                      stream_.get()));
+    RAFT_CUDA_TRY(cuvs::detail::histogram_even(d_temp_storage.data(),
+                                               temp_storage_bytes,
+                                               device_cluster_ids,
+                                               d_histogram.data(),
+                                               num_levels,
+                                               lower_level,
+                                               upper_level,
+                                               num_vectors,
+                                               stream_.get()));
   }
 
   // -------------------------
@@ -585,28 +586,28 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
 
   void* d_temp_storage      = nullptr;
   size_t temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceHistogram::HistogramEven(d_temp_storage,
-                                                    temp_storage_bytes,
-                                                    device_cluster_ids,
-                                                    d_histogram.data_handle(),
-                                                    num_levels,
-                                                    lower_level,
-                                                    upper_level,
-                                                    num_vectors,
-                                                    stream_.get()));
+  RAFT_CUDA_TRY(cuvs::detail::histogram_even(d_temp_storage,
+                                             temp_storage_bytes,
+                                             device_cluster_ids,
+                                             d_histogram.data_handle(),
+                                             num_levels,
+                                             lower_level,
+                                             upper_level,
+                                             num_vectors,
+                                             stream_.get()));
 
   auto d_temp_storage_vec = raft::make_device_vector<uint8_t, int64_t>(handle_, temp_storage_bytes);
   d_temp_storage          = d_temp_storage_vec.data_handle();
 
-  RAFT_CUDA_TRY(cub::DeviceHistogram::HistogramEven(d_temp_storage,
-                                                    temp_storage_bytes,
-                                                    device_cluster_ids,
-                                                    d_histogram.data_handle(),
-                                                    num_levels,
-                                                    lower_level,
-                                                    upper_level,
-                                                    num_vectors,
-                                                    stream_.get()));
+  RAFT_CUDA_TRY(cuvs::detail::histogram_even(d_temp_storage,
+                                             temp_storage_bytes,
+                                             device_cluster_ids,
+                                             d_histogram.data_handle(),
+                                             num_levels,
+                                             lower_level,
+                                             upper_level,
+                                             num_vectors,
+                                             stream_.get()));
 
   // -------------------------
   // 4. Compute prefix sum (offsets) on GPU using CUB

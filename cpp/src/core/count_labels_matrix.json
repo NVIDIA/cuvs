@@ -1,0 +1,30 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "count_labels",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::detail",
+    "_variants": [
+      {
+        "template_arguments": "<uint32_t, int>",
+        "parameter_types": "const uint32_t*, uint32_t*, int, int, rmm::device_uvector<char>&, cudaStream_t",
+        "instantiation_name": "u32_int"
+      },
+      {
+        "template_arguments": "<uint32_t, int64_t>",
+        "parameter_types": "const uint32_t*, uint32_t*, int64_t, int64_t, rmm::device_uvector<char>&, cudaStream_t",
+        "instantiation_name": "u32_i64"
+      },
+      {
+        "template_arguments": "<unsigned long long, int>",
+        "parameter_types": "const uint32_t*, unsigned long long*, int, int, rmm::device_uvector<char>&, cudaStream_t",
+        "instantiation_name": "u64_int"
+      },
+      {
+        "template_arguments": "<unsigned long long, int64_t>",
+        "parameter_types": "const uint32_t*, unsigned long long*, int64_t, int64_t, rmm::device_uvector<char>&, cudaStream_t",
+        "instantiation_name": "u64_i64"
+      }
+    ]
+  }
+]

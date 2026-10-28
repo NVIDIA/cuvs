@@ -1,0 +1,100 @@
+[
+  {
+    "return_type": "cudaError_t",
+    "qualified_function": "cuvs::detail::histogram_even",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::detail",
+    "_variants": [
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::key_op, raft::KeyValuePair<int, double>*>, double, int, int>",
+        "parameter_types": "void*, unsigned long&, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::key_op, raft::KeyValuePair<int, double>*>, double*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "transform_top1nn_key_value_int_f64_ptr_key_op_key_value_int_f64_ptr_f64_int_int"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::key_op, raft::KeyValuePair<int, float>*>, float, int, int>",
+        "parameter_types": "void*, unsigned long&, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::key_op, raft::KeyValuePair<int, float>*>, float*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "transform_top1nn_key_value_int_f32_ptr_key_op_key_value_int_f32_ptr_f32_int_int"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, double>*>::key_op, raft::KeyValuePair<long, double>*>, double, long, long>",
+        "parameter_types": "void*, unsigned long&, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, double>*>::key_op, raft::KeyValuePair<long, double>*>, double*, int, long, long, long, cudaStream_t",
+        "instantiation_name": "transform_top1nn_key_value_long_f64_ptr_key_op_key_value_long_f64_ptr_f64_long_long"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::key_op, raft::KeyValuePair<long, float>*>, float, long, long>",
+        "parameter_types": "void*, unsigned long&, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::key_op, raft::KeyValuePair<long, float>*>, float*, int, long, long, long, cudaStream_t",
+        "instantiation_name": "transform_top1nn_key_value_long_f32_ptr_key_op_key_value_long_f32_ptr_f32_long_long"
+      },
+      {
+        "template_arguments": "<int const*, double, int, int>",
+        "parameter_types": "void*, unsigned long&, int const*, double*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "int_c_ptr_f64_int_int"
+      },
+      {
+        "template_arguments": "<int const*, float, int, int>",
+        "parameter_types": "void*, unsigned long&, int const*, float*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "int_c_ptr_f32_int_int"
+      },
+      {
+        "template_arguments": "<int const*, int, int, int>",
+        "parameter_types": "void*, unsigned long&, int const*, int*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "int_c_ptr_int_int_int"
+      },
+      {
+        "template_arguments": "<int*, double, int, int>",
+        "parameter_types": "void*, unsigned long&, int*, double*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "int_ptr_f64_int_int"
+      },
+      {
+        "template_arguments": "<int*, float, int, int>",
+        "parameter_types": "void*, unsigned long&, int*, float*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "int_ptr_f32_int_int"
+      },
+      {
+        "template_arguments": "<int*, int, int, int>",
+        "parameter_types": "void*, unsigned long&, int*, int*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "int_ptr_int_int_int"
+      },
+      {
+        "template_arguments": "<long*, double, long, long>",
+        "parameter_types": "void*, unsigned long&, long*, double*, int, long, long, long, cudaStream_t",
+        "instantiation_name": "long_ptr_f64_long_long"
+      },
+      {
+        "template_arguments": "<long*, float, long, long>",
+        "parameter_types": "void*, unsigned long&, long*, float*, int, long, long, long, cudaStream_t",
+        "instantiation_name": "long_ptr_f32_long_long"
+      },
+      {
+        "template_arguments": "<unsigned int const*, unsigned int, int, long>",
+        "parameter_types": "void*, unsigned long&, unsigned int const*, unsigned int*, int, int, int, long, cudaStream_t",
+        "instantiation_name": "u32_c_ptr_u32_int_long"
+      },
+      {
+        "template_arguments": "<unsigned int const*, unsigned long long, int, unsigned long>",
+        "parameter_types": "void*, unsigned long&, unsigned int const*, unsigned long long*, int, int, int, unsigned long, cudaStream_t",
+        "instantiation_name": "u32_c_ptr_u64_int_ulong"
+      },
+      {
+        "template_arguments": "<unsigned int const*, unsigned int, int, int>",
+        "parameter_types": "void*, unsigned long&, unsigned int const*, unsigned int*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "u32_c_ptr_u32_int_int"
+      },
+      {
+        "template_arguments": "<unsigned int const*, unsigned int, long, long>",
+        "parameter_types": "void*, unsigned long&, unsigned int const*, unsigned int*, int, long, long, long, cudaStream_t",
+        "instantiation_name": "u32_c_ptr_u32_long_long"
+      },
+      {
+        "template_arguments": "<unsigned int const*, unsigned long long, int, int>",
+        "parameter_types": "void*, unsigned long&, unsigned int const*, unsigned long long*, int, int, int, int, cudaStream_t",
+        "instantiation_name": "u32_c_ptr_u64_int_int"
+      },
+      {
+        "template_arguments": "<unsigned int const*, unsigned long long, long, long>",
+        "parameter_types": "void*, unsigned long&, unsigned int const*, unsigned long long*, int, long, long, long, cudaStream_t",
+        "instantiation_name": "u32_c_ptr_u64_long_long"
+      }
+    ]
+  }
+]
