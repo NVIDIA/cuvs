@@ -228,19 +228,21 @@ RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ 
   const uint32_t lane        = threadIdx.x;
   const uint32_t lanes_below = (1u << lane) - 1;
   const int64_t row          = row_order != nullptr ? row_order[blockIdx.x] : blockIdx.x;
-  const T* row_values        = rows + row * dim;
-  uint32_t best_index        = labels[row];
+  uint32_t n_left            = static_cast<uint32_t>(lists.count[row]);
+  // Nothing survived: nothing else to read or write
+  if (n_left == 0) { return; }
+  const T* row_values = rows + row * dim;
+  uint32_t best_index = labels[row];
   // The row's distance to its current centroid until the last tile's argmin
   float best = dist[row];
 
-  int64_t* list   = lists.packed + row * lists.row_stride;
-  uint32_t n_left = static_cast<uint32_t>(lists.count[row]);
+  int64_t* list = lists.packed + row * lists.row_stride;
   if (lane < n_left) { head[lane] = list[lane]; }
   __syncwarp();
   if (lane == 0) { survivors[row] += n_left; }
-  if (n_left == 0 ||
-      (n_left == 1 &&
-       centroid_offset + static_cast<uint32_t>(head[0] >> kSurvivorIdShift) == best_index)) {
+  // Only the current centroid survived
+  if (n_left == 1 &&
+      centroid_offset + static_cast<uint32_t>(head[0] >> kSurvivorIdShift) == best_index) {
     return;
   }
 
