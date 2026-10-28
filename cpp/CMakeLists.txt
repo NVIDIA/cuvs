@@ -1593,7 +1593,8 @@ if(NOT BUILD_CPU_ONLY)
     target_sources(
       cuvs_objs
       PRIVATE ${cutile_fused_1nn_files}
-              src/distance/detail/fused_distance_nn/cutile/fused_1nn_tile.cu ${cutile_smoke_files}
+              src/distance/detail/fused_distance_nn/cutile/fused_1nn_tile.cu
+              ${cutile_smoke_files}
               ${cutile_pruned_1nn_files}
               src/distance/detail/pruned_top_1_nn/cutile/fused_filter_tile.cu
     )
@@ -1643,8 +1644,10 @@ if(NOT BUILD_CPU_ONLY)
     PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../c/include>"
     INTERFACE "$<INSTALL_INTERFACE:include>"
-    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}/src"
-            "${cutile_fused_1nn_generated_dir}" "${cutile_smoke_generated_dir}"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${CMAKE_CURRENT_BINARY_DIR}/src"
+            "${cutile_fused_1nn_generated_dir}"
+            "${cutile_smoke_generated_dir}"
             "${cutile_pruned_1nn_generated_dir}"
   )
 

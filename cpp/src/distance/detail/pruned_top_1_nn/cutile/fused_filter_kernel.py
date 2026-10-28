@@ -69,17 +69,21 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
             row_norms, index=(row_tile,), shape=(tm,), padding_mode=zero_pad
         )[:, None]
         threshold = (
-            ct.load(best, index=(row_tile,), shape=(tm,), padding_mode=zero_pad)[
-                :, None
-            ]
+            ct.load(
+                best, index=(row_tile,), shape=(tm,), padding_mode=zero_pad
+            )[:, None]
             * ratio
         )
-        filled = ct.full((tm, 1), 0, dtype=ct.int32)  # each row's survivors so far
+        # Each row's survivors so far
+        filled = ct.full((tm, 1), 0, dtype=ct.int32)
         for centroid_tile in range(n_col_tiles):
             acc = ct.full((tm, tn), 0, dtype=ct.float32)
             for kk in range(dp // tk):
                 a = ct.load(
-                    rows, index=(row_tile, kk), shape=(tm, tk), padding_mode=zero_pad
+                    rows,
+                    index=(row_tile, kk),
+                    shape=(tm, tk),
+                    padding_mode=zero_pad,
                 )
                 b = ct.load(
                     centroids,
@@ -96,8 +100,14 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
                 padding_mode=zero_pad,
             )[None, :]
             dist = -2.0 * acc + row_norm + centroid_norm
-            centroid_ids = centroid_tile * tn + ct.arange(tn, dtype=ct.int32)[None, :]
-            keep = (dist < threshold) & (centroid_ids < n_centroids) & (row_ids < n_rows)
+            centroid_ids = (
+                centroid_tile * tn + ct.arange(tn, dtype=ct.int32)[None, :]
+            )
+            keep = (
+                (dist < threshold)
+                & (centroid_ids < n_centroids)
+                & (row_ids < n_rows)
+            )
             # Slot: the row's region, after its survivors in the earlier tiles, plus the
             # survivor's rank in this tile
             keep_i = keep.astype(ct.int32)
@@ -106,7 +116,9 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
             # The distance's bits are masked: widening a negative int32 (a negative float, e.g. a
             # rounded-down 0) to int64 would sign-extend into the index
             index = ct.broadcast_to(centroid_ids, (tm, tn)).astype(ct.int64)
-            dist_bits = ct.bitcast(dist, ct.int32).astype(ct.int64) & LOW_32_BITS
+            dist_bits = (
+                ct.bitcast(dist, ct.int32).astype(ct.int64) & LOW_32_BITS
+            )
             value = ct.bitwise_lshift(index, ID_SHIFT) | dist_bits
             ct.scatter(packed, slot, value, mask=keep)
         ct.store(count, index=(row_tile, 0), tile=filled)
