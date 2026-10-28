@@ -184,8 +184,8 @@ The shared code never refers to a Lucene API that differs between releases. Inst
 Do not look up Lucene classes or constants by reflection. It hides API changes from the compiler, and constants
 such as `Lucene99HnswVectorsFormat.VERSION_CURRENT` change meaning between releases.
 
-`TestBackCompatIndices` reads indexes written by each module, stored as zips in `src/test/resources/backcompat`,
-and checks that every later module can still read and search them. `TestBackCompat` checks that the codecs from
+`TestBackCompatIndices` reads indexes written by released cuvs-lucene versions, stored as zips in
+`src/test/resources/backcompat`, and checks that every module can still read, search and upgrade them. `TestBackCompat` checks that the codecs from
 `CuVSCodecs` are registered.
 
 ## References

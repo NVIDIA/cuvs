@@ -4,13 +4,10 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 import static org.apache.lucene.search.DocIdSetIterator.NO_MORE_DOCS;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Files;
@@ -23,7 +20,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
-import java.util.zip.ZipOutputStream;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
@@ -38,7 +34,6 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.KnnVectorValues;
 import org.apache.lucene.index.LeafReader;
-import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.SegmentCommitInfo;
 import org.apache.lucene.index.SegmentInfos;
 import org.apache.lucene.index.StoredFields;
@@ -46,7 +41,6 @@ import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.util.Version;
@@ -57,12 +51,10 @@ import org.apache.lucene.util.Version;
  * moves to a later Lucene release, cuvs-lucene release, or both.
  *
  * <p>The indexes are in {@code src/test/resources/backcompat}, one zip each, at {@code
- * releases/<cuvs-lucene version>/<lucene major.minor>/<name>.zip} if the jars of a released
- * cuvs-lucene version wrote them, or at {@code snapshots/<lucene major.minor>/<name>.zip} if a
- * module of this repository did, for a Lucene release that no released cuvs-lucene version supports
- * yet. The path records the Lucene release they were written on and either the cuvs-lucene codec
- * recorded in their segments or, for an index written with Lucene's own codec, the cuvs-lucene
- * vectors format its vector field uses. Each module reads the ones written on its own Lucene
+ * releases/<cuvs-lucene version>/<lucene major.minor>/<name>.zip}, written by the jars of a released
+ * cuvs-lucene version. The path records the Lucene release they were written on and either the
+ * cuvs-lucene codec recorded in their segments or, for an index written with Lucene's own codec,
+ * the cuvs-lucene vectors format its vector field uses. Each module reads the ones written on its own Lucene
  * release and all earlier ones. See the {@code README.md} next to them for how to add more.
  *
  * <p>Reading and upgrading need no GPU, so those tests also run where cuVS is not available.
@@ -70,25 +62,16 @@ import org.apache.lucene.util.Version;
 @SuppressSysoutChecks(bugUrl = "")
 public class TestBackCompatIndices extends LuceneTestCase {
 
-  private static final String CREATE_PROPERTY = "tests.cuvs.createBackCompatIndices";
   private static final String RESOURCE_DIR = "/backcompat";
   // The path of an index below RESOURCE_DIR; see the class javadoc.
   private static final Pattern INDEX_PATH =
-      Pattern.compile("(?:snapshots|releases/[\\d.]+)/(\\d+)\\.(\\d+)/(\\w+)\\.zip");
+      Pattern.compile("releases/[\\d.]+/(\\d+)\\.(\\d+)/(\\w+)\\.zip");
   private static final String ID_FIELD = "id";
   private static final String VECTOR_FIELD = "vector";
   private static final int NUM_DOCS = 200;
   private static final int DIMENSIONS = 8;
   private static final int TOP_K = 10;
   private static final int UPGRADE_DOCS = 50;
-
-  /** The codecs that write the indexes; the GPU search codec's format makes no such promise. */
-  private static List<Codec> codecsToTest() {
-    return List.of(
-        CuVSCodecs.acceleratedHNSW(),
-        CuVSCodecs.acceleratedHNSWScalarQuantized(),
-        CuVSCodecs.acceleratedHNSWBinaryQuantized());
-  }
 
   public void testReadIndices() throws Exception {
     for (Path zip : indicesReadableByThisRelease()) {
@@ -141,21 +124,6 @@ public class TestBackCompatIndices extends LuceneTestCase {
     }
   }
 
-  public void testCreateIndices() throws Exception {
-    // Written on the GPU, like the indexes of the applications this test stands for.
-    assumeTrue("cuVS not supported", isSupported());
-    String target = System.getProperty(CREATE_PROPERTY);
-    assumeTrue("set -D" + CREATE_PROPERTY + " to write the indexes", target != null);
-    Path targetDir =
-        Path.of(target, "snapshots", Version.LATEST.major + "." + Version.LATEST.minor);
-    Files.createDirectories(targetDir);
-    for (Codec codec : codecsToTest()) {
-      Path indexDir = createTempDir(codec.getName());
-      writeIndex(indexDir, codec);
-      zip(indexDir, targetDir.resolve(codec.getName() + ".zip"));
-    }
-  }
-
   /** Returns the codec that writes on this Lucene release in the family of the given codec. */
   private static Codec currentCodecFor(String codecName) {
     if (codecName.contains("ScalarQuantized")) {
@@ -197,22 +165,6 @@ public class TestBackCompatIndices extends LuceneTestCase {
     }
     assertFalse("no back-compat indexes found under " + RESOURCE_DIR, zips.isEmpty());
     return zips;
-  }
-
-  private static void writeIndex(Path indexDir, Codec codec) throws IOException {
-    Random random = new Random(42);
-    IndexWriterConfig config =
-        new IndexWriterConfig()
-            .setCodec(codec)
-            .setUseCompoundFile(false)
-            .setMergePolicy(NoMergePolicy.INSTANCE);
-    try (Directory dir = FSDirectory.open(indexDir);
-        IndexWriter writer = new IndexWriter(dir, config)) {
-      for (int i = 0; i < NUM_DOCS; i++) {
-        writer.addDocument(document(i, randomVector(random)));
-      }
-      writer.commit();
-    }
   }
 
   private static float[] randomVector(Random random) {
@@ -285,27 +237,6 @@ public class TestBackCompatIndices extends LuceneTestCase {
     try (ZipInputStream in = new ZipInputStream(Files.newInputStream(zip))) {
       for (ZipEntry entry = in.getNextEntry(); entry != null; entry = in.getNextEntry()) {
         Files.copy(in, targetDir.resolve(entry.getName()));
-      }
-    }
-  }
-
-  /** Zips the files of the index's latest commit, leaving out anything else in the directory. */
-  private static void zip(Path indexDir, Path zip) throws IOException {
-    List<String> files;
-    try (Directory dir = FSDirectory.open(indexDir)) {
-      files = SegmentInfos.readLatestCommit(dir).files(true).stream().sorted().toList();
-    }
-    try (OutputStream out = Files.newOutputStream(zip);
-        ZipOutputStream zipOut = new ZipOutputStream(out)) {
-      for (String file : files) {
-        ZipEntry entry = new ZipEntry(file);
-        // A fixed time keeps regenerated zips identical when the index is.
-        entry.setTime(0);
-        zipOut.putNextEntry(entry);
-        try (InputStream in = Files.newInputStream(indexDir.resolve(file))) {
-          in.transferTo(zipOut);
-        }
-        zipOut.closeEntry();
       }
     }
   }
