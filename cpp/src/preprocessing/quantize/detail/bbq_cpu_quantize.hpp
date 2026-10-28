@@ -34,8 +34,7 @@
  * Host-side reference implementation of Lucene's OptimizedScalarQuantizer, used to feed the
  * BBQ NN-Descent build path. This is prototype scaffolding: it is a slow CPU quantizer that
  * exists so the compressed build can be exercised end to end, and it is expected to be replaced
- * by a GPU quantizer. It is shared between the unit tests and the ann-bench CAGRA wrapper so the
- * two can never disagree about the code format; libcuvs itself only ever sees the uploaded codes.
+ * by a GPU quantizer. Only the unit tests use it; libcuvs itself only ever sees the uploaded codes.
  */
 namespace cuvs::preprocessing::quantize::bbq::detail {
 
