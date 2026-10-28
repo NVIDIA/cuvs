@@ -356,30 +356,22 @@ TEST(KmeansSuperKMeans, Pruned)
   params.n_iters   = n_iters;
   params.rng_state = raft::random::RngState(seed);
   auto labels      = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
-  float inertia    = 0;
-  cuvs::cluster::kmeans::fit_predict(
-    handle, params, X, centroids.view(), labels.view(), raft::make_host_scalar_view(&inertia));
-  EXPECT_NEAR(inertia, lloyd_inertia, 0.01 * lloyd_inertia);
+  auto check       = [&](auto data) {
+    float inertia = 0;
+    cuvs::cluster::kmeans::fit_predict(
+      handle, params, data, centroids.view(), labels.view(), raft::make_host_scalar_view(&inertia));
+    EXPECT_NEAR(inertia, lloyd_inertia, 0.01 * lloyd_inertia);
+  };
 
-  // With a stream pool the row batches run on two streams
-  raft::resource::set_cuda_stream_pool(handle, std::make_shared<rmm::cuda_stream_pool>(2));
-  float pooled_inertia = 0;
-  cuvs::cluster::kmeans::fit_predict(handle,
-                                     params,
-                                     X,
-                                     centroids.view(),
-                                     labels.view(),
-                                     raft::make_host_scalar_view(&pooled_inertia));
-  EXPECT_NEAR(pooled_inertia, lloyd_inertia, 0.01 * lloyd_inertia);
-
-  float half_inertia = 0;
-  cuvs::cluster::kmeans::fit_predict(handle,
-                                     params,
-                                     raft::make_const_mdspan(X_half.view()),
-                                     centroids.view(),
-                                     labels.view(),
-                                     raft::make_host_scalar_view(&half_inertia));
-  EXPECT_NEAR(half_inertia, lloyd_inertia, 0.01 * lloyd_inertia);
+  for (bool pooled : {false, true}) {
+    SCOPED_TRACE(pooled ? "two streams" : "one stream");
+    // With a stream pool the row batches alternate between the main stream and the pool's
+    if (pooled) {
+      raft::resource::set_cuda_stream_pool(handle, std::make_shared<rmm::cuda_stream_pool>(1));
+    }
+    check(X);
+    check(raft::make_const_mdspan(X_half.view()));
+  }
 }
 
 TEST(KmeansSuperKMeans, RejectsUnsupported)

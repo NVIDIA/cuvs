@@ -22,7 +22,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <numeric>
 #include <optional>
 #include <type_traits>
 #include <vector>
@@ -73,7 +72,7 @@ struct workspace_layout {
     const auto pool_size = raft::resource::is_stream_pool_initialized(handle)
                              ? static_cast<int64_t>(raft::resource::get_stream_pool_size(handle))
                              : 0;
-    n_streams            = std::max<int64_t>(1, std::min({pool_size, kMaxStreams, n_row_batches}));
+    n_streams            = std::min({1 + pool_size, kMaxStreams, n_row_batches});
 
     std::size_t end = 0;
     auto take       = [&](std::size_t bytes) {
@@ -190,8 +189,8 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  * the current neighbor. A neighbor pruned away early can be missed.
  *
  * Rows go in batches of kRowBatchSize against batches of kCentroidBatchSize rows of y. The row
- * batches round-robin over up to two streams of the handle's stream pool (the main stream without
- * one), which wait on and are synchronized with the main stream.
+ * batches round-robin over the main stream and, with a stream pool on the handle, its first stream,
+ * which waits on and is synchronized with the main stream.
  *
  * @param output      in: each row's current neighbor (nearest_idx); out: its nearest neighbor and
  *                    squared distance
@@ -257,7 +256,7 @@ void pruned_top_1_nn(raft::resources const& handle,
     const int64_t n_rows = std::min(kRowBatchSize, m - i);
     const int64_t s      = b % layout.n_streams;
     cudaStream_t stream =
-      pooled ? raft::resource::get_stream_from_stream_pool(handle, s).get() : main_stream;
+      s > 0 ? raft::resource::get_stream_from_stream_pool(handle, s - 1).get() : main_stream;
     const DataT* rows     = x + i * k;
     uint32_t* row_labels  = output.nearest_idx + i;
     float* row_dist       = output.nearest_dist + i;
@@ -297,11 +296,7 @@ void pruned_top_1_nn(raft::resources const& handle,
             stream);
     }
   }
-  if (pooled) {
-    std::vector<std::size_t> used(layout.n_streams);
-    std::iota(used.begin(), used.end(), std::size_t{0});
-    raft::resource::sync_stream_pool(handle, used);
-  }
+  if (pooled) { raft::resource::sync_stream_pool(handle, std::vector<std::size_t>{0}); }
   if (params.next_row_order != nullptr) {
     order_rows_by_survivors(handle, layout, ws, m, n, params.next_row_order);
   }
