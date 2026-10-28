@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/map_launchers.hpp"
 #include <cub/device/device_histogram.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
@@ -224,7 +225,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
   auto norms_eta_3 = raft::make_device_vector<float, int64_t>(dev_resources, x.extent(0));
   auto eta_3       = raft::make_host_scalar<float>((eta - 3) / 2);
 
-  raft::linalg::power_scalar(dev_resources,
+  cuvs::detail::power_scalar(dev_resources,
                              raft::make_const_mdspan(norms.view()),
                              norms_eta_3.view(),
                              raft::make_const_mdspan(eta_3.view()));
@@ -233,7 +234,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
   auto norms_eta_1 = raft::make_device_vector<float, int64_t>(dev_resources, x.extent(0));
   auto eta_1       = raft::make_host_scalar<float>(eta - 1);
 
-  raft::linalg::power_scalar(dev_resources,
+  cuvs::detail::power_scalar(dev_resources,
                              raft::make_const_mdspan(norms.view()),
                              norms_eta_1.view(),
                              raft::make_const_mdspan(eta_1.view()));
@@ -302,7 +303,7 @@ void compute_avq_centroid(raft::resources const& dev_resources,
 
   auto h_eta = raft::make_host_scalar<float>(eta);
 
-  raft::linalg::multiply_scalar(dev_resources,
+  cuvs::detail::multiply_scalar(dev_resources,
                                 raft::make_const_mdspan(avq_centroid),
                                 avq_centroid,
                                 raft::make_const_mdspan(h_eta.view()));

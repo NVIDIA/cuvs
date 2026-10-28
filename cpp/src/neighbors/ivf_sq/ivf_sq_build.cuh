@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
@@ -341,7 +342,7 @@ void extend_inplace(raft::resources const& handle,
                                             n_rows,
                                             1,
                                             stream.get());
-  raft::linalg::add(
+  cuvs::detail::add(
     list_sizes_ptr, list_sizes_ptr, old_list_sizes_dev.data_handle(), n_lists, stream.get());
 
   std::vector<uint32_t> new_list_sizes(n_lists);

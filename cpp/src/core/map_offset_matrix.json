@@ -1,0 +1,86 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::map_offset",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<int, int, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp< int, int, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::key_op, raft::KeyValuePair<int, double>*>>",
+        "instantiation_name": "vector_int_int_row_copy_cluster_label_int_int_transform_top1nn_key_value_int_f64_ptr_key_op_key_value_int_f64_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<int, int, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp< int, int, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::key_op, raft::KeyValuePair<int, float>*>>",
+        "instantiation_name": "vector_int_int_row_copy_cluster_label_int_int_transform_top1nn_key_value_int_f32_ptr_key_op_key_value_int_f32_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<int, int, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp<int, int, int*>",
+        "instantiation_name": "vector_int_int_row_copy_cluster_label_int_int_int_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<int, int, raft::row_major>, raft::identity_op",
+        "instantiation_name": "vector_int_int_row_identity_op"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<int, long, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp< int, long, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::key_op, raft::KeyValuePair<long, float>*>>",
+        "instantiation_name": "vector_int_long_row_copy_cluster_label_int_long_transform_top1nn_key_value_long_f32_ptr_key_op_key_value_long_f32_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<int, long, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp<int, long, long*>",
+        "instantiation_name": "vector_int_long_row_copy_cluster_label_int_long_long_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<long, long, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp< long, long, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, double>*>::key_op, raft::KeyValuePair<long, double>*>>",
+        "instantiation_name": "vector_long_long_row_copy_cluster_label_long_long_transform_top1nn_key_value_long_f64_ptr_key_op_key_value_long_f64_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<long, long, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp< long, long, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::key_op, raft::KeyValuePair<long, float>*>>",
+        "instantiation_name": "vector_long_long_row_copy_cluster_label_long_long_transform_top1nn_key_value_long_f32_ptr_key_op_key_value_long_f32_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<long, long, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp<long, long, long*>",
+        "instantiation_name": "vector_long_long_row_copy_cluster_label_long_long_long_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<long, long, raft::row_major>, raft::identity_op",
+        "instantiation_name": "vector_long_long_row_identity_op"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<long, long, raft::row_major>, raft::plug_const_op<long, raft::div_op>",
+        "instantiation_name": "vector_long_long_row_plug_c_op_long_div_op"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, long, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp< unsigned int, long, cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::key_op, raft::KeyValuePair<long, float>*>>",
+        "instantiation_name": "vector_u32_long_row_copy_cluster_label_u32_long_transform_top1nn_key_value_long_f32_ptr_key_op_key_value_long_f32_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, long, raft::row_major>, cuvs::cluster::kmeans::detail::CopyClusterLabelOp<unsigned int, long, long*>",
+        "instantiation_name": "vector_u32_long_row_copy_cluster_label_u32_long_long_ptr"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, long, raft::row_major>, raft::cast_op<unsigned int>",
+        "instantiation_name": "vector_u32_long_row_cast_op_u32"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, long, raft::row_major>, raft::compose_op<raft::cast_op<unsigned int>, raft::plug_const_op<long, raft::div_op>>",
+        "instantiation_name": "vector_u32_long_row_compose_op_cast_op_u32_plug_c_op_long_div_op"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, long, raft::row_major>, raft::compose_op<raft::cast_op<unsigned int>, raft::plug_const_op<long, raft::mod_op>>",
+        "instantiation_name": "vector_u32_long_row_compose_op_cast_op_u32_plug_c_op_long_mod_op"
+      },
+      {
+        "parameter_types": "raft::resources const&, raft::device_vector_view<unsigned int, unsigned int, raft::row_major>, raft::identity_op",
+        "instantiation_name": "vector_u32_u32_row_identity_op"
+      }
+    ]
+  },
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::map_offset",
+    "template_arguments": "",
+    "parameter_types": "raft::resources const&, raft::device_matrix_view<float, long, raft::row_major>, cuvs::spatial::knn::detail::utils::bitwise_decode_op<float, long>",
+    "function_qualifiers": "",
+    "instantiation_name": "matrix_f32_long_row_bitwise_decode_op_f32_long"
+  }
+]

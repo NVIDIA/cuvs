@@ -1,0 +1,57 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/ann_utils.cuh>
+#include <sparse/neighbors/detail/cross_component_nn.cuh>
+
+#include <core/map_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/map.cuh>
+#include <raft/sparse/linalg/detail/laplacian.cuh>
+
+namespace cuvs::detail {
+
+template <typename OutType, typename Func, typename... InTypes, typename, typename>
+void map(const raft::resources& res, OutType out, Func f, InTypes... ins)
+
+{
+  return raft::linalg::map<OutType, Func, InTypes...>(res, out, f, ins...);
+}
+
+template <typename InType1, typename OutType, typename Func, typename, typename>
+void map(const raft::resources& res, InType1 in1, OutType out, Func f)
+
+{
+  return raft::linalg::map(res, in1, out, f);
+}
+
+template <typename InType1, typename InType2, typename OutType, typename Func, typename, typename>
+void map(const raft::resources& res, InType1 in1, InType2 in2, OutType out, Func f)
+
+{
+  return raft::linalg::map(res, in1, in2, out, f);
+}
+
+template <typename InType1,
+          typename InType2,
+          typename InType3,
+          typename OutType,
+          typename Func,
+          typename,
+          typename>
+void map(const raft::resources& res, InType1 in1, InType2 in2, InType3 in3, OutType out, Func f)
+
+{
+  return raft::linalg::map(res, in1, in2, in3, out, f);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@map_detail_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

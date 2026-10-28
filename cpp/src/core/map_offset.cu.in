@@ -1,0 +1,72 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <distance/top_1_nn.cuh>
+#include <neighbors/detail/ann_utils.cuh>
+
+#include <core/map_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/map.cuh>
+
+extern template void raft::linalg::detail::map<true, int, int, raft::identity_op>(
+  cuda::stream_ref, int*, int, raft::identity_op);
+
+extern template void raft::linalg::detail::map<true, long, long, raft::identity_op>(
+  cuda::stream_ref, long*, long, raft::identity_op);
+
+namespace cuvs::cluster::kmeans::detail {
+
+template <typename LabelT, typename IndexT, typename IndicesIterator>
+__device__ inline LabelT CopyClusterLabelOp<LabelT, IndexT, IndicesIterator>::operator()(
+  IndexT offset) const
+{
+  return static_cast<LabelT>(indices[offset]);
+}
+
+}  // namespace cuvs::cluster::kmeans::detail
+
+namespace cuvs::detail {
+
+template <typename OutType, typename Func, typename... InTypes, typename, typename>
+void map_offset(const raft::resources& res, OutType out, Func f, InTypes... ins)
+
+{
+  return raft::linalg::map_offset<OutType, Func, InTypes...>(res, out, f, ins...);
+}
+
+template <typename InType1, typename OutType, typename Func, typename, typename>
+void map_offset(const raft::resources& res, InType1 in1, OutType out, Func f)
+
+{
+  return raft::linalg::map_offset(res, in1, out, f);
+}
+
+template <typename InType1, typename InType2, typename OutType, typename Func, typename, typename>
+void map_offset(const raft::resources& res, InType1 in1, InType2 in2, OutType out, Func f)
+
+{
+  return raft::linalg::map_offset(res, in1, in2, out, f);
+}
+
+template <typename InType1,
+          typename InType2,
+          typename InType3,
+          typename OutType,
+          typename Func,
+          typename,
+          typename>
+void map_offset(
+  const raft::resources& res, InType1 in1, InType2 in2, InType3 in3, OutType out, Func f)
+
+{
+  return raft::linalg::map_offset(res, in1, in2, in3, out, f);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "common.cuh"
 #include "registers.hpp"
 #include <cuvs/neighbors/ball_cover.hpp>
@@ -53,7 +54,7 @@ void sample_landmarks(raft::resources const& handle,
   rmm::device_uvector<value_idx> R_indices(index.n_landmarks,
                                            raft::resource::get_cuda_stream(handle));
 
-  raft::linalg::map_offset(handle, index.get_R_1nn_cols(), raft::identity_op{});
+  cuvs::detail::map_offset(handle, index.get_R_1nn_cols(), raft::identity_op{});
 
   raft::matrix::fill(
     handle, raft::make_device_vector_view(R_1nn_ones.data(), R_1nn_ones.size()), value_t(1.0));

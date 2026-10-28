@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../detail/ann_utils.cuh"
 #include "../ivf_common.cuh"                  // cuvs::neighbors::detail::ivf
@@ -94,7 +95,7 @@ void search_impl(raft::resources const& handle,
   if constexpr (std::is_same_v<T, float>) {
     converted_queries_ptr = const_cast<float*>(queries);
   } else {
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       raft::make_device_vector_view<float>(converted_queries_ptr, n_queries * index.dim()),
       utils::mapping<float>{},

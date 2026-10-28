@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/map_launchers.hpp"
 #include "../../../core/nvtx.hpp"
 #include "factory.cuh"
 #include "sample_filter_utils.cuh"
@@ -618,7 +619,7 @@ void search_multi_partition(
     // partition (e.g. MULTI_CTA mp).
     auto partition_ids_slice = raft::make_device_matrix_view<uint32_t, int64_t, raft::row_major>(
       partition_ids.data_handle() + static_cast<size_t>(qid) * topk, chunk_queries, topk);
-    raft::linalg::map(res,
+    cuvs::detail::map(res,
                       partition_ids_slice,
                       raft::div_const_op<uint32_t>{per_partition_topk},
                       raft::make_const_mdspan(positions_view));

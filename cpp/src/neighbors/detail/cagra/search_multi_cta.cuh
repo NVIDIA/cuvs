@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../../core/map_launchers.hpp"
 #include "../neighbors_device_intrinsics.cuh"
 #include "bitonic.hpp"
 #include "device_memory_ops.hpp"
@@ -273,7 +274,7 @@ struct search
         raft::make_device_matrix_view<const IndexT, int64_t>(
           output_indices_ptr, num_queries, topk));
     } else if constexpr (kNeedIndexCopy) {
-      raft::linalg::map(
+      cuvs::detail::map(
         res,
         raft::make_device_matrix_view<OutputIndexT, int64_t>(topk_indices_ptr, num_queries, topk),
         raft::cast_op<OutputIndexT>{},

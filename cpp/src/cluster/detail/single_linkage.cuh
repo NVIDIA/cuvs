@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "../../neighbors/detail/reachability.cuh"
 #include "agglomerative.cuh"
 #include "connectivities.cuh"
@@ -79,7 +80,7 @@ void build_mr_linkage(
       mr_coo.emplace(stream.get(), min_samples * m * 2);
       // self-loops get max distance
       auto coo_rows = raft::make_device_vector<value_idx, value_idx>(handle, min_samples * m);
-      raft::linalg::map_offset(handle, coo_rows.view(), raft::div_const_op<value_idx>(min_samples));
+      cuvs::detail::map_offset(handle, coo_rows.view(), raft::div_const_op<value_idx>(min_samples));
 
       raft::sparse::linalg::symmetrize(handle,
                                        coo_rows.data_handle(),

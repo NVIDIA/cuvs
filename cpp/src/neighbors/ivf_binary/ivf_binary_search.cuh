@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../../distance/detail/distance_ops/bitwise_hamming.cuh"
 #include "../../distance/detail/pairwise_matrix/dispatch.cuh"
@@ -105,7 +106,7 @@ void search_impl(raft::resources const& handle,
                                                            raft::identity_op{},
                                                            stream.get(),
                                                            true);
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       distance_buffer_dev_view,
       raft::cast_op<float>{},

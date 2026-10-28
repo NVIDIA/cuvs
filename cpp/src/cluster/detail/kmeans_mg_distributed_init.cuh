@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "../../core/mnmg_comms.cuh"
 #include "kmeans.cuh"
 #include "kmeans_common.cuh"
@@ -113,7 +114,7 @@ DataT compute_global_cluster_cost(
                                                                workspace);
     cuvs::cluster::kmeans::cluster_cost<DataT, IndexT>(
       handle, mcd_slice, workspace, d_part.view(), raft::add_op{});
-    raft::linalg::add(
+    cuvs::detail::add(
       d_partial.data_handle(), d_partial.data_handle(), d_part.data_handle(), 1, stream);
   }
 
@@ -433,7 +434,7 @@ void initKMeansPlusPlus_distributed(
       cuvs::cluster::kmeans::count_samples_in_cluster<DataT, IndexT>(
         handle, params, x_slice, norm_slice, potentialCentroids, workspace, part_weight.view());
 
-      raft::linalg::add(handle,
+      cuvs::detail::add(handle,
                         raft::make_const_mdspan(weight.view()),
                         raft::make_const_mdspan(part_weight.view()),
                         weight.view());

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../detail/ann_utils.cuh"
 #include "../ivf_common.cuh"
@@ -390,7 +391,7 @@ void search_impl(raft::resources const& handle,
   if constexpr (std::is_same_v<T, float>) {
     converted_queries_ptr = const_cast<float*>(queries);
   } else {
-    raft::linalg::unaryOp(
+    cuvs::detail::unaryOp(
       converted_queries_ptr, queries, n_queries * dim, utils::mapping<float>{}, stream.get());
   }
 

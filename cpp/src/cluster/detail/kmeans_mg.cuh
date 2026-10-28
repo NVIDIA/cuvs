@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "../kmeans.cuh"
 #include "kmeans.cuh"
 #include "kmeans_batch_loader.cuh"
@@ -240,7 +241,7 @@ void mnmg_fit(
 
       auto d_part_wt = raft::make_device_scalar<DataT>(dev_res, DataT{0});
       cuvs::cluster::kmeans::detail::weightSum(dev_res, weights, d_part_wt.view(), false);
-      raft::linalg::add(d_wt.data_handle(), d_wt.data_handle(), d_part_wt.data_handle(), 1, stream);
+      cuvs::detail::add(d_wt.data_handle(), d_wt.data_handle(), d_part_wt.data_handle(), 1, stream);
     }
 
     comms.allreduce(d_wt.data_handle(), d_wt.data_handle(), 1);
@@ -693,7 +694,7 @@ void mnmg_fit(
                                                   iter_params.batch_samples,
                                                   iter_params.batch_centroids,
                                                   batch_sw);
-      raft::linalg::add(clustering_cost.data_handle(),
+      cuvs::detail::add(clustering_cost.data_handle(),
                         clustering_cost.data_handle(),
                         batch_cost.data_handle(),
                         1,

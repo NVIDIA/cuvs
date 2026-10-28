@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/map_launchers.hpp"
 #include "../../../core/nvtx.hpp"
 #include "../../../neighbors/detail/vpq_dataset.cuh"
 #include "pq_codepacking.cuh"  // pq_bits-bitfield
@@ -428,7 +429,7 @@ auto vpq_build(const raft::resources& res,
     } else {
       auto stored =
         raft::make_device_matrix<StoreMathT, uint32_t>(res, book.extent(0), book.extent(1));
-      raft::linalg::map(res,
+      cuvs::detail::map(res,
                         stored.view(),
                         cuvs::spatial::knn::detail::utils::mapping<StoreMathT>{},
                         raft::make_const_mdspan(book.view()));

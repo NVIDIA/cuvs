@@ -1,8 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../core/map_launchers.hpp"
 #include <cuvs/neighbors/ivf_pq.hpp>
 
 #include "detail/ann_utils.cuh"
@@ -648,7 +649,7 @@ index_impl<IdxT>::rotation_matrix_int8(const raft::resources& res) const
     auto input_vec = raft::make_device_vector_view<const float, size_t>(
       this->rotation_matrix().data_handle(), matrix_size);
 
-    raft::linalg::map(
+    cuvs::detail::map(
       res, output_vec, cuvs::spatial::knn::detail::utils::mapping<int8_t>{}, input_vec);
   }
   // Construct the view directly to avoid copy constructor issues
@@ -756,7 +757,7 @@ index_impl<IdxT>::rotation_matrix_half(const raft::resources& res) const
     auto input_vec = raft::make_device_vector_view<const float, size_t>(
       this->rotation_matrix().data_handle(), matrix_size);
 
-    raft::linalg::map(res, output_vec, raft::cast_op<half>{}, input_vec);
+    cuvs::detail::map(res, output_vec, raft::cast_op<half>{}, input_vec);
   }
   // Construct the view directly to avoid copy constructor issues
   return raft::make_device_matrix_view<const half, uint32_t>(rotation_matrix_half_->data_handle(),
@@ -783,7 +784,7 @@ raft::device_matrix_view<const half, uint32_t, raft::row_major> index_impl<IdxT>
     auto input_vec = raft::make_device_vector_view<const float, size_t>(
       this->centers().data_handle(), matrix_size);
 
-    raft::linalg::map(res, output_vec, raft::cast_op<half>{}, input_vec);
+    cuvs::detail::map(res, output_vec, raft::cast_op<half>{}, input_vec);
   }
   // Construct the view directly to avoid copy constructor issues
   return raft::make_device_matrix_view<const half, uint32_t>(

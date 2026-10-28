@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::unaryOp",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "float*, __half const*, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>, CUstream_st*",
+        "instantiation_name": "f32_ptr_f16_c_ptr_u32_mapping_f32_stream_ptr"
+      },
+      {
+        "parameter_types": "long*, int const*, int, raft::cast_op<long>, CUstream_st*",
+        "instantiation_name": "long_ptr_int_c_ptr_int_cast_op_long_stream_ptr"
+      }
+    ]
+  }
+]

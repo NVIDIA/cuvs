@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "kmeans_common.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -240,7 +241,7 @@ inline void predict_bitwise_hamming(const raft::resources& handle,
     params.metric,
     0.0f);
 
-  raft::linalg::map(handle,
+  cuvs::detail::map(handle,
                     raft::make_const_mdspan(minClusterAndDistance.view()),
                     raft::make_device_vector_view<LabelT, IdxT>(labels, n_rows),
                     raft::compose_op<raft::cast_op<LabelT>, raft::key_op>());
@@ -462,7 +463,7 @@ void calc_centers_and_sizes(const raft::resources& handle,
 
   // Add previous sizes if necessary
   if (!reset_counters) {
-    raft::linalg::add(
+    cuvs::detail::add(
       handle,
       raft::make_device_vector_view<const CounterT, IdxT>(cluster_sizes, n_clusters),
       raft::make_device_vector_view<const CounterT, IdxT>(temp_sizes, n_clusters),
@@ -496,7 +497,7 @@ void compute_norm(const raft::resources& handle,
     raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
       dataset_norm, dataset, dim, n_rows, stream.get());
     auto norms = raft::make_device_vector_view<MathT, IdxT>(dataset_norm, n_rows);
-    raft::linalg::map(handle,
+    cuvs::detail::map(handle,
                       norms,
                       norm_fin_op,
                       raft::make_device_vector_view<const MathT, IdxT>(dataset_norm, n_rows));
@@ -510,7 +511,7 @@ void compute_norm(const raft::resources& handle,
   } else {
     mapped_dataset.resize(n_rows * dim, stream);
 
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       raft::make_device_vector_view<const T, IdxT>(dataset, n_rows * dim),
       raft::make_device_vector_view<MathT, IdxT>(mapped_dataset.data(), n_rows * dim),
@@ -587,7 +588,7 @@ bool predict_core_half(const raft::resources& handle,
 
   auto stream = raft::resource::get_cuda_stream(handle);
   if (!scratch.centers_ready) {
-    raft::linalg::map(handle,
+    cuvs::detail::map(handle,
                       raft::make_device_vector_view<const float, IdxT>(
                         centers, static_cast<IdxT>(scratch.centers.size())),
                       raft::make_device_vector_view<half, IdxT>(
@@ -599,7 +600,7 @@ bool predict_core_half(const raft::resources& handle,
                                                       native_clusters,
                                                       stream.get());
     if (params.metric == cuvs::distance::DistanceType::CosineExpanded) {
-      raft::linalg::map(handle,
+      cuvs::detail::map(handle,
                         raft::make_device_vector_view<float, NativeIdxT>(
                           scratch.centers_norm.data(), native_clusters),
                         raft::sqrt_op{},
@@ -640,7 +641,7 @@ bool predict_core_half(const raft::resources& handle,
     0.0f,
     plan);
   if constexpr (!labels_are_native) {
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       raft::make_device_vector_view<const int, NativeIdxT>(scratch.indices.data(), native_rows),
       raft::make_device_vector_view<LabelT, NativeIdxT>(labels, native_rows),
@@ -740,14 +741,14 @@ void predict(const raft::resources& handle,
       cur_dataset_ptr = const_cast<MathT*>(dataset + offset * dim);
     } else if (params.is_packed_binary) {
       if constexpr (std::is_same_v<T, uint8_t>) {
-        raft::linalg::map_offset(handle,
+        cuvs::detail::map_offset(handle,
                                  raft::make_device_matrix_view<MathT, IdxT>(
                                    cur_dataset_ptr, minibatch_size, transformed_dim),
                                  cuvs::spatial::knn::detail::utils::bitwise_decode_op<MathT, IdxT>(
                                    dataset + offset * dim));
       }
     } else {
-      raft::linalg::map(
+      cuvs::detail::map(
         handle,
         raft::make_device_vector_view<const T, IdxT>(dataset + offset * dim, minibatch_size * dim),
         raft::make_device_vector_view<MathT, IdxT>(cur_dataset_ptr, minibatch_size * dim),
@@ -1238,7 +1239,7 @@ void build_clusters(const raft::resources& handle,
 {
   // "randomly" initialize labels
   auto labels_view = raft::make_device_vector_view<LabelT, IdxT>(cluster_labels, n_rows);
-  raft::linalg::map_offset(
+  cuvs::detail::map_offset(
     handle,
     labels_view,
     raft::compose_op(raft::cast_op<LabelT>(), raft::mod_const_op<IdxT>(n_clusters)));

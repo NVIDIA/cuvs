@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "distance_ops/all_ops.cuh"
 #include "pairwise_matrix/dispatch.cuh"
 
@@ -368,12 +369,12 @@ void distance_impl(raft::resources const& handle,
 
   if (!arrays_overlap) {
     // Arrays don't overlap: sqrt each array independently
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       raft::make_device_vector_view<DataT, IdxT>((DataT*)x, m * k),
       raft::sqrt_op{},
       raft::make_const_mdspan(raft::make_device_vector_view<const DataT, IdxT>(x, m * k)));
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       raft::make_device_vector_view<DataT, IdxT>((DataT*)y, n * k),
       raft::sqrt_op{},
@@ -384,7 +385,7 @@ void distance_impl(raft::resources const& handle,
     const DataT* end   = (x_end > y_end) ? x_end : y_end;
     IdxT union_size    = end - start;
 
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       raft::make_device_vector_view<DataT, IdxT>((DataT*)start, union_size),
       raft::sqrt_op{},
@@ -404,12 +405,12 @@ void distance_impl(raft::resources const& handle,
   // Restore arrays by squaring back
   if (!arrays_overlap) {
     // Arrays don't overlap: square each array independently
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       raft::make_device_vector_view<DataT, IdxT>((DataT*)x, m * k),
       raft::sq_op{},
       raft::make_const_mdspan(raft::make_device_vector_view<const DataT, IdxT>(x, m * k)));
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       raft::make_device_vector_view<DataT, IdxT>((DataT*)y, n * k),
       raft::sq_op{},
@@ -420,7 +421,7 @@ void distance_impl(raft::resources const& handle,
     const DataT* end   = (x_end > y_end) ? x_end : y_end;
     IdxT union_size    = end - start;
 
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       raft::make_device_vector_view<DataT, IdxT>((DataT*)start, union_size),
       raft::sq_op{},

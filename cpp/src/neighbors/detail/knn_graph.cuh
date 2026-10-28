@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
+#include "../../core/map_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/all_neighbors.hpp>
 
@@ -87,7 +88,7 @@ void knn_graph(raft::resources const& res,
     indices_64_view,
     distances_view);
 
-  raft::linalg::map(res,
+  cuvs::detail::map(res,
                     raft::make_device_vector_view<value_idx, nnz_t>(indices.data(), nnz),
                     raft::cast_op<value_idx>{},
                     raft::make_const_mdspan(indices_64_view));

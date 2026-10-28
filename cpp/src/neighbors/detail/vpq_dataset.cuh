@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
 
@@ -156,7 +157,7 @@ auto transform_data(const raft::resources& res, DatasetT dataset)
 
   auto result = raft::make_device_mdarray<T, index_type, layout_type>(res, dataset.extents());
 
-  raft::linalg::map(res,
+  cuvs::detail::map(res,
                     result.view(),
                     cuvs::spatial::knn::detail::utils::mapping<T>{},
                     raft::make_const_mdspan(dataset.view()));

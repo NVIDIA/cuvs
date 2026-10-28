@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
@@ -373,7 +374,7 @@ void sharded_search_with_direct_merge(
       out_neighbors.data_handle(), n_rows_of_current_batch, n_neighbors);
 
     if (!select_min) {
-      raft::linalg::map(root_handle_,
+      cuvs::detail::map(root_handle_,
                         in_distances_batch,
                         raft::mul_const_op<float>(-1),
                         raft::make_const_mdspan(in_distances_batch));
@@ -387,7 +388,7 @@ void sharded_search_with_direct_merge(
                     d_trans.view());
 
     if (!select_min) {
-      raft::linalg::map(root_handle_,
+      cuvs::detail::map(root_handle_,
                         out_distances_batch,
                         raft::mul_const_op<float>(-1),
                         raft::make_const_mdspan(out_distances_batch));
@@ -451,7 +452,7 @@ void sharded_search_with_tree_merge(
         dev_res, ann_if, search_params, query_partition, neighbors_view, distances_view);
 
       if (!select_min) {
-        raft::linalg::map(dev_res,
+        cuvs::detail::map(dev_res,
                           distances_view,
                           raft::mul_const_op<float>(-1),
                           raft::make_const_mdspan(distances_view));
@@ -461,7 +462,7 @@ void sharded_search_with_tree_merge(
       for (int r = 0; r < rank; r++) {
         translation_offset += index.ann_interfaces_[r].size();
       }
-      raft::linalg::addScalar(neighbors_view.data_handle(),
+      cuvs::detail::addScalar(neighbors_view.data_handle(),
                               neighbors_view.data_handle(),
                               translation_offset,
                               part_size,
@@ -540,7 +541,7 @@ void sharded_search_with_tree_merge(
           // If done, copy the final result
           if (remaining <= 1) {
             if (!select_min) {
-              raft::linalg::map(dev_res,
+              cuvs::detail::map(dev_res,
                                 distances_view,
                                 raft::mul_const_op<float>(-1),
                                 raft::make_const_mdspan(distances_view));

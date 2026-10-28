@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../core/map_launchers.hpp"
 #include <cuda/stream>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/copy.cuh>
@@ -192,59 +193,59 @@ void postprocess_distances(const raft::resources& res,
     case distance::DistanceType::L2Unexpanded:
     case distance::DistanceType::L2Expanded: {
       if (scaling_factor != 1.0) {
-        raft::linalg::map(
+        cuvs::detail::map(
           res,
           out_view,
           raft::compose_op(raft::mul_const_op<ScoreOutT>{scaling_factor * scaling_factor},
                            raft::cast_op<ScoreOutT>{}),
           raft::make_const_mdspan(in_view));
       } else if (needs_cast || needs_copy) {
-        raft::linalg::map(
+        cuvs::detail::map(
           res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
       }
     } break;
     case distance::DistanceType::L2SqrtUnexpanded:
     case distance::DistanceType::L2SqrtExpanded: {
       if (scaling_factor != 1.0) {
-        raft::linalg::map(res,
+        cuvs::detail::map(res,
                           out_view,
                           raft::compose_op{raft::mul_const_op<ScoreOutT>{scaling_factor},
                                            raft::sqrt_op{},
                                            raft::cast_op<ScoreOutT>{}},
                           raft::make_const_mdspan(in_view));
       } else if (needs_cast) {
-        raft::linalg::map(res,
+        cuvs::detail::map(res,
                           out_view,
                           raft::compose_op{raft::sqrt_op{}, raft::cast_op<ScoreOutT>{}},
                           raft::make_const_mdspan(in_view));
       } else {
-        raft::linalg::map(res, out_view, raft::sqrt_op{}, raft::make_const_mdspan(in_view));
+        cuvs::detail::map(res, out_view, raft::sqrt_op{}, raft::make_const_mdspan(in_view));
       }
     } break;
     case distance::DistanceType::CosineExpanded:
     case distance::DistanceType::InnerProduct: {
       float factor = (account_for_max_close ? -1.0 : 1.0) * scaling_factor * scaling_factor;
       if (factor != 1.0) {
-        raft::linalg::map(
+        cuvs::detail::map(
           res,
           out_view,
           raft::compose_op(raft::mul_const_op<ScoreOutT>{factor}, raft::cast_op<ScoreOutT>{}),
           raft::make_const_mdspan(in_view));
       } else if (needs_cast || needs_copy) {
-        raft::linalg::map(
+        cuvs::detail::map(
           res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
       }
     } break;
     case distance::DistanceType::BitwiseHamming: break;
     case distance::DistanceType::L1: {
       if (scaling_factor != 1.0) {
-        raft::linalg::map(res,
+        cuvs::detail::map(res,
                           out_view,
                           raft::compose_op(raft::mul_const_op<ScoreOutT>{scaling_factor},
                                            raft::cast_op<ScoreOutT>{}),
                           raft::make_const_mdspan(in_view));
       } else if (needs_cast || needs_copy) {
-        raft::linalg::map(
+        cuvs::detail::map(
           res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
       }
     } break;

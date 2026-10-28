@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
@@ -157,7 +158,7 @@ void flat_compute_residuals(
   auto tmp_view = raft::make_device_vector_view<float, size_t>(tmp.data(), tmp.size());
 
   if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-    raft::linalg::map(
+    cuvs::detail::map(
       handle,
       tmp_view,
       raft::cast_op<float>{},
@@ -669,7 +670,7 @@ void reconstruct_list_data(raft::resources const& res,
                      raft::resource::get_cuda_stream(res).get());
   // Transform the data to the original type, if necessary
   if constexpr (!std::is_same_v<T, float>) {
-    raft::linalg::map(
+    cuvs::detail::map(
       res,
       out_vectors,
       utils::mapping<T>{},
@@ -1161,7 +1162,7 @@ void extend(raft::resources const& handle,
                                          n_rows,
                                          1,
                                          stream.get());
-  raft::linalg::add(
+  cuvs::detail::add(
     handle,
     raft::make_device_vector_view<const uint32_t>(list_sizes, n_clusters),
     raft::make_device_vector_view<const uint32_t>(orig_list_sizes.data(), n_clusters),
@@ -1327,7 +1328,7 @@ auto build(raft::resources const& handle,
 
       raft::matrix::sample_rows<T, int64_t>(handle, random_state, dataset, trainset_tmp.view());
 
-      raft::linalg::map(handle,
+      cuvs::detail::map(handle,
                         raft::make_device_vector_view<float, int64_t>(trainset.data_handle(),
                                                                       (int64_t)trainset.size()),
                         utils::mapping<float>{},

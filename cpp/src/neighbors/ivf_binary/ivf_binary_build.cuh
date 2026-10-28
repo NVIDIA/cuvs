@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../cluster/kmeans_balanced.cuh"
+#include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_flat/ivf_flat_build.cuh"
@@ -93,7 +94,7 @@ inline void extend(raft::resources const& handle,
                                             n_rows,
                                             1,
                                             stream.get());
-  raft::linalg::add(handle,
+  cuvs::detail::add(handle,
                     raft::make_device_vector_view<const uint32_t, int64_t>(list_sizes_ptr, n_lists),
                     raft::make_device_vector_view<const uint32_t, int64_t>(
                       old_list_sizes_dev.data_handle(), n_lists),

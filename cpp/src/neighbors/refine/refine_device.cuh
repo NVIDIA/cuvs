@@ -1,10 +1,11 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../detail/ann_utils.cuh"
 #include "../ivf_flat/ivf_flat_build.cuh"
@@ -66,7 +67,7 @@ void refine_device(
   // - We run IVF flat search with n_probes=1 to select the best k elements of the candidates.
   rmm::device_uvector<uint32_t> fake_coarse_idx(n_queries, raft::resource::get_cuda_stream(handle));
 
-  raft::linalg::map_offset(handle,
+  cuvs::detail::map_offset(handle,
                            raft::make_device_vector_view(fake_coarse_idx.data(), n_queries),
                            raft::cast_op<uint32_t>{});
 

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../core/map_launchers.hpp"
 #include "ivf_rabitq/gpu_index/ivf_gpu.cuh"
 #include "ivf_rabitq/gpu_index/searcher_gpu.cuh"
 #include <cuvs/cluster/kmeans.hpp>
@@ -275,7 +276,7 @@ void search(raft::resources const& handle,
   }
 
   // cast data in final_ids to array of IdxT in neighbors
-  raft::linalg::map(
+  cuvs::detail::map(
     handle,
     neighbors,
     raft::cast_op<IdxT>{},

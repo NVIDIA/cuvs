@@ -1,0 +1,34 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/ann_utils.cuh>
+
+#include <core/map_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/unary_op.cuh>
+
+extern template void raft::linalg::detail::
+  map<false, float, unsigned int, cuvs::spatial::knn::detail::utils::mapping<float>, __half>(
+    cuda::stream_ref,
+    float*,
+    unsigned int,
+    cuvs::spatial::knn::detail::utils::mapping<float>,
+    __half const*);
+
+namespace cuvs::detail {
+
+template <typename InType, typename Lambda, typename IdxType, typename OutType, int TPB>
+void unaryOp(OutType* out, const InType* in, IdxType len, Lambda op, cudaStream_t stream)
+
+{
+  return raft::linalg::unaryOp<InType, Lambda, IdxType, OutType, TPB>(out, in, len, op, stream);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../core/map_launchers.hpp"
 #include "detail/kmeans.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 #include <raft/core/copy.cuh>
@@ -367,7 +368,7 @@ void cluster_cost(
     cuvs::distance::detail::Top1nnBackend::Stable);
 
   if (sample_weight.has_value()) {
-    raft::linalg::map(handle,
+    cuvs::detail::map(handle,
                       min_cluster_distance.view(),
                       raft::mul_op{},
                       raft::make_const_mdspan(min_cluster_distance.view()),

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include "ann_utils.cuh"
 #include "neighbors_device_intrinsics.cuh"
 #include "nn_descent_gnnd.hpp"
@@ -2823,11 +2824,11 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
     bool can_postprocess_dist = std::is_same_v<DistEpilogue_t, raft::identity_op>;
     if (build_config_.metric == cuvs::distance::DistanceType::L2SqrtExpanded &&
         can_postprocess_dist) {
-      raft::linalg::map(
+      cuvs::detail::map(
         res, output_dist_view, raft::sqrt_op{}, raft::make_const_mdspan(output_dist_view));
     } else if (!cuvs::distance::is_min_close(build_config_.metric) && can_postprocess_dist) {
       // revert negated innerproduct
-      raft::linalg::map(res,
+      cuvs::detail::map(res,
                         output_dist_view,
                         raft::mul_const_op<DistData_t>(-1),
                         raft::make_const_mdspan(output_dist_view));
@@ -2948,10 +2949,10 @@ void GNND<Data_t, Index_t>::build(
     const bool can_postprocess_dist = std::is_same_v<DistEpilogue_t, raft::identity_op>;
     if (build_config_.metric == cuvs::distance::DistanceType::L2SqrtExpanded &&
         can_postprocess_dist) {
-      raft::linalg::map(
+      cuvs::detail::map(
         res, output_dist_view, raft::sqrt_op{}, raft::make_const_mdspan(output_dist_view));
     } else if (!cuvs::distance::is_min_close(build_config_.metric) && can_postprocess_dist) {
-      raft::linalg::map(res,
+      cuvs::detail::map(res,
                         output_dist_view,
                         raft::mul_const_op<DistData_t>(-1),
                         raft::make_const_mdspan(output_dist_view));

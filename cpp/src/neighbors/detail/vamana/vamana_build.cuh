@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/map_launchers.hpp"
 #include "../../../sparse/neighbors/cross_component_nn.cuh"
 #include "../../detail/ann_utils.cuh"
 #include "greedy_search.cuh"
@@ -162,7 +163,7 @@ void batched_insert_vamana(
 
   // Initialize graph with invalid neighbor indices (raft::upper_bound<IdxT>()).
   auto d_graph = raft::make_device_matrix<IdxT, int64_t>(res, graph.extent(0), graph.extent(1));
-  raft::linalg::map(res, d_graph.view(), raft::const_op<IdxT>{raft::upper_bound<IdxT>()});
+  cuvs::detail::map(res, d_graph.view(), raft::const_op<IdxT>{raft::upper_bound<IdxT>()});
 
   // Temp storage about each batch of inserts being performed
   auto query_ids      = raft::make_device_vector<IdxT>(res, max_batchsize);
@@ -480,7 +481,7 @@ void batched_insert_vamana(
     // Find which node IDs have reverse edges and their indices in the reverse edge list
     raft::copy(edge_dest_vec.data_handle(), edge_dest.data_handle(), total_edges, stream);
     auto unique_indices = raft::make_device_vector<int>(res, total_edges);
-    raft::linalg::map_offset(res, unique_indices.view(), raft::identity_op{});
+    cuvs::detail::map_offset(res, unique_indices.view(), raft::identity_op{});
 
     thrust::unique_by_key(rmm::exec_policy_nosync(stream, large_ws),
                           thrust::device_pointer_cast(edge_dest_vec.data_handle()),

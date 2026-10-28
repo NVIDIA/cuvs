@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/map_launchers.hpp"
 #include <memory>
 #include <type_traits>
 
@@ -254,7 +255,7 @@ struct index_state {
     if (!distance::is_min_close(build_params.metric)) {
       // knn_merge_parts doesn't currently support InnerProduct distances etc
       // instead negate here and then undo after
-      raft::linalg::map(res,
+      cuvs::detail::map(res,
                         temp_distances.view(),
                         raft::mul_const_op<value_type>(-1),
                         raft::make_const_mdspan(temp_distances.view()));
@@ -276,7 +277,7 @@ struct index_state {
                     device_translations.view());
 
     if (!distance::is_min_close(build_params.metric)) {
-      raft::linalg::map(
+      cuvs::detail::map(
         res, distances, raft::mul_const_op<value_type>(-1), raft::make_const_mdspan(distances));
     }
   }

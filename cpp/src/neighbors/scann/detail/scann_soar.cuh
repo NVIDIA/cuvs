@@ -1,8 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/map_launchers.hpp"
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
@@ -110,10 +111,10 @@ void compute_soar_labels(raft::resources const& dev_resources,
     soar_scores.view(),
     raft::sub_op());
 
-  raft::linalg::map(
+  cuvs::detail::map(
     dev_resources, soar_scores.view(), raft::sq_op{}, raft::make_const_mdspan(soar_scores.view()));
 
-  raft::linalg::map(dev_resources,
+  cuvs::detail::map(dev_resources,
                     soar_scores.view(),
                     raft::mul_const_op<float>(lambda),
                     raft::make_const_mdspan(soar_scores.view()));

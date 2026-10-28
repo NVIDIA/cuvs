@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/map_launchers.hpp"
 #include "common.hpp"
 
 #include <raft/core/operators.cuh>
@@ -194,7 +195,7 @@ class lp_unexpanded_distances_t : public distances_t<value_t> {
 
     uint64_t n         = (uint64_t)this->config_->a_nrows * (uint64_t)this->config_->b_nrows;
     value_t one_over_p = value_t{1} / p;
-    raft::linalg::map(
+    cuvs::detail::map(
       config_->handle,
       raft::make_device_vector_view<value_t, int64_t>(out_dists, n),
       raft::pow_const_op<value_t>(one_over_p),
@@ -221,7 +222,7 @@ class hamming_unexpanded_distances_t : public distances_t<value_t> {
 
     uint64_t n     = (uint64_t)config_->a_nrows * (uint64_t)config_->b_nrows;
     value_t n_cols = 1.0 / config_->a_ncols;
-    raft::linalg::map(
+    cuvs::detail::map(
       config_->handle,
       raft::make_device_vector_view<value_t, int64_t>(out_dists, n),
       raft::mul_const_op<value_t>(n_cols),
@@ -303,7 +304,7 @@ class kl_divergence_unexpanded_distances_t : public distances_t<value_t> {
       raft::atomic_add_op());
 
     uint64_t n = (uint64_t)this->config_->a_nrows * (uint64_t)this->config_->b_nrows;
-    raft::linalg::map(
+    cuvs::detail::map(
       config_->handle,
       raft::make_device_vector_view<value_t, int64_t>(out_dists, n),
       raft::mul_const_op<value_t>(0.5),

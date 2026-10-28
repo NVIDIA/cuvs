@@ -12,7 +12,8 @@
 #include <cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
-#include <raft/linalg/unary_op.cuh>
+
+#include <core/map_launchers.hpp>
 #include <raft/util/cuda_utils.cuh>
 
 #include <algorithm>
@@ -416,7 +417,7 @@ void launch_fused_1nn_tile(raft::resources const& handle,
       }
 
       if (nearest_idx != nullptr) {
-        raft::linalg::unaryOp(
+        cuvs::detail::unaryOp(
           nearest_idx + offset, tmp_idx, batch_m, raft::cast_op<int64_t>{}, stream.get());
       }
       offset += batch_m64;
