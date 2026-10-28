@@ -20,9 +20,8 @@ namespace cuvs::distance::detail::pruned_nn {
 
 // Dims between the survivors' re-filters, and d' of the first filter
 constexpr uint32_t kDimTileSize = 256;
-// Centroids per batch: a row's survivor list of one batch lives in the pruning kernel's shared
-// memory
-constexpr uint32_t kCentroidBatchSize = 1024;
+// Centroids per batch: one fused filter and pruning launch per row batch and centroid batch
+constexpr uint32_t kCentroidBatchSize = 2048;
 // Rows per batch: bounds the first filter's survivor lists (row batch x centroid batch slots)
 constexpr int64_t kRowBatchSize = 128 * 1024;
 // Survivors whose loads are batched over a dim tile
@@ -32,8 +31,6 @@ constexpr int kSurvivorIdShift = 32;
 
 constexpr uint32_t kWarpSize = 32;
 constexpr uint32_t kFullMask = 0xffffffff;
-
-using survivor_id_t = std::conditional_t<(kCentroidBatchSize <= 65536), uint16_t, uint32_t>;
 
 /**
  * ADSampling's pruning ratios: ratios[i] = (i / d) * (1 + eps0 / sqrt(i))^2 for i dims seen,
@@ -57,8 +54,8 @@ inline auto adsampling_ratios(uint32_t dim, float eps0 = 1.5f) -> std::vector<fl
 }
 
 /**
- * Sums N independent per-lane values across the warp (valid in the first lane), the N shuffles of
- * each step issued together so they overlap.
+ * Sums N independent per-lane values across the warp (xor shuffles: every lane ends with the N
+ * sums), the N shuffles of each step issued together so they overlap.
  */
 template <uint32_t N, typename T>
 __device__ __forceinline__ void warp_reduce_sum_n(T* values)
@@ -68,7 +65,7 @@ __device__ __forceinline__ void warp_reduce_sum_n(T* values)
   for (int offset = kWarpSize / 2; offset > 0; offset >>= 1) {
 #pragma unroll
     for (uint32_t i = 0; i < N; i++) {
-      shifted[i] = __shfl_down_sync(kFullMask, values[i], offset);
+      shifted[i] = __shfl_xor_sync(kFullMask, values[i], offset);
     }
     asm volatile("" ::: "memory");
 #pragma unroll
@@ -145,31 +142,37 @@ void distance_to_assigned(const T* rows,
 
 /**
  * The first filter's survivor lists of one row batch x centroid batch (see launch_fused_filter):
- * per (row, centroid tile) a segment of tile_n slots in `packed`, its count in `seg_count`.
+ * per (row, centroid tile) a segment of tile_n slots in `packed`, its count in `seg_count`. The
+ * pruning kernel compacts a row's survivors in place in the row's segments.
  */
 struct first_filter_lists {
-  const int64_t* packed;
+  int64_t* packed;
   const int32_t* seg_count;
   uint32_t n_col_tiles;
   uint32_t tile_n;
 };
 
 /**
- * Distances over one dim tile between the row (`row_tile`, lane l holding dims l + 32 j) and N of
- * its survivors, added to `distances` by lane 0. The N centroids' loads are issued back to back.
+ * Distances over one dim tile between the row (`row_tile`, lane l holding dims l + 32 j) and the N
+ * survivors at window positions [first, first + N), their ids held one per lane in `ids`; the lane
+ * holding each survivor adds its distance to `distance`. The N centroids' loads are issued back to
+ * back.
  */
 template <uint32_t Dims, uint32_t N, typename T>
 __device__ __forceinline__ void add_tile_distances(const float (&row_tile)[Dims / kWarpSize],
                                                    const T* __restrict__ centroids,
                                                    uint32_t stride,
-                                                   const survivor_id_t* __restrict__ ids,
-                                                   float* __restrict__ distances)
+                                                   uint32_t ids,
+                                                   uint32_t first,
+                                                   float& distance)
 {
   const uint32_t lane = threadIdx.x % kWarpSize;
   float partial[N];
+#pragma unroll
   for (uint32_t i = 0; i < N; i++) {
-    const T* centroid = centroids + static_cast<int64_t>(ids[i]) * stride;
-    partial[i]        = 0;
+    const T* centroid =
+      centroids + static_cast<int64_t>(__shfl_sync(kFullMask, ids, first + i)) * stride;
+    partial[i] = 0;
 #pragma unroll
     for (uint32_t j = 0; j < Dims / kWarpSize; j++) {
       const float diff = row_tile[j] - static_cast<float>(centroid[lane + j * kWarpSize]);
@@ -177,10 +180,9 @@ __device__ __forceinline__ void add_tile_distances(const float (&row_tile)[Dims 
     }
   }
   warp_reduce_sum_n<N>(partial);
-  if (lane == 0) {
-    for (uint32_t i = 0; i < N; i++) {
-      distances[i] += partial[i];
-    }
+#pragma unroll
+  for (uint32_t i = 0; i < N; i++) {
+    if (lane == first + i) { distance += partial[i]; }
   }
 }
 
@@ -192,58 +194,40 @@ __device__ __forceinline__ void for_each_halving(F&& f)
   if constexpr (N > 1) { for_each_halving<N / 2>(f); }
 }
 
-/** A row's first-filter survivors, in centroid order, into the warp's list; returns how many. */
-__device__ inline uint32_t load_survivors(first_filter_lists lists,
-                                          int64_t row,
-                                          survivor_id_t* __restrict__ ids,
-                                          float* __restrict__ distances)
+__device__ __forceinline__ int64_t pack_survivor(uint32_t id, float distance)
 {
-  const uint32_t lane     = threadIdx.x % kWarpSize;
-  const int64_t* segments = lists.packed + row * lists.n_col_tiles * lists.tile_n;
-  const int32_t* counts   = lists.seg_count + row * lists.n_col_tiles;
-  uint32_t n              = 0;
-  for (uint32_t t = 0; t < lists.n_col_tiles; t++) {
+  return (static_cast<int64_t>(id) << kSurvivorIdShift) |
+         static_cast<uint32_t>(__float_as_int(distance));
+}
+
+/**
+ * A row's first-filter survivors, from its segments (`list`, the row's region), compacted to
+ * positions [0, n) in centroid order and written with put(position, entry). In place: a chunk's
+ * entries are all read before any is written, and a write never passes the read position.
+ * Returns n.
+ */
+template <typename Put>
+__device__ __forceinline__ uint32_t compact_survivors(const int64_t* list,
+                                                      const int32_t* __restrict__ counts,
+                                                      uint32_t n_col_tiles,
+                                                      uint32_t tile_n,
+                                                      Put&& put)
+{
+  const uint32_t lane = threadIdx.x % kWarpSize;
+  uint32_t n          = 0;
+  for (uint32_t t = 0; t < n_col_tiles; t++) {
     const auto count = static_cast<uint32_t>(counts[t]);
-    for (uint32_t j = lane; j < count; j += kWarpSize) {
-      const int64_t value = segments[t * lists.tile_n + j];
-      ids[n + j]          = static_cast<survivor_id_t>(value >> kSurvivorIdShift);
-      distances[n + j]    = __int_as_float(static_cast<int32_t>(value));
+    for (uint32_t j0 = 0; j0 < count; j0 += kWarpSize) {
+      const uint32_t j = j0 + lane;
+      int64_t value    = 0;
+      if (j < count) { value = list[t * tile_n + j]; }
+      __syncwarp();
+      if (j < count && (n + j < kWarpSize || n != t * tile_n)) { put(n + j, value); }
     }
     n += count;
   }
   __syncwarp();
   return n;
-}
-
-/** Keeps the n survivors under `threshold`, compacting the list in place; returns how many. */
-__device__ inline uint32_t refilter(uint32_t n,
-                                    float threshold,
-                                    survivor_id_t* __restrict__ ids,
-                                    float* __restrict__ distances)
-{
-  const uint32_t lane        = threadIdx.x % kWarpSize;
-  const uint32_t lanes_below = (1u << lane) - 1;
-  uint32_t kept              = 0;
-  for (uint32_t base = 0; base < n; base += kWarpSize) {
-    const uint32_t i = base + lane;
-    uint32_t id      = 0;
-    float distance   = 0.f;
-    bool keep        = false;
-    if (i < n) {
-      id       = ids[i];
-      distance = distances[i];
-      keep     = distance < threshold;
-    }
-    const uint32_t ballot = __ballot_sync(kFullMask, keep);
-    __syncwarp();  // all lanes have read their entry before the compaction writes
-    if (keep) {
-      const uint32_t slot = kept + __popc(ballot & lanes_below);
-      ids[slot]           = static_cast<survivor_id_t>(id);
-      distances[slot]     = distance;
-    }
-    kept += __popc(ballot);
-  }
-  return kept;
 }
 
 /**
@@ -252,59 +236,103 @@ __device__ inline uint32_t refilter(uint32_t n,
  * each but the last, then the argmin, kept if closer than the row's current centroid. Block b
  * handles row row_order[b] when given (heaviest rows first), and each row's first-filter survivors
  * are added to `survivors`.
+ *
+ * The survivor list stays in the row's region of `lists`, but for its first kWarpSize entries,
+ * kept in shared memory; the warp reads it a window of kWarpSize entries at a time, lane l holding
+ * entry l, and each re-filter compacts it in place. The launch bounds leave the compiler up to 64
+ * registers, for more centroid loads in flight.
  */
 template <typename T>
-RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
-                         const uint32_t* __restrict__ row_order,
-                         const T* __restrict__ centroids,
-                         uint32_t centroid_offset,
-                         uint32_t dim,
-                         uint32_t partial_dim,
-                         const float* __restrict__ ratios,
-                         first_filter_lists lists,
-                         uint32_t* __restrict__ labels,
-                         float* __restrict__ dist,
-                         uint32_t* __restrict__ survivors)
+RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ rows,
+                                                          const uint32_t* __restrict__ row_order,
+                                                          const T* __restrict__ centroids,
+                                                          uint32_t centroid_offset,
+                                                          uint32_t dim,
+                                                          uint32_t partial_dim,
+                                                          const float* __restrict__ ratios,
+                                                          first_filter_lists lists,
+                                                          uint32_t* __restrict__ labels,
+                                                          float* __restrict__ dist,
+                                                          uint32_t* __restrict__ survivors)
 {
-  __shared__ survivor_id_t ids[kCentroidBatchSize];
-  __shared__ float distances[kCentroidBatchSize];
-  const uint32_t lane = threadIdx.x;
-  const int64_t row   = row_order != nullptr ? row_order[blockIdx.x] : blockIdx.x;
-  const T* row_values = rows + row * dim;
-  uint32_t best_index = labels[row];
-  float best          = dist[row];
-  const float bound   = best;
+  __shared__ int64_t head[kWarpSize];
+  const uint32_t lane        = threadIdx.x;
+  const uint32_t lanes_below = (1u << lane) - 1;
+  const int64_t row          = row_order != nullptr ? row_order[blockIdx.x] : blockIdx.x;
+  const T* row_values        = rows + row * dim;
+  uint32_t best_index        = labels[row];
+  float best                 = dist[row];
+  const float bound          = best;
 
-  uint32_t n_left = load_survivors(lists, row, ids, distances);
+  int64_t* list = lists.packed + row * lists.n_col_tiles * lists.tile_n;
+  auto put      = [&](uint32_t position, int64_t value) {
+    if (position < kWarpSize) {
+      head[position] = value;
+    } else {
+      list[position] = value;
+    }
+  };
+  uint32_t n_left = compact_survivors(
+    list, lists.seg_count + row * lists.n_col_tiles, lists.n_col_tiles, lists.tile_n, put);
   if (lane == 0) { survivors[row] += n_left; }
-  if (n_left == 0 || (n_left == 1 && centroid_offset + ids[0] == best_index)) { return; }
+  if (n_left == 0 ||
+      (n_left == 1 &&
+       centroid_offset + static_cast<uint32_t>(head[0] >> kSurvivorIdShift) == best_index)) {
+    return;
+  }
 
   for (uint32_t d = partial_dim; d < dim && n_left; d += kDimTileSize) {
+    const bool last = d + kDimTileSize >= dim;
     float row_tile[kDimTileSize / kWarpSize];
 #pragma unroll
     for (uint32_t j = 0; j < kDimTileSize / kWarpSize; j++) {
       row_tile[j] = static_cast<float>(row_values[d + lane + j * kWarpSize]);
     }
-    // Survivor tiles of kSurvivorTileSize, then halving sizes down to 1 for the ones left
-    uint32_t i = 0;
-    for_each_halving<kSurvivorTileSize>([&](auto tile) {
-      constexpr uint32_t kTile = decltype(tile)::value;
-      for (; i + kTile <= n_left; i += kTile) {
-        add_tile_distances<kDimTileSize, kTile>(
-          row_tile, centroids + d, dim, ids + i, distances + i);
-      }
-    });
-    __syncwarp();  // lane 0's distance updates are visible to the warp
     // After the last tile the distances are complete: the argmin compares them with the best
-    if (d + kDimTileSize < dim) {
-      n_left = refilter(n_left, bound * ratios[d + kDimTileSize], ids, distances);
+    const float threshold = last ? 0.f : bound * ratios[d + kDimTileSize];
+    uint32_t kept         = 0;
+    // The next window is loaded while the current one is computed
+    int64_t next = kWarpSize + lane < n_left ? list[kWarpSize + lane] : 0;
+    for (uint32_t base = 0; base < n_left; base += kWarpSize) {
+      const uint32_t w    = min(kWarpSize, n_left - base);
+      const int64_t entry = base == 0 ? head[lane] : next;
+      if (base > 0 && base + kWarpSize + lane < n_left) { next = list[base + kWarpSize + lane]; }
+      const auto ids = static_cast<uint32_t>(entry >> kSurvivorIdShift);
+      float distance = lane < w ? __int_as_float(static_cast<int32_t>(entry)) : 0.f;
+      // Survivor tiles of kSurvivorTileSize, then halving sizes down to 1 for the ones left
+      uint32_t i = 0;
+      for_each_halving<kSurvivorTileSize>([&](auto tile) {
+        constexpr uint32_t kTile = decltype(tile)::value;
+        for (; i + kTile <= w; i += kTile) {
+          add_tile_distances<kDimTileSize, kTile>(row_tile, centroids + d, dim, ids, i, distance);
+        }
+      });
+      if (!last) {
+        // The kept survivors go below this window's end, never into a later window
+        const bool keep       = lane < w && distance < threshold;
+        const uint32_t ballot = __ballot_sync(kFullMask, keep);
+        if (keep) { put(kept + __popc(ballot & lanes_below), pack_survivor(ids, distance)); }
+        kept += __popc(ballot);
+      } else if (lane < w && distance < best) {
+        best       = distance;
+        best_index = centroid_offset + ids;
+      }
     }
+    __syncwarp();  // the compacted list is visible to the warp
+    n_left = last ? 0 : kept;
   }
 
-  for (uint32_t i = lane; i < n_left; i += kWarpSize) {
-    if (distances[i] < best) {
-      best       = distances[i];
-      best_index = centroid_offset + ids[i];
+  // No tail dims (partial_dim = dim): the first-filter distances are full, the argmin is over the
+  // list itself
+  for (uint32_t base = 0; base < n_left; base += kWarpSize) {
+    const uint32_t position = base + lane;
+    if (position < n_left) {
+      const int64_t entry  = base == 0 ? head[lane] : list[position];
+      const float distance = __int_as_float(static_cast<int32_t>(entry));
+      if (distance < best) {
+        best       = distance;
+        best_index = centroid_offset + static_cast<uint32_t>(entry >> kSurvivorIdShift);
+      }
     }
   }
   for (int offset = kWarpSize / 2; offset > 0; offset >>= 1) {
