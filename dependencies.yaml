@@ -330,8 +330,8 @@ dependencies:
       # spotless-fmt pre-commit hook requires Maven and a JDK
       - output_types: [conda]
         packages:
-          - maven=3.9.*
-          - &openjdk openjdk=22.*
+          - maven>=3.10.0,<3.11.0
+          - &openjdk openjdk>=22,<23
   clang:
     common:
       - output_types: conda
@@ -656,7 +656,7 @@ dependencies:
         packages:
           - *cmake_ver
           - libboost-devel
-          - maven=3.9.*
+          - maven>=3.10.0,<3.11.0
           - *openjdk
   bench:
     common:

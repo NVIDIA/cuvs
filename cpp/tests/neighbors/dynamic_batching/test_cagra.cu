@@ -26,6 +26,8 @@ auto build_cagra_with_dataset(raft::resources const& res,
   return index;
 }
 
+constexpr double min_overlap = 0.85;
+
 }  // namespace
 
 using cagra_F32 = dynamic_batching_test<float,
@@ -62,6 +64,7 @@ TEST_P(cagra_F32, multi_cta)
 {
   set_default_cagra_params(*this);
   search_params_upsm.algo = cagra::search_algo::MULTI_CTA;
+  min_neighbor_overlap    = min_overlap;
   build_all();
   search_all();
   check_neighbors();
@@ -79,6 +82,8 @@ TEST_P(cagra_F32, multi_kernel)
 TEST_P(cagra_U8, defaults)
 {
   set_default_cagra_params(*this);
+  // AUTO selects multi-CTA for the batched calls.
+  min_neighbor_overlap = min_overlap;
   build_all();
   search_all();
   check_neighbors();

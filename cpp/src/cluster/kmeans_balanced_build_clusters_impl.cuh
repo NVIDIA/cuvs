@@ -55,8 +55,14 @@ void build_clusters(const raft::resources& handle,
                "training samples");
   RAFT_EXPECTS(X.extent(0) == labels.extent(0),
                "Number of rows in dataset and labels are different");
-  RAFT_EXPECTS(X.extent(1) == centroids.extent(1),
+  auto centers_dim =
+    cuvs::cluster::kmeans::detail::centers_dim<DataT>(X.extent(1), params.is_packed_binary);
+  RAFT_EXPECTS(centers_dim == centroids.extent(1),
                "Number of features in dataset and centroids are different");
+  RAFT_EXPECTS(X.extent(0) <= std::numeric_limits<IndexT>::max() / centers_dim,
+               "The chosen index type cannot represent all indices for the given dataset");
+  RAFT_EXPECTS(!X_norm.has_value() || X_norm->extent(0) == X.extent(0),
+               "Number of rows in dataset and norms are different");
   RAFT_EXPECTS(centroids.extent(0) == cluster_sizes.extent(0),
                "Number of rows in centroids and clusyer_sizes are different");
 

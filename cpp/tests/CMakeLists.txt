@@ -182,6 +182,13 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_BINARY_TEST
+  PATH neighbors/ann_ivf_binary.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_SQ_TEST
   PATH neighbors/ann_ivf_sq/test_float_int64_t.cu neighbors/ann_ivf_sq/test_half_int64_t.cu
   GPUS 1
@@ -255,6 +262,7 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HELPERS_TEST
   PATH neighbors/ann_cagra/test_optimize_uint32_t.cu neighbors/ann_cagra/test_batch_load_iterator.cu
+       neighbors/ann_cagra/test_serialize_dataset_layouts.cu
   GPUS 1
   PERCENT 100
 )
@@ -401,7 +409,7 @@ endif()
 if(BUILD_MG_ALGOS)
   ConfigureTest(
     NAME NEIGHBORS_MG_TEST
-    PATH neighbors/mg/test_float.cu
+    PATH neighbors/mg/test_float.cu neighbors/mg/test_cagra_padded_host.cu
     GPUS 1
     PERCENT 100
     ADDITIONAL_DEP NCCL::NCCL RUN_SERIAL

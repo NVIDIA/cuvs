@@ -1381,11 +1381,31 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_transform_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
   generate_inst_matrix(
+    gmm_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/gmm_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/gmm_inst.cu.in"
+    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/gmm_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
     nn_descent_inst_files
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_matrix.json"
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_inst.cu.in"
     OUTPUT_FILE_FORMAT
       "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/nn_descent_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    vamana_build_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_build_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/vamana_build_inst_data_@data_abbrev@.cu"
+  )
+  generate_inst_matrix(
+    vamana_serialize_inst_files
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_serialize_inst.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/vamana_serialize_inst_data_@data_abbrev@.cu"
   )
   generate_inst_matrix(
     refine_device_inst_files
@@ -1415,8 +1435,7 @@ if(NOT BUILD_CPU_ONLY)
     cuvs_objs OBJECT
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
-    src/cluster/gmm_double.cu
-    src/cluster/gmm_float.cu
+    ${gmm_inst_files}
     src/cluster/kmeans_cluster_cost.cu
     src/cluster/kmeans_fit_double.cu
     src/cluster/kmeans_fit_float.cu
@@ -1484,6 +1503,8 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/composite/index.cu
     $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/cagra.cpp>
     $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/hnsw.cpp>
+    src/neighbors/ivf_binary_index.cpp
+    src/neighbors/ivf_binary/ivf_binary.cu
     src/neighbors/ivf_common.cu
     src/neighbors/ivf_flat_index.cpp
     ${ivf_flat_build_extend_inst_files}
@@ -1529,15 +1550,9 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/sample_filter.cu
     src/neighbors/tiered_index.cu
     src/neighbors/sparse_brute_force.cu
-    src/neighbors/vamana_build_float.cu
-    src/neighbors/vamana_build_half.cu
-    src/neighbors/vamana_build_uint8.cu
-    src/neighbors/vamana_build_int8.cu
-    src/neighbors/vamana_codebooks_float.cu
-    src/neighbors/vamana_serialize_float.cu
-    src/neighbors/vamana_serialize_half.cu
-    src/neighbors/vamana_serialize_uint8.cu
-    src/neighbors/vamana_serialize_int8.cu
+    ${vamana_build_inst_files}
+    src/neighbors/vamana_codebooks.cu
+    ${vamana_serialize_inst_files}
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu

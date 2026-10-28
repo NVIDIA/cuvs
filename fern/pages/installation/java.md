@@ -20,7 +20,7 @@ If you use locally built native libraries, make sure the directory containing `l
 
 Java development also requires:
 
-1. Maven 3.9.6 or newer.
+1. Maven 3.10 or newer.
 2. JDK 22.
 3. jextract for JDK 22. If it is not already installed, the build script downloads it.
 
@@ -69,7 +69,7 @@ java/panama-bindings/generate-bindings.sh
 
 `cuvs-lucene` provides Apache Lucene codecs that offload vector index build, and optionally search, to the GPU. It is published as a separate artifact that builds on the Java API described above. For usage guidance, see the [Lucene Integration](/user-guide/lucene) guide.
 
-`cuvs-lucene` targets Lucene 10.2, requires JDK 22 and Maven 3.9.6 or newer, and inherits the NVIDIA cuVS [CUDA GPU requirements](/installation#cuda-gpu-requirements).
+`cuvs-lucene` targets Lucene 10.2, requires JDK 22 and Maven 3.10 or newer, and inherits the NVIDIA cuVS [CUDA GPU requirements](/installation#cuda-gpu-requirements).
 
 `Lucene101AcceleratedHNSWCodec` falls back to CPU index construction when no GPU or native library is available, so an application using it works on GPU and non-GPU hosts alike. The other three codecs require a working cuVS installation. See [Lucene Integration](/user-guide/lucene) for details.
 

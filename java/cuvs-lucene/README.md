@@ -31,7 +31,7 @@ For guidance on choosing between them, configuring builds, and tuning GPU resour
 - An NVIDIA GPU, to use the GPU-accelerated paths (the accelerated HNSW codecs fall back to CPU index construction without one; `CuVS2510GPUSearchCodec` requires a GPU)
 - [CUDA Toolkit 12.2+](https://developer.nvidia.com/cuda-toolkit-archive) and an Ampere architecture GPU or newer, matching the [cuVS requirements](https://docs.nvidia.com/cuvs/installation)
 - [JDK 22](https://jdk.java.net/archive/)
-- [Maven 3.9.6+](https://maven.apache.org/download.cgi)
+- [Maven 3.10+](https://maven.apache.org/download.cgi)
 - A matching version of the [cuVS libraries](https://docs.nvidia.com/cuvs/installation/java). For Maven usage, install the cuVS libraries and add them to your system library load path.
 
 ### Maven
