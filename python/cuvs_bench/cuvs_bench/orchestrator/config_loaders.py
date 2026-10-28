@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -471,6 +471,11 @@ class CppGBenchConfigLoader(ConfigLoader):
         result = []
         for algo, algo_conf in algos_conf.items():
             if not self.validate_algorithm(algos_yaml, algo, self.gpu_present):
+                continue
+            if algo == "cuvs_ivf_binary" and (
+                dataset_conf.get("distance") != "bitwise_hamming"
+                or Path(dataset_conf["base_file"]).suffix != ".u8bin"
+            ):
                 continue
 
             for group, group_conf in algo_conf["groups"].items():
