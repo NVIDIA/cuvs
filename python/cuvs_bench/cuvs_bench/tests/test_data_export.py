@@ -3,11 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import json
-
 import numpy as np
 import pandas as pd
-import pytest
 
 from cuvs_bench.backends.base import BuildResult, SearchResult
 from cuvs_bench.orchestrator.config_loaders import (
@@ -16,90 +13,8 @@ from cuvs_bench.orchestrator.config_loaders import (
     IndexConfig,
 )
 from cuvs_bench.orchestrator.orchestrator import BenchmarkOrchestrator
-from cuvs_bench.plot.__main__ import create_plot_build, load_all_results
-from cuvs_bench.backends._utils import get_index_name_prefix
-from cuvs_bench.run.data_export import (
-    convert_json_to_csv_search,
-    write_results_to_csv,
-)
-
-
-def test_get_index_name_prefix():
-    assert (
-        get_index_name_prefix("faiss_cpu_hnsw_cagra") == "faiss_gpu_cagra_hnsw"
-    )
-    assert get_index_name_prefix("cuvs_cagra") == "cuvs_cagra"
-    assert (
-        get_index_name_prefix("faiss_cpu_hnsw_cagra_large")
-        == "faiss_gpu_cagra_hnsw_large"
-    )
-
-
-def test_cpu_search_csv_includes_gpu_build_results(tmp_path):
-    dataset = "test-dataset"
-    index_name = "faiss_gpu_cagra_hnsw.graph_degree32"
-    result_dir = tmp_path / dataset / "result"
-    (result_dir / "build").mkdir(parents=True)
-    (result_dir / "search").mkdir(parents=True)
-    pd.DataFrame(
-        {
-            "algo_name": ["faiss_gpu_cagra_hnsw"],
-            "index_name": [index_name],
-            "time": [20.5],
-            "threads": [1],
-            "cpu_time": [90.0],
-            "graph_degree": [32],
-        }
-    ).to_csv(
-        result_dir / "build" / "faiss_gpu_cagra_hnsw,base.csv", index=False
-    )
-    search_json = {
-        "benchmarks": [
-            {
-                "name": f"{index_name}/0/process_time/real_time",
-                "Recall": 0.95,
-                "items_per_second": 1000.0,
-                "Latency": 0.001,
-                "efSearch": 64,
-            }
-        ]
-    }
-    with open(
-        result_dir / "search" / "faiss_cpu_hnsw_cagra,base,k10,bs10.json", "w"
-    ) as f:
-        json.dump(search_json, f)
-
-    convert_json_to_csv_search(dataset, str(tmp_path))
-
-    raw = pd.read_csv(
-        result_dir / "search" / "faiss_cpu_hnsw_cagra,base,k10,bs10,raw.csv"
-    )
-    assert raw.loc[0, "algo_name"] == "faiss_cpu_hnsw_cagra"
-    assert raw.loc[0, "index_name"] == index_name
-    assert raw.loc[0, "build time"] == 20.5
-    assert raw.loc[0, "graph_degree"] == 32
-
-
-@pytest.mark.parametrize("suffix", ["", "_large"])
-def test_cpu_build_plot_uses_gpu_build_results(tmp_path, suffix):
-    gpu_algo = f"faiss_gpu_cagra_hnsw{suffix}"
-    cpu_algo = f"faiss_cpu_hnsw_cagra{suffix}"
-    index_name = f"{gpu_algo}.graph_degree32"
-    build_results = {(gpu_algo, index_name): [[gpu_algo, index_name, 20.5]]}
-    search_results = {cpu_algo: [[cpu_algo, index_name, 0.95, 1000.0]]}
-    fn_out = tmp_path / "build.png"
-
-    create_plot_build(
-        build_results,
-        search_results,
-        {cpu_algo: ("C0", "-", 1, "o")},
-        str(fn_out),
-        "test-dataset",
-        10,
-        10,
-    )
-
-    assert fn_out.exists()
+from cuvs_bench.plot.__main__ import load_all_results
+from cuvs_bench.run.data_export import write_results_to_csv
 
 
 def test_python_backend_csv_is_plot_compatible(tmp_path):

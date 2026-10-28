@@ -208,18 +208,6 @@ Use FAISS IVF-PQ index on CPU
 | `refine_ratio` | `search` | N | Positive number >=1 | 1 | `refine_ratio * k` nearest neighbors are queried from the index initially and an additional refinement step improves recall by selecting only the best `k` neighbors. |
 | `numThreads` | `search` | N | Positive integer >0 | 1 | Number of threads to use for queries. |
 
-### faiss_cpu_hnsw_cagra
-
-Search, on the CPU, a FAISS `IndexHNSWCagra` that was built and exported by `faiss_gpu_cagra_hnsw`. This algorithm does not build indexes; its build parameters only identify which exported index to load and must match the `faiss_gpu_cagra_hnsw` build. See [Building on a GPU host and searching on a CPU-only host](/user-guide/benchmarking-guide/cu-vs-bench-tool/usage#building-on-a-gpu-host-and-searching-on-a-cpu-only-host).
-
-| Parameter | Type | Required | Data Type | Default | Description |
-| --- | --- | --- | --- | --- | --- |
-| `graph_degree` | `build` | Y | Positive integer >0 |  | `graph_degree` of the `faiss_gpu_cagra_hnsw` build. |
-| `intermediate_graph_degree` | `build` | Y | Positive integer >0 |  | `intermediate_graph_degree` of the `faiss_gpu_cagra_hnsw` build. |
-| `cagra_build_algo` | `build` | Y | [`IVF_PQ`, `NN_DESCENT`] |  | `cagra_build_algo` of the `faiss_gpu_cagra_hnsw` build. |
-| `base_level_only` | `build` | Y | Boolean |  | `base_level_only` of the `faiss_gpu_cagra_hnsw` build. When `true`, the index has no upper HNSW levels and search starts from random entry points in the base level. |
-| `efSearch` | `search` | N | Positive integer >0 | 16 | Size of the candidate list during search. Larger values improve recall but increase latency. |
-
 ## HNSW
 
 ### cuvs_hnsw

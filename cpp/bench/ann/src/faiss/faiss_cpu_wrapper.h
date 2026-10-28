@@ -363,7 +363,8 @@ template <typename T>
 class faiss_cpu_hnsw_flat : public faiss_cpu<T> {
  public:
   struct build_param : public faiss_cpu<T>::build_param {
-    int M;
+    /** 0 when only loading an existing index. */
+    int M = 0;
     int efConstruction;
   };
   struct search_param : public faiss_cpu<T>::search_param {
@@ -372,9 +373,19 @@ class faiss_cpu_hnsw_flat : public faiss_cpu<T> {
   faiss_cpu_hnsw_flat(Metric metric, int dim, const build_param& param)
     : faiss_cpu<T>(metric, dim, param)
   {
-    this->index_ = std::make_shared<faiss::IndexHNSWFlat>(dim, param.M, this->metric_type_);
-    faiss::IndexHNSWFlat* hnsw_index = static_cast<faiss::IndexHNSWFlat*>(this->index_.get());
-    hnsw_index->hnsw.efConstruction  = param.efConstruction;
+    if (param.M > 0) {
+      this->index_ = std::make_shared<faiss::IndexHNSWFlat>(dim, param.M, this->metric_type_);
+      faiss::IndexHNSWFlat* hnsw_index = static_cast<faiss::IndexHNSWFlat*>(this->index_.get());
+      hnsw_index->hnsw.efConstruction  = param.efConstruction;
+    }
+  }
+
+  void build(const T* dataset, size_t nrow) override
+  {
+    if (!this->index_) {
+      throw std::runtime_error("faiss_cpu_hnsw_flat: the M build parameter is required to build");
+    }
+    faiss_cpu<T>::build(dataset, nrow);
   }
 
   void set_search_param(const typename algo<T>::search_param& param,
@@ -389,74 +400,12 @@ class faiss_cpu_hnsw_flat : public faiss_cpu<T> {
   {
     this->template save_<faiss::IndexHNSWFlat>(file);
   }
-  void load(const std::string& file) override { this->template load_<faiss::IndexHNSWFlat>(file); }
+  // Any IndexHNSW, including an IndexHNSWCagra exported from a GPU CAGRA build.
+  void load(const std::string& file) override { this->template load_<faiss::IndexHNSW>(file); }
 
   std::unique_ptr<algo<T>> copy()
   {
     return std::make_unique<faiss_cpu_hnsw_flat<T>>(*this);  // use copy constructor
-  }
-
-  void search(const T* queries,
-              int batch_size,
-              int k,
-              algo_base::index_type* neighbors,
-              float* distances) const override
-  {
-    static_assert(sizeof(size_t) == sizeof(faiss::idx_t),
-                  "sizes of size_t and faiss::idx_t are different");
-
-    this->index_->search(batch_size,
-                         queries,
-                         k,
-                         distances,
-                         reinterpret_cast<faiss::idx_t*>(neighbors),
-                         search_params_.get());
-  }
-
- private:
-  std::shared_ptr<faiss::SearchParameters> search_params_;
-};
-
-/**
- * Search-only wrapper for a faiss::IndexHNSWCagra exported by `faiss_gpu_cagra_hnsw`.
- *
- * The index is built and converted on a GPU host; this wrapper only loads and searches it, so it
- * can run in a CPU-only build.
- */
-template <typename T>
-class faiss_cpu_hnsw_cagra : public faiss_cpu<T> {
- public:
-  struct search_param : public faiss_cpu<T>::search_param {
-    faiss::SearchParametersHNSW p;
-  };
-  faiss_cpu_hnsw_cagra(Metric metric, int dim)
-    : faiss_cpu<T>(metric, dim, typename faiss_cpu<T>::build_param{})
-  {
-  }
-
-  void build(const T*, size_t) override
-  {
-    throw std::runtime_error(
-      "faiss_cpu_hnsw_cagra does not build indexes; build them with faiss_gpu_cagra_hnsw");
-  }
-
-  void set_search_param(const typename algo<T>::search_param& param,
-                        const void* filter_bitset) override
-  {
-    if (filter_bitset != nullptr) { throw std::runtime_error("Filtering is not supported yet."); }
-    auto sp = static_cast<const typename faiss_cpu_hnsw_cagra<T>::search_param&>(param);
-    this->search_params_ = std::make_shared<faiss::SearchParametersHNSW>(sp.p);
-  }
-
-  void save(const std::string& file) const override
-  {
-    this->template save_<faiss::IndexHNSWCagra>(file);
-  }
-  void load(const std::string& file) override { this->template load_<faiss::IndexHNSWCagra>(file); }
-
-  std::unique_ptr<algo<T>> copy() override
-  {
-    return std::make_unique<faiss_cpu_hnsw_cagra<T>>(*this);  // use copy constructor
   }
 
   void search(const T* queries,

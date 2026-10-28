@@ -6,11 +6,13 @@
 #include "../common/ann_types.hpp"
 #include "faiss_cpu_wrapper.h"
 
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 namespace cuvs::bench {
 
@@ -66,7 +68,7 @@ template <typename T>
 void parse_build_param(const nlohmann::json& conf,
                        typename cuvs::bench::faiss_cpu_hnsw_flat<T>::build_param& param)
 {
-  param.M = conf.at("M");
+  if (conf.contains("M")) { param.M = conf.at("M"); }
   if (conf.contains("efConstruction")) {
     param.efConstruction = conf.at("efConstruction");
   } else {
@@ -94,13 +96,6 @@ void parse_search_param(const nlohmann::json& conf,
   }
   if (conf.contains("bounded_queue")) { p.bounded_queue = conf.at("bounded_queue"); }
   param.p = p;
-}
-
-template <typename T>
-void parse_search_param(const nlohmann::json& conf,
-                        typename cuvs::bench::faiss_cpu_hnsw_cagra<T>::search_param& param)
-{
-  if (conf.contains("efSearch")) { param.p.efSearch = conf.at("efSearch"); }
 }
 
 template <typename T, template <typename> class Algo>
@@ -134,8 +129,6 @@ auto create_algo(const std::string& algo_name,
       a = std::make_unique<cuvs::bench::faiss_cpu_flat<T>>(metric, dim);
     } else if (algo_name == "faiss_cpu_hnsw_flat") {
       a = make_algo<T, cuvs::bench::faiss_cpu_hnsw_flat>(metric, dim, conf);
-    } else if (algo_name == "faiss_cpu_hnsw_cagra") {
-      a = std::make_unique<cuvs::bench::faiss_cpu_hnsw_cagra<T>>(metric, dim);
     }
   }
 
@@ -160,10 +153,6 @@ auto create_search_param(const std::string& algo_name, const nlohmann::json& con
     return param;
   } else if (algo_name == "faiss_cpu_hnsw_flat") {
     auto param = std::make_unique<typename cuvs::bench::faiss_cpu_hnsw_flat<T>::search_param>();
-    parse_search_param<T>(conf, *param);
-    return param;
-  } else if (algo_name == "faiss_cpu_hnsw_cagra") {
-    auto param = std::make_unique<typename cuvs::bench::faiss_cpu_hnsw_cagra<T>::search_param>();
     parse_search_param<T>(conf, *param);
     return param;
   }

@@ -10,7 +10,6 @@ from collections import defaultdict
 
 import pandas as pd
 
-from ..backends._utils import get_index_name_prefix
 from ..backends.base import BuildResult, SearchResult
 
 skip_build_cols = set(
@@ -180,7 +179,7 @@ def _write_search_results(
         dataset,
         "result",
         "build",
-        f"{get_index_name_prefix(algorithm)},{group}.csv",
+        f"{algorithm},{group}.csv",
     )
     if os.path.exists(build_file):
         build = pd.read_csv(build_file).drop_duplicates(
@@ -345,10 +344,7 @@ def convert_json_to_csv_search(dataset, dataset_path):
                 dataset,
                 "result",
                 "build",
-                ",".join(
-                    (get_index_name_prefix(algo_name[0]),) + algo_name[1:]
-                )
-                + ".csv",
+                f"{','.join(algo_name)}.csv",
             )
             algo_name = clean_algo_name(algo_name)
             df["name"] = df["name"].str.split("/").str[0]

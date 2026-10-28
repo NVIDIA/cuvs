@@ -59,7 +59,7 @@ Create a custom YAML file with a `base` group to override the default benchmark 
 | Library | Algorithms |
 | --- | --- |
 | FAISS_GPU | `faiss_gpu_flat`, `faiss_gpu_ivf_flat`, `faiss_gpu_ivf_pq`, `faiss_gpu_cagra`, `faiss_gpu_cagra_hnsw` |
-| FAISS_CPU | `faiss_cpu_flat`, `faiss_cpu_ivf_flat`, `faiss_cpu_ivf_pq`, `faiss_cpu_hnsw_flat`, `faiss_cpu_hnsw_cagra` |
+| FAISS_CPU | `faiss_cpu_flat`, `faiss_cpu_ivf_flat`, `faiss_cpu_ivf_pq`, `faiss_cpu_hnsw_flat` |
 | GGNN | `ggnn` |
 | HNSWLIB | `hnswlib` |
 | DiskANN | `diskann_memory`, `diskann_ssd` |
@@ -127,16 +127,11 @@ Use `python -m cuvs_bench.split_groundtruth --help` to see the full CLI help for
 
 ## Building on a GPU host and searching on a CPU-only host
 
-Build a CAGRA index on a GPU host, export it as a Faiss `IndexHNSWCagra`, and measure search on a CPU-only host:
-
-| Host | Algorithm | Measures |
-| --- | --- | --- |
-| GPU | `faiss_gpu_cagra_hnsw` | Build time, including conversion to `IndexHNSWCagra` |
-| CPU-only | `faiss_cpu_hnsw_cagra` | Recall, latency, and throughput of the exported indexes. Search only; it does not build. |
-
-The CPU-only host only needs the CPU package (`cuvs-bench-cpu`).
+`faiss_gpu_cagra_hnsw` builds a CAGRA graph on the GPU and saves it as a Faiss `IndexHNSWCagra`, which is a CPU index. The saved index can be copied to a CPU-only host and searched there with `faiss_cpu_hnsw_flat`. The CPU-only host only needs the CPU package (`cuvs-bench-cpu`).
 
 ### (1) Build on the GPU host
+
+Build as usual:
 
 ```bash
 export DATASET_PATH=/path/to/datasets
@@ -163,39 +158,24 @@ sift-128-euclidean/
 
 ### (3) Search on the CPU-only host
 
+Pass the same algorithm and configuration as the build, and add `--search-device cpu`:
+
 ```bash
 export DATASET_PATH=/path/to/datasets
 
 OMP_NUM_THREADS=1 python -m cuvs_bench.run --dataset sift-128-euclidean --dataset-path $DATASET_PATH \
-  --algorithms faiss_cpu_hnsw_cagra --groups base --search-mode latency \
-  --search -k 10 --batch-size 10
+  --algorithms faiss_gpu_cagra_hnsw --groups base --search-mode latency \
+  --search --search-device cpu -k 10 --batch-size 10
 python -m cuvs_bench.plot --dataset sift-128-euclidean --dataset-path $DATASET_PATH \
-  --algorithms faiss_cpu_hnsw_cagra -k 10 --batch-size 10
+  --algorithms faiss_gpu_cagra_hnsw -k 10 --batch-size 10
 ```
 
-Each row of `result/search/faiss_cpu_hnsw_cagra,base,k10,bs10,raw.csv` includes the build time and build parameters from the GPU host.
+With `--search-device cpu`, `cuvs_bench.run` searches the saved indexes with `faiss_cpu_hnsw_flat`, so no GPU is needed. It uses the same index names, build parameters, and `efSearch` values as the build configuration, so it finds the copied files, and each row of `result/search/faiss_gpu_cagra_hnsw,base,k10,bs10,raw.csv` includes the build time and build parameters from the GPU host.
 
 - `OMP_NUM_THREADS` sets the search thread count. Without it, Faiss uses all cores. The thread count is not recorded in the results.
 - Pass `cuvs_bench.plot` the same `-k` and `--batch-size` as the search.
-
-### Matching configurations on both hosts
-
-The CPU-only host finds each index by its name, which is built from the group and build parameters. Both default configurations use the same `base` build parameters. If you build with a custom `--configuration`, use a `faiss_cpu_hnsw_cagra` configuration with the same group and build parameters on the CPU-only host. Its search parameters can differ:
-
-```yaml
-name: faiss_cpu_hnsw_cagra
-constraints:
-  build: cuvs_bench.config.algos.constraints.cuvs_cagra_build
-groups:
-  large:
-    build:
-      graph_degree: [64]
-      intermediate_graph_degree: [128]
-      cagra_build_algo: ["NN_DESCENT"]
-      base_level_only: [true]
-    search:
-      efSearch: [32, 64, 128, 256]
-```
+- Results are written under the `faiss_gpu_cagra_hnsw` name. A regular search of `faiss_gpu_cagra_hnsw` into the same dataset folder replaces them.
+- If you build with a custom `--configuration`, pass the same file on the CPU-only host, because the index names are built from its group and build parameters.
 
 ## Running with Docker containers
 

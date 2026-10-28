@@ -16,6 +16,7 @@ faiss_gpu_cagra:
 faiss_gpu_cagra_hnsw:
   executable: FAISS_GPU_CAGRA_HNSW_ANN_BENCH
   requires_gpu: true
+  cpu_search: faiss_cpu_hnsw_flat
 faiss_cpu_flat:
   executable: FAISS_CPU_FLAT_ANN_BENCH
   requires_gpu: false
@@ -33,9 +34,6 @@ faiss_cpu_ivf_sq:
   requires_gpu: false
 faiss_cpu_hnsw_flat:
   executable: FAISS_CPU_HNSW_FLAT_ANN_BENCH
-  requires_gpu: false
-faiss_cpu_hnsw_cagra:
-  executable: FAISS_CPU_HNSW_CAGRA_ANN_BENCH
   requires_gpu: false
 cuvs_ivf_flat:
   executable: CUVS_IVF_FLAT_ANN_BENCH

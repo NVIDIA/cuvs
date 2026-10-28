@@ -28,9 +28,6 @@ option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_RABITQ
 )
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_SQ "Include faiss' cpu ivf sq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_HNSW_FLAT "Include faiss' hnsw algorithm in benchmark" ON)
-option(CUVS_ANN_BENCH_USE_FAISS_CPU_HNSW_CAGRA
-       "Include faiss' cpu search of hnsw indexes exported from cagra in benchmark" ON
-)
 option(CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT "Include cuVS ivf flat algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_IVF_SQ "Include cuVS ivf sq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_CUVS_IVF_PQ "Include cuVS ivf pq algorithm in benchmark" ON)
@@ -351,12 +348,6 @@ endif()
 if(CUVS_ANN_BENCH_USE_FAISS_CPU_HNSW_FLAT)
   ConfigureAnnBench(
     NAME FAISS_CPU_HNSW_FLAT PATH src/faiss/faiss_cpu_benchmark.cpp LINKS ${CUVS_FAISS_TARGETS}
-  )
-endif()
-
-if(CUVS_ANN_BENCH_USE_FAISS_CPU_HNSW_CAGRA)
-  ConfigureAnnBench(
-    NAME FAISS_CPU_HNSW_CAGRA PATH src/faiss/faiss_cpu_benchmark.cpp LINKS ${CUVS_FAISS_TARGETS}
   )
 endif()
 
