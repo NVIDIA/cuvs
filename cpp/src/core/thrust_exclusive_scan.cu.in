@@ -1,0 +1,41 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_scan_launchers.hpp>
+
+#include <core/prefix_scans_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <rmm/exec_policy.hpp>
+#include <thrust/scan.h>
+
+namespace cuvs::detail {
+
+template <typename Policy, typename Input, typename Output>
+Output thrust_exclusive_scan(Policy const& policy, Input first, Input last, Output output)
+{
+  return thrust::exclusive_scan(policy, first, last, output);
+}
+
+template <typename Policy, typename Input, typename Output, typename Init>
+Output thrust_exclusive_scan(
+  Policy const& policy, Input first, Input last, Output output, Init init)
+{
+  return thrust::exclusive_scan(policy, first, last, output, init);
+}
+
+template <typename Policy, typename Input, typename Output, typename Init, typename Op>
+Output thrust_exclusive_scan(
+  Policy const& policy, Input first, Input last, Output output, Init init, Op op)
+{
+  return thrust::exclusive_scan(policy, first, last, output, init, op);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

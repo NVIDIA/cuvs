@@ -8,6 +8,7 @@
 //
 
 #include "../../../core/omp_wrapper.hpp"
+#include "../../../core/prefix_scans_launchers.hpp"
 #include "../../../util/serialize_validation.hpp"
 #include "../../detail/ann_utils.cuh"
 #include "../utils/reductions.cuh"
@@ -457,21 +458,21 @@ void IVFGPU::construct_on_gpu(const float* device_data,
   rmm::device_uvector<size_t> d_offsets(num_centroids + 1, stream_);
 
   temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceScan::ExclusiveSum(nullptr,
-                                              temp_storage_bytes,
-                                              d_histogram.data(),
-                                              d_offsets.data(),
-                                              num_centroids,
-                                              stream_.get()));
-
-  {
-    rmm::device_buffer d_temp_storage(temp_storage_bytes, stream_);
-    RAFT_CUDA_TRY(cub::DeviceScan::ExclusiveSum(d_temp_storage.data(),
+  RAFT_CUDA_TRY(cuvs::detail::cub_exclusive_sum(nullptr,
                                                 temp_storage_bytes,
                                                 d_histogram.data(),
                                                 d_offsets.data(),
                                                 num_centroids,
                                                 stream_.get()));
+
+  {
+    rmm::device_buffer d_temp_storage(temp_storage_bytes, stream_);
+    RAFT_CUDA_TRY(cuvs::detail::cub_exclusive_sum(d_temp_storage.data(),
+                                                  temp_storage_bytes,
+                                                  d_histogram.data(),
+                                                  d_offsets.data(),
+                                                  num_centroids,
+                                                  stream_.get()));
   }
 
   // Set the last offset element
@@ -615,22 +616,22 @@ void IVFGPU::construct_on_gpu_streaming(const float* host_data,
 
   d_temp_storage     = nullptr;
   temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceScan::ExclusiveSum(d_temp_storage,
-                                              temp_storage_bytes,
-                                              d_histogram.data_handle(),
-                                              d_offsets.data_handle(),
-                                              num_centroids,
-                                              stream_.get()));
+  RAFT_CUDA_TRY(cuvs::detail::cub_exclusive_sum(d_temp_storage,
+                                                temp_storage_bytes,
+                                                d_histogram.data_handle(),
+                                                d_offsets.data_handle(),
+                                                num_centroids,
+                                                stream_.get()));
 
   d_temp_storage_vec = raft::make_device_vector<uint8_t, int64_t>(handle_, temp_storage_bytes);
   d_temp_storage     = d_temp_storage_vec.data_handle();
 
-  RAFT_CUDA_TRY(cub::DeviceScan::ExclusiveSum(d_temp_storage,
-                                              temp_storage_bytes,
-                                              d_histogram.data_handle(),
-                                              d_offsets.data_handle(),
-                                              num_centroids,
-                                              stream_.get()));
+  RAFT_CUDA_TRY(cuvs::detail::cub_exclusive_sum(d_temp_storage,
+                                                temp_storage_bytes,
+                                                d_histogram.data_handle(),
+                                                d_offsets.data_handle(),
+                                                num_centroids,
+                                                stream_.get()));
 
   // Set the last offset element
   raft::copy(d_offsets.data_handle() + num_centroids, &num_vectors, 1, stream_);

@@ -1,0 +1,26 @@
+[
+  {
+    "return_type": "CUVS_EXPORT long*",
+    "qualified_function": "cuvs::detail::thrust_exclusive_scan",
+    "template_arguments": "",
+    "parameter_types": "rmm::exec_policy_nosync const&, long*, long*, long*, long",
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_long_ptr_long_ptr_long_ptr_long"
+  },
+  {
+    "return_type": "CUVS_EXPORT int*",
+    "qualified_function": "cuvs::detail::thrust_exclusive_scan",
+    "template_arguments": "",
+    "parameter_types": "rmm::exec_policy_nosync const&, int*, int*, int*",
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_int_ptr_int_ptr_int_ptr"
+  },
+  {
+    "return_type": "CUVS_EXPORT long*",
+    "qualified_function": "cuvs::detail::thrust_exclusive_scan",
+    "template_arguments": "",
+    "parameter_types": "rmm::exec_policy_nosync const&, long*, long*, long*",
+    "function_qualifiers": "",
+    "instantiation_name": "exec_policy_nosync_c_ref_long_ptr_long_ptr_long_ptr"
+  }
+]

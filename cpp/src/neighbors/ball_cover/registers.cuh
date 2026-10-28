@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/prefix_scans_launchers.hpp"
 #include "../detail/haversine_distance.cuh"
 #include "common.cuh"
 #include "registers.hpp"
@@ -1365,11 +1366,11 @@ void rbc_eps_pass(raft::resources const& handle,
                                                               false);
       }
 
-      thrust::exclusive_scan(raft::resource::get_thrust_policy(handle),
-                             vd_ptr,
-                             vd_ptr + n_query_rows + 1,
-                             adj_ia,
-                             (value_idx)0);
+      cuvs::detail::thrust_exclusive_scan(raft::resource::get_thrust_policy(handle),
+                                          vd_ptr,
+                                          vd_ptr + n_query_rows + 1,
+                                          adj_ia,
+                                          (value_idx)0);
 
     } else {
       // pass 2 -> fill in adj_ja
@@ -1462,11 +1463,11 @@ void rbc_eps_pass(raft::resources const& handle,
                         });
     }
 
-    thrust::exclusive_scan(raft::resource::get_thrust_policy(handle),
-                           vd_ptr,
-                           vd_ptr + n_query_rows + 1,
-                           adj_ia,
-                           (value_idx)0);
+    cuvs::detail::thrust_exclusive_scan(raft::resource::get_thrust_policy(handle),
+                                        vd_ptr,
+                                        vd_ptr + n_query_rows + 1,
+                                        adj_ia,
+                                        (value_idx)0);
 
     block_rbc_kernel_eps_max_k_copy<value_idx, 32>
       <<<n_query_rows, 32, 0, raft::resource::get_cuda_stream(handle).get()>>>(

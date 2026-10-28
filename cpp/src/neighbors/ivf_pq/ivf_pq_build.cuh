@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../core/nvtx.hpp"
+#include "../../core/prefix_scans_launchers.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
 #include "../ivf_pq_impl.hpp"
@@ -241,7 +242,7 @@ auto calculate_offsets_and_indices(IdxT n_rows,
   // Calculate the offsets
   IdxT cumsum = 0;
   raft::update_device(cluster_offsets, &cumsum, 1, stream);
-  thrust::inclusive_scan(
+  cuvs::detail::thrust_inclusive_scan(
     exec_policy, cluster_sizes, cluster_sizes + n_lists, cluster_offsets + 1, thrust::plus<>{});
   raft::update_host(&cumsum, cluster_offsets + n_lists, 1, stream);
   uint32_t max_cluster_size =

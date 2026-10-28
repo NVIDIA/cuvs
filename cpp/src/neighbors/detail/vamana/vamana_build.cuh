@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/prefix_scans_launchers.hpp"
 #include "../../../sparse/neighbors/cross_component_nn.cuh"
 #include "../../detail/ann_utils.cuh"
 #include "greedy_search.cuh"
@@ -289,12 +290,12 @@ void batched_insert_vamana(
     res, large_ws, raft::make_extents<int64_t>(std::max(temp_storage_bytes, size_t{1})));
 
   size_t scan_temp_bytes = 0;
-  cub::DeviceScan::ExclusiveSum(nullptr,
-                                scan_temp_bytes,
-                                edge_counts.data_handle(),
-                                edge_offsets.data_handle(),
-                                max_batchsize + 1,
-                                cs);
+  cuvs::detail::cub_exclusive_sum(nullptr,
+                                  scan_temp_bytes,
+                                  edge_counts.data_handle(),
+                                  edge_offsets.data_handle(),
+                                  max_batchsize + 1,
+                                  cs);
   auto scan_temp_storage = raft::make_device_mdarray<uint8_t>(
     res, large_ws, raft::make_extents<int64_t>(std::max(scan_temp_bytes, size_t{1})));
 
@@ -422,12 +423,12 @@ void batched_insert_vamana(
       [query_list] __device__(int64_t i) { return query_list[i].size; });
     RAFT_CUDA_TRY(cudaPeekAtLastError());
 
-    cub::DeviceScan::ExclusiveSum(scan_temp_storage.data_handle(),
-                                  scan_temp_bytes,
-                                  edge_counts.data_handle(),
-                                  edge_offsets.data_handle(),
-                                  prefix_count,
-                                  cs);
+    cuvs::detail::cub_exclusive_sum(scan_temp_storage.data_handle(),
+                                    scan_temp_bytes,
+                                    edge_counts.data_handle(),
+                                    edge_offsets.data_handle(),
+                                    prefix_count,
+                                    cs);
     RAFT_CUDA_TRY(cudaPeekAtLastError());
 
     scatter_prefix_offsets<accT, IdxT><<<num_blocks, blockD, 0, stream.get()>>>(

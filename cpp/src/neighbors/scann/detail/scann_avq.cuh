@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/prefix_scans_launchers.hpp"
 #include <cub/device/device_histogram.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
@@ -115,19 +116,19 @@ void compute_cluster_offsets(raft::resources const& dev_resources,
   // Done in place
   temp_storage_bytes = 0;
 
-  cub::DeviceScan::ExclusiveSum(nullptr,
-                                temp_storage_bytes,
-                                cluster_sizes.data_handle(),
-                                cluster_sizes.data_handle(),
-                                num_items);
+  cuvs::detail::cub_exclusive_sum(nullptr,
+                                  temp_storage_bytes,
+                                  cluster_sizes.data_handle(),
+                                  cluster_sizes.data_handle(),
+                                  num_items);
 
   rmm::device_uvector<char> temp_storage_sum(temp_storage_bytes, stream, device_memory);
 
-  cub::DeviceScan::ExclusiveSum(temp_storage_sum.data(),
-                                temp_storage_bytes,
-                                cluster_sizes.data_handle(),
-                                cluster_sizes.data_handle(),
-                                num_items);
+  cuvs::detail::cub_exclusive_sum(temp_storage_sum.data(),
+                                  temp_storage_bytes,
+                                  cluster_sizes.data_handle(),
+                                  cluster_sizes.data_handle(),
+                                  num_items);
 }
 
 // Sum elements of device vector into device scalar
