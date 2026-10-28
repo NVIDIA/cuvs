@@ -6,9 +6,7 @@
 #pragma once
 
 #include <cstdint>
-#include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
-#include <cuvs/neighbors/params.hpp>
 #include <raft/core/device_container_policy.hpp>
 #include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -46,6 +44,11 @@
 #endif
 
 namespace CUVS_EXPORT cuvs {
+namespace cluster::kmeans {
+/** K-means variant used by clustering and vector-quantization parameters. */
+enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
+}  // namespace cluster::kmeans
+
 namespace core {
 class bloom_filter;
 class roaring_allowlist_view;
@@ -127,6 +130,16 @@ struct vpq_params {
 
 /** The base for approximate KNN index structures. */
 struct index {};
+
+/** The base for KNN index parameters. */
+struct index_params {
+  /** Distance type. */
+  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded;
+  /** The argument used by some distance metrics. */
+  float metric_arg = 2.0f;
+};
+
+struct search_params {};
 
 /**
  * @brief Strategy for merging indices.

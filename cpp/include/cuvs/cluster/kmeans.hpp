@@ -4,7 +4,7 @@
  */
 #pragma once
 #include <cuvs/distance/distance.hpp>
-#include <cuvs/neighbors/ivf_flat_params.hpp>
+#include <cuvs/neighbors/ivf_flat.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
@@ -260,11 +260,6 @@ struct balanced_params : base_params {
    */
   bool is_packed_binary = false;
 };
-
-/**
- * @brief Type of k-means algorithm.
- */
-enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
 
 /**
  * @}
