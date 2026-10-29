@@ -13,25 +13,33 @@
 #include <cuda_fp16.h>
 #include <cuvs/cluster/kmeans.hpp>
 #include <nlohmann/json.hpp>
+#include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/nvtx.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/matrix/sample_rows.cuh>
+#include <raft/random/rng_state.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 #include <rmm/mr/pool_memory_resource.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <tuple>
 #include <type_traits>
 #include <vector>
 
 namespace cuvs::bench::cluster {
+
+/** Seed of the `ratio` subsampling, fixed so that every case of a run fits the same rows. */
+constexpr uint64_t kSampleSeed = 42;
 
 /** A clustering algorithm under benchmark; `fit` is the timed region. */
 template <typename T>
@@ -73,10 +81,29 @@ void bench_fit(::benchmark::State& state,
   auto X = raft::make_device_matrix_view<const T, int64_t>(
     data->base_set(MemoryType::kDevice), data->base_set_size(), data->dim());
 
+  // `ratio` fits on a random 1/ratio of the rows (as the IVF builds train their k-means), drawn
+  // once per case and outside the timed loop. Like the IVF builds, keep at least n_clusters rows.
+  auto X_fit = X;
+  std::optional<raft::device_matrix<T, int64_t>> trainset;
+  try {
+    const double ratio = conf.param.value("ratio", 1.0);
+    if (ratio < 1.0) { throw std::invalid_argument("ratio must be >= 1"); }
+    const auto n_train = std::max<int64_t>(static_cast<int64_t>(X.extent(0) / ratio),
+                                           conf.param.value("n_clusters", int64_t{0}));
+    if (n_train < X.extent(0)) {
+      trainset.emplace(raft::make_device_matrix<T, int64_t>(*res, n_train, X.extent(1)));
+      raft::matrix::sample_rows<T, int64_t>(
+        *res, raft::random::RngState{kSampleSeed}, X, trainset->view());
+      X_fit = raft::make_const_mdspan(trainset->view());
+    }
+  } catch (const std::exception& e) {
+    return state.SkipWithError("Failed to subsample: " + std::string(e.what()));
+  }
+
   for (auto _ : state) {
     raft::common::nvtx::range<raft::common::nvtx::domain::app> lap("%s", state.name().c_str());
     try {
-      a->fit(X);
+      a->fit(X_fit);
       raft::resource::sync_stream(*res);
     } catch (const std::exception& e) {
       state.SkipWithError(std::string(e.what()));
@@ -89,15 +116,15 @@ void bench_fit(::benchmark::State& state,
     state.counters.insert({{key, val}});
   }
   // Inertia is a quality measure, not part of the work being timed: compute it after the timed
-  // loop.
+  // loop, over the full dataset so that subsampled fits are judged on the data they summarize.
   if constexpr (std::is_same_v<T, float>) {
     float inertia = 0;
     cuvs::cluster::kmeans::cluster_cost(
       *res, X, a->centroids(), raft::make_host_scalar_view(&inertia));
     state.counters.insert({{"inertia", inertia}});
   }
-  state.counters.insert(
-    {{"n_rows", static_cast<double>(X.extent(0))}, {"dim", static_cast<double>(X.extent(1))}});
+  state.counters.insert({{"n_rows", static_cast<double>(X_fit.extent(0))},
+                         {"dim", static_cast<double>(X_fit.extent(1))}});
 }
 
 template <typename T>

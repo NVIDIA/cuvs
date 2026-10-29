@@ -35,6 +35,7 @@ function(ConfigureClusterBench)
             nlohmann_json::nlohmann_json
             rmm::rmm
             Threads::Threads
+            $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
             $<$<TARGET_EXISTS:CUDA::nvtx3>:CUDA::nvtx3>
             $<TARGET_NAME_IF_EXISTS:conda_env>
   )
