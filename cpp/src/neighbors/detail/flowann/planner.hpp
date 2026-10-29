@@ -64,4 +64,27 @@ struct single_cta_planner
   }
 };
 
+template <typename DataTag,
+          typename IndexTag,
+          typename DistanceTag,
+          typename SourceIndexTag,
+          typename QueryTag,
+          typename CodebookTag,
+          typename SampleFilterJitTag>
+struct multi_cta_planner
+  : cuvs::neighbors::cagra::detail::
+      CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag> {
+  using base_type = cuvs::neighbors::cagra::detail::
+    CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag>;
+  static inline rtcx::launcher_jit_cache launcher_cache{};
+
+  multi_cta_planner() : base_type("flowann_search_multi_cta", launcher_cache) {}
+
+  void add_search_kernel()
+  {
+    this->template add_static_fragment<
+      fragment_tag_search_multi_cta<DataTag, SourceIndexTag, IndexTag, DistanceTag>>();
+  }
+};
+
 }  // namespace cuvs::neighbors::cagra::experimental::flowann::detail

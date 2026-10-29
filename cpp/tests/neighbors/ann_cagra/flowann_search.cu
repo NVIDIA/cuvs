@@ -157,7 +157,8 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
   std::optional<flowann::search_session> session;
   if (keep_pollers_running) { session.emplace(context); }
   if (alternate_modes) {
-    for (auto alternate_algo : {cuvs::neighbors::cagra::search_algo::SINGLE_CTA}) {
+    for (auto alternate_algo : {cuvs::neighbors::cagra::search_algo::SINGLE_CTA,
+                                cuvs::neighbors::cagra::search_algo::MULTI_CTA}) {
       params.algo = alternate_algo;
       for (auto alternate_width : {1u, 2u}) {
         params.search_width = alternate_width;
@@ -322,6 +323,18 @@ TEST(FlowannSearch, RejectsContextFromDifferentCudaDevice)
   }
 }
 
+TEST(FlowannMultiCtaSearch, EvaluatesSeedsBeyondGraphDegree)
+{
+  // This graph has degree two. Stop before expansion so that node four can only be found
+  // by evaluating the third seed. Source IDs are reversed by run_dense_search.
+  auto result =
+    run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA, {10.1f}, {0, 1, 4}, 1);
+
+  EXPECT_EQ(result.neighbors(0, 0), 3);
+  EXPECT_NEAR(result.distances(0, 0), 0.01f, 1e-4f);
+  EXPECT_EQ(result.queue_statistics.processed_commands, 0);
+}
+
 TEST_P(FlowannSearchModesTest, UniversalProviderPreservesSharedQueueBatchesAndWidths)
 {
   std::vector<float> const all_queries = {0.1f, 12.2f, 1.1f, 11.2f, 2.1f, 10.2f, 3.1f, 13.2f};
@@ -342,8 +355,34 @@ TEST_P(FlowannSearchModesTest, UniversalProviderPreservesSharedQueueBatchesAndWi
   }
 }
 
+TEST(FlowannMultiCtaSearch, UniversalProviderHandlesInternallyChunkedRequests)
+{
+  auto result = run_dense_search(
+    cuvs::neighbors::cagra::search_algo::MULTI_CTA, {0.1f, 12.2f}, {}, 16, true, 1, 256, 2, 1);
+  EXPECT_EQ(result.neighbors(0, 0), 7u);
+  EXPECT_EQ(result.neighbors(1, 0), 1u);
+}
+
+TEST(FlowannSearchModes, AlternatesAlgorithmsWidthsAndShapesInOneSession)
+{
+  auto result = run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA,
+                                 {0.1f, 12.2f, 1.1f, 11.2f, 2.1f, 10.2f, 3.1f, 13.2f},
+                                 {},
+                                 16,
+                                 true,
+                                 8,
+                                 256,
+                                 1,
+                                 1,
+                                 true);
+  EXPECT_EQ(result.neighbors(0, 0), 7u);
+  EXPECT_EQ(result.neighbors(1, 0), 1u);
+  EXPECT_FALSE(result.pollers_paused);
+}
+
 INSTANTIATE_TEST_SUITE_P(SingleAndMultiCta,
                          FlowannSearchModesTest,
-                         ::testing::Values(cuvs::neighbors::cagra::search_algo::SINGLE_CTA));
+                         ::testing::Values(cuvs::neighbors::cagra::search_algo::SINGLE_CTA,
+                                           cuvs::neighbors::cagra::search_algo::MULTI_CTA));
 
 }  // namespace

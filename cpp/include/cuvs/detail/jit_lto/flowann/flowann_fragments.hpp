@@ -18,4 +18,7 @@ template <typename DataTag,
           bool BitonicSortAndMergeMultiWarps>
 struct fragment_tag_search_single_cta {};
 
+template <typename DataTag, typename SourceIndexTag, typename IndexTag, typename DistanceTag>
+struct fragment_tag_search_multi_cta {};
+
 }  // namespace cuvs::neighbors::cagra::experimental::flowann::detail

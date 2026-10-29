@@ -9,7 +9,7 @@
 #include <neighbors/detail/flowann/flowann.hpp>
 
 #include "detail/ann_utils.cuh"
-#include "detail/flowann/search_single_cta.cuh"
+#include "detail/flowann/search_multi_cta.cuh"
 
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/reduce.cuh>
@@ -47,32 +47,6 @@ void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const&
 }
 
 namespace detail {
-
-template <typename DataT,
-          typename OutputIndexT,
-          typename SampleFilterT,
-          cuvs::neighbors::ann_dataset_view DatasetViewT>
-void search_dispatch(raft::resources const& res,
-                     flowann::search_params params,
-                     flowann::index<DataT, std::uint32_t, DatasetViewT> const& index,
-                     search_context& context,
-                     raft::device_matrix_view<const DataT, int64_t, raft::row_major> queries,
-                     raft::device_matrix_view<OutputIndexT, int64_t, raft::row_major> neighbors,
-                     raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-                     SampleFilterT sample_filter)
-{
-  int current_device{};
-  RAFT_CUDA_TRY(cudaGetDevice(&current_device));
-  RAFT_EXPECTS(current_device == search_context_access::device_id(context),
-               "FlowANN search context must be used on the CUDA device where it was created");
-  RAFT_EXPECTS(!params.persistent,
-               "FlowANN persistent search is not available for the host-serviced graph provider");
-  RAFT_EXPECTS(params.algo == cuvs::neighbors::cagra::search_algo::SINGLE_CTA ||
-                 params.algo == cuvs::neighbors::cagra::search_algo::AUTO,
-               "This revision supports SINGLE_CTA or AUTO; multi-CTA follows separately");
-  params.algo = cuvs::neighbors::cagra::search_algo::SINGLE_CTA;
-  search_single_cta(res, params, index, context, queries, neighbors, distances, sample_filter);
-}
 
 template <typename T,
           typename OutputIdxT,
