@@ -86,6 +86,7 @@ option(CUVS_NVTX "Enable nvtx markers" OFF)
 option(CUVS_RAFT_CLONE_ON_PIN "Explicitly clone RAFT branch when pinned to non-feature branch" ON)
 option(CUVS_ENABLE_FLOWANN_SEARCH "Enable experimental FlowANN tiered-graph search" OFF)
 option(CUVS_ENABLE_FLOWANN_BUILD "Enable the experimental integrated FlowANN graph builder" OFF)
+option(CUVS_BUILD_FLOWANN_BENCHMARKS "Build the standalone FlowANN benchmark programs" OFF)
 option(CUVS_FLOWANN_USE_GDRCOPY "Use GDRCopy for FlowANN GPU-to-CPU command queues" ON)
 
 if(CUVS_ENABLE_FLOWANN_SEARCH AND BUILD_CPU_ONLY)
@@ -93,6 +94,9 @@ if(CUVS_ENABLE_FLOWANN_SEARCH AND BUILD_CPU_ONLY)
 endif()
 if(CUVS_ENABLE_FLOWANN_BUILD AND NOT CUVS_ENABLE_FLOWANN_SEARCH)
   message(FATAL_ERROR "CUVS_ENABLE_FLOWANN_BUILD requires CUVS_ENABLE_FLOWANN_SEARCH")
+endif()
+if(CUVS_BUILD_FLOWANN_BENCHMARKS AND NOT CUVS_ENABLE_FLOWANN_SEARCH)
+  message(FATAL_ERROR "CUVS_BUILD_FLOWANN_BENCHMARKS requires CUVS_ENABLE_FLOWANN_SEARCH")
 endif()
 if(BUILD_CPU_ONLY)
   set(BUILD_SHARED_LIBS OFF)
@@ -1837,6 +1841,56 @@ if(NOT BUILD_CPU_ONLY)
               $<COMPILE_ONLY:cuco::cuco>
               kvikio::kvikio
     )
+  endif()
+
+  if(CUVS_ENABLE_FLOWANN_SEARCH AND CUVS_BUILD_FLOWANN_BENCHMARKS)
+    add_executable(FLOWANN_BENCHMARK ../examples/cpp/src/flowann_benchmark.cu)
+    target_include_directories(FLOWANN_BENCHMARK PRIVATE "${CUVS_SOURCE_DIR}/src")
+    set_target_properties(
+      FLOWANN_BENCHMARK
+      PROPERTIES CXX_STANDARD 20
+                 CXX_STANDARD_REQUIRED ON
+                 CUDA_STANDARD 20
+                 CUDA_STANDARD_REQUIRED ON
+    )
+    if(TARGET cuvs::cuvs)
+      target_link_libraries(
+        FLOWANN_BENCHMARK
+        PRIVATE cuvs::cuvs
+                ${CUVS_FLOWANN_GDRCOPY_DEPENDENCIES}
+                $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
+                $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CUDA>
+      )
+    else()
+      target_link_libraries(
+        FLOWANN_BENCHMARK
+        PRIVATE cuvs::cuvs_static
+                ${CUVS_FLOWANN_GDRCOPY_DEPENDENCIES}
+                $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
+                $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CUDA>
+      )
+    endif()
+  endif()
+  if(CUVS_ENABLE_FLOWANN_BUILD AND CUVS_BUILD_FLOWANN_BENCHMARKS)
+    add_executable(FLOWANN_BUILD_BENCHMARK ../examples/cpp/src/flowann_build_benchmark.cu)
+    target_include_directories(FLOWANN_BUILD_BENCHMARK PRIVATE "${CUVS_SOURCE_DIR}/src")
+    set_target_properties(
+      FLOWANN_BUILD_BENCHMARK
+      PROPERTIES CXX_STANDARD 20
+                 CXX_STANDARD_REQUIRED ON
+                 CUDA_STANDARD 20
+                 CUDA_STANDARD_REQUIRED ON
+    )
+    if(TARGET cuvs::cuvs)
+      target_link_libraries(
+        FLOWANN_BUILD_BENCHMARK PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CUDA>
+      )
+    else()
+      target_link_libraries(
+        FLOWANN_BUILD_BENCHMARK PRIVATE cuvs::cuvs_static
+                                        $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CUDA>
+      )
+    endif()
   endif()
 
   # ################################################################################################
