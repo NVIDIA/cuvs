@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/gather_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -683,7 +684,7 @@ void brute_force_search_gathered(
 
   // 2. compact those rows, and their norms, into a dense dataset
   auto gathered = raft::make_device_matrix<T, IdxT, raft::row_major>(res, n_pass, dim);
-  raft::matrix::gather(
+  cuvs::detail::gather(
     res,
     raft::make_device_matrix_view<const T, IdxT, raft::row_major>(
       idx.dataset().data_handle(), n_dataset, dim),

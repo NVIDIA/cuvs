@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/gather_launchers.hpp"
 #include <cuvs/neighbors/all_neighbors.hpp>
 #include <cuvs/preprocessing/spectral_embedding.hpp>
 
@@ -107,7 +108,7 @@ void compute_eigenpairs(raft::resources const& handle,
     embedding.extent(1),  // Swap dimensions for the view
     embedding.extent(0));
 
-  raft::matrix::gather<DataT, int, int>(
+  cuvs::detail::gather<DataT, int, int>(
     handle,
     raft::make_const_mdspan(eigenvectors_row_view),  // Source matrix (as row-major view)
     raft::make_const_mdspan(col_indices.view()),     // Column indices to gather

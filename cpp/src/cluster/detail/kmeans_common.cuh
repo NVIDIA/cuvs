@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/gather_launchers.hpp"
 #include "../../distance/distance.cuh"
 #include "../../distance/top_1_nn.cuh"
 #include <cstdint>
@@ -402,7 +403,7 @@ void sampleCentroids(raft::resources const& handle,
 
   inRankCp.resize(nPtsSampledInRank * n_features, stream);
 
-  raft::matrix::gather((DataT*)X.data_handle(),
+  cuvs::detail::gather((DataT*)X.data_handle(),
                        X.extent(1),
                        X.extent(0),
                        sampledMinClusterDistance.data_handle(),
@@ -472,7 +473,7 @@ void shuffleAndGather(raft::resources const& handle,
                                                true,
                                                stream);
 
-  raft::matrix::gather((DataT*)in.data_handle(),
+  cuvs::detail::gather((DataT*)in.data_handle(),
                        in.extent(1),
                        in.extent(0),
                        indices.data_handle(),

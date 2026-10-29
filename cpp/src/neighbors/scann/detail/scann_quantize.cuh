@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/gather_launchers.hpp"
 #include <chrono>
 #include <cmath>
 #include <cuvs/neighbors/common.hpp>
@@ -382,7 +383,7 @@ auto sample_training_residuals(
     raft::make_device_matrix_view<const LabelT, int64_t>(labels.data_handle(), labels.extent(0), 1);
   auto trainset_labels = raft::make_device_matrix<LabelT, int64_t>(res, n_samples, 1);
 
-  raft::matrix::gather(
+  cuvs::detail::gather(
     res, labels_view, raft::make_const_mdspan(train_indices.view()), trainset_labels.view());
 
   return compute_residuals<T, LabelT>(

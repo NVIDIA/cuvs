@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/gather_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"
@@ -261,7 +262,7 @@ void kmeansPlusPlus(raft::resources const& handle,
     // distance to the nearest existing cluster
 
     raft::random::discrete(handle, rng, indices_view, const_weights_view);
-    raft::matrix::gather(handle, const_X_view, const_indices_view, candidates_view);
+    cuvs::detail::gather(handle, const_X_view, const_indices_view, candidates_view);
 
     // Calculate pairwise distance between X and the centroid candidates
     // Output - pwd [n_trials x n_samples]

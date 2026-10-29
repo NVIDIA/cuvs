@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/gather_launchers.hpp"
 #include "../../../core/omp_wrapper.hpp"
 
 #include <raft/core/copy.cuh>
@@ -23,7 +24,7 @@ struct gather_functor {
                   raft::device_matrix_view<T, int64_t> cluster_vecs,
                   cudaStream_t stream)
   {
-    raft::matrix::gather(
+    cuvs::detail::gather(
       res, raft::make_const_mdspan(dataset), raft::make_const_mdspan(cluster_ids), cluster_vecs);
   }
 

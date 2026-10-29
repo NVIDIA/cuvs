@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/gather_launchers.hpp"
 #include "common.cuh"
 #include "registers.hpp"
 #include <cuvs/neighbors/ball_cover.hpp>
@@ -77,7 +78,7 @@ void sample_landmarks(raft::resources const& handle,
   auto x = index.get_X();
   auto r = index.get_R();
 
-  raft::matrix::copy_rows<value_t, value_idx>(
+  cuvs::detail::copy_rows<value_t, value_idx>(
     handle,
     raft::make_device_matrix_view<const value_t, value_idx>(
       x.data_handle(), x.extent(0), x.extent(1)),
@@ -134,7 +135,7 @@ void construct_landmark_1nn(raft::resources const& handle,
                                            raft::resource::get_cuda_stream(handle).get());
 
   // reorder X to allow aligned access
-  raft::matrix::copy_rows<value_t, value_idx>(
+  cuvs::detail::copy_rows<value_t, value_idx>(
     handle, index.get_X(), index.get_X_reordered(), index.get_R_1nn_cols());
 }
 

@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../../core/gather_launchers.hpp"
 #include "../../../distance/masked_nn.cuh"
 #include <cuvs/distance/distance.hpp>
 
@@ -309,7 +310,7 @@ void perform_1nn(raft::resources const& handle,
     raft::make_device_matrix_view<value_t, value_idx>(const_cast<value_t*>(X), n_rows, n_cols);
   auto sort_plan_const_view =
     raft::make_device_vector_view<const value_idx, value_idx>(sort_plan.data_handle(), n_rows);
-  raft::matrix::gather(handle, X_mutable_view, sort_plan_const_view, (value_idx)col_batch_size);
+  cuvs::detail::gather(handle, X_mutable_view, sort_plan_const_view, (value_idx)col_batch_size);
 
   // Get the number of unique components from the array of colors
   value_idx n_components = get_n_components(colors, n_rows, stream.get());

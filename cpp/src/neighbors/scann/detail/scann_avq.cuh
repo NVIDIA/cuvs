@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/gather_launchers.hpp"
 #include <cub/device/device_histogram.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
@@ -542,7 +543,7 @@ class cluster_loader {
       auto dataset_view =
         raft::make_device_matrix_view<const T, int64_t>(dataset_ptr_, n_rows_, dim_);
 
-      raft::matrix::gather(res, dataset_view, cluster_ids, cluster_vectors);
+      cuvs::detail::gather(res, dataset_view, cluster_ids, cluster_vectors);
     }
 
     copy_idx_ = cluster_idx;

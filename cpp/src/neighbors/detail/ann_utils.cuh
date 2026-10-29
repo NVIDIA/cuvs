@@ -344,18 +344,6 @@ void outer_add(const T* a, IdxT len_a, const T* b, IdxT len_b, T* c, cuda::strea
   outer_add_kernel<<<blocks, threads, 0, stream.get()>>>(a, len_a, b, len_b, c);
 }
 
-template <typename T, typename S, typename IdxT, typename LabelT>
-static __global__ void copy_selected_kernel(
-  IdxT n_rows, IdxT n_cols, const S* src, const LabelT* row_ids, IdxT ld_src, T* dst, IdxT ld_dst)
-{
-  IdxT gid   = threadIdx.x + blockDim.x * static_cast<IdxT>(blockIdx.x);
-  IdxT j     = gid % n_cols;
-  IdxT i_dst = gid / n_cols;
-  if (i_dst >= n_rows) return;
-  auto i_src              = static_cast<IdxT>(row_ids[i_dst]);
-  dst[ld_dst * i_dst + j] = mapping<T>{}(src[ld_src * i_src + j]);
-}
-
 /**
  * @brief raft::copy selected rows of a matrix while mapping the data from the source to the target
  * type.
@@ -375,6 +363,17 @@ static __global__ void copy_selected_kernel(
  * @param stream
  */
 template <typename T, typename S, typename IdxT, typename LabelT>
+void launch_copy_selected(IdxT grid,
+                          IdxT block,
+                          cudaStream_t stream,
+                          IdxT n_rows,
+                          IdxT n_cols,
+                          const S* src,
+                          const LabelT* row_ids,
+                          IdxT ld_src,
+                          T* dst,
+                          IdxT ld_dst);
+template <typename T, typename S, typename IdxT, typename LabelT>
 void copy_selected(IdxT n_rows,
                    IdxT n_cols,
                    const S* src,
@@ -389,8 +388,8 @@ void copy_selected(IdxT n_rows,
     case pointer_residency::device_only: {
       IdxT block_dim = 128;
       IdxT grid_dim  = raft::ceildiv(n_rows * n_cols, block_dim);
-      copy_selected_kernel<T, S><<<grid_dim, block_dim, 0, stream.get()>>>(
-        n_rows, n_cols, src, row_ids, ld_src, dst, ld_dst);
+      launch_copy_selected<T, S>(
+        grid_dim, block_dim, stream.get(), n_rows, n_cols, src, row_ids, ld_src, dst, ld_dst);
     } break;
     case pointer_residency::host_only: {
       stream.sync();

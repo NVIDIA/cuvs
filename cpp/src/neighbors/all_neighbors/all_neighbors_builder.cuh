@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/gather_launchers.hpp"
 #include "../detail/knn_brute_force.cuh"
 #include "../detail/nn_descent_gnnd.hpp"
 #include "../detail/reachability.cuh"
@@ -479,7 +480,7 @@ struct all_neighbors_builder_nn_descent : public all_neighbors_builder<T, IdxT> 
                    raft::make_host_vector_view<const IdxT>(inverted_indices.value().data_handle(),
                                                            num_data_in_cluster));
 
-        raft::matrix::gather(this->res,
+        cuvs::detail::gather(this->res,
                              raft::make_device_matrix_view<const T, IdxT>(
                                dist_epilogue.core_dists, dist_epilogue.n, 1),
                              raft::make_device_vector_view<const IdxT, IdxT>(
@@ -631,7 +632,7 @@ struct all_neighbors_builder_brute_force : public all_neighbors_builder<T, IdxT>
                    raft::make_host_vector_view<const IdxT>(inverted_indices.value().data_handle(),
                                                            num_data_in_cluster));
 
-        raft::matrix::gather(this->res,
+        cuvs::detail::gather(this->res,
                              raft::make_device_matrix_view<const T, IdxT>(
                                dist_epilogue.core_dists, dist_epilogue.n, 1),
                              raft::make_device_vector_view<const IdxT, IdxT>(

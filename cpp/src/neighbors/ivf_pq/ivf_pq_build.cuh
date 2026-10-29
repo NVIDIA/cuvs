@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/gather_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
@@ -101,7 +102,7 @@ void select_residuals(raft::resources const& handle,
   // need to know it, any strictly positive number would work.
   thrust::transform_iterator<utils::mapping<float>, const T*, thrust::use_default, float>
     mapping_itr(dataset, utils::mapping<float>{});
-  raft::matrix::gather(mapping_itr, (IdxT)dim, n_rows, row_ids, n_rows, tmp.data(), stream.get());
+  cuvs::detail::gather(mapping_itr, (IdxT)dim, n_rows, row_ids, n_rows, tmp.data(), stream.get());
 
   raft::matrix::linewise_op<raft::Apply::ALONG_ROWS>(
     handle,

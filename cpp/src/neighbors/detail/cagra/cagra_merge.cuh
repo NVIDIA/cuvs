@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../../core/gather_launchers.hpp"
 #include <cuvs/neighbors/cagra.hpp>
 
 #include "cagra_merge_scaffold.cuh"
@@ -190,7 +191,7 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
       static_cast<std::size_t>(final_rows) * static_cast<std::size_t>(stride) * sizeof(T),
       stream));
 
-    raft::matrix::copy_rows(
+    cuvs::detail::copy_rows(
       handle, raft::make_const_mdspan(staging.view()), output_view, indices_view);
 
     return build_merged_index();

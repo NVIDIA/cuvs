@@ -1,0 +1,27 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+#include <core/gather_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/matrix/copy.cuh>
+
+namespace cuvs::detail {
+
+template <typename m_t, typename idx_t, typename layout>
+void copy_rows(raft::resources const& handle,
+               raft::device_matrix_view<const m_t, idx_t, layout> in,
+               raft::device_matrix_view<m_t, idx_t, layout> out,
+               raft::device_vector_view<const idx_t, idx_t> indices)
+
+{
+  return raft::matrix::copy_rows(handle, in, out, indices);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

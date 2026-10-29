@@ -1,0 +1,102 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/ann_utils.cuh>
+
+#include <core/cub_ptx_query.hpp>
+#include <core/gather_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/matrix/gather.cuh>
+#include <thrust/iterator/transform_iterator.h>
+
+namespace cuvs::detail {
+
+template <typename InputIteratorT, typename MapIteratorT, typename OutputIteratorT, typename IndexT>
+void gather(const InputIteratorT in,
+            IndexT D,
+            IndexT N,
+            const MapIteratorT map,
+            IndexT map_length,
+            OutputIteratorT out,
+            cudaStream_t stream)
+
+{
+  return raft::matrix::gather(in, D, N, map, map_length, out, stream);
+}
+
+template <typename InputIteratorT,
+          typename MapIteratorT,
+          typename MapTransformOp,
+          typename OutputIteratorT,
+          typename IndexT>
+void gather(const InputIteratorT in,
+            IndexT D,
+            IndexT N,
+            const MapIteratorT map,
+            IndexT map_length,
+            OutputIteratorT out,
+            MapTransformOp transform_op,
+            cudaStream_t stream)
+
+{
+  return raft::matrix::gather(in, D, N, map, map_length, out, transform_op, stream);
+}
+
+template <typename matrix_t, typename map_t, typename idx_t, typename map_xform_t>
+void gather(const raft::resources& handle,
+            raft::device_matrix_view<const matrix_t, idx_t, row_major> in,
+            raft::device_vector_view<const map_t, idx_t> map,
+            raft::device_matrix_view<matrix_t, idx_t, row_major> out,
+            map_xform_t transform_op)
+
+{
+  return raft::matrix::gather(handle, in, map, out, transform_op);
+}
+
+template <typename matrix_t,
+          typename map_t,
+          typename idx_t,
+          typename accessor,
+          typename map_xform_t>
+void gather(
+  const raft::resources& handle,
+  raft::mdspan<const matrix_t, raft::matrix_extent<idx_t>, raft::layout_stride, accessor> in,
+  raft::device_vector_view<const map_t, idx_t> map,
+  raft::device_matrix_view<matrix_t, idx_t, row_major> out,
+  map_xform_t transform_op)
+
+{
+  return raft::matrix::gather(handle, in, map, out, transform_op);
+}
+
+template <typename matrix_t, typename map_t, typename idx_t, typename map_xform_t>
+void gather(raft::resources const& handle,
+            raft::device_matrix_view<matrix_t, idx_t, raft::layout_c_contiguous> inout,
+            raft::device_vector_view<const map_t, idx_t, raft::layout_c_contiguous> map,
+            idx_t col_batch_size,
+            map_xform_t transform_op)
+
+{
+  return raft::matrix::gather(handle, inout, map, col_batch_size, transform_op);
+}
+
+template <typename matrix_t, typename map_t, typename idx_t, typename map_xform_t>
+void gather(raft::resources const& handle,
+            raft::device_matrix_view<matrix_t, idx_t, raft::layout_stride> inout,
+            raft::device_vector_view<const map_t, idx_t, raft::layout_c_contiguous> map,
+            idx_t col_batch_size,
+            map_xform_t transform_op)
+
+{
+  return raft::matrix::gather(handle, inout, map, col_batch_size, transform_op);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@gather_detail_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
