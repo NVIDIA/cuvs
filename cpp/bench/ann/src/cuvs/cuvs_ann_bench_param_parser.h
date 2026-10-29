@@ -271,27 +271,36 @@ void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::nn_descent::
   }
 }
 
-inline void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::vpq_params& param)
+inline void parse_build_param(const nlohmann::json& conf,
+                              cuvs::preprocessing::quantize::pq::params& param)
 {
   if (conf.contains("pq_bits")) { param.pq_bits = conf.at("pq_bits"); }
   if (conf.contains("pq_dim")) { param.pq_dim = conf.at("pq_dim"); }
   if (conf.contains("vq_n_centers")) { param.vq_n_centers = conf.at("vq_n_centers"); }
-  if (conf.contains("kmeans_n_iters")) { param.kmeans_n_iters = conf.at("kmeans_n_iters"); }
-  if (conf.contains("vq_kmeans_trainset_fraction")) {
-    param.vq_kmeans_trainset_fraction = conf.at("vq_kmeans_trainset_fraction");
-  }
-  if (conf.contains("pq_kmeans_trainset_fraction")) {
-    param.pq_kmeans_trainset_fraction = conf.at("pq_kmeans_trainset_fraction");
-  }
-  if (conf.contains("pq_kmeans_type")) {
-    std::string type = conf.at("pq_kmeans_type");
-    if (type == "KMeans") {
-      param.pq_kmeans_type = cuvs::cluster::kmeans::kmeans_type::KMeans;
-    } else if (type == "KMeansBalanced") {
-      param.pq_kmeans_type = cuvs::cluster::kmeans::kmeans_type::KMeansBalanced;
+  if (conf.contains("kmeans_n_iters") || conf.contains("pq_kmeans_type")) {
+    bool balanced =
+      std::holds_alternative<cuvs::cluster::kmeans::balanced_params>(param.kmeans_params);
+    uint32_t n_iters =
+      balanced ? std::get<cuvs::cluster::kmeans::balanced_params>(param.kmeans_params).n_iters
+               : static_cast<uint32_t>(
+                   std::get<cuvs::cluster::kmeans::params>(param.kmeans_params).max_iter);
+    if (conf.contains("kmeans_n_iters")) { n_iters = conf.at("kmeans_n_iters"); }
+    if (conf.contains("pq_kmeans_type")) {
+      std::string type = conf.at("pq_kmeans_type");
+      if (type == "KMeans") {
+        balanced = false;
+      } else if (type == "KMeansBalanced") {
+        balanced = true;
+      } else {
+        throw std::runtime_error("pq_kmeans_type: '" + type +
+                                 "', should be either 'KMeans' or 'KMeansBalanced'");
+      }
+    }
+    if (balanced) {
+      param.kmeans_params = cuvs::cluster::kmeans::balanced_params{.n_iters = n_iters};
     } else {
-      throw std::runtime_error("pq_kmeans_type: '" + type +
-                               "', should be either 'KMeans' or 'KMeansBalanced'");
+      param.kmeans_params = cuvs::cluster::kmeans::params{.n_clusters = 1 << param.pq_bits,
+                                                          .max_iter   = static_cast<int>(n_iters)};
     }
   }
   if (conf.contains("max_train_points_per_pq_code")) {
@@ -445,9 +454,11 @@ void parse_build_param(const nlohmann::json& conf,
 
   nlohmann::json comp_search_conf = collect_conf_with_prefix(conf, "compression_");
   if (!comp_search_conf.empty()) {
-    auto vpq_pams = param.compression.value_or(cuvs::neighbors::vpq_params{});
-    parse_build_param(comp_search_conf, vpq_pams);
-    param.compression.emplace(vpq_pams);
+    // CAGRA-Q always carries a VQ codebook.
+    auto pq_pams   = param.compression.value_or(cuvs::preprocessing::quantize::pq::params{});
+    pq_pams.use_vq = true;
+    parse_build_param(comp_search_conf, pq_pams);
+    param.compression.emplace(pq_pams);
   }
 
   param.cagra_params = [conf](raft::matrix_extent<int64_t> extents,

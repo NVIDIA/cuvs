@@ -61,6 +61,106 @@ _Source: `rust/cuvs/src/neighbors/cagra/params.rs:59`_
 
 _Source: `rust/cuvs/src/neighbors/cagra/params.rs:49`_
 
+## ProductQuantizerParams
+
+```rust
+pub struct ProductQuantizerParams {
+    /* private fields */
+}
+```
+
+Product quantizer training parameters used to create PQ datasets.
+
+**Methods**
+
+| Name | Source |
+| --- | --- |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:221` |
+| `set_pq_bits` | `rust/cuvs/src/neighbors/cagra/params.rs:231` |
+| `set_pq_dim` | `rust/cuvs/src/neighbors/cagra/params.rs:236` |
+| `set_use_subspaces` | `rust/cuvs/src/neighbors/cagra/params.rs:241` |
+| `set_use_vq` | `rust/cuvs/src/neighbors/cagra/params.rs:246` |
+| `set_vq_n_centers` | `rust/cuvs/src/neighbors/cagra/params.rs:251` |
+| `set_kmeans_n_iters` | `rust/cuvs/src/neighbors/cagra/params.rs:256` |
+| `set_max_train_points_per_pq_code` | `rust/cuvs/src/neighbors/cagra/params.rs:261` |
+| `set_max_train_points_per_vq_cluster` | `rust/cuvs/src/neighbors/cagra/params.rs:266` |
+
+### new
+
+```rust
+pub fn new() -> Result<Self, CagraError>
+```
+
+Allocate product quantizer params with library defaults.
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:221`_
+
+### set_pq_bits
+
+```rust
+pub fn set_pq_bits(self, value: u32) -> Self
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:231`_
+
+### set_pq_dim
+
+```rust
+pub fn set_pq_dim(self, value: u32) -> Self
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:236`_
+
+### set_use_subspaces
+
+```rust
+pub fn set_use_subspaces(self, value: bool) -> Self
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:241`_
+
+### set_use_vq
+
+```rust
+pub fn set_use_vq(self, value: bool) -> Self
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:246`_
+
+### set_vq_n_centers
+
+```rust
+pub fn set_vq_n_centers(self, value: u32) -> Self
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:251`_
+
+### set_kmeans_n_iters
+
+```rust
+pub fn set_kmeans_n_iters(self, value: u32) -> Self
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:256`_
+
+### set_max_train_points_per_pq_code
+
+```rust
+pub fn set_max_train_points_per_pq_code(self, value: u32) -> Self
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:261`_
+
+### set_max_train_points_per_vq_cluster
+
+```rust
+pub fn set_max_train_points_per_vq_cluster(self, value: u32) -> Self
+```
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:266`_
+
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:215`_
+
 ## SearchParams
 
 ```rust
@@ -81,7 +181,7 @@ let params = SearchParams::builder().itopk_size(128).build()?;
 
 | Name | Source |
 | --- | --- |
-| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:233` |
+| `new` | `rust/cuvs/src/neighbors/cagra/params.rs:303` |
 
 ### new
 
@@ -108,9 +208,9 @@ persistent_device_usage: Option<f32>,
 ) -> Result<Self, CagraError>
 ```
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:233`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:303`_
 
-_Source: `rust/cuvs/src/neighbors/cagra/params.rs:225`_
+_Source: `rust/cuvs/src/neighbors/cagra/params.rs:295`_
 
 ## impl IndexParamsBuilder
 

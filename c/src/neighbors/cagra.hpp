@@ -20,7 +20,7 @@ void convert_c_search_params(cuvsCagraSearchParams params,
 enum class c_api_dataset_layout : uint8_t {
   device_padded,
   device_standard,
-  device_vpq,
+  device_pq,
   device_bbq,
   host_padded,
   host_standard

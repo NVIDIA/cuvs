@@ -59,64 +59,6 @@ namespace neighbors {
 /* Graph build algo used in cagra and all_neighbors */
 enum GRAPH_BUILD_ALGO { BRUTE_FORCE = 0, IVF_PQ = 1, NN_DESCENT = 2, ACE = 3 };
 
-/** Parameters for VPQ compression. */
-struct vpq_params {
-  /**
-   * The bit length of the vector element after compression by PQ.
-   *
-   * Possible values: [4, 5, 6, 7, 8].
-   *
-   * Hint: the smaller the 'pq_bits', the smaller the index size and the better the search
-   * performance, but the lower the recall.
-   */
-  uint32_t pq_bits = 8;
-  /**
-   * The dimensionality of the vector after compression by PQ.
-   * When zero, an optimal value is selected using a heuristic.
-   *
-   * TODO: at the moment `dim` must be a multiple `pq_dim`.
-   */
-  uint32_t pq_dim = 0;
-  /**
-   * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
-   * When zero, an optimal value is selected using a heuristic.
-   */
-  uint32_t vq_n_centers = 0;
-  /** The number of iterations searching for kmeans centers (both VQ & PQ phases). */
-  uint32_t kmeans_n_iters = 25;
-  /**
-   * The fraction of data to use during iterative kmeans building (VQ phase).
-   * When zero, an optimal value is selected using a heuristic.
-   * @deprecated Prefer using `max_train_points_per_vq_cluster` instead.
-   */
-  double vq_kmeans_trainset_fraction = 0;
-  /**
-   * The fraction of data to use during iterative kmeans building (PQ phase).
-   * When zero, an optimal value is selected using a heuristic.
-   * @deprecated Prefer using `max_train_points_per_pq_code` instead.
-   */
-  double pq_kmeans_trainset_fraction = 0;
-  /**
-   * Type of k-means algorithm for PQ training.
-   * Balanced k-means tends to be faster than regular k-means for PQ training, for
-   * problem sets where the number of points per cluster are approximately equal.
-   * Regular k-means may be better for skewed cluster distributions.
-   */
-  cuvs::cluster::kmeans::kmeans_type pq_kmeans_type =
-    cuvs::cluster::kmeans::kmeans_type::KMeansBalanced;
-  /**
-   * The max number of data points to use per PQ code during PQ codebook training. Using more data
-   * points per PQ code may increase the quality of PQ codebook but may also increase the build
-   * time. We will use `pq_n_centers * max_train_points_per_pq_code` training
-   * points to train each PQ codebook.
-   */
-  uint32_t max_train_points_per_pq_code = 256;
-  /**
-   * The max number of data points to use per VQ cluster during training.
-   */
-  uint32_t max_train_points_per_vq_cluster = 1024;
-};
-
 /** @} */  // end group cagra_cpp_index_params
 
 /**

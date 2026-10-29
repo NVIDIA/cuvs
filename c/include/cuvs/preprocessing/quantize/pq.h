@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -221,6 +221,7 @@ CUVS_EXPORT cuvsError_t cuvsProductQuantizerGetEncodedDim(cuvsProductQuantizer_t
  * @param[out] use_vq whether VQ is used
  */
 CUVS_EXPORT cuvsError_t cuvsProductQuantizerGetUseVq(cuvsProductQuantizer_t quantizer, bool* use_vq);
+
 /**
  * @}
  */

@@ -29,7 +29,7 @@ public final void setDelegate(AutoCloseable delegate, long handleAddress)
 
 Internal wiring hook used by the Java wrapper implementation.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:34`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:37`_
 
 ### isPresent
 
@@ -37,9 +37,9 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:34`_
 public final boolean isPresent()
 ```
 
-Returns true when this view has a native handle.
+Returns true when this handle refers to native dataset storage.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:42`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:45`_
 
 ### nativeHandleAddress
 
@@ -49,7 +49,7 @@ public final long nativeHandleAddress()
 
 Internal accessor for native handle address.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:49`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:52`_
 
 ### setDelegate
 
@@ -59,37 +59,27 @@ public final void setDelegate(AutoCloseable delegate)
 
 Internal wiring hook used by the Java wrapper implementation.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:84`_
-
-### setDelegate
-
-```java
-public final void setDelegate(AutoCloseable delegate, long handleAddress)
-```
-
-Internal wiring hook used by the Java wrapper implementation.
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:91`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:76`_
 
 ### isPresent
 
 ```java
-public final boolean isPresent()
+boolean isPresent()
 ```
 
-Returns true when this handle owns native dataset storage.
+Returns true when this handle refers to native dataset storage.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:99`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:94`_
 
 ### nativeHandleAddress
 
 ```java
-public final long nativeHandleAddress()
+long nativeHandleAddress()
 ```
 
 Internal accessor for native handle address.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:106`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:97`_
 
 ### close
 
@@ -97,10 +87,9 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:106`_
 @Override void close() throws Exception
 ```
 
-Invokes the native destroy_cagra_index to de-allocate the CAGRA index. Also attempts to close
-any dataset whose ownership transferred to this index during construction.
+Invokes the native destroy_cagra_index to de-allocate the CAGRA index
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:137`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:134`_
 
 ### search
 
@@ -121,7 +110,7 @@ CAGRA index.
 
 an instance of `SearchResults` containing the results
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:148`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:145`_
 
 ### makePaddedDataset
 
@@ -133,7 +122,7 @@ Create an owning padded dataset by allocating padded storage and copying
 `dataset`. Prefer this when the source matrix is not already padded to CAGRA's
 required row stride (e.g. unaligned dimensions).
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:155`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:152`_
 
 ### makePaddedDatasetView
 
@@ -145,7 +134,7 @@ Create a caller-owned padded dataset view handle from a matrix that is already
 padded to CAGRA's required row stride. For unpadded matrices use
 `#makePaddedDataset(CuVSMatrix)`.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:162`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:159`_
 
 ### makeStandardDatasetView
 
@@ -155,30 +144,47 @@ StandardDatasetView makeStandardDatasetView(CuVSMatrix dataset) throws Throwable
 
 Create a caller-owned standard dataset view handle from a matrix.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:165`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:162`_
 
 ### updateDataset
 
 ```java
-void updateDataset(PaddedDatasetView datasetView) throws Throwable
+void updateDataset(PaddedDatasetHandle dataset) throws Throwable
 ```
 
-Update this index with a caller-provided padded device dataset view and leave it
-search-ready in padded-device layout. The caller retains ownership of the underlying
-padded storage and must keep it alive while this index uses it.
-
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:172`_
-
-### updateDataset
-
-```java
-void updateDataset(PaddedDataset dataset) throws Throwable
-```
-
-Update this index with a caller-owned padded device dataset. The dataset must remain alive
+Update this index with a padded device dataset and leave it search-ready in padded-device
+layout. The caller retains ownership of the underlying padded storage and must keep it alive
 while this index uses it.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:178`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:169`_
+
+### updateDataset
+
+```java
+void updateDataset(PqDataset pqDataset) throws Throwable
+```
+
+Update this index with a caller-owned device PQ dataset (CAGRA-Q). Keep `pqDataset`
+alive while this index uses it. Metric must remain L2Expanded.
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:175`_
+
+### makePqDataset
+
+```java
+PqDataset makePqDataset(PaddedDatasetHandle paddedDataset, ProductQuantizerParams quantizerParams) throws Throwable
+```
+
+Train an owning device PQ dataset (CAGRA-Q) from a device-padded source.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `paddedDataset` | device-padded source dataset, owned or viewed |
+| `quantizerParams` | PQ training parameters; may be `null` for defaults |
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:183`_
 
 ### getGraph
 
@@ -192,7 +198,7 @@ Returns the CAGRA graph
 
 a `CuVSDeviceMatrix` encapsulating the native int (uint32_t) array used to represent the cagra graph
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:185`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:191`_
 
 ### getGraphDegree
 
@@ -208,7 +214,7 @@ build truncated it.
 
 the built graph degree (`graph().extent(1)`)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:194`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:200`_
 
 ### size
 
@@ -222,7 +228,7 @@ Returns the number of vectors in this index.
 
 the number of rows of the indexed dataset
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:201`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:207`_
 
 ### serialize
 
@@ -239,7 +245,7 @@ for writing index bytes.
 | --- | --- |
 | `outputStream` | an instance of `OutputStream` to write the index bytes into |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:210`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:216`_
 
 ### serialize
 
@@ -257,7 +263,7 @@ for writing index bytes.
 | `outputStream` | an instance of `OutputStream` to write the index bytes into |
 | `bufferLength` | the length of buffer to use for writing bytes. Default value is 1024 |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:221`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:227`_
 
 ### serialize
 
@@ -275,7 +281,7 @@ for writing index bytes.
 | `outputStream` | an instance of `OutputStream` to write the index bytes into |
 | `tempFile` | an intermediate `Path` where CAGRA index is written temporarily |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:232`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:238`_
 
 ### serialize
 
@@ -294,7 +300,7 @@ and path to the intermediate temporary file.
 | `tempFile` | an intermediate `Path` where CAGRA index is written temporarily |
 | `bufferLength` | the length of buffer to use for writing bytes. Default value is 1024 |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:247`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:253`_
 
 ### serializeToHNSW
 
@@ -311,7 +317,7 @@ of `OutputStream` and path to the intermediate temporary file.
 | --- | --- |
 | `outputStream` | an instance of `OutputStream` to write the index bytes to |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:256`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:262`_
 
 ### serializeToHNSW
 
@@ -329,7 +335,7 @@ of `OutputStream` and path to the intermediate temporary file.
 | `outputStream` | an instance of `OutputStream` to write the index bytes to |
 | `bufferLength` | the length of buffer to use for writing bytes. Default value is 1024 |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:267`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:273`_
 
 ### serializeToHNSW
 
@@ -347,7 +353,7 @@ of `OutputStream` and path to the intermediate temporary file.
 | `outputStream` | an instance of `OutputStream` to write the index bytes to |
 | `tempFile` | an intermediate `Path` where CAGRA index is written temporarily |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:278`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:284`_
 
 ### serializeToHNSW
 
@@ -366,7 +372,7 @@ of `OutputStream` and path to the intermediate temporary file.
 | `tempFile` | an intermediate `Path` where CAGRA index is written temporarily |
 | `bufferLength` | the length of buffer to use for writing bytes. Default value is 1024 |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:293`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:299`_
 
 ### getCuVSResources
 
@@ -380,7 +386,7 @@ Gets an instance of `CuVSResources`
 
 an instance of `CuVSResources`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:300`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:306`_
 
 ### newBuilder
 
@@ -404,7 +410,7 @@ builder it returns.
 | --- | --- |
 | `UnsupportedOperationException` | if cuVS is not available, for example without a GPU or without the native library |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:311`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:317`_
 
 ### merge
 
@@ -430,7 +436,7 @@ A new merged CAGRA index
 | --- | --- |
 | `Throwable` | if an error occurs during the merge operation |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:323`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:329`_
 
 ### merge
 
@@ -457,7 +463,7 @@ A new merged CAGRA index
 | --- | --- |
 | `Throwable` | if an error occurs during the merge operation |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:335`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:341`_
 
 ### merge
 
@@ -493,7 +499,7 @@ A new merged CAGRA index
 | `IllegalArgumentException` | if `rowFilter` has a bit set beyond the last row, or if it is non-null but keeps no rows at all |
 | `Throwable` | if an error occurs during the merge operation |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:359`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:365`_
 
 ### isPaddedDataset
 
@@ -519,7 +525,7 @@ copy it into padded storage it already occupies, and one that is not has to go t
 
 true when the rows are already padded the way CAGRA requires
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:387`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:393`_
 
 ### fromDataset
 
@@ -543,7 +549,7 @@ owns it.
 
 a builder for the optional inputs
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:427`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:433`_
 
 ### fromDataset
 
@@ -565,7 +571,7 @@ owns, so changes made to the array before then reach the index.
 
 a builder for the optional inputs
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:439`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:445`_
 
 ### fromBbq
 
@@ -592,7 +598,7 @@ must stay open for as long as the index is in use. Unless a dense dataset is att
 
 a builder for the optional inputs
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:456`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:462`_
 
 ### fromBbq
 
@@ -626,7 +632,7 @@ a builder for the optional inputs
 | --- | --- |
 | `IllegalArgumentException` | if both quantizers use the same layout |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:475`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:481`_
 
 ### fromGraph
 
@@ -662,7 +668,7 @@ a builder for the optional inputs
 | --- | --- |
 | `IllegalArgumentException` | if `dataset` is not in device memory |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:496`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:502`_
 
 ### fromSerialized
 
@@ -673,7 +679,7 @@ default FromSerializedBuilder fromSerialized(InputStream inputStream)
 Loads an index written by `CagraIndex#serialize(OutputStream)`, with its graph and
 dataset. `FromSerializedBuilder#build()` reads `inputStream` to its end, but
 closing it is left to the caller. The index owns the loaded dataset unless
-`FromSerializedBuilder#withOutputDataset(DeserializeDataset)` hands it to the caller.
+`FromSerializedBuilder#withOutputDataset(DenseOwningDataset)` hands it to the caller.
 
 **Parameters**
 
@@ -685,7 +691,7 @@ closing it is left to the caller. The index owns the loaded dataset unless
 
 a builder for the optional inputs
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:510`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:516`_
 
 ### from
 
@@ -708,12 +714,12 @@ needed. Unlike `#fromSerialized(InputStream)`, `#build()` closes it.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:522`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:528`_
 
 ### from
 
 ```java
-@Deprecated(since = "26.12", forRemoval = true) Builder from(InputStream inputStream, DeserializeDataset outDataset)
+@Deprecated(since = "26.12", forRemoval = true) Builder from(InputStream inputStream, DenseOwningDataset outDataset)
 ```
 
 Sets an input stream and an empty caller-owned output handle for explicit dataset
@@ -721,7 +727,7 @@ deserialization. The concrete output type must match the dataset layout stored i
 serialized index. Keep `outDataset` alive while the built index is in use. Unlike
 `#fromSerialized(InputStream)`, `#build()` closes `inputStream`.
 
-**Deprecated:** Use `#fromSerialized(InputStream)` and `FromSerializedBuilder#withOutputDataset(DeserializeDataset)`.
+**Deprecated:** Use `#fromSerialized(InputStream)` and `FromSerializedBuilder#withOutputDataset(DenseOwningDataset)`.
 
 **Parameters**
 
@@ -734,7 +740,7 @@ serialized index. Keep `outDataset` alive while the built index is in use. Unlik
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:537`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:543`_
 
 ### from
 
@@ -747,7 +753,7 @@ previously built graph.
 
 **Deprecated:** Use `#fromGraph(CagraIndexParams.CuvsDistanceType, CuVSMatrix, CuVSMatrix)`, which takes the metric directly.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:547`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:553`_
 
 ### withDataset
 
@@ -769,7 +775,7 @@ Sets the dataset vectors for building the `CagraIndex`.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:557`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:563`_
 
 ### withDataset
 
@@ -796,7 +802,7 @@ with the caller.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:574`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:580`_
 
 ### withBbqDataset
 
@@ -816,7 +822,7 @@ closed with it.
 
 **Deprecated:** Use `#fromBbq(BbqQuantizer)` or `#fromBbq(BbqQuantizer, BbqQuantizer)`.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:591`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:597`_
 
 ### withIndexParams
 
@@ -839,7 +845,7 @@ Builder.
 
 An instance of this Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:605`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:611`_
 
 ### build
 
@@ -860,7 +866,7 @@ because the loaded index has its own.
 
 an instance of CagraIndex
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:620`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:626`_
 
 ### withIndexParams
 
@@ -887,7 +893,7 @@ this builder
 | --- | --- |
 | `IllegalStateException` | if called more than once |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:643`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:649`_
 
 ### build
 
@@ -911,7 +917,7 @@ the new index
 | `IllegalArgumentException` | if the array given to `Builder#fromDataset(float[][])` is empty or its rows differ in length |
 | `Throwable` | if the build fails |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:657`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:663`_
 
 ### withDenseDataset
 
@@ -939,7 +945,7 @@ this builder
 | --- | --- |
 | `IllegalStateException` | if called more than once |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:675`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:681`_
 
 ### withIndexParams
 
@@ -970,7 +976,7 @@ this builder
 | `IllegalArgumentException` | if the parameters ask for another graph build algorithm, or for a metric other than the quantizers' |
 | `IllegalStateException` | if called more than once |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:690`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:696`_
 
 ### build
 
@@ -993,7 +999,7 @@ the new index
 | `IllegalStateException` | if `build()` was already called, whether or not it succeeded |
 | `Throwable` | if the build fails |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:702`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:708`_
 
 ### build
 
@@ -1016,12 +1022,12 @@ the new index
 | `IllegalStateException` | if `build()` was already called, whether or not it succeeded |
 | `Throwable` | if the index can't be created |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:721`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:727`_
 
 ### withOutputDataset
 
 ```java
-FromSerializedBuilder withOutputDataset(DeserializeDataset outDataset)
+FromSerializedBuilder withOutputDataset(DenseOwningDataset outDataset)
 ```
 
 Hands the loaded dataset to the caller instead of the index. `outDataset` must be
@@ -1045,7 +1051,7 @@ this builder
 | --- | --- |
 | `IllegalStateException` | if called more than once |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:739`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:745`_
 
 ### build
 
@@ -1068,6 +1074,6 @@ the loaded index
 | `IllegalStateException` | if `build()` was already called, whether or not it succeeded |
 | `Throwable` | if the index can't be loaded |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:751`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:757`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndex.java:26`_

@@ -264,6 +264,7 @@ unsafe extern "C" {
 pub enum cuvsDatasetLayout_t {
     CUVS_DATASET_LAYOUT_STANDARD = 0,
     CUVS_DATASET_LAYOUT_PADDED = 1,
+    CUVS_DATASET_LAYOUT_PQ = 2,
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -1043,36 +1044,6 @@ pub enum cuvsCagraHnswHeuristicType {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct cuvsCagraCompressionParams {
-    pub pq_bits: u32,
-    pub pq_dim: u32,
-    pub vq_n_centers: u32,
-    pub kmeans_n_iters: u32,
-    pub vq_kmeans_trainset_fraction: f64,
-    pub pq_kmeans_trainset_fraction: f64,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of cuvsCagraCompressionParams"]
-        [::std::mem::size_of::<cuvsCagraCompressionParams>() - 32usize];
-    ["Alignment of cuvsCagraCompressionParams"]
-        [::std::mem::align_of::<cuvsCagraCompressionParams>() - 8usize];
-    ["Offset of field: cuvsCagraCompressionParams::pq_bits"]
-        [::std::mem::offset_of!(cuvsCagraCompressionParams, pq_bits) - 0usize];
-    ["Offset of field: cuvsCagraCompressionParams::pq_dim"]
-        [::std::mem::offset_of!(cuvsCagraCompressionParams, pq_dim) - 4usize];
-    ["Offset of field: cuvsCagraCompressionParams::vq_n_centers"]
-        [::std::mem::offset_of!(cuvsCagraCompressionParams, vq_n_centers) - 8usize];
-    ["Offset of field: cuvsCagraCompressionParams::kmeans_n_iters"]
-        [::std::mem::offset_of!(cuvsCagraCompressionParams, kmeans_n_iters) - 12usize];
-    ["Offset of field: cuvsCagraCompressionParams::vq_kmeans_trainset_fraction"]
-        [::std::mem::offset_of!(cuvsCagraCompressionParams, vq_kmeans_trainset_fraction) - 16usize];
-    ["Offset of field: cuvsCagraCompressionParams::pq_kmeans_trainset_fraction"]
-        [::std::mem::offset_of!(cuvsCagraCompressionParams, pq_kmeans_trainset_fraction) - 24usize];
-};
-pub type cuvsCagraCompressionParams_t = *mut cuvsCagraCompressionParams;
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct cuvsIvfPqParams {
     pub ivf_pq_build_params: cuvsIvfPqIndexParams_t,
     pub ivf_pq_search_params: cuvsIvfPqSearchParams_t,
@@ -1153,16 +1124,6 @@ unsafe extern "C" {
 unsafe extern "C" {
     #[must_use]
     pub fn cuvsCagraIndexParamsDestroy(params: cuvsCagraIndexParams_t) -> cuvsError_t;
-}
-unsafe extern "C" {
-    #[must_use]
-    pub fn cuvsCagraCompressionParamsCreate(
-        params: *mut cuvsCagraCompressionParams_t,
-    ) -> cuvsError_t;
-}
-unsafe extern "C" {
-    #[must_use]
-    pub fn cuvsCagraCompressionParamsDestroy(params: cuvsCagraCompressionParams_t) -> cuvsError_t;
 }
 unsafe extern "C" {
     #[must_use]
@@ -1356,8 +1317,17 @@ unsafe extern "C" {
     #[must_use]
     pub fn cuvsCagraUpdateDataset(
         res: cuvsResources_t,
-        device_padded_dataset: cuvsDataset_t,
+        dataset: cuvsDataset_t,
         index: cuvsCagraIndex_t,
+    ) -> cuvsError_t;
+}
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsDatasetMakePq(
+        res: cuvsResources_t,
+        source_dataset: cuvsDataset_t,
+        params: cuvsProductQuantizerParams_t,
+        pq_dataset: *mut cuvsDataset_t,
     ) -> cuvsError_t;
 }
 unsafe extern "C" {

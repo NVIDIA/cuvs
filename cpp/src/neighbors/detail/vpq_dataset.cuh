@@ -121,27 +121,18 @@ void train_pq_centers(
     kmeans_params);
 }
 
-template <typename DatasetT>
-auto fill_missing_params_heuristics(const vpq_params& params, const DatasetT& dataset) -> vpq_params
+inline auto get_kmeans_n_iters(const cuvs::preprocessing::quantize::pq::params& params) -> uint32_t
 {
-  vpq_params r  = params;
-  double n_rows = dataset.extent(0);
-  size_t dim    = dataset.extent(1);
-  if (r.pq_dim == 0) { r.pq_dim = raft::div_rounding_up_safe(dim, size_t{4}); }
-  if (r.pq_bits == 0) { r.pq_bits = 8; }
-  if (r.vq_n_centers == 0) { r.vq_n_centers = raft::round_up_safe<uint32_t>(std::sqrt(n_rows), 8); }
-  if (r.vq_kmeans_trainset_fraction == 0) {
-    double vq_trainset_size       = 100.0 * r.vq_n_centers;
-    r.vq_kmeans_trainset_fraction = std::min(1.0, vq_trainset_size / n_rows);
-  }
-  if (r.pq_kmeans_trainset_fraction == 0) {
-    // NB: we'll have actually `pq_dim` times more samples than this
-    //     (because the dataset is reinterpreted as `[n_rows * pq_dim, pq_len]`)
-    double pq_trainset_size       = 1000.0 * (1u << r.pq_bits);
-    r.pq_kmeans_trainset_fraction = std::min(1.0, pq_trainset_size / n_rows);
-  }
-  r.max_train_points_per_pq_code = params.max_train_points_per_pq_code;
-  return r;
+  return std::visit(
+    [](const auto& kp) -> uint32_t {
+      using kmeans_type = std::decay_t<decltype(kp)>;
+      if constexpr (std::is_same_v<kmeans_type, cuvs::cluster::kmeans::balanced_params>) {
+        return kp.n_iters;
+      } else {
+        return static_cast<uint32_t>(kp.max_iter);
+      }
+    },
+    params.kmeans_params);
 }
 
 template <typename T, typename DatasetT>
@@ -168,15 +159,16 @@ auto transform_data(const raft::resources& res, DatasetT dataset)
 using ix_t = int64_t;
 
 template <typename MathT, typename DatasetT>
-auto train_vq(const raft::resources& res, const vpq_params& params, const DatasetT& dataset)
-  -> raft::device_matrix<MathT, uint32_t, raft::row_major>
+auto train_vq(const raft::resources& res,
+              const cuvs::preprocessing::quantize::pq::params& params,
+              const DatasetT& dataset) -> raft::device_matrix<MathT, uint32_t, raft::row_major>
 {
   using kmeans_in_type    = typename DatasetT::value_type;
   const ix_t n_rows       = dataset.extent(0);
   const ix_t vq_n_centers = params.vq_n_centers;
   const ix_t dim          = dataset.extent(1);
-  const ix_t n_rows_train = std::min<ix_t>(n_rows * params.vq_kmeans_trainset_fraction,
-                                           params.max_train_points_per_vq_cluster * vq_n_centers);
+  const ix_t n_rows_train =
+    std::min<ix_t>(n_rows, params.max_train_points_per_vq_cluster * vq_n_centers);
 
   // Subsample the dataset and transform into the required type if necessary
   auto vq_trainset = util::subsample(res, dataset, n_rows_train);
@@ -194,7 +186,7 @@ auto train_vq(const raft::resources& res, const vpq_params& params, const Datase
     auto vq_centers_view =
       raft::make_device_matrix_view<MathT, ix_t>(vq_centers.data_handle(), vq_n_centers, dim);
     cuvs::cluster::kmeans::balanced_params kmeans_params;
-    kmeans_params.n_iters = params.kmeans_n_iters;
+    kmeans_params.n_iters = get_kmeans_n_iters(params);
     kmeans_params.metric  = cuvs::distance::DistanceType::L2Expanded;
     cuvs::cluster::kmeans::fit(res, kmeans_params, vq_trainset_view, vq_centers_view);
   }
@@ -413,7 +405,7 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_kernel(
 template <typename MathT, typename IdxT, typename DatasetT>
 void process_and_fill_codes(
   const raft::resources& res,
-  const vpq_params& params,
+  const cuvs::preprocessing::quantize::pq::params& params,
   const DatasetT& dataset,
   raft::device_matrix_view<const MathT, uint32_t, raft::row_major> pq_centers,
   raft::device_matrix_view<const MathT, uint32_t, raft::row_major> vq_centers,
@@ -807,7 +799,7 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_subspaces_kernel
 template <typename MathT, typename IdxT, typename DatasetT>
 void process_and_fill_codes_subspaces(
   const raft::resources& res,
-  const vpq_params& params,
+  const cuvs::preprocessing::quantize::pq::params& params,
   const DatasetT& dataset,
   raft::device_matrix_view<const MathT, uint32_t, raft::row_major> pq_centers,
   raft::device_matrix_view<const MathT, uint32_t, raft::row_major> vq_centers,

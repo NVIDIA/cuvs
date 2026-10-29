@@ -32,6 +32,7 @@
 #include <cuvs/neighbors/common.h>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/preprocessing/quantize/bbq.h>
+#include <cuvs/preprocessing/quantize/pq.h>
 #include <cuvs/preprocessing/quantize/pq.hpp>
 #include "../core/exceptions.hpp"
 #include "../core/interop.hpp"
@@ -68,7 +69,7 @@ constexpr auto sg_cagra_index_layout_from_view()
   } else if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
     return sg_cagra_c_api_index_box::dataset_layout::device_padded;
   } else if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
-    return sg_cagra_c_api_index_box::dataset_layout::device_vpq;
+    return sg_cagra_c_api_index_box::dataset_layout::device_pq;
   } else if constexpr (cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>) {
     return sg_cagra_c_api_index_box::dataset_layout::device_bbq;
   } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
@@ -112,7 +113,7 @@ static void with_index_by_layout(sg_cagra_c_api_index_box* box,
       fn(*idx);
       break;
     }
-    case sg_cagra_c_api_index_box::dataset_layout::device_vpq: {
+    case sg_cagra_c_api_index_box::dataset_layout::device_pq: {
       using index_t = cuvs::neighbors::cagra::
         index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
       auto* idx = reinterpret_cast<index_t*>(box->index_ptr);
@@ -500,8 +501,9 @@ static void bind_vpq_owner_to_dataset(std::unique_ptr<device_vpq_owner_t> owner,
   auto* out         = new cuvsDataset{};
   out->addr         = reinterpret_cast<uintptr_t>(owner.release());
   out->destroy_addr = &destroy_typed_addr<device_vpq_owner_t>;
+  // PQ codebooks use f16 math type; the source element type lives on the index dtype.
   out->dtype.code   = kDLFloat;
-  out->dtype.bits   = 32;
+  out->dtype.bits   = 16;
   out->dtype.lanes  = 1;
   out->mem_type     = CUVS_DATASET_MEM_TYPE_DEVICE;
   out->layout       = CUVS_DATASET_LAYOUT_PQ;
@@ -509,56 +511,21 @@ static void bind_vpq_owner_to_dataset(std::unique_ptr<device_vpq_owner_t> owner,
   *output           = out;
 }
 
-static auto make_cpp_vpq_params(cuvsPqParams const& params)
-  -> cuvs::neighbors::vpq_params
+static auto make_cpp_pq_params(cuvsProductQuantizerParams const& params)
+  -> cuvs::preprocessing::quantize::pq::params
 {
-  auto out                            = cuvs::neighbors::vpq_params{};
-  out.pq_bits                         = params.pq_bits;
-  out.pq_dim                          = params.pq_dim;
-  out.vq_n_centers                    = params.vq_n_centers;
-  out.kmeans_n_iters                  = params.kmeans_n_iters;
-  out.vq_kmeans_trainset_fraction     = params.vq_kmeans_trainset_fraction;
-  out.pq_kmeans_trainset_fraction     = params.pq_kmeans_trainset_fraction;
-  return out;
-}
-
-template <typename T>
-static auto make_device_pq_dataset(raft::resources* res_ptr,
-                                   cuvsPqParams const& params,
-                                   cuvsDataset_t dataset)
-  -> std::unique_ptr<device_vpq_owner_t>
-{
-  RAFT_EXPECTS(dataset->layout == CUVS_DATASET_LAYOUT_STANDARD ||
-                 dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
-               "cuvsDatasetMakePQ: source dataset must have STANDARD or PADDED layout");
-  auto cpp_params = make_cpp_vpq_params(params);
-  std::unique_ptr<device_vpq_owner_t> owner;
-  auto make = [&](auto const& view) {
-    owner = std::make_unique<device_vpq_owner_t>(
-      cuvs::preprocessing::quantize::pq::make_vpq_dataset(*res_ptr, cpp_params, view));
-  };
-
-  const bool padded = dataset->layout == CUVS_DATASET_LAYOUT_PADDED;
-  if (dataset->mem_type == CUVS_DATASET_MEM_TYPE_DEVICE) {
-    if (padded) {
-      with_dataset_view<cuvs::neighbors::device_padded_dataset<T, int64_t>,
-                        cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(dataset, make);
-    } else {
-      with_dataset_view<cuvs::neighbors::device_standard_dataset<T, int64_t>,
-                        cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(dataset, make);
-    }
-  } else if (dataset->mem_type == CUVS_DATASET_MEM_TYPE_HOST) {
-    if (padded) {
-      with_dataset_view<cuvs::neighbors::host_padded_dataset<T, int64_t>,
-                        cuvs::neighbors::host_padded_dataset_view<T, int64_t>>(dataset, make);
-    } else {
-      with_dataset_view<cuvs::neighbors::host_standard_dataset<T, int64_t>,
-                        cuvs::neighbors::host_standard_dataset_view<T, int64_t>>(dataset, make);
-    }
-  } else {
-    RAFT_FAIL("cuvsDatasetMakePQ: invalid source dataset memory type");
-  }
-  return owner;
+  RAFT_EXPECTS(params.use_subspaces,
+               "CAGRA-Q requires subspace product quantization (use_subspaces must be true)");
+  return cuvs::preprocessing::quantize::pq::params(
+    params.pq_bits,
+    params.pq_dim,
+    params.use_subspaces,
+    params.use_vq,
+    params.vq_n_centers,
+    params.kmeans_n_iters,
+    static_cast<cuvs::cluster::kmeans::kmeans_type>(params.pq_kmeans_type),
+    params.max_train_points_per_pq_code,
+    params.max_train_points_per_vq_cluster);
 }
 
 template <typename T>
@@ -713,6 +680,57 @@ static void make_host_standard_dataset_view(raft::resources*,
   out->layout       = CUVS_DATASET_LAYOUT_STANDARD;
   out->is_owning    = false;
   *output_standard_dataset = out;
+}
+
+template <typename T>
+static void make_device_pq_dataset(raft::resources* res_ptr,
+                                   cuvsDataset_t source_dataset,
+                                   cuvsProductQuantizerParams_t params,
+                                   cuvsDataset_t* output_pq_dataset)
+{
+  RAFT_EXPECTS(source_dataset != nullptr, "cuvsDatasetMakePq: null source dataset");
+  RAFT_EXPECTS(source_dataset->addr != 0, "cuvsDatasetMakePq: null source dataset storage");
+  RAFT_EXPECTS(output_pq_dataset != nullptr, "cuvsDatasetMakePq: null output dataset");
+  RAFT_EXPECTS(source_dataset->layout == CUVS_DATASET_LAYOUT_STANDARD ||
+                 source_dataset->layout == CUVS_DATASET_LAYOUT_PADDED,
+               "cuvsDatasetMakePq: source dataset must have STANDARD or PADDED layout");
+
+  // NULL params select VQ with a heuristic number of centers.
+  cuvs::preprocessing::quantize::pq::params ps;
+  ps.use_vq = true;
+  if (params != nullptr) { ps = make_cpp_pq_params(*params); }
+
+  std::unique_ptr<device_vpq_owner_t> owner;
+  auto make = [&](auto const& view) {
+    owner = std::make_unique<device_vpq_owner_t>(
+      cuvs::preprocessing::quantize::pq::make_device_pq_dataset(*res_ptr, ps, view));
+  };
+
+  const bool padded = source_dataset->layout == CUVS_DATASET_LAYOUT_PADDED;
+  if (source_dataset->mem_type == CUVS_DATASET_MEM_TYPE_DEVICE) {
+    if (padded) {
+      with_dataset_view<cuvs::neighbors::device_padded_dataset<T, int64_t>,
+                        cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(source_dataset,
+                                                                                 make);
+    } else {
+      with_dataset_view<cuvs::neighbors::device_standard_dataset<T, int64_t>,
+                        cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(source_dataset,
+                                                                                   make);
+    }
+  } else if (source_dataset->mem_type == CUVS_DATASET_MEM_TYPE_HOST) {
+    if (padded) {
+      with_dataset_view<cuvs::neighbors::host_padded_dataset<T, int64_t>,
+                        cuvs::neighbors::host_padded_dataset_view<T, int64_t>>(source_dataset,
+                                                                               make);
+    } else {
+      with_dataset_view<cuvs::neighbors::host_standard_dataset<T, int64_t>,
+                        cuvs::neighbors::host_standard_dataset_view<T, int64_t>>(source_dataset,
+                                                                                 make);
+    }
+  } else {
+    RAFT_FAIL("cuvsDatasetMakePq: invalid source dataset memory type");
+  }
+  bind_vpq_owner_to_dataset(std::move(owner), output_pq_dataset);
 }
 
 template <typename T>
@@ -1684,6 +1702,71 @@ extern "C" cuvsError_t cuvsDatasetMakePaddedView(cuvsResources_t res,
   });
 }
 
+extern "C" cuvsError_t cuvsDatasetMakeStandardView(cuvsResources_t res,
+                                                   DLManagedTensor* dataset_tensor,
+                                                   cuvsDataset_t* standard_dataset)
+{
+  return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(dataset_tensor != nullptr, "cuvsDatasetMakeStandardView: null input tensor");
+    RAFT_EXPECTS(standard_dataset != nullptr, "cuvsDatasetMakeStandardView: null output view");
+    *standard_dataset = nullptr;
+    auto dataset  = dataset_tensor->dl_tensor;
+    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
+    auto make_typed = [&]<typename T>() {
+      if (cuvs::core::is_dlpack_device_compatible(dataset)) {
+        make_device_standard_dataset_view<T>(res_ptr, dataset_tensor, standard_dataset);
+      } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
+        make_host_standard_dataset_view<T>(res_ptr, dataset_tensor, standard_dataset);
+      } else {
+        RAFT_FAIL("cuvsDatasetMakeStandardView: unsupported tensor memory type");
+      }
+    };
+
+    if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
+      make_typed.template operator()<float>();
+    } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
+      make_typed.template operator()<half>();
+    } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
+      make_typed.template operator()<int8_t>();
+    } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
+      make_typed.template operator()<uint8_t>();
+    } else {
+      RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
+                dataset.dtype.code,
+                dataset.dtype.bits);
+    }
+  });
+}
+
+extern "C" cuvsError_t cuvsDatasetMakePq(cuvsResources_t res,
+                                          cuvsDataset_t source_dataset,
+                                          cuvsProductQuantizerParams_t params,
+                                          cuvsDataset_t* pq_dataset)
+{
+  return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(source_dataset != nullptr, "cuvsDatasetMakePq: null source dataset");
+    RAFT_EXPECTS(pq_dataset != nullptr, "cuvsDatasetMakePq: null output dataset");
+    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
+    auto make_typed = [&]<typename T>() {
+      make_device_pq_dataset<T>(res_ptr, source_dataset, params, pq_dataset);
+    };
+
+    if (source_dataset->dtype.code == kDLFloat && source_dataset->dtype.bits == 32) {
+      make_typed.template operator()<float>();
+    } else if (source_dataset->dtype.code == kDLFloat && source_dataset->dtype.bits == 16) {
+      make_typed.template operator()<half>();
+    } else if (source_dataset->dtype.code == kDLInt && source_dataset->dtype.bits == 8) {
+      make_typed.template operator()<int8_t>();
+    } else if (source_dataset->dtype.code == kDLUInt && source_dataset->dtype.bits == 8) {
+      make_typed.template operator()<uint8_t>();
+    } else {
+      RAFT_FAIL("cuvsDatasetMakePq: unsupported source dtype: %d and bits: %d",
+                source_dataset->dtype.code,
+                source_dataset->dtype.bits);
+    }
+  });
+}
+
 extern "C" cuvsError_t cuvsDatasetDestroy(cuvsDataset_t dataset)
 {
   return cuvs::core::translate_exceptions([=] {
@@ -1731,42 +1814,6 @@ extern "C" cuvsError_t cuvsDatasetGetDtype(cuvsDataset_t dataset, DLDataType* dt
   });
 }
 
-extern "C" cuvsError_t cuvsDatasetMakeStandardView(cuvsResources_t res,
-                                                   DLManagedTensor* dataset_tensor,
-                                                   cuvsDataset_t* standard_dataset)
-{
-  return cuvs::core::translate_exceptions([=] {
-    RAFT_EXPECTS(dataset_tensor != nullptr, "cuvsDatasetMakeStandardView: null input tensor");
-    RAFT_EXPECTS(standard_dataset != nullptr, "cuvsDatasetMakeStandardView: null output view");
-    *standard_dataset = nullptr;
-    auto dataset  = dataset_tensor->dl_tensor;
-    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
-    auto make_typed = [&]<typename T>() {
-      if (cuvs::core::is_dlpack_device_compatible(dataset)) {
-        make_device_standard_dataset_view<T>(res_ptr, dataset_tensor, standard_dataset);
-      } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
-        make_host_standard_dataset_view<T>(res_ptr, dataset_tensor, standard_dataset);
-      } else {
-        RAFT_FAIL("cuvsDatasetMakeStandardView: unsupported tensor memory type");
-      }
-    };
-
-    if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
-      make_typed.template operator()<float>();
-    } else if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 16) {
-      make_typed.template operator()<half>();
-    } else if (dataset.dtype.code == kDLInt && dataset.dtype.bits == 8) {
-      make_typed.template operator()<int8_t>();
-    } else if (dataset.dtype.code == kDLUInt && dataset.dtype.bits == 8) {
-      make_typed.template operator()<uint8_t>();
-    } else {
-      RAFT_FAIL("Unsupported dataset DLtensor dtype: %d and bits: %d",
-                dataset.dtype.code,
-                dataset.dtype.bits);
-    }
-  });
-}
-
 extern "C" cuvsError_t cuvsDatasetMakeBbqView(cuvsResources_t,
                                               cuvsBbqQuantizer_t* quantizers,
                                               size_t num_quantizers,
@@ -1807,39 +1854,6 @@ extern "C" cuvsError_t cuvsDatasetMakeBbqView(cuvsResources_t,
   });
 }
 
-extern "C" cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
-                                         cuvsPqParams_t params,
-                                         cuvsDataset_t dataset,
-                                         cuvsDatasetMemType_t target_mem_type,
-                                         cuvsDataset_t* pq_dataset)
-{
-  return cuvs::core::translate_exceptions([=] {
-    RAFT_EXPECTS(params != nullptr, "cuvsDatasetMakePQ: null compression params");
-    RAFT_EXPECTS(dataset != nullptr && dataset->addr != 0,
-                 "cuvsDatasetMakePQ: null source dataset");
-    RAFT_EXPECTS(pq_dataset != nullptr, "cuvsDatasetMakePQ: null output dataset");
-    *pq_dataset = nullptr;
-    RAFT_EXPECTS(target_mem_type == CUVS_DATASET_MEM_TYPE_DEVICE,
-                 "cuvsDatasetMakePQ currently supports only device output");
-    auto* res_ptr = reinterpret_cast<raft::resources*>(res);
-    std::unique_ptr<device_vpq_owner_t> owner;
-    if (dataset->dtype.code == kDLFloat && dataset->dtype.bits == 32) {
-      owner = make_device_pq_dataset<float>(res_ptr, *params, dataset);
-    } else if (dataset->dtype.code == kDLFloat && dataset->dtype.bits == 16) {
-      owner = make_device_pq_dataset<half>(res_ptr, *params, dataset);
-    } else if (dataset->dtype.code == kDLInt && dataset->dtype.bits == 8) {
-      owner = make_device_pq_dataset<int8_t>(res_ptr, *params, dataset);
-    } else if (dataset->dtype.code == kDLUInt && dataset->dtype.bits == 8) {
-      owner = make_device_pq_dataset<uint8_t>(res_ptr, *params, dataset);
-    } else {
-      RAFT_FAIL("cuvsDatasetMakePQ: unsupported source dtype: code=%d, bits=%d",
-                dataset->dtype.code,
-                dataset->dtype.bits);
-    }
-    bind_vpq_owner_to_dataset(std::move(owner), pq_dataset);
-  });
-}
-
 static cuvsError_t dispatch_update_dataset(cuvsResources_t res,
                                            cuvsDataset_t dataset,
                                            cuvsCagraIndex_t index)
@@ -1851,8 +1865,11 @@ static cuvsError_t dispatch_update_dataset(cuvsResources_t res,
     RAFT_EXPECTS(dataset->layout == CUVS_DATASET_LAYOUT_PADDED ||
                    dataset->layout == CUVS_DATASET_LAYOUT_PQ,
                  "cuvsCagraUpdateDataset: dataset layout must be PADDED or PQ");
-    RAFT_EXPECTS(index->dtype.code == dataset->dtype.code &&
-                   index->dtype.bits == dataset->dtype.bits,
+    // A PQ dataset's dtype is its codebook math type, not the source element type, which lives on
+    // the index.
+    RAFT_EXPECTS(dataset->layout == CUVS_DATASET_LAYOUT_PQ ||
+                   (index->dtype.code == dataset->dtype.code &&
+                    index->dtype.bits == dataset->dtype.bits),
                  "cuvsCagraUpdateDataset: dtype mismatch between index and dataset");
     if (index->dtype.code == kDLFloat && index->dtype.bits == 32) {
       update_dataset<float>(res_ptr, dataset, index);
@@ -1863,7 +1880,8 @@ static cuvsError_t dispatch_update_dataset(cuvsResources_t res,
     } else if (index->dtype.code == kDLUInt && index->dtype.bits == 8) {
       update_dataset<uint8_t>(res_ptr, dataset, index);
     } else {
-      RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code, index->dtype.bits);
+      RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code,
+                index->dtype.bits);
     }
   });
 }
@@ -1881,8 +1899,11 @@ extern "C" cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
                    (dataset->layout == CUVS_DATASET_LAYOUT_PADDED ||
                     dataset->layout == CUVS_DATASET_LAYOUT_PQ),
                  "cuvsCagraUpdateDataset: dataset must be device padded or device PQ");
-    RAFT_EXPECTS(index->dtype.code == dataset->dtype.code &&
-                   index->dtype.bits == dataset->dtype.bits,
+    // A PQ dataset's dtype is its codebook math type, not the source element type, which lives on
+    // the index.
+    RAFT_EXPECTS(dataset->layout == CUVS_DATASET_LAYOUT_PQ ||
+                   (index->dtype.code == dataset->dtype.code &&
+                    index->dtype.bits == dataset->dtype.bits),
                  "cuvsCagraUpdateDataset: dtype mismatch between index and dataset");
   });
   if (status != CUVS_SUCCESS) { return status; }
@@ -2093,11 +2114,10 @@ extern "C" cuvsError_t cuvsCagraSearch(cuvsResources_t res,
                  "cuvsCagraSearch: attach a device padded or PQ dataset to the BBQ-built index "
                  "with cuvsCagraUpdateDataset before searching");
     RAFT_EXPECTS(box->layout == sg_cagra_c_api_index_box::dataset_layout::device_padded ||
-                   box->layout == sg_cagra_c_api_index_box::dataset_layout::device_vpq,
-                 "cuvsCagraSearch: index must be device-padded or VPQ. For standard indices, call "
-                 "cuvsCagraUpdateDataset first.");
-    RAFT_EXPECTS(queries.dtype.code == index.dtype.code && queries.dtype.bits == index.dtype.bits,
-                 "type mismatch between index and queries");
+                   box->layout == sg_cagra_c_api_index_box::dataset_layout::device_pq,
+                 "cuvsCagraSearch: index must be device-padded or device-PQ. Call "
+                 "cuvsCagraUpdateDataset with a device-padded or owning PQ dataset.");
+    RAFT_EXPECTS(queries.dtype.code == index.dtype.code && queries.dtype.bits == index.dtype.bits, "type mismatch between index and queries");
 
     if (queries.dtype.code == kDLFloat && queries.dtype.bits == 32) {
       _search<float>(
@@ -2298,35 +2318,6 @@ extern "C" cuvsError_t cuvsCagraMergeParamsCreate(cuvsCagraMergeParams_t* params
 extern "C" cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params)
 {
   return cuvs::core::translate_exceptions([=] { delete params; });
-}
-
-extern "C" cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* params)
-{
-  return cuvs::core::translate_exceptions([=] {
-    auto ps = cuvs::neighbors::vpq_params();
-    *params =
-      new cuvsCagraCompressionParams{.pq_bits                     = ps.pq_bits,
-                                     .pq_dim                      = ps.pq_dim,
-                                     .vq_n_centers                = ps.vq_n_centers,
-                                     .kmeans_n_iters              = ps.kmeans_n_iters,
-                                     .vq_kmeans_trainset_fraction = ps.vq_kmeans_trainset_fraction,
-                                     .pq_kmeans_trainset_fraction = ps.pq_kmeans_trainset_fraction};
-  });
-}
-
-extern "C" cuvsError_t cuvsCagraCompressionParamsDestroy(cuvsCagraCompressionParams_t params)
-{
-  return cuvs::core::translate_exceptions([=] { delete params; });
-}
-
-extern "C" cuvsError_t cuvsPqParamsCreate(cuvsPqParams_t* params)
-{
-  return cuvsCagraCompressionParamsCreate(params);
-}
-
-extern "C" cuvsError_t cuvsPqParamsDestroy(cuvsPqParams_t params)
-{
-  return cuvsCagraCompressionParamsDestroy(params);
 }
 
 extern "C" cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t* params)

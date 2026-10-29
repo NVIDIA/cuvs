@@ -74,7 +74,7 @@ where
 D: CuvsDataset + ?Sized,
 ```
 
-Attach a device-padded dataset and return a search-ready index borrowing it.
+Attach a device-padded or device PQ dataset and return a search-ready index borrowing it.
 
 _Source: `rust/cuvs/src/neighbors/cagra/index.rs:105`_
 
@@ -282,7 +282,7 @@ where
 T: CuvsDataset + ?Sized,
 ```
 
-Replace the deserialized storage with a caller-owned device-padded view.
+Replace the deserialized storage with a caller-owned device-padded or PQ view.
 
 _Source: `rust/cuvs/src/neighbors/cagra/index.rs:279`_
 

@@ -50,22 +50,7 @@ typedef struct {
 } cuvsDataset;
 typedef cuvsDataset* cuvsDataset_t;
 
-struct cuvsCagraCompressionParams;
-typedef struct cuvsCagraCompressionParams cuvsPqParams;
-typedef cuvsPqParams* cuvsPqParams_t;
-
-/**
- * @brief Compatibility name for PQ dataset parameters; planned for removal in the 27.02 ABI-breaking release.
- *
- * Use `cuvsPqParams_t` in new code.
- */
-typedef struct cuvsCagraCompressionParams* cuvsCagraCompressionParams_t;
-
-/** Allocate generic PQ dataset parameters with default values. */
-CUVS_EXPORT cuvsError_t cuvsPqParamsCreate(cuvsPqParams_t* params);
-
-/** De-allocate generic PQ dataset parameters. */
-CUVS_EXPORT cuvsError_t cuvsPqParamsDestroy(cuvsPqParams_t params);
+typedef struct cuvsProductQuantizerParams* cuvsProductQuantizerParams_t;
 
 /**
  * @brief Create an empty owning dataset handle.
@@ -92,17 +77,6 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakePadded(cuvsResources_t res,
                                               cuvsDataset_t* padded_dataset);
 
 /**
- * @brief Compress a dense dataset into a device PQ dataset.
- *
- * Only device output is currently supported.
- */
-CUVS_EXPORT cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
-                                          cuvsPqParams_t params,
-                                          cuvsDataset_t dataset,
-                                          cuvsDatasetMemType_t target_mem_type,
-                                          cuvsDataset_t* pq_dataset);
-
-/**
  * @brief Create a non-owning padded dataset view from a host- or device-resident tensor.
  *
  * Memory residency is inferred from the tensor.
@@ -119,6 +93,27 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakePaddedView(cuvsResources_t res,
 CUVS_EXPORT cuvsError_t cuvsDatasetMakeStandardView(cuvsResources_t res,
                                                     DLManagedTensor* dataset,
                                                     cuvsDataset_t* standard_dataset);
+
+/**
+ * @brief Train an owning device PQ dataset (CAGRA-Q) from a dense source dataset.
+ *
+ * The source may have STANDARD or PADDED layout and may reside in host or device memory. The PQ
+ * dataset is always allocated on the device. Host sources are subsampled for training and encoded
+ * in bounded batches, so they are never staged on the device in full; a host source must be
+ * tightly packed (row stride equal to the dimension). Supported element types are float32,
+ * float16, int8 and uint8.
+ *
+ * @param[in] res cuVS resources
+ * @param[in] source_dataset standard or padded dataset (owning or view), on host or device
+ * @param[in] params product quantizer parameters; NULL selects defaults (VQ with a heuristic
+ * number of centers). CAGRA-Q requires subspace product quantization (`use_subspaces = true`).
+ * @param[out] pq_dataset newly allocated owning PQ dataset handle
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsDatasetMakePq(cuvsResources_t res,
+                                          cuvsDataset_t source_dataset,
+                                          cuvsProductQuantizerParams_t params,
+                                          cuvsDataset_t* pq_dataset);
 
 /** @brief Destroy a dataset handle created by a `cuvsDatasetMake*` function. */
 CUVS_EXPORT cuvsError_t cuvsDatasetDestroy(cuvsDataset_t dataset);

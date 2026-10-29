@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "detail/cagra/update_dataset.cuh"
 #include "detail/tiered_index.cuh"
 
 #include <cuvs/neighbors/tiered_index.hpp>
@@ -99,7 +100,7 @@ auto convert_standard_to_padded_index(
       static_cast<int64_t>(idx.state->ann_rows()),
       padded_dataset.dim(),
       padded_mds.stride(0));
-    auto ann_padded_idx = cuvs::neighbors::cagra::convert_standard_to_padded_index(
+    auto ann_padded_idx = cuvs::neighbors::cagra::detail::convert_standard_to_padded_index(
       res, *idx.state->ann_index, ann_padded_view);
     next_state->ann_index =
       std::make_shared<cuvs::neighbors::cagra::device_padded_index<float, uint32_t>>(

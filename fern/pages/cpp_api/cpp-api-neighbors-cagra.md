@@ -31,24 +31,32 @@ enum class search_algo {
 | `MULTI_KERNEL` | `2` |
 | `AUTO` | `100` |
 
-## CAGRA index build parameters
+## Types
 
-<a id="neighbors-vpq-params"></a>
-### neighbors::vpq_params
+<a id="neighbors-graph-build-params-iterative-search-params"></a>
+### neighbors::graph_build_params::iterative_search_params
 
-Parameters for VPQ compression.
+Parameters for the iterative CAGRA graph build algorithm.
+
+Inherits from cagra::search_params so that all search tuning knobs (search_width, max_iterations, itopk_size, etc.) are available for controlling the search-and-optimize loop during graph construction. The defaults are tuned for the build loop (e.g. search_width=1, max_iterations=8) and may differ from the regular search defaults.
 
 ```cpp
-struct vpq_params {
-  uint32_t pq_bits;
-  uint32_t pq_dim;
-  uint32_t vq_n_centers;
-  uint32_t kmeans_n_iters;
-  double vq_kmeans_trainset_fraction;
-  double pq_kmeans_trainset_fraction;
-  cuvs::cluster::kmeans::kmeans_type pq_kmeans_type;
-  uint32_t max_train_points_per_pq_code;
-  uint32_t max_train_points_per_vq_cluster;
+struct iterative_search_params;
+```
+
+<a id="neighbors-graph-build-params-ace-params"></a>
+### neighbors::graph_build_params::ace_params
+
+Specialized parameters for ACE (Augmented Core Extraction) graph build
+
+```cpp
+struct ace_params {
+  size_t npartitions;
+  size_t ef_construction;
+  std::string build_dir;
+  bool use_disk;
+  double max_host_memory_gb;
+  double max_gpu_memory_gb;
 };
 ```
 
@@ -56,15 +64,14 @@ struct vpq_params {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `pq_bits` | `uint32_t` | The bit length of the vector element after compression by PQ.<br /><br />Possible values: [4, 5, 6, 7, 8].<br /><br />Hint: the smaller the 'pq_bits', the smaller the index size and the better the search performance, but the lower the recall. |
-| `pq_dim` | `uint32_t` | The dimensionality of the vector after compression by PQ. When zero, an optimal value is selected using a heuristic.<br /><br />TODO: at the moment `dim` must be a multiple `pq_dim`. |
-| `vq_n_centers` | `uint32_t` | Vector Quantization (VQ) codebook size - number of "coarse cluster centers". When zero, an optimal value is selected using a heuristic. |
-| `kmeans_n_iters` | `uint32_t` | The number of iterations searching for kmeans centers (both VQ & PQ phases). |
-| `vq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (VQ phase). When zero, an optimal value is selected using a heuristic. |
-| `pq_kmeans_trainset_fraction` | `double` | The fraction of data to use during iterative kmeans building (PQ phase). When zero, an optimal value is selected using a heuristic. |
-| `pq_kmeans_type` | [`cuvs::cluster::kmeans::kmeans_type`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-kmeans-type) | Type of k-means algorithm for PQ training. Balanced k-means tends to be faster than regular k-means for PQ training, for problem sets where the number of points per cluster are approximately equal. Regular k-means may be better for skewed cluster distributions. |
-| `max_train_points_per_pq_code` | `uint32_t` | The max number of data points to use per PQ code during PQ codebook training. Using more data points per PQ code may increase the quality of PQ codebook but may also increase the build time. We will use `pq_n_centers * max_train_points_per_pq_code` training points to train each PQ codebook. |
-| `max_train_points_per_vq_cluster` | `uint32_t` | The max number of data points to use per VQ cluster during training. |
+| `npartitions` | `size_t` | Number of partitions for ACE (Augmented Core Extraction) partitioned build.<br /><br />When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
+| `ef_construction` | `size_t` | The index quality for the ACE build.<br /><br />Bigger values increase the index quality. At some point, increasing this will no longer improve the quality. |
+| `build_dir` | `std::string` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).<br /><br />Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. The directory may already exist, but ACE's named artifacts must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only artifacts it created and never deletes unrelated directory contents. |
+| `use_disk` | `bool` | Whether to use disk-based storage for ACE build.<br /><br />When true, enables disk-based operations for memory-efficient graph construction. |
+| `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available host memory. When set to a positive value, limits host memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
+| `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available GPU memory. When set to a positive value, limits GPU memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
+
+## CAGRA index build parameters
 
 <a id="graph-build-params-t"></a>
 ### graph_build_params_t
@@ -191,46 +198,6 @@ Usage example:
 **Returns**
 
 `static cagra::index_params`
-
-## Types
-
-<a id="neighbors-graph-build-params-iterative-search-params"></a>
-### neighbors::graph_build_params::iterative_search_params
-
-Parameters for the iterative CAGRA graph build algorithm.
-
-Inherits from cagra::search_params so that all search tuning knobs (search_width, max_iterations, itopk_size, etc.) are available for controlling the search-and-optimize loop during graph construction. The defaults are tuned for the build loop (e.g. search_width=1, max_iterations=8) and may differ from the regular search defaults.
-
-```cpp
-struct iterative_search_params;
-```
-
-<a id="neighbors-graph-build-params-ace-params"></a>
-### neighbors::graph_build_params::ace_params
-
-Specialized parameters for ACE (Augmented Core Extraction) graph build
-
-```cpp
-struct ace_params {
-  size_t npartitions;
-  size_t ef_construction;
-  std::string build_dir;
-  bool use_disk;
-  double max_host_memory_gb;
-  double max_gpu_memory_gb;
-};
-```
-
-**Fields**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `npartitions` | `size_t` | Number of partitions for ACE (Augmented Core Extraction) partitioned build.<br /><br />When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
-| `ef_construction` | `size_t` | The index quality for the ACE build.<br /><br />Bigger values increase the index quality. At some point, increasing this will no longer improve the quality. |
-| `build_dir` | `std::string` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).<br /><br />Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. The directory may already exist, but ACE's named artifacts must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only artifacts it created and never deletes unrelated directory contents. |
-| `use_disk` | `bool` | Whether to use disk-based storage for ACE build.<br /><br />When true, enables disk-based operations for memory-efficient graph construction. |
-| `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available host memory. When set to a positive value, limits host memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
-| `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available GPU memory. When set to a positive value, limits GPU memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
 
 ## CAGRA index extend parameters
 

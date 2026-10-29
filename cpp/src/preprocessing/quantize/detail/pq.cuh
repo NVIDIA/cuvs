@@ -34,42 +34,11 @@ inline bool is_balanced_kmeans(const cuvs::preprocessing::quantize::pq::params& 
   return std::holds_alternative<cuvs::cluster::kmeans::balanced_params>(params.kmeans_params);
 }
 
-inline uint32_t get_kmeans_n_iters(const cuvs::preprocessing::quantize::pq::params& params)
-{
-  return std::visit(
-    [](const auto& kp) -> uint32_t {
-      using kmeans_type = std::decay_t<decltype(kp)>;
-      if constexpr (std::is_same_v<kmeans_type, cuvs::cluster::kmeans::balanced_params>) {
-        return kp.n_iters;
-      } else {
-        return static_cast<uint32_t>(kp.max_iter);
-      }
-    },
-    params.kmeans_params);
-}
-
 inline cuvs::distance::DistanceType get_kmeans_metric(
   const cuvs::preprocessing::quantize::pq::params& params)
 {
   return std::visit([](const auto& kp) -> cuvs::distance::DistanceType { return kp.metric; },
                     params.kmeans_params);
-}
-
-inline auto to_vpq_params(const cuvs::preprocessing::quantize::pq::params& params)
-  -> cuvs::neighbors::vpq_params
-{
-  auto kmeans_type = is_balanced_kmeans(params) ? cuvs::cluster::kmeans::kmeans_type::KMeansBalanced
-                                                : cuvs::cluster::kmeans::kmeans_type::KMeans;
-  return cuvs::neighbors::vpq_params{
-    .pq_bits                         = params.pq_bits,
-    .pq_dim                          = params.pq_dim,
-    .vq_n_centers                    = params.vq_n_centers,
-    .kmeans_n_iters                  = get_kmeans_n_iters(params),
-    .vq_kmeans_trainset_fraction     = 1.0,
-    .pq_kmeans_trainset_fraction     = 1.0,
-    .pq_kmeans_type                  = kmeans_type,
-    .max_train_points_per_pq_code    = params.max_train_points_per_pq_code,
-    .max_train_points_per_vq_cluster = params.max_train_points_per_vq_cluster};
 }
 
 template <typename MathT, typename DatasetT>
@@ -178,10 +147,9 @@ quantizer<MathT> build(
     params.kmeans_params);
   auto filled_params = params;
   fill_missing_params_heuristics(filled_params, n_rows, dim);
-  auto vpq_params   = to_vpq_params(filled_params);
   auto vq_code_book = raft::make_device_matrix<MathT, uint32_t, raft::row_major>(res, 0, 0);
   if (filled_params.use_vq) {
-    vq_code_book = cuvs::neighbors::detail::train_vq<MathT>(res, vpq_params, dataset);
+    vq_code_book = cuvs::neighbors::detail::train_vq<MathT>(res, filled_params, dataset);
   }
   auto empty_codes  = raft::make_device_matrix<uint8_t, int64_t, raft::row_major>(res, 0, 0);
   auto pq_code_book = raft::make_device_matrix<MathT, uint32_t, raft::row_major>(res, 0, 0);
@@ -224,7 +192,7 @@ void transform(
   if (quantizer.params_quantizer.use_subspaces) {
     cuvs::neighbors::detail::process_and_fill_codes_subspaces<T, int64_t>(
       res,
-      to_vpq_params(quantizer.params_quantizer),
+      quantizer.params_quantizer,
       dataset,
       quantizer.vpq_codebooks.const_manifest_view().pq_code_book,
       vq_centers,
@@ -233,7 +201,7 @@ void transform(
   } else {
     cuvs::neighbors::detail::process_and_fill_codes<T, int64_t>(
       res,
-      to_vpq_params(quantizer.params_quantizer),
+      quantizer.params_quantizer,
       dataset,
       quantizer.vpq_codebooks.const_manifest_view().pq_code_book,
       vq_centers,
@@ -366,45 +334,23 @@ void inverse_transform(
                                             quant.params_quantizer.use_subspaces);
 }
 
-inline auto make_pq_params_from_vpq(const cuvs::neighbors::vpq_params& in_params,
-                                    const uint64_t n_rows)
-  -> cuvs::preprocessing::quantize::pq::params
-{
-  const uint32_t pq_n_centers              = 1 << in_params.pq_bits;
-  uint32_t max_train_points_per_vq_cluster = in_params.max_train_points_per_vq_cluster;
-  if (in_params.vq_n_centers > 0) {
-    max_train_points_per_vq_cluster =
-      std::min<uint32_t>(max_train_points_per_vq_cluster,
-                         n_rows * in_params.vq_kmeans_trainset_fraction / in_params.vq_n_centers);
-  }
-  return cuvs::preprocessing::quantize::pq::params{
-    in_params.pq_bits,
-    in_params.pq_dim,
-    true,
-    true,
-    in_params.vq_n_centers,
-    in_params.kmeans_n_iters,
-    in_params.pq_kmeans_type,
-    std::min<uint32_t>(in_params.max_train_points_per_pq_code,
-                       n_rows * in_params.pq_kmeans_trainset_fraction / pq_n_centers),
-    max_train_points_per_vq_cluster};
-}
-
 // The codebooks are trained in `MathT` and stored in `StoreMathT`.
 template <typename DatasetT, typename MathT, typename IdxT, typename StoreMathT = MathT>
 auto vpq_build(const raft::resources& res,
-               const cuvs::neighbors::vpq_params& params,
+               const cuvs::preprocessing::quantize::pq::params& params,
                const DatasetT& dataset) -> cuvs::neighbors::device_vpq_dataset<StoreMathT, IdxT>
 {
   using label_t = uint32_t;
+  auto ps       = params;
+  // The VPQ layout always carries a VQ codebook; without VQ it degenerates to a single center.
+  if (!ps.use_vq) { ps.vq_n_centers = 1; }
   // Use a heuristic to impute missing parameters.
-  auto ps = cuvs::neighbors::detail::fill_missing_params_heuristics(params, dataset);
+  fill_missing_params_heuristics(ps, dataset.extent(0), dataset.extent(1));
 
-  auto pq_params = make_pq_params_from_vpq(ps, dataset.extent(0));
   // Train codes
   auto vq_code_book = cuvs::neighbors::detail::train_vq<MathT>(res, ps, dataset);
   auto pq_code_book = cuvs::neighbors::detail::train_pq<MathT>(
-    res, pq_params, dataset, raft::make_const_mdspan(vq_code_book.view()));
+    res, ps, dataset, raft::make_const_mdspan(vq_code_book.view()));
 
   // Encode dataset
   const IdxT n_rows       = dataset.extent(0);
@@ -441,7 +387,7 @@ auto vpq_build(const raft::resources& res,
 
 template <typename DatasetT>
 auto vpq_build_half(const raft::resources& res,
-                    const cuvs::neighbors::vpq_params& params,
+                    const cuvs::preprocessing::quantize::pq::params& params,
                     const DatasetT& dataset) -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
 {
   return vpq_build<decltype(dataset), float, int64_t, half>(res, params, dataset);

@@ -7,27 +7,24 @@ import numpy as np
 import pytest
 from pylibraft.common import device_ndarray
 
+from cuvs.common import make_device_pq_dataset
 from cuvs.preprocessing.quantize import pq
 from cuvs.neighbors import brute_force
 from cuvs.tests.ann_utils import calc_recall, generate_data
 
 
-def test_pq_dataset_params():
-    params = pq.PQDatasetParams(
-        pq_bits=7,
-        pq_dim=16,
-        vq_n_centers=32,
-        kmeans_n_iters=10,
-        vq_kmeans_trainset_fraction=0.25,
-        pq_kmeans_trainset_fraction=0.5,
-    )
+def test_make_device_pq_dataset():
+    n_rows, n_cols = 256, 32
+    dataset = generate_data((n_rows, n_cols), np.float32)
 
-    assert params.pq_bits == 7
-    assert params.pq_dim == 16
-    assert params.vq_n_centers == 32
-    assert params.kmeans_n_iters == 10
-    assert params.vq_kmeans_trainset_fraction == 0.25
-    assert params.pq_kmeans_trainset_fraction == 0.5
+    params = pq.QuantizerParams(
+        pq_bits=8, pq_dim=8, use_subspaces=True, use_vq=True, vq_n_centers=16
+    )
+    pq_dataset = make_device_pq_dataset(params, device_ndarray(dataset))
+
+    assert pq_dataset.layout == "pq"
+    assert pq_dataset.memory_type == "device"
+    assert pq_dataset.is_owning is True
 
 
 @pytest.mark.parametrize("n_rows", [700, 1000])
