@@ -422,8 +422,6 @@ void parse_build_param(const nlohmann::json& conf,
     std::string mt = conf.at("merge_type");
     if (mt == "PHYSICAL") {
       param.merge_type = cuvs::bench::CagraMergeType::kPhysical;
-    } else if (mt == "LOGICAL") {
-      param.merge_type = cuvs::bench::CagraMergeType::kLogical;
     } else {
       throw std::runtime_error("invalid value for merge_type");
     }
