@@ -85,6 +85,7 @@ option(CUVS_COMPILE_DYNAMIC_ONLY "Only build the shared library and skip the sta
 option(CUVS_NVTX "Enable nvtx markers" OFF)
 option(CUVS_RAFT_CLONE_ON_PIN "Explicitly clone RAFT branch when pinned to non-feature branch" ON)
 option(CUVS_ENABLE_FLOWANN_SEARCH "Enable experimental FlowANN tiered-graph search" OFF)
+option(CUVS_FLOWANN_USE_GDRCOPY "Use GDRCopy for FlowANN GPU-to-CPU command queues" ON)
 
 if(CUVS_ENABLE_FLOWANN_SEARCH AND BUILD_CPU_ONLY)
   message(FATAL_ERROR "CUVS_ENABLE_FLOWANN_SEARCH requires a CUDA-enabled build")
@@ -131,6 +132,7 @@ message(VERBOSE "cuVS: Build CPU only components: ${BUILD_CPU_ONLY}")
 message(VERBOSE "cuVS: Build ANN benchmarks: ${BUILD_CUVS_BENCH}")
 message(VERBOSE "cuVS: Build only the shared library: ${CUVS_COMPILE_DYNAMIC_ONLY}")
 message(VERBOSE "cuVS: Enable FlowANN tiered-graph search: ${CUVS_ENABLE_FLOWANN_SEARCH}")
+message(VERBOSE "cuVS: Use GDRCopy for FlowANN queues: ${CUVS_FLOWANN_USE_GDRCOPY}")
 message(VERBOSE "cuVS: Enable detection of conda environment for dependencies: ${DETECT_CONDA_ENV}")
 message(VERBOSE "cuVS: Disable deprecation warnings " ${DISABLE_DEPRECATION_WARNINGS})
 message(VERBOSE "cuVS: Disable OpenMP: ${DISABLE_OPENMP}")
@@ -174,6 +176,21 @@ if(NOT BUILD_CPU_ONLY)
     INSTALL_EXPORT_SET cuvs-exports
   )
 
+  if(CUVS_ENABLE_FLOWANN_SEARCH AND CUVS_FLOWANN_USE_GDRCOPY)
+    rapids_find_generate_module(
+      GDRCopy
+      HEADER_NAMES gdrapi.h
+      LIBRARY_NAMES gdrapi
+      BUILD_EXPORT_SET cuvs-exports
+      INSTALL_EXPORT_SET cuvs-exports
+    )
+    rapids_find_package(
+      GDRCopy REQUIRED
+      BUILD_EXPORT_SET cuvs-exports
+      INSTALL_EXPORT_SET cuvs-exports
+    )
+    set(CUVS_FLOWANN_GDRCOPY_DEPENDENCIES GDRCopy::GDRCopy CUDA::cuda_driver)
+  endif()
 else()
   add_compile_definitions(BUILD_CPU_ONLY)
 endif()
@@ -1602,6 +1619,11 @@ if(NOT BUILD_CPU_ONLY)
             "$<$<AND:$<COMPILE_LANGUAGE:CUDA>,$<CONFIG:Debug>>:${CUVS_DEBUG_CUDA_FLAGS}>"
   )
 
+  target_compile_definitions(
+    cuvs_objs
+    PRIVATE
+      $<$<AND:$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>,$<BOOL:${CUVS_FLOWANN_USE_GDRCOPY}>>:CUVS_FLOWANN_USE_GDRCOPY>
+  )
 
   target_compile_definitions(
     cuvs_objs
@@ -1619,6 +1641,7 @@ if(NOT BUILD_CPU_ONLY)
             nvidia::cutlass::cutlass
             rtcx::rtcx
             ${CUVS_CTK_MATH_DEPENDENCIES}
+            ${CUVS_FLOWANN_GDRCOPY_DEPENDENCIES}
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
             $<TARGET_NAME_IF_EXISTS:hnswlib::hnswlib>
             kvikio::kvikio
@@ -1705,10 +1728,18 @@ if(NOT BUILD_CPU_ONLY)
               CUDA::nvrtc
               rtcx::rtcx
               kvikio::kvikio
+              ${CUVS_FLOWANN_GDRCOPY_DEPENDENCIES}
       INTERFACE $<LINK_ONLY:kvikio::kvikio>
     )
     if(CUVS_ENABLE_FLOWANN_SEARCH)
       target_link_libraries(cuvs INTERFACE $<LINK_ONLY:$<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>>)
+    endif()
+    if(CUVS_ENABLE_FLOWANN_SEARCH AND CUVS_FLOWANN_USE_GDRCOPY)
+      # Consumers must resolve this runtime dependency even when it is installed outside the
+      # linker's default search paths. Its headers remain private to the queue implementation.
+      target_link_libraries(
+        cuvs INTERFACE $<LINK_ONLY:GDRCopy::GDRCopy> $<LINK_ONLY:CUDA::cuda_driver>
+      )
     endif()
 
   endif()
@@ -1754,6 +1785,7 @@ if(NOT BUILD_CPU_ONLY)
               CUDA::nvJitLink
               CUDA::nvrtc
               rtcx::rtcx
+              ${CUVS_FLOWANN_GDRCOPY_DEPENDENCIES}
               $<$<BOOL:${CUVS_NVTX}>:CUDA::nvtx3>
               $<COMPILE_ONLY:nvidia::cutlass::cutlass>
               $<COMPILE_ONLY:cuco::cuco>

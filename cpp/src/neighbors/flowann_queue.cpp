@@ -14,6 +14,11 @@
 #include <raft/core/logger.hpp>
 #include <raft/util/cudart_utils.hpp>
 
+#ifdef CUVS_FLOWANN_USE_GDRCOPY
+#include <cuda.h>
+#include <gdrapi.h>
+#endif
+
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
@@ -135,6 +140,7 @@ class cuda_stream {
   cudaStream_t stream_{};
 };
 
+#ifndef CUVS_FLOWANN_USE_GDRCOPY
 class cuda_host_buffer {
  public:
   cuda_host_buffer()                                           = default;
@@ -163,6 +169,94 @@ class cuda_host_buffer {
   void* ptr_{};
   std::size_t size_{};
 };
+#endif
+
+#ifdef CUVS_FLOWANN_USE_GDRCOPY
+class gdrcopy_mapping {
+ public:
+  gdrcopy_mapping(void* device_ptr, std::size_t size) : size_(size)
+  {
+    try {
+      unsigned int sync_memops = 1;
+      RAFT_EXPECTS(cuPointerSetAttribute(&sync_memops,
+                                         CU_POINTER_ATTRIBUTE_SYNC_MEMOPS,
+                                         reinterpret_cast<CUdeviceptr>(device_ptr)) == CUDA_SUCCESS,
+                   "Failed to enable synchronous memory operations for a FlowANN GDRCopy queue");
+
+      handle_ = gdr_open();
+      RAFT_EXPECTS(handle_ != nullptr,
+                   "Failed to open GDRCopy; ensure the gdrdrv kernel module is loaded");
+      RAFT_EXPECTS(
+        gdr_pin_buffer(
+          handle_, reinterpret_cast<std::uintptr_t>(device_ptr), size_, 0, 0, &memory_handle_) == 0,
+        "Failed to pin a FlowANN queue with GDRCopy");
+      pinned_ = true;
+      RAFT_EXPECTS(gdr_map(handle_, memory_handle_, &mapped_base_, size_) == 0,
+                   "Failed to map a FlowANN queue with GDRCopy");
+      mapped_ = true;
+
+      gdr_info_t info{};
+      RAFT_EXPECTS(gdr_get_info(handle_, memory_handle_, &info) == 0,
+                   "Failed to query a FlowANN GDRCopy mapping");
+      auto const device_address = reinterpret_cast<std::uintptr_t>(device_ptr);
+      RAFT_EXPECTS(device_address >= info.va,
+                   "GDRCopy returned an invalid FlowANN mapping address");
+      auto const offset = device_address - info.va;
+      RAFT_EXPECTS(offset <= size_, "GDRCopy returned an invalid FlowANN mapping offset");
+      mapped_device_ptr_ = static_cast<std::byte*>(mapped_base_) + offset;
+    } catch (...) {
+      reset();
+      throw;
+    }
+  }
+
+  gdrcopy_mapping(gdrcopy_mapping const&)                    = delete;
+  auto operator=(gdrcopy_mapping const&) -> gdrcopy_mapping& = delete;
+
+  ~gdrcopy_mapping() { reset(); }
+
+  void read(void* dst, std::size_t offset, std::size_t size)
+  {
+    RAFT_EXPECTS(offset <= size_ && size <= size_ - offset,
+                 "FlowANN GDRCopy read exceeds its queue mapping");
+    RAFT_EXPECTS(gdr_copy_from_mapping(memory_handle_, dst, mapped_device_ptr_ + offset, size) == 0,
+                 "Failed to read a FlowANN GDRCopy queue");
+  }
+
+  void write(std::size_t offset, void const* src, std::size_t size)
+  {
+    RAFT_EXPECTS(offset <= size_ && size <= size_ - offset,
+                 "FlowANN GDRCopy write exceeds its queue mapping");
+    RAFT_EXPECTS(gdr_copy_to_mapping(memory_handle_, mapped_device_ptr_ + offset, src, size) == 0,
+                 "Failed to write a FlowANN GDRCopy queue");
+  }
+
+ private:
+  void reset() noexcept
+  {
+    if (mapped_) {
+      static_cast<void>(gdr_unmap(handle_, memory_handle_, mapped_base_, size_));
+      mapped_ = false;
+    }
+    if (pinned_) {
+      static_cast<void>(gdr_unpin_buffer(handle_, memory_handle_));
+      pinned_ = false;
+    }
+    if (handle_ != nullptr) {
+      static_cast<void>(gdr_close(handle_));
+      handle_ = nullptr;
+    }
+  }
+
+  gdr_t handle_{};
+  gdr_mh_t memory_handle_{};
+  void* mapped_base_{};
+  std::byte* mapped_device_ptr_{};
+  std::size_t size_{};
+  bool pinned_{};
+  bool mapped_{};
+};
+#endif
 
 #if defined(__linux__)
 auto read_topology_value(int cpu, char const* name) -> int
@@ -240,7 +334,14 @@ class host_queue {
       result_sequence_staging_(max_batch_size),
       row_staging_(static_cast<std::size_t>(max_batch_size) * row_length)
   {
+#ifdef CUVS_FLOWANN_USE_GDRCOPY
+    // gdrdrv rejects mappings whose device address is not aligned to its 64 KiB GPU page.
+    // cudaMalloc can return a suballocation after the graph build, so align within an owning
+    // allocation instead of relying on cudaMalloc's current address.
+    storage_.allocate(layout_.total_size, 64u * 1024u);
+#else
     storage_.allocate(layout_.total_size);
+#endif
     RAFT_CUDA_TRY(cudaMemset(storage_.get(), 0, layout_.total_size));
 
     detail::queue_state state{};
@@ -258,12 +359,16 @@ class host_queue {
     view_.released_sequence =
       add_bytes<unsigned long long>(storage_.get(), layout_.released_sequence);
 
+#ifdef CUVS_FLOWANN_USE_GDRCOPY
+    gdrcopy_.emplace(storage_.get(), layout_.total_size);
+#else
     copy_stream_.create();
     // Pageable copies may synchronize inside the driver and contend with lazy
     // kernel initialization. Allocate once, before starting any pollers, and
     // use pinned memory for every transfer on the nonblocking copy stream.
     copy_staging_.allocate(std::max(row_staging_.size() * sizeof(std::uint32_t),
                                     command_staging_.size() * sizeof(unsigned long long)));
+#endif
   }
 
   host_queue(host_queue const&)                    = delete;
@@ -374,6 +479,9 @@ class host_queue {
 
   void read(void* dst, std::size_t offset, std::size_t size)
   {
+#ifdef CUVS_FLOWANN_USE_GDRCOPY
+    gdrcopy_->read(dst, offset, size);
+#else
     auto* staging = copy_staging_.get(size);
     RAFT_CUDA_TRY(cudaMemcpyAsync(staging,
                                   add_bytes<void>(storage_.get(), offset),
@@ -382,10 +490,14 @@ class host_queue {
                                   copy_stream_.get()));
     RAFT_CUDA_TRY(cudaStreamSynchronize(copy_stream_.get()));
     std::memcpy(dst, staging, size);
+#endif
   }
 
   void write(std::size_t offset, void const* src, std::size_t size)
   {
+#ifdef CUVS_FLOWANN_USE_GDRCOPY
+    gdrcopy_->write(offset, src, size);
+#else
     auto* staging = copy_staging_.get(size);
     std::memcpy(staging, src, size);
     RAFT_CUDA_TRY(cudaMemcpyAsync(add_bytes<void>(storage_.get(), offset),
@@ -394,6 +506,7 @@ class host_queue {
                                   cudaMemcpyHostToDevice,
                                   copy_stream_.get()));
     RAFT_CUDA_TRY(cudaStreamSynchronize(copy_stream_.get()));
+#endif
   }
 
   std::uint32_t const* cross_graph_;
@@ -411,8 +524,12 @@ class host_queue {
   std::vector<unsigned long long> command_staging_;
   std::vector<unsigned long long> result_sequence_staging_;
   std::vector<std::uint32_t> row_staging_;
+#ifdef CUVS_FLOWANN_USE_GDRCOPY
+  std::optional<gdrcopy_mapping> gdrcopy_;
+#else
   cuda_stream copy_stream_;
   cuda_host_buffer copy_staging_;
+#endif
 };
 
 }  // namespace
