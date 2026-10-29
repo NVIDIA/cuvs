@@ -1118,6 +1118,10 @@ void _serialize(cuvsResources_t res, const char *filename,
                       : "cuvsCagraSerializeGraph: null index handle";
   with_index_by_layout<T, uint32_t,
                        true>(box, null_handle_err, "", [&](auto &idx) {
+    bool const tiered = idx.graph_storage() ==
+                        cuvs::neighbors::cagra::graph_storage_kind::tiered;
+    RAFT_EXPECTS(!tiered || include_dataset,
+                 "Tiered serialization requires its dataset");
     using index_dataset_view_t = std::remove_cvref_t<decltype(idx.dataset())>;
     if constexpr (cuvs::neighbors::is_bbq_dataset_view_v<index_dataset_view_t>) {
       RAFT_EXPECTS(!include_dataset,
@@ -1125,7 +1129,7 @@ void _serialize(cuvsResources_t res, const char *filename,
       cuvs::neighbors::cagra::serialize(*res_ptr, std::string(filename), idx);
     } else if constexpr (cuvs::neighbors::is_vpq_dataset_view_v<index_dataset_view_t>) {
       RAFT_EXPECTS(
-        !include_dataset,
+        !include_dataset || tiered,
         "cuvsCagraSerializeGraphAndDataset is not supported for PQ indices; serialize the PQ "
         "dataset separately");
       cuvs::neighbors::cagra::serialize(*res_ptr, std::string(filename), idx);
@@ -1144,6 +1148,7 @@ void _serialize(cuvsResources_t res, const char *filename,
 struct serialized_cagra_header {
   DLDataType dtype;
   cuvs::neighbors::cagra::serialized_dataset_kind dataset_kind;
+  bool tiered_pq = false;
 };
 
 static auto read_serialized_header(cuvsResources_t res, const char *filename)
@@ -1157,6 +1162,14 @@ static auto read_serialized_header(cuvsResources_t res, const char *filename)
   char dtype_string[4]{};
   if (!is.read(dtype_string, sizeof(dtype_string))) {
     RAFT_FAIL("Invalid or truncated index header in file %s", filename);
+  }
+
+  bool const tiered = std::memcmp(dtype_string, "CTIR", 4) == 0;
+  if (tiered) {
+    auto version = raft::deserialize_scalar<uint32_t>(*res_ptr, is);
+    RAFT_EXPECTS(version == 1, "Unsupported CAGRA tiered envelope version");
+    RAFT_EXPECTS(is.read(dtype_string, 4),
+                 "Truncated CAGRA tiered dtype header");
   }
 
   auto const dtype = raft::numpy_serializer::parse_descr(
@@ -1178,6 +1191,14 @@ static auto read_serialized_header(cuvsResources_t res, const char *filename)
   auto const version = raft::deserialize_scalar<int>(*res_ptr, is);
   auto const dataset_kind_raw =
     raft::deserialize_scalar<std::uint32_t>(*res_ptr, is);
+  if (tiered) {
+    RAFT_EXPECTS(version == 2 &&
+                     (dataset_kind_raw == 1 || dataset_kind_raw == 2),
+                 "Unsupported tiered serialization header");
+    return {output_dtype,
+            cuvs::neighbors::cagra::serialized_dataset_kind::device_padded,
+            dataset_kind_raw == 2};
+  }
   RAFT_EXPECTS(
       version == cuvs::neighbors::cagra::cagra_serialization_version,
       "serialization version mismatch, expected %d, got %d",
@@ -1251,12 +1272,14 @@ void _deserialize(cuvsResources_t res, const char *filename,
 
   if (include_dataset) {
     RAFT_EXPECTS(
-        dataset_owner != nullptr,
+        dataset_owner != nullptr ||
+            holder->idx.graph_storage() ==
+                cuvs::neighbors::cagra::graph_storage_kind::tiered,
         "cuvsCagraDeserializeGraphAndDataset: serialized index has no dataset");
   }
 
   std::unique_ptr<cuvsDataset> dataset_handle{};
-  if (include_dataset) {
+  if (include_dataset && dataset_owner) {
     dataset_handle = std::make_unique<cuvsDataset>();
     dataset_handle->addr = reinterpret_cast<uintptr_t>(dataset_owner.get());
     dataset_handle->destroy_addr = &destroy_typed_addr<owner_dataset_t>;
@@ -1278,10 +1301,28 @@ void _deserialize(cuvsResources_t res, const char *filename,
   output_index->dtype = dtype;
   holder.release();
 
-  if (include_dataset) {
+  if (include_dataset && dataset_owner) {
     dataset_handle->addr = reinterpret_cast<uintptr_t>(dataset_owner.release());
     *out_dataset = dataset_handle.release();
   }
+  destroy_sg_cagra_c_api_box(old_addr);
+}
+
+template <typename T>
+void deserialize_tiered_pq(cuvsResources_t res, char const *filename,
+                           cuvsCagraIndex_t output, DLDataType dtype) {
+  using view_t = cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+  using holder_t = cuvs_cagra_c_api_index_lifetime_holder<T, view_t>;
+  auto &resources = *reinterpret_cast<raft::resources *>(res);
+  auto holder = std::make_unique<holder_t>(
+      cuvs::neighbors::cagra::device_pq_index<T>(resources));
+  cuvs::neighbors::cagra::deserialize(resources, std::string(filename),
+                                      &holder->idx);
+  auto box = make_sg_cagra_c_api_index_box<T, view_t>(holder.get());
+  auto old_addr = output->addr;
+  output->addr = reinterpret_cast<uintptr_t>(box.release());
+  output->dtype = dtype;
+  holder.release();
   destroy_sg_cagra_c_api_box(old_addr);
 }
 
@@ -1478,6 +1519,29 @@ void convert_c_index_params(cuvsCagraIndexParams params,
   out->metric                    = static_cast<cuvs::distance::DistanceType>((int)params.metric);
   out->intermediate_graph_degree = params.intermediate_graph_degree;
   out->graph_degree              = params.graph_degree;
+  RAFT_EXPECTS(params.graph_storage == CUVS_CAGRA_GRAPH_DEVICE ||
+                   params.graph_storage == CUVS_CAGRA_GRAPH_TIERED,
+               "Invalid CAGRA graph storage mode");
+  out->graph_storage = static_cast<graph_storage_kind>(params.graph_storage);
+  out->tiered.reset();
+  if (out->graph_storage == graph_storage_kind::tiered) {
+    out->tiered.emplace();
+    out->tiered->device_graph_budget_bytes =
+        params.tiered.device_graph_budget_bytes;
+    out->tiered->node_per_cacheline = params.tiered.node_per_cacheline;
+    out->tiered->grouping_enabled = params.tiered.grouping_enabled;
+    out->tiered->n_groups = params.tiered.n_groups;
+    out->tiered->n_bits = params.tiered.n_bits;
+    out->tiered->balance_tolerance = params.tiered.balance_tolerance;
+    out->tiered->training_rows = params.tiered.training_rows;
+    out->tiered->assignment_batch_rows = params.tiered.assignment_batch_rows;
+    out->tiered->kmeans_n_iters = params.tiered.kmeans_n_iters;
+    out->tiered->validate = params.tiered.validate;
+    out->tiered->num_seeds = params.tiered.num_seeds;
+    out->tiered->seed_training_rows = params.tiered.seed_training_rows;
+    out->tiered->seed = params.tiered.seed;
+  }
+
   _set_graph_build_params(out->graph_build_params, params, params.build_algo, n_rows, dim);
 
 }
@@ -1500,6 +1564,17 @@ void convert_c_search_params(cuvsCagraSearchParams params,
   out->persistent            = params.persistent;
   out->persistent_lifetime   = params.persistent_lifetime;
   out->persistent_device_usage = params.persistent_device_usage;
+  out->tiered.reset();
+  if (params.use_tiered_params) {
+    out->tiered.emplace();
+    out->tiered->num_seeds = params.tiered.num_seeds;
+    out->tiered->sync_window_scale = params.tiered.sync_window_scale;
+    out->tiered->sync_drop_threshold = params.tiered.sync_drop_threshold;
+    out->tiered->num_queues = params.tiered.num_queues;
+    out->tiered->empty_pause = params.tiered.empty_pause;
+    out->tiered->collect_statistics = params.tiered.collect_statistics;
+    out->tiered->keep_pollers_running = params.tiered.keep_pollers_running;
+  }
 }
 
 void* cagra_c_api_index_ptr(cuvsCagraIndex const* idx)
@@ -1546,6 +1621,22 @@ extern "C" cuvsError_t cuvsCagraIndexGetSize(cuvsCagraIndex_t index, int64_t* si
       "cuvsCagraIndexGetSize: null index handle",
       "cuvsCagraIndexGetSize: host indices are allowed",
       [&](auto& idx) { *size = idx.size(); });
+  });
+}
+
+extern "C" cuvsError_t
+cuvsCagraIndexGetGraphStorage(cuvsCagraIndex_t index,
+                              cuvsCagraGraphStorage *storage) {
+  return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(index && index->addr && storage,
+                 "cuvsCagraIndexGetGraphStorage: null argument");
+    auto *box = reinterpret_cast<sg_cagra_c_api_index_box *>(index->addr);
+    dispatch_serialized_dtype(index->dtype, [&]<typename T>() {
+      with_index_by_layout<T, uint32_t, true>(
+          box, "null index", "", [&](auto const &idx) {
+            *storage = static_cast<cuvsCagraGraphStorage>(idx.graph_storage());
+          });
+    });
   });
 }
 
@@ -2005,6 +2096,48 @@ extern "C" cuvsError_t cuvsCagraBuild(cuvsResources_t res,
   });
 }
 
+extern "C" cuvsError_t cuvsCagraBuildCompressed(cuvsResources_t res,
+                                                cuvsCagraIndexParams_t params,
+                                                cuvsPqParams_t compression,
+                                                cuvsDataset_t dataset,
+                                                cuvsCagraIndex_t index) {
+  return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res && params && compression && dataset && dataset->addr &&
+                     index,
+                 "cuvsCagraBuildCompressed: null argument");
+    RAFT_EXPECTS(dataset->mem_type == CUVS_DATASET_MEM_TYPE_HOST &&
+                     dataset->layout == CUVS_DATASET_LAYOUT_STANDARD,
+                 "Compressed tiered build requires host standard vectors");
+#ifdef CUVS_ENABLE_FLOWANN_BUILD
+    auto *resources = reinterpret_cast<raft::resources *>(res);
+    dispatch_serialized_dtype(dataset->dtype, [&]<typename T>() {
+      using view_t = cuvs::neighbors::host_standard_dataset_view<T, int64_t>;
+      using owner_t = cuvs::neighbors::host_standard_dataset<T, int64_t>;
+      using output_view_t =
+          cuvs::neighbors::device_vpq_dataset_view<half, int64_t>;
+      with_dataset_view<owner_t, view_t>(dataset, [&](auto const &view) {
+        cuvs::neighbors::cagra::index_params cpp_params;
+        convert_c_index_params(*params, view.n_rows(), view.dim(), &cpp_params);
+        auto result = cuvs::neighbors::cagra::build(
+            *resources, cpp_params, make_cpp_vpq_params(*compression), view);
+        using holder_t =
+            cuvs_cagra_c_api_index_lifetime_holder<T, output_view_t>;
+        auto holder = std::make_unique<holder_t>(std::move(result));
+        auto box =
+            make_sg_cagra_c_api_index_box<T, output_view_t>(holder.get());
+        auto old_addr = index->addr;
+        index->addr = reinterpret_cast<uintptr_t>(box.release());
+        index->dtype = dataset->dtype;
+        holder.release();
+        destroy_sg_cagra_c_api_box(old_addr);
+      });
+    });
+#else
+    RAFT_FAIL("Tiered building is disabled in this cuVS library");
+#endif
+  });
+}
+
 extern "C" cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
                                               cuvsDistanceType metric,
                                               DLManagedTensor* graph_tensor,
@@ -2249,6 +2382,22 @@ extern "C" cuvsError_t cuvsCagraIndexParamsCreate(cuvsCagraIndexParams_t* params
                                                              .build_algo                = IVF_PQ,
                                                              .nn_descent_niter          = 20};
     (*params)->graph_build_params = new cuvsIvfPqParams{nullptr, nullptr, 1};
+    auto const defaults = cuvs::neighbors::cagra::tiered_graph_params{};
+    (*params)->tiered.device_graph_budget_bytes =
+        defaults.device_graph_budget_bytes;
+    (*params)->tiered.node_per_cacheline = defaults.node_per_cacheline;
+    (*params)->tiered.grouping_enabled = defaults.grouping_enabled;
+    (*params)->tiered.n_groups = defaults.n_groups;
+    (*params)->tiered.n_bits = defaults.n_bits;
+    (*params)->tiered.balance_tolerance = defaults.balance_tolerance;
+    (*params)->tiered.training_rows = defaults.training_rows;
+    (*params)->tiered.assignment_batch_rows = defaults.assignment_batch_rows;
+    (*params)->tiered.kmeans_n_iters = defaults.kmeans_n_iters;
+    (*params)->tiered.validate = defaults.validate;
+    (*params)->tiered.num_seeds = defaults.num_seeds;
+    (*params)->tiered.seed_training_rows = defaults.seed_training_rows;
+    (*params)->tiered.seed = defaults.seed;
+
   });
 }
 
@@ -2414,6 +2563,15 @@ extern "C" cuvsError_t cuvsCagraSearchParamsCreate(cuvsCagraSearchParams_t* para
       .persistent_lifetime     = 2,
       .persistent_device_usage = 1.0,
     };
+    auto const defaults = cuvs::neighbors::cagra::tiered_search_params{};
+    (*params)->tiered.num_seeds = defaults.num_seeds;
+    (*params)->tiered.sync_window_scale = defaults.sync_window_scale;
+    (*params)->tiered.sync_drop_threshold = defaults.sync_drop_threshold;
+    (*params)->tiered.num_queues = defaults.num_queues;
+    (*params)->tiered.empty_pause = defaults.empty_pause;
+    (*params)->tiered.collect_statistics = defaults.collect_statistics;
+    (*params)->tiered.keep_pollers_running = defaults.keep_pollers_running;
+
   });
 }
 
@@ -2433,6 +2591,10 @@ extern "C" cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res,
                  "cuvsCagraDeserializeGraph: null index handle");
     auto const header = read_serialized_header(res, filename);
     dispatch_serialized_dtype(header.dtype, [&]<typename T>() {
+      if (header.tiered_pq) {
+        deserialize_tiered_pq<T>(res, filename, index, header.dtype);
+        return;
+      }
       using view_t = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
       _deserialize<T, view_t>(
           res, filename, index, header.dtype, false, nullptr);
@@ -2459,6 +2621,10 @@ cuvsCagraDeserializeGraphAndDataset(cuvsResources_t res, const char *filename,
                  "must be null");
     auto const header = read_serialized_header(res, filename);
     dispatch_serialized_dtype(header.dtype, [&]<typename T>() {
+      if (header.tiered_pq) {
+        deserialize_tiered_pq<T>(res, filename, index, header.dtype);
+        return;
+      }
       dispatch_serialized_dataset_kind<T>(header.dataset_kind, [&]<typename ViewT>() {
         _deserialize<T, ViewT>(
             res, filename, index, header.dtype, true, out_dataset);

@@ -1505,8 +1505,11 @@ index.
 Tiered serialization stores both the graph and reordered dataset, with a distinct format marker.
 Graph-only serialization is unsupported. The C++ VPQ serialization overload stores the complete
 payload for tiered storage and retains its existing graph-only behavior for ordinary CAGRA-Q.
+A tiered C index owns its loaded dataset internally, so `cuvsCagraDeserializeGraphAndDataset`
+leaves `out_dataset` null.
+Historical split import remains available inside the native benchmark importer.
 
 Tiered storage does not expose a device adjacency matrix through `graph()`. Dataset replacement,
 extension, merge, multi-partition search, and GPU persistent search are unsupported and report
 errors. Ordinary device graph storage retains the existing defaults and behavior. Rebuild consumers
-against the updated C++ headers because the parameter and index layouts have changed.
+against the updated headers: the C/C++ parameter and index layouts have changed.
