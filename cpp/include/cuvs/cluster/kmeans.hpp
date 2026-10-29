@@ -160,6 +160,19 @@ struct params : base_params {
    * Default: 0 (process all data at once).
    */
   int64_t device_buffer_samples = 0;
+
+  /**
+   * Use contiguous rows of an already shuffled host dataset for initialization,
+   * avoiding random disk reads for memory-mapped input. KMeansPlusPlus reads
+   * init_size rows (or its default sample size); Random reads n_clusters rows
+   * as centroids. The caller must ensure the input is shuffled.
+   *
+   * The first n_init run starts at row zero. Subsequent runs read the next block,
+   * wrapping at the end of the dataset; rows can be reused after wrapping.
+   * Multi-GPU fits follow rank order, then local partition order.
+   * Ignored for device data and InitMethod::Array. Default: false.
+   */
+  bool init_sample_from_first_rows = false;
 };
 
 /**

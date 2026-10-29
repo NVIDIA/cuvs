@@ -271,6 +271,46 @@ int run_mg_fit_omp(const std::vector<int>& device_ids,
 
 }  // namespace
 
+TEST(KmeansMGNcclPrefixTest, RestartAcrossPartitions)
+{
+  int num_devices = 0;
+  RAFT_CUDA_TRY(cudaGetDeviceCount(&num_devices));
+  if (num_devices < 2) { GTEST_SKIP() << "Requires at least two GPUs"; }
+  std::vector<int> device_ids;
+  for (int i = 0; i < std::min(num_devices, kMaxRanksForNcclTest); ++i) {
+    device_ids.push_back(i);
+  }
+  // Only the third block spans all clusters and wraps across ranks/partitions.
+  std::vector<float> data{0, 10, 10, 0, 10, 10, 100};
+  cluster::kmeans::params params;
+  params.init                        = cluster::kmeans::params::Random;
+  params.n_clusters                  = 3;
+  params.init_sample_from_first_rows = true;
+  params.n_init                      = 3;
+  params.max_iter                    = 0;
+  params.device_buffer_samples       = 2;
+  std::vector<float> actual;
+  float inertia  = -1;
+  int64_t n_iter = -1;
+  ASSERT_EQ(run_mg_fit_omp<float>(device_ids,
+                                  params,
+                                  data.data(),
+                                  nullptr,
+                                  nullptr,
+                                  data.size(),
+                                  1,
+                                  params.n_clusters,
+                                  4,
+                                  true,
+                                  actual,
+                                  inertia,
+                                  n_iter),
+            device_ids.size());
+  EXPECT_EQ(actual, (std::vector<float>{100, 0, 10}));
+  EXPECT_EQ(inertia, 0);
+  EXPECT_EQ(n_iter, 0);
+}
+
 template <typename T>
 struct KmeansMGNcclInputs {
   int n_row;

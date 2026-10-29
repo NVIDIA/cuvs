@@ -28,6 +28,7 @@ Hyper-parameters for the kmeans algorithm
 | `batch_samples` | `int` | Number of samples to process in each batch for tiled 1NN computation. Useful to optimize/control memory footprint. Default tile is [batch_samples x n_clusters]. |
 | `batch_centroids` | `int` | Number of centroids to process in each batch. If 0, uses n_clusters. |
 | `init_size` | `int` | Number of samples to draw for KMeansPlusPlus initialization with host (out-of-core) data. When set to 0, uses the heuristic min(3 * n_clusters, n_samples). Default: 0. |
+| `init_sample_from_first_rows` | `bool` | Use contiguous rows of an already shuffled host dataset for initialization, avoiding random disk reads for memory-mapped input. KMeansPlusPlus reads init_size rows (or its default sample size); Random reads n_clusters rows as centroids. The caller must shuffle the input. The first n_init run starts at row zero; subsequent runs read the next block, wrapping and reusing rows at the end of the dataset. Multi-GPU fits follow rank order, then local partition order. Ignored for device data, Array initialization, and hierarchical KMeans.<br />Default: False. |
 | `device_buffer_samples` | `int` | Number of samples to process per GPU batch when fitting with host (numpy) data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path. Reducing device_buffer_samples can help reduce GPU memory pressure but increases overhead as the number of times centroid adjustments are computed increases. Multiple batches use one input buffer without a stream pool and two when an auxiliary stream enables transfer/compute overlap. Each input buffer uses approximately ``device_buffer_samples * n_features * X.dtype.itemsize`` bytes, excluding algorithm workspaces and optional sample-weight buffers.<br /><br />Default: 0 (process all data at once). |
 | `hierarchical` | `bool` | Whether to use hierarchical (balanced) kmeans or not |
 | `hierarchical_n_iters` | `int` | For hierarchical k-means , defines the number of training iterations |
@@ -35,7 +36,7 @@ Hyper-parameters for the kmeans algorithm
 **Constructor**
 
 ```python
-def __init__(self, *, metric=None, n_clusters=None, init_method=None, max_iter=None, tol=None, n_init=None, oversampling_factor=None, batch_samples=None, batch_centroids=None, init_size=None, device_buffer_samples=None, hierarchical=None, hierarchical_n_iters=None)
+def __init__(self, *, metric=None, n_clusters=None, init_method=None, max_iter=None, tol=None, n_init=None, oversampling_factor=None, batch_samples=None, batch_centroids=None, init_size=None, init_sample_from_first_rows=None, device_buffer_samples=None, hierarchical=None, hierarchical_n_iters=None)
 ```
 
 **Members**
@@ -52,6 +53,7 @@ def __init__(self, *, metric=None, n_clusters=None, init_method=None, max_iter=N
 | `batch_samples` | property |
 | `batch_centroids` | property |
 | `init_size` | property |
+| `init_sample_from_first_rows` | property |
 | `device_buffer_samples` | property |
 | `hierarchical` | property |
 | `hierarchical_n_iters` | property |
@@ -114,6 +116,12 @@ def batch_centroids(self)
 
 ```python
 def init_size(self)
+```
+
+### init_sample_from_first_rows
+
+```python
+def init_sample_from_first_rows(self)
 ```
 
 ### device_buffer_samples
@@ -199,6 +207,10 @@ k-means is used.  When X is a host array (numpy ndarray or
 ``__array_interface__``), data is streamed to the GPU in batches
 controlled by ``params.device_buffer_samples``. For large host datasets, consider
 reducing ``device_buffer_samples`` to reduce GPU memory usage.
+
+For already shuffled host input, set ``params.init_sample_from_first_rows``
+to True to seed from contiguous blocks and avoid scattered disk reads
+when X is memory-mapped.
 
 Multiple host batches use one input buffer by default. Configure
 ``resources.set_stream_pool(1)`` to enable double-buffering and

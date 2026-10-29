@@ -16,6 +16,10 @@ def fit( KMeansParams params, X, centroids=None, sample_weights=None, resources=
 
 Find clusters with single-node multi-GPU k-means using host data.
 
+For already shuffled input, set ``params.init_sample_from_first_rows`` to
+True to seed from contiguous blocks and avoid scattered disk reads when
+X is memory-mapped.
+
 Multiple host batches use one input buffer per GPU by default. Configure
 ``resources.set_stream_pool(1)`` to enable double-buffering and
 transfer/compute overlap; without it, execution is correct but serialized.

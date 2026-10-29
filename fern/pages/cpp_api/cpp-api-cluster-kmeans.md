@@ -46,6 +46,7 @@ struct params : base_params {
   int batch_centroids;
   int64_t init_size;
   int64_t device_buffer_samples;
+  bool init_sample_from_first_rows;
 };
 ```
 
@@ -65,6 +66,7 @@ struct params : base_params {
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
 | `init_size` | `int64_t` | Number of samples to randomly draw for the KMeansPlusPlus initialization step. A random subset of this size is used for centroid seeding.<br /><br />Only applies when dataset is on host; for device data the full dataset is always used for seeding and this parameter is ignored.<br /><br />When set to 0 (default) with host data uses `min(3 * n_clusters, n_samples)` as a default.<br /><br />In Batched multi-GPU host-data fits, the effective KMeansPlusPlus initialization sample is materialized on device on every rank. Every rank must have enough GPU memory for this sample, and rank 0 must also have enough GPU memory for the seeding workspace.<br /><br />Default: 0. |
 | `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch when fitting with host data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path and ignored by device-data overloads.<br /><br />Inputs spanning multiple batches are double-buffered when the handle has an auxiliary stream, and use one buffer otherwise. Budget about `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer, plus algorithm workspaces. Sample weights require the same number of additional buffers with `device_buffer_samples * sizeof(value_type)` bytes each.<br /><br />In multi-GPU mode this is a per-rank batch size: each rank processes up to this many local samples per batch, clamped to that rank's local sample count. This is ignored by device-data overloads.<br />Default: 0 (process all data at once). |
+| `init_sample_from_first_rows` | `bool` | Use contiguous rows of an already shuffled host dataset for initialization, avoiding random disk reads for memory-mapped input. KMeansPlusPlus reads init_size rows (or its default sample size); Random reads n_clusters rows as centroids. The caller must ensure the input is shuffled.<br /><br />The first n_init run starts at row zero. Subsequent runs read the next block, wrapping at the end of the dataset; rows can be reused after wrapping. Multi-GPU fits follow rank order, then local partition order. Ignored for device data and InitMethod::Array. Default: false. |
 
 <a id="cluster-kmeans-balanced-donor-selection"></a>
 ### cluster::kmeans::balanced_donor_selection

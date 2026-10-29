@@ -81,6 +81,16 @@ cdef class KMeansParams:
         Number of samples to draw for KMeansPlusPlus initialization with
         host (out-of-core) data. When set to 0, uses the heuristic
         min(3 * n_clusters, n_samples). Default: 0.
+    init_sample_from_first_rows : bool
+        Use contiguous rows of an already shuffled host dataset for initialization,
+        avoiding random disk reads for memory-mapped input. KMeansPlusPlus reads
+        init_size rows (or its default sample size); Random reads n_clusters rows
+        as centroids. The caller must shuffle the input. The first n_init run
+        starts at row zero; subsequent runs read the next block, wrapping and
+        reusing rows at the end of the dataset. Multi-GPU fits follow rank order,
+        then local partition order.
+        Ignored for device data, Array initialization, and hierarchical KMeans.
+        Default: False.
     device_buffer_samples : int
         Number of samples to process per GPU batch when fitting with host
         (numpy) data. When set to 0, defaults to n_samples (process all
@@ -117,6 +127,7 @@ cdef class KMeansParams:
                  batch_samples=None,
                  batch_centroids=None,
                  init_size=None,
+                 init_sample_from_first_rows=None,
                  device_buffer_samples=None,
                  hierarchical=None,
                  hierarchical_n_iters=None):
@@ -141,6 +152,8 @@ cdef class KMeansParams:
             self.params.batch_centroids = batch_centroids
         if init_size is not None:
             self.params.init_size = init_size
+        if init_sample_from_first_rows is not None:
+            self.params.init_sample_from_first_rows = init_sample_from_first_rows
         if device_buffer_samples is not None:
             self.params.device_buffer_samples = device_buffer_samples
         if hierarchical is not None:
@@ -192,6 +205,10 @@ cdef class KMeansParams:
         return self.params.init_size
 
     @property
+    def init_sample_from_first_rows(self):
+        return self.params.init_sample_from_first_rows
+
+    @property
     def device_buffer_samples(self):
         return self.params.device_buffer_samples
 
@@ -220,6 +237,10 @@ def fit(
     ``__array_interface__``), data is streamed to the GPU in batches
     controlled by ``params.device_buffer_samples``. For large host datasets, consider
     reducing ``device_buffer_samples`` to reduce GPU memory usage.
+
+    For already shuffled host input, set ``params.init_sample_from_first_rows``
+    to True to seed from contiguous blocks and avoid scattered disk reads
+    when X is memory-mapped.
 
     Multiple host batches use one input buffer by default. Configure
     ``resources.set_stream_pool(1)`` to enable double-buffering and

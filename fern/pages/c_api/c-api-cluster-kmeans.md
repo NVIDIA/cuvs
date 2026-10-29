@@ -48,6 +48,7 @@ struct cuvsKMeansParams {
   int hierarchical_n_iters;
   int64_t device_buffer_samples;
   int64_t init_size;
+  bool init_sample_from_first_rows;
   cuvsDistanceType metric;
 };
 ```
@@ -68,6 +69,7 @@ struct cuvsKMeansParams {
 | `hierarchical_n_iters` | `int` | For hierarchical k-means , defines the number of training iterations |
 | `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch for the batched (host-data) API. When set to 0, defaults to n_samples (process all at once). Multiple batches use one input buffer without a stream pool and two when an auxiliary stream enables transfer/compute overlap. Each input buffer uses about device_buffer_samples * n_features * sizeof(value_type) bytes, excluding algorithm workspaces and optional sample-weight buffers. |
 | `init_size` | `int64_t` | Number of samples to draw for KMeansPlusPlus initialization. When set to 0, uses heuristic min(3 * n_clusters, n_samples) for host data, or n_samples for device data. |
+| `init_sample_from_first_rows` | `bool` | Use contiguous rows of an already shuffled host dataset for initialization. KMeansPlusPlus reads init_size rows (or its default); Random reads n_clusters rows. The first n_init run starts at row zero; subsequent runs read the next block, wrapping and reusing rows at the end of the dataset. Multi-GPU fits follow rank order, then local partition order. Ignored for device data, Array initialization, and hierarchical KMeans. Default: false. |
 | `metric` | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) |  |
 
 <a id="cuvskmeansparamscreate"></a>

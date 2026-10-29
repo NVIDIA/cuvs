@@ -35,7 +35,8 @@ cdef extern from "cuvs/cluster/kmeans.h" nogil:
         bool hierarchical,
         int hierarchical_n_iters,
         int64_t device_buffer_samples,
-        int64_t init_size
+        int64_t init_size,
+        bool init_sample_from_first_rows
 
     ctypedef cuvsKMeansParams* cuvsKMeansParams_t
 

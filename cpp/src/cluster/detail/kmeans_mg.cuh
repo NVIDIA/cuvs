@@ -451,6 +451,7 @@ void mnmg_fit(
   };
   auto rank_centroids_const = raft::make_const_mdspan(rank_centroids);
 
+  IndexT init_sample_offset = 0;
   for (int seed_iter = 0; seed_iter < n_init; ++seed_iter) {
     cuvs::cluster::kmeans::params iter_params = params;
     iter_params.rng_state.seed                = gen();
@@ -469,7 +470,8 @@ void mnmg_fit(
                                                            rank_counts,
                                                            global_n,
                                                            rank,
-                                                           comms);
+                                                           comms,
+                                                           init_sample_offset);
 
     if (!sample_weights) { raft::matrix::fill(dev_res, batch_weights.view(), DataT{1}); }
 

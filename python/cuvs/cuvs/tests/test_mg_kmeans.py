@@ -91,6 +91,55 @@ def assert_inertia_matches_centroids(out, X, sample_weights):
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+@pytest.mark.parametrize("multi_gpu", [False, True])
+@pytest.mark.parametrize(
+    "method,n_init,wrap,oversampling",
+    [
+        ("Random", 1, False, 2.0),
+        ("Random", 2, False, 2.0),
+        ("Random", 3, True, 2.0),
+        ("KMeansPlusPlus", 1, False, 0.0),
+        ("KMeansPlusPlus", 2, False, 0.0),
+        ("KMeansPlusPlus", 2, False, 2.0),
+    ],
+)
+def test_contiguous_mmap_initialization(
+    tmp_path, dtype, multi_gpu, method, n_init, wrap, oversampling
+):
+    from cuvs.cluster.kmeans import fit
+
+    values = [0, 10, 10, 0, 10, 10, 100] if wrap else [100] * 3 + [0] * 7
+    shape = (len(values), 1)
+    X = np.memmap(tmp_path / "data.bin", mode="w+", shape=shape, dtype=dtype)
+    X[:, 0] = values
+    X.flush()
+    X = np.memmap(tmp_path / "data.bin", mode="r", shape=shape, dtype=dtype)
+    n_clusters = 3 if method == "Random" else 1
+    params = KMeansParams(
+        n_clusters=n_clusters,
+        init_method=method,
+        init_sample_from_first_rows=True,
+        init_size=3,
+        n_init=n_init,
+        max_iter=0,
+        oversampling_factor=oversampling,
+        device_buffer_samples=2,
+    )
+    centroids, inertia, n_iter = (mg_kmeans.fit if multi_gpu else fit)(
+        params, X
+    )
+    if not multi_gpu:
+        centroids = centroids.copy_to_host()
+    expected = (
+        [100, 0, 10] if wrap else [100 if n_init == 1 else 0] * n_clusters
+    )
+    np.testing.assert_array_equal(centroids[:, 0], expected)
+    distances = (X - np.array(expected, dtype=dtype)) ** 2
+    np.testing.assert_allclose(inertia, distances.min(axis=1).sum())
+    assert n_iter == 0
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float64])
 @pytest.mark.parametrize("init_method", ["Array", "KMeansPlusPlus", "Random"])
 @pytest.mark.parametrize("weighted", [False, True])
 def test_mg_kmeans_fit_options(dtype, init_method, weighted):

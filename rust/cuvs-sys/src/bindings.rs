@@ -401,10 +401,11 @@ pub struct cuvsKMeansParams {
     pub hierarchical_n_iters: ::std::os::raw::c_int,
     pub device_buffer_samples: i64,
     pub init_size: i64,
+    pub init_sample_from_first_rows: bool,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsKMeansParams"][::std::mem::size_of::<cuvsKMeansParams>() - 72usize];
+    ["Size of cuvsKMeansParams"][::std::mem::size_of::<cuvsKMeansParams>() - 80usize];
     ["Alignment of cuvsKMeansParams"][::std::mem::align_of::<cuvsKMeansParams>() - 8usize];
     ["Offset of field: cuvsKMeansParams::metric"]
         [::std::mem::offset_of!(cuvsKMeansParams, metric) - 0usize];
@@ -432,6 +433,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsKMeansParams, device_buffer_samples) - 56usize];
     ["Offset of field: cuvsKMeansParams::init_size"]
         [::std::mem::offset_of!(cuvsKMeansParams, init_size) - 64usize];
+    ["Offset of field: cuvsKMeansParams::init_sample_from_first_rows"]
+        [::std::mem::offset_of!(cuvsKMeansParams, init_sample_from_first_rows) - 72usize];
 };
 pub type cuvsKMeansParams_t = *mut cuvsKMeansParams;
 unsafe extern "C" {

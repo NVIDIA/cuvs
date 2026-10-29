@@ -103,6 +103,14 @@ void cluster_cost(
 // Init functions
 // =========================================================
 
+template <typename IndexT>
+IndexT advance_init_sample_offset(IndexT offset, IndexT sample_size, IndexT n_samples)
+{
+  // Equivalent to (offset + sample_size) % n_samples without overflowing IndexT.
+  auto remaining = n_samples - offset;
+  return sample_size < remaining ? offset + sample_size : sample_size - remaining;
+}
+
 // Selects 'n_clusters' samples randomly from X
 template <typename DataT, typename IndexT>
 void initRandom(raft::resources const& handle,
@@ -753,7 +761,7 @@ void kmeans_fit(
 
       if (pams.init_size <= 0 && init_sample_size < n_samples) {
         RAFT_LOG_WARN(
-          "KMeans.fit: KMeans++ initialization is using a random subsample of %zu/%zu host rows "
+          "KMeans.fit: KMeans++ initialization is using a subsample of %zu/%zu host rows "
           "(params.init_size=0 defaults to min(3 * n_clusters, n_samples) for host data). "
           "Set params.init_size to n_samples to use the full dataset for seeding.",
           static_cast<size_t>(init_sample_size),
@@ -764,6 +772,8 @@ void kmeans_fit(
     }
   }
 
+  IndexT init_sample_offset = 0;
+
   auto init_centroids = [&](const cuvs::cluster::kmeans::params& iter_params,
                             raft::device_matrix_view<DataT, IndexT> centroidsRawData) {
     if (iter_params.init == cuvs::cluster::kmeans::params::InitMethod::Array) {
@@ -773,8 +783,37 @@ void kmeans_fit(
 
     raft::random::RngState random_state(iter_params.rng_state.seed);
 
+    auto sample_init_rows = [&](raft::device_matrix_view<DataT, IndexT> output) {
+      if constexpr (!data_on_device) {
+        if (iter_params.init_sample_from_first_rows) {
+          RAFT_EXPECTS(output.extent(0) <= n_samples,
+                       "initialization sample must not exceed the number of input rows");
+          IndexT sample_size = output.extent(0);
+          IndexT first_size  = std::min(sample_size, n_samples - init_sample_offset);
+          raft::copy(handle,
+                     raft::make_device_matrix_view<DataT, IndexT>(
+                       output.data_handle(), first_size, n_features),
+                     raft::make_host_matrix_view<const DataT, IndexT>(
+                       X.data_handle() + init_sample_offset * n_features, first_size, n_features));
+          if (first_size < sample_size) {
+            raft::copy(handle,
+                       raft::make_device_matrix_view<DataT, IndexT>(
+                         output.data_handle() + first_size * n_features,
+                         sample_size - first_size,
+                         n_features),
+                       raft::make_host_matrix_view<const DataT, IndexT>(
+                         X.data_handle(), sample_size - first_size, n_features));
+          }
+          init_sample_offset =
+            advance_init_sample_offset(init_sample_offset, sample_size, n_samples);
+          return;
+        }
+      }
+      raft::matrix::sample_rows(handle, random_state, X, output);
+    };
+
     if (iter_params.init == cuvs::cluster::kmeans::params::InitMethod::Random) {
-      raft::matrix::sample_rows(handle, random_state, X, centroidsRawData);
+      sample_init_rows(centroidsRawData);
     } else if (iter_params.init == cuvs::cluster::kmeans::params::InitMethod::KMeansPlusPlus) {
       auto run_kmeanspp = [&](raft::device_matrix_view<const DataT, IndexT> init_data) {
         if (iter_params.oversampling_factor == 0)
@@ -787,7 +826,7 @@ void kmeans_fit(
       if constexpr (data_on_device) {
         run_kmeanspp(X);
       } else {
-        raft::matrix::sample_rows(handle, random_state, X, init_sample->view());
+        sample_init_rows(init_sample->view());
         run_kmeanspp(raft::make_const_mdspan(init_sample->view()));
       }
     } else {

@@ -54,6 +54,10 @@ def fit(
     """
     Find clusters with single-node multi-GPU k-means using host data.
 
+    For already shuffled input, set ``params.init_sample_from_first_rows`` to
+    True to seed from contiguous blocks and avoid scattered disk reads when
+    X is memory-mapped.
+
     Multiple host batches use one input buffer per GPU by default. Configure
     ``resources.set_stream_pool(1)`` to enable double-buffering and
     transfer/compute overlap; without it, execution is correct but serialized.
@@ -180,6 +184,7 @@ def fit(
     params_c.hierarchical_n_iters = params.params.hierarchical_n_iters
     params_c.device_buffer_samples = params.device_buffer_samples
     params_c.init_size = params.params.init_size
+    params_c.init_sample_from_first_rows = params.params.init_sample_from_first_rows
 
     with cuda_interruptible():
         check_cuvs(cuvsMultiGpuKMeansFit(

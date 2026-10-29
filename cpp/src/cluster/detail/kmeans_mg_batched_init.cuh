@@ -201,10 +201,17 @@ raft::device_matrix<DataT, IndexT> sample_global_rows(
   const std::vector<IndexT>& rank_counts,
   IndexT global_n,
   const mnmg_comms& comms,
-  bool result_on_all_ranks = false)
+  bool result_on_all_ranks = false,
+  IndexT sample_start      = 0)
 {
-  auto sample_ids = broadcast_sampled_global_indices(
-    handle, params.rng_state.seed, global_n, sample_size, rank, comms);
+  RAFT_EXPECTS(sample_size > 0 && sample_size <= global_n,
+               "initialization sample size must be positive and no greater than global row count");
+  using view_t = raft::mdspan<const DataT, raft::matrix_extent<IndexT>, raft::row_major, Accessor>;
+  bool contiguous    = params.init_sample_from_first_rows && !raft::is_device_mdspan_v<view_t>;
+  auto sample_ids    = contiguous
+                         ? std::vector<IndexT>{}
+                         : broadcast_sampled_global_indices(
+                          handle, params.rng_state.seed, global_n, sample_size, rank, comms);
   auto owned_samples = get_owned_sample_indices(sample_ids, rank_counts, rank);
 
   std::vector<IndexT> part_offsets;
@@ -216,6 +223,34 @@ raft::device_matrix<DataT, IndexT> sample_global_rows(
 
   auto sampled_rows = raft::make_device_matrix<DataT, IndexT>(handle, sample_size, n_features);
   raft::matrix::fill(handle, sampled_rows.view(), DataT{0});
+
+  if (contiguous) {
+    RAFT_EXPECTS(sample_start >= 0 && sample_start < global_n,
+                 "initialization sample offset must be within the global dataset");
+    // Global rows are ordered by rank, then by local partition. Split at the
+    // dataset boundary when a later restart wraps back to the first rows.
+    IndexT rank_offset =
+      std::accumulate(rank_counts.begin(), rank_counts.begin() + rank, IndexT{0});
+    auto copy_range = [&](IndexT start, IndexT rows, IndexT sample_offset) {
+      IndexT part_start = rank_offset;
+      for (auto const& part : X_parts) {
+        if (part_start >= start + rows) { break; }
+        IndexT part_end = part_start + static_cast<IndexT>(part.extent(0));
+        IndexT begin    = std::max(part_start, start);
+        IndexT end      = std::min(part_end, start + rows);
+        if (begin < end) {
+          raft::copy(sampled_rows.data_handle() + (sample_offset + begin - start) * n_features,
+                     part.data_handle() + (begin - part_start) * n_features,
+                     static_cast<std::size_t>(end - begin) * n_features,
+                     comms.stream());
+        }
+        part_start = part_end;
+      }
+    };
+    IndexT first_size = std::min(sample_size, global_n - sample_start);
+    copy_range(sample_start, first_size, IndexT{0});
+    if (first_size < sample_size) { copy_range(IndexT{0}, sample_size - first_size, first_size); }
+  }
 
   for (auto const& owned_sample : owned_samples) {
     auto [part_idx, row_in_part] = locate_local_row(part_offsets, owned_sample.local_idx);
@@ -257,7 +292,8 @@ void init_centroids_for_mg_batched(
   const std::vector<IndexT>& rank_counts,
   IndexT global_n,
   int rank,
-  const mnmg_comms& comms)
+  const mnmg_comms& comms,
+  IndexT& init_sample_offset)
 {
   auto stream     = comms.stream();
   auto n_clusters = static_cast<IndexT>(params.n_clusters);
@@ -269,9 +305,31 @@ void init_centroids_for_mg_batched(
     return;
   }
 
+  auto sample_init_rows = [&](IndexT sample_size, bool result_on_all_ranks) {
+    auto sampled_rows = sample_global_rows<DataT, IndexT, Accessor>(handle,
+                                                                    params,
+                                                                    X_parts,
+                                                                    n_features,
+                                                                    sample_size,
+                                                                    rank,
+                                                                    rank_counts,
+                                                                    global_n,
+                                                                    comms,
+                                                                    result_on_all_ranks,
+                                                                    init_sample_offset);
+    using view_t =
+      raft::mdspan<const DataT, raft::matrix_extent<IndexT>, raft::row_major, Accessor>;
+    if constexpr (!raft::is_device_mdspan_v<view_t>) {
+      if (params.init_sample_from_first_rows) {
+        init_sample_offset = cuvs::cluster::kmeans::detail::advance_init_sample_offset(
+          init_sample_offset, sample_size, global_n);
+      }
+    }
+    return sampled_rows;
+  };
+
   if (params.init == cuvs::cluster::kmeans::params::InitMethod::Random) {
-    auto sampled_rows = sample_global_rows<DataT, IndexT, Accessor>(
-      handle, params, X_parts, n_features, n_clusters, rank, rank_counts, global_n, comms, true);
+    auto sampled_rows = sample_init_rows(n_clusters, true);
     raft::copy(centroids.data_handle(), sampled_rows.data_handle(), sampled_rows.size(), stream);
   } else if (params.init == cuvs::cluster::kmeans::params::InitMethod::KMeansPlusPlus) {
     using view_t =
@@ -305,8 +363,7 @@ void init_centroids_for_mg_batched(
       // Host (out-of-core) path: sample a subset to root then run single-GPU
       // KMeans++ on the sampled set and broadcast.
       IndexT init_sample_size = get_global_kmeanspp_init_sample_size(params, global_n, n_clusters);
-      auto init_sample        = sample_global_rows<DataT, IndexT, Accessor>(
-        handle, params, X_parts, n_features, init_sample_size, rank, rank_counts, global_n, comms);
+      auto init_sample        = sample_init_rows(init_sample_size, false);
 
       if (rank == CUVS_KMEANS_COMM_ROOT) {
         auto init_view = raft::make_const_mdspan(init_sample.view());

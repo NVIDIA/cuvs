@@ -119,6 +119,16 @@ struct cuvsKMeansParams {
    * or n_samples for device data.
    */
   int64_t init_size;
+
+  /**
+   * Use contiguous rows of an already shuffled host dataset for initialization.
+   * KMeansPlusPlus reads init_size rows (or its default); Random reads n_clusters
+   * rows. The first n_init run starts at row zero; subsequent runs read the next
+   * block, wrapping and reusing rows at the end of the dataset. Multi-GPU fits
+   * follow rank order, then local partition order. Ignored for device data, Array
+   * initialization, and hierarchical KMeans. Default: false.
+   */
+  bool init_sample_from_first_rows;
 };
 
 typedef struct cuvsKMeansParams* cuvsKMeansParams_t;
