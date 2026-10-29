@@ -1500,13 +1500,34 @@ before returning. Use the CUDA device on which the index was created.
 
 For VPQ-F16, use the overload `cagra::build(resources, params, vpq_params, host_view)`.
 It builds and groups using the full-precision host vectors, then produces an owning compressed
-index.
+index. In Python, pass the same compression parameter object accepted by
+`make_device_pq_dataset` through `cagra.build(..., compression=params)`.
+
+```python
+from cuvs.neighbors import cagra
+
+params = cagra.IndexParams(
+    build_algo="nn_descent",
+    graph_storage="tiered",
+    tiered=cagra.TieredGraphParams(device_graph_budget_bytes=1 << 30),
+)
+index = cagra.build(params, vectors)
+search_params = cagra.SearchParams(
+    itopk_size=256,
+    max_iterations=32,
+    tiered=cagra.TieredSearchParams(keep_pollers_running=True),
+)
+distances, ids = cagra.search(search_params, index, queries, 10)
+cagra.save("tiered.index", index)
+loaded = cagra.Index()
+cagra.load(loaded, "tiered.index")
+```
 
 Tiered serialization stores both the graph and reordered dataset, with a distinct format marker.
 Graph-only serialization is unsupported. The C++ VPQ serialization overload stores the complete
 payload for tiered storage and retains its existing graph-only behavior for ordinary CAGRA-Q.
 A tiered C index owns its loaded dataset internally, so `cuvsCagraDeserializeGraphAndDataset`
-leaves `out_dataset` null.
+leaves `out_dataset` null. Python `load` needs no separate dataset owner for a tiered file.
 Historical split import remains available inside the native benchmark importer.
 
 Tiered storage does not expose a device adjacency matrix through `graph()`. Dataset replacement,
