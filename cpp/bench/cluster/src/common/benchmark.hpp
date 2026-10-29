@@ -11,9 +11,11 @@
 
 #include <benchmark/benchmark.h>
 #include <cuda_fp16.h>
+#include <cuvs/cluster/kmeans.hpp>
 #include <nlohmann/json.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
+#include <raft/core/host_mdspan.hpp>
 #include <raft/core/nvtx.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <rmm/mr/per_device_resource.hpp>
@@ -26,6 +28,7 @@
 #include <optional>
 #include <string>
 #include <tuple>
+#include <type_traits>
 #include <vector>
 
 namespace cuvs::bench::cluster {
@@ -39,7 +42,11 @@ class algo {
   /** Fit on device-resident data; must return only after the GPU work has completed. */
   virtual void fit(raft::device_matrix_view<const T, int64_t> X) = 0;
 
-  /** Quality/convergence numbers of the last `fit` (e.g. inertia), reported as counters. */
+  /** Centroids found by the last `fit`. */
+  [[nodiscard]] virtual auto centroids() const
+    -> raft::device_matrix_view<const float, int64_t> = 0;
+
+  /** Convergence numbers of the last `fit` (e.g. iterations), reported as counters. */
   [[nodiscard]] virtual auto metrics() const -> std::vector<std::tuple<std::string, double>> = 0;
 };
 
@@ -65,6 +72,7 @@ void bench_fit(::benchmark::State& state,
 
   auto X = raft::make_device_matrix_view<const T, int64_t>(
     data->base_set(MemoryType::kDevice), data->base_set_size(), data->dim());
+
   for (auto _ : state) {
     raft::common::nvtx::range<raft::common::nvtx::domain::app> lap("%s", state.name().c_str());
     try {
@@ -79,6 +87,14 @@ void bench_fit(::benchmark::State& state,
 
   for (auto& [key, val] : a->metrics()) {
     state.counters.insert({{key, val}});
+  }
+  // Inertia is a quality measure, not part of the work being timed: compute it after the timed
+  // loop.
+  if constexpr (std::is_same_v<T, float>) {
+    float inertia = 0;
+    cuvs::cluster::kmeans::cluster_cost(
+      *res, X, a->centroids(), raft::make_host_scalar_view(&inertia));
+    state.counters.insert({{"inertia", inertia}});
   }
   state.counters.insert(
     {{"n_rows", static_cast<double>(X.extent(0))}, {"dim", static_cast<double>(X.extent(1))}});

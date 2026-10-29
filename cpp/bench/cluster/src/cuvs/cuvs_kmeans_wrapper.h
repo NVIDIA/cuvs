@@ -15,7 +15,6 @@
 #include <optional>
 #include <string>
 #include <tuple>
-#include <type_traits>
 #include <vector>
 
 namespace cuvs::bench::cluster {
@@ -42,16 +41,21 @@ class cuvs_kmeans : public algo<float> {
                                raft::make_host_scalar_view(&n_iter_));
   }
 
+  [[nodiscard]] auto centroids() const -> raft::device_matrix_view<const float, int64_t> override
+  {
+    return raft::make_const_mdspan(centroids_->view());
+  }
+
   [[nodiscard]] auto metrics() const -> std::vector<std::tuple<std::string, double>> override
   {
-    return {{"inertia", inertia_}, {"n_iter", static_cast<double>(n_iter_)}};
+    return {{"n_iter", static_cast<double>(n_iter_)}};
   }
 
  private:
   const raft::resources& res_;
   param_type param_;
   std::optional<raft::device_matrix<float, int64_t>> centroids_;
-  float inertia_  = 0;
+  float inertia_  = 0;  // required output of fit; the bench reports its own, untimed inertia
   int64_t n_iter_ = 0;
 };
 
@@ -71,15 +75,17 @@ class cuvs_kmeans_balanced : public algo<T> {
     if (!centroids_.has_value() || centroids_->extent(1) != X.extent(1)) {
       centroids_.emplace(raft::make_device_matrix<float, int64_t>(res_, n_clusters_, X.extent(1)));
     }
-    // cuVS computes the balanced inertia only for float data and leaves it untouched otherwise.
-    std::optional<raft::host_scalar_view<float>> inertia;
-    if constexpr (std::is_same_v<T, float>) { inertia = raft::make_host_scalar_view(&inertia_); }
-    cuvs::cluster::kmeans::fit(res_, param_, X, centroids_->view(), inertia);
+    // No inertia output: it would add a cost pass to the timed fit.
+    cuvs::cluster::kmeans::fit(res_, param_, X, centroids_->view());
+  }
+
+  [[nodiscard]] auto centroids() const -> raft::device_matrix_view<const float, int64_t> override
+  {
+    return raft::make_const_mdspan(centroids_->view());
   }
 
   [[nodiscard]] auto metrics() const -> std::vector<std::tuple<std::string, double>> override
   {
-    if constexpr (std::is_same_v<T, float>) { return {{"inertia", inertia_}}; }
     return {};
   }
 
@@ -88,7 +94,6 @@ class cuvs_kmeans_balanced : public algo<T> {
   param_type param_;
   int64_t n_clusters_;
   std::optional<raft::device_matrix<float, int64_t>> centroids_;
-  float inertia_ = 0;
 };
 
 }  // namespace cuvs::bench::cluster
