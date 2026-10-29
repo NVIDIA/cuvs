@@ -347,19 +347,24 @@ extern "C" cuvsError_t cuvsRMMMemoryResourceReset()
   });
 }
 
-thread_local std::unique_ptr<rmm::mr::pinned_host_memory_resource> pinned_mr;
+namespace {
+// One process-wide resource: pinned_host_memory_resource is stateless, so a buffer allocated on
+// one thread can be freed on another (a thread_local resource left it null on other threads).
+rmm::mr::pinned_host_memory_resource& pinned_mr()
+{
+  static rmm::mr::pinned_host_memory_resource mr;
+  return mr;
+}
+}  // namespace
 
 extern "C" cuvsError_t cuvsRMMHostAlloc(void** ptr, size_t bytes)
 {
-  return cuvs::core::translate_exceptions([=] {
-    if (pinned_mr == nullptr) { pinned_mr = std::make_unique<rmm::mr::pinned_host_memory_resource>(); }
-    *ptr = pinned_mr->allocate_sync(bytes);
-  });
+  return cuvs::core::translate_exceptions([=] { *ptr = pinned_mr().allocate_sync(bytes); });
 }
 
 extern "C" cuvsError_t cuvsRMMHostFree(void* ptr, size_t bytes)
 {
-  return cuvs::core::translate_exceptions([=] { pinned_mr->deallocate_sync(ptr, bytes); });
+  return cuvs::core::translate_exceptions([=] { pinned_mr().deallocate_sync(ptr, bytes); });
 }
 
 thread_local std::string last_error_text = "";
