@@ -5,94 +5,104 @@
 
 #pragma once
 
+#include <cuvs/core/dataset/dense.hpp>
+#include <cuvs/core/dataset/type.hpp>
 #include <cuvs/core/export.hpp>
 #include <cuvs/preprocessing/quantize/binary.hpp>
 
-#include <raft/core/device_mdspan.hpp>
-#include <raft/core/error.hpp>
+#include <raft/core/device_mdarray.hpp>
+#include <raft/core/host_mdarray.hpp>
+#include <raft/core/mdarray.hpp>
 
 #include <cstdint>
+#include <type_traits>
 
 namespace CUVS_EXPORT cuvs {
 
 /**
- * @brief Non-owning view of the dictionary that binarizes a dataset: the per-dimension thresholds
- * of a binary quantizer. An empty threshold vector stands for the zero threshold.
- */
-template <typename MathT>
-struct binary_dictionary_view {
-  raft::device_vector_view<const MathT, int64_t> threshold;
-};
-
-/**
- * @brief Non-owning view of a binary-quantized dataset.
+ * Binary-quantized dataset specification.
  *
  * The data are bit-packed codes, `ceil(dim / 8)` bytes per row; bit `i` of a row is stored in bit
- * `i % 8` of byte `i / 8`, and the unused bits of the last byte are zero. The dictionary is the
- * quantizer that produced the codes, so the logical dimension `dim` (the number of bits) never has
- * to be guessed from the padded byte width.
+ * `i % 8` of byte `i / 8`, and the unused bits of the last byte are zero. The manifest is the
+ * binary quantizer that produced the codes, so the logical dimension `dim` (the number of bits)
+ * never has to be guessed from the padded byte width: the quantizer knows it.
  *
- * @tparam MathT the type of the source (unquantized) values
- * @tparam IdxT the type of the row indices
+ * @tparam MathT the type of the source (unquantized) values the thresholds are compared with
+ * @tparam CodePolicy the container policy of the codes (elements of `uint8_t`)
+ * @tparam ThresholdPolicy the container policy of the thresholds of the quantizer (elements of
+ *   `MathT`)
  */
-template <typename MathT, typename IdxT>
-struct device_binary_dataset_view {
-  using value_type           = MathT;
-  using index_type           = IdxT;
-  using code_type            = uint8_t;
-  using data_view_type       = raft::device_matrix_view<const code_type, int64_t, raft::row_major>;
-  using dictionary_view_type = binary_dictionary_view<MathT>;
+template <typename MathT, typename CodePolicy, typename ThresholdPolicy>
+struct binary_spec {
+  // The codes are stored like the rows of any other dense dataset; only where the dimension comes
+  // from is specific to the binarization.
+  template <typename IdxT>
+  using storage_spec =
+    typename mdarray_spec<raft::layout_c_contiguous, CodePolicy>::template apply<uint8_t, IdxT>;
 
-  /**
-   * @param codes row-major codes [n_rows, ceil(dim / 8)]
-   * @param dictionary the thresholds used to produce the codes; empty or of size `dim`
-   * @param dim the number of bits in each vector
-   */
-  device_binary_dataset_view(data_view_type codes, dictionary_view_type dictionary, uint32_t dim)
-    : codes_{codes}, dictionary_{dictionary}, dim_{dim}
-  {
-    RAFT_EXPECTS(dim > 0, "The dimension of a binary dataset must be positive");
-    RAFT_EXPECTS(static_cast<int64_t>((uint64_t{dim} + 7) / 8) == codes.extent(1),
-                 "The row length of the codes must be ceil(dim / 8) bytes");
-    RAFT_EXPECTS(dictionary.threshold.extent(0) == 0 ||
-                   dictionary.threshold.extent(0) == static_cast<int64_t>(dim),
-                 "The threshold vector must be empty or have one element per dimension");
-  }
+  // The type of the source (unquantized) values the thresholds are compared with.
+  using math_type = MathT;
 
-  /** The number of vectors. */
-  [[nodiscard]] auto n_rows() const noexcept -> index_type
-  {
-    return static_cast<index_type>(codes_.extent(0));
-  }
-  /** The number of bits in each vector. */
-  [[nodiscard]] auto dim() const noexcept -> uint32_t { return dim_; }
-  /** The number of bytes in each row of the codes. */
-  [[nodiscard]] auto encoded_row_length() const noexcept -> int64_t { return codes_.extent(1); }
+  using manifest_type = preprocessing::quantize::binary::quantizer<math_type, ThresholdPolicy>;
+  using manifest_view_type =
+    preprocessing::quantize::binary::quantizer_view<math_type, ThresholdPolicy>;
+  using const_manifest_view_type =
+    preprocessing::quantize::binary::quantizer_view<const math_type, ThresholdPolicy>;
 
-  [[nodiscard]] auto data_const_view() const noexcept -> data_view_type { return codes_; }
-  [[nodiscard]] auto const_dictionary_view() const noexcept -> dictionary_view_type
-  {
-    return dictionary_;
-  }
+  template <typename T, typename IdxT>
+  struct apply : storage_spec<IdxT> {
+    // The dataset stores codes, but it still represents vectors of `T`.
+    using value_type = std::remove_cv_t<T>;
+    using code_type  = uint8_t;
+    // NOTE: re-exported rather than declared here, so that they do not belong to one instantiation
+    // of `apply`; qualified lookup into `apply` does not reach the enclosing spec on its own.
+    using math_type                = binary_spec::math_type;
+    using manifest_type            = binary_spec::manifest_type;
+    using manifest_view_type       = binary_spec::manifest_view_type;
+    using const_manifest_view_type = binary_spec::const_manifest_view_type;
 
- private:
-  data_view_type codes_;
-  dictionary_view_type dictionary_;
-  uint32_t dim_;
+    // NOTE: the data accessors are inherited; only `get_dim` differs from a dense dataset. Like the
+    // inherited ones, it reads the manifest in either form. The dimension is the number of bits,
+    // which the encoded rows cannot tell: their width is padded to whole bytes.
+    [[nodiscard]] static auto get_dim(const auto&, const auto& manifest) noexcept -> uint32_t
+    {
+      return manifest.dim();
+    }
+    [[nodiscard]] static auto get_manifest_view(manifest_type& manifest) noexcept
+      -> manifest_view_type
+    {
+      return manifest.view();
+    }
+    [[nodiscard]] static auto get_manifest_const_view(const manifest_type& manifest) noexcept
+      -> const_manifest_view_type
+    {
+      return manifest.view();
+    }
+    [[nodiscard]] static auto get_manifest_const_view(manifest_view_type manifest) noexcept
+      -> const_manifest_view_type
+    {
+      return manifest;
+    }
+  };
 };
 
-/**
- * @brief View the codes produced by `preprocessing::quantize::binary::transform` together with the
- * quantizer that produced them.
- */
-template <typename IdxT, typename MathT>
-auto make_device_binary_dataset_view(
-  raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> codes,
-  const preprocessing::quantize::binary::quantizer<MathT>& quantizer,
-  uint32_t dim) -> device_binary_dataset_view<MathT, IdxT>
-{
-  return device_binary_dataset_view<MathT, IdxT>{
-    codes, binary_dictionary_view<MathT>{quantizer.threshold.view()}, dim};
-}
+template <typename T, typename IdxT, typename CodePolicy, typename ThresholdPolicy>
+using binary_dataset = dataset<T, IdxT, binary_spec<T, CodePolicy, ThresholdPolicy>>;
+template <typename T, typename IdxT>
+using device_binary_dataset =
+  binary_dataset<T,
+                 IdxT,
+                 raft::device_accessor<raft::device_container_policy<uint8_t>>,
+                 raft::device_accessor<raft::device_container_policy<T>>>;
+template <typename T, typename IdxT>
+using host_binary_dataset =
+  binary_dataset<T,
+                 IdxT,
+                 raft::host_accessor<raft::host_container_policy<uint8_t>>,
+                 raft::host_accessor<raft::host_container_policy<T>>>;
+
+/** A read-only non-owning view of a binary-quantized dataset in device memory. */
+template <typename T, typename IdxT>
+using device_binary_dataset_view = typename device_binary_dataset<T, IdxT>::const_view_type;
 
 }  // namespace CUVS_EXPORT cuvs

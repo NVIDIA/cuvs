@@ -17,6 +17,7 @@
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/mdarray.hpp>
+#include <raft/core/memory_type.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/cudart_utils.hpp>   // get_device_for_address, copy_matrix
@@ -699,19 +700,12 @@ template <typename ValueT, typename SrcT>
 [[nodiscard]] inline ValueT* expect_device_accessible_data_handle(SrcT const& src,
                                                                   char const* error_msg)
 {
-  cudaPointerAttributes ptr_attrs;
-  RAFT_CUDA_TRY(cudaPointerGetAttributes(&ptr_attrs, src.data_handle()));
-  // `devicePointer` is relative to the *current* device: it is null for an allocation owned by
-  // another device without peer access, even though that allocation is perfectly usable once the
-  // caller switches to the owning device (as the multi-GPU paths do). Accept device and managed
-  // allocations on their own merit and only consult `devicePointer` for host memory, which needs a
-  // mapping to be reachable at all.
-  if (ptr_attrs.type == cudaMemoryTypeDevice || ptr_attrs.type == cudaMemoryTypeManaged) {
-    return const_cast<ValueT*>(src.data_handle());
-  }
-  auto* device_ptr = reinterpret_cast<ValueT*>(ptr_attrs.devicePointer);
+  // Device and managed allocations (including those owned by another device, which the multi-GPU
+  // paths use once the owning device is current), pinned host memory (through its device mapping)
+  // and pageable memory on ATS systems are device accessible. HMM pageable memory is not.
+  auto* device_ptr = raft::get_pointer_memory_info(src.data_handle()).device_pointer;
   RAFT_EXPECTS(device_ptr != nullptr, "%s", error_msg);
-  return device_ptr;
+  return const_cast<ValueT*>(device_ptr);
 }
 
 template <typename ValueT, typename ViewT, typename SrcT>

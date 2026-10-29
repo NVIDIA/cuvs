@@ -23,6 +23,7 @@ import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.internal.common.CloseableHandle;
 import com.nvidia.cuvs.internal.common.CloseableRMMAllocation;
 import com.nvidia.cuvs.internal.common.CompositeCloseableHandle;
+import com.nvidia.cuvs.internal.common.OmpThreadScope;
 import com.nvidia.cuvs.internal.common.Util;
 import com.nvidia.cuvs.internal.panama.*;
 import java.io.FileInputStream;
@@ -179,19 +180,24 @@ public class CagraIndexImpl implements CagraIndex {
         var resourcesAccessor = resources.access()) {
       MemorySegment indexParamsMemorySegment = indexParams.handle();
 
-      int numWriterThreads = indexParameters != null ? indexParameters.getNumWriterThreads() : 1;
+      // Without parameters, leave the OpenMP setting alone so native code uses its default.
+      int numWriterThreads = indexParameters != null ? indexParameters.getNumWriterThreads() : 0;
       MemorySegment datasetView = MemorySegment.NULL;
       boolean success = false;
       var index = createCagraIndex();
 
-      try {
-        omp_set_num_threads(numWriterThreads);
-
-        if (cuvsCagraIndexParams.build_algo(indexParamsMemorySegment)
-            == 1) { // when build algo is IVF_PQ
-          MemorySegment cuvsIvfPqIndexParamsMS =
-              cuvsIvfPqParams.ivf_pq_build_params(
-                  cuvsCagraIndexParams.graph_build_params(indexParamsMemorySegment));
+      try (var ompThreads = OmpThreadScope.of(numWriterThreads)) {
+        // With default parameters (no params given) the IVF-PQ build params are not allocated
+        // (NULL); the C layer then derives them from the dataset, so there is nothing to trim.
+        MemorySegment cuvsIvfPqIndexParamsMS = MemorySegment.NULL;
+        if (cuvsCagraIndexParams.build_algo(indexParamsMemorySegment) == 1) { // IVF_PQ
+          MemorySegment graphBuildParams =
+              cuvsCagraIndexParams.graph_build_params(indexParamsMemorySegment);
+          if (graphBuildParams.address() != 0) {
+            cuvsIvfPqIndexParamsMS = cuvsIvfPqParams.ivf_pq_build_params(graphBuildParams);
+          }
+        }
+        if (cuvsIvfPqIndexParamsMS.address() != 0) {
           int n_lists = cuvsIvfPqIndexParams.n_lists(cuvsIvfPqIndexParamsMS);
           // As rows cannot be less than n_lists value so trim down.
           cuvsIvfPqIndexParams.n_lists(
@@ -225,7 +231,6 @@ public class CagraIndexImpl implements CagraIndex {
         if (!success) {
           quietly(() -> checkCuVSError(cuvsCagraIndexDestroy(index), "cuvsCagraIndexDestroy"));
         }
-        quietly(() -> omp_set_num_threads(1));
       }
     }
   }
@@ -246,14 +251,13 @@ public class CagraIndexImpl implements CagraIndex {
       var quantizerHandles = new ArrayList<MemorySegment>(bbqQuantizers.length);
       MemorySegment bbqDataset = MemorySegment.NULL;
       MemorySegment paddedDataset = MemorySegment.NULL;
-      int numWriterThreads = indexParameters != null ? indexParameters.getNumWriterThreads() : 1;
+      int numWriterThreads = indexParameters != null ? indexParameters.getNumWriterThreads() : 0;
       boolean success = false;
       var index = createCagraIndex();
 
-      try {
-        // nn-descent, which a BBQ build always uses, does a substantial amount of its work on
-        // the host under OpenMP.
-        omp_set_num_threads(numWriterThreads);
+      // nn-descent, which a BBQ build always uses, does a substantial amount of its work on
+      // the host under OpenMP.
+      try (var ompThreads = OmpThreadScope.of(numWriterThreads)) {
         for (BbqQuantizer quantizer : bbqQuantizers) {
           var quantizerPtr = localArena.allocate(cuvsBbqQuantizer_t);
           checkCuVSError(
@@ -328,7 +332,6 @@ public class CagraIndexImpl implements CagraIndex {
           quietly(
               () -> checkCuVSError(cuvsBbqQuantizerDestroy(quantizer), "cuvsBbqQuantizerDestroy"));
         }
-        quietly(() -> omp_set_num_threads(1));
       }
     }
   }
@@ -1241,8 +1244,10 @@ public class CagraIndexImpl implements CagraIndex {
 
       var mergedIndex = createCagraIndex();
       CagraIndexImpl merged = null;
+      int numWriterThreads = mergeParams != null ? mergeParams.getNumWriterThreads() : 0;
       try (var nativeMergeParams = segmentFromIndexParams(mergeParams);
-          var resourcesAccessor = resources.access()) {
+          var resourcesAccessor = resources.access();
+          var ompThreads = OmpThreadScope.of(numWriterThreads)) {
         var cuvsRes = resourcesAccessor.handle();
 
         // The words the merge filter points at have to outlive the merge call, so the
