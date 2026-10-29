@@ -255,9 +255,10 @@ __global__ void sa_quantize_fused_kernel(
             float inner = fmaxf(0.0f, (ratio - 1.0f) / ((float)padded_dim - 1.0f));
             float f_error = 2.0f * l2_norm * kEpsilon * sqrtf(inner);
 
-            d_factors[vec_id * 3 + 0] = f_add;
-            d_factors[vec_id * 3 + 1] = f_rescale;
-            d_factors[vec_id * 3 + 2] = f_error;
+            float* factors = d_factors + (size_t)vec_id * 3;
+            factors[0] = f_add;
+            factors[1] = f_rescale;
+            factors[2] = f_error;
         }
     }
 }
