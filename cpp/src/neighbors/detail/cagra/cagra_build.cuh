@@ -1215,7 +1215,7 @@ auto build_from_bbq_dataset(raft::resources const& res,
                             DatasetViewT const& dataset)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
-  RAFT_EXPECTS(!dataset.quantizers.empty(), "cagra::build: the BBQ dataset is empty.");
+  RAFT_EXPECTS(!dataset.storages.empty(), "cagra::build: the BBQ dataset is empty.");
   RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded ||
                  params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
                  params.metric == cuvs::distance::DistanceType::CosineExpanded ||

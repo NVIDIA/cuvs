@@ -82,7 +82,7 @@ float centroid_norm_sq,
 cuvsBbqQuantizer_t* quantizer);
 ```
 
-Tensors are not copied and must remain valid while a derived dataset is in use.
+Tensors are not copied and must remain valid while a derived dataset is in use. `centroid_norm_sq` is copied to device memory owned by the quantizer handle, and datasets and indexes derived from the handle refer to that copy. The handle must therefore not be destroyed while any dataset or index derived from it is in use.
 
 **Parameters**
 
@@ -115,6 +115,8 @@ Destroy a BBQ quantizer without destroying its caller-owned tensors.
 cuvsError_t cuvsBbqQuantizerDestroy(cuvsBbqQuantizer_t quantizer);
 ```
 
+Frees the quantizer's device copy of `centroid_norm_sq`. Datasets and indexes derived from the quantizer must be destroyed first.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
@@ -137,7 +139,7 @@ size_t num_quantizers,
 cuvsDataset_t* dataset);
 ```
 
-Accepts one symmetric quantizer or two compatible asymmetric quantizers.
+Accepts one symmetric quantizer or two compatible asymmetric quantizers. Both asymmetric quantizers must encode the same rows, in the same order, against the same centroid. The dataset, and any index built from it, refers to the quantizers' data, so the quantizer handles must outlive them.
 
 **Parameters**
 

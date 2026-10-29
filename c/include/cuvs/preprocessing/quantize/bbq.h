@@ -80,6 +80,27 @@ typedef cuvsBbqQuantizer* cuvsBbqQuantizer_t;
  * @brief Create a BBQ quantizer view from caller-owned device tensors.
  *
  * Tensors are not copied and must remain valid while a derived dataset is in use.
+ * `centroid_norm_sq` is copied to device memory owned by the quantizer handle, and datasets and
+ * indexes derived from the handle refer to that copy. The handle must therefore not be destroyed
+ * while any dataset or index derived from it is in use.
+ *
+ * @code{.c}
+ * cuvsBbqQuantizer_t quantizer;
+ * cuvsBbqQuantizerCreateView(&codes, &lower, &upper, &corrections, &sums, &centroid, &delta,
+ *                            &sum_delta, &row_norm, CUVS_BBQ_CODE_LAYOUT_PACKED_1B, InnerProduct,
+ *                            centroid_norm_sq, &quantizer);
+ * cuvsDataset_t dataset;
+ * cuvsDatasetMakeBbqView(res, &quantizer, 1, &dataset);
+ * cuvsCagraIndex_t index;
+ * cuvsCagraIndexCreate(&index);
+ * cuvsCagraBuild(res, index_params, dataset, index);  // builds a graph-only index
+ * // Attach a device padded or PQ dataset before searching.
+ * cuvsCagraUpdateDataset(res, search_dataset, index);
+ * cuvsCagraSearch(res, search_params, index, &queries, &neighbors, &distances, filter);
+ * cuvsCagraIndexDestroy(index);
+ * cuvsDatasetDestroy(dataset);         // destroy derived datasets and indexes first,
+ * cuvsBbqQuantizerDestroy(quantizer);  // then the quantizer, then the tensors
+ * @endcode
  *
  * @param[in] codes uint8 device matrix containing encoded rows
  * @param[in] lower_intervals float32 device vector with one lower interval per row
@@ -114,6 +135,9 @@ CUVS_EXPORT cuvsError_t cuvsBbqQuantizerCreateView(
 /**
  * @brief Destroy a BBQ quantizer without destroying its caller-owned tensors.
  *
+ * Frees the quantizer's device copy of `centroid_norm_sq`. Datasets and indexes derived from the
+ * quantizer must be destroyed first.
+ *
  * @param[in] quantizer quantizer handle to destroy
  * @return cuvsError_t
  */
@@ -122,7 +146,10 @@ CUVS_EXPORT cuvsError_t cuvsBbqQuantizerDestroy(cuvsBbqQuantizer_t quantizer);
 /**
  * @brief Create a non-owning device BBQ dataset view.
  *
- * Accepts one symmetric quantizer or two compatible asymmetric quantizers.
+ * Accepts one symmetric quantizer or two compatible asymmetric quantizers. Both asymmetric
+ * quantizers must encode the same rows, in the same order, against the same centroid. The dataset,
+ * and any index built from it, refers to the quantizers' data, so the quantizer handles must
+ * outlive them.
  *
  * @param[in] res cuVS resources
  * @param[in] quantizers array containing one or two BBQ quantizer handles
