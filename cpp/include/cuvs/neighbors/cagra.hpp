@@ -1248,6 +1248,76 @@ auto build(raft::resources const& res,
   -> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
 
 /**
+ * @brief Build from a pair of device BBQ-quantized dataset views (document, query).
+ *
+ * The two views hold the same rows encoded with two (possibly different) code layouts, and the
+ * kNN graph is built from asymmetric compressed-code distances. Supported (document, query)
+ * layout pairs: (packed_1b, packed_4b), (packed_1b, transposed_2b), (packed_1b, transposed_4b),
+ * (transposed_2b, transposed_4b). Equal layouts are accepted only when both arguments are the same
+ * view, which is the symmetric build of the single-view overload. The returned index keeps the
+ * document view and cannot be searched.
+ *
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device BBQ document-side dataset view [n_rows, dim]
+ * @param[in] dataset_query device BBQ query-side dataset view [n_rows, dim]
+ * @return built `device_bbq_index<float, uint32_t>`
+ */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset,
+           cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset_query)
+  -> cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>;
+
+/**
+ * @brief Build from a pair of device BBQ-quantized dataset views (document, query) of `half`
+ * vectors; see the `float` overload for the supported layout pairs.
+ *
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device BBQ document-side dataset view [n_rows, dim]
+ * @param[in] dataset_query device BBQ query-side dataset view [n_rows, dim]
+ * @return built `device_bbq_index<half, uint32_t>`
+ */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const& dataset,
+           cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const& dataset_query)
+  -> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
+
+/**
+ * @brief Build from a pair of device BBQ-quantized dataset views (document, query) of `int8_t`
+ * vectors; see the `float` overload for the supported layout pairs.
+ *
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device BBQ document-side dataset view [n_rows, dim]
+ * @param[in] dataset_query device BBQ query-side dataset view [n_rows, dim]
+ * @return built `device_bbq_index<int8_t, uint32_t>`
+ */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const& dataset,
+           cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const& dataset_query)
+  -> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
+
+/**
+ * @brief Build from a pair of device BBQ-quantized dataset views (document, query) of `uint8_t`
+ * vectors; see the `float` overload for the supported layout pairs.
+ *
+ * @param[in] res raft resources
+ * @param[in] params CAGRA index build parameters
+ * @param[in] dataset device BBQ document-side dataset view [n_rows, dim]
+ * @param[in] dataset_query device BBQ query-side dataset view [n_rows, dim]
+ * @return built `device_bbq_index<uint8_t, uint32_t>`
+ */
+auto build(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> const& dataset,
+           cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> const& dataset_query)
+  -> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
+
+/**
  * @}
  */
 

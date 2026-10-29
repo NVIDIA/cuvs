@@ -6,6 +6,7 @@
 
 #include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/common.hpp>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/device_mdspan.hpp>
@@ -37,11 +38,12 @@ CUVS_DECL_CAGRA_GRAPH_SORT(uint8_t);
 
 #undef CUVS_DECL_CAGRA_GRAPH_SORT
 
-#define CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(DataT)                         \
-  CUVS_EXPORT void sort_knn_graph_bbq(                                \
-    raft::resources const& res,                                       \
-    cuvs::distance::DistanceType metric,                              \
-    cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset, \
+#define CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(DataT)                               \
+  CUVS_EXPORT void sort_knn_graph_bbq(                                      \
+    raft::resources const& res,                                             \
+    cuvs::distance::DistanceType metric,                                    \
+    cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,       \
+    cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset_query, \
     raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph)
 
 CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(float);

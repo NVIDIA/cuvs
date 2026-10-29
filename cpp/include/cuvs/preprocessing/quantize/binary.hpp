@@ -100,9 +100,9 @@ struct quantizer_view {
 
   /** A mutable view decays to the read-only one, the way an mdspan does. */
   template <typename U>
-    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
   operator quantizer_view<U, ContainerPolicy>()
     const noexcept  // NOLINT(google-explicit-constructor)
+    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
   {
     return std::visit(
       [](const auto& v) -> quantizer_view<U, ContainerPolicy> {

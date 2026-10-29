@@ -21,6 +21,10 @@
 namespace CUVS_EXPORT cuvs {
 namespace preprocessing::quantize::bbq {
 
+/** The read-only view of a BBQ dataset, which the kernels take by value. */
+template <typename DataT, typename IdxT>
+using bbq_dataset_view_t = cuvs::dataset_view<const DataT, IdxT, cuvs::bbq_spec>;
+
 #ifdef __CUDACC__
 
 // --------------------------------------------------------------------------
@@ -30,9 +34,9 @@ namespace preprocessing::quantize::bbq {
 
 template <typename DataT, typename IdxT>
 _RAFT_HOST_DEVICE constexpr uint32_t get_encoded_row_length(
-  const quantizer_view<DataT, IdxT>& dataset)
+  const bbq_dataset_view_t<DataT, IdxT>& dataset)
 {
-  return get_encoded_row_length(dataset.dim(), dataset.layout);
+  return dataset.const_manifest_view().encoded_row_length();
 }
 
 /**
@@ -285,33 +289,36 @@ __device__ __forceinline__ uint32_t code_inner_product_1b_x_packed_4b(const uint
  */
 template <typename DataT, typename IdxT>
 __device__ __forceinline__ uint32_t
-code_inner_product(const quantizer_view<DataT, IdxT>& quantizer_document,
-                   const quantizer_view<DataT, IdxT>& quantizer_query,
+code_inner_product(const bbq_dataset_view_t<DataT, IdxT>& quantizer_document,
+                   const bbq_dataset_view_t<DataT, IdxT>& quantizer_query,
                    int64_t row_document,
                    int64_t row_query)
 {
-  const uint8_t* document = &quantizer_document.codes(row_document, 0);
-  const uint8_t* query    = &quantizer_query.codes(row_query, 0);
+  const uint8_t* document = &quantizer_document.data_const_view().codes.rows(row_document, 0);
+  const uint8_t* query    = &quantizer_query.data_const_view().codes.rows(row_query, 0);
 
-  if (quantizer_document.layout == quantizer_query.layout) {
-    return code_inner_product(
-      document, query, quantizer_document.layout, get_encoded_row_length(quantizer_document));
+  if (quantizer_document.const_manifest_view().layout ==
+      quantizer_query.const_manifest_view().layout) {
+    return code_inner_product(document,
+                              query,
+                              quantizer_document.const_manifest_view().layout,
+                              get_encoded_row_length(quantizer_document));
   }
-  if (quantizer_document.layout == bbq_code_layout::packed_1b &&
-      quantizer_query.layout == bbq_code_layout::packed_4b) {
+  if (quantizer_document.const_manifest_view().layout == bbq_code_layout::packed_1b &&
+      quantizer_query.const_manifest_view().layout == bbq_code_layout::packed_4b) {
     return code_inner_product_1b_x_packed_4b(
       document, query, get_encoded_row_length(quantizer_document));
   }
   // Every remaining supported pair is bit-sliced on both sides: (packed_1b, transposed_2b),
   // (packed_1b, transposed_4b) and (transposed_2b, transposed_4b).
-  assert(quantizer_document.layout == bbq_code_layout::packed_1b ||
-         quantizer_document.layout == bbq_code_layout::transposed_2b);
-  assert(quantizer_query.layout == bbq_code_layout::transposed_2b ||
-         quantizer_query.layout == bbq_code_layout::transposed_4b);
+  assert(quantizer_document.const_manifest_view().layout == bbq_code_layout::packed_1b ||
+         quantizer_document.const_manifest_view().layout == bbq_code_layout::transposed_2b);
+  assert(quantizer_query.const_manifest_view().layout == bbq_code_layout::transposed_2b ||
+         quantizer_query.const_manifest_view().layout == bbq_code_layout::transposed_4b);
   return code_inner_product_planes(document,
-                                   get_code_planes(quantizer_document.layout),
+                                   get_code_planes(quantizer_document.const_manifest_view().layout),
                                    query,
-                                   get_code_planes(quantizer_query.layout),
+                                   get_code_planes(quantizer_query.const_manifest_view().layout),
                                    (quantizer_document.dim() + 7) / 8);
 }
 
@@ -457,12 +464,12 @@ struct bbq_dequant_factors {
 
 template <typename DataT, typename IdxT>
 __device__ __forceinline__ bbq_dequant_factors
-get_dequant_factors(const quantizer_view<DataT, IdxT>& quantizer, int64_t row)
+get_dequant_factors(const bbq_dataset_view_t<DataT, IdxT>& quantizer, int64_t row)
 {
-  return bbq_dequant_factors{quantizer.lower_intervals(row),
-                             quantizer.dequant_delta(row),
-                             quantizer.dequant_sum_delta(row),
-                             quantizer.additional_corrections(row)};
+  return bbq_dequant_factors{quantizer.data_const_view().lower_intervals(row),
+                             quantizer.data_const_view().codes.scale(row),
+                             quantizer.data_const_view().dequant_sum_delta(row),
+                             quantizer.data_const_view().codes.shift(row)};
 }
 
 // Converts one raw BBQ dot product into a final (post-epilogue) float distance, given both
@@ -475,8 +482,8 @@ __device__ __forceinline__ float bbq_calculate_metric(
   uint32_t raw,
   const bbq_dequant_factors& doc_factors,
   const bbq_dequant_factors& query_factors,
-  const quantizer_view<DataT, int64_t>& quantizer_document,
-  const quantizer_view<DataT, int64_t>& quantizer_query,
+  const bbq_dataset_view_t<DataT, int64_t>& quantizer_document,
+  const bbq_dataset_view_t<DataT, int64_t>& quantizer_query,
   cuvs::distance::DistanceType metric,
   DistEpilogue_t dist_epilogue,
   Index_t document_id,
@@ -499,12 +506,13 @@ __device__ __forceinline__ float bbq_calculate_metric(
       d = sqrtf(d);
     }
   } else if (metric == cuvs::distance::DistanceType::InnerProduct) {
-    d = -(centered + corrections - quantizer_document.centroid_norm_sq);
+    d = -(centered + corrections - quantizer_document.const_manifest_view().centroid_norm_sq);
   } else {  // CosineExpanded
-    const float norm_product =
-      quantizer_document.row_norm(document_id) * quantizer_query.row_norm(query_id);
-    const float dot = centered + corrections - quantizer_document.centroid_norm_sq;
-    d               = norm_product > 0.0f ? 1.0f - dot / sqrtf(norm_product) : 0.0f;
+    const float norm_product = quantizer_document.data_const_view().row_norm(document_id) *
+                               quantizer_query.data_const_view().row_norm(query_id);
+    const float dot =
+      centered + corrections - quantizer_document.const_manifest_view().centroid_norm_sq;
+    d = norm_product > 0.0f ? 1.0f - dot / sqrtf(norm_product) : 0.0f;
   }
   return dist_epilogue(d, document_id, query_id);
 }

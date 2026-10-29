@@ -74,27 +74,15 @@ constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noex
 
 `uint32_t`
 
-<a id="preprocessing-quantize-bbq-quantizer"></a>
-### preprocessing::quantize::bbq::quantizer
+<a id="preprocessing-quantize-bbq-quantizer-view"></a>
+### preprocessing::quantize::bbq::quantizer_view
 
-Better Binary Quantization ([BBQ](https://www.elastic.co/search-labs/blog/better-binary-quantization-lucene-elasticsearch)) is a vector-quantization approach used in Elasticsearch and Apache Lucene. It builds on ideas introduced in RaBitQ([Gao and Long](https://arxiv.org/pdf/2405.12497, [Gao et al.](https://arxiv.org/pdf/2409.09913)): residual binary codes around a centroid, corrective factors, and efficient bitwise comparison of codes at different bit widths. Lucene implements this as optimized scalar quantization (OSQ) with packed and bit-plane layouts; Elasticsearch exposes it as BBQ.
-
-BBQ in cuVS designed to be compatible with the Lucene/Elasticsearch dataset: a single shared centroid, no random rotation, and OSQ codes.
-
-RaBitQ and BBQ in cuVS both compress centroid-relative vectors to low-bit codes and retain additional per-vector information so search is better than naïve sign-bit comparison. They differ in transformation and scale representation. RaBitQ commonly separates residual magnitude from direction, then applies a random orthogonal rotation before binary coding; BBQ uses per-vector scalar intervals to interpret the compressed residual codes.
+Non-owning view of a BBQ quantizer, with the constness semantics of an mdspan: `quantizer_view<T>` can modify the centroid, `quantizer_view<const T>` cannot.
 
 ```cpp
-template <typename DataT, typename IdxT>
-struct quantizer {
-  raft::device_vector<float, IdxT> dequant_delta;
-  raft::device_vector<float, IdxT> dequant_sum_delta;
-  raft::device_vector<float, IdxT> row_norm;
-  raft::device_matrix<uint8_t, IdxT> codes;
-  raft::device_vector<float, IdxT> lower_intervals;
-  raft::device_vector<float, IdxT> upper_intervals;
-  raft::device_vector<float, IdxT> additional_corrections;
-  raft::device_vector<int32_t, IdxT> quantized_component_sums;
-  raft::device_vector<DataT, IdxT> centroid;
+template <typename T>
+struct quantizer_view {
+  raft::device_vector_view<T, int64_t> centroid;
   bbq_code_layout layout;
   cuvs::distance::DistanceType metric;
   float centroid_norm_sq;
@@ -105,18 +93,157 @@ struct quantizer {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `dequant_delta` | `raft::device_vector<float, IdxT>` | Precomputed per-row dequantization factors, derived once (offline) from lower/upper_intervals and quantized_component_sums: dequant_delta = (upper-lower)/(2^bits-1) |
-| `dequant_sum_delta` | `raft::device_vector<float, IdxT>` | Precomputed per-row dequantization factors, derived once (offline) from dequant_delta and quantized_component_sums: dequant_sum_delta = dequant_delta * quantized_component_sums. |
-| `row_norm` | `raft::device_vector<float, IdxT>` | Squared norm of the row in original (un-centered) vector space, \|\|x\|\|^2 |
-| `codes` | `raft::device_matrix<uint8_t, IdxT>` |  |
-| `lower_intervals` | `raft::device_vector<float, IdxT>` |  |
-| `upper_intervals` | `raft::device_vector<float, IdxT>` |  |
-| `additional_corrections` | `raft::device_vector<float, IdxT>` |  |
-| `quantized_component_sums` | `raft::device_vector<int32_t, IdxT>` |  |
-| `centroid` | `raft::device_vector<DataT, IdxT>` |  |
-| `layout` | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) |  |
-| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) |  |
-| `centroid_norm_sq` | `float` |  |
+| `centroid` | `raft::device_vector_view<T, int64_t>` | The centroid the vectors were centered around [dim]. |
+| `layout` | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) | The layout of the codes. |
+| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | The metric the corrections were computed for. |
+| `centroid_norm_sq` | `float` | The squared norm of the centroid. |
+
+<a id="preprocessing-quantize-bbq-quantizer-view-dim"></a>
+### preprocessing::quantize::bbq::quantizer_view::dim
+
+The number of dimensions of the quantized vectors.
+
+```cpp
+[[nodiscard]] constexpr auto dim() const noexcept -> uint32_t;
+```
+
+**Returns**
+
+`uint32_t`
+
+<a id="preprocessing-quantize-bbq-quantizer-view-encoded-row-length"></a>
+### preprocessing::quantize::bbq::quantizer_view::encoded_row_length
+
+The bytes one encoded row occupies.
+
+```cpp
+[[nodiscard]] constexpr auto encoded_row_length() const noexcept -> uint32_t;
+```
+
+**Returns**
+
+`uint32_t`
+
+<a id="preprocessing-quantize-bbq-quantizer-view-quantizer-view-u"></a>
+### preprocessing::quantize::bbq::quantizer_view::quantizer_view&lt;U&gt;
+
+A mutable view decays to the read-only one, the way an mdspan does.
+
+```cpp
+template <typename U>
+operator quantizer_view<U>() const noexcept  // NOLINT(google-explicit-constructor)
+requires(!std::is_const_v<T> && std::is_same_v<U, const T>);
+```
+
+**Returns**
+
+`operator`
+
+<a id="preprocessing-quantize-bbq-quantizer"></a>
+### preprocessing::quantize::bbq::quantizer
+
+Better Binary Quantization ([BBQ](https://www.elastic.co/search-labs/blog/better-binary-quantization-lucene-elasticsearch)) is a vector-quantization approach used in Elasticsearch and Apache Lucene. It builds on ideas introduced in RaBitQ([Gao and Long](https://arxiv.org/pdf/2405.12497, [Gao et al.](https://arxiv.org/pdf/2409.09913)): residual binary codes around a centroid, corrective factors, and efficient bitwise comparison of codes at different bit widths. Lucene implements this as optimized scalar quantization (OSQ) with packed and bit-plane layouts; Elasticsearch exposes it as BBQ.
+
+BBQ in cuVS designed to be compatible with the Lucene/Elasticsearch dataset: a single shared centroid, no random rotation, and OSQ codes.
+
+RaBitQ and BBQ in cuVS both compress centroid-relative vectors to low-bit codes and retain additional per-vector information so search is better than naive sign-bit comparison. They differ in transformation and scale representation. RaBitQ commonly separates residual magnitude from direction, then applies a random orthogonal rotation before binary coding; BBQ uses per-vector scalar intervals to interpret the compressed residual codes.
+
+The quantizer is the manifest of the quantized dataset `cuvs::device_bbq_dataset` (see cuvs/core/dataset/bbq.hpp): the centroid the vectors were centered around, the layout of the codes, the metric the corrections were computed for, and the cached squared norm of the centroid. The encoded rows and their per-row terms are the data of the dataset.
+
+```cpp
+template <typename T>
+struct quantizer {
+  raft::device_vector<T, int64_t> centroid;
+  bbq_code_layout layout;
+  cuvs::distance::DistanceType metric;
+  float centroid_norm_sq;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `centroid` | `raft::device_vector<T, int64_t>` | The centroid the vectors were centered around [dim]. |
+| `layout` | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) | The layout of the codes. |
+| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | The metric the corrections were computed for. |
+| `centroid_norm_sq` | `float` | The squared norm of the centroid. |
+
+<a id="preprocessing-quantize-bbq-quantizer-quantizer"></a>
+### preprocessing::quantize::bbq::quantizer::quantizer
+
+The quantizer owning the given centroid; its dimension is the extent of the vector.
+
+```cpp
+quantizer(raft::device_vector<T, int64_t>&& centroid_,
+bbq_code_layout layout_,
+cuvs::distance::DistanceType metric_,
+float centroid_norm_sq_);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `centroid_` |  | `raft::device_vector<T, int64_t>&&` |  |
+| `layout_` |  | [`bbq_code_layout`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-bbq-code-layout) |  |
+| `metric_` |  | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) |  |
+| `centroid_norm_sq_` |  | `float` |  |
+
+**Returns**
+
+`void`
+
+<a id="preprocessing-quantize-bbq-quantizer-dim"></a>
+### preprocessing::quantize::bbq::quantizer::dim
+
+The number of dimensions of the quantized vectors.
+
+```cpp
+[[nodiscard]] constexpr auto dim() const noexcept -> uint32_t;
+```
+
+**Returns**
+
+`uint32_t`
+
+<a id="preprocessing-quantize-bbq-quantizer-encoded-row-length"></a>
+### preprocessing::quantize::bbq::quantizer::encoded_row_length
+
+The bytes one encoded row occupies.
+
+```cpp
+[[nodiscard]] constexpr auto encoded_row_length() const noexcept -> uint32_t;
+```
+
+**Returns**
+
+`uint32_t`
+
+<a id="preprocessing-quantize-bbq-quantizer-view"></a>
+### preprocessing::quantize::bbq::quantizer::view
+
+A non-owning view of the quantizer.
+
+```cpp
+[[nodiscard]] auto view() noexcept -> view_type;
+```
+
+**Returns**
+
+`view_type`
+
+**Additional overload:** `preprocessing::quantize::bbq::quantizer::view`
+
+A read-only non-owning view of the quantizer.
+
+```cpp
+[[nodiscard]] auto view() const noexcept -> const_view_type;
+```
+
+**Returns**
+
+`const_view_type`
 
 <a id="preprocessing-quantize-bbq-helpers-resolve-dequant-factors"></a>
 ### preprocessing::quantize::bbq::helpers::resolve_dequant_factors

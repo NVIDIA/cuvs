@@ -56,13 +56,6 @@ struct sq_spec {
     {
       return manifest;
     }
-    // NOTE: the manifest is its own view here, read-only or not, so one overload serves both the
-    // owning dataset and the view.
-    [[nodiscard]] static auto get_manifest_const_view(const manifest_type& manifest) noexcept
-      -> manifest_view_type
-    {
-      return manifest;
-    }
   };
 };
 

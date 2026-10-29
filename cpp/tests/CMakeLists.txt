@@ -475,6 +475,13 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME CORE_AFFINE_DATASET_TEST
+  PATH neighbors/affine_dataset.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME PREPROCESSING_TEST
   PATH preprocessing/scalar_quantization.cu
        preprocessing/binary_quantization.cu

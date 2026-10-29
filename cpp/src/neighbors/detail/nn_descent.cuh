@@ -52,7 +52,7 @@
 namespace cuvs::neighbors::nn_descent::detail {
 
 using cuvs::preprocessing::quantize::bbq::bbq_code_layout;
-using cuvs::preprocessing::quantize::bbq::quantizer_view;
+using cuvs::preprocessing::quantize::bbq::bbq_dataset_view_t;
 
 template <typename Index_t>
 struct ResultItem;
@@ -1153,7 +1153,7 @@ using cuvs::preprocessing::quantize::bbq::packed_1b_to_4b;
 // stage_promoted_tile expands packed_1b to u4 for int4 MMA (packed_4b is a plain copy).
 template <int Planes, int RowStride, typename DataT, typename Index_t>
 __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
-                                                const quantizer_view<DataT, int64_t>& quantizer,
+                                                const bbq_dataset_view_t<DataT, int64_t>& quantizer,
                                                 const Index_t* neighbors,
                                                 const int count,
                                                 const size_t base,
@@ -1169,7 +1169,8 @@ __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
     const int idx = i * num_warps + warp_id;
     if (idx >= count) continue;
     auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
-    const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
+    const auto* src = reinterpret_cast<const uint32_t*>(
+      &quantizer.data_const_view().codes.rows(neighbors[idx], base));
     for (int w = lane_id; w < num_load_u32; w += raft::warp_size()) {
 #pragma unroll
       for (int p = 0; p < Planes; ++p) {
@@ -1192,12 +1193,13 @@ __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
 // promoted bytes, so a single n_tiles drives every operand regardless of how compact each one's
 // on-disk format is.
 template <bbq_code_layout Layout, int TileBytes, int RowStride, typename DataT, typename Index_t>
-__device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
-                                                    const quantizer_view<DataT, int64_t>& quantizer,
-                                                    const Index_t* neighbors,
-                                                    const int count,
-                                                    const int step,
-                                                    const int native_row_bytes)
+__device__ __forceinline__ void stage_promoted_tile(
+  uint8_t (*dst)[RowStride],
+  const bbq_dataset_view_t<DataT, int64_t>& quantizer,
+  const Index_t* neighbors,
+  const int count,
+  const int step,
+  const int native_row_bytes)
 {
   static_assert(Layout == bbq_code_layout::packed_1b || Layout == bbq_code_layout::packed_4b,
                 "int4 MMA path supports packed_1b (1b), packed_4b (4b)");
@@ -1224,7 +1226,8 @@ __device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
     const int w   = threadIdx.x % native_tile_u32;
     if (idx >= count) continue;
     auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
-    const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
+    const auto* src = reinterpret_cast<const uint32_t*>(
+      &quantizer.data_const_view().codes.rows(neighbors[idx], base));
     if (w < num_load_u32) {
       if constexpr (expansion == 4) {
         reinterpret_cast<uint4*>(s)[w] = packed_1b_to_4b(src[w]);
@@ -1295,8 +1298,8 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              const Index_t* rev_graph_old,
                              const int2* sizes_old,
                              const int width,
-                             quantizer_view<DataT, int64_t> dataset_document,
-                             quantizer_view<DataT, int64_t> dataset_query,
+                             bbq_dataset_view_t<DataT, int64_t> dataset_document,
+                             bbq_dataset_view_t<DataT, int64_t> dataset_query,
                              ID_t* graph,
                              DistData_t* dists,
                              int* locks,
@@ -1724,8 +1727,8 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              const Index_t* rev_graph_old,
                              const int2* sizes_old,
                              const int width,
-                             const quantizer_view<DataT, int64_t> dataset_document,
-                             const quantizer_view<DataT, int64_t> dataset_query,
+                             const bbq_dataset_view_t<DataT, int64_t> dataset_document,
+                             const bbq_dataset_view_t<DataT, int64_t> dataset_query,
                              ID_t* graph,
                              DistData_t* dists,
                              int* locks,
@@ -2478,52 +2481,51 @@ template <typename Data_t, typename Index_t>
 template <typename DistEpilogue_t>
 void GNND<Data_t, Index_t>::local_join(
   cudaStream_t stream,
-  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
+  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset_document,
+  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset_query,
   DistEpilogue_t dist_epilogue)
 {
   raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
 
   // Both kernels take the same (document, query) pair, so there is no symmetric/asymmetric split
-  // here: a single quantizer just means the same one on both operands, which is exactly what
-  // SelfJoin encodes. Picking the two quantizers is all that differs.
-  const bool self_join = dataset.quantizers.size() == 1;
-  const bool has_1b    = dataset.has_layout(bbq_code_layout::packed_1b);
-  const bool has_4b    = dataset.has_layout(bbq_code_layout::packed_4b);
-  const bool has_2bt   = dataset.has_layout(bbq_code_layout::transposed_2b);
-  const bool has_4bt   = dataset.has_layout(bbq_code_layout::transposed_4b);
-
+  // here: equal layouts mean the same view on both operands, which is exactly what SelfJoin
+  // encodes.
+  const auto doc_layout   = dataset_document.const_manifest_view().layout;
+  const auto query_layout = dataset_query.const_manifest_view().layout;
+  const bool self_join    = doc_layout == query_layout;
+  RAFT_EXPECTS(!self_join || dataset_document.data_const_view().codes.rows.data_handle() ==
+                               dataset_query.data_const_view().codes.rows.data_handle(),
+               "BBQ local join: the document and query views of the same layout must be the same "
+               "dataset.");
   // Asymmetric: a packed_4b query selects the tensor-core path, a transposed query the SIMT one.
   // Only packed_1b promotes to the tensor-core path; transposed_2b is SIMT-only (it would need
   // promoting from two bitplanes at once, which the int4 MMA staging doesn't support).
-  const bool tc_pair   = has_4b && has_1b;
-  const bool simt_pair = (has_4bt && (has_1b || has_2bt)) || (has_2bt && has_1b);
+  const bool has_1b    = doc_layout == bbq_code_layout::packed_1b;
+  const bool has_2bt   = doc_layout == bbq_code_layout::transposed_2b;
+  const bool q_4b      = query_layout == bbq_code_layout::packed_4b;
+  const bool q_2bt     = query_layout == bbq_code_layout::transposed_2b;
+  const bool q_4bt     = query_layout == bbq_code_layout::transposed_4b;
+  const bool tc_pair   = has_1b && q_4b;
+  const bool simt_pair = (q_4bt && (has_1b || has_2bt)) || (has_1b && q_2bt);
   RAFT_EXPECTS(self_join || tc_pair || simt_pair,
                "Unsupported BBQ layout pair for asymmetric local join. Supported: "
                "packed_1b x packed_4b (tensor core); packed_1b x transposed_2b, "
                "packed_1b x transposed_4b, transposed_2b x transposed_4b (SIMT).");
-  auto quantizer_query =
-    self_join ? dataset.quantizers[0]
-              : (tc_pair ? dataset.get_quantizer(bbq_code_layout::packed_4b)
-                         : (has_4bt ? dataset.get_quantizer(bbq_code_layout::transposed_4b)
-                                    : dataset.get_quantizer(bbq_code_layout::transposed_2b)));
-  auto quantizer_document = self_join ? dataset.quantizers[0]
-                            : has_1b  ? dataset.get_quantizer(bbq_code_layout::packed_1b)
-                                      : dataset.get_quantizer(bbq_code_layout::transposed_2b);
 
   // stage_tile_simt / stage_promoted_tile cast code buffers to uint32_t*, so every plane stride
   // must be 4-byte aligned.
   {
-    const auto len = cuvs::preprocessing::quantize::bbq::get_encoded_row_length(quantizer_query);
-    const int n_planes =
-      cuvs::preprocessing::quantize::bbq::get_code_planes(quantizer_query.layout);
+    const auto len     = cuvs::preprocessing::quantize::bbq::get_encoded_row_length(dataset_query);
+    const int n_planes = cuvs::preprocessing::quantize::bbq::get_code_planes(
+      dataset_query.const_manifest_view().layout);
     RAFT_EXPECTS(len % (4u * static_cast<uint32_t>(n_planes)) == 0,
                  "BBQ local join requires the encoded row length to be a multiple of 4*n_planes "
                  "for 32-bit aligned plane loads, got %u with n_planes = %d",
                  len,
                  n_planes);
-    RAFT_EXPECTS(quantizer_document.dim() % 32 == 0,
+    RAFT_EXPECTS(dataset_document.dim() % 32 == 0,
                  "BBQ local join requires dataset dim to be a multiple of 32, got %lld",
-                 static_cast<long long>(quantizer_document.dim()));
+                 static_cast<long long>(dataset_document.dim()));
   }
 
   // One launch site for both kernels: they take identical arguments, and the query's layout picks
@@ -2539,8 +2541,8 @@ void GNND<Data_t, Index_t>::local_join(
                                                h_rev_graph_old_.data_handle(),
                                                d_list_sizes_old_.data_handle(),
                                                NUM_SAMPLES,
-                                               quantizer_document,
-                                               quantizer_query,
+                                               dataset_document,
+                                               dataset_query,
                                                graph_buffer_.data_handle(),
                                                dists_buffer_.data_handle(),
                                                d_locks_.data_handle(),
@@ -2559,8 +2561,8 @@ void GNND<Data_t, Index_t>::local_join(
         local_join_kernel_bbq_simt<D, Q, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
     }
   };
-  const bbq_code_layout d = quantizer_document.layout;
-  const bbq_code_layout q = quantizer_query.layout;
+  const bbq_code_layout d = dataset_document.const_manifest_view().layout;
+  const bbq_code_layout q = dataset_query.const_manifest_view().layout;
   if (self_join) {
     switch (d) {
       case bbq_code_layout::packed_1b:
@@ -2853,14 +2855,15 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
 template <typename Data_t, typename Index_t>
 template <typename DistEpilogue_t>
 void GNND<Data_t, Index_t>::build(
-  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
+  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset_document,
+  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset_query,
   Index_t* output_graph,
   bool return_distances,
   DistData_t* output_distances,
   DistEpilogue_t dist_epilogue)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
-  nrow_               = static_cast<size_t>(dataset.n_rows());
+  nrow_               = static_cast<size_t>(dataset_document.n_rows());
   graph_.nrow         = nrow_;
   graph_.bloom_filter.set_nrow(nrow_);
   update_counter_ = 0;
@@ -2911,7 +2914,7 @@ void GNND<Data_t, Index_t>::build(
                       d_list_sizes_old_.data_handle(),
                       stream);
 
-    local_join(stream, dataset, dist_epilogue);
+    local_join(stream, dataset_document, dataset_query, dist_epilogue);
     worker.wait();
     if (converged) { break; }
     raft::copy(res, graph_host_buffer_.view(), graph_buffer_.view());
@@ -2978,28 +2981,35 @@ template <typename DataT, typename IdxT = uint32_t>
 void build(raft::resources const& res,
            const index_params& params,
            cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
+           cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset_query,
            index<IdxT>& idx)
 {
-  RAFT_EXPECTS(dataset.quantizers.size() > 0, "BBQ dataset must not be empty.");
-  auto front_quantizer = dataset.quantizers[0];
+  RAFT_EXPECTS(dataset.n_rows() > 0, "BBQ dataset must not be empty.");
+  RAFT_EXPECTS(dataset.n_rows() == dataset_query.n_rows() && dataset.dim() == dataset_query.dim(),
+               "The BBQ document and query views must describe the same number of rows and "
+               "dimensions.");
+  const auto front_manifest = dataset.const_manifest_view();
   cuvs::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "neighbors::nn_descent::detail::build-bbq(%zu, %zu, %zu, %zu, %zu)",
     size_t(dataset.n_rows()),
     size_t(dataset.dim()),
     size_t(idx.graph().extent(1)),
     size_t(idx.metric()),
-    size_t(cuvs::preprocessing::quantize::bbq::get_bit_width(front_quantizer.layout)));
+    size_t(cuvs::preprocessing::quantize::bbq::get_bit_width(front_manifest.layout)));
   RAFT_EXPECTS(idx.metric() == cuvs::distance::DistanceType::L2Expanded ||
                  idx.metric() == cuvs::distance::DistanceType::L2SqrtExpanded ||
                  idx.metric() == cuvs::distance::DistanceType::CosineExpanded ||
                  idx.metric() == cuvs::distance::DistanceType::InnerProduct,
                "BBQ NN-Descent supports L2Expanded, L2SqrtExpanded, CosineExpanded, and "
                "InnerProduct.");
-  RAFT_EXPECTS(idx.metric() == front_quantizer.metric,
+  RAFT_EXPECTS(idx.metric() == front_manifest.metric,
                "BBQ dataset metric does not match the NN-Descent metric.");
+  RAFT_EXPECTS(dataset_query.const_manifest_view().metric == front_manifest.metric,
+               "BBQ query dataset metric does not match the document dataset metric.");
   // packed_4b is the only layout dispatched to local_join_kernel_bbq_wmma, and the int4 MMA that
   // kernel is built around only exists from sm_75 on.
-  if (dataset.has_layout(bbq_code_layout::packed_4b)) {
+  if (front_manifest.layout == bbq_code_layout::packed_4b ||
+      dataset_query.const_manifest_view().layout == bbq_code_layout::packed_4b) {
     auto kernel       = local_join_kernel_bbq_wmma<bbq_code_layout::packed_4b,
                                                    bbq_code_layout::packed_4b,
                                                    DataT,
@@ -3041,6 +3051,7 @@ void build(raft::resources const& res,
 
   if (idx.distances().has_value() || !params.return_distances) {
     nnd.build(dataset,
+              dataset_query,
               int_graph.data_handle(),
               params.return_distances,
               idx.distances()
@@ -3131,7 +3142,8 @@ void build(raft::resources const& res,
 template <typename DataT, typename IdxT = uint32_t>
 index<IdxT> build(raft::resources const& res,
                   const index_params& params,
-                  cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset)
+                  cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
+                  cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset_query)
 {
   auto effective_params = get_effective_index_params(params, dataset.n_rows());
 
@@ -3140,7 +3152,7 @@ index<IdxT> build(raft::resources const& res,
                   static_cast<int64_t>(effective_params.graph_degree),
                   effective_params.return_distances,
                   effective_params.metric};
-  detail::build<DataT, IdxT>(res, effective_params, dataset, idx);
+  detail::build<DataT, IdxT>(res, effective_params, dataset, dataset_query, idx);
   return idx;
 }
 

@@ -80,3 +80,5 @@ ivf_pq_index
 # java
 .classpath
 cufile.log
+.cursor
+.cursorrules

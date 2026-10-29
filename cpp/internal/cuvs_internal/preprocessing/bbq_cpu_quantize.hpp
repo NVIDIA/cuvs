@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cuvs/core/dataset/bbq.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
 
@@ -44,8 +45,9 @@ using cuvs::preprocessing::quantize::bbq::get_bit_width;
 using cuvs::preprocessing::quantize::bbq::get_encoded_row_length;
 
 /**
- * Host-resident mirror of the arrays in a BBQ quantizer. The library quantizer is device-only,
- * so the CPU reference implementation and its on-disk cache need their own staging type; it is
+ * Host-resident mirror of the arrays of a BBQ dataset (plus the encoder-only columns). The library
+ * dataset is device-only, so the CPU reference implementation and its on-disk cache need their own
+ * staging type; it is
  * uploaded by copy_bbq_owning_storage_host_to_device below.
  */
 struct host_quantizer_storage {
@@ -330,69 +332,52 @@ inline host_quantizer_storage quantize(const float* data,
 /** The CPU reference quantizer works in float, so it only ever feeds a float-valued dataset. */
 template <typename IdxT>
 auto copy_bbq_owning_storage_host_to_device(raft::resources const& res,
-                                            host_quantizer_storage const& host_storage) ->
-  typename cuvs::neighbors::device_bbq_dataset<float, IdxT>::owning_storage_type
+                                            host_quantizer_storage const& host_storage)
+  -> cuvs::device_bbq_dataset<float, IdxT>
 {
-  using device_storage =
-    typename cuvs::neighbors::device_bbq_dataset<float, IdxT>::owning_storage_type;
-  auto stream = raft::resource::get_cuda_stream(res);
-  device_storage device{res,
-                        static_cast<IdxT>(host_storage.codes.extent(0)),
-                        static_cast<uint32_t>(host_storage.centroid.extent(0)),
-                        host_storage.layout,
-                        host_storage.metric};
+  using dataset_t   = cuvs::device_bbq_dataset<float, IdxT>;
+  auto stream       = raft::resource::get_cuda_stream(res);
+  const auto n_rows = host_storage.codes.extent(0);
+  const auto dim    = host_storage.centroid.extent(0);
 
-  raft::copy(
-    device.codes.data_handle(), host_storage.codes.data_handle(), device.codes.size(), stream);
-  raft::copy(device.lower_intervals.data_handle(),
-             host_storage.lower_intervals.data_handle(),
-             device.lower_intervals.size(),
-             stream);
-  raft::copy(device.upper_intervals.data_handle(),
-             host_storage.upper_intervals.data_handle(),
-             device.upper_intervals.size(),
-             stream);
-  raft::copy(device.additional_corrections.data_handle(),
-             host_storage.additional_corrections.data_handle(),
-             device.additional_corrections.size(),
-             stream);
-  raft::copy(device.quantized_component_sums.data_handle(),
-             host_storage.quantized_component_sums.data_handle(),
-             device.quantized_component_sums.size(),
-             stream);
-  raft::copy(device.centroid.data_handle(),
-             host_storage.centroid.data_handle(),
-             device.centroid.size(),
-             stream);
-  raft::copy(device.dequant_delta.data_handle(),
-             host_storage.dequant_delta.data_handle(),
-             device.dequant_delta.size(),
-             stream);
-  raft::copy(device.dequant_sum_delta.data_handle(),
-             host_storage.dequant_sum_delta.data_handle(),
-             device.dequant_sum_delta.size(),
-             stream);
-  raft::copy(device.row_norm.data_handle(),
-             host_storage.row_norm.data_handle(),
-             device.row_norm.size(),
-             stream);
-  device.centroid_norm_sq = host_storage.centroid_norm_sq;
-  return device;
+  auto upload_vector = [&](const raft::host_vector<float, int64_t>& src) {
+    auto dst = raft::make_device_vector<float, int64_t>(res, src.extent(0));
+    raft::copy(dst.data_handle(), src.data_handle(), src.size(), stream);
+    return dst;
+  };
+  auto codes =
+    raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, host_storage.codes.extent(1));
+  raft::copy(codes.data_handle(), host_storage.codes.data_handle(), codes.size(), stream);
+
+  // The upper intervals and the quantized component sums only feed the dequantization factors
+  // (see derive_dequant_factors), and are not a part of the dataset.
+  typename dataset_t::data_type data{{std::move(codes),
+                                      upload_vector(host_storage.dequant_delta),
+                                      upload_vector(host_storage.additional_corrections)},
+                                     upload_vector(host_storage.lower_intervals),
+                                     upload_vector(host_storage.dequant_sum_delta),
+                                     upload_vector(host_storage.row_norm)};
+  typename dataset_t::manifest_type manifest{upload_vector(host_storage.centroid),
+                                             host_storage.layout,
+                                             host_storage.metric,
+                                             host_storage.centroid_norm_sq};
+  RAFT_EXPECTS(manifest.centroid.extent(0) == dim, "the centroid must have the dimension");
+  return dataset_t{std::move(data), std::move(manifest)};
 }
 
+/**
+ * The BBQ dataset in the document layout and, for an asymmetric join, the one in the query layout.
+ * The views are the (document, query) pair the builders take; a symmetric join passes the document
+ * view twice.
+ */
 template <typename IdxT>
-auto make_device_bbq_dataset(raft::resources const& res,
-                             std::vector<host_quantizer_storage> const& host)
-  -> cuvs::neighbors::device_bbq_dataset<float, IdxT>
-{
-  RAFT_EXPECTS(host.size() != 0, "host BBQ dataset has no storage");
-  cuvs::neighbors::device_bbq_dataset<float, IdxT> device{
-    copy_bbq_owning_storage_host_to_device<IdxT>(res, host[0])};
-  for (std::size_t i = 1; i < host.size(); ++i) {
-    device.add_quantizer(copy_bbq_owning_storage_host_to_device<IdxT>(res, host[i]));
-  }
-  return device;
-}
+struct device_bbq_datasets {
+  cuvs::device_bbq_dataset<float, IdxT> document;
+  std::optional<cuvs::device_bbq_dataset<float, IdxT>> query;
+
+  [[nodiscard]] auto document_view() const { return document.view(); }
+  [[nodiscard]] auto query_view() const { return query ? query->view() : document.view(); }
+};
 
 struct bbq_layout_token {
   std::string_view token;
@@ -585,8 +570,8 @@ inline auto quantize_cached(const float* rows,
 /**
  * Quantize host-resident @p rows and upload the codes, ready for the BBQ NN-Descent build.
  *
- * `query_token == doc_token` produces a single quantizer and a symmetric join; differing tokens
- * produce two quantizers and an asymmetric join, where the wider codes serve the query side.
+ * `query_token == doc_token` produces a single dataset and a symmetric join; differing tokens
+ * produce two datasets and an asymmetric join, where the wider codes serve the query side.
  */
 inline auto quantize_to_device(raft::resources const& res,
                                const float* rows,
@@ -594,17 +579,20 @@ inline auto quantize_to_device(raft::resources const& res,
                                int64_t dim,
                                cuvs::distance::DistanceType metric,
                                bbq_code_layout query_layout,
-                               bbq_code_layout doc_layout)
-  -> cuvs::neighbors::device_bbq_dataset<float, int64_t>
+                               bbq_code_layout doc_layout) -> device_bbq_datasets<int64_t>
 {
   validate_layout_pair(query_layout, doc_layout);
-  std::vector<host_quantizer_storage> host;
-  host.push_back(quantize_cached(rows, n_rows, dim, query_layout, metric));
+  auto document = quantize_cached(rows, n_rows, dim, doc_layout, metric);
+  std::optional<host_quantizer_storage> query;
   if (doc_layout != query_layout) {
-    host.push_back(quantize_cached(rows, n_rows, dim, doc_layout, metric));
+    query = quantize_cached(rows, n_rows, dim, query_layout, metric);
   }
-  auto device = make_device_bbq_dataset<int64_t>(res, host);
-  // The uploads are stream-ordered against `host`, which dies with this frame.
+  device_bbq_datasets<int64_t> device{
+    copy_bbq_owning_storage_host_to_device<int64_t>(res, document), std::nullopt};
+  if (query.has_value()) {
+    device.query = copy_bbq_owning_storage_host_to_device<int64_t>(res, *query);
+  }
+  // The uploads are stream-ordered against the host storages, which die with this frame.
   raft::resource::sync_stream(res);
   return device;
 }
@@ -615,8 +603,7 @@ inline auto quantize_to_device(raft::resources const& res,
                                int64_t dim,
                                cuvs::distance::DistanceType metric,
                                std::string_view query_token,
-                               std::string_view doc_token)
-  -> cuvs::neighbors::device_bbq_dataset<float, int64_t>
+                               std::string_view doc_token) -> device_bbq_datasets<int64_t>
 {
   return quantize_to_device(res,
                             rows,

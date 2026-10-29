@@ -73,16 +73,6 @@ struct binary_spec {
     {
       return manifest.view();
     }
-    [[nodiscard]] static auto get_manifest_const_view(const manifest_type& manifest) noexcept
-      -> const_manifest_view_type
-    {
-      return manifest.view();
-    }
-    [[nodiscard]] static auto get_manifest_const_view(manifest_view_type manifest) noexcept
-      -> const_manifest_view_type
-    {
-      return manifest;
-    }
   };
 };
 

@@ -4,6 +4,7 @@
  */
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <dlpack/dlpack.h>
@@ -404,70 +405,65 @@ static void with_dataset_view(cuvsDataset_t dataset, Fn&& fn)
   }
 }
 
+/**
+ * The BBQ dataset handle: the (document, query) pair of dataset views that
+ * `cuvs::neighbors::cagra::build` takes. A symmetric dataset holds the same view twice.
+ */
 template <typename T>
-void validate_bbq_layouts(cuvs::neighbors::device_bbq_dataset_view<T, int64_t> const& dataset)
+struct bbq_dataset_pair {
+  using view_t = cuvs::neighbors::device_bbq_dataset_view<T, int64_t>;
+  view_t document;
+  view_t query;
+};
+
+[[nodiscard]] inline auto is_supported_bbq_pair(
+  cuvs::preprocessing::quantize::bbq::bbq_code_layout document,
+  cuvs::preprocessing::quantize::bbq::bbq_code_layout query) -> bool
 {
   using layout_t = cuvs::preprocessing::quantize::bbq::bbq_code_layout;
-  if (dataset.quantizers.size() == 1) {
-    auto layout = dataset.quantizers.front().layout;
+  return (document == layout_t::packed_1b && (query == layout_t::packed_4b ||
+                                               query == layout_t::transposed_2b ||
+                                               query == layout_t::transposed_4b)) ||
+         (document == layout_t::transposed_2b && query == layout_t::transposed_4b);
+}
+
+template <typename T>
+auto make_bbq_dataset_pair(cuvsBbqQuantizer_t* quantizers, std::size_t num_quantizers)
+  -> std::unique_ptr<bbq_dataset_pair<T>>
+{
+  using layout_t = cuvs::preprocessing::quantize::bbq::bbq_code_layout;
+  using view_t   = typename bbq_dataset_pair<T>::view_t;
+
+  std::array<view_t, 2> views{};
+  for (std::size_t i = 0; i < num_quantizers; ++i) {
+    RAFT_EXPECTS(quantizers[i] != nullptr && quantizers[i]->addr != 0,
+                 "cuvsDatasetMakeBbqView: quantizer %zu is null",
+                 i);
+    views[i] = *reinterpret_cast<view_t*>(quantizers[i]->addr);
+  }
+
+  if (num_quantizers == 1) {
+    auto layout = views[0].const_manifest_view().layout;
     RAFT_EXPECTS(layout == layout_t::packed_1b || layout == layout_t::transposed_2b ||
                    layout == layout_t::packed_4b || layout == layout_t::packed_7b ||
                    layout == layout_t::packed_8b,
                  "cuvsDatasetMakeBbqView: transposed_4b requires an asymmetric layout pair");
-    return;
+    return std::make_unique<bbq_dataset_pair<T>>(bbq_dataset_pair<T>{views[0], views[0]});
   }
 
-  const bool has_1b  = dataset.has_layout(layout_t::packed_1b);
-  const bool has_2bt = dataset.has_layout(layout_t::transposed_2b);
-  const bool has_4b  = dataset.has_layout(layout_t::packed_4b);
-  const bool has_4bt = dataset.has_layout(layout_t::transposed_4b);
-  RAFT_EXPECTS((has_1b && (has_4b || has_2bt || has_4bt)) || (has_2bt && has_4bt),
+  auto const first  = views[0].const_manifest_view();
+  auto const second = views[1].const_manifest_view();
+  RAFT_EXPECTS(views[0].n_rows() == views[1].n_rows() && views[0].dim() == views[1].dim(),
+               "cuvsDatasetMakeBbqView: all quantizers must have the same shape");
+  RAFT_EXPECTS(first.metric == second.metric,
+               "cuvsDatasetMakeBbqView: all quantizers must use the same metric");
+  // The handles come in any order: the role of each is given by its layout.
+  if (is_supported_bbq_pair(first.layout, second.layout)) {
+    return std::make_unique<bbq_dataset_pair<T>>(bbq_dataset_pair<T>{views[0], views[1]});
+  }
+  RAFT_EXPECTS(is_supported_bbq_pair(second.layout, first.layout),
                "cuvsDatasetMakeBbqView: unsupported asymmetric BBQ layout pair");
-}
-
-template <typename T>
-auto get_cpp_bbq_quantizer_view(cuvsBbqQuantizer_t quantizer)
-  -> cuvs::preprocessing::quantize::bbq::quantizer_view<T, int64_t>
-{
-  using owner_t = cuvs::preprocessing::quantize::bbq::quantizer<T, int64_t>;
-  using view_t  = cuvs::preprocessing::quantize::bbq::quantizer_view<T, int64_t>;
-  RAFT_EXPECTS(quantizer != nullptr && quantizer->addr != 0,
-               "cuvsDatasetMakeBbqView: null quantizer storage");
-  if (quantizer->is_owning) {
-    return reinterpret_cast<owner_t*>(quantizer->addr)->view();
-  }
-  return *reinterpret_cast<view_t*>(quantizer->addr);
-}
-
-template <typename T>
-auto make_bbq_dataset_view(cuvsBbqQuantizer_t* quantizers, std::size_t num_quantizers)
-  -> std::unique_ptr<cuvs::neighbors::device_bbq_dataset_view<T, int64_t>>
-{
-  using dataset_view_t = cuvs::neighbors::device_bbq_dataset_view<T, int64_t>;
-  auto dataset         = std::make_unique<dataset_view_t>();
-  int64_t expected_rows{-1};
-  uint32_t expected_dim{};
-  cuvs::distance::DistanceType expected_metric{};
-
-  for (std::size_t i = 0; i < num_quantizers; ++i) {
-    RAFT_EXPECTS(quantizers[i] != nullptr,
-                 "cuvsDatasetMakeBbqView: quantizer %zu is null",
-                 i);
-    auto quantizer = get_cpp_bbq_quantizer_view<T>(quantizers[i]);
-    if (i == 0) {
-      expected_rows   = quantizer.n_rows();
-      expected_dim    = quantizer.dim();
-      expected_metric = quantizer.metric;
-    } else {
-      RAFT_EXPECTS(quantizer.n_rows() == expected_rows && quantizer.dim() == expected_dim,
-                   "cuvsDatasetMakeBbqView: all quantizers must have the same shape");
-      RAFT_EXPECTS(quantizer.metric == expected_metric,
-                   "cuvsDatasetMakeBbqView: all quantizers must use the same metric");
-    }
-    dataset->add_quantizer(quantizer);
-  }
-
-  return dataset;
+  return std::make_unique<bbq_dataset_pair<T>>(bbq_dataset_pair<T>{views[1], views[0]});
 }
 
 template <typename T>
@@ -476,13 +472,11 @@ void make_and_bind_bbq_dataset(cuvsBbqQuantizer_t* quantizers,
                                DLDataType dtype,
                                cuvsDataset_t* output)
 {
-  using dataset_view_t = cuvs::neighbors::device_bbq_dataset_view<T, int64_t>;
-  auto view            = make_bbq_dataset_view<T>(quantizers, num_quantizers);
-  validate_bbq_layouts(*view);
+  auto pair = make_bbq_dataset_pair<T>(quantizers, num_quantizers);
 
   auto handle          = std::make_unique<cuvsDataset>();
-  handle->addr         = reinterpret_cast<uintptr_t>(view.release());
-  handle->destroy_addr = &destroy_typed_addr<dataset_view_t>;
+  handle->addr         = reinterpret_cast<uintptr_t>(pair.release());
+  handle->destroy_addr = &destroy_typed_addr<bbq_dataset_pair<T>>;
   handle->dtype        = dtype;
   handle->mem_type     = CUVS_DATASET_MEM_TYPE_DEVICE;
   handle->layout       = CUVS_DATASET_LAYOUT_BBQ;
@@ -1922,11 +1916,17 @@ static void build_dispatch_on_mem_type_and_layout(raft::resources* res_ptr,
   if (dataset->layout == CUVS_DATASET_LAYOUT_BBQ) {
     RAFT_EXPECTS(dataset->mem_type == CUVS_DATASET_MEM_TYPE_DEVICE,
                  "cuvsCagraBuild: BBQ dataset must be device-resident");
-    using owner_t = cuvs::neighbors::device_bbq_dataset<T, int64_t>;
     using view_t  = cuvs::neighbors::device_bbq_dataset_view<T, int64_t>;
-    with_dataset_view<owner_t, view_t>(dataset, [&](auto const& view) {
-      build_index_from_dataset_view<T>(res_ptr, params, view, index);
-    });
+    auto& pair    = *reinterpret_cast<bbq_dataset_pair<T>*>(dataset->addr);
+    auto index_params = cuvs::neighbors::cagra::index_params();
+    convert_c_index_params(*params,
+                           static_cast<int64_t>(pair.document.n_rows()),
+                           static_cast<int64_t>(pair.document.dim()),
+                           &index_params);
+    auto cpp_index =
+      cuvs::neighbors::cagra::build(*res_ptr, index_params, pair.document, pair.query);
+    auto* raw = new decltype(cpp_index)(std::move(cpp_index));
+    wrap_CPP_index_in_lifetime_holder_and_bind_to_C_index<T, view_t>(index, index->dtype, raw);
     return;
   }
 

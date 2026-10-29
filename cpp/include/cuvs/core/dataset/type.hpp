@@ -120,7 +120,11 @@ struct dataset {
    */
   [[nodiscard]] auto data_const_view() const noexcept -> const_data_view_type
   {
-    return spec_type::get_data_const_view(data_);
+    if constexpr (requires { spec_type::get_data_const_view(data_); }) {
+      return spec_type::get_data_const_view(data_);
+    } else {
+      return as_const_view(data_);
+    }
   }
 
   /**
@@ -141,7 +145,11 @@ struct dataset {
   [[nodiscard]] auto const_manifest_view() const noexcept -> const_manifest_view_type
     requires(is_compound)
   {
-    return spec_type::get_manifest_const_view(manifest_);
+    if constexpr (requires { spec_type::get_manifest_const_view(manifest_); }) {
+      return spec_type::get_manifest_const_view(manifest_);
+    } else {
+      return as_const_view(manifest_);
+    }
   }
 
  private:

@@ -36,13 +36,6 @@ struct empty_spec {
     {
       return data;
     }
-    // NOTE: the view of an empty dataset is the storage itself, so one overload serves both the
-    // owning dataset and the view.
-    [[nodiscard]] static auto get_data_const_view(const data_type& data) noexcept
-      -> const_data_view_type
-    {
-      return data;
-    }
     // NOTE: the shape accessors take the data in either form - the storage an owning dataset holds,
     // or the view a `dataset_view` holds. A plain spec defines no manifest either, so it ignores
     // whatever the dataset puts in that slot instead.

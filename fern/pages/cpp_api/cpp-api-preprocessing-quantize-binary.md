@@ -146,27 +146,21 @@ The number of dimensions (bits) of the quantized vectors.
 
 `uint32_t`
 
-<a id="preprocessing-quantize-binary-quantizer-view-requires"></a>
-### preprocessing::quantize::binary::quantizer_view::requires
+<a id="preprocessing-quantize-binary-quantizer-view-containerpolicy"></a>
+### preprocessing::quantize::binary::quantizer_view::ContainerPolicy&gt;
 
 A mutable view decays to the read-only one, the way an mdspan does.
 
 ```cpp
 template <typename U>
-requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
 operator quantizer_view<U, ContainerPolicy>()
-const noexcept  // NOLINT(google-explicit-constructor);
+const noexcept  // NOLINT(google-explicit-constructor)
+requires(!std::is_const_v<T> && std::is_same_v<U, const T>);
 ```
-
-**Parameters**
-
-| Name | Direction | Type | Description |
-| --- | --- | --- | --- |
-| `arg1` |  | `!std::is_const_v<T> && std::is_same_v<U, const T>` |  |
 
 **Returns**
 
-`void`
+[`operator quantizer_view<U,`](/api-reference/cpp-api-preprocessing-quantize-binary#preprocessing-quantize-binary-quantizer-view)
 
 <a id="preprocessing-quantize-binary-quantizer"></a>
 ### preprocessing::quantize::binary::quantizer

@@ -7,12 +7,41 @@
 
 #include <cuvs/core/export.hpp>
 
+#include <raft/core/mdspan.hpp>
+
 #include <concepts>
 #include <cstdint>
 #include <type_traits>
 #include <variant>
 
 namespace CUVS_EXPORT cuvs {
+
+/**
+ * The read-only view of whatever a dataset stores: its data or its manifest, in the form an owning
+ * dataset holds it (arrays) or in the form a view holds it (spans). Specs that store nothing out
+ * of the ordinary need no accessor of their own for it; the dataset applies this one.
+ *
+ * It picks the first form that applies:
+ *  - `x.const_view()`: a composite of several arrays or views (it knows its members);
+ *  - `x.view()`: an owning array, whose const overload returns the read-only view;
+ *  - `raft::make_const_mdspan(x)`: an mdspan, which has to be rebuilt over a const accessor;
+ *  - `x` itself: a view that is already read-only, or a small plain struct that is its own view.
+ */
+template <typename T>
+[[nodiscard]] constexpr auto as_const_view(const T& x) noexcept
+{
+  if constexpr (requires { x.const_view(); }) {
+    return x.const_view();
+  } else if constexpr (requires { x.view(); }) {
+    return x.view();
+  } else if constexpr (requires { raft::make_const_mdspan(x); }) {
+    return raft::make_const_mdspan(x);
+  } else {
+    static_assert(std::is_trivially_copyable_v<T>,
+                  "A type without a view must be cheap to copy to be its own read-only view.");
+    return x;
+  }
+}
 
 /**
  * A spec is compound if it defines a manifest: the codebooks, the quantization range, or
@@ -66,8 +95,16 @@ struct dataset_view {
     }
   }())::type;
 
-  using data_type            = typename spec_type::data_type;
-  using const_data_view_type = typename spec_type::const_data_view_type;
+  using data_type = typename spec_type::data_type;
+  // Optional, so that the specs don't have to declare it: the read-only view of the data, as
+  // `as_const_view` gives it.
+  using const_data_view_type = typename decltype([] {
+    if constexpr (requires { typename spec_type::const_data_view_type; }) {
+      return std::type_identity<typename spec_type::const_data_view_type>{};
+    } else {
+      return std::type_identity<decltype(as_const_view(std::declval<const data_type&>()))>{};
+    }
+  }())::type;
   using data_view_type =
     std::conditional_t<is_const_view, const_data_view_type, typename spec_type::data_view_type>;
 
@@ -142,7 +179,7 @@ struct dataset_view {
    *
    * @return The number of rows.
    */
-  [[nodiscard]] auto n_rows() const noexcept -> index_type
+  [[nodiscard]] constexpr auto n_rows() const noexcept -> index_type
   {
     return spec_type::get_n_rows(data_view_);
   }
@@ -153,7 +190,7 @@ struct dataset_view {
    *
    * @return The dimension.
    */
-  [[nodiscard]] auto dim() const noexcept -> uint32_t
+  [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t
   {
     return spec_type::get_dim(data_view_, manifest_view_);
   }
@@ -163,21 +200,26 @@ struct dataset_view {
    *
    * @return A view of the data.
    */
-  [[nodiscard]] auto data_view() const noexcept -> data_view_type { return data_view_; }
+  [[nodiscard]] constexpr auto data_view() const noexcept -> data_view_type { return data_view_; }
   /**
    * @brief A read-only view of the data.
    *
    * NOTE: giving up write access is not a plain cast for most view types - a mutable mdspan, for
-   * one, has to be rebuilt over a const accessor - hence the spec does the conversion.
+   * one, has to be rebuilt over a const accessor - hence the spec may do the conversion; if it
+   * does not, `as_const_view` does.
    *
    * @return A read-only view of the data.
    */
-  [[nodiscard]] auto data_const_view() const noexcept -> const_data_view_type
+  [[nodiscard]] constexpr auto data_const_view() const noexcept -> const_data_view_type
   {
     if constexpr (is_const_view) {
       return data_view_;
     } else {
-      return spec_type::get_data_const_view(data_view_);
+      if constexpr (requires { spec_type::get_data_const_view(data_view_); }) {
+        return spec_type::get_data_const_view(data_view_);
+      } else {
+        return as_const_view(data_view_);
+      }
     }
   }
 
@@ -186,7 +228,7 @@ struct dataset_view {
    *
    * @return A view of the manifest.
    */
-  [[nodiscard]] auto manifest_view() const noexcept -> manifest_view_type
+  [[nodiscard]] constexpr auto manifest_view() const noexcept -> manifest_view_type
     requires(is_compound)
   {
     return manifest_view_;
@@ -196,13 +238,17 @@ struct dataset_view {
    *
    * @return A read-only view of the manifest.
    */
-  [[nodiscard]] auto const_manifest_view() const noexcept -> const_manifest_view_type
+  [[nodiscard]] constexpr auto const_manifest_view() const noexcept -> const_manifest_view_type
     requires(is_compound)
   {
     if constexpr (is_const_view) {
       return manifest_view_;
     } else {
-      return spec_type::get_manifest_const_view(manifest_view_);
+      if constexpr (requires { spec_type::get_manifest_const_view(manifest_view_); }) {
+        return spec_type::get_manifest_const_view(manifest_view_);
+      } else {
+        return as_const_view(manifest_view_);
+      }
     }
   }
 

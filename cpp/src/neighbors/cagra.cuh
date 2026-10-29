@@ -307,7 +307,7 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
   // non-searchable until the type-changing update_dataset(...) supplies a device-padded dataset.
   if constexpr (cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>) {
     return cuvs::neighbors::cagra::detail::build_from_bbq_dataset<T, IdxT, DatasetViewT>(
-      res, params, dataset);
+      res, params, dataset, dataset);
   } else if constexpr (cuvs::neighbors::is_device_vpq_dataset_view_v<DatasetViewT>) {
     auto effective_params = params;
     if (std::holds_alternative<std::monostate>(effective_params.graph_build_params)) {
@@ -353,6 +353,23 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
     return cuvs::neighbors::cagra::detail::build_from_host_matrix<T, IdxT, DatasetViewT>(
       res, params, dataset);
   }
+}
+
+/**
+ * @brief Build the index from a pair of BBQ dataset views holding the same rows in the document
+ * and query code layouts. The returned index keeps the document view.
+ */
+template <typename DatasetViewT>
+  requires cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>
+auto build(raft::resources const& res,
+           const index_params& params,
+           DatasetViewT const& dataset,
+           DatasetViewT const& dataset_query) -> cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>
+{
+  using index_type = cuvs::neighbors::cagra::cagra_index_t<DatasetViewT>;
+  using T          = typename index_type::value_type;
+  return cuvs::neighbors::cagra::detail::build_from_bbq_dataset<T, uint32_t, DatasetViewT>(
+    res, params, dataset, dataset_query);
 }
 
 /**

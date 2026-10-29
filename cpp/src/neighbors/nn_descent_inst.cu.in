@@ -69,4 +69,25 @@ auto build(raft::resources const& handle,
     return idx;
   };
 }
+
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::nn_descent::index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<data_t, int64_t> dataset,
+           cuvs::neighbors::device_bbq_dataset_view<data_t, int64_t> dataset_query,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph)
+  -> cuvs::neighbors::nn_descent::index<index_t>
+{
+  if (!graph.has_value()) {
+    return cuvs::neighbors::nn_descent::build<data_t, index_t>(
+      handle, params, dataset, dataset_query);
+  } else {
+    std::optional<raft::device_matrix_view<float, int64_t, raft::row_major>> distances =
+      std::nullopt;
+    cuvs::neighbors::nn_descent::index<index_t> idx{
+      handle, graph.value(), distances, params.metric};
+    cuvs::neighbors::nn_descent::build<data_t, index_t>(
+      handle, params, dataset, dataset_query, idx);
+    return idx;
+  };
+}
 }  // namespace cuvs::neighbors::nn_descent

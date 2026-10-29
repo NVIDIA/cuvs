@@ -284,11 +284,13 @@ class CUVS_EXPORT GNND {
              DistEpilogue_t dist_epilogue = DistEpilogue_t{});
 
   template <typename DistEpilogue_t = raft::identity_op>
-  void build(cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
-             Index_t* output_graph,
-             bool return_distances,
-             DistData_t* output_distances,
-             DistEpilogue_t dist_epilogue = DistEpilogue_t{});
+  void build(
+    cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset_document,
+    cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset_query,
+    Index_t* output_graph,
+    bool return_distances,
+    DistData_t* output_distances,
+    DistEpilogue_t dist_epilogue = DistEpilogue_t{});
   ~GNND()    = default;
   using ID_t = InternalID_t<Index_t>;
   void reset(raft::resources const& res);
@@ -307,7 +309,8 @@ class CUVS_EXPORT GNND {
   template <typename DistEpilogue_t>
   void local_join(
     cudaStream_t stream,
-    cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
+    cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset_document,
+    cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset_query,
     DistEpilogue_t dist_epilogue = DistEpilogue_t{});
 
   raft::resources const& res;

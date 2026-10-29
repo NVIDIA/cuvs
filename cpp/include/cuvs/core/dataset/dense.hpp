@@ -37,25 +37,11 @@ struct mdarray_spec {
     using index_type = std::remove_cv_t<IdxT>;
     using data_type =
       raft::mdarray<value_type, raft::matrix_extent<int64_t>, LayoutPolicy, ContainerPolicy>;
-    using data_view_type       = typename data_type::view_type;
-    using const_data_view_type = typename data_type::const_view_type;
+    using data_view_type = typename data_type::view_type;
 
     [[nodiscard]] static auto get_data_view(data_type& data) noexcept -> data_view_type
     {
       return data.view();
-    }
-
-    [[nodiscard]] static auto get_data_const_view(const data_type& data) noexcept
-      -> const_data_view_type
-    {
-      return data.view();
-    }
-    // A mutable mdspan does not decay to a read-only one on its own; it has to be rebuilt over an
-    // accessor of `const T`.
-    [[nodiscard]] static auto get_data_const_view(data_view_type data) noexcept
-      -> const_data_view_type
-    {
-      return raft::make_const_mdspan(data);
     }
     // NOTE: the shape accessors take the data in either form - the storage an owning dataset holds,
     // or the view a `dataset_view` holds. A plain spec defines no manifest either, so it ignores

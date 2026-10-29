@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuvs/core/dataset/bbq.hpp>
 #include <cuvs/preprocessing/quantize/bbq.h>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
 
@@ -52,9 +53,9 @@ auto make_cpp_quantizer_view(
   cuvsBbqCodeLayout_t c_layout,
   cuvsDistanceType metric,
   float centroid_norm_sq)
-  -> cuvs::preprocessing::quantize::bbq::quantizer_view<T, int64_t>
+  -> typename cuvs::device_bbq_dataset<T, int64_t>::const_view_type
 {
-  using quantizer_view_t = cuvs::preprocessing::quantize::bbq::quantizer_view<T, int64_t>;
+  using dataset_view_t  = typename cuvs::device_bbq_dataset<T, int64_t>::const_view_type;
   using codes_view_t    = raft::device_matrix_view<const uint8_t, int64_t>;
   using float_view_t    = raft::device_vector_view<const float, int64_t>;
   using int_view_t      = raft::device_vector_view<const int32_t, int64_t>;
@@ -85,18 +86,11 @@ auto make_cpp_quantizer_view(
                  row_norm.extent(0) == n_rows,
                "cuvsBbqQuantizerCreateView: every correction vector must contain one value per row");
 
-  return quantizer_view_t{codes,
-                          lower,
-                          upper,
-                          corrections,
-                          sums,
-                          centroid,
-                          delta,
-                          sum_delta,
-                          row_norm,
-                          layout,
-                          static_cast<cuvs::distance::DistanceType>(metric),
-                          centroid_norm_sq};
+  // The upper intervals and the quantized component sums only feed the dequantization factors:
+  // no distance kernel reads them, so they are validated above and not kept.
+  return dataset_view_t{
+    {{codes, delta, corrections}, lower, sum_delta, row_norm},
+    {centroid, layout, static_cast<cuvs::distance::DistanceType>(metric), centroid_norm_sq}};
 }
 
 template <typename T>
@@ -116,7 +110,7 @@ void make_and_bind_quantizer_view(
   cuvsDistanceType metric,
   float centroid_norm_sq)
 {
-  using view_t = cuvs::preprocessing::quantize::bbq::quantizer_view<T, int64_t>;
+  using view_t = typename cuvs::device_bbq_dataset<T, int64_t>::const_view_type;
   auto view    = std::make_unique<view_t>(make_cpp_quantizer_view<T>(codes,
                                                                   lower_intervals,
                                                                   upper_intervals,

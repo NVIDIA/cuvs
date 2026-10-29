@@ -476,6 +476,7 @@ void build_knn_graph(
 template <typename DataT, typename IdxT>
 void build_knn_graph(raft::resources const& res,
                      cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
+                     cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset_query,
                      raft::host_matrix_view<IdxT, int64_t, raft::row_major> knn_graph,
                      cuvs::neighbors::nn_descent::index_params build_params)
 {
@@ -486,7 +487,8 @@ void build_knn_graph(raft::resources const& res,
     size_t(knn_graph.extent(1)));
 
   std::optional<raft::host_matrix_view<IdxT, int64_t, row_major>> graph_view = knn_graph;
-  auto nn_descent_idx = cuvs::neighbors::nn_descent::build(res, build_params, dataset, graph_view);
+  auto nn_descent_idx =
+    cuvs::neighbors::nn_descent::build(res, build_params, dataset, dataset_query, graph_view);
 
   using internal_IdxT = typename std::make_unsigned<IdxT>::type;
   using g_accessor    = typename decltype(nn_descent_idx.graph())::accessor_type;
@@ -500,7 +502,7 @@ void build_knn_graph(raft::resources const& res,
       nn_descent_idx.graph().extent(1));
 
   cuvs::neighbors::cagra::detail::graph::sort_knn_graph_bbq(
-    res, build_params.metric, dataset, knn_graph_internal);
+    res, build_params.metric, dataset, dataset_query, knn_graph_internal);
 }
 
 template <typename IdxT = uint32_t,
@@ -1212,10 +1214,14 @@ template <typename T, typename IdxT, typename DatasetViewT>
   requires cuvs::neighbors::is_device_bbq_dataset_view_v<DatasetViewT>
 auto build_from_bbq_dataset(raft::resources const& res,
                             const index_params& params,
-                            DatasetViewT const& dataset)
+                            DatasetViewT const& dataset,
+                            DatasetViewT const& dataset_query)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
-  RAFT_EXPECTS(!dataset.quantizers.empty(), "cagra::build: the BBQ dataset is empty.");
+  RAFT_EXPECTS(dataset.n_rows() > 0 && dataset.dim() > 0,
+               "cagra::build: the BBQ dataset is empty.");
+  RAFT_EXPECTS(dataset.n_rows() == dataset_query.n_rows() && dataset.dim() == dataset_query.dim(),
+               "cagra::build: the BBQ document and query views must describe the same rows.");
   RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded ||
                  params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
                  params.metric == cuvs::distance::DistanceType::CosineExpanded ||
@@ -1240,7 +1246,7 @@ auto build_from_bbq_dataset(raft::resources const& res,
   auto cagra_graph = [&]() -> raft::host_matrix<IdxT, int64_t> {
     std::optional<raft::host_matrix<IdxT, int64_t>> knn_graph(
       raft::make_host_matrix<IdxT, int64_t>(n_rows, intermediate_degree));
-    build_knn_graph<T, IdxT>(res, dataset, knn_graph->view(), nn_descent_params);
+    build_knn_graph<T, IdxT>(res, dataset, dataset_query, knn_graph->view(), nn_descent_params);
 
     auto optimized = raft::make_host_matrix<IdxT, int64_t>(n_rows, graph_degree);
     RAFT_LOG_TRACE("optimizing graph");

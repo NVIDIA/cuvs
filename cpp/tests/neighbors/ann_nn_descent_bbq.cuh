@@ -32,7 +32,6 @@ namespace cuvs::neighbors::nn_descent {
 // the benchmark can never disagree about the code format.
 namespace cpu_bbq = cuvs_internal::bbq;
 using cuvs::preprocessing::quantize::bbq::get_bit_width;
-using cuvs_internal::bbq::make_device_bbq_dataset;
 
 struct AnnNNDescentBbqInputs : AnnNNDescentInputs {
   cuvs::preprocessing::quantize::bbq::bbq_code_layout layout;
@@ -109,7 +108,7 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
       raft::update_host(host_data.data(), database.data_handle(), host_data.size(), stream_);
       raft::resource::sync_stream(handle_);
 
-      auto owning_dataset =
+      auto owning_datasets =
         cuvs_internal::bbq::quantize_to_device(handle_,
                                                host_data.data(),
                                                ps.n_rows,
@@ -117,7 +116,6 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
                                                ps.metric,
                                                ps.layout,
                                                ps.second_dataset_layout.value_or(ps.layout));
-      auto dataset = owning_dataset.view();
       nn_descent::index_params index_params;
       index_params.metric                    = ps.metric;
       index_params.graph_degree              = ps.graph_degree;
@@ -125,7 +123,8 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
       index_params.max_iterations            = 100;
       index_params.return_distances          = true;
 
-      auto index = nn_descent::build(handle_, index_params, dataset);
+      auto index = nn_descent::build(
+        handle_, index_params, owning_datasets.document_view(), owning_datasets.query_view());
 
       raft::copy(indices_NNDescent.data(), index.graph().data_handle(), queries_size, stream_);
       ASSERT_TRUE(index.distances().has_value());
