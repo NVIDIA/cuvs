@@ -119,8 +119,6 @@ public class BruteForceIndexImpl implements BruteForceIndex {
 
     MemorySegment datasetMemSegment = dataset.memorySegment();
 
-    omp_set_num_threads(bruteForceIndexParams.getNumWriterThreads());
-
     long datasetBytes = C_FLOAT_BYTE_SIZE * rows * cols;
     var index = createBruteForceIndex();
 
@@ -152,8 +150,6 @@ public class BruteForceIndexImpl implements BruteForceIndex {
             tensorDataArena,
             index);
       }
-    } finally {
-      omp_set_num_threads(1);
     }
   }
 

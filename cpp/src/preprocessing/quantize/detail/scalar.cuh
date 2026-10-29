@@ -19,7 +19,7 @@
 
 #include <cub/device/device_merge_sort.cuh>
 
-namespace cuvs::preprocessing::quantize::detail {
+namespace cuvs::preprocessing::quantize::scalar::detail {
 
 template <class T>
 _RAFT_HOST_DEVICE bool fp_lt(const T& a, const T& b)
@@ -222,4 +222,4 @@ void inverse_transform(raft::resources const& res,
   }
 }
 
-}  // namespace cuvs::preprocessing::quantize::detail
+}  // namespace cuvs::preprocessing::quantize::scalar::detail
