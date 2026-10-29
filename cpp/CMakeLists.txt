@@ -984,6 +984,27 @@ if(NOT BUILD_CPU_ONLY)
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/cagra/search_single_cta"
     KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
   )
+  if(CUVS_ENABLE_FLOWANN_SEARCH)
+    set(flowann_ns "cuvs::neighbors::cagra::experimental::flowann::detail")
+    generate_jit_lto_kernels(
+      jit_lto_files
+      NAME_FORMAT
+        "flowann_search_single_cta_@topk_by_bitonic_sort_str@_@bitonic_sort_and_merge_multi_warps_str@_data_@data_abbrev@"
+      MATRIX_JSON_FILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/flowann/search_single_cta_matrix.json"
+      KERNEL_INPUT_FILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/flowann/search_single_cta_kernel.cu.in"
+      FRAGMENT_TAG_FORMAT
+        "${flowann_ns}::fragment_tag_search_single_cta<${neighbors_ns}::tag_@data_abbrev@, ${neighbors_ns}::tag_index_@source_index_abbrev@, ${neighbors_ns}::tag_index_@index_abbrev@, ${cagra_ns}::tag_dist_@distance_abbrev@, @topk_by_bitonic_sort@, @bitonic_sort_and_merge_multi_warps@>"
+      FRAGMENT_TAG_HEADER_FILES
+        "<cuvs/detail/jit_lto/flowann/flowann_fragments.hpp>"
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/flowann/search_single_cta"
+      KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
+      KERNEL_EXTRA_COMPILE_OPTIONS --maxrregcount=64
+    )
+  endif()
   generate_jit_lto_kernels(
     jit_lto_files
     NAME_FORMAT

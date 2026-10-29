@@ -57,6 +57,16 @@ struct queue_statistics {
   std::uint64_t processed_commands{};
 };
 
+/** FlowANN search parameters. */
+struct search_params : cuvs::neighbors::cagra::search_params {
+  /** Maximum number of preloaded medoid seed nodes used to initialize each query. */
+  std::uint32_t num_seeds = 0;
+  /** Scale used by the adaptive deferred-cross-edge synchronization window. */
+  float sync_window_scale = 10.0f;
+  /** Parent-position drop that forces synchronization for a submitted cross-edge request. */
+  std::uint32_t sync_drop_threshold = 51;
+};
+
 /**
  * @brief Owns FlowANN command queues and their CPU polling threads.
  *
@@ -128,11 +138,12 @@ template <typename T,
           ann_dataset_view DatasetViewT = device_padded_dataset_view<T, int64_t>>
 class index : public cuvs::neighbors::index {
  public:
-  using value_type        = T;
-  using index_type        = IdxT;
-  using graph_index_type  = std::uint32_t;
-  using inner_index_type  = std::uint8_t;
-  using dataset_view_type = DatasetViewT;
+  using value_type         = T;
+  using index_type         = IdxT;
+  using graph_index_type   = std::uint32_t;
+  using inner_index_type   = std::uint8_t;
+  using dataset_view_type  = DatasetViewT;
+  using search_params_type = flowann::search_params;
 
   static_assert(!raft::is_narrowing_v<std::uint32_t, IdxT>,
                 "IdxT must be able to represent all uint32_t graph indices");
@@ -730,6 +741,34 @@ struct index_bundle {
 template <typename T, typename IdxT = std::uint32_t>
 using device_padded_index_bundle = index_bundle<cuvs::neighbors::device_padded_dataset<T, int64_t>,
                                                 flowann::device_padded_index<T, IdxT>>;
+
+/**
+ * Search a FlowANN index. The overload set matches the data and output-index types supported by
+ * CAGRA search. The graph and source-index mapping remain uint32_t internally.
+ */
+#define CUVS_FLOWANN_DECLARE_SEARCH(T, DatasetAlias, OutputIdxT)              \
+  CUVS_EXPORT void search(                                                    \
+    raft::resources const& res,                                               \
+    search_params const& params,                                              \
+    DatasetAlias<T, std::uint32_t> const& index,                              \
+    search_context& context,                                                  \
+    raft::device_matrix_view<const T, int64_t, raft::row_major> queries,      \
+    raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors, \
+    raft::device_matrix_view<float, int64_t, raft::row_major> distances,      \
+    cuvs::neighbors::filtering::base_filter const& sample_filter =            \
+      cuvs::neighbors::filtering::none_sample_filter{})
+
+#define CUVS_FLOWANN_DECLARE_SEARCH_FOR_TYPE(T)                       \
+  CUVS_FLOWANN_DECLARE_SEARCH(T, device_padded_index, std::uint32_t); \
+  CUVS_FLOWANN_DECLARE_SEARCH(T, device_padded_index, std::int64_t);
+
+CUVS_FLOWANN_DECLARE_SEARCH_FOR_TYPE(float);
+CUVS_FLOWANN_DECLARE_SEARCH_FOR_TYPE(half);
+CUVS_FLOWANN_DECLARE_SEARCH_FOR_TYPE(std::int8_t);
+CUVS_FLOWANN_DECLARE_SEARCH_FOR_TYPE(std::uint8_t);
+
+#undef CUVS_FLOWANN_DECLARE_SEARCH_FOR_TYPE
+#undef CUVS_FLOWANN_DECLARE_SEARCH
 
 }  // namespace cuvs::neighbors::cagra::experimental::flowann
 

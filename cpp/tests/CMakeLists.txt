@@ -270,6 +270,7 @@ if(CUVS_ENABLE_FLOWANN_SEARCH)
   set(CUVS_FLOWANN_TEST_SOURCES
       neighbors/ann_cagra/flowann_queue.cu
       neighbors/ann_cagra/flowann_storage.cu
+      neighbors/ann_cagra/flowann_search.cu
   )
   ConfigureTest(
     NAME NEIGHBORS_FLOWANN_TEST
