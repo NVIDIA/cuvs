@@ -149,6 +149,8 @@ void search_with_base_filter(
 #define CUVS_FLOWANN_DEFINE_SEARCH_FOR_TYPE(T)                                       \
   CUVS_FLOWANN_DEFINE_SEARCH(T, device_padded_index, std::uint32_t)                  \
   CUVS_FLOWANN_DEFINE_SEARCH(T, device_padded_index, std::int64_t)                   \
+  CUVS_FLOWANN_DEFINE_SEARCH(T, vpq_f16_index, std::uint32_t)                        \
+  CUVS_FLOWANN_DEFINE_SEARCH(T, vpq_f16_index, std::int64_t)                         \
   template CUVS_EXPORT void                                                          \
   index<T, std::uint32_t, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>:: \
     compute_dataset_norms_(raft::resources const& res)

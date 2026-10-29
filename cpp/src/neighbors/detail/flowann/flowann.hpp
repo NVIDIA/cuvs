@@ -731,6 +731,9 @@ class index : public cuvs::neighbors::index {
 template <typename T, typename IdxT = std::uint32_t>
 using device_padded_index = index<T, IdxT, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>;
 
+template <typename T, typename IdxT = std::uint32_t>
+using vpq_f16_index = index<T, IdxT, cuvs::neighbors::device_vpq_dataset_view<half, int64_t>>;
+
 /** Owns the dataset backing storage required by a FlowANN index. */
 template <typename DatasetT, typename IndexT>
 struct index_bundle {
@@ -741,6 +744,10 @@ struct index_bundle {
 template <typename T, typename IdxT = std::uint32_t>
 using device_padded_index_bundle = index_bundle<cuvs::neighbors::device_padded_dataset<T, int64_t>,
                                                 flowann::device_padded_index<T, IdxT>>;
+
+template <typename T, typename IdxT = std::uint32_t>
+using vpq_f16_index_bundle =
+  index_bundle<cuvs::neighbors::device_vpq_dataset<half, int64_t>, flowann::vpq_f16_index<T, IdxT>>;
 
 /**
  * Search a FlowANN index. The overload set matches the data and output-index types supported by
@@ -760,7 +767,9 @@ using device_padded_index_bundle = index_bundle<cuvs::neighbors::device_padded_d
 
 #define CUVS_FLOWANN_DECLARE_SEARCH_FOR_TYPE(T)                       \
   CUVS_FLOWANN_DECLARE_SEARCH(T, device_padded_index, std::uint32_t); \
-  CUVS_FLOWANN_DECLARE_SEARCH(T, device_padded_index, std::int64_t);
+  CUVS_FLOWANN_DECLARE_SEARCH(T, device_padded_index, std::int64_t);  \
+  CUVS_FLOWANN_DECLARE_SEARCH(T, vpq_f16_index, std::uint32_t);       \
+  CUVS_FLOWANN_DECLARE_SEARCH(T, vpq_f16_index, std::int64_t)
 
 CUVS_FLOWANN_DECLARE_SEARCH_FOR_TYPE(float);
 CUVS_FLOWANN_DECLARE_SEARCH_FOR_TYPE(half);

@@ -2074,6 +2074,78 @@ auto reorder_dense_dataset(raft::resources const& res,
                                                                               source.dim());
 }
 
+auto reorder_vpq_dataset(raft::resources const& res,
+                         cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& source,
+                         std::vector<graph_index_type> const& new_to_old)
+  -> std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>
+{
+  auto const& source_data = source.dset();
+  auto vq_code_book       = raft::make_device_matrix<half, std::uint32_t>(
+    res, source_data.vq_code_book.extent(0), source_data.vq_code_book.extent(1));
+  auto pq_code_book = raft::make_device_matrix<half, std::uint32_t>(
+    res, source_data.pq_code_book.extent(0), source_data.pq_code_book.extent(1));
+  auto encoded = raft::make_device_matrix<std::uint8_t, int64_t>(
+    res, source_data.data.extent(0), source_data.data.extent(1));
+  auto const stream = raft::resource::get_cuda_stream(res);
+  raft::copy(vq_code_book.data_handle(),
+             source_data.vq_code_book.data_handle(),
+             source_data.vq_code_book.size(),
+             stream);
+  raft::copy(pq_code_book.data_handle(),
+             source_data.pq_code_book.data_handle(),
+             source_data.pq_code_book.size(),
+             stream);
+  gather_device_rows(res,
+                     encoded.data_handle(),
+                     source_data.data.data_handle(),
+                     source_data.data.extent(0),
+                     static_cast<std::uint32_t>(source_data.data.extent(1)),
+                     new_to_old);
+  return std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
+    std::move(vq_code_book), std::move(pq_code_book), std::move(encoded));
+}
+
+auto reorder_vpq_dataset_consuming(
+  raft::resources const& res,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>> source,
+  std::vector<graph_index_type> const& new_to_old)
+  -> std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>
+{
+  RAFT_EXPECTS(source != nullptr, "FlowANN VPQ conversion requires a dataset owner");
+  auto const n_rows     = source->data.extent(0);
+  auto const row_length = source->data.extent(1);
+  RAFT_EXPECTS(n_rows == static_cast<int64_t>(new_to_old.size()),
+               "FlowANN VPQ dataset and graph row counts differ");
+
+  auto host_source  = raft::make_host_matrix<std::uint8_t, int64_t>(n_rows, row_length);
+  auto const stream = raft::resource::get_cuda_stream(res);
+  raft::copy(host_source.data_handle(), source->data.data_handle(), source->data.size(), stream);
+  raft::resource::sync_stream(res);
+
+  auto vq_code_book = std::move(source->vq_code_book);
+  auto pq_code_book = std::move(source->pq_code_book);
+  source.reset();
+
+  auto host_reordered = raft::make_host_matrix<std::uint8_t, int64_t>(n_rows, row_length);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+  for (int64_t new_row = 0; new_row < n_rows; ++new_row) {
+    std::copy_n(
+      host_source.data_handle() +
+        static_cast<std::size_t>(new_to_old[static_cast<std::size_t>(new_row)]) * row_length,
+      row_length,
+      host_reordered.data_handle() + static_cast<std::size_t>(new_row) * row_length);
+  }
+  host_source = raft::make_host_matrix<std::uint8_t, int64_t>(0, 0);
+
+  auto encoded = raft::make_device_matrix<std::uint8_t, int64_t>(res, n_rows, row_length);
+  raft::copy(encoded.data_handle(), host_reordered.data_handle(), host_reordered.size(), stream);
+  raft::resource::sync_stream(res);
+  return std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
+    std::move(vq_code_book), std::move(pq_code_book), std::move(encoded));
+}
+
 template <typename CagraIndexT>
 auto make_source_indices(raft::resources const& res,
                          CagraIndexT const& source,
@@ -2318,6 +2390,102 @@ auto build_dense_integrated(raft::resources const& res,
   return {std::move(dataset_owner), std::move(index)};
 }
 
+template <typename T>
+auto build_vpq_integrated(raft::resources const& res,
+                          index_params const& params,
+                          cuvs::neighbors::vpq_params const& vpq_params,
+                          cuvs::neighbors::host_standard_dataset_view<T, int64_t> const& dataset)
+  -> vpq_f16_index_bundle<T, std::uint32_t>
+{
+  detail::reject_ace(params);
+  RAFT_EXPECTS(params.cagra_params.metric == cuvs::distance::DistanceType::L2Expanded,
+               "FlowANN VPQ-F16 integrated build requires L2Expanded");
+
+  auto const build_begin = std::chrono::steady_clock::now();
+  auto graph             = cuvs::neighbors::cagra::detail::build_graph<T, std::uint32_t>(
+    res, params.cagra_params, dataset);
+  auto const graph_end = std::chrono::steady_clock::now();
+  if (params.grouping.enabled) {
+    auto grouping =
+      detail::generate_group_labels(res, params, raft::make_const_mdspan(graph.view()), dataset);
+    auto& labels            = grouping.labels;
+    auto const grouping_end = std::chrono::steady_clock::now();
+    auto edge_order         = detail::rank_graph_edge_order(res,
+                                                    params.cagra_params.metric,
+                                                    raft::make_const_mdspan(graph.view()),
+                                                    raft::make_const_mdspan(labels.view()),
+                                                    dataset);
+    auto const rank_end     = std::chrono::steady_clock::now();
+    build_params grouped_params;
+    grouped_params.node_per_cacheline = params.node_per_cacheline;
+    grouped_params.n_bits             = grouping.n_bits;
+    grouped_params.validate           = params.grouping.validate;
+    auto conversion                   = detail::convert_graph_on_device(res,
+                                                      raft::make_const_mdspan(graph.view()),
+                                                      raft::make_const_mdspan(edge_order.view()),
+                                                      raft::make_const_mdspan(labels.view()),
+                                                      grouped_params,
+                                                      params.device_graph_budget_bytes);
+    auto const split_end              = std::chrono::steady_clock::now();
+    graph                             = raft::make_host_matrix<std::uint32_t, int64_t>(0, 0);
+    std::optional<raft::host_vector<std::uint32_t, int64_t>> seeds;
+    if (params.num_seeds > 0) {
+      seeds.emplace(detail::generate_medoid_seeds(res, params, dataset));
+    }
+    auto const seeds_end = std::chrono::steady_clock::now();
+
+    auto unordered_dataset = std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
+      cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, dataset));
+    auto source_indices = conversion.new_to_old;
+    auto dataset_owner =
+      detail::reorder_vpq_dataset(res, unordered_dataset->as_dataset_view(), conversion.new_to_old);
+    unordered_dataset.reset();
+    flowann::vpq_f16_index<T, std::uint32_t> index(res,
+                                                   params.cagra_params.metric,
+                                                   dataset_owner->as_dataset_view(),
+                                                   params.node_per_cacheline,
+                                                   grouping.n_bits);
+    std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seed_view;
+    if (seeds.has_value()) { seed_view.emplace(raft::make_const_mdspan(seeds->view())); }
+    detail::populate_index(res, index, std::move(conversion), source_indices, seed_view);
+    auto const finish = std::chrono::steady_clock::now();
+    RAFT_LOG_INFO(
+      "FlowANN build stages: cagra=%.3f s, grouping=%.3f s, rank=%.3f s, rearrange=%.3f s, "
+      "seeds=%.3f s, vpq=%.3f s",
+      std::chrono::duration<double>(graph_end - build_begin).count(),
+      std::chrono::duration<double>(grouping_end - graph_end).count(),
+      std::chrono::duration<double>(rank_end - grouping_end).count(),
+      std::chrono::duration<double>(split_end - rank_end).count(),
+      std::chrono::duration<double>(seeds_end - split_end).count(),
+      std::chrono::duration<double>(finish - seeds_end).count());
+    return {std::move(dataset_owner), std::move(index)};
+  }
+  auto conversion = detail::convert_uniform_ranked_graph(
+    res, params, raft::make_const_mdspan(graph.view()), dataset);
+  auto const split_end = std::chrono::steady_clock::now();
+  graph                = raft::make_host_matrix<std::uint32_t, int64_t>(0, 0);
+  std::optional<raft::host_vector<std::uint32_t, int64_t>> seeds;
+  if (params.num_seeds > 0) { seeds.emplace(detail::generate_medoid_seeds(res, params, dataset)); }
+  auto const seeds_end = std::chrono::steady_clock::now();
+
+  auto dataset_owner = std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
+    cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, dataset));
+  flowann::vpq_f16_index<T, std::uint32_t> index(res,
+                                                 params.cagra_params.metric,
+                                                 dataset_owner->as_dataset_view(),
+                                                 params.node_per_cacheline,
+                                                 conversion.layout.n_bits);
+  detail::populate_uniform_index(res, index, std::move(conversion));
+  if (seeds.has_value()) { index.update_seeds(res, raft::make_const_mdspan(seeds->view())); }
+  auto const finish = std::chrono::steady_clock::now();
+  RAFT_LOG_INFO("FlowANN build stages: cagra=%.3f s, rank_split=%.3f s, seeds=%.3f s, vpq=%.3f s",
+                std::chrono::duration<double>(graph_end - build_begin).count(),
+                std::chrono::duration<double>(split_end - graph_end).count(),
+                std::chrono::duration<double>(seeds_end - split_end).count(),
+                std::chrono::duration<double>(finish - seeds_end).count());
+  return {std::move(dataset_owner), std::move(index)};
+}
+
 #define CUVS_FLOWANN_DEFINE_INTEGRATED_BUILD(T)                                      \
   auto build(raft::resources const& res,                                             \
              index_params const& params,                                             \
@@ -2325,6 +2493,14 @@ auto build_dense_integrated(raft::resources const& res,
     -> device_padded_index_bundle<T, std::uint32_t>                                  \
   {                                                                                  \
     return build_dense_integrated<T>(res, params, dataset);                          \
+  }                                                                                  \
+  auto build(raft::resources const& res,                                             \
+             index_params const& params,                                             \
+             cuvs::neighbors::vpq_params const& vpq_params,                          \
+             cuvs::neighbors::host_standard_dataset_view<T, int64_t> const& dataset) \
+    -> vpq_f16_index_bundle<T, std::uint32_t>                                        \
+  {                                                                                  \
+    return build_vpq_integrated<T>(res, params, vpq_params, dataset);                \
   }
 
 CUVS_FLOWANN_DEFINE_INTEGRATED_BUILD(float)
@@ -2355,6 +2531,57 @@ auto build_device_padded_from_cagra(
   return {std::move(dataset), std::move(index)};
 }
 
+template <typename T>
+auto build_vpq_from_cagra(
+  raft::resources const& res,
+  build_params const& params,
+  cuvs::neighbors::cagra::device_pq_index<T, std::uint32_t> const& cagra_index,
+  raft::host_vector_view<const std::uint32_t, int64_t> partition_labels,
+  std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seeds)
+  -> vpq_f16_index_bundle<T, std::uint32_t>
+{
+  auto conversion     = detail::convert_cagra_graph(res, params, cagra_index, partition_labels);
+  auto source_indices = detail::make_source_indices(res, cagra_index, conversion.new_to_old);
+  auto dataset = detail::reorder_vpq_dataset(res, cagra_index.dataset(), conversion.new_to_old);
+  flowann::vpq_f16_index<T, std::uint32_t> index(res,
+                                                 cagra_index.metric(),
+                                                 dataset->as_dataset_view(),
+                                                 params.node_per_cacheline,
+                                                 params.n_bits);
+  detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
+  return {std::move(dataset), std::move(index)};
+}
+
+template <typename T>
+auto build_vpq_from_cagra_consuming(
+  raft::resources const& res,
+  build_params const& params,
+  cuvs::neighbors::cagra::device_pq_index<T, std::uint32_t>&& cagra_index,
+  std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>&& vpq_dataset,
+  raft::host_vector_view<const std::uint32_t, int64_t> partition_labels,
+  std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seeds)
+  -> vpq_f16_index_bundle<T, std::uint32_t>
+{
+  RAFT_EXPECTS(vpq_dataset != nullptr, "FlowANN VPQ conversion requires a dataset owner");
+  RAFT_EXPECTS(vpq_dataset->n_rows() > 0, "FlowANN VPQ dataset must not be empty");
+  RAFT_EXPECTS(cagra_index.dataset().n_rows() == vpq_dataset->n_rows(),
+               "FlowANN CAGRA index does not view the supplied VPQ dataset");
+  RAFT_EXPECTS(&cagra_index.dataset().dset() == vpq_dataset.get(),
+               "FlowANN CAGRA index does not view the supplied VPQ dataset owner");
+
+  auto const metric   = cagra_index.metric();
+  auto conversion     = detail::convert_cagra_graph(res, params, cagra_index, partition_labels);
+  auto source_indices = detail::make_source_indices(res, cagra_index, conversion.new_to_old);
+  cagra_index         = cuvs::neighbors::cagra::device_pq_index<T, std::uint32_t>(res, metric);
+
+  auto dataset =
+    detail::reorder_vpq_dataset_consuming(res, std::move(vpq_dataset), conversion.new_to_old);
+  flowann::vpq_f16_index<T, std::uint32_t> index(
+    res, metric, dataset->as_dataset_view(), params.node_per_cacheline, params.n_bits);
+  detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
+  return {std::move(dataset), std::move(index)};
+}
+
 #define CUVS_FLOWANN_DEFINE_GROUP_GRAPH(T)                                                      \
   auto group_graph(raft::resources const& res,                                                  \
                    index_params const& params,                                                  \
@@ -2380,6 +2607,28 @@ CUVS_FLOWANN_DEFINE_GROUP_GRAPH(std::uint8_t)
     -> device_padded_index_bundle<T, std::uint32_t>                                              \
   {                                                                                              \
     return build_device_padded_from_cagra<T>(res, params, cagra_index, partition_labels, seeds); \
+  }                                                                                              \
+  auto build_from_cagra(                                                                         \
+    raft::resources const& res,                                                                  \
+    build_params const& params,                                                                  \
+    cuvs::neighbors::cagra::device_pq_index<T, std::uint32_t> const& cagra_index,                \
+    raft::host_vector_view<const std::uint32_t, int64_t> partition_labels,                       \
+    std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seeds)                   \
+    -> vpq_f16_index_bundle<T, std::uint32_t>                                                    \
+  {                                                                                              \
+    return build_vpq_from_cagra<T>(res, params, cagra_index, partition_labels, seeds);           \
+  }                                                                                              \
+  auto build_from_cagra(                                                                         \
+    raft::resources const& res,                                                                  \
+    build_params const& params,                                                                  \
+    cuvs::neighbors::cagra::device_pq_index<T, std::uint32_t>&& cagra_index,                     \
+    std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>&& vpq_dataset,           \
+    raft::host_vector_view<const std::uint32_t, int64_t> partition_labels,                       \
+    std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seeds)                   \
+    -> vpq_f16_index_bundle<T, std::uint32_t>                                                    \
+  {                                                                                              \
+    return build_vpq_from_cagra_consuming<T>(                                                    \
+      res, params, std::move(cagra_index), std::move(vpq_dataset), partition_labels, seeds);     \
   }
 
 CUVS_FLOWANN_DEFINE_BUILD(float)

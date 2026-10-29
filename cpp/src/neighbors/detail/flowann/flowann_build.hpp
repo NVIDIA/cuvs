@@ -131,23 +131,30 @@ CUVS_FLOWANN_DECLARE_GROUP_GRAPH(std::uint8_t);
 /**
  * @brief Build a FlowANN index by constructing and immediately tiering a final CAGRA graph.
  *
- * The device-padded overload copies the dense dataset into its owning output bundle. The dense
- * overload retains every final CAGRA edge. Group-local edges selected by the packed-row budget are
- * stored on the device, and all remaining edges are stored in the host cross graph. ACE graph build
- * parameters are not supported.
+ * The device-padded overload copies the dense dataset into its owning output bundle. The host
+ * overload ranks with the full-precision input and produces an owning VPQ-F16 bundle using
+ * `vpq_params`. Both overloads retain every final CAGRA edge. Group-local edges selected by the
+ * packed-row budget are stored on the device, and all remaining edges are stored in the host cross
+ * graph. ACE graph build parameters are not supported.
  *
  * `res` provides allocation, stream ordering, and GPU execution resources. `params` controls CAGRA
  * construction, balanced locality grouping, resident-graph budgeting, packing, and optional seeds.
  * Grouped builds rank graph edges with the full-precision input before choosing resident edges,
  * reorder graph and dataset rows together, and expose original row IDs through `source_indices()`.
- * `dataset` is the full-precision input and its row count must fit uint32 graph IDs. The overload
- * returns an owning dataset/index bundle whose index view remains valid for the bundle lifetime.
+ * `dataset` is the full-precision input and its row count must fit uint32 graph IDs. The host
+ * overload additionally accepts `vpq_params` for the output dataset. Each overload returns an
+ * owning dataset/index bundle whose index view remains valid for the bundle lifetime.
  */
 #define CUVS_FLOWANN_DECLARE_INTEGRATED_BUILD(T)                                                 \
   CUVS_EXPORT auto build(raft::resources const& res,                                             \
                          index_params const& params,                                             \
                          cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& dataset) \
-    -> device_padded_index_bundle<T, std::uint32_t>
+    -> device_padded_index_bundle<T, std::uint32_t>;                                             \
+  CUVS_EXPORT auto build(raft::resources const& res,                                             \
+                         index_params const& params,                                             \
+                         cuvs::neighbors::vpq_params const& vpq_params,                          \
+                         cuvs::neighbors::host_standard_dataset_view<T, int64_t> const& dataset) \
+    -> vpq_f16_index_bundle<T, std::uint32_t>
 
 CUVS_FLOWANN_DECLARE_INTEGRATED_BUILD(float);
 CUVS_FLOWANN_DECLARE_INTEGRATED_BUILD(half);
@@ -158,7 +165,8 @@ CUVS_FLOWANN_DECLARE_INTEGRATED_BUILD(std::uint8_t);
 
 /**
  * Convert a CAGRA index into an owning FlowANN index. `partition_labels` contains one partition
- * identifier per CAGRA node.
+ * identifier per CAGRA node. The rvalue VPQ overload releases the full CAGRA graph before
+ * allocating the FlowANN graph to bound peak device memory use.
  */
 #define CUVS_FLOWANN_DECLARE_BUILD(T)                                                         \
   CUVS_EXPORT auto build_from_cagra(                                                          \
@@ -167,7 +175,22 @@ CUVS_FLOWANN_DECLARE_INTEGRATED_BUILD(std::uint8_t);
     cuvs::neighbors::cagra::device_padded_index<T, std::uint32_t> const& cagra_index,         \
     raft::host_vector_view<const std::uint32_t, int64_t> partition_labels,                    \
     std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seeds = std::nullopt) \
-    -> device_padded_index_bundle<T, std::uint32_t>
+    -> device_padded_index_bundle<T, std::uint32_t>;                                          \
+  CUVS_EXPORT auto build_from_cagra(                                                          \
+    raft::resources const& res,                                                               \
+    build_params const& params,                                                               \
+    cuvs::neighbors::cagra::device_pq_index<T, std::uint32_t> const& cagra_index,             \
+    raft::host_vector_view<const std::uint32_t, int64_t> partition_labels,                    \
+    std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seeds = std::nullopt) \
+    -> vpq_f16_index_bundle<T, std::uint32_t>;                                                \
+  CUVS_EXPORT auto build_from_cagra(                                                          \
+    raft::resources const& res,                                                               \
+    build_params const& params,                                                               \
+    cuvs::neighbors::cagra::device_pq_index<T, std::uint32_t>&& cagra_index,                  \
+    std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>&& vpq_dataset,        \
+    raft::host_vector_view<const std::uint32_t, int64_t> partition_labels,                    \
+    std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seeds = std::nullopt) \
+    -> vpq_f16_index_bundle<T, std::uint32_t>
 
 CUVS_FLOWANN_DECLARE_BUILD(float);
 CUVS_FLOWANN_DECLARE_BUILD(half);

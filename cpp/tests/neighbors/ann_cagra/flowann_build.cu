@@ -422,6 +422,141 @@ TEST(FlowannBuild, IntegratedBuildUsesCagraMetricForRanking)
   }
 }
 
+TEST(FlowannBuild, IntegratedHostBuildCreatesSearchableVpqIndex)
+{
+  constexpr int64_t rows = 512;
+  constexpr int64_t dim  = 16;
+  raft::resources res;
+  auto host = raft::make_host_matrix<float, int64_t>(rows, dim);
+  for (int64_t row = 0; row < rows; ++row) {
+    for (int64_t column = 0; column < dim; ++column) {
+      host(row, column) = static_cast<float>((row * 23 + column * 11) % 127) * 0.01f;
+    }
+  }
+  auto dataset = cuvs::neighbors::make_host_standard_dataset_view(host.view());
+
+  flowann::index_params params;
+  params.grouping.enabled                       = false;
+  params.cagra_params.metric                    = cuvs::distance::DistanceType::L2Expanded;
+  params.cagra_params.graph_degree              = 8;
+  params.cagra_params.intermediate_graph_degree = 16;
+  params.cagra_params.graph_build_params =
+    cuvs::neighbors::cagra::graph_build_params::nn_descent_params(
+      16, cuvs::distance::DistanceType::L2Expanded);
+  auto const bits                  = flowann::detail::required_id_bits(rows);
+  auto const row_bytes             = flowann::detail::packed_row_bytes(2, bits, 4);
+  params.device_graph_budget_bytes = (rows / 2) * row_bytes;
+
+  cuvs::neighbors::vpq_params vpq_params;
+  vpq_params.pq_dim                          = 4;
+  vpq_params.vq_n_centers                    = 8;
+  vpq_params.kmeans_n_iters                  = 2;
+  vpq_params.max_train_points_per_pq_code    = 16;
+  vpq_params.max_train_points_per_vq_cluster = 16;
+  auto built                                 = flowann::build(res, params, vpq_params, dataset);
+  ASSERT_EQ(built.dataset->n_rows(), rows);
+  ASSERT_EQ(built.dataset->dim(), dim);
+  ASSERT_EQ(built.index.graph_degree(), 8);
+  ASSERT_EQ(built.index.resident_degree(), 4);
+  ASSERT_EQ(built.index.cross_degree(), 4);
+
+  auto query_host = raft::make_host_matrix<float, int64_t>(2, dim);
+  std::copy_n(host.data_handle(), query_host.size(), query_host.data_handle());
+  auto queries = raft::make_device_matrix<float, int64_t>(res, 2, dim);
+  raft::copy(queries.data_handle(),
+             query_host.data_handle(),
+             query_host.size(),
+             raft::resource::get_cuda_stream(res));
+  auto neighbors = raft::make_device_matrix<std::uint32_t, int64_t>(res, 2, 2);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, 2, 2);
+  flowann::search_context context(built.index.cross_graph());
+  flowann::search_params search_params;
+  search_params.algo           = cuvs::neighbors::cagra::search_algo::SINGLE_CTA;
+  search_params.itopk_size     = 32;
+  search_params.search_width   = 1;
+  search_params.max_iterations = 16;
+  search_params.max_queries    = 2;
+  search_params.smem_dtype     = cuvs::neighbors::cagra::internal_dtype::F16;
+  flowann::search(res,
+                  search_params,
+                  built.index,
+                  context,
+                  raft::make_const_mdspan(queries.view()),
+                  neighbors.view(),
+                  distances.view());
+  auto neighbor_host = raft::make_host_matrix<std::uint32_t, int64_t>(2, 2);
+  raft::copy(neighbor_host.data_handle(),
+             neighbors.data_handle(),
+             neighbors.size(),
+             raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  for (std::size_t i = 0; i < neighbor_host.size(); ++i) {
+    EXPECT_LT(neighbor_host.data_handle()[i], rows);
+  }
+}
+
+TEST(FlowannBuild, IntegratedHostBuildGroupsAndReordersVpqIndex)
+{
+  constexpr int64_t rows = 260;
+  constexpr int64_t dim  = 16;
+  raft::resources res;
+  auto host = raft::make_host_matrix<float, int64_t>(rows, dim);
+  for (int64_t row = 0; row < rows; ++row) {
+    auto const group = row / 65;
+    for (int64_t column = 0; column < dim; ++column) {
+      host(row, column) =
+        static_cast<float>(group * 100 + column) + static_cast<float>(row % 65) * 0.001f;
+    }
+  }
+  auto dataset = cuvs::neighbors::make_host_standard_dataset_view(host.view());
+
+  flowann::index_params params;
+  params.cagra_params.metric                    = cuvs::distance::DistanceType::L2Expanded;
+  params.cagra_params.graph_degree              = 8;
+  params.cagra_params.intermediate_graph_degree = 16;
+  params.cagra_params.graph_build_params =
+    cuvs::neighbors::cagra::graph_build_params::nn_descent_params(
+      16, cuvs::distance::DistanceType::L2Expanded);
+  params.node_per_cacheline        = 2;
+  params.device_graph_budget_bytes = (rows / 2) * 64;
+  // Small groups force cross edges, so the average-local-degree heuristic would underfill rows.
+  params.grouping.n_groups              = 32;
+  params.grouping.n_bits                = 24;
+  params.grouping.training_rows         = 128;
+  params.grouping.assignment_batch_rows = 64;
+  params.grouping.kmeans_n_iters        = 4;
+  params.grouping.validate              = true;
+
+  cuvs::neighbors::vpq_params vpq_params;
+  vpq_params.pq_dim                          = 4;
+  vpq_params.vq_n_centers                    = 8;
+  vpq_params.kmeans_n_iters                  = 2;
+  vpq_params.max_train_points_per_pq_code    = 16;
+  vpq_params.max_train_points_per_vq_cluster = 16;
+  auto built                                 = flowann::build(res, params, vpq_params, dataset);
+
+  EXPECT_EQ(built.dataset->n_rows(), rows);
+  EXPECT_EQ(built.dataset->dim(), dim);
+  EXPECT_EQ(built.index.graph_degree(), 8);
+  EXPECT_EQ(built.index.resident_degree(), 0);
+  EXPECT_GT(built.index.inner_graph().size(), 0);
+  EXPECT_EQ(built.index.inner_graph().extent(1), 50);  // Two headers plus 16 24-bit IDs.
+
+  auto source_view = built.index.source_indices();
+  ASSERT_TRUE(source_view.has_value());
+  auto source = raft::make_host_vector<std::uint32_t, int64_t>(rows);
+  raft::copy(
+    source.data_handle(), source_view->data_handle(), rows, raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  auto ids = std::set<std::uint32_t>();
+  for (int64_t row = 0; row < rows; ++row) {
+    ids.insert(source(row));
+  }
+  EXPECT_EQ(ids.size(), rows);
+  EXPECT_EQ(*ids.begin(), 0);
+  EXPECT_EQ(*ids.rbegin(), rows - 1);
+}
+
 TEST(FlowannBuild, SupportsIvfPqAndIterativeCagraGraphBuilders)
 {
   constexpr int64_t rows = 512;
@@ -454,6 +589,22 @@ TEST(FlowannBuild, SupportsIvfPqAndIterativeCagraGraphBuilders)
     EXPECT_EQ(built.index.graph_degree(), 8);
     EXPECT_EQ(built.index.resident_degree(), 0);
     EXPECT_EQ(built.index.cross_degree(), 8);
+
+    if (iterative) {
+      // Upstream iterative CAGRA now returns a device graph and requires padded device input.
+      // FlowANN's host builder must stage that input and bring the graph back for tiering.
+      cuvs::neighbors::vpq_params vpq_params;
+      vpq_params.pq_dim                          = 4;
+      vpq_params.vq_n_centers                    = 8;
+      vpq_params.kmeans_n_iters                  = 2;
+      vpq_params.max_train_points_per_pq_code    = 16;
+      vpq_params.max_train_points_per_vq_cluster = 16;
+      auto host_built                            = flowann::build(
+        res, params, vpq_params, cuvs::neighbors::make_host_standard_dataset_view(host.view()));
+      EXPECT_EQ(host_built.index.size(), rows);
+      EXPECT_EQ(host_built.index.graph_degree(), 8);
+      EXPECT_EQ(host_built.index.cross_degree(), 8);
+    }
   }
 }
 
