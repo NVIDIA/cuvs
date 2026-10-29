@@ -10,12 +10,15 @@
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/mdspan.hpp>
+#include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/matrix/linewise_op.cuh>
 #include <raft/util/itertools.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <ostream>
 #include <vector>
@@ -31,7 +34,8 @@
  *   - that transform() emits in-range, not-all-zero codes and finite factors;
  *   - that transform() is deterministic;
  *   - that transform() agrees with rotate() + transform_residuals() whenever no
- *     zero padding is involved (dim % 32 == 0).
+ *     zero padding is involved (dim % 32 == 0), and for fht_kac also across its
+ *     internal row batches (a matmul GEMM's last bits depend on its batch size).
  */
 
 namespace cuvs::preprocessing::quantize::rabitq {
@@ -703,6 +707,102 @@ TEST(RabitqQuantizationBasicTest, EmptyInput)
                             delta.view(),
                             vl.view()));
   raft::resource::sync_stream(handle);
+}
+
+/**
+ * transform() quantizes in internal row batches. Rows are processed independently
+ * and the two FHT kernels agree, so for fht_kac the result must be bit-identical
+ * to one unbatched pass: rotate() over all rows, subtract the rotated centroid,
+ * then transform_residuals(). kRows spans several batches plus a short tail, which
+ * runs the other FHT kernel than the reference does.
+ */
+TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
+{
+  raft::resources handle;
+  auto stream             = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t kRows = 2 * 32768 + 123;
+
+  auto to_host = [&](auto const* d_ptr, size_t len) {
+    std::vector<std::remove_const_t<std::remove_pointer_t<decltype(d_ptr)>>> h(len);
+    raft::update_host(h.data(), d_ptr, len, stream);
+    raft::resource::sync_stream(handle);
+    return h;
+  };
+  auto expect_same = [&](auto const& a, auto const& b, char const* what, int64_t dim, bool c) {
+    ASSERT_EQ(a.size(), b.size());
+    EXPECT_EQ(std::memcmp(a.data(), b.data(), a.size() * sizeof(a[0])), 0)
+      << what << " of batched transform() differ from the unbatched reference (dim " << dim
+      << (c ? ", with centroid)" : ", no centroid)");
+  };
+
+  for (int64_t dim : {96, 128, 960}) {
+    params p;
+    p.rotator     = rotator_kind::fht_kac;
+    auto pipe     = make_pipeline(handle, p, dim);
+    const auto pd = pipe.quantizer.padded_dim;
+    ASSERT_EQ(pd, dim) << "the reference path needs dim % 32 == 0";
+
+    auto dataset  = raft::make_device_matrix<float, int64_t>(handle, kRows, dim);
+    auto centroid = raft::make_device_vector<float, int64_t>(handle, dim);
+    raft::random::RngState r(99ULL);
+    raft::random::uniform(handle, r, dataset.data_handle(), dataset.size(), -1.0f, 1.0f);
+    raft::random::uniform(handle, r, centroid.data_handle(), centroid.size(), -0.5f, 0.5f);
+    auto data = raft::make_const_mdspan(dataset.view());
+
+    // Unbatched reference residuals: rotate(x) and rotate(x) - rotate(c).
+    auto rotated = raft::make_device_matrix<float, int64_t>(handle, kRows, pd);
+    rotate(handle, pipe.rotator, data, rotated.view());
+    auto rotated_c = raft::make_device_matrix<float, int64_t>(handle, 1, pd);
+    rotate(handle,
+           pipe.rotator,
+           raft::make_device_matrix_view<const float, int64_t>(centroid.data_handle(), 1, pd),
+           rotated_c.view());
+    auto rotated_c_view =
+      raft::make_device_vector_view<const float, int64_t>(rotated_c.data_handle(), pd);
+    auto centered = raft::make_device_matrix<float, int64_t>(handle, kRows, pd);
+    raft::matrix::linewise_op<raft::Apply::ALONG_ROWS>(handle,
+                                                       raft::make_const_mdspan(rotated.view()),
+                                                       centered.view(),
+                                                       raft::sub_op{},
+                                                       rotated_c_view);
+
+    for (bool with_c : {false, true}) {
+      auto ref_in = raft::make_const_mdspan(with_c ? centered.view() : rotated.view());
+      std::optional<raft::device_vector_view<const float, int64_t>> c, ref_c;
+      if (with_c) {
+        c     = raft::make_const_mdspan(centroid.view());
+        ref_c = rotated_c_view;
+      }
+      const size_t n_codes = static_cast<size_t>(kRows) * static_cast<size_t>(pd);
+
+      // (delta, vl) mode
+      auto codes = raft::make_device_matrix<uint8_t, int64_t>(handle, kRows, pd);
+      auto delta = raft::make_device_vector<float, int64_t>(handle, kRows);
+      auto vl    = raft::make_device_vector<float, int64_t>(handle, kRows);
+      transform(
+        handle, pipe.quantizer, pipe.rotator, data, c, codes.view(), delta.view(), vl.view());
+      auto h_codes = to_host(codes.data_handle(), n_codes);
+      auto h_delta = to_host(delta.data_handle(), kRows);
+      auto h_vl    = to_host(vl.data_handle(), kRows);
+      transform_residuals(handle, pipe.quantizer, ref_in, codes.view(), delta.view(), vl.view());
+      expect_same(h_codes, to_host(codes.data_handle(), n_codes), "codes", dim, with_c);
+      expect_same(h_delta, to_host(delta.data_handle(), kRows), "delta", dim, with_c);
+      expect_same(h_vl, to_host(vl.data_handle(), kRows), "vl", dim, with_c);
+
+      // full-factor mode
+      auto factors = raft::make_device_matrix<float, int64_t>(handle, kRows, 3);
+      transform(handle, pipe.quantizer, pipe.rotator, data, c, codes.view(), factors.view());
+      h_codes        = to_host(codes.data_handle(), n_codes);
+      auto h_factors = to_host(factors.data_handle(), static_cast<size_t>(kRows) * 3);
+      transform_residuals(handle, pipe.quantizer, ref_in, ref_c, codes.view(), factors.view());
+      expect_same(h_codes, to_host(codes.data_handle(), n_codes), "full-factor codes", dim, with_c);
+      expect_same(h_factors,
+                  to_host(factors.data_handle(), static_cast<size_t>(kRows) * 3),
+                  "factors",
+                  dim,
+                  with_c);
+    }
+  }
 }
 
 }  // namespace cuvs::preprocessing::quantize::rabitq

@@ -10,16 +10,18 @@
 
 #include <cuvs/preprocessing/quantize/rabitq.hpp>
 
-#include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
+#include <raft/core/resource/device_properties.hpp>
+#include <raft/util/cuda_rt_essentials.hpp>
 
 #include <rmm/device_uvector.hpp>
 
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -121,6 +123,52 @@ void check_factors(int64_t n_rows,
                "rabitq: factors must be a n_rows x 3 matrix");
 }
 
+/**
+ * Rows per internal transform() batch.
+ *
+ * Every stage after the input read (pad, rotate, centroid subtraction, quantize)
+ * sweeps the batch's `batch x padded_dim` residual scratch, so a batch whose
+ * scratch fits in ~3/8 of the L2 cache keeps those passes in L2 instead of DRAM:
+ * 1.1-1.7x faster than one unbatched call for fht_kac on an RTX PRO 6000 (128 MB
+ * L2). Below 2K rows the fixed per-batch cost outweighs that, and beyond 64K rows
+ * (32K for a narrow matmul) nothing more is gained. A matmul rotator wider than
+ * 256 is GEMM-bound instead and runs best on large batches. As in
+ * IVF-PQ's extend, the batch is then halved until its scratch fits the free
+ * workspace, here half of it: the rest covers the smaller temporaries (rotated
+ * centroid, padding) and fragmentation.
+ */
+[[nodiscard]] auto transform_batch_rows(raft::resources const& res,
+                                        rabitq::quantizer const& q,
+                                        rabitq::rotator const& rot,
+                                        int64_t n_rows) -> int64_t
+{
+  constexpr int64_t kMinL2Rows        = 2048;
+  constexpr int64_t kMaxL2Rows        = 65536;
+  constexpr int64_t kMaxL2RowsMatmul  = 32768;
+  constexpr int64_t kGemmRows         = 131072;
+  constexpr int64_t kMinWorkspaceRows = 128;
+
+  const bool matmul       = rot.kind == rotator_kind::matmul;
+  const size_t row_floats = static_cast<size_t>(q.padded_dim);
+  int64_t batch           = kGemmRows;
+  if (!matmul || q.padded_dim <= 256) {
+    const size_t l2 = raft::resource::get_device_properties(res).l2CacheSize;
+    const auto fit  = static_cast<int64_t>(l2 * 3 / 8 / (row_floats * sizeof(float)));
+    const auto cap  = matmul ? kMaxL2RowsMatmul : kMaxL2Rows;
+    batch           = kMinL2Rows;
+    while (batch * 2 <= std::min(fit, cap)) {
+      batch *= 2;
+    }
+  }
+  // matmul pads into a second batch x padded_dim temporary (pad_and_rotate).
+  const size_t row_bytes = row_floats * sizeof(float) * (matmul && q.dim != q.padded_dim ? 2 : 1);
+  const size_t budget    = raft::resource::get_workspace_free_bytes(res) / 2;
+  while (batch > kMinWorkspaceRows && static_cast<size_t>(batch) * row_bytes > budget) {
+    batch /= 2;
+  }
+  return std::min(batch, n_rows);
+}
+
 template <typename CodeT>
 void transform_impl(raft::resources const& res,
                     rabitq::quantizer const& q,
@@ -133,7 +181,6 @@ void transform_impl(raft::resources const& res,
 {
   const int64_t n_rows = dataset.extent(0);
   check_peers(q, rot);
-  check_rows(n_rows);
   RAFT_EXPECTS(dataset.extent(1) == q.dim,
                "rabitq::transform: dataset.extent(1) must equal quantizer.dim");
   check_codes(q, n_rows, codes);
@@ -144,30 +191,35 @@ void transform_impl(raft::resources const& res,
   }
   if (n_rows == 0) { return; }
 
-  auto stream    = raft::resource::get_cuda_stream(res);
-  auto workspace = raft::resource::get_workspace_resource_ref(res);
+  auto stream         = raft::resource::get_cuda_stream(res);
+  auto workspace      = raft::resource::get_workspace_resource_ref(res);
+  const int64_t batch = transform_batch_rows(res, q, rot, n_rows);
   rmm::device_uvector<float> residuals(
-    static_cast<size_t>(n_rows) * static_cast<size_t>(q.padded_dim), stream, workspace);
+    static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
   rmm::device_uvector<float> rotated_centroid(
     centroid.has_value() ? static_cast<size_t>(q.padded_dim) : 0, stream, workspace);
 
-  detail::quantize_data(res,
-                        dataset.data_handle(),
-                        static_cast<size_t>(n_rows),
-                        static_cast<size_t>(q.dim),
-                        as_ref(rot),
-                        centroid.has_value() ? centroid->data_handle() : nullptr,
-                        centroid.has_value() ? rotated_centroid.data() : nullptr,
-                        static_cast<size_t>(q.params_quantizer.ex_bits),
-                        q.const_scaling_factor,
-                        q.params_quantizer.use_fast,
-                        codes.data_handle(),
-                        delta.data_handle(),
-                        vl.data_handle(),
-                        residuals.data(),
-                        static_cast<int>(q.params_quantizer.delta_mode),
-                        static_cast<int>(q.params_quantizer.coarse_samples),
-                        static_cast<int>(q.params_quantizer.fine_samples));
+  // Rows are quantized independently, so batching only bounds the scratch.
+  for (int64_t r0 = 0; r0 < n_rows; r0 += batch) {
+    const int64_t n = std::min(batch, n_rows - r0);
+    detail::quantize_data(res,
+                          dataset.data_handle() + r0 * q.dim,
+                          static_cast<size_t>(n),
+                          static_cast<size_t>(q.dim),
+                          as_ref(rot),
+                          centroid.has_value() ? centroid->data_handle() : nullptr,
+                          centroid.has_value() ? rotated_centroid.data() : nullptr,
+                          static_cast<size_t>(q.params_quantizer.ex_bits),
+                          q.const_scaling_factor,
+                          q.params_quantizer.use_fast,
+                          codes.data_handle() + r0 * q.padded_dim,
+                          delta.data_handle() + r0,
+                          vl.data_handle() + r0,
+                          residuals.data(),
+                          static_cast<int>(q.params_quantizer.delta_mode),
+                          static_cast<int>(q.params_quantizer.coarse_samples),
+                          static_cast<int>(q.params_quantizer.fine_samples));
+  }
 }
 
 template <typename CodeT>
@@ -181,7 +233,6 @@ void transform_full_impl(raft::resources const& res,
 {
   const int64_t n_rows = dataset.extent(0);
   check_peers(q, rot);
-  check_rows(n_rows);
   RAFT_EXPECTS(dataset.extent(1) == q.dim,
                "rabitq::transform: dataset.extent(1) must equal quantizer.dim");
   check_codes(q, n_rows, codes);
@@ -192,28 +243,33 @@ void transform_full_impl(raft::resources const& res,
   }
   if (n_rows == 0) { return; }
 
-  auto stream    = raft::resource::get_cuda_stream(res);
-  auto workspace = raft::resource::get_workspace_resource_ref(res);
+  auto stream         = raft::resource::get_cuda_stream(res);
+  auto workspace      = raft::resource::get_workspace_resource_ref(res);
+  const int64_t batch = transform_batch_rows(res, q, rot, n_rows);
   rmm::device_uvector<float> residuals(
-    static_cast<size_t>(n_rows) * static_cast<size_t>(q.padded_dim), stream, workspace);
+    static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
   // The full-factor formula always reads the rotated centroid; the detail layer
   // zero-fills this buffer when no centroid is given.
   rmm::device_uvector<float> rotated_centroid(
     static_cast<size_t>(q.padded_dim), stream, workspace);
 
-  detail::quantize_data_full(res,
-                             dataset.data_handle(),
-                             static_cast<size_t>(n_rows),
-                             static_cast<size_t>(q.dim),
-                             as_ref(rot),
-                             centroid.has_value() ? centroid->data_handle() : nullptr,
-                             rotated_centroid.data(),
-                             static_cast<size_t>(q.params_quantizer.ex_bits),
-                             q.const_scaling_factor,
-                             q.params_quantizer.use_fast,
-                             codes.data_handle(),
-                             factors.data_handle(),
-                             residuals.data());
+  // Rows are quantized independently, so batching only bounds the scratch.
+  for (int64_t r0 = 0; r0 < n_rows; r0 += batch) {
+    const int64_t n = std::min(batch, n_rows - r0);
+    detail::quantize_data_full(res,
+                               dataset.data_handle() + r0 * q.dim,
+                               static_cast<size_t>(n),
+                               static_cast<size_t>(q.dim),
+                               as_ref(rot),
+                               centroid.has_value() ? centroid->data_handle() : nullptr,
+                               rotated_centroid.data(),
+                               static_cast<size_t>(q.params_quantizer.ex_bits),
+                               q.const_scaling_factor,
+                               q.params_quantizer.use_fast,
+                               codes.data_handle() + r0 * q.padded_dim,
+                               factors.data_handle() + r0 * kNumFactors,
+                               residuals.data());
+  }
 }
 
 template <typename CodeT>

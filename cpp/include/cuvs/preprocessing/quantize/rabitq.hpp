@@ -281,9 +281,9 @@ void rotate(raft::resources const& res,
  * is written per padded dimension; each holds an unsigned
  * `params::ex_bits + 1` bit value, so `codes` must be `n_rows x padded_dim`.
  *
- * A temporary `n_rows x padded_dim` float buffer holding the rotated residuals
- * is allocated from the workspace resource, so large datasets should be
- * transformed in batches (a pool workspace resource is recommended).
+ * Rows are processed in internal batches, so the temporary float buffer holding
+ * the rotated residuals, allocated from the workspace resource, covers one batch
+ * rather than the whole dataset (a pool workspace resource is recommended).
  *
  * Usage example:
  * @code{.cpp}
@@ -335,9 +335,9 @@ void transform(raft::resources const& res,
  * ones used for approximate-distance estimation during search:
  * `factors[i] = { f_add, f_rescale, f_error }`.
  *
- * A temporary `n_rows x padded_dim` float buffer holding the rotated residuals
- * is allocated from the workspace resource, so large datasets should be
- * transformed in batches (a pool workspace resource is recommended).
+ * Rows are processed in internal batches, so the temporary float buffer holding
+ * the rotated residuals, allocated from the workspace resource, covers one batch
+ * rather than the whole dataset (a pool workspace resource is recommended).
  *
  * The rotated centroid is an internal temporary as well. A search implementation
  * that needs it can reproduce it exactly by zero-padding `centroid` to
