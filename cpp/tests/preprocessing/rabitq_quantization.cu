@@ -9,18 +9,26 @@
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
+#include <raft/core/host_mdarray.hpp>
 #include <raft/core/mdspan.hpp>
 #include <raft/core/operators.hpp>
+#include <raft/core/pinned_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/matrix/linewise_op.cuh>
 #include <raft/util/itertools.hpp>
+
+#include <rmm/cuda_stream_pool.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
+#include <memory>
 #include <optional>
 #include <ostream>
+#include <string>
 #include <vector>
 
 /*
@@ -32,10 +40,11 @@
  *     strong numeric check that covers both rotator kinds and both FHT paths
  *     (power-of-two and non-power-of-two padded dims);
  *   - that transform() emits in-range, not-all-zero codes and finite factors;
- *   - that transform() is deterministic;
+ *   - that transform() is deterministic, from device and from host input;
  *   - that transform() agrees with rotate() + transform_residuals() whenever no
  *     zero padding is involved (dim % 32 == 0), and for fht_kac also across its
- *     internal row batches (a matmul GEMM's last bits depend on its batch size).
+ *     internal row batches, from device and from host input (a matmul GEMM's
+ *     last bits depend on its batch size).
  */
 
 namespace cuvs::preprocessing::quantize::rabitq {
@@ -370,6 +379,11 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     const int64_t n  = ps_.rows;
     const size_t len = static_cast<size_t>(n) * static_cast<size_t>(pd);
     auto data        = raft::make_const_mdspan(dataset_.view());
+    // The same rows in host memory: the second call of each pair below reads them.
+    auto h_dataset = raft::make_host_matrix<float, int64_t>(n, ps_.dim);
+    raft::update_host(h_dataset.data_handle(), dataset_.data_handle(), dataset_.size(), stream_);
+    raft::resource::sync_stream(handle_, stream_);
+    auto h_data = raft::make_const_mdspan(h_dataset.view());
 
     auto codes_a = raft::make_device_matrix<CodeT, int64_t>(handle_, n, pd);
     auto codes_b = raft::make_device_matrix<CodeT, int64_t>(handle_, n, pd);
@@ -390,7 +404,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     transform(handle_,
               pipe.quantizer,
               pipe.rotator,
-              data,
+              h_data,
               std::nullopt,
               codes_b.view(),
               delta_b.view(),
@@ -403,8 +417,10 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     verify_finite(vl_a.data_handle(), static_cast<size_t>(n), "vl");
     verify_vl(delta_a.data_handle(), vl_a.data_handle(), n);
 
-    // determinism: the same pipeline on the same input -> identical output
-    expect_same_codes(h_codes_a, h_codes_b, "transform() (delta, vl) is not deterministic");
+    // determinism: the same pipeline on the same rows, read from device and from
+    // host memory -> identical output (one batch here, so for matmul too)
+    expect_same_codes(
+      h_codes_a, h_codes_b, "transform() (delta, vl) differs between device and host input");
     ASSERT_TRUE(devArrMatch(delta_a.data_handle(),
                             delta_b.data_handle(),
                             static_cast<size_t>(n),
@@ -434,7 +450,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     transform(handle_,
               pipe.quantizer,
               pipe.rotator,
-              data,
+              h_data,
               centroid_opt,
               ff_codes_b.view(),
               factors_b.view());
@@ -452,7 +468,8 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
       }
       EXPECT_EQ(n_bad, 0u) << n_bad << " of " << n << " f_error factors are negative";
     }
-    expect_same_codes(h_ff_a, h_ff_b, "transform() (factors) is not deterministic");
+    expect_same_codes(
+      h_ff_a, h_ff_b, "transform() (factors) differs between device and host input");
     ASSERT_TRUE(devArrMatch(factors_a.data_handle(),
                             factors_b.data_handle(),
                             static_cast<size_t>(n) * 3,
@@ -706,6 +723,15 @@ TEST(RabitqQuantizationBasicTest, EmptyInput)
                             codes.view(),
                             delta.view(),
                             vl.view()));
+  auto h_dataset = raft::make_host_matrix<float, int64_t>(0, kDim);
+  EXPECT_NO_THROW(transform(handle,
+                            pipe.quantizer,
+                            pipe.rotator,
+                            raft::make_const_mdspan(h_dataset.view()),
+                            std::nullopt,
+                            codes.view(),
+                            delta.view(),
+                            vl.view()));
   raft::resource::sync_stream(handle);
 }
 
@@ -714,13 +740,18 @@ TEST(RabitqQuantizationBasicTest, EmptyInput)
  * and the two FHT kernels agree, so for fht_kac the result must be bit-identical
  * to one unbatched pass: rotate() over all rows, subtract the rotated centroid,
  * then transform_residuals(). kRows spans several batches plus a short tail, which
- * runs the other FHT kernel than the reference does.
+ * runs the other FHT kernel than the reference does. The same must hold for host
+ * input, whose rows are copied to the device batch by batch: on the main stream,
+ * or with a stream pool on a pool stream, overlapped with the kernels.
  */
 TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
 {
   raft::resources handle;
   auto stream             = raft::resource::get_cuda_stream(handle);
   constexpr int64_t kRows = 2 * 32768 + 123;
+  // `handle` plus a stream pool, which makes host input prefetch the next batch.
+  raft::resources pooled(handle);
+  raft::resource::set_cuda_stream_pool(pooled, std::make_shared<rmm::cuda_stream_pool>(1));
 
   auto to_host = [&](auto const* d_ptr, size_t len) {
     std::vector<std::remove_const_t<std::remove_pointer_t<decltype(d_ptr)>>> h(len);
@@ -728,11 +759,10 @@ TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
     raft::resource::sync_stream(handle);
     return h;
   };
-  auto expect_same = [&](auto const& a, auto const& b, char const* what, int64_t dim, bool c) {
+  auto expect_same = [&](auto const& a, auto const& b, char const* what, std::string const& run) {
     ASSERT_EQ(a.size(), b.size());
     EXPECT_EQ(std::memcmp(a.data(), b.data(), a.size() * sizeof(a[0])), 0)
-      << what << " of batched transform() differ from the unbatched reference (dim " << dim
-      << (c ? ", with centroid)" : ", no centroid)");
+      << what << " of batched transform() differ from the unbatched reference (" << run << ")";
   };
 
   for (int64_t dim : {96, 128, 960}) {
@@ -766,6 +796,14 @@ TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
                                                        raft::sub_op{},
                                                        rotated_c_view);
 
+    // The same rows in pageable and in pinned host memory.
+    auto h_rows = to_host(dataset.data_handle(), dataset.size());
+    auto pinned = raft::make_pinned_matrix<float, int64_t>(handle, kRows, dim);
+    auto pageable_data =
+      raft::make_host_matrix_view<const float, int64_t>(h_rows.data(), kRows, dim);
+    auto pinned_data =
+      raft::make_host_matrix_view<const float, int64_t>(pinned.data_handle(), kRows, dim);
+
     for (bool with_c : {false, true}) {
       auto ref_in = raft::make_const_mdspan(with_c ? centered.view() : rotated.view());
       std::optional<raft::device_vector_view<const float, int64_t>> c, ref_c;
@@ -773,34 +811,59 @@ TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
         c     = raft::make_const_mdspan(centroid.view());
         ref_c = rotated_c_view;
       }
-      const size_t n_codes = static_cast<size_t>(kRows) * static_cast<size_t>(pd);
+      const size_t n_codes   = static_cast<size_t>(kRows) * static_cast<size_t>(pd);
+      const size_t n_factors = static_cast<size_t>(kRows) * 3;
 
-      // (delta, vl) mode
-      auto codes = raft::make_device_matrix<uint8_t, int64_t>(handle, kRows, pd);
-      auto delta = raft::make_device_vector<float, int64_t>(handle, kRows);
-      auto vl    = raft::make_device_vector<float, int64_t>(handle, kRows);
-      transform(
-        handle, pipe.quantizer, pipe.rotator, data, c, codes.view(), delta.view(), vl.view());
-      auto h_codes = to_host(codes.data_handle(), n_codes);
-      auto h_delta = to_host(delta.data_handle(), kRows);
-      auto h_vl    = to_host(vl.data_handle(), kRows);
-      transform_residuals(handle, pipe.quantizer, ref_in, codes.view(), delta.view(), vl.view());
-      expect_same(h_codes, to_host(codes.data_handle(), n_codes), "codes", dim, with_c);
-      expect_same(h_delta, to_host(delta.data_handle(), kRows), "delta", dim, with_c);
-      expect_same(h_vl, to_host(vl.data_handle(), kRows), "vl", dim, with_c);
-
-      // full-factor mode
+      auto codes   = raft::make_device_matrix<uint8_t, int64_t>(handle, kRows, pd);
+      auto delta   = raft::make_device_vector<float, int64_t>(handle, kRows);
+      auto vl      = raft::make_device_vector<float, int64_t>(handle, kRows);
       auto factors = raft::make_device_matrix<float, int64_t>(handle, kRows, 3);
-      transform(handle, pipe.quantizer, pipe.rotator, data, c, codes.view(), factors.view());
-      h_codes        = to_host(codes.data_handle(), n_codes);
-      auto h_factors = to_host(factors.data_handle(), static_cast<size_t>(kRows) * 3);
+      transform_residuals(handle, pipe.quantizer, ref_in, codes.view(), delta.view(), vl.view());
+      const auto ref_codes = to_host(codes.data_handle(), n_codes);
+      const auto ref_delta = to_host(delta.data_handle(), kRows);
+      const auto ref_vl    = to_host(vl.data_handle(), kRows);
       transform_residuals(handle, pipe.quantizer, ref_in, ref_c, codes.view(), factors.view());
-      expect_same(h_codes, to_host(codes.data_handle(), n_codes), "full-factor codes", dim, with_c);
-      expect_same(h_factors,
-                  to_host(factors.data_handle(), static_cast<size_t>(kRows) * 3),
-                  "factors",
-                  dim,
-                  with_c);
+      const auto ref_ff_codes = to_host(codes.data_handle(), n_codes);
+      const auto ref_factors  = to_host(factors.data_handle(), n_factors);
+
+      // Runs both output modes on `rows`. The outputs are poisoned before each
+      // call, so that an element left unwritten cannot match. With `host_rows`,
+      // the host rows are filled just before each call and overwritten with NaN
+      // right after it, so a copy still reading them once transform() has
+      // returned shows up in the output.
+      auto run = [&](raft::resources const& res, auto rows, char const* input, float* host_rows) {
+        const std::string what = std::string(input) + ", dim " + std::to_string(dim) +
+                                 (with_c ? ", with centroid" : ", no centroid");
+        auto call = [&](auto&& quantize) {
+          RAFT_CUDA_TRY(cudaMemsetAsync(codes.data_handle(), 0xff, n_codes, stream));
+          RAFT_CUDA_TRY(cudaMemsetAsync(delta.data_handle(), 0xff, kRows * sizeof(float), stream));
+          RAFT_CUDA_TRY(cudaMemsetAsync(vl.data_handle(), 0xff, kRows * sizeof(float), stream));
+          RAFT_CUDA_TRY(
+            cudaMemsetAsync(factors.data_handle(), 0xff, n_factors * sizeof(float), stream));
+          if (host_rows != nullptr) { std::copy(h_rows.begin(), h_rows.end(), host_rows); }
+          quantize();
+          if (host_rows != nullptr) {
+            std::fill(
+              host_rows, host_rows + h_rows.size(), std::numeric_limits<float>::quiet_NaN());
+          }
+        };
+        call([&] {
+          transform(
+            res, pipe.quantizer, pipe.rotator, rows, c, codes.view(), delta.view(), vl.view());
+        });
+        expect_same(to_host(codes.data_handle(), n_codes), ref_codes, "codes", what);
+        expect_same(to_host(delta.data_handle(), kRows), ref_delta, "delta", what);
+        expect_same(to_host(vl.data_handle(), kRows), ref_vl, "vl", what);
+        call([&] {
+          transform(res, pipe.quantizer, pipe.rotator, rows, c, codes.view(), factors.view());
+        });
+        expect_same(to_host(codes.data_handle(), n_codes), ref_ff_codes, "full-factor codes", what);
+        expect_same(to_host(factors.data_handle(), n_factors), ref_factors, "factors", what);
+      };
+      run(handle, data, "device input", nullptr);
+      run(handle, pageable_data, "pageable host input", nullptr);
+      run(pooled, pageable_data, "pageable host input, stream pool", nullptr);
+      run(pooled, pinned_data, "pinned host input, stream pool", pinned.data_handle());
     }
   }
 }

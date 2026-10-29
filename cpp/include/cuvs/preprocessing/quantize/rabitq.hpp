@@ -7,6 +7,7 @@
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/host_mdspan.hpp>
 #include <raft/core/resources.hpp>
 
 #include <cuvs/core/export.hpp>
@@ -235,7 +236,7 @@ quantizer make_quantizer(raft::resources const& res, params const& params, int64
  * auto pipeline =
  *   cuvs::preprocessing::quantize::rabitq::make_pipeline(res, params, dataset.extent(1));
  * cuvs::preprocessing::quantize::rabitq::transform(res, pipeline.quantizer, pipeline.rotator,
- *   dataset, std::nullopt, codes.view(), delta.view(), vl.view());
+ *   raft::make_const_mdspan(dataset.view()), std::nullopt, codes.view(), delta.view(), vl.view());
  * @endcode
  *
  * @param[in] res raft resource
@@ -285,6 +286,14 @@ void rotate(raft::resources const& res,
  * the rotated residuals, allocated from the workspace resource, covers one batch
  * rather than the whole dataset (a pool workspace resource is recommended).
  *
+ * `dataset` may also be on host. Its rows are then copied to the device one
+ * batch at a time into workspace buffers, and are no longer read once the call
+ * returns; `centroid` and the outputs are on device either way. Host input is
+ * bound by the host-to-device copy, which is about twice as fast from pinned
+ * memory (e.g. raft::make_pinned_matrix, passed as a raft::host_matrix_view) as
+ * from pageable memory. A stream pool on `res` (raft::resource::set_cuda_stream_pool)
+ * overlaps copying each batch with quantizing the previous one.
+ *
  * Usage example:
  * @code{.cpp}
  * raft::resources res;
@@ -294,14 +303,14 @@ void rotate(raft::resources const& res,
  * auto codes = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, quantizer.padded_dim);
  * auto delta = raft::make_device_vector<float, int64_t>(res, n_rows);
  * auto vl    = raft::make_device_vector<float, int64_t>(res, n_rows);
- * cuvs::preprocessing::quantize::rabitq::transform(res, quantizer, rotator, dataset,
- *   std::nullopt, codes.view(), delta.view(), vl.view());
+ * cuvs::preprocessing::quantize::rabitq::transform(res, quantizer, rotator,
+ *   raft::make_const_mdspan(dataset.view()), std::nullopt, codes.view(), delta.view(), vl.view());
  * @endcode
  *
  * @param[in] res raft resource
  * @param[in] quantizer a RaBitQ quantizer
  * @param[in] rotator the rotator whose `padded_dim` matches the quantizer
- * @param[in] dataset a row-major `n_rows x dim` matrix view on device
+ * @param[in] dataset a row-major `n_rows x dim` matrix view on device or host
  * @param[in] centroid optional un-rotated `dim` centroid on device; when set, codes are
  *            computed on the residuals w.r.t. this centroid
  * @param[out] codes a row-major `n_rows x padded_dim` matrix view on device
@@ -328,6 +337,26 @@ void transform(raft::resources const& res,
                raft::device_vector_view<float, int64_t> delta,
                raft::device_vector_view<float, int64_t> vl);
 
+/** @copydoc transform */
+void transform(raft::resources const& res,
+               quantizer const& quantizer,
+               rotator const& rotator,
+               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+               raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+               raft::device_vector_view<float, int64_t> delta,
+               raft::device_vector_view<float, int64_t> vl);
+
+/** @copydoc transform */
+void transform(raft::resources const& res,
+               quantizer const& quantizer,
+               rotator const& rotator,
+               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+               raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+               raft::device_vector_view<float, int64_t> delta,
+               raft::device_vector_view<float, int64_t> vl);
+
 /**
  * @brief Quantizes a raw dataset, emitting the full `(f_add, f_rescale, f_error)` factor triplet.
  *
@@ -338,6 +367,7 @@ void transform(raft::resources const& res,
  * Rows are processed in internal batches, so the temporary float buffer holding
  * the rotated residuals, allocated from the workspace resource, covers one batch
  * rather than the whole dataset (a pool workspace resource is recommended).
+ * As for the `(delta, vl)` overload, `dataset` may also be on host.
  *
  * The rotated centroid is an internal temporary as well. A search implementation
  * that needs it can reproduce it exactly by zero-padding `centroid` to
@@ -347,14 +377,15 @@ void transform(raft::resources const& res,
  * @code{.cpp}
  * auto codes   = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, quantizer.padded_dim);
  * auto factors = raft::make_device_matrix<float, int64_t>(res, n_rows, 3);
- * cuvs::preprocessing::quantize::rabitq::transform(res, quantizer, rotator, dataset,
- *   std::make_optional(centroid.view()), codes.view(), factors.view());
+ * cuvs::preprocessing::quantize::rabitq::transform(res, quantizer, rotator,
+ *   raft::make_const_mdspan(dataset.view()), std::make_optional(centroid.view()), codes.view(),
+ *   factors.view());
  * @endcode
  *
  * @param[in] res raft resource
  * @param[in] quantizer a RaBitQ quantizer
  * @param[in] rotator the rotator whose `padded_dim` matches the quantizer
- * @param[in] dataset a row-major `n_rows x dim` matrix view on device
+ * @param[in] dataset a row-major `n_rows x dim` matrix view on device or host
  * @param[in] centroid optional un-rotated `dim` centroid on device; treated as zero when unset
  * @param[out] codes a row-major `n_rows x padded_dim` matrix view on device
  * @param[out] factors a row-major `n_rows x 3` matrix view on device
@@ -373,6 +404,24 @@ void transform(raft::resources const& res,
                quantizer const& quantizer,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+               raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+               raft::device_matrix_view<float, int64_t, raft::row_major> factors);
+
+/** @copydoc transform */
+void transform(raft::resources const& res,
+               quantizer const& quantizer,
+               rotator const& rotator,
+               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+               raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+               raft::device_matrix_view<float, int64_t, raft::row_major> factors);
+
+/** @copydoc transform */
+void transform(raft::resources const& res,
+               quantizer const& quantizer,
+               rotator const& rotator,
+               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
                raft::device_matrix_view<float, int64_t, raft::row_major> factors);

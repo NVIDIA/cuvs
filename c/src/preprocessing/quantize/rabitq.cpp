@@ -26,6 +26,8 @@ namespace rabitq = cuvs::preprocessing::quantize::rabitq;
 
 /** Read-only `n_rows x dim` float input: `dataset`, `residuals`, `in`. */
 using in_matrix_mdspan_type = raft::device_matrix_view<float const, int64_t, raft::row_major>;
+/** `dataset` in host memory, which transform() copies to the device in batches. */
+using host_in_matrix_mdspan_type = raft::host_matrix_view<float const, int64_t, raft::row_major>;
 /** Read-only `dim` float vector: `centroid`, `rotated_centroid`. */
 using centroid_mdspan_type = raft::device_vector_view<float const, int64_t>;
 /** Writable float matrix output: `factors` (`n_rows x 3`) and `rotate`'s `out`. */
@@ -75,7 +77,7 @@ rabitq::quantizer* _quantizer_ptr(cuvsRabitqQuantizer_t quantizer)
   return reinterpret_cast<rabitq::quantizer*>(quantizer->addr);
 }
 
-/** Every RaBitQ entry point is device-only; give a uniform diagnostic for host tensors. */
+/** For tensors that must be device-accessible: a uniform diagnostic for host ones. */
 void _expect_device(DLManagedTensor* tensor, char const* name)
 {
   if (tensor == nullptr) { RAFT_FAIL("%s must not be NULL", name); }
@@ -84,12 +86,36 @@ void _expect_device(DLManagedTensor* tensor, char const* name)
   }
 }
 
-void _expect_float32(DLManagedTensor* tensor, char const* name)
+void _expect_float32_dtype(DLManagedTensor* tensor, char const* name)
 {
-  _expect_device(tensor, name);
+  if (tensor == nullptr) { RAFT_FAIL("%s must not be NULL", name); }
   auto dtype = tensor->dl_tensor.dtype;
   if (dtype.code != kDLFloat || dtype.bits != 32) {
     RAFT_FAIL("Unsupported %s DLtensor dtype: %d and bits: %d", name, dtype.code, dtype.bits);
+  }
+}
+
+void _expect_float32(DLManagedTensor* tensor, char const* name)
+{
+  _expect_device(tensor, name);
+  _expect_float32_dtype(tensor, name);
+}
+
+/**
+ * Calls `fn` with `dataset` as a device view when it is device-accessible
+ * (pinned and managed memory included, read in place) and as a host view
+ * otherwise, as cuvsProductQuantizerTransform does.
+ */
+template <typename Fn>
+void _with_dataset(DLManagedTensor* dataset_tensor, Fn&& fn)
+{
+  _expect_float32_dtype(dataset_tensor, "dataset");
+  if (cuvs::core::is_dlpack_device_compatible(dataset_tensor->dl_tensor)) {
+    fn(cuvs::core::from_dlpack<in_matrix_mdspan_type>(dataset_tensor));
+  } else if (cuvs::core::is_dlpack_host_compatible(dataset_tensor->dl_tensor)) {
+    fn(cuvs::core::from_dlpack<host_in_matrix_mdspan_type>(dataset_tensor));
+  } else {
+    RAFT_FAIL("dataset must be accessible on host or device memory");
   }
 }
 
@@ -132,19 +158,20 @@ void _transform(cuvsResources_t res,
   auto* q      = _quantizer_ptr(quantizer);
   auto* r      = _rotator_ptr(rotator);
 
-  _expect_float32(dataset_tensor, "dataset");
   _expect_float32(delta_tensor, "delta");
   _expect_float32(vl_tensor, "vl");
   _expect_device(codes_tensor, "codes");
 
-  rabitq::transform(*res_ptr,
-                    *q,
-                    *r,
-                    cuvs::core::from_dlpack<in_matrix_mdspan_type>(dataset_tensor),
-                    _optional_centroid(centroid_tensor, "centroid"),
-                    cuvs::core::from_dlpack<codes_mdspan_type<CodeT>>(codes_tensor),
-                    cuvs::core::from_dlpack<out_vector_mdspan_type>(delta_tensor),
-                    cuvs::core::from_dlpack<out_vector_mdspan_type>(vl_tensor));
+  _with_dataset(dataset_tensor, [&](auto dataset) {
+    rabitq::transform(*res_ptr,
+                      *q,
+                      *r,
+                      dataset,
+                      _optional_centroid(centroid_tensor, "centroid"),
+                      cuvs::core::from_dlpack<codes_mdspan_type<CodeT>>(codes_tensor),
+                      cuvs::core::from_dlpack<out_vector_mdspan_type>(delta_tensor),
+                      cuvs::core::from_dlpack<out_vector_mdspan_type>(vl_tensor));
+  });
 }
 
 template <typename CodeT>
@@ -160,17 +187,18 @@ void _transform_full(cuvsResources_t res,
   auto* q      = _quantizer_ptr(quantizer);
   auto* r      = _rotator_ptr(rotator);
 
-  _expect_float32(dataset_tensor, "dataset");
   _expect_float32(factors_tensor, "factors");
   _expect_device(codes_tensor, "codes");
 
-  rabitq::transform(*res_ptr,
-                    *q,
-                    *r,
-                    cuvs::core::from_dlpack<in_matrix_mdspan_type>(dataset_tensor),
-                    _optional_centroid(centroid_tensor, "centroid"),
-                    cuvs::core::from_dlpack<codes_mdspan_type<CodeT>>(codes_tensor),
-                    cuvs::core::from_dlpack<out_matrix_mdspan_type>(factors_tensor));
+  _with_dataset(dataset_tensor, [&](auto dataset) {
+    rabitq::transform(*res_ptr,
+                      *q,
+                      *r,
+                      dataset,
+                      _optional_centroid(centroid_tensor, "centroid"),
+                      cuvs::core::from_dlpack<codes_mdspan_type<CodeT>>(codes_tensor),
+                      cuvs::core::from_dlpack<out_matrix_mdspan_type>(factors_tensor));
+  });
 }
 
 template <typename CodeT>

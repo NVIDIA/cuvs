@@ -149,8 +149,93 @@ void check_restore(raft::device_resources const& handle,
 }
 
 /**
+ * Runs cuvsRabitqTransform and cuvsRabitqTransformFull on the device `dataset`
+ * and on a host (kDLCPU) copy of it, and checks that both give bit-identical
+ * output. Only the dataset may be on host, so host codes must be rejected.
+ */
+void check_host_input(raft::device_resources const& handle,
+                      cuvsResources_t res,
+                      cuvsRabitqQuantizer_t quantizer,
+                      cuvsRabitqRotator_t rotator,
+                      DLManagedTensor* dataset,
+                      DLManagedTensor* centroid,
+                      int64_t padded_dim)
+{
+  auto stream          = raft::resource::get_cuda_stream(handle);
+  const int64_t n_rows = dataset->dl_tensor.shape[0];
+  const int64_t dim    = dataset->dl_tensor.shape[1];
+  auto h_rows = to_host(handle, static_cast<float const*>(dataset->dl_tensor.data), n_rows * dim);
+  DLManagedTensor host_dataset{};
+  cuvs::core::to_dlpack(
+    raft::make_host_matrix_view<float, int64_t, raft::row_major>(h_rows.data(), n_rows, dim),
+    &host_dataset);
+
+  rmm::device_uvector<uint8_t> codes(n_rows * padded_dim, stream);
+  rmm::device_uvector<float> delta(n_rows, stream);
+  rmm::device_uvector<float> vl(n_rows, stream);
+  rmm::device_uvector<float> factors(n_rows * 3, stream);
+  auto codes_t   = make_row_major_tensor(codes.data(), n_rows, padded_dim);
+  auto delta_t   = make_vector_tensor(delta.data(), n_rows);
+  auto vl_t      = make_vector_tensor(vl.data(), n_rows);
+  auto factors_t = make_row_major_tensor(factors.data(), n_rows, 3);
+  // Outputs are poisoned before each call, so an element left unwritten cannot match.
+  auto poison = [&]() {
+    RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), 0xff, codes.size(), stream));
+    RAFT_CUDA_TRY(cudaMemsetAsync(delta.data(), 0xff, delta.size() * sizeof(float), stream));
+    RAFT_CUDA_TRY(cudaMemsetAsync(vl.data(), 0xff, vl.size() * sizeof(float), stream));
+    RAFT_CUDA_TRY(cudaMemsetAsync(factors.data(), 0xff, factors.size() * sizeof(float), stream));
+    handle.sync_stream();
+  };
+
+  // [0]: from the device dataset, [1]: from the host one.
+  std::vector<std::vector<uint8_t>> out_codes, out_ff_codes;
+  std::vector<std::vector<float>> out_delta, out_vl, out_factors;
+  for (DLManagedTensor* input : {dataset, &host_dataset}) {
+    poison();
+    ASSERT_EQ(
+      cuvsRabitqTransform(res, quantizer, rotator, input, centroid, &codes_t, &delta_t, &vl_t),
+      CUVS_SUCCESS);
+    ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
+    out_codes.push_back(to_host(handle, codes.data(), codes.size()));
+    out_delta.push_back(to_host(handle, delta.data(), delta.size()));
+    out_vl.push_back(to_host(handle, vl.data(), vl.size()));
+
+    poison();
+    ASSERT_EQ(
+      cuvsRabitqTransformFull(res, quantizer, rotator, input, centroid, &codes_t, &factors_t),
+      CUVS_SUCCESS);
+    ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
+    out_ff_codes.push_back(to_host(handle, codes.data(), codes.size()));
+    out_factors.push_back(to_host(handle, factors.data(), factors.size()));
+  }
+  EXPECT_TRUE(out_codes[0] == out_codes[1]) << "codes differ between device and host input";
+  EXPECT_TRUE(out_delta[0] == out_delta[1]) << "delta differs between device and host input";
+  EXPECT_TRUE(out_vl[0] == out_vl[1]) << "vl differs between device and host input";
+  EXPECT_TRUE(out_ff_codes[0] == out_ff_codes[1])
+    << "full-factor codes differ between device and host input";
+  EXPECT_TRUE(out_factors[0] == out_factors[1]) << "factors differ between device and host input";
+
+  std::vector<uint8_t> h_codes(codes.size());
+  DLManagedTensor host_codes{};
+  cuvs::core::to_dlpack(raft::make_host_matrix_view<uint8_t, int64_t, raft::row_major>(
+                          h_codes.data(), n_rows, padded_dim),
+                        &host_codes);
+  EXPECT_NE(cuvsRabitqTransform(
+              res, quantizer, rotator, &host_dataset, centroid, &host_codes, &delta_t, &vl_t),
+            CUVS_SUCCESS);
+
+  free_tensor(host_codes);
+  free_tensor(host_dataset);
+  free_tensor(codes_t);
+  free_tensor(delta_t);
+  free_tensor(vl_t);
+  free_tensor(factors_t);
+}
+
+/**
  * Exercises the whole C surface for one rotator kind: params -> pipeline ->
- * getters -> transform -> state readback -> restore -> teardown.
+ * getters -> transform (device and host input) -> state readback -> restore ->
+ * teardown.
  */
 void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
 {
@@ -289,6 +374,9 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
     EXPECT_EQ(n_out_of_range, 0u) << "centered codes outside the " << (ex_bits + 1) << "-bit range";
     EXPECT_GT(n_diff, 0u) << "passing a centroid did not change the codes";
   }
+
+  // --- host input ---
+  check_host_input(handle, res, quantizer, rotator, &dataset_t, &centroid_t, padded_dim);
 
   // --- rotator state readback ---
   DLManagedTensor state{};

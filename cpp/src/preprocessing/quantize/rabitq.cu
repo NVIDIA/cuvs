@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../neighbors/detail/ann_utils.cuh"
 #include "./detail/rabitq/pipeline.cuh"
 #include "./detail/rabitq/quantize.cuh"
 #include "./detail/rabitq/rescale_search.cuh"
@@ -12,6 +13,7 @@
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/error.hpp>
+#include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resource/device_properties.hpp>
@@ -135,12 +137,14 @@ void check_factors(int64_t n_rows,
  * 256 is GEMM-bound instead and runs best on large batches. As in
  * IVF-PQ's extend, the batch is then halved until its scratch fits the free
  * workspace, here half of it: the rest covers the smaller temporaries (rotated
- * centroid, padding) and fragmentation.
+ * centroid, padding) and fragmentation. Host input adds `staging_row_bytes` per
+ * row for the buffers its rows are copied into.
  */
 [[nodiscard]] auto transform_batch_rows(raft::resources const& res,
                                         rabitq::quantizer const& q,
                                         rabitq::rotator const& rot,
-                                        int64_t n_rows) -> int64_t
+                                        int64_t n_rows,
+                                        size_t staging_row_bytes) -> int64_t
 {
   constexpr int64_t kMinL2Rows        = 2048;
   constexpr int64_t kMaxL2Rows        = 65536;
@@ -161,19 +165,83 @@ void check_factors(int64_t n_rows,
     }
   }
   // matmul pads into a second batch x padded_dim temporary (pad_and_rotate).
-  const size_t row_bytes = row_floats * sizeof(float) * (matmul && q.dim != q.padded_dim ? 2 : 1);
-  const size_t budget    = raft::resource::get_workspace_free_bytes(res) / 2;
+  const size_t row_bytes =
+    row_floats * sizeof(float) * (matmul && q.dim != q.padded_dim ? 2 : 1) + staging_row_bytes;
+  const size_t budget = raft::resource::get_workspace_free_bytes(res) / 2;
   while (batch > kMinWorkspaceRows && static_cast<size_t>(batch) * row_bytes > budget) {
     batch /= 2;
   }
   return std::min(batch, n_rows);
 }
 
-template <typename CodeT>
+/** A row-major `n_rows x dim` input dataset, on device or on host. */
+template <typename Accessor>
+using dataset_view =
+  raft::mdspan<const float, raft::matrix_extent<int64_t>, raft::row_major, Accessor>;
+
+/** Bytes per row of the device buffers that host input is copied into (see for_each_batch). */
+template <typename Accessor>
+[[nodiscard]] auto staging_row_bytes(raft::resources const& res, int64_t dim) -> size_t
+{
+  if constexpr (Accessor::is_device_accessible) {
+    return 0;
+  } else {
+    const bool prefetch = cuvs::spatial::knn::detail::utils::get_prefetch_stream(res).second;
+    return (prefetch ? 2 : 1) * static_cast<size_t>(dim) * sizeof(float);
+  }
+}
+
+/**
+ * Calls `quantize_batch(rows, r0, n)` on consecutive `batch`-row slices of
+ * `dataset`, `rows` pointing at the slice's `n` rows on device. Device input is
+ * read in place. Host input is copied by batch_load_iterator into workspace
+ * buffers, as in IVF-PQ's extend: on the main stream, or, when `res` has a
+ * stream pool, on a pool stream into two buffers, so that the next batch is
+ * copied while the current one is quantized. No host row is read after this
+ * returns.
+ */
+template <typename Accessor, typename QuantizeBatch>
+void for_each_batch(raft::resources const& res,
+                    dataset_view<Accessor> dataset,
+                    int64_t batch,
+                    QuantizeBatch&& quantize_batch)
+{
+  const int64_t n_rows = dataset.extent(0);
+  if constexpr (Accessor::is_device_accessible) {
+    for (int64_t r0 = 0; r0 < n_rows; r0 += batch) {
+      quantize_batch(
+        dataset.data_handle() + r0 * dataset.extent(1), r0, std::min(batch, n_rows - r0));
+    }
+  } else {
+    namespace utils              = cuvs::spatial::knn::detail::utils;
+    auto [copy_stream, prefetch] = utils::get_prefetch_stream(res);
+    // The pool stream is not ordered after the work already queued on res's
+    // stream, which may still be writing the host rows (e.g. into pinned memory).
+    if (prefetch) { raft::resource::sync_stream(res); }
+    utils::batch_load_iterator<dataset_view<Accessor>> batches(
+      res,
+      dataset,
+      static_cast<size_t>(batch),
+      copy_stream,
+      raft::resource::get_workspace_resource_ref(res),
+      prefetch);
+    batches.prefetch_next_batch();
+    for (auto const& b : batches) {
+      quantize_batch(b.data(), static_cast<int64_t>(b.offset()), static_cast<int64_t>(b.size()));
+      batches.prefetch_next_batch();
+      // The last prefetch_next_batch() returns without waiting for res's stream,
+      // and the buffers are freed on the pool stream: wait for the kernels still
+      // reading them, as IVF-SQ's extend does.
+      if (prefetch) { raft::resource::sync_stream(res); }
+    }
+  }
+}
+
+template <typename CodeT, typename Accessor>
 void transform_impl(raft::resources const& res,
                     rabitq::quantizer const& q,
                     rabitq::rotator const& rot,
-                    raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+                    dataset_view<Accessor> dataset,
                     std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                     raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
                     raft::device_vector_view<float, int64_t> delta,
@@ -191,19 +259,19 @@ void transform_impl(raft::resources const& res,
   }
   if (n_rows == 0) { return; }
 
-  auto stream         = raft::resource::get_cuda_stream(res);
-  auto workspace      = raft::resource::get_workspace_resource_ref(res);
-  const int64_t batch = transform_batch_rows(res, q, rot, n_rows);
+  auto stream    = raft::resource::get_cuda_stream(res);
+  auto workspace = raft::resource::get_workspace_resource_ref(res);
+  const int64_t batch =
+    transform_batch_rows(res, q, rot, n_rows, staging_row_bytes<Accessor>(res, q.dim));
   rmm::device_uvector<float> residuals(
     static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
   rmm::device_uvector<float> rotated_centroid(
     centroid.has_value() ? static_cast<size_t>(q.padded_dim) : 0, stream, workspace);
 
   // Rows are quantized independently, so batching only bounds the scratch.
-  for (int64_t r0 = 0; r0 < n_rows; r0 += batch) {
-    const int64_t n = std::min(batch, n_rows - r0);
+  for_each_batch(res, dataset, batch, [&](const float* rows, int64_t r0, int64_t n) {
     detail::quantize_data(res,
-                          dataset.data_handle() + r0 * q.dim,
+                          rows,
                           static_cast<size_t>(n),
                           static_cast<size_t>(q.dim),
                           as_ref(rot),
@@ -219,14 +287,14 @@ void transform_impl(raft::resources const& res,
                           static_cast<int>(q.params_quantizer.delta_mode),
                           static_cast<int>(q.params_quantizer.coarse_samples),
                           static_cast<int>(q.params_quantizer.fine_samples));
-  }
+  });
 }
 
-template <typename CodeT>
+template <typename CodeT, typename Accessor>
 void transform_full_impl(raft::resources const& res,
                          rabitq::quantizer const& q,
                          rabitq::rotator const& rot,
-                         raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+                         dataset_view<Accessor> dataset,
                          std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                          raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
                          raft::device_matrix_view<float, int64_t, raft::row_major> factors)
@@ -243,9 +311,10 @@ void transform_full_impl(raft::resources const& res,
   }
   if (n_rows == 0) { return; }
 
-  auto stream         = raft::resource::get_cuda_stream(res);
-  auto workspace      = raft::resource::get_workspace_resource_ref(res);
-  const int64_t batch = transform_batch_rows(res, q, rot, n_rows);
+  auto stream    = raft::resource::get_cuda_stream(res);
+  auto workspace = raft::resource::get_workspace_resource_ref(res);
+  const int64_t batch =
+    transform_batch_rows(res, q, rot, n_rows, staging_row_bytes<Accessor>(res, q.dim));
   rmm::device_uvector<float> residuals(
     static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
   // The full-factor formula always reads the rotated centroid; the detail layer
@@ -254,10 +323,9 @@ void transform_full_impl(raft::resources const& res,
     static_cast<size_t>(q.padded_dim), stream, workspace);
 
   // Rows are quantized independently, so batching only bounds the scratch.
-  for (int64_t r0 = 0; r0 < n_rows; r0 += batch) {
-    const int64_t n = std::min(batch, n_rows - r0);
+  for_each_batch(res, dataset, batch, [&](const float* rows, int64_t r0, int64_t n) {
     detail::quantize_data_full(res,
-                               dataset.data_handle() + r0 * q.dim,
+                               rows,
                                static_cast<size_t>(n),
                                static_cast<size_t>(q.dim),
                                as_ref(rot),
@@ -269,7 +337,7 @@ void transform_full_impl(raft::resources const& res,
                                codes.data_handle() + r0 * q.padded_dim,
                                factors.data_handle() + r0 * kNumFactors,
                                residuals.data());
-  }
+  });
 }
 
 template <typename CodeT>
@@ -458,6 +526,30 @@ void transform(raft::resources const& res,
 void transform(raft::resources const& res,
                quantizer const& quantizer,
                rotator const& rotator,
+               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+               raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+               raft::device_vector_view<float, int64_t> delta,
+               raft::device_vector_view<float, int64_t> vl)
+{
+  transform_impl(res, quantizer, rotator, dataset, centroid, codes, delta, vl);
+}
+
+void transform(raft::resources const& res,
+               quantizer const& quantizer,
+               rotator const& rotator,
+               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+               raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+               raft::device_vector_view<float, int64_t> delta,
+               raft::device_vector_view<float, int64_t> vl)
+{
+  transform_impl(res, quantizer, rotator, dataset, centroid, codes, delta, vl);
+}
+
+void transform(raft::resources const& res,
+               quantizer const& quantizer,
+               rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -470,6 +562,28 @@ void transform(raft::resources const& res,
                quantizer const& quantizer,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+               raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+               raft::device_matrix_view<float, int64_t, raft::row_major> factors)
+{
+  transform_full_impl(res, quantizer, rotator, dataset, centroid, codes, factors);
+}
+
+void transform(raft::resources const& res,
+               quantizer const& quantizer,
+               rotator const& rotator,
+               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
+               std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+               raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+               raft::device_matrix_view<float, int64_t, raft::row_major> factors)
+{
+  transform_full_impl(res, quantizer, rotator, dataset, centroid, codes, factors);
+}
+
+void transform(raft::resources const& res,
+               quantizer const& quantizer,
+               rotator const& rotator,
+               raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
                raft::device_matrix_view<float, int64_t, raft::row_major> factors)

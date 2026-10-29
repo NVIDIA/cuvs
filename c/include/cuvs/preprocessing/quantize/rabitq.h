@@ -300,10 +300,15 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotate(cuvsResources_t res,
  * the rotated residuals, allocated from the workspace resource, covers one batch
  * rather than the whole dataset (a pool workspace resource is recommended).
  *
+ * `dataset` may also be in host memory (kDLCPU). Its rows are then copied to the
+ * device one batch at a time, and are no longer read once the call returns.
+ * Pinned (kDLCUDAHost) and managed tensors are device-accessible and are read in
+ * place. `centroid` and the outputs must be on device.
+ *
  * @param[in] res raft resource
  * @param[in] quantizer a RaBitQ quantizer
  * @param[in] rotator the rotator whose padded dim matches the quantizer
- * @param[in] dataset a row-major `n_rows x dim` float32 device matrix
+ * @param[in] dataset a row-major `n_rows x dim` float32 host or device matrix
  * @param[in] centroid optional un-rotated `dim` float32 device vector; when non-NULL, codes are
  *            computed on the residuals w.r.t. this centroid. Pass NULL to skip centering.
  * @param[out] codes a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes
@@ -331,6 +336,7 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
  * Rows are processed in internal batches, so the temporary float buffer holding
  * the rotated residuals, allocated from the workspace resource, covers one batch
  * rather than the whole dataset (a pool workspace resource is recommended).
+ * As for cuvsRabitqTransform, `dataset` may also be in host memory.
  *
  * The rotated centroid is an internal temporary as well. A search
  * implementation that needs it can reproduce it exactly by zero-padding
@@ -340,7 +346,7 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
  * @param[in] res raft resource
  * @param[in] quantizer a RaBitQ quantizer
  * @param[in] rotator the rotator whose padded dim matches the quantizer
- * @param[in] dataset a row-major `n_rows x dim` float32 device matrix
+ * @param[in] dataset a row-major `n_rows x dim` float32 host or device matrix
  * @param[in] centroid optional un-rotated `dim` float32 device vector; treated as zero when NULL
  * @param[out] codes a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes
  * @param[out] factors a row-major `n_rows x 3` float32 device matrix
