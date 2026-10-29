@@ -258,9 +258,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     verify_shape(pipe.rotator, pipe.quantizer);
     verify_state(pipe.rotator);
 
-    // The peers built on their own must be interchangeable with the pipeline's:
-    // that is what makes the header's "store the seed and re-run make_rotator"
-    // recipe safe.
+    // The peers built on their own must be interchangeable with the pipeline's.
     auto rot   = make_rotator(handle_, p, ps_.dim);
     auto quant = make_quantizer(handle_, p, ps_.dim);
     verify_shape(rot, quant);
@@ -569,8 +567,8 @@ const std::vector<RabitqQuantizationInputs> generate_inputs_narrow()
     {rotator_kind::matmul, rotator_kind::fht_kac},
     {1u, 3u},
     {true});
-  // dim = 960 exercises the non-power-of-two FHT with trunc_dim = 512. Only one
-  // matmul instance there: its rotation matrix costs O(dim^3) host work.
+  // dim = 960 exercises the non-power-of-two FHT with trunc_dim = 512, and one
+  // matmul instance covers the same width.
   auto fht_960 = raft::util::itertools::product<RabitqQuantizationInputs>(
     {13, 1000}, {960}, {rotator_kind::fht_kac}, {3u}, {true});
   auto matmul_960 = raft::util::itertools::product<RabitqQuantizationInputs>(

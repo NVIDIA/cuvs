@@ -2,8 +2,9 @@
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged;
- * only include paths, error macros and the enclosing namespace differ.
+ * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged
+ * except for the matmul rotator: its matrix comes from the shared
+ * preprocessing helper and is applied as y = P x.
  */
 
 //
@@ -45,16 +46,16 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 [[nodiscard]] int64_t flip_bytes(int64_t D);
 
 // ---------------------------------------------------------------------------
-// State generation. Writes into device buffers provided by the caller. The
-// draw happens on the host (std::mt19937, identical to the standalone code),
-// so both calls stage through pinned-free host memory and therefore
-// synchronize `stream` before returning.
+// State generation. Writes into device buffers provided by the caller.
 // ---------------------------------------------------------------------------
 
-/// Fill `d_P_out` (D * D floats, row-major) with a random orthogonal matrix.
-void init_state_matmul(cudaStream_t stream, uint64_t seed, int64_t D, float* d_P_out);
+/// Fill `d_P_out` (D * D floats, row-major) with a random orthogonal matrix,
+/// drawn on the device with the preprocessing helper IVF-PQ uses too.
+void init_state_matmul(raft::resources const& res, uint64_t seed, int64_t D, float* d_P_out);
 
 /// Fill `d_flip_out` (`flip_bytes(D)` bytes) with the Kac's-walk sign bits.
+/// The draw happens on the host (std::mt19937, identical to the standalone
+/// code), so this stages through host memory and synchronizes `stream`.
 void init_state_fht_kac(cudaStream_t stream, uint64_t seed, int64_t D, uint8_t* d_flip_out);
 
 // ---------------------------------------------------------------------------

@@ -313,8 +313,7 @@ rotator make_rotator(raft::resources const& res, params const& params, int64_t d
   if (rot.kind == rotator_kind::matmul) {
     rot.rotation_matrix = raft::make_device_matrix<float, int64_t, raft::row_major>(
       res, rot.padded_dim, rot.padded_dim);
-    detail::init_state_matmul(
-      stream, params.seed, rot.padded_dim, rot.rotation_matrix.data_handle());
+    detail::init_state_matmul(res, params.seed, rot.padded_dim, rot.rotation_matrix.data_handle());
   } else {
     rot.flip_bits =
       raft::make_device_vector<uint8_t, int64_t>(res, detail::flip_bytes(rot.padded_dim));

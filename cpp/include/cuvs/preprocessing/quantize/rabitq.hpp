@@ -71,7 +71,7 @@ struct params {
   /** Random-rotation implementation. */
   rotator_kind rotator = rotator_kind::fht_kac;
   /**
-   * Seed for the host RNG that draws the rotation state and the random probe
+   * Seed for the RNGs that draw the rotation state and the random probe
    * vectors used to estimate the constant scaling factor.
    */
   uint64_t seed = 12345ULL;
@@ -98,9 +98,10 @@ struct params {
  * `params::seed` - but it *is* part of the code representation: codes produced
  * with one rotator are only comparable to queries transformed by the very same
  * rotator. There is deliberately no serialization API here, so the caller owns
- * this object and is responsible for keeping it alongside the codes (e.g. by
- * storing `params::seed` and re-running make_rotator, or by embedding the
- * buffers below in its own index format).
+ * this object and is responsible for keeping it alongside the codes, by
+ * embedding the buffers below in its own index format. Re-running make_rotator
+ * with the same `params` reproduces them only on the same GPU model and
+ * library version.
  *
  * A rotator is an independent peer of the quantizer: neither contains the
  * other, and a single rotator may be shared by several quantizers.
@@ -118,8 +119,8 @@ struct rotator {
    */
   int64_t padded_dim = 0;
   /**
-   * `padded_dim x padded_dim` row-major random orthogonal matrix.
-   * Empty unless `kind == rotator_kind::matmul`.
+   * `padded_dim x padded_dim` row-major random orthogonal matrix `R`; rotate()
+   * maps each row `x` to `R x`. Empty unless `kind == rotator_kind::matmul`.
    */
   raft::device_matrix<float, int64_t, raft::row_major> rotation_matrix;
   /**

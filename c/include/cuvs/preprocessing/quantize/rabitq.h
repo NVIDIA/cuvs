@@ -69,7 +69,7 @@ struct cuvsRabitqQuantizerParams {
   /** Random-rotation implementation. */
   enum cuvsRabitqRotatorKind rotator;
   /**
-   * Seed for the host RNG that draws the rotation state and the random probe
+   * Seed for the RNGs that draw the rotation state and the random probe
    * vectors used to estimate the constant scaling factor.
    */
   uint64_t seed;
@@ -115,9 +115,10 @@ CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerParamsDestroy(cuvsRabitqQuantizerPara
  * representation: codes produced with one rotator are only comparable to
  * queries transformed by the very same rotator. There is deliberately no
  * serialization API, so the caller owns this handle and is responsible for
- * keeping it alongside the codes (either by storing the seed and re-running
- * cuvsRabitqRotatorMake, or by copying the buffers returned by
- * cuvsRabitqRotatorGetState into its own index format).
+ * keeping it alongside the codes, by copying the buffers returned by
+ * cuvsRabitqRotatorGetState into its own index format. Re-running
+ * cuvsRabitqRotatorMake with the same params reproduces them only on the same
+ * GPU model and library version.
  *
  * A rotator is an independent peer of the quantizer: neither contains the
  * other, and a single rotator may be shared by several quantizers.
@@ -418,7 +419,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotatorGetPaddedDim(cuvsRabitqRotator_t rotato
  *
  * The shape and dtype depend on cuvsRabitqRotatorGetKind:
  * - ::CUVS_RABITQ_ROTATOR_KIND_MATMUL fills in the `padded_dim x padded_dim`
- *   row-major float32 rotation matrix.
+ *   row-major float32 rotation matrix `R`; cuvsRabitqRotate maps each row `x`
+ *   to `R x`.
  * - ::CUVS_RABITQ_ROTATOR_KIND_FHT_KAC fills in the packed sign bits of the four
  *   Kac's-walk passes, a `4 * padded_dim / 8` element uint8 vector.
  *

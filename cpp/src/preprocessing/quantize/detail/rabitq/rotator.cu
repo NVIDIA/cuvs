@@ -2,16 +2,18 @@
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged;
- * only include paths, error macros and the enclosing namespace differ.
+ * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged
+ * except for the matmul rotator: its matrix comes from the shared
+ * preprocessing helper and is applied as y = P x.
  */
 
 //
 // Rotator state generation and launchers — matmul and fht_kac.
-// The random orthogonal matrix is generated on the CPU via modified
-// Gram-Schmidt so this file has no Eigen dependency.
+// The random orthogonal matrix comes from the preprocessing helper that
+// IVF-PQ uses too.
 //
 
+#include "../../../detail/rotation_matrix.cuh"
 #include "fht.cuh"
 #include "rotator.cuh"
 
@@ -25,6 +27,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <random>
 #include <vector>
 
@@ -41,45 +44,6 @@ inline int64_t floor_log2(int64_t x)
     ++r;
   }
   return r;
-}
-
-// ---------------------------------------------------------------------------
-// Modified Gram-Schmidt on a random Gaussian D×D matrix. Produces Q that is
-// orthonormal in rows; equivalent to Q from a QR decomposition modulo sign
-// conventions. Numerically stable enough for the few-thousand dimensions used
-// by RaBitQ. Output is row-major.
-// ---------------------------------------------------------------------------
-std::vector<float> random_orthogonal_matrix(int64_t D, uint64_t seed)
-{
-  const size_t d = static_cast<size_t>(D);
-  std::vector<float> M(d * d);
-  std::mt19937 gen(static_cast<uint32_t>(seed));
-  std::normal_distribution<float> dist(0.0f, 1.0f);
-  for (size_t i = 0; i < d * d; ++i)
-    M[i] = dist(gen);
-
-  // Modified Gram-Schmidt on rows (in double for stability).
-  std::vector<double> row(d);
-  for (size_t i = 0; i < d; ++i) {
-    for (size_t k = 0; k < d; ++k)
-      row[k] = M[i * d + k];
-
-    for (size_t j = 0; j < i; ++j) {
-      double dot = 0.0;
-      for (size_t k = 0; k < d; ++k)
-        dot += row[k] * M[j * d + k];
-      for (size_t k = 0; k < d; ++k)
-        row[k] -= dot * M[j * d + k];
-    }
-
-    double norm_sq = 0.0;
-    for (size_t k = 0; k < d; ++k)
-      norm_sq += row[k] * row[k];
-    double inv_norm = 1.0 / std::sqrt(norm_sq);
-    for (size_t k = 0; k < d; ++k)
-      M[i * d + k] = static_cast<float>(row[k] * inv_norm);
-  }
-  return M;
 }
 
 /// Derived fht_kac parameters. Recomputed on every launch from the PADDED
@@ -116,14 +80,16 @@ int64_t flip_bytes(int64_t D) { return 4 * D / 8; }
 // State generation
 // ---------------------------------------------------------------------------
 
-void init_state_matmul(cudaStream_t stream, uint64_t seed, int64_t D, float* d_P_out)
+void init_state_matmul(raft::resources const& res, uint64_t seed, int64_t D, float* d_P_out)
 {
-  RAFT_EXPECTS(D > 0, "rotator: padded dimension must be positive");
-  std::vector<float> h_P = random_orthogonal_matrix(D, seed);
-  RAFT_CUDA_TRY(cudaMemcpyAsync(
-    d_P_out, h_P.data(), sizeof(float) * h_P.size(), cudaMemcpyHostToDevice, stream));
-  // h_P is plain host memory and dies with this scope.
-  RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+  RAFT_EXPECTS(D > 0 && D <= std::numeric_limits<uint16_t>::max(),
+               "rotator: matmul padded dimension must be in [1, 65535]");
+  cuvs::preprocessing::detail::make_rotation_matrix(res,
+                                                    true,
+                                                    static_cast<uint32_t>(D),
+                                                    static_cast<uint32_t>(D),
+                                                    d_P_out,
+                                                    raft::random::RngState(seed));
 }
 
 void init_state_fht_kac(cudaStream_t stream, uint64_t seed, int64_t D, uint8_t* d_flip_out)
@@ -158,10 +124,10 @@ void rotate_matmul(raft::resources const& res,
   const float beta  = 0.0f;
   auto cublas_h     = raft::resource::get_cublas_handle(res);
   RAFT_CUBLAS_TRY(cublasSetStream(cublas_h, raft::resource::get_cuda_stream(res)));
-  // Row-major row-of-A (size D) is reinterpreted as column-of-A in column-major;
-  // compute C = P · A by calling sgemm with leading dims = D in both inputs.
+  // Row-major row-of-A (size D) is reinterpreted as column-of-A in column-major,
+  // and row-major P reads as P^T; compute C = P · A by transposing it back.
   RAFT_CUBLAS_TRY(cublasSgemm(cublas_h,
-                              CUBLAS_OP_N,
+                              CUBLAS_OP_T,
                               CUBLAS_OP_N,
                               static_cast<int>(D),
                               static_cast<int>(N),
