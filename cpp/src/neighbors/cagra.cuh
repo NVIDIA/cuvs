@@ -549,6 +549,19 @@ void extend(raft::resources const& handle,
   extend_core<T, IdxT, DatasetViewT>(handle, index, params, extended_dataset, new_start_row);
 }
 
+template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
+auto merge(raft::resources const& handle,
+           const cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
+           DatasetViewT merged_dataset,
+           const cagra::merge_params& merge_params,
+           const cuvs::neighbors::filtering::base_filter& row_filter)
+  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
+{
+  return cagra::detail::merge<T, IdxT, DatasetViewT>(
+    handle, params, indices, merged_dataset, merge_params, row_filter);
+}
+
 template <typename T, typename IdxT = uint32_t, typename OutputIdxT = uint32_t>
 void search(
   raft::resources const& res,
