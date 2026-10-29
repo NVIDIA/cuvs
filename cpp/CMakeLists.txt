@@ -85,10 +85,14 @@ option(CUVS_COMPILE_DYNAMIC_ONLY "Only build the shared library and skip the sta
 option(CUVS_NVTX "Enable nvtx markers" OFF)
 option(CUVS_RAFT_CLONE_ON_PIN "Explicitly clone RAFT branch when pinned to non-feature branch" ON)
 option(CUVS_ENABLE_FLOWANN_SEARCH "Enable experimental FlowANN tiered-graph search" OFF)
+option(CUVS_ENABLE_FLOWANN_BUILD "Enable the experimental integrated FlowANN graph builder" OFF)
 option(CUVS_FLOWANN_USE_GDRCOPY "Use GDRCopy for FlowANN GPU-to-CPU command queues" ON)
 
 if(CUVS_ENABLE_FLOWANN_SEARCH AND BUILD_CPU_ONLY)
   message(FATAL_ERROR "CUVS_ENABLE_FLOWANN_SEARCH requires a CUDA-enabled build")
+endif()
+if(CUVS_ENABLE_FLOWANN_BUILD AND NOT CUVS_ENABLE_FLOWANN_SEARCH)
+  message(FATAL_ERROR "CUVS_ENABLE_FLOWANN_BUILD requires CUVS_ENABLE_FLOWANN_SEARCH")
 endif()
 if(BUILD_CPU_ONLY)
   set(BUILD_SHARED_LIBS OFF)
@@ -132,6 +136,7 @@ message(VERBOSE "cuVS: Build CPU only components: ${BUILD_CPU_ONLY}")
 message(VERBOSE "cuVS: Build ANN benchmarks: ${BUILD_CUVS_BENCH}")
 message(VERBOSE "cuVS: Build only the shared library: ${CUVS_COMPILE_DYNAMIC_ONLY}")
 message(VERBOSE "cuVS: Enable FlowANN tiered-graph search: ${CUVS_ENABLE_FLOWANN_SEARCH}")
+message(VERBOSE "cuVS: Enable FlowANN integrated build: ${CUVS_ENABLE_FLOWANN_BUILD}")
 message(VERBOSE "cuVS: Use GDRCopy for FlowANN queues: ${CUVS_FLOWANN_USE_GDRCOPY}")
 message(VERBOSE "cuVS: Enable detection of conda environment for dependencies: ${DETECT_CONDA_ENV}")
 message(VERBOSE "cuVS: Disable deprecation warnings " ${DISABLE_DEPRECATION_WARNINGS})
@@ -257,6 +262,7 @@ if(NOT BUILD_CPU_ONLY)
   )
   target_compile_definitions(
     cuvs_cpp_headers INTERFACE $<$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>:CUVS_ENABLE_FLOWANN_SEARCH>
+                               $<$<BOOL:${CUVS_ENABLE_FLOWANN_BUILD}>:CUVS_ENABLE_FLOWANN_BUILD>
   )
   target_link_libraries(cuvs_cpp_headers INTERFACE raft::raft rmm::rmm)
 
@@ -1550,6 +1556,7 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/brute_force_serialize.cu
     src/neighbors/cagra.cpp
     $<$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>:src/neighbors/flowann.cu>
+    $<$<BOOL:${CUVS_ENABLE_FLOWANN_BUILD}>:src/neighbors/flowann_build.cu>
     $<$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>:src/neighbors/flowann_queue.cpp>
     ${cagra_build_inst_files}
     ${cagra_extend_inst_files}

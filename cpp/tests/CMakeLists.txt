@@ -272,6 +272,10 @@ if(CUVS_ENABLE_FLOWANN_SEARCH)
       neighbors/ann_cagra/flowann_storage.cu
       neighbors/ann_cagra/flowann_search.cu
   )
+  if(CUVS_ENABLE_FLOWANN_BUILD)
+    list(APPEND CUVS_FLOWANN_TEST_SOURCES neighbors/ann_cagra/flowann_build.cu
+    )
+  endif()
   ConfigureTest(
     NAME NEIGHBORS_FLOWANN_TEST
     PATH ${CUVS_FLOWANN_TEST_SOURCES}
