@@ -19,6 +19,9 @@
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
+#include <raft/core/operators.hpp>
+#include <raft/linalg/map.cuh>
+#include <raft/matrix/linewise_op.cuh>
 
 #include <rmm/device_uvector.hpp>
 
@@ -28,22 +31,14 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 
 namespace {
 
-__global__ void pad_rows_kernel(const float* __restrict__ d_src,
-                                float* __restrict__ d_dst,
-                                int N, int dim, int D) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= N * D) return;
-    int row = idx / D;
-    int col = idx % D;
-    d_dst[idx] = (col < dim) ? d_src[row * dim + col] : 0.0f;
-}
-
-__global__ void subtract_row_kernel(float* __restrict__ d_rows,
-                                    const float* __restrict__ d_row,
-                                    int N, int D) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= N * D) return;
-    d_rows[idx] -= d_row[idx % D];
+void pad_rows(raft::resources const& res, const float* d_src, float* d_dst,
+              size_t N, size_t dim, size_t D) {
+    raft::linalg::map_offset(res, raft::make_device_vector_view<float, size_t>(d_dst, N * D),
+        [d_src, dim, D] __device__(size_t idx) {
+            const size_t row = idx / D;
+            const size_t col = idx % D;
+            return col < dim ? d_src[row * dim + col] : 0.0f;
+        });
 }
 
 /// Pad (if dim < rotator.padded_dim) and rotate d_src into d_dst. When padding
@@ -58,22 +53,14 @@ void pad_and_rotate(raft::resources const& res,
         return;
     }
     auto stream = raft::resource::get_cuda_stream(res);
-    constexpr int kBlock = 256;
     const size_t total = N * D;
-    const int grid = static_cast<int>((total + kBlock - 1) / kBlock);
     if (supports_inplace_rotate(rotator)) {
-        pad_rows_kernel<<<grid, kBlock, 0, stream>>>(d_src, d_dst,
-                                                     static_cast<int>(N), static_cast<int>(dim),
-                                                     static_cast<int>(D));
-        RAFT_CUDA_TRY(cudaGetLastError());
+        pad_rows(res, d_src, d_dst, N, dim, D);
         rotate(res, rotator, d_dst, d_dst, static_cast<int64_t>(N));
     } else {
         rmm::device_uvector<float> d_tmp(
             total, stream, raft::resource::get_workspace_resource_ref(res));
-        pad_rows_kernel<<<grid, kBlock, 0, stream>>>(d_src, d_tmp.data(),
-                                                     static_cast<int>(N), static_cast<int>(dim),
-                                                     static_cast<int>(D));
-        RAFT_CUDA_TRY(cudaGetLastError());
+        pad_rows(res, d_src, d_tmp.data(), N, dim, D);
         rotate(res, rotator, d_tmp.data(), d_dst, static_cast<int64_t>(N));
     }
 }
@@ -91,11 +78,10 @@ void prepare_residuals(raft::resources const& res,
     pad_and_rotate(res, d_data, N, dim, rotator, d_residuals);
     if (d_centroid != nullptr) {
         pad_and_rotate(res, d_centroid, 1, dim, rotator, d_rotated_centroid);
-        constexpr int kBlock = 256;
-        const size_t total = N * D;
-        subtract_row_kernel<<<static_cast<int>((total + kBlock - 1) / kBlock), kBlock, 0, stream>>>(
-            d_residuals, d_rotated_centroid, static_cast<int>(N), static_cast<int>(D));
-        RAFT_CUDA_TRY(cudaGetLastError());
+        auto rows = raft::make_device_matrix_view<float, int64_t>(d_residuals, N, D);
+        raft::matrix::linewise_op<raft::Apply::ALONG_ROWS>(
+            res, raft::make_const_mdspan(rows), rows, raft::sub_op{},
+            raft::make_device_vector_view<const float, int64_t>(d_rotated_centroid, D));
     } else if (require_rotated_c) {
         RAFT_CUDA_TRY(cudaMemsetAsync(d_rotated_centroid, 0, D * sizeof(float), stream));
     }
