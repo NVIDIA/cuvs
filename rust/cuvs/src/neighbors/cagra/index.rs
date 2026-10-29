@@ -6,7 +6,7 @@
 use std::marker::PhantomData;
 use std::path::Path;
 
-use super::{CagraError, IndexParams, SearchParams};
+use super::{CagraError, CompressionParams, GraphStorage, IndexParams, SearchParams};
 use crate::dataset::private::Sealed as _;
 use crate::dataset::{CuvsDataset, Dataset, DatasetKind, DatasetView};
 use crate::dlpack::{AsDlTensor, AsDlTensorMut, DLTensorView, DLTensorViewMut};
@@ -53,7 +53,8 @@ pub struct Index<'d> {
 ///
 /// A file serialized without vectors yields `dataset == None` and must have
 /// matching storage attached before search. Field order is significant: the
-/// native index is destroyed before its dataset owner.
+/// native index is destroyed before its dataset owner. Tiered indexes own
+/// vectors internally and return no separate dataset owner.
 #[derive(Debug)]
 pub struct DeserializedIndex<D> {
     handle: IndexHandle,
@@ -87,6 +88,61 @@ impl<'d> Index<'d> {
     {
         let handle = Self::build_handle(res, params, dataset.raw_dataset_handle())?;
         Ok(Index { handle, _dataset: PhantomData })
+    }
+
+    /// Build an owning tiered dense index from a device-padded dataset.
+    ///
+    /// The input may be released after this call because tiered storage owns
+    /// its reordered vectors. `params` must select [`GraphStorage::Tiered`].
+    pub fn build_tiered<D>(
+        res: &Resources,
+        params: &IndexParams,
+        dataset: &D,
+    ) -> Result<Index<'static>>
+    where
+        D: CuvsDataset + ?Sized,
+    {
+        if unsafe { (*params.handle()).graph_storage }
+            != ffi::cuvsCagraGraphStorage::CUVS_CAGRA_GRAPH_TIERED
+        {
+            return Err(CagraError::Validation(
+                "build_tiered requires GraphStorage::Tiered".into(),
+            ));
+        }
+        let handle = Self::build_handle(res, params, dataset.raw_dataset_handle())?;
+        Ok(Index { handle, _dataset: PhantomData })
+    }
+
+    /// Build a tiered VPQ-F16 index from full-precision host standard vectors.
+    ///
+    /// The native index owns its reordered compressed dataset. The input may be
+    /// released after this call. Enable FlowANN building in the native library
+    /// and select [`GraphStorage::Tiered`] in `params`.
+    pub fn build_compressed<D>(
+        res: &Resources,
+        params: &IndexParams,
+        compression: &CompressionParams,
+        dataset: &D,
+    ) -> Result<Index<'static>>
+    where
+        D: CuvsDataset + ?Sized,
+    {
+        let handle = IndexHandle::new()?;
+        check_cuvs(unsafe {
+            ffi::cuvsCagraBuildCompressed(
+                res.handle(),
+                params.handle(),
+                compression.handle(),
+                dataset.raw_dataset_handle(),
+                handle.raw(),
+            )
+        })?;
+        Ok(Index { handle, _dataset: PhantomData })
+    }
+
+    /// Return the index's native graph storage mode.
+    pub fn graph_storage(&self) -> Result<GraphStorage> {
+        graph_storage_impl(&self.handle)
     }
 
     fn build_handle(
@@ -216,7 +272,8 @@ impl<'d> Index<'d> {
         serialize_to_hnswlib_impl(&self.handle, res, filename.as_ref())
     }
 
-    /// Load only the graph, ignoring any dataset stored in the file.
+    /// Load only the graph for ordinary device storage.
+    /// Tiered files always load the complete owning graph and dataset.
     pub fn deserialize_graph<P: AsRef<Path>>(
         res: &Resources,
         filename: P,
@@ -245,17 +302,33 @@ impl<'d> Index<'d> {
                 &mut out,
             )
         })?;
-        Ok(DeserializedIndex { handle, dataset: Some(Dataset::from_raw(out)?) })
+        let dataset = if out.is_null() {
+            if graph_storage_impl(&handle)? != GraphStorage::Tiered {
+                return Err(CagraError::Validation(
+                    "native load returned no dataset for a device graph".into(),
+                ));
+            }
+            None
+        } else {
+            Some(Dataset::from_raw(out)?)
+        };
+        Ok(DeserializedIndex { handle, dataset })
     }
 }
 
 impl<D> DeserializedIndex<D> {
+    /// Return the index's native graph storage mode.
+    pub fn graph_storage(&self) -> Result<GraphStorage> {
+        graph_storage_impl(&self.handle)
+    }
+
     /// Borrow the dataset owner when the serialized file included vectors.
     pub fn dataset(&self) -> Option<&D> {
         self.dataset.as_ref()
     }
 
-    /// Whether the serialized file included vector storage.
+    /// Whether a separate dataset owner was returned by deserialization.
+    /// Tiered indexes keep vector storage inside the native index instead.
     pub fn has_dataset(&self) -> bool {
         self.dataset.is_some()
     }
@@ -352,6 +425,9 @@ impl DeserializedIndex<Dataset> {
     }
 
     fn require_dataset(&self) -> Result<()> {
+        if self.graph_storage()? == GraphStorage::Tiered {
+            return Ok(());
+        }
         let Some(dataset) = self.dataset.as_ref() else {
             return Err(CagraError::Validation(
                 "cannot search a graph-only index without an attached dataset".to_string(),
@@ -364,6 +440,12 @@ impl DeserializedIndex<Dataset> {
             ))),
         }
     }
+}
+
+fn graph_storage_impl(handle: &IndexHandle) -> Result<GraphStorage> {
+    let mut storage = ffi::cuvsCagraGraphStorage::CUVS_CAGRA_GRAPH_DEVICE;
+    check_cuvs(unsafe { ffi::cuvsCagraIndexGetGraphStorage(handle.raw(), &mut storage) })?;
+    Ok(storage.into())
 }
 
 fn search_impl(
@@ -429,6 +511,25 @@ mod tests {
     const N_DATAPOINTS: usize = 256;
     const N_FEATURES: usize = 16;
 
+    fn tiered_dense_fixture() -> ndarray::Array2<f32> {
+        ndarray::Array2::from_shape_fn((1024, 32), |(r, c)| {
+            let value = (((r * 17 + c * 31) % 1009) as f32) / 1009.0;
+            // The modulo pattern repeats after 1009 rows. Distinguish those rows so
+            // the self-neighbor assertion cannot reject an equally close duplicate.
+            if c == 0 { value + r as f32 / 1024.0 } else { value }
+        })
+    }
+
+    #[test]
+    fn tiered_dense_fixture_has_unique_query_rows() {
+        let dataset = tiered_dense_fixture();
+        for q in 0..8 {
+            let query = dataset.row(q);
+            let matches = dataset.outer_iter().filter(|row| row.iter().eq(query.iter())).count();
+            assert_eq!(matches, 1, "query row {q} must have a unique exact nearest neighbor");
+        }
+    }
+
     /// Search the first `n_queries` rows of `dataset` against `index` and
     /// assert each query finds itself as the top-1 neighbor. CAGRA search
     /// requires queries and outputs to live in device memory.
@@ -475,6 +576,109 @@ mod tests {
         let index = Index::build(&res, &build_params, &dataset_device)
             .expect("failed to build cagra index");
         search_and_verify_self_neighbors(&res, &index, &dataset, 4, 10);
+    }
+
+    // FlowANN tests require a native library configured with SEARCH and BUILD.
+    #[test]
+    #[ignore = "requires native FlowANN SEARCH and BUILD support"]
+    fn tiered_dense_build_search_and_round_trip() {
+        use super::super::{GraphStorage, TieredGraphParams, TieredSearchParams};
+        let res = Resources::new().unwrap();
+        let dataset = tiered_dense_fixture();
+        let device = DeviceTensor::from_host(&res, &dataset).unwrap();
+        let params = IndexParams::builder()
+            .nn_descent_with_iterations(10)
+            .intermediate_graph_degree(32)
+            .graph_degree(16)
+            .graph_storage(GraphStorage::Tiered)
+            .tiered(TieredGraphParams {
+                device_graph_budget_bytes: 8192,
+                validate: true,
+                ..Default::default()
+            })
+            .build()
+            .unwrap();
+        let view = DatasetView::new(&res, &device).unwrap();
+        let index = Index::build_tiered(&res, &params, &view).unwrap();
+        drop(view);
+        drop(device);
+        assert_eq!(index.graph_storage().unwrap(), GraphStorage::Tiered);
+        let search = SearchParams::builder()
+            .algo(super::super::SearchAlgo::MultiCta)
+            .itopk_size(64)
+            .max_iterations(32)
+            .tiered(TieredSearchParams { keep_pollers_running: true, ..Default::default() })
+            .build()
+            .unwrap();
+        let queries =
+            DeviceTensor::from_host(&res, &dataset.slice(s![0..8, ..]).to_owned()).unwrap();
+        let mut neighbors = DeviceTensor::<u32>::zeros(&res, &[8, 1]).unwrap();
+        let mut distances = DeviceTensor::<f32>::zeros(&res, &[8, 1]).unwrap();
+        for _ in 0..2 {
+            index.search(&res, &search, &queries, &mut neighbors, &mut distances).unwrap();
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let filename = dir.path().join("tiered.index");
+        index.serialize(&res, &filename, true).unwrap();
+        assert!(index.serialize(&res, dir.path().join("graph-only.index"), false).is_err());
+        drop(index);
+        let loaded = Index::deserialize_graph_and_dataset(&res, &filename).unwrap();
+        assert_eq!(loaded.graph_storage().unwrap(), GraphStorage::Tiered);
+        assert!(!loaded.has_dataset());
+        loaded.search(&res, &search, &queries, &mut neighbors, &mut distances).unwrap();
+        let mut found = ndarray::Array2::<u32>::zeros((8, 1));
+        neighbors.copy_to_host(&res, &mut found).unwrap();
+        assert!(found.iter().all(|&id| id < 1024));
+        assert!(found.column(0).iter().enumerate().filter(|&(i, id)| *id == i as u32).count() >= 6);
+    }
+
+    #[test]
+    #[ignore = "requires native FlowANN SEARCH and BUILD support"]
+    fn tiered_compressed_build_search_and_round_trip() {
+        use super::super::{CompressionParams, GraphStorage, TieredGraphParams};
+        let res = Resources::new().unwrap();
+        let dataset = ndarray::Array2::from_shape_fn((2048, 32), |(r, c)| {
+            (((r * 17 + c * 31) % 2017) as f32) / 2017.0
+        });
+        let params = IndexParams::builder()
+            .nn_descent_with_iterations(10)
+            .intermediate_graph_degree(32)
+            .graph_degree(16)
+            .graph_storage(GraphStorage::Tiered)
+            .tiered(TieredGraphParams { validate: true, ..Default::default() })
+            .build()
+            .unwrap();
+        let compression = CompressionParams::builder()
+            .pq_dim(4)
+            .vq_n_centers(16)
+            .kmeans_n_iters(5)
+            .build()
+            .unwrap();
+        let view = DatasetView::standard(&res, &*dataset).unwrap();
+        let index = Index::build_compressed(&res, &params, &compression, &view).unwrap();
+        drop(view);
+        let queries =
+            DeviceTensor::from_host(&res, &dataset.slice(s![0..8, ..]).to_owned()).unwrap();
+        drop(dataset);
+        let search = SearchParams::builder()
+            .algo(super::super::SearchAlgo::MultiCta)
+            .itopk_size(64)
+            .max_iterations(32)
+            .build()
+            .unwrap();
+        let mut neighbors = DeviceTensor::<u32>::zeros(&res, &[8, 1]).unwrap();
+        let mut distances = DeviceTensor::<f32>::zeros(&res, &[8, 1]).unwrap();
+        index.search(&res, &search, &queries, &mut neighbors, &mut distances).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let filename = dir.path().join("tiered-vpq.index");
+        index.serialize(&res, &filename, true).unwrap();
+        drop(index);
+        let loaded = Index::deserialize_graph_and_dataset(&res, &filename).unwrap();
+        assert_eq!(loaded.graph_storage().unwrap(), GraphStorage::Tiered);
+        loaded.search(&res, &search, &queries, &mut neighbors, &mut distances).unwrap();
+        let mut found = ndarray::Array2::<u32>::zeros((8, 1));
+        neighbors.copy_to_host(&res, &mut found).unwrap();
+        assert!(found.iter().all(|&id| id < 2048));
     }
 
     #[test]

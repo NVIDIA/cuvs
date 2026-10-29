@@ -16,14 +16,20 @@
 //! builder pattern: every setter is optional and unset values keep the cuVS C
 //! library defaults. Values are validated when the builder's `build()` runs,
 //! returning [`CagraError::Validation`] for out-of-range inputs.
+//!
+//! Experimental [`GraphStorage::Tiered`] uses FlowANN to store graph edges
+//! across GPU and CPU memory. See `README.md` in this crate for build settings,
+//! ownership, serialization, and examples.
 
 mod index;
 mod params;
+mod tiered;
 
 pub use crate::dataset::{CuvsDataset, Dataset, DatasetKind, DatasetView, PaddedDataset};
 pub use crate::neighbors::filters::{Bitset, Filter};
 pub use index::{DeserializedIndex, Index};
 pub use params::{IndexParams, SearchParams};
+pub use tiered::{CompressionParams, GraphStorage, TieredGraphParams, TieredSearchParams};
 
 use crate::dlpack::DLPackError;
 use crate::error::LibraryError;
