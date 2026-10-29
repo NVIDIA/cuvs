@@ -1,0 +1,24 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_runtime_launchers.hpp>
+#include <rmm/exec_policy.hpp>
+#include <thrust/extrema.h>
+
+namespace cuvs::detail {
+
+template <typename Policy, typename Iterator>
+Iterator thrust_max_element(Policy const& policy, Iterator first, Iterator last)
+{
+  return thrust::max_element(policy, first, last);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

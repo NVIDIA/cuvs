@@ -1,0 +1,18 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::detail::zero_self_diagonal",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "CUstream_st*, double*, int, int",
+        "instantiation_name": "stream_ptr_f64_ptr_int_int"
+      },
+      {
+        "parameter_types": "CUstream_st*, float*, int, int",
+        "instantiation_name": "stream_ptr_f32_ptr_int_int"
+      }
+    ]
+  }
+]

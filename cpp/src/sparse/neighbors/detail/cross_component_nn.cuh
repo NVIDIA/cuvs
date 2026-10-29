@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../../core/cub_runtime_launchers.hpp"
 #include "../../../distance/masked_nn.cuh"
 #include <cuvs/distance/distance.hpp>
 
@@ -175,11 +176,11 @@ struct MutualReachabilityFixConnectivitiesRedOp {
   void scatter(const raft::resources& handle, value_idx* map)
   {
     auto tmp_core_dists = raft::make_device_vector<value_t>(handle, m);
-    thrust::scatter(raft::resource::get_thrust_policy(handle),
-                    core_dists,
-                    core_dists + m,
-                    map,
-                    tmp_core_dists.data_handle());
+    cuvs::detail::thrust_scatter(raft::resource::get_thrust_policy(handle),
+                                 core_dists,
+                                 core_dists + m,
+                                 map,
+                                 tmp_core_dists.data_handle());
     raft::copy_async(
       core_dists, tmp_core_dists.data_handle(), m, raft::resource::get_cuda_stream(handle));
   }
@@ -405,8 +406,9 @@ void perform_1nn(raft::resources const& handle,
   auto tmp_colors = raft::make_device_vector<value_idx>(handle, n_rows);
   auto tmp_kvp    = raft::make_device_vector<OutT>(handle, n_rows);
 
-  thrust::scatter(exec_policy, kvp, kvp + n_rows, sort_plan.data_handle(), tmp_kvp.data_handle());
-  thrust::scatter(
+  cuvs::detail::thrust_scatter(
+    exec_policy, kvp, kvp + n_rows, sort_plan.data_handle(), tmp_kvp.data_handle());
+  cuvs::detail::thrust_scatter(
     exec_policy, colors, colors + n_rows, sort_plan.data_handle(), tmp_colors.data_handle());
   reduction_op.scatter(handle, sort_plan.data_handle());
 

@@ -1,0 +1,29 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_runtime_launchers.hpp>
+#include <cuda/iterator>
+#include <rmm/exec_policy.hpp>
+#include <thrust/for_each.h>
+
+namespace cuvs::detail {
+
+template <typename Index, typename Distance>
+void zero_self_diagonal(cudaStream_t stream, Distance* out_dists, Index rows, Index b_nrows)
+{
+  auto exec_policy = rmm::exec_policy(stream);
+  auto diags       = cuda::make_counting_iterator<Index>(0);
+  thrust::for_each(exec_policy, diags, diags + rows, [=] __device__(Index input) {
+    out_dists[input * b_nrows + input] = 0.0;
+  });
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

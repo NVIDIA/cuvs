@@ -1,0 +1,24 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_runtime_launchers.hpp>
+#include <rmm/exec_policy.hpp>
+#include <thrust/scatter.h>
+
+namespace cuvs::detail {
+
+template <typename Policy, typename Input, typename Map, typename Output>
+void thrust_scatter(Policy const& policy, Input first, Input last, Map map, Output output)
+{
+  thrust::scatter(policy, first, last, map, output);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

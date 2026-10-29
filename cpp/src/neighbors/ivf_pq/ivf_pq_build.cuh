@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/cub_runtime_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
@@ -245,7 +246,7 @@ auto calculate_offsets_and_indices(IdxT n_rows,
     exec_policy, cluster_sizes, cluster_sizes + n_lists, cluster_offsets + 1, thrust::plus<>{});
   raft::update_host(&cumsum, cluster_offsets + n_lists, 1, stream);
   uint32_t max_cluster_size =
-    *thrust::max_element(exec_policy, cluster_sizes, cluster_sizes + n_lists);
+    *cuvs::detail::thrust_max_element(exec_policy, cluster_sizes, cluster_sizes + n_lists);
   stream.sync();
   RAFT_EXPECTS(cumsum == n_rows, "cluster sizes do not add up.");
   RAFT_LOG_DEBUG("Max cluster size %d", max_cluster_size);

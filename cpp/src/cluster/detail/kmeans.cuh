@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/cub_runtime_launchers.hpp"
 #include "../../core/nvtx.hpp"
 #include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"
@@ -296,23 +297,23 @@ void kmeansPlusPlus(raft::resources const& handle,
     {
       // Determine temporary device storage requirements
       size_t temp_storage_bytes = 0;
-      cub::DeviceReduce::ArgMin(nullptr,
-                                temp_storage_bytes,
-                                costPerCandidate.data_handle(),
-                                minClusterIndexAndDistance.data(),
-                                costPerCandidate.extent(0),
-                                stream);
+      cuvs::detail::cub_argmin(nullptr,
+                               temp_storage_bytes,
+                               costPerCandidate.data_handle(),
+                               minClusterIndexAndDistance.data(),
+                               costPerCandidate.extent(0),
+                               stream);
 
       // Allocate temporary storage
       workspace.resize(temp_storage_bytes, stream);
 
       // Run argmin-reduction
-      cub::DeviceReduce::ArgMin(workspace.data(),
-                                temp_storage_bytes,
-                                costPerCandidate.data_handle(),
-                                minClusterIndexAndDistance.data(),
-                                costPerCandidate.extent(0),
-                                stream);
+      cuvs::detail::cub_argmin(workspace.data(),
+                               temp_storage_bytes,
+                               costPerCandidate.data_handle(),
+                               minClusterIndexAndDistance.data(),
+                               costPerCandidate.extent(0),
+                               stream);
 
       int bestCandidateIdx = -1;
       raft::copy(handle,

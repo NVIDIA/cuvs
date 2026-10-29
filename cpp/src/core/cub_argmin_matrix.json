@@ -1,0 +1,26 @@
+[
+  {
+    "return_type": "cudaError",
+    "qualified_function": "cuvs::detail::cub_argmin",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "void*, unsigned long&, double*, cub::KeyValuePair<int, double>*, int, CUstream_st*",
+        "instantiation_name": "void_ptr_ulong_ref_f64_ptr_key_value_int_f64_ptr_int_stream_ptr"
+      },
+      {
+        "parameter_types": "void*, unsigned long&, double*, cub::KeyValuePair<int, double>*, long, CUstream_st*",
+        "instantiation_name": "void_ptr_ulong_ref_f64_ptr_key_value_int_f64_ptr_long_stream_ptr"
+      },
+      {
+        "parameter_types": "void*, unsigned long&, float*, cub::KeyValuePair<int, float>*, int, CUstream_st*",
+        "instantiation_name": "void_ptr_ulong_ref_f32_ptr_key_value_int_f32_ptr_int_stream_ptr"
+      },
+      {
+        "parameter_types": "void*, unsigned long&, float*, cub::KeyValuePair<int, float>*, long, CUstream_st*",
+        "instantiation_name": "void_ptr_ulong_ref_f32_ptr_key_value_int_f32_ptr_long_stream_ptr"
+      }
+    ]
+  }
+]

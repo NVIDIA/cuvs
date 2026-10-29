@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/cub_runtime_launchers.hpp"
 #include "cagra_merge_scaffold.cuh"
 
 #include <cuvs/selection/select_k.hpp>
@@ -414,23 +415,23 @@ auto sort_memberships_and_collect_ranges(raft::resources const& res,
   auto stream   = raft::resource::get_cuda_stream(res);
   auto large_mr = raft::resource::get_large_workspace_resource_ref(res);
   rmm::exec_policy_nosync thrust_policy{stream, large_mr};
-  thrust::stable_sort_by_key(thrust_policy,
-                             thrust::device_pointer_cast(keys),
-                             thrust::device_pointer_cast(keys + count),
-                             thrust::device_pointer_cast(memberships));
+  cuvs::detail::thrust_stable_sort_by_key(thrust_policy,
+                                          thrust::device_pointer_cast(keys),
+                                          thrust::device_pointer_cast(keys + count),
+                                          thrust::device_pointer_cast(memberships));
 
   auto output_capacity    = std::min<int64_t>(count, key_count);
   auto device_unique_keys = raft::make_device_mdarray<uint32_t, int64_t>(
     res, large_mr, raft::make_extents<int64_t>(output_capacity));
   auto device_counts = raft::make_device_mdarray<uint32_t, int64_t>(
     res, large_mr, raft::make_extents<int64_t>(output_capacity));
-  auto reduced_end =
-    thrust::reduce_by_key(thrust_policy,
-                          thrust::device_pointer_cast(keys),
-                          thrust::device_pointer_cast(keys + count),
-                          thrust::make_constant_iterator(uint32_t{1}),
-                          thrust::device_pointer_cast(device_unique_keys.data_handle()),
-                          thrust::device_pointer_cast(device_counts.data_handle()));
+  auto reduced_end = cuvs::detail::thrust_reduce_by_key(
+    thrust_policy,
+    thrust::device_pointer_cast(keys),
+    thrust::device_pointer_cast(keys + count),
+    thrust::make_constant_iterator(uint32_t{1}),
+    thrust::device_pointer_cast(device_unique_keys.data_handle()),
+    thrust::device_pointer_cast(device_counts.data_handle()));
   auto group_count = static_cast<int64_t>(
     reduced_end.first - thrust::device_pointer_cast(device_unique_keys.data_handle()));
 

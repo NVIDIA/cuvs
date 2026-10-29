@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/cub_runtime_launchers.hpp"
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
@@ -267,7 +268,8 @@ void extract_flattened_clusters(raft::resources const& handle,
     auto n_edges = (n_leaves - 1) * 2;
 
     thrust::device_ptr<const value_idx> d_ptr = thrust::device_pointer_cast(children);
-    value_idx n_vertices = *(thrust::max_element(thrust_policy, d_ptr, d_ptr + n_edges)) + 1;
+    value_idx n_vertices =
+      *(cuvs::detail::thrust_max_element(thrust_policy, d_ptr, d_ptr + n_edges)) + 1;
 
     // Prevent potential infinite loop from labeling disconnected
     // connectivities graph.
@@ -312,7 +314,7 @@ void extract_flattened_clusters(raft::resources const& handle,
     auto z_iter = thrust::make_zip_iterator(
       cuda::std::make_tuple(first, label_roots.data() + (label_roots.size() - n_clusters)));
 
-    thrust::for_each(
+    cuvs::detail::thrust_for_each(
       thrust_policy, z_iter, z_iter + n_clusters, init_label_roots<value_idx>(tmp_labels.data()));
 
     /**

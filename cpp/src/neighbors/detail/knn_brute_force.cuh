@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/cub_runtime_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -245,27 +246,22 @@ void tiled_brute_force_knn(const raft::resources& handle,
         }
       }
 
-      auto distances_ptr        = temp_distances.data();
-      auto count                = cuda::make_counting_iterator<IndexType>(0);
+      auto distances_ptr = temp_distances.data();
+
       DistanceT masked_distance = select_min ? std::numeric_limits<DistanceT>::infinity()
                                              : std::numeric_limits<DistanceT>::lowest();
 
       if (filter_bits != nullptr) {
         size_t n_cols = filter_type == cuvs::neighbors::filtering::FilterType::Bitmap ? n : 0;
-        thrust::for_each(raft::resource::get_thrust_policy(handle),
-                         count,
-                         count + current_query_size * current_centroid_size,
-                         [=] __device__(IndexType idx) {
-                           IndexType row      = i + (idx / current_centroid_size);
-                           IndexType col      = j + (idx % current_centroid_size);
-                           IndexType g_idx    = row * n_cols + col;
-                           IndexType item_idx = (g_idx) >> 5;
-                           uint32_t bit_idx   = (g_idx) & 31;
-                           uint32_t filter    = filter_bits[item_idx];
-                           if ((filter & (uint32_t(1) << bit_idx)) == 0) {
-                             distances_ptr[idx] = masked_distance;
-                           }
-                         });
+        cuvs::detail::mask_distance_tile<IndexType>(handle,
+                                                    distances_ptr,
+                                                    filter_bits,
+                                                    i,
+                                                    j,
+                                                    current_query_size,
+                                                    current_centroid_size,
+                                                    n_cols,
+                                                    masked_distance);
       }
 
       std::optional<raft::device_matrix_view<const IndexType, int64_t, raft::row_major>>
@@ -296,17 +292,17 @@ void tiled_brute_force_knn(const raft::resources& handle,
         DistanceT* out_distances      = temp_out_distances.data();
         IndexType* out_indices        = temp_out_indices.data();
 
-        auto count = cuda::make_counting_iterator<IndexType>(0);
-        thrust::for_each(raft::resource::get_thrust_policy(handle),
-                         count,
-                         count + current_query_size * current_k,
-                         [=] __device__(IndexType i) {
-                           IndexType row = i / current_k, col = i % current_k;
-                           IndexType out_index = row * temp_out_cols + j * k / tile_cols + col;
-
-                           out_distances[out_index] = in_distances[i];
-                           out_indices[out_index]   = in_indices[i] + j;
-                         });
+        cuvs::detail::copy_distance_tile(handle,
+                                         in_distances,
+                                         in_indices,
+                                         out_distances,
+                                         out_indices,
+                                         current_query_size,
+                                         current_k,
+                                         temp_out_cols,
+                                         j,
+                                         k,
+                                         tile_cols);
       }
     }
 

@@ -1,0 +1,24 @@
+[
+  {
+    "return_type": "cudaError_t",
+    "qualified_function": "cuvs::detail::cub_merge_sort_keys",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "<half, int64_t>",
+        "parameter_types": "void*, size_t&, half*, int64_t, cudaStream_t",
+        "instantiation_name": "half_i64"
+      },
+      {
+        "template_arguments": "<float, int64_t>",
+        "parameter_types": "void*, size_t&, float*, int64_t, cudaStream_t",
+        "instantiation_name": "f32_i64"
+      },
+      {
+        "template_arguments": "<double, int64_t>",
+        "parameter_types": "void*, size_t&, double*, int64_t, cudaStream_t",
+        "instantiation_name": "f64_i64"
+      }
+    ]
+  }
+]

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../core/cub_runtime_launchers.hpp"
 #include <cub/device/device_histogram.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/device/device_scan.cuh>
@@ -98,16 +99,16 @@ void compute_cluster_offsets(raft::resources const& dev_resources,
 
   temp_storage_bytes = 0;
 
-  cub::DeviceReduce::Max(
+  cuvs::detail::cub_max(
     nullptr, temp_storage_bytes, cluster_sizes.data_handle(), d_max_cluster_size.data(), num_items);
 
   rmm::device_uvector<int64_t> temp_storage_max(temp_storage_bytes, stream, device_memory);
 
-  cub::DeviceReduce::Max(temp_storage_max.data(),
-                         temp_storage_bytes,
-                         cluster_sizes.data_handle(),
-                         d_max_cluster_size.data(),
-                         num_items);
+  cuvs::detail::cub_max(temp_storage_max.data(),
+                        temp_storage_bytes,
+                        cluster_sizes.data_handle(),
+                        d_max_cluster_size.data(),
+                        num_items);
 
   max_cluster_size = d_max_cluster_size.value(stream);
 

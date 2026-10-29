@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/cub_runtime_launchers.hpp"
 #include <cuvs/preprocessing/quantize/scalar.hpp>
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
@@ -16,8 +17,6 @@
 #include <raft/matrix/sample_rows.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>
-
-#include <cub/device/device_merge_sort.cuh>
 
 namespace cuvs::preprocessing::quantize::detail {
 
@@ -32,11 +31,6 @@ _RAFT_HOST_DEVICE bool fp_lt(const half& a, const half& b)
 {
   return static_cast<float>(a) < static_cast<float>(b);
 }
-
-template <class T>
-struct fp_lt_op {
-  _RAFT_HOST_DEVICE bool operator()(const T& a, const T& b) const { return fp_lt(a, b); }
-};
 
 template <typename T, typename QuantI, typename TempT = double>
 struct quantize_op {
@@ -99,16 +93,12 @@ std::tuple<T, T> quantile_min_max(
   // explicitly: thrust::sort takes its temporary storage from the thrust policy, which the
   // dry-run tracker would not see once the sort itself is skipped.
   size_t sort_ws_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceMergeSort::SortKeys(
-    nullptr, sort_ws_bytes, subset.data_handle(), subset_size, fp_lt_op<T>{}, stream));
+  RAFT_CUDA_TRY(cuvs::detail::cub_merge_sort_keys(
+    nullptr, sort_ws_bytes, subset.data_handle(), subset_size, stream));
   auto sort_ws = raft::make_device_vector<char, int64_t>(res, sort_ws_bytes);
   if (!raft::resource::get_dry_run_flag(res)) {
-    RAFT_CUDA_TRY(cub::DeviceMergeSort::SortKeys(sort_ws.data_handle(),
-                                                 sort_ws_bytes,
-                                                 subset.data_handle(),
-                                                 subset_size,
-                                                 fp_lt_op<T>{},
-                                                 stream));
+    RAFT_CUDA_TRY(cuvs::detail::cub_merge_sort_keys(
+      sort_ws.data_handle(), sort_ws_bytes, subset.data_handle(), subset_size, stream));
   }
 
   double half_quantile_pos = (0.5 + 0.5 * quantile) * subset_size;

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/cub_runtime_launchers.hpp"
 #include "common.hpp"
 #include "ip_distance.cuh"
 #include <cuvs/distance/distance.hpp>
@@ -471,12 +472,9 @@ class russelrao_expanded_distances_t : public distances_t<value_t> {
       [=] __device__(value_t input) { return (n_cols - input) * n_cols_inv; },
       raft::make_const_mdspan(raft::make_device_vector_view<const value_t, int64_t>(out_dists, n)));
 
-    auto exec_policy  = rmm::exec_policy(raft::resource::get_cuda_stream(config_->handle));
-    auto diags        = cuda::make_counting_iterator<value_idx>(0);
     value_idx b_nrows = config_->b_nrows;
-    thrust::for_each(exec_policy, diags, diags + config_->a_nrows, [=] __device__(value_idx input) {
-      out_dists[input * b_nrows + input] = 0.0;
-    });
+    cuvs::detail::zero_self_diagonal(
+      raft::resource::get_cuda_stream(config_->handle).get(), out_dists, config_->a_nrows, b_nrows);
   }
 
   ~russelrao_expanded_distances_t() = default;

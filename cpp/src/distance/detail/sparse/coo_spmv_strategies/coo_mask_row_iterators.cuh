@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../../core/cub_runtime_launchers.hpp"
 #include "../common.hpp"
 #include "../utils.cuh"
 
@@ -120,7 +121,7 @@ class chunked_mask_row_it : public mask_row_it<value_idx> {
 
     n_chunks_per_row.set_element_to_zero_async(0, stream);
     n_chunks_per_row_functor chunk_functor(indptr, row_chunk_size);
-    thrust::transform(
+    cuvs::detail::thrust_transform(
       policy, mask_row_idx, mask_row_idx + n_rows, n_chunks_per_row.begin() + 1, chunk_functor);
 
     thrust::inclusive_scan(

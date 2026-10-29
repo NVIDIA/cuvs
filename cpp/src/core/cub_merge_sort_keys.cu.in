@@ -1,0 +1,43 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_runtime_launchers.hpp>
+#include <cub/device/device_merge_sort.cuh>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <type_traits>
+
+namespace cuvs::preprocessing::quantize::detail {
+
+template <class T>
+struct fp_lt_op {
+  __host__ __device__ bool operator()(const T& a, const T& b) const
+  {
+    if constexpr (std::is_same_v<T, half>) {
+      return static_cast<float>(a) < static_cast<float>(b);
+    } else {
+      return a < b;
+    }
+  }
+};
+
+}  // namespace cuvs::preprocessing::quantize::detail
+
+namespace cuvs::detail {
+
+template <typename T, typename Count>
+cudaError_t cub_merge_sort_keys(
+  void* storage, size_t& bytes, T* keys, Count count, cudaStream_t stream)
+{
+  return cub::DeviceMergeSort::SortKeys(
+    storage, bytes, keys, count, cuvs::preprocessing::quantize::detail::fp_lt_op<T>{}, stream);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on

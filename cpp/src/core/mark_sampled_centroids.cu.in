@@ -1,0 +1,30 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <core/cub_runtime_launchers.hpp>
+#include <raft/core/resource/thrust_policy.hpp>
+#include <thrust/for_each.h>
+
+namespace cuvs::detail {
+
+template <typename T, typename Index>
+void mark_sampled_centroids(raft::resources const& handle,
+                            raft::KeyValuePair<ptrdiff_t, T>* values,
+                            Index count,
+                            uint8_t* flags)
+{
+  thrust::for_each_n(raft::resource::get_thrust_policy(handle),
+                     values,
+                     count,
+                     [=] __device__(raft::KeyValuePair<ptrdiff_t, T> val) { flags[val.key] = 1; });
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
