@@ -24,6 +24,7 @@
 #include <raft/util/integer_utils.hpp>
 
 #include <fcntl.h>
+#include <iosfwd>
 #include <memory>
 #include <optional>
 #include <string>
@@ -52,6 +53,63 @@ enum class search_algo {
 enum class hash_mode { HASH = 0, SMALL = 1, AUTO = 100 };
 
 enum class internal_dtype { F16 = 0, E5M2 = 1 };
+
+/** Graph representation used by a CAGRA index. */
+enum class graph_storage_kind { device, tiered };
+
+/** Experimental GPU/CPU graph layout. The budget excludes datasets and search workspaces. */
+struct tiered_graph_params {
+  /** Maximum packed resident graph bytes, excluding datasets and queues. Zero stores all edges on
+   * host. */
+  std::size_t device_graph_budget_bytes = 0;
+  /** Consecutive nodes per packed row: [1, 64] with grouping, [1, 32] without grouping. */
+  std::uint16_t node_per_cacheline = 2;
+  /** Group and reorder nodes for locality; false retains the rank-only layout. */
+  bool grouping_enabled = true;
+  /** Final group count, at most 65,536. Zero uses one group if IDs fit; otherwise ceil(N * (1 +
+   * balance_tolerance) / 2^b). Each k-means node has at most 16 children. */
+  std::uint32_t n_groups = 0;
+  /** Local-ID width. Zero selects min(24, max(4, align_up_4(ceil(log2(N))))). Explicit widths must
+   * be in [1, 32]. */
+  std::uint16_t n_bits = 0;
+  /** Allowed relative deviation from average group size, in the open interval (0, 1). Hard ID
+   * capacity still applies. */
+  double balance_tolerance = 0.10;
+  /** Maximum sample rows per k-means node. Zero shares a 160,000-row budget by subtree leaf count,
+   * bounded by 256 to 10,000 rows per child and actual node size. */
+  std::size_t training_rows = 0;
+  /** Rows assigned per GPU batch. Zero targets a 256 MiB vector buffer; distance/label buffers and
+   * host capacity-repair storage are additional. */
+  std::size_t assignment_batch_rows = 0;
+  /** Positive number of balanced k-means training iterations. */
+  std::uint32_t kmeans_n_iters = 20;
+  /** Verify encoded edges after rearrangement; intended for tests and small builds. */
+  bool validate = false;
+  /** Number of medoid seeds generated at build time; zero disables seed generation. */
+  std::uint32_t num_seeds = 0;
+  /** Rows sampled to train seed centroids. Zero selects an automatic limit. */
+  std::size_t seed_training_rows = 0;
+  /** Deterministic seed for rotating the uniform k-means training sample. */
+  std::uint64_t seed = 0x9e3779b97f4a7c15ULL;
+};
+
+/** Experimental tiered search and reusable host queue settings. */
+struct tiered_search_params {
+  /** Maximum number of stored medoid seeds used per query; zero uses random initialization. */
+  std::uint32_t num_seeds = 0;
+  /** Scale for the adaptive deferred-cross-edge synchronization window. */
+  float sync_window_scale = 10.0f;
+  /** Parent-position drop that forces synchronization of a submitted cross-edge request. */
+  std::uint32_t sync_drop_threshold = 51;
+  /** Positive number of independent GPU-to-CPU command queues. */
+  std::uint32_t num_queues = 1;
+  /** Number of CPU pause instructions after an empty poll; zero disables this pause. */
+  std::uint32_t empty_pause = 64;
+  /** Collect aggregate queue and polling counters. */
+  bool collect_statistics = false;
+  /** Keep pollers active between calls for low latency. Consumes host CPU while idle. */
+  bool keep_pollers_running = false;
+};
 
 struct search_params : cuvs::neighbors::search_params {
   /** Maximum number of queries to search at the same time (batch size). Auto select when 0.*/
@@ -133,6 +191,8 @@ struct search_params : cuvs::neighbors::search_params {
   /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
    * supports FP8. **/
   internal_dtype smem_dtype = internal_dtype::F16;
+  /** Settings for tiered indexes; ignored only when absent on an ordinary index. */
+  std::optional<tiered_search_params> tiered;
 };
 
 /**
@@ -356,6 +416,10 @@ struct index_params : cuvs::neighbors::index_params {
    * @endcode
    */
   bool attach_dataset_on_build = true;
+  /** Ordinary device graph by default; tiered storage is experimental and opt-in. */
+  graph_storage_kind graph_storage = graph_storage_kind::device;
+  /** A zero tiered graph budget stores all graph edges on the host. */
+  std::optional<tiered_graph_params> tiered;
 
   /**
    * @brief Select the graph build algorithm and its parameters for a dataset.
@@ -461,6 +525,34 @@ struct extend_params {
  * @}
  */
 
+namespace detail {
+struct tiered_index_access;
+
+// The owning implementation lives out of line. Ordinary indexes allocate no tiered state.
+template <typename T, typename IdxT, ann_dataset_view DatasetViewT>
+struct tiered_index_state {
+  virtual ~tiered_index_state()                               = default;
+  virtual auto size() const noexcept -> IdxT                  = 0;
+  virtual auto graph_degree() const noexcept -> std::uint32_t = 0;
+  virtual auto dataset() const noexcept -> DatasetViewT       = 0;
+  virtual auto source_indices() const noexcept
+    -> std::optional<raft::device_vector_view<const IdxT, int64_t>>         = 0;
+  virtual void serialize(raft::resources const&, std::ostream&, bool) const = 0;
+  virtual void search(raft::resources const&,
+                      search_params const&,
+                      raft::device_matrix_view<const T, int64_t, raft::row_major>,
+                      raft::device_matrix_view<std::uint32_t, int64_t, raft::row_major>,
+                      raft::device_matrix_view<float, int64_t, raft::row_major>,
+                      cuvs::neighbors::filtering::base_filter const&) const = 0;
+  virtual void search(raft::resources const&,
+                      search_params const&,
+                      raft::device_matrix_view<const T, int64_t, raft::row_major>,
+                      raft::device_matrix_view<std::int64_t, int64_t, raft::row_major>,
+                      raft::device_matrix_view<float, int64_t, raft::row_major>,
+                      cuvs::neighbors::filtering::base_filter const&) const = 0;
+};
+}  // namespace detail
+
 static_assert(std::is_aggregate_v<index_params>);
 static_assert(std::is_aggregate_v<search_params>);
 
@@ -504,6 +596,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** Total length of the index (number of vectors). */
   [[nodiscard]] constexpr inline auto size() const noexcept -> IdxT
   {
+    if (tiered_) { return tiered_->size(); }
     if (dataset_fd_.has_value() || graph_fd_.has_value()) { return n_rows_; }
     auto data_rows = dataset_.n_rows();
     return data_rows > 0 ? data_rows : graph_view_.extent(0);
@@ -517,23 +610,32 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** Graph degree */
   [[nodiscard]] constexpr inline auto graph_degree() const noexcept -> uint32_t
   {
+    if (tiered_) { return tiered_->graph_degree(); }
     return graph_fd_.has_value() ? graph_degree_ : graph_view_.extent(1);
   }
 
   /** Number of rows represented by the graph. */
   [[nodiscard]] constexpr inline auto graph_size() const noexcept -> IdxT
   {
+    if (tiered_) { return tiered_->size(); }
     return graph_fd_.has_value() ? static_cast<IdxT>(n_rows_)
                                  : static_cast<IdxT>(graph_view_.extent(0));
   }
 
-  /** Non-owning dataset binding stored by the index. */
+  /** Return the actual graph representation. */
+  [[nodiscard]] auto graph_storage() const noexcept -> graph_storage_kind
+  {
+    return tiered_ ? graph_storage_kind::tiered : graph_storage_kind::device;
+  }
+
+  /** Dataset binding; a tiered index owns its reordered dataset internally. */
   [[nodiscard]] inline auto dataset() const noexcept -> DatasetViewT const& { return dataset_; }
 
   /** neighborhood graph [size, graph-degree] */
-  [[nodiscard]] inline auto graph() const noexcept
+  [[nodiscard]] inline auto graph() const
     -> raft::device_matrix_view<const graph_index_type, int64_t, raft::row_major>
   {
+    require_device_graph_();
     return graph_view_;
   }
 
@@ -541,6 +643,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   [[nodiscard]] inline auto source_indices() const noexcept
     -> std::optional<raft::device_vector_view<const index_type, int64_t>>
   {
+    if (tiered_) { return tiered_->source_indices(); }
     return source_indices_.has_value()
              ? std::optional<raft::device_vector_view<const index_type, int64_t>>(
                  source_indices_->view())
@@ -655,7 +758,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    * dataset*/
   template <ann_dataset_view SrcDatasetViewT>
   index(raft::resources const& res, index<T, IdxT, SrcDatasetViewT>&& other, DatasetViewT dataset)
-    : metric_(other.metric_),
+    : metric_(other.require_device_graph_()),
       graph_(std::move(other.graph_)),
       graph_view_(other.graph_view_),
       dataset_(dataset),
@@ -684,6 +787,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     raft::resources const& res,
     raft::device_matrix_view<const graph_index_type, int64_t, raft::row_major> knn_graph)
   {
+    require_device_graph_();
     graph_view_ = knn_graph;
   }
 
@@ -693,6 +797,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   void update_graph(raft::resources const&,
                     raft::device_matrix<graph_index_type, int64_t, raft::row_major>&& knn_graph)
   {
+    require_device_graph_();
     graph_      = std::move(knn_graph);
     graph_view_ = graph_.view();
   }
@@ -706,6 +811,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     raft::resources const& res,
     raft::host_matrix_view<const graph_index_type, int64_t, raft::row_major> knn_graph)
   {
+    require_device_graph_();
     RAFT_LOG_DEBUG("Copying CAGRA knn graph from host to device");
 
     if ((graph_.extent(0) != knn_graph.extent(0)) || (graph_.extent(1) != knn_graph.extent(1))) {
@@ -728,6 +834,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    */
   void update_source_indices(raft::device_vector<index_type, int64_t>&& source_indices)
   {
+    require_device_graph_();
     RAFT_EXPECTS(source_indices.extent(0) == size(),
                  "Source indices must have the same number of rows as the index");
     source_indices_.emplace(std::move(source_indices));
@@ -742,6 +849,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     raft::mdspan<const index_type, raft::vector_extent<int64_t>, raft::row_major, Accessor>
       source_indices)
   {
+    require_device_graph_();
     RAFT_EXPECTS(source_indices.extent(0) == size(),
                  "Source indices must have the same number of rows as the index");
     // Reset the array if it's not compatible to avoid using more memory than necessary.
@@ -774,6 +882,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    */
   void update_dataset(raft::resources const& res, cuvs::util::file_descriptor&& fd)
   {
+    require_device_graph_();
     RAFT_EXPECTS(fd.is_valid(), "Invalid file descriptor provided for dataset");
 
     auto stream = fd.make_istream();
@@ -829,6 +938,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    */
   void update_graph(raft::resources const& res, cuvs::util::file_descriptor&& fd)
   {
+    require_device_graph_();
     RAFT_EXPECTS(fd.is_valid(), "Invalid file descriptor provided for graph");
 
     auto stream = fd.make_istream();
@@ -869,6 +979,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    */
   void update_mapping(raft::resources const& res, cuvs::util::file_descriptor&& fd)
   {
+    require_device_graph_();
     RAFT_EXPECTS(fd.is_valid(), "Invalid file descriptor provided for mapping");
 
     // Read header from file using ifstream
@@ -898,6 +1009,14 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   friend struct index;
 
   friend struct detail::fd_transfer;
+  friend struct detail::tiered_index_access;
+
+  auto require_device_graph_() const -> cuvs::distance::DistanceType
+  {
+    RAFT_EXPECTS(!tiered_, "This operation requires a device adjacency graph, not a tiered index");
+    return metric_;
+  }
+  std::shared_ptr<detail::tiered_index_state<T, IdxT, DatasetViewT>> tiered_;
 
   [[nodiscard]] inline auto steal_dataset_fd_() noexcept
     -> std::optional<cuvs::util::file_descriptor>
@@ -973,6 +1092,77 @@ using cagra_index_t =
 /**
  * @}
  */
+
+namespace detail {
+struct tiered_index_access {
+  template <typename Index>
+  static auto get(Index const& idx)
+  {
+    return idx.tiered_.get();
+  }
+  template <typename Index, typename State>
+  static void install(Index& idx, std::shared_ptr<State> state)
+  {
+    RAFT_EXPECTS(idx.graph_size() == 0, "Tiered state must be installed on an empty index");
+    idx.dataset_ = state->dataset();
+    idx.tiered_  = std::move(state);
+  }
+};
+
+template <ann_dataset_view DatasetViewT>
+auto build_tiered(raft::resources const&, index_params const&, DatasetViewT const&)
+  -> cagra_index_t<DatasetViewT>
+{
+  RAFT_FAIL("Tiered build requires enabled FlowANN building and a device-padded dense dataset");
+}
+
+template <typename T, typename IdxT, ann_dataset_view DatasetViewT>
+void deserialize_tiered(raft::resources const&, std::istream&, index<T, IdxT, DatasetViewT>*)
+{
+  RAFT_FAIL("Tiered deserialization is disabled or the dataset/index type is unsupported");
+}
+
+#ifdef CUVS_ENABLE_FLOWANN_SEARCH
+#define CUVS_DECLARE_TIERED_IO(T)                                    \
+  CUVS_EXPORT void deserialize_tiered(                               \
+    raft::resources const&, std::istream&, device_padded_index<T>*); \
+  CUVS_EXPORT void deserialize_tiered(                               \
+    raft::resources const&, std::istream&, device_pq_index<T, uint32_t, half>*);
+CUVS_DECLARE_TIERED_IO(float)
+CUVS_DECLARE_TIERED_IO(half)
+CUVS_DECLARE_TIERED_IO(std::int8_t)
+CUVS_DECLARE_TIERED_IO(std::uint8_t)
+#undef CUVS_DECLARE_TIERED_IO
+#endif
+#ifdef CUVS_ENABLE_FLOWANN_BUILD
+#define CUVS_DECLARE_TIERED_BUILD(T)                                                            \
+  CUVS_EXPORT auto build_tiered(                                                                \
+    raft::resources const&, index_params const&, device_padded_dataset_view<T, int64_t> const&) \
+    -> device_padded_index<T>;
+CUVS_DECLARE_TIERED_BUILD(float)
+CUVS_DECLARE_TIERED_BUILD(half)
+CUVS_DECLARE_TIERED_BUILD(std::int8_t)
+CUVS_DECLARE_TIERED_BUILD(std::uint8_t)
+#undef CUVS_DECLARE_TIERED_BUILD
+#endif
+}  // namespace detail
+
+#ifdef CUVS_ENABLE_FLOWANN_BUILD
+/** Build an owning tiered VPQ index from full-precision host vectors.
+ * Graph construction and grouping use the input vectors; compression follows rearrangement.
+ * Requires graph_storage=tiered. The input dataset may be released after build returns.
+ */
+#define CUVS_DECLARE_TIERED_PQ_BUILD(T)                      \
+  CUVS_EXPORT auto build(raft::resources const&,             \
+                         index_params const&,                \
+                         cuvs::neighbors::vpq_params const&, \
+                         host_standard_dataset_view<T, int64_t> const&) -> device_pq_index<T>;
+CUVS_DECLARE_TIERED_PQ_BUILD(float)
+CUVS_DECLARE_TIERED_PQ_BUILD(half)
+CUVS_DECLARE_TIERED_PQ_BUILD(std::int8_t)
+CUVS_DECLARE_TIERED_PQ_BUILD(std::uint8_t)
+#undef CUVS_DECLARE_TIERED_PQ_BUILD
+#endif
 
 /**
  * @defgroup cagra_cpp_index_build CAGRA index build functions

@@ -1556,6 +1556,7 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/brute_force_serialize.cu
     src/neighbors/cagra.cpp
     $<$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>:src/neighbors/flowann.cu>
+    $<$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>:src/neighbors/cagra_tiered.cu>
     $<$<BOOL:${CUVS_ENABLE_FLOWANN_BUILD}>:src/neighbors/flowann_build.cu>
     $<$<BOOL:${CUVS_ENABLE_FLOWANN_SEARCH}>:src/neighbors/flowann_queue.cpp>
     ${cagra_build_inst_files}

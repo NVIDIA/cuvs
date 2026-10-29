@@ -271,9 +271,11 @@ if(CUVS_ENABLE_FLOWANN_SEARCH)
       neighbors/ann_cagra/flowann_queue.cu
       neighbors/ann_cagra/flowann_storage.cu
       neighbors/ann_cagra/flowann_search.cu
+      neighbors/ann_cagra/flowann_serialize.cu
   )
   if(CUVS_ENABLE_FLOWANN_BUILD)
     list(APPEND CUVS_FLOWANN_TEST_SOURCES neighbors/ann_cagra/flowann_build.cu
+         neighbors/ann_cagra/cagra_tiered.cu
     )
   endif()
   ConfigureTest(
