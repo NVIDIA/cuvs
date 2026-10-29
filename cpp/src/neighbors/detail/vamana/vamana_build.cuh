@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../../core/unique_by_key_launchers.hpp"
 #include "../../../sparse/neighbors/cross_component_nn.cuh"
 #include "../../detail/ann_utils.cuh"
 #include "greedy_search.cuh"
@@ -482,10 +483,11 @@ void batched_insert_vamana(
     auto unique_indices = raft::make_device_vector<int>(res, total_edges);
     raft::linalg::map_offset(res, unique_indices.view(), raft::identity_op{});
 
-    thrust::unique_by_key(rmm::exec_policy_nosync(stream, large_ws),
-                          thrust::device_pointer_cast(edge_dest_vec.data_handle()),
-                          thrust::device_pointer_cast(edge_dest_vec.data_handle() + total_edges),
-                          thrust::device_pointer_cast(unique_indices.data_handle()));
+    cuvs::detail::thrust_unique_by_key(
+      rmm::exec_policy_nosync(stream, large_ws),
+      thrust::device_pointer_cast(edge_dest_vec.data_handle()),
+      thrust::device_pointer_cast(edge_dest_vec.data_handle() + total_edges),
+      thrust::device_pointer_cast(unique_indices.data_handle()));
 
 #if KERNEL_TIMING
     RAFT_CUDA_TRY(cudaDeviceSynchronize());

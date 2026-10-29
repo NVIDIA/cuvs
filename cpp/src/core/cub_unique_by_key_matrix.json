@@ -1,0 +1,18 @@
+[
+  {
+    "inst_abbrev": "u32_i32_count_u32",
+    "pointer_type": "cuvs::detail::unique_launch::unique_0_UniqueByKeySweepKernel_pointer",
+    "provider": "cuvs::detail::unique_launch::unique_0",
+    "method": "UniqueByKeySweepKernel",
+    "kernel_function": "cub::detail::unique_by_key::DeviceUniqueByKeySweepKernel",
+    "kernel_arguments": "cub::detail::unique_by_key::policy_selector_from_types<unsigned int, int>, thrust::device_ptr<unsigned int>, thrust::device_ptr<int>, thrust::device_ptr<unsigned int>, thrust::device_ptr<int>, unsigned int*, cub::ScanTileState<unsigned int, true>, thrust::detail::wrapped_function<cuda::std::equal_to<unsigned int>, bool>, unsigned int"
+  },
+  {
+    "inst_abbrev": "u32_i32_count_u64",
+    "pointer_type": "cuvs::detail::unique_launch::unique_1_UniqueByKeySweepKernel_pointer",
+    "provider": "cuvs::detail::unique_launch::unique_1",
+    "method": "UniqueByKeySweepKernel",
+    "kernel_function": "cub::detail::unique_by_key::DeviceUniqueByKeySweepKernel",
+    "kernel_arguments": "cub::detail::unique_by_key::policy_selector_from_types<unsigned int, int>, thrust::device_ptr<unsigned int>, thrust::device_ptr<int>, thrust::device_ptr<unsigned int>, thrust::device_ptr<int>, unsigned long*, cub::ScanTileState<unsigned long long, true>, thrust::detail::wrapped_function<cuda::std::equal_to<unsigned int>, bool>, unsigned long long"
+  }
+]
