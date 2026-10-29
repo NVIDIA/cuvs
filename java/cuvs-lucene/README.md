@@ -8,18 +8,23 @@ This is a project for using [cuVS](https://github.com/NVIDIA/cuvs), NVIDIA's GPU
 2. [Installing cuvs-lucene](#installing-cuvs-lucene)
 3. [Getting Started](#getting-started)
 4. [Contributing](#contributing)
-5. [References](#references)
+5. [Supporting several Lucene releases](#supporting-several-lucene-releases)
+6. [References](#references)
 
 ## What is cuvs-lucene?
 
-`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, existing Lucene applications can take advantage of GPU acceleration with minimal code changes. `Lucene101AcceleratedHNSWCodec` also falls back to the stock CPU codec when no GPU is present; the other three require a working cuVS installation.
+`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, existing Lucene applications can take advantage of GPU acceleration with minimal code changes. It supports Lucene 10.2.
 
-Four codecs are currently provided:
+Four codecs are currently provided, created through `CuVSCodecs`:
 
-- `Lucene101AcceleratedHNSWCodec` — GPU-accelerated HNSW build with CPU HNSW search. The on-disk format is standard Lucene HNSW, so indexes built on the GPU are read back through the standard Lucene 10.2 reader and searching them needs no GPU. Lucene still resolves the codec by name, so search nodes need the `cuvs-lucene` and `cuvs-java` jars on their classpath.
-  - `LuceneAcceleratedHNSWScalarQuantizedCodec` — scalar-quantized vectors for a smaller index footprint.
-  - `LuceneAcceleratedHNSWBinaryQuantizedCodec` — binary-quantized vectors for an even smaller index footprint.
-- `CuVS2510GPUSearchCodec` — GPU-accelerated HNSW build and GPU search
+- `CuVSCodecs.acceleratedHNSW()` — GPU-accelerated HNSW build with CPU HNSW search. The on-disk format is standard Lucene HNSW, so indexes built on the GPU are read back through the standard Lucene reader and searching them needs no GPU. Lucene still resolves the codec by name, so search nodes need the `cuvs-lucene` and `cuvs-java` jars on their classpath. Falls back to building the graph on the CPU when no GPU is present.
+  - `CuVSCodecs.acceleratedHNSWScalarQuantized()` — scalar-quantized vectors for a smaller index footprint.
+  - `CuVSCodecs.acceleratedHNSWBinaryQuantized()` — graph built over binary-quantized vectors.
+- `CuVSCodecs.gpuSearch()` — GPU-accelerated build and GPU search. Requires a GPU.
+
+Each codec wraps the default codec of one Lucene release, for example `Lucene101AcceleratedHNSWCodec` wraps
+`Lucene101Codec`, the default codec of Lucene 10.2. Creating the codecs through `CuVSCodecs` rather than by class
+name keeps application code unchanged when the codec to use changes with a later Lucene release.
 
 For guidance on choosing between them, configuring builds, and tuning GPU resources, see the
 [Lucene Integration](https://docs.nvidia.com/cuvs/user-guide/lucene) guide.
@@ -30,21 +35,30 @@ For guidance on choosing between them, configuring builds, and tuning GPU resour
 
 - An NVIDIA GPU, to use the GPU-accelerated paths (the accelerated HNSW codecs fall back to CPU index construction without one; `CuVS2510GPUSearchCodec` requires a GPU)
 - [CUDA Toolkit 12.2+](https://developer.nvidia.com/cuda-toolkit-archive) and an Ampere architecture GPU or newer, matching the [cuVS requirements](https://docs.nvidia.com/cuvs/installation)
-- [JDK 22](https://jdk.java.net/archive/)
+- JDK 21 or newer. GPU acceleration needs a [JDK 22](https://jdk.java.net/archive/) or newer runtime; on JDK 21
+  the accelerated HNSW codecs build graphs on the CPU, and the GPU search codec is unavailable
 - [Maven 3.10+](https://maven.apache.org/download.cgi)
 - A matching version of the [cuVS libraries](https://docs.nvidia.com/cuvs/installation/java). For Maven usage, install the cuVS libraries and add them to your system library load path.
 
 ### Maven
 
-To pull `cuvs-lucene` into a Maven project, add the following dependency to your `pom.xml`:
+Lucene changes its codec APIs between minor releases, so `cuvs-lucene` is published once per supported Lucene
+minor release, as `cuvs-lucene-10.X`. Pick the one matching the Lucene version your application uses. For
+Lucene 10.2, add the following dependency to your `pom.xml`:
 
 ```xml
 <dependency>
   <groupId>com.nvidia.cuvs.lucene</groupId>
-  <artifactId>cuvs-lucene</artifactId>
+  <artifactId>cuvs-lucene-10.2</artifactId>
   <version>26.12.0</version>
 </dependency>
 ```
+
+Releases up to 26.10 published it as `cuvs-lucene`; those coordinates now relocate to `cuvs-lucene-10.2`.
+
+Against another Lucene minor release, an artifact's codecs fail when they are used, with an error that names
+the artifact to use; the problem is also logged at `SEVERE` the first time Lucene looks up its codecs. Call
+`CuVSCodecs.checkLuceneVersion()` at startup to fail early instead.
 
 ### Building from source
 
@@ -55,7 +69,8 @@ Java bindings. If the libcuvs libraries and the Java bindings have not been buil
 Alternatively, if libcuvs is already built and the `cuvs-java` artifact is already installed in your local
 Maven repository, do `./build.sh lucene` in the top level directory or just do `./build.sh` in this directory.
 
-The resulting artifacts are written to `target/`.
+This builds, and installs into your local Maven repository, every `cuvs-lucene-10.X` artifact. They are
+written to `lucene-10.X/target/`.
 
 To run the tests, add `--run-java-tests` to any of the commands above. Be sure to set (manually, if needed)
 your `LD_LIBRARY_PATH` to include the directory with the appropriate (matching) version of `libcuvs.so`, as
@@ -68,8 +83,8 @@ codec into a standard Lucene `IndexWriter`, searching on the GPU, tuning index b
 resources in a long-lived application. Class-level documentation is in the
 [Lucene API reference](https://docs.nvidia.com/cuvs/api-reference/lucene-api-documentation).
 
-Runnable examples of CAGRA-accelerated HNSW indexing, and of indexing and searching entirely on the GPU with
-`CuVS2510GPUSearchCodec`, are in the [`examples/`](../../examples/java/cuvs-lucene) directory.
+Runnable examples of CAGRA-accelerated HNSW indexing, and of indexing and searching entirely on the GPU, are
+in the [`examples/`](../../examples/java/cuvs-lucene) directory.
 
 ### Accelerated HNSW build memory
 
@@ -144,6 +159,34 @@ If you are interested in contributing to cuvs-lucene, please read the cuVS [Cont
 
 > [!NOTE]
 > The code style format is enforced using the [Spotless maven plugin](https://github.com/diffplug/spotless/tree/main/plugin-maven), which runs as a `pre-commit` hook. Run `pre-commit run --all-files`, or `mvn spotless:apply` in this directory, to format the sources.
+
+## Supporting several Lucene releases
+
+All `cuvs-lucene-10.X` artifacts are built from the same sources:
+
+```
+java/cuvs-lucene/
+  pom.xml                 parent pom, lists one module per Lucene minor release
+  src/main/java           shared code: everything that compiles against every supported Lucene release
+  src/test/java           shared tests
+  src/test/resources/backcompat   indexes written by each release, see below
+  lucene-10.X/
+    pom.xml               the Lucene 10.X dependencies
+    src/main/java         LuceneCompat: the calls that differ on Lucene 10.X
+    src/main/resources    the META-INF/services files: the codecs and formats Lucene 10.X can load
+  relocation/pom.xml      relocates the pre-26.12 cuvs-lucene coordinates to cuvs-lucene-10.2
+```
+
+Each module compiles the shared sources against its own Lucene release, so the compiler checks every release.
+The shared code never refers to a Lucene API that differs between releases. Instead it goes through
+`LuceneCompat`, for calls whose signature or class location differs, such as the codec each release writes with.
+
+Do not look up Lucene classes or constants by reflection. It hides API changes from the compiler, and constants
+such as `Lucene99HnswVectorsFormat.VERSION_CURRENT` change meaning between releases.
+
+`TestBackCompatIndices` reads indexes written by released cuvs-lucene versions, stored as zips in
+`src/test/resources/backcompat`, and checks that every module can still read, search and upgrade them. `TestBackCompat` checks that the codecs from
+`CuVSCodecs` are registered.
 
 ## References
 

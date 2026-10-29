@@ -5,7 +5,6 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.TestUtils.assertVectorsKeepTheirDocuments;
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.COSINE;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
@@ -27,17 +26,13 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.LogDocMergePolicy;
-import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
-import org.junit.BeforeClass;
-import org.junit.Ignore;
 
 @SuppressSysoutChecks(bugUrl = "")
-public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
+public class TestQuantizedVectorsFormats extends BaseCuVSKnnVectorsFormatTestCase {
 
   private static final Logger log = Logger.getLogger(TestQuantizedVectorsFormats.class.getName());
 
@@ -51,14 +46,9 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
   public static List<Object[]> parameters() {
     return Arrays.asList(
         new Object[][] {
-          {new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat()},
-          {new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat()}
+          {CuVSCodecs.acceleratedHNSWBinaryQuantizedFormat()},
+          {CuVSCodecs.acceleratedHNSWScalarQuantizedFormat()}
         });
-  }
-
-  @BeforeClass
-  public static void beforeClass() {
-    assumeTrue("cuVS is not supported so skipping these tests", isSupported());
   }
 
   @Override
@@ -168,33 +158,4 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
       }
     }
   }
-
-  @Override
-  protected VectorEncoding randomVectorEncoding() {
-    return VectorEncoding.FLOAT32;
-  }
-
-  @Ignore
-  @Override
-  public void testByteVectorScorerIteration() {}
-
-  @Ignore
-  @Override
-  public void testEmptyByteVectorData() {}
-
-  @Ignore
-  @Override
-  public void testMergingWithDifferentByteKnnFields() {}
-
-  @Ignore
-  @Override
-  public void testMismatchedFields() {}
-
-  @Ignore
-  @Override
-  public void testRandomBytes() {}
-
-  @Ignore
-  @Override
-  public void testSortedIndexBytes() {}
 }

@@ -5,7 +5,6 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.TestUtils.assertVectorsKeepTheirDocuments;
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
 import java.util.List;
@@ -19,21 +18,12 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.LogDocMergePolicy;
-import org.apache.lucene.index.VectorEncoding;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
-import org.junit.BeforeClass;
-import org.junit.Ignore;
 
 @SuppressSysoutChecks(bugUrl = "")
-public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
-
-  @BeforeClass
-  public static void beforeClass() {
-    assumeTrue("cuVS is not supported", isSupported());
-  }
+public class TestCuVSVectorsFormat extends BaseCuVSKnnVectorsFormatTestCase {
 
   @Override
   protected Codec getCodec() {
@@ -107,40 +97,4 @@ public class TestCuVSVectorsFormat extends BaseKnnVectorsFormatTestCase {
       }
     }
   }
-
-  @Override
-  // Overriding this method from superclass for the tests to only use float vector encoding
-  protected VectorEncoding randomVectorEncoding() {
-    return VectorEncoding.FLOAT32;
-  }
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testByteVectorScorerIteration() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testEmptyByteVectorData() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testMergingWithDifferentByteKnnFields() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testMismatchedFields() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testRandomBytes() {}
-
-  @Ignore
-  @Override
-  // Ignoring this test from superclass as we do not support byte vectors
-  public void testSortedIndexBytes() {}
 }

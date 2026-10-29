@@ -607,7 +607,7 @@ public class CagraBbqIT extends CuVSTestCase {
   /**
    * Encodes {@link #dataset} as PACKED_1B BBQ codes and uploads every component to device memory.
    *
-   * <p>This mirrors {@code cpp/internal/cuvs_internal/preprocessing/bbq_cpu_quantize.hpp} closely
+   * <p>This mirrors {@code cpp/src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp} closely
    * enough for the codes to describe the real data, which is what makes the end-to-end searches
    * below meaningful. It deliberately skips that file's {@code optimize_intervals} MSE refinement
    * and keeps the initial grid estimate: the graph only has to be good, not optimal, because both

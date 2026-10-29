@@ -27,6 +27,7 @@ jobs:
       - conda-java-tests
       - conda-lucene-build
       - conda-lucene-tests
+      - conda-lucene-tests-min-jdk
       - rust-build
       - go-build
       - docs-build
@@ -630,7 +631,7 @@ jobs:
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_lucene.sh"
       artifact-name-prefix: "cuvs-lucene"
-      file_to_upload: "java/cuvs-lucene/target/"
+      file_to_upload: "java/cuvs-lucene/*/target/"
   conda-lucene-tests:
     needs: conda-lucene-build
     permissions:
@@ -643,6 +644,27 @@ jobs:
     with:
       build_type: pull-request
       script: "ci/test_lucene.sh"
+  conda-lucene-tests-min-jdk:
+    # Verifies that cuvs-lucene loads and works without the GPU on the oldest JDK it supports
+    # (java_min_jdk in dependencies.yaml), by running its test suite against the amd64-built
+    # classes without recompiling -- see ci/test_lucene.sh. It runs once, not per CUDA version: it
+    # uses no GPU, so the artifacts of any amd64 entry of the build matrix will do. This matters
+    # because many applications built on Lucene support older JDKs than the 22 that cuvs-java needs
+    # for the GPU. cuvs-lucene can't stop such an application from starting on an older JDK, so
+    # there it has to load and fall back to the CPU.
+    needs: conda-lucene-build
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    uses: ./.github/workflows/matrix-job.yaml
+    with:
+      build_type: pull-request
+      node_type: cpu8
+      matrix_filter: '[map(select(.ARCH == "amd64")) | max_by(.CUDA_VER | split(".") | map(tonumber))]'
+      script: "ci/test_lucene.sh --min-jdk"
   rust-build:
     needs: [conda-cpp-build, changed-files]
     permissions:

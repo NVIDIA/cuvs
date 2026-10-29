@@ -4,17 +4,14 @@
  */
 
 #include <cuvs/preprocessing/quantize/bbq.hpp>
-#include <optional>
+
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
 
-namespace CUVS_EXPORT cuvs {
+namespace cuvs::preprocessing::quantize::bbq::helpers {
 
-namespace preprocessing::quantize::bbq {
-
-namespace helpers {
 void resolve_dequant_factors(
   raft::resources const& res,
   raft::device_vector_view<float, int64_t> dequant_delta,
@@ -43,6 +40,4 @@ void resolve_dequant_factors(
                              return delta;
                            });
 }
-}  // namespace helpers
-}  // namespace preprocessing::quantize::bbq
-}  // namespace CUVS_EXPORT cuvs
+}  // namespace cuvs::preprocessing::quantize::bbq::helpers

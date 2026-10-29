@@ -4,11 +4,11 @@
  */
 #pragma once
 
+#include "../../src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp"
 #include "ann_cagra.cuh"
 
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
-#include <cuvs_internal/preprocessing/bbq_cpu_quantize.hpp>
 
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -73,13 +73,14 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     raft::update_host(host_data.data(), database.data(), host_data.size(), stream_);
     raft::resource::sync_stream(handle_);
 
-    return cuvs_internal::bbq::quantize_to_device(handle_,
-                                                  host_data.data(),
-                                                  ps.n_rows,
-                                                  ps.dim,
-                                                  ps.metric,
-                                                  ps.layout,
-                                                  ps.second_layout.value_or(ps.layout));
+    return cuvs::preprocessing::quantize::bbq::detail::quantize_to_device(
+      handle_,
+      host_data.data(),
+      ps.n_rows,
+      ps.dim,
+      ps.metric,
+      ps.layout,
+      ps.second_layout.value_or(ps.layout));
   }
 
   [[nodiscard]] auto default_index_params() const -> cagra::index_params

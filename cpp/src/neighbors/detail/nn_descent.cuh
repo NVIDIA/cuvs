@@ -1139,12 +1139,12 @@ __launch_bounds__(BLOCK_SIZE)
 // --------------------------------------------------------------------------
 
 // The code promotion, the dequant factors and the raw-dot-product-to-distance conversion live
-// next to the code inner products in bbq.cuh, so the CAGRA graph sort ranks by the very same
+// next to the code inner products in bbq_distance.cuh, so the CAGRA graph sort ranks by the same
 // distance these kernels build the lists with.
-using cuvs::preprocessing::quantize::bbq::bbq_calculate_metric;
-using cuvs::preprocessing::quantize::bbq::bbq_dequant_factors;
-using cuvs::preprocessing::quantize::bbq::get_dequant_factors;
-using cuvs::preprocessing::quantize::bbq::packed_1b_to_4b;
+using cuvs::preprocessing::quantize::bbq::detail::bbq_calculate_metric;
+using cuvs::preprocessing::quantize::bbq::detail::bbq_dequant_factors;
+using cuvs::preprocessing::quantize::bbq::detail::get_dequant_factors;
+using cuvs::preprocessing::quantize::bbq::detail::packed_1b_to_4b;
 
 // Stages one K-tile of `count` neighbor rows into SMEM. Shared skeleton: one warp per row,
 // lanes strided along native uint32 words, last-tile zero-pad so compute reads a full tile.
@@ -1304,8 +1304,9 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              DistEpilogue_t dist_epilogue)
 {
   constexpr int document_planes =
-    cuvs::preprocessing::quantize::bbq::get_code_planes(DocumentLayout);
-  constexpr int query_planes = cuvs::preprocessing::quantize::bbq::get_code_planes(QueryLayout);
+    cuvs::preprocessing::quantize::bbq::detail::get_code_planes(DocumentLayout);
+  constexpr int query_planes =
+    cuvs::preprocessing::quantize::bbq::detail::get_code_planes(QueryLayout);
 
   // Both operands are tiled at the same per-plane tile so each step covers the same dimension
   // range on both sides. QUERY_ROW_BYTES fixes the query row width; the document row width then
@@ -1392,11 +1393,13 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   // where it happens to equal encoded/planes for all three. The dense byte layouts
   // (packed_7b/packed_8b) are `dim` bytes in one plane, and would read 1/8 of each row.
   const int plane_bytes =
-    static_cast<int>(cuvs::preprocessing::quantize::bbq::get_encoded_row_length(dataset_document)) /
+    static_cast<int>(
+      cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_document)) /
     document_planes;
-  assert(plane_bytes == static_cast<int>(cuvs::preprocessing::quantize::bbq::get_encoded_row_length(
-                          dataset_query)) /
-                          query_planes);
+  assert(plane_bytes ==
+         static_cast<int>(
+           cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_query)) /
+           query_planes);
   constexpr int query_plane_tile = QUERY_ROW_BYTES / query_planes;
   constexpr int plane_tile       = query_plane_tile;
   constexpr int doc_row_bytes    = query_plane_tile * document_planes;
@@ -1483,12 +1486,12 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
       } else {
         row_b = s_query_vec[col];
       }
-      cuvs::preprocessing::quantize::bbq::bbq_code_inner_product_2x1<DocumentLayout,
-                                                                     QueryLayout,
-                                                                     document_planes,
-                                                                     query_planes,
-                                                                     doc_row_bytes,
-                                                                     QUERY_ROW_BYTES>(
+      cuvs::preprocessing::quantize::bbq::detail::bbq_code_inner_product_2x1<DocumentLayout,
+                                                                             QueryLayout,
+                                                                             document_planes,
+                                                                             query_planes,
+                                                                             doc_row_bytes,
+                                                                             QUERY_ROW_BYTES>(
         s_doc_vec[row0], s_doc_vec[row0 + 1], row_b, acc0[k], acc1[k]);
     }
     __syncthreads();
@@ -1601,12 +1604,12 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
       const int row0 = (pair_idx / MAX_NUM_BI_SAMPLES) * 2;
       const int col  = pair_idx % MAX_NUM_BI_SAMPLES;
       if (col >= old_size) continue;
-      cuvs::preprocessing::quantize::bbq::bbq_code_inner_product_2x1<DocumentLayout,
-                                                                     QueryLayout,
-                                                                     document_planes,
-                                                                     query_planes,
-                                                                     doc_row_bytes,
-                                                                     QUERY_ROW_BYTES>(
+      cuvs::preprocessing::quantize::bbq::detail::bbq_code_inner_product_2x1<DocumentLayout,
+                                                                             QueryLayout,
+                                                                             document_planes,
+                                                                             query_planes,
+                                                                             doc_row_bytes,
+                                                                             QUERY_ROW_BYTES>(
         s_doc_vec[row0], s_doc_vec[row0 + 1], s_query_vec[col], acc0_old[k], acc1_old[k]);
     }
     __syncthreads();
@@ -1825,10 +1828,10 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   // n_tiles is driven by the *promoted* (4-bit-width) row length, which both operands share at a
   // given dim; each side's own native row length only sets how many native bytes
   // stage_promoted_tile reads per tile (dim % 32 == 0 guarantees no rounding either way).
-  const int doc_row_bytes =
-    static_cast<int>(cuvs::preprocessing::quantize::bbq::get_encoded_row_length(dataset_document));
-  const int query_row_bytes =
-    static_cast<int>(cuvs::preprocessing::quantize::bbq::get_encoded_row_length(dataset_query));
+  const int doc_row_bytes = static_cast<int>(
+    cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_document));
+  const int query_row_bytes = static_cast<int>(
+    cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_query));
   const int promoted_row_bytes = static_cast<int>((dataset_query.dim() + 1) / 2);
   const int n_tiles            = raft::ceildiv(promoted_row_bytes, BBQ_ROW_BYTES);
 
@@ -2513,9 +2516,10 @@ void GNND<Data_t, Index_t>::local_join(
   // stage_tile_simt / stage_promoted_tile cast code buffers to uint32_t*, so every plane stride
   // must be 4-byte aligned.
   {
-    const auto len = cuvs::preprocessing::quantize::bbq::get_encoded_row_length(quantizer_query);
+    const auto len =
+      cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(quantizer_query);
     const int n_planes =
-      cuvs::preprocessing::quantize::bbq::get_code_planes(quantizer_query.layout);
+      cuvs::preprocessing::quantize::bbq::detail::get_code_planes(quantizer_query.layout);
     RAFT_EXPECTS(len % (4u * static_cast<uint32_t>(n_planes)) == 0,
                  "BBQ local join requires the encoded row length to be a multiple of 4*n_planes "
                  "for 32-bit aligned plane loads, got %u with n_planes = %d",
