@@ -4,6 +4,8 @@
  */
 #pragma once
 
+#include <cub/device/device_reduce.cuh>
+
 #include "../../core/nvtx.hpp"
 #include "../../neighbors/detail/ann_utils.cuh"
 #include "kmeans_batch_loader.cuh"

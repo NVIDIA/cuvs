@@ -1,0 +1,98 @@
+[
+  {
+    "provider_alias": "source_transform_weighteddistanceop_false_f64_int_transform_top1nn_key_value_int_f64_ptr_value_op_key_value_int_f64_ptr_counting_iterator_int_long_f64_identity_op_add_op_int",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "weighted_f64_i32_top1nn",
+    "canonical_alias": "source_f64_ptr_f64_identity_op_add_op_u32"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_false_f64_int_f64_ptr_counting_iterator_int_long_f64_identity_op_add_op_int",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "weighted_f64_i32_raw",
+    "canonical_alias": "source_f64_ptr_f64_identity_op_add_op_u32"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_false_f64_long_transform_top1nn_key_value_long_f64_ptr_value_op_key_value_long_f64_ptr_counting_iterator_long_int128_f64_identity_op_add_op_long",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "weighted_f64_i64_top1nn",
+    "canonical_alias": "source_f64_ptr_f64_identity_op_add_op_ulong"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_false_f64_long_f64_ptr_counting_iterator_long_int128_f64_identity_op_add_op_long",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "weighted_f64_i64_raw",
+    "canonical_alias": "source_f64_ptr_f64_identity_op_add_op_ulong"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_false_f32_int_transform_top1nn_key_value_int_f32_ptr_value_op_key_value_int_f32_ptr_counting_iterator_int_long_f32_identity_op_add_op_int",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "weighted_f32_i32_top1nn",
+    "canonical_alias": "source_f32_ptr_f32_identity_op_add_op_u32"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_false_f32_int_f32_ptr_counting_iterator_int_long_f32_identity_op_add_op_int",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "weighted_f32_i32_raw",
+    "canonical_alias": "source_f32_ptr_f32_identity_op_add_op_u32"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_false_f32_long_transform_top1nn_key_value_long_f32_ptr_value_op_key_value_long_f32_ptr_counting_iterator_long_int128_f32_identity_op_add_op_long",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "weighted_f32_i64_top1nn",
+    "canonical_alias": "source_f32_ptr_f32_identity_op_add_op_ulong"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_false_f32_long_f32_ptr_counting_iterator_long_int128_f32_identity_op_add_op_long",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "weighted_f32_i64_raw",
+    "canonical_alias": "source_f32_ptr_f32_identity_op_add_op_ulong"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_true_f64_int_transform_top1nn_key_value_int_f64_ptr_value_op_key_value_int_f64_ptr_counting_iterator_int_long_f64_identity_op_add_op_int",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "weighted_squared_f64_i32_top1nn",
+    "canonical_alias": "source_f64_ptr_f64_identity_op_add_op_u32"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_true_f64_int_f64_ptr_counting_iterator_int_long_f64_identity_op_add_op_int",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "weighted_squared_f64_i32_raw",
+    "canonical_alias": "source_f64_ptr_f64_identity_op_add_op_u32"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_true_f64_long_transform_top1nn_key_value_long_f64_ptr_value_op_key_value_long_f64_ptr_counting_iterator_long_int128_f64_identity_op_add_op_long",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "weighted_squared_f64_i64_top1nn",
+    "canonical_alias": "source_f64_ptr_f64_identity_op_add_op_ulong"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_true_f64_long_f64_ptr_counting_iterator_long_int128_f64_identity_op_add_op_long",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "weighted_squared_f64_i64_raw",
+    "canonical_alias": "source_f64_ptr_f64_identity_op_add_op_ulong"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_true_f32_int_transform_top1nn_key_value_int_f32_ptr_value_op_key_value_int_f32_ptr_counting_iterator_int_long_f32_identity_op_add_op_int",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "weighted_squared_f32_i32_top1nn",
+    "canonical_alias": "source_f32_ptr_f32_identity_op_add_op_u32"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_true_f32_int_f32_ptr_counting_iterator_int_long_f32_identity_op_add_op_int",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "weighted_squared_f32_i32_raw",
+    "canonical_alias": "source_f32_ptr_f32_identity_op_add_op_u32"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_true_f32_long_transform_top1nn_key_value_long_f32_ptr_value_op_key_value_long_f32_ptr_counting_iterator_long_int128_f32_identity_op_add_op_long",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "weighted_squared_f32_i64_top1nn",
+    "canonical_alias": "source_f32_ptr_f32_identity_op_add_op_ulong"
+  },
+  {
+    "provider_alias": "source_transform_weighteddistanceop_true_f32_long_f32_ptr_counting_iterator_long_int128_f32_identity_op_add_op_long",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "weighted_squared_f32_i64_raw",
+    "canonical_alias": "source_f32_ptr_f32_identity_op_add_op_ulong"
+  }
+]

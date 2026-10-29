@@ -1,0 +1,110 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "cuvs::cluster::kmeans::detail::computeClusterCost",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::cluster::kmeans::detail",
+    "_variants": [
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< false, double, int, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::value_op, raft::KeyValuePair<int, double>*>>, ::cuda::counting_iterator<int, long>>, double, raft::identity_op, raft::add_op, int>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< false, double, int, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::value_op, raft::KeyValuePair<int, double>*>>, ::cuda::counting_iterator<int, long>>, int, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_f64_i32_top1nn"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<false, double, int, double*>, ::cuda::counting_iterator<int, long>>, double, raft::identity_op, raft::add_op, int>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<false, double, int, double*>, ::cuda::counting_iterator<int, long>>, int, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_f64_i32_raw"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< false, double, long, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, double>*>::value_op, raft::KeyValuePair<long, double>*>>, ::cuda::counting_iterator<long, __int128>>, double, raft::identity_op, raft::add_op, long>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< false, double, long, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, double>*>::value_op, raft::KeyValuePair<long, double>*>>, ::cuda::counting_iterator<long, __int128>>, long, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_f64_i64_top1nn"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<false, double, long, double*>, ::cuda::counting_iterator<long, __int128>>, double, raft::identity_op, raft::add_op, long>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<false, double, long, double*>, ::cuda::counting_iterator<long, __int128>>, long, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_f64_i64_raw"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< false, float, int, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::value_op, raft::KeyValuePair<int, float>*>>, ::cuda::counting_iterator<int, long>>, float, raft::identity_op, raft::add_op, int>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< false, float, int, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::value_op, raft::KeyValuePair<int, float>*>>, ::cuda::counting_iterator<int, long>>, int, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_f32_i32_top1nn"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<false, float, int, float*>, ::cuda::counting_iterator<int, long>>, float, raft::identity_op, raft::add_op, int>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<false, float, int, float*>, ::cuda::counting_iterator<int, long>>, int, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_f32_i32_raw"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< false, float, long, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::value_op, raft::KeyValuePair<long, float>*>>, ::cuda::counting_iterator<long, __int128>>, float, raft::identity_op, raft::add_op, long>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< false, float, long, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::value_op, raft::KeyValuePair<long, float>*>>, ::cuda::counting_iterator<long, __int128>>, long, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_f32_i64_top1nn"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<false, float, long, float*>, ::cuda::counting_iterator<long, __int128>>, float, raft::identity_op, raft::add_op, long>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<false, float, long, float*>, ::cuda::counting_iterator<long, __int128>>, long, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_f32_i64_raw"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< true, double, int, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::value_op, raft::KeyValuePair<int, double>*>>, ::cuda::counting_iterator<int, long>>, double, raft::identity_op, raft::add_op, int>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< true, double, int, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::value_op, raft::KeyValuePair<int, double>*>>, ::cuda::counting_iterator<int, long>>, int, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_squared_f64_i32_top1nn"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<true, double, int, double*>, ::cuda::counting_iterator<int, long>>, double, raft::identity_op, raft::add_op, int>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<true, double, int, double*>, ::cuda::counting_iterator<int, long>>, int, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_squared_f64_i32_raw"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< true, double, long, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, double>*>::value_op, raft::KeyValuePair<long, double>*>>, ::cuda::counting_iterator<long, __int128>>, double, raft::identity_op, raft::add_op, long>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< true, double, long, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, double>*>::value_op, raft::KeyValuePair<long, double>*>>, ::cuda::counting_iterator<long, __int128>>, long, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_squared_f64_i64_top1nn"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<true, double, long, double*>, ::cuda::counting_iterator<long, __int128>>, double, raft::identity_op, raft::add_op, long>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<true, double, long, double*>, ::cuda::counting_iterator<long, __int128>>, long, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_squared_f64_i64_raw"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< true, float, int, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::value_op, raft::KeyValuePair<int, float>*>>, ::cuda::counting_iterator<int, long>>, float, raft::identity_op, raft::add_op, int>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< true, float, int, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::value_op, raft::KeyValuePair<int, float>*>>, ::cuda::counting_iterator<int, long>>, int, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_squared_f32_i32_top1nn"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<true, float, int, float*>, ::cuda::counting_iterator<int, long>>, float, raft::identity_op, raft::add_op, int>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<true, float, int, float*>, ::cuda::counting_iterator<int, long>>, int, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_squared_f32_i32_raw"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< true, float, long, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::value_op, raft::KeyValuePair<long, float>*>>, ::cuda::counting_iterator<long, __int128>>, float, raft::identity_op, raft::add_op, long>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp< true, float, long, ::cuda::transform_iterator< cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<long, float>*>::value_op, raft::KeyValuePair<long, float>*>>, ::cuda::counting_iterator<long, __int128>>, long, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_squared_f32_i64_top1nn"
+      },
+      {
+        "template_arguments": "< ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<true, float, long, float*>, ::cuda::counting_iterator<long, __int128>>, float, raft::identity_op, raft::add_op, long>",
+        "parameter_types": "raft::resources const&, ::cuda::transform_iterator< cuvs::cluster::kmeans::detail::WeightedDistanceOp<true, float, long, float*>, ::cuda::counting_iterator<long, __int128>>, long, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "weighted_squared_f32_i64_raw"
+      },
+      {
+        "template_arguments": "<double*, double, raft::identity_op, raft::add_op, unsigned int>",
+        "parameter_types": "raft::resources const&, double*, unsigned int, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "raw_f64_u32"
+      },
+      {
+        "template_arguments": "<double*, double, raft::identity_op, raft::add_op, unsigned long>",
+        "parameter_types": "raft::resources const&, double*, unsigned long, rmm::device_uvector<char>&, ::cuda::std::mdspan< double, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<double>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "raw_f64_u64"
+      },
+      {
+        "template_arguments": "<float*, float, raft::identity_op, raft::add_op, unsigned int>",
+        "parameter_types": "raft::resources const&, float*, unsigned int, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "raw_f32_u32"
+      },
+      {
+        "template_arguments": "<float*, float, raft::identity_op, raft::add_op, unsigned long>",
+        "parameter_types": "raft::resources const&, float*, unsigned long, rmm::device_uvector<char>&, ::cuda::std::mdspan< float, ::cuda::std::extents<unsigned int, 1ul>, ::cuda::std::layout_right, raft::host_device_accessor<::cuda::std::default_accessor<float>, (raft::memory_type)2>>, raft::identity_op, raft::add_op",
+        "instantiation_name": "raw_f32_u64"
+      }
+    ]
+  }
+]

@@ -1,0 +1,22 @@
+[
+  {
+    "provider_alias": "source_f64_ptr_f64_identity_op_add_op_u32",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "f64_u32"
+  },
+  {
+    "provider_alias": "source_f64_ptr_f64_identity_op_add_op_ulong",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<double, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, double*, double*, int, raft::add_op, double, double, cuda::std::identity",
+    "instantiation_name": "f64_u64"
+  },
+  {
+    "provider_alias": "source_f32_ptr_f32_identity_op_add_op_u32",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned int, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "f32_u32"
+  },
+  {
+    "provider_alias": "source_f32_ptr_f32_identity_op_add_op_ulong",
+    "kernel_arguments": "cub::detail::reduce::policy_selector_from_types<float, unsigned long long, raft::add_op, (cuda::execution::determinism::__determinism_t)1>, float*, float*, int, raft::add_op, float, float, cuda::std::identity",
+    "instantiation_name": "f32_u64"
+  }
+]

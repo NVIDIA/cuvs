@@ -6,6 +6,7 @@
 
 #include "../../distance/distance.cuh"
 #include "../../distance/top_1_nn.cuh"
+#include "cluster_cost_launchers.hpp"
 #include <cstdint>
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
@@ -37,7 +38,6 @@
 #include <rmm/device_uvector.hpp>
 
 #include <cub/device/device_histogram.cuh>
-#include <cub/device/device_reduce.cuh>
 #include <cub/device/device_select.cuh>
 #include <cub/iterator/arg_index_input_iterator.cuh>
 #include <cuda.h>
@@ -254,44 +254,6 @@ cuvs::distance::detail::Top1nnPlan<IndexT> probe_kmeans_top_1_nn(
                                         metric,
                                         backend,
                                         store_indices);
-}
-
-template <typename InputIterator,
-          typename OutputT,
-          typename MainOpT,
-          typename ReductionOpT,
-          typename IndexT = int>
-void computeClusterCost(raft::resources const& handle,
-                        InputIterator input,
-                        IndexT size,
-                        rmm::device_uvector<char>& workspace,
-                        raft::device_scalar_view<OutputT> clusterCost,
-                        MainOpT main_op,
-                        ReductionOpT reduction_op)
-{
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
-  cuda::transform_iterator itr(input, main_op);
-
-  size_t temp_storage_bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceReduce::Reduce(nullptr,
-                                          temp_storage_bytes,
-                                          itr,
-                                          clusterCost.data_handle(),
-                                          size,
-                                          reduction_op,
-                                          OutputT(),
-                                          stream));
-
-  workspace.resize(temp_storage_bytes, stream);
-
-  RAFT_CUDA_TRY(cub::DeviceReduce::Reduce(workspace.data(),
-                                          temp_storage_bytes,
-                                          itr,
-                                          clusterCost.data_handle(),
-                                          size,
-                                          reduction_op,
-                                          OutputT(),
-                                          stream));
 }
 
 template <typename InputT,
