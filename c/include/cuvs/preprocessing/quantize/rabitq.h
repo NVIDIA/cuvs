@@ -116,9 +116,9 @@ CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerParamsDestroy(cuvsRabitqQuantizerPara
  * queries transformed by the very same rotator. There is deliberately no
  * serialization API, so the caller owns this handle and is responsible for
  * keeping it alongside the codes, by copying the buffers returned by
- * cuvsRabitqRotatorGetState into its own index format. Re-running
- * cuvsRabitqRotatorMake with the same params reproduces them only on the same
- * GPU model and library version.
+ * cuvsRabitqRotatorGetState into its own index format and restoring them with
+ * cuvsRabitqRotatorMakeFromState. Re-running cuvsRabitqRotatorMake with the
+ * same params reproduces them only on the same GPU model and library version.
  *
  * A rotator is an independent peer of the quantizer: neither contains the
  * other, and a single rotator may be shared by several quantizers.
@@ -132,8 +132,8 @@ typedef cuvsRabitqRotator* cuvsRabitqRotator_t;
 /**
  * @brief Allocate a RaBitQ rotator handle
  *
- * The handle starts out empty; populate it with cuvsRabitqRotatorMake or
- * cuvsRabitqPipelineMake before use.
+ * The handle starts out empty; populate it with cuvsRabitqRotatorMake,
+ * cuvsRabitqRotatorMakeFromState or cuvsRabitqPipelineMake before use.
  *
  * @param[in] rotator cuvsRabitqRotator_t to allocate
  * @return cuvsError_t
@@ -201,6 +201,26 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotatorMake(cuvsResources_t res,
                                               cuvsRabitqQuantizerParams_t params,
                                               int64_t dim,
                                               cuvsRabitqRotator_t rotator);
+
+/**
+ * @brief Initializes a RaBitQ rotator from saved state.
+ *
+ * The inverse of cuvsRabitqRotatorGetKind + cuvsRabitqRotatorGetState: restores
+ * a rotator persisted next to the codes it produced. `state` must have the
+ * shape and dtype cuvsRabitqRotatorGetState documents for `kind`, and the
+ * padded dimension is taken from it. It is copied, so it may live in device or
+ * host memory and may be freed once this returns.
+ *
+ * @param[in] res raft resource
+ * @param[in] kind the rotation implementation `state` belongs to
+ * @param[in] state the saved rotator state
+ * @param[out] rotator an allocated rotator handle to initialize
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsRabitqRotatorMakeFromState(cuvsResources_t res,
+                                                       enum cuvsRabitqRotatorKind kind,
+                                                       DLManagedTensor* state,
+                                                       cuvsRabitqRotator_t rotator);
 
 /**
  * @brief Initializes a RaBitQ quantizer.
@@ -392,7 +412,7 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformResidualsFull(cuvsResources_t res,
  * Together with cuvsRabitqRotatorGetPaddedDim and cuvsRabitqRotatorGetState
  * this is the rotator's full identity. Because RaBitQ has no serialization API,
  * reading these three back out is how a C caller persists the rotator next to
- * the codes it produced.
+ * the codes it produced; cuvsRabitqRotatorMakeFromState restores it.
  *
  * @param[in] rotator a RaBitQ rotator
  * @param[out] kind the rotation implementation

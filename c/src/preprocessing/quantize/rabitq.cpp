@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <dlpack/dlpack.h>
+#include <memory>
 #include <optional>
 #include <utility>
 
@@ -14,6 +15,10 @@
 
 #include "../../core/exceptions.hpp"
 #include "../../core/interop.hpp"
+
+#include <raft/core/host_mdspan.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
+#include <raft/util/cudart_utils.hpp>
 
 namespace {
 
@@ -86,6 +91,22 @@ void _expect_float32(DLManagedTensor* tensor, char const* name)
   if (dtype.code != kDLFloat || dtype.bits != 32) {
     RAFT_FAIL("Unsupported %s DLtensor dtype: %d and bits: %d", name, dtype.code, dtype.bits);
   }
+}
+
+/**
+ * Saved rotator state, which may live in device or host memory: it is only read
+ * to be copied. from_dlpack checks its dtype, rank and row-major layout.
+ */
+template <typename T, typename Extents>
+auto _saved_state(DLManagedTensor* state) -> std::pair<T const*, Extents>
+{
+  if (state == nullptr) { RAFT_FAIL("state must not be NULL"); }
+  if (cuvs::core::is_dlpack_device_compatible(state->dl_tensor)) {
+    auto v = cuvs::core::from_dlpack<raft::device_mdspan<T const, Extents, raft::row_major>>(state);
+    return {v.data_handle(), v.extents()};
+  }
+  auto v = cuvs::core::from_dlpack<raft::host_mdspan<T const, Extents, raft::row_major>>(state);
+  return {v.data_handle(), v.extents()};
 }
 
 /** NULL maps to std::nullopt, which both transform() families treat as "no centroid". */
@@ -260,6 +281,52 @@ extern "C" cuvsError_t cuvsRabitqRotatorMake(cuvsResources_t res,
     auto* ret = new rabitq::rotator(rabitq::make_rotator(*res_ptr, quantizer_params, dim));
     delete reinterpret_cast<rabitq::rotator*>(rotator->addr);
     rotator->addr = reinterpret_cast<uintptr_t>(ret);
+  });
+}
+
+extern "C" cuvsError_t cuvsRabitqRotatorMakeFromState(cuvsResources_t res,
+                                                      enum cuvsRabitqRotatorKind kind,
+                                                      DLManagedTensor* state,
+                                                      cuvsRabitqRotator_t rotator)
+{
+  return cuvs::core::translate_exceptions([=] {
+    if (rotator == nullptr) { RAFT_FAIL("rotator is not allocated"); }
+    auto res_ptr = reinterpret_cast<raft::resources*>(res);
+    auto stream  = raft::resource::get_cuda_stream(*res_ptr);
+    auto ret     = std::make_unique<rabitq::rotator>(*res_ptr);
+    switch (kind) {
+      case CUVS_RABITQ_ROTATOR_KIND_MATMUL: {
+        auto [src, ext] = _saved_state<float, raft::matrix_extent<int64_t>>(state);
+        const int64_t D = ext.extent(0);
+        RAFT_EXPECTS(D > 0 && D % 32 == 0 && ext.extent(1) == D,
+                     "matmul state must be a padded_dim x padded_dim matrix, padded_dim a "
+                     "positive multiple of 32");
+        ret->kind            = rabitq::rotator_kind::matmul;
+        ret->padded_dim      = D;
+        ret->rotation_matrix =
+          raft::make_device_matrix<float, int64_t, raft::row_major>(*res_ptr, D, D);
+        raft::copy(ret->rotation_matrix.data_handle(), src, D * D, stream);
+        break;
+      }
+      case CUVS_RABITQ_ROTATOR_KIND_FHT_KAC: {
+        auto [src, ext]     = _saved_state<uint8_t, raft::vector_extent<int64_t>>(state);
+        const int64_t bytes = ext.extent(0);
+        // flip_bits holds 4 * padded_dim / 8 bytes, so padded_dim = 2 * bytes.
+        RAFT_EXPECTS(bytes > 0 && (2 * bytes) % 32 == 0,
+                     "fht_kac state must hold 4 * padded_dim / 8 bytes, padded_dim a positive "
+                     "multiple of 32");
+        ret->kind       = rabitq::rotator_kind::fht_kac;
+        ret->padded_dim = 2 * bytes;
+        ret->flip_bits  = raft::make_device_vector<uint8_t, int64_t>(*res_ptr, bytes);
+        raft::copy(ret->flip_bits.data_handle(), src, bytes, stream);
+        break;
+      }
+      default: RAFT_FAIL("Unsupported rotator kind: %d", static_cast<int>(kind));
+    }
+    // `state` may be freed as soon as this returns.
+    raft::resource::sync_stream(*res_ptr);
+    delete reinterpret_cast<rabitq::rotator*>(rotator->addr);
+    rotator->addr = reinterpret_cast<uintptr_t>(ret.release());
   });
 }
 

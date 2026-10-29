@@ -7,6 +7,7 @@
 
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
+#include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>
@@ -17,6 +18,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 namespace {
@@ -59,8 +61,96 @@ constexpr int64_t expected_padded_dim(int64_t dim) { return ((dim + 31) / 32) * 
 constexpr int64_t expected_flip_bytes(int64_t padded_dim) { return 4 * padded_dim / 8; }
 
 /**
+ * Restores `rotator` with cuvsRabitqRotatorMakeFromState, once from its device
+ * state view and once from a host copy of it, and checks that both restored
+ * rotators rotate bit-identically to the original. State of the other kind
+ * must be rejected.
+ */
+void check_restore(raft::device_resources const& handle,
+                   cuvsResources_t res,
+                   cuvsRabitqRotator_t rotator,
+                   enum cuvsRabitqRotatorKind kind,
+                   DLManagedTensor* state,
+                   int64_t padded_dim)
+{
+  auto stream              = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_rows = 16;
+  rmm::device_uvector<float> in(n_rows * padded_dim, stream);
+  rmm::device_uvector<float> ref(n_rows * padded_dim, stream);
+  rmm::device_uvector<float> got(n_rows * padded_dim, stream);
+  raft::random::RngState rng(77ULL);
+  raft::random::uniform(handle, rng, in.data(), in.size(), -1.0f, 1.0f);
+  handle.sync_stream();
+  auto in_t  = make_row_major_tensor(in.data(), n_rows, padded_dim);
+  auto ref_t = make_row_major_tensor(ref.data(), n_rows, padded_dim);
+  auto got_t = make_row_major_tensor(got.data(), n_rows, padded_dim);
+  ASSERT_EQ(cuvsRabitqRotate(res, rotator, &in_t, &ref_t), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
+  auto h_ref = to_host(handle, ref.data(), ref.size());
+
+  // A host copy of the state, as a caller would load it from its own storage.
+  const bool matmul = kind == CUVS_RABITQ_ROTATOR_KIND_MATMUL;
+  std::vector<float> h_matrix;
+  std::vector<uint8_t> h_flip;
+  DLManagedTensor host_state{};
+  if (matmul) {
+    h_matrix = to_host(
+      handle, static_cast<float const*>(state->dl_tensor.data), padded_dim * padded_dim);
+    cuvs::core::to_dlpack(raft::make_host_matrix_view<float, int64_t, raft::row_major>(
+                            h_matrix.data(), padded_dim, padded_dim),
+                          &host_state);
+  } else {
+    h_flip = to_host(handle,
+                     static_cast<uint8_t const*>(state->dl_tensor.data),
+                     static_cast<size_t>(expected_flip_bytes(padded_dim)));
+    cuvs::core::to_dlpack(
+      raft::make_host_vector_view<uint8_t, int64_t>(h_flip.data(), expected_flip_bytes(padded_dim)),
+      &host_state);
+  }
+
+  // Both restored rotators stay alive until the end, so the host-path check
+  // cannot reuse the device-path rotator's freed buffer.
+  std::vector<cuvsRabitqRotator_t> restored_rotators;
+  for (DLManagedTensor* saved : {state, &host_state}) {
+    cuvsRabitqRotator_t restored;
+    ASSERT_EQ(cuvsRabitqRotatorCreate(&restored), CUVS_SUCCESS);
+    restored_rotators.push_back(restored);
+    ASSERT_EQ(cuvsRabitqRotatorMakeFromState(res, kind, saved, restored), CUVS_SUCCESS);
+    enum cuvsRabitqRotatorKind read_kind = matmul ? CUVS_RABITQ_ROTATOR_KIND_FHT_KAC
+                                                  : CUVS_RABITQ_ROTATOR_KIND_MATMUL;
+    int64_t read_padded_dim              = 0;
+    ASSERT_EQ(cuvsRabitqRotatorGetKind(restored, &read_kind), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsRabitqRotatorGetPaddedDim(restored, &read_padded_dim), CUVS_SUCCESS);
+    EXPECT_EQ(read_kind, kind);
+    EXPECT_EQ(read_padded_dim, padded_dim);
+
+    ASSERT_EQ(cuvsRabitqRotate(res, restored, &in_t, &got_t), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
+    auto h_got = to_host(handle, got.data(), got.size());
+    EXPECT_EQ(std::memcmp(h_got.data(), h_ref.data(), h_ref.size() * sizeof(float)), 0)
+      << "restored rotator (from " << (saved == state ? "device" : "host")
+      << " state) does not rotate like the original";
+  }
+  for (auto restored : restored_rotators) {
+    EXPECT_EQ(cuvsRabitqRotatorDestroy(restored), CUVS_SUCCESS);
+  }
+
+  // State that does not match `kind` is rejected.
+  cuvsRabitqRotator_t mismatched;
+  ASSERT_EQ(cuvsRabitqRotatorCreate(&mismatched), CUVS_SUCCESS);
+  auto other_kind = matmul ? CUVS_RABITQ_ROTATOR_KIND_FHT_KAC : CUVS_RABITQ_ROTATOR_KIND_MATMUL;
+  EXPECT_NE(cuvsRabitqRotatorMakeFromState(res, other_kind, state, mismatched), CUVS_SUCCESS);
+  EXPECT_EQ(cuvsRabitqRotatorDestroy(mismatched), CUVS_SUCCESS);
+
+  free_tensor(host_state);
+  free_tensor(in_t);
+  free_tensor(ref_t);
+  free_tensor(got_t);
+}
+
+/**
  * Exercises the whole C surface for one rotator kind: params -> pipeline ->
- * getters -> transform -> state readback -> teardown.
+ * getters -> transform -> state readback -> restore -> teardown.
  */
 void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
 {
@@ -239,6 +329,9 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
     EXPECT_GT(n_set_bits, 0u);
     EXPECT_LT(n_set_bits, h_state.size() * 8);
   }
+
+  // --- restore from the saved state ---
+  check_restore(handle, res, rotator, kind, &state, padded_dim);
   free_tensor(state);
 
   // --- teardown ---
