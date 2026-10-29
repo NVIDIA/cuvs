@@ -977,46 +977,6 @@ __global__ void print_query_results(void* query_list_ptr, int count)
   }
 }
 
-// Initialize a list of QueryCandidates objects: assign memory to mpointers and initialize values
-template <typename IdxT, typename accT>
-__global__ void init_query_candidate_list(QueryCandidates<IdxT, accT>* query_list,
-                                          IdxT* visited_id_ptr,
-                                          accT* visited_dist_ptr,
-                                          int num_queries,
-                                          int maxSize,
-                                          int extra_queries_in_list = 0)
-{
-  IdxT* ids_ptr  = static_cast<IdxT*>(visited_id_ptr);
-  accT* dist_ptr = static_cast<accT*>(visited_dist_ptr);
-
-  for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < num_queries * maxSize;
-       i += blockDim.x * gridDim.x) {
-    ids_ptr[i]  = raft::upper_bound<IdxT>();
-    dist_ptr[i] = raft::upper_bound<accT>();
-  }
-
-  for (size_t i = blockIdx.x * blockDim.x + threadIdx.x; i < num_queries + extra_queries_in_list;
-       i += blockDim.x * gridDim.x) {
-    query_list[i].maxSize = maxSize;
-    query_list[i].size    = 0;
-    query_list[i].ids     = &ids_ptr[i * (size_t)(maxSize)];
-    query_list[i].dists   = &dist_ptr[i * (size_t)(maxSize)];
-  }
-}
-
-// Copy query ID values from input array
-template <typename IdxT, typename accT>
-__global__ void set_query_ids(void* query_list_ptr, IdxT* d_query_ids, int step_size)
-{
-  QueryCandidates<IdxT, accT>* query_list =
-    static_cast<QueryCandidates<IdxT, accT>*>(query_list_ptr);
-
-  for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < step_size; i += blockDim.x * gridDim.x) {
-    query_list[i].queryId = d_query_ids[i];
-    query_list[i].size    = 0;
-  }
-}
-
 // Device fcn to have a threadblock copy coordinates into shared memory
 template <typename T, typename accT>
 __device__ void update_shared_point(
@@ -1136,46 +1096,6 @@ update_shared_point_warp_fp16_query_smem(
   const size_t base = (size_t)id * (size_t)dim;
   for (size_t i = laneId; i < (size_t)dim; i += raft::WarpSize) {
     shared_point->coords[i] = __float2half(static_cast<float>(data_ptr[base + i]));
-  }
-}
-
-// Update the graph from the results of the query list (or reverse edge list)
-template <typename accT, typename IdxT = uint32_t>
-__global__ void write_graph_edges_kernel(raft::device_matrix_view<IdxT, int64_t> graph,
-                                         void* query_list_ptr,
-                                         int degree,
-                                         int num_queries)
-{
-  QueryCandidates<IdxT, accT>* query_list =
-    static_cast<QueryCandidates<IdxT, accT>*>(query_list_ptr);
-
-  for (int i = blockIdx.x; i < num_queries; i += gridDim.x) {
-    for (int j = threadIdx.x; j < query_list[i].size; j += blockDim.x) {
-      graph(query_list[i].queryId, j) = query_list[i].ids[j];
-    }
-  }
-}
-
-// Create src and dest edge lists used to sort and create reverse edges
-template <typename accT, typename IdxT = uint32_t>
-__global__ void create_reverse_edge_list(void* query_list_ptr,
-                                         int num_queries,
-                                         int degree,
-                                         IdxT* edge_src,
-                                         DistPair<IdxT, accT>* edge_dest)
-{
-  QueryCandidates<IdxT, accT>* query_list =
-    static_cast<QueryCandidates<IdxT, accT>*>(query_list_ptr);
-
-  for (int i = blockIdx.x * blockDim.x + threadIdx.x; i < num_queries;
-       i += blockDim.x * gridDim.x) {
-    int cand_count = query_list[i + 1].size - query_list[i].size;
-
-    for (int j = 0; j < cand_count; j++) {
-      edge_src[query_list[i].size + j]       = query_list[i].queryId;
-      edge_dest[query_list[i].size + j].idx  = query_list[i].ids[j];
-      edge_dest[query_list[i].size + j].dist = query_list[i].dists[j];
-    }
   }
 }
 

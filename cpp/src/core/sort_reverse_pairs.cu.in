@@ -1,0 +1,34 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_ptx_query.hpp>
+
+#include <neighbors/detail/vamana/build_helpers.hpp>
+#include <neighbors/detail/vamana/vamana_structs.cuh>
+
+#include <cub/device/device_merge_sort.cuh>
+#include <rmm/exec_policy.hpp>
+#include <thrust/device_ptr.h>
+#include <thrust/unique.h>
+
+namespace cuvs::neighbors::vamana::detail {
+
+template <typename Key, typename Value, typename Count, typename Compare>
+cudaError_t sort_reverse_pairs(void* storage,
+                               size_t& bytes,
+                               Key* keys,
+                               Value* values,
+                               Count count,
+                               Compare compare,
+                               cudaStream_t stream)
+{
+  return cub::DeviceMergeSort::SortPairs(storage, bytes, keys, values, count, compare, stream);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::neighbors::vamana::detail

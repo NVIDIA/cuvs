@@ -1577,6 +1577,14 @@ if(NOT BUILD_CPU_ONLY)
 
   generate_inst_matrix(
     cuvs_primitive_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sort_reverse_pairs_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/sort_reverse_pairs.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/core/sort_reverse_pairs_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_primitive_sources
     MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_unique_by_key_matrix.json"
     INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/core/cub_unique_by_key.cu.in"
     OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/core/cub_unique_by_key_@inst_abbrev@.cu"
@@ -1595,6 +1603,12 @@ if(NOT BUILD_CPU_ONLY)
     src/core/thrust_stable_sort_by_key.cu
     src/core/thrust_transform.cu
     src/core/thrust_unique_by_key.cu
+    src/core/unique_reverse_keys.cu
+    src/neighbors/detail/vamana/create_reverse_edge_list.cu
+    src/neighbors/detail/vamana/init_query_candidate_list.cu
+    src/neighbors/detail/vamana/scatter_prefix_offsets.cu
+    src/neighbors/detail/vamana/set_query_ids.cu
+    src/neighbors/detail/vamana/write_graph_edges.cu
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}

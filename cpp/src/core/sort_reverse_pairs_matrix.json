@@ -1,0 +1,30 @@
+[
+  {
+    "return_type": "cudaError_t",
+    "qualified_function": "cuvs::neighbors::vamana::detail::sort_reverse_pairs",
+    "function_qualifiers": "",
+    "namespace_context": "cuvs::neighbors::vamana::detail",
+    "_variants": [
+      {
+        "template_arguments": "< cuvs::neighbors::vamana::detail::DistPair<unsigned int, float>, unsigned int, int, cuvs::neighbors::vamana::detail::CmpDist<unsigned int, float>>",
+        "parameter_types": "void*, unsigned long&, cuvs::neighbors::vamana::detail::DistPair<unsigned int, float>*, unsigned int*, int, cuvs::neighbors::vamana::detail::CmpDist<unsigned int, float>, cudaStream_t",
+        "instantiation_name": "distpair_u32_f32_u32_int_cmpdist_u32_f32"
+      },
+      {
+        "template_arguments": "< cuvs::neighbors::vamana::detail::DistPair<unsigned int, float>, unsigned int, long, cuvs::neighbors::vamana::detail::CmpDist<unsigned int, float>>",
+        "parameter_types": "void*, unsigned long&, cuvs::neighbors::vamana::detail::DistPair<unsigned int, float>*, unsigned int*, long, cuvs::neighbors::vamana::detail::CmpDist<unsigned int, float>, cudaStream_t",
+        "instantiation_name": "distpair_u32_f32_u32_long_cmpdist_u32_f32"
+      },
+      {
+        "template_arguments": "< unsigned int, unsigned int, int, cuvs::neighbors::vamana::detail::CmpEdge<unsigned int>>",
+        "parameter_types": "void*, unsigned long&, unsigned int*, unsigned int*, int, cuvs::neighbors::vamana::detail::CmpEdge<unsigned int>, cudaStream_t",
+        "instantiation_name": "u32_u32_int_cmpedge_u32"
+      },
+      {
+        "template_arguments": "< unsigned int, unsigned int, long, cuvs::neighbors::vamana::detail::CmpEdge<unsigned int>>",
+        "parameter_types": "void*, unsigned long&, unsigned int*, unsigned int*, long, cuvs::neighbors::vamana::detail::CmpEdge<unsigned int>, cudaStream_t",
+        "instantiation_name": "u32_u32_long_cmpedge_u32"
+      }
+    ]
+  }
+]
