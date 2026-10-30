@@ -32,6 +32,7 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
@@ -40,9 +41,7 @@ import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.ScorerSupplier;
-import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.Weight;
-import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
 
@@ -79,7 +78,7 @@ import org.apache.lucene.util.FixedBitSet;
  *
  * @since 25.10
  */
-public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
+public class GPUKnnFloatVectorQuery extends CompatKnnFloatVectorQuery {
 
   /** Smallest supported CAGRA intermediate-result count. */
   public static final int MIN_ITOPK = 1;
@@ -168,7 +167,6 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       int maxIterations,
       CagraSearchParams.SearchAlgo searchAlgo) {
     super(field, target, k, filter);
-    LuceneVersionGuard.ensureCompatible();
     validateSearchParameters(iTopK, searchWidth, k, threadBlockSize, maxIterations, searchAlgo);
     this.iTopK = iTopK;
     this.searchWidth = searchWidth;
@@ -392,17 +390,26 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   // -------------------------------------------------------------------------
 
   @Override
-  protected TopDocs approximateSearch(
-      LeafReaderContext context,
-      Bits acceptDocs,
-      int visitedLimit,
-      KnnCollectorManager knnCollectorManager)
-      throws IOException {
-    GPUPerLeafCuVSKnnCollector results =
-        new GPUPerLeafCuVSKnnCollector(
-            k, visitedLimit, iTopK, searchWidth, threadBlockSize, maxIterations, searchAlgo);
-    context.reader().searchNearestVectors(field, getTargetCopy(), results, acceptDocs);
-    return results.topDocs();
+  KnnCollector newPerLeafCollector(LeafReaderContext context, int leafK, int visitedLimit) {
+    int collectorK = leafK;
+    CuVS2510GPUVectorsReader gpuReader = unwrapGpuReader(context, field);
+    // Not getCagraIndexForField, which would load the index of a reader opened for a merge onto the
+    // GPU even if the search then finds nothing to match.
+    if (gpuReader != null && gpuReader.hasCagraIndex(field)) {
+      // Lucene may ask for more hits than this query's k, but CAGRA returns at most
+      // CuVS2510GPUVectorsReader.MAX_CAGRA_K, and SINGLE_CTA at most MAX_SINGLE_CTA_ITOPK (the
+      // constructor checks the query's own k against the latter only). Capped, the collector holds
+      // fewer hits than Lucene asked for, and Lucene searches a filtered segment exactly instead,
+      // which is slower but still correct. The query's own k is never reduced. Other segments,
+      // such as those searched with Lucene's HNSW, have no such limit.
+      int limit =
+          searchAlgo == CagraSearchParams.SearchAlgo.SINGLE_CTA
+              ? MAX_SINGLE_CTA_ITOPK
+              : CuVS2510GPUVectorsReader.MAX_CAGRA_K;
+      collectorK = Math.max(k, Math.min(leafK, limit));
+    }
+    return new GPUPerLeafCuVSKnnCollector(
+        collectorK, visitedLimit, iTopK, searchWidth, threadBlockSize, maxIterations, searchAlgo);
   }
 
   // -------------------------------------------------------------------------

@@ -11,11 +11,11 @@ import org.apache.lucene.codecs.KnnVectorsFormat;
  * Creates the cuvs-lucene codecs and vectors formats that write indexes on the Lucene release this
  * artifact is built for.
  *
- * <p>Each cuvs-lucene codec wraps the default codec of one Lucene release, for example {@code
- * Lucene101AcceleratedHNSWCodec} wraps Lucene 10.2's {@code Lucene101Codec}, so the codec to write
- * with changes along with Lucene. Creating codecs through this class instead of naming them keeps
- * application code unchanged when it moves to another Lucene release and the matching cuvs-lucene
- * artifact.
+ * <p>Each cuvs-lucene codec wraps the default codec of one Lucene release, so the codec to write
+ * with changes along with Lucene: {@code Lucene101AcceleratedHNSWCodec} on Lucene 10.2, {@code
+ * Lucene103AcceleratedHNSWCodec} on 10.3. The older codecs stay available for reading existing
+ * indexes. Creating codecs through this class instead of naming them keeps application code
+ * unchanged when it moves to another Lucene release and the matching cuvs-lucene artifact.
  *
  * <p>Every method throws {@link IllegalStateException} if the Lucene release in use is not the one
  * this cuvs-lucene artifact is built for.

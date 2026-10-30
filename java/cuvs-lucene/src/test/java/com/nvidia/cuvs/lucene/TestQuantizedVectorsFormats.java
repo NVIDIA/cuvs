@@ -152,7 +152,7 @@ public class TestQuantizedVectorsFormats extends BaseCuVSKnnVectorsFormatTestCas
         assertEquals(R, values.size());
 
         float[] queryVector = randomVector(D);
-        var topDocs = r.searchNearestVectors(F, queryVector, 2, null, 10);
+        var topDocs = TestLuceneCompat.searchNearestVectors(r, F, queryVector, 2, null, 10);
         assertTrue("Should return at least one result", topDocs.scoreDocs.length > 0);
         assertTrue("Scores should be non-negative", topDocs.scoreDocs[0].score >= 0);
       }

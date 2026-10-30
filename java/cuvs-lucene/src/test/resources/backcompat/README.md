@@ -12,6 +12,13 @@ releases/<cuvs-lucene version>/<lucene major.minor>/<name>.zip
 codec, the cuvs-lucene vectors format its vector field uses. `TestBackCompatIndices` fails on a zip placed
 anywhere else, so that it can't go unread.
 
+Released versions only cover the Lucene releases they supported. To also check upgrades between Lucene
+releases that no released version supports yet, `TestBackCompatIndices` in every module writes the same
+documents with its own codecs to `target/backcompat/<lucene major.minor>/<codec>.zip` (the parent `pom.xml`
+sets the directory), and reads and upgrades the indexes that the modules for earlier Lucene releases wrote
+there. Maven tests the modules from the oldest Lucene release up, so `mvn test` checks every such upgrade
+with the code being tested. Nothing is committed for these.
+
 ## Written by released cuvs-lucene versions
 
 `releases/<version>/`: written by the jars of a cuvs-lucene release published to Maven Central, with

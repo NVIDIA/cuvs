@@ -13,8 +13,8 @@ public class CuVS2510GPUSearchCodec extends CuVSFilterCodec
 cuVS based codec for GPU based vector search that enables both - indexing and search on the GPU.
 cuVS serialization formats are in experimental phase and hence backward compatibility cannot be guaranteed.
 
-This codec wraps `Lucene101Codec`, the default codec of Lucene 10.2. `CuVSCodecs#gpuSearch`
-returns the codec of this family for the Lucene release in use.
+This codec wraps `Lucene101Codec`, the default codec of Lucene 10.2. On later Lucene
+releases it can only read existing indexes; use `CuVSCodecs#gpuSearch` to write.
 
 ## Public Members
 
@@ -97,6 +97,6 @@ Initialize a named codec with explicit delegate, GPU search, and filter-cache pa
 | `params` | GPU index and search parameters |
 | `filterCacheConfig` | filter-bitset-cache configuration |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:70`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:71`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:18`_

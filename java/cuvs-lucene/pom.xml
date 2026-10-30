@@ -21,7 +21,7 @@ SPDX-License-Identifier: Apache-2.0
   <description>
       This project provides pluggable codecs for Apache Lucene to enable GPU-based accelerated vector search.
       Lucene changes its codec APIs between minor releases, so there is one artifact per supported Lucene
-      minor version (cuvs-lucene-10.2 for Lucene 10.2), all built from the same sources.
+      minor version (cuvs-lucene-10.2, cuvs-lucene-10.3, ...), all built from the same sources.
   </description>
   <url>https://rapids.ai</url>
 
@@ -60,6 +60,7 @@ SPDX-License-Identifier: Apache-2.0
   -->
   <modules>
     <module>lucene-10.2</module>
+    <module>lucene-10.3</module>
     <!-- Relocates the pre-26.12 com.nvidia.cuvs.lucene:cuvs-lucene coordinates to cuvs-lucene-10.2. -->
     <module>relocation</module>
   </modules>
@@ -76,6 +77,12 @@ SPDX-License-Identifier: Apache-2.0
     <lucene.version>10.2.0</lucene.version>
     <!-- The sources shared by every Lucene module. -->
     <cuvs.lucene.shared.dir>${project.basedir}/../src</cuvs.lucene.shared.dir>
+    <!--
+        Code that differs between Lucene releases but is the same in several of them lives once, in
+        compat/<variant>/, one variant per adapted Lucene class and per release that changed it. Each
+        module picks one variant per class with the cuvs.lucene.compat.* properties.
+    -->
+    <cuvs.lucene.compat.dir>${project.basedir}/../compat</cuvs.lucene.compat.dir>
   </properties>
 
     <repositories>
@@ -208,6 +215,9 @@ SPDX-License-Identifier: Apache-2.0
               <configuration>
                 <sources>
                   <source>${cuvs.lucene.shared.dir}/main/java</source>
+                  <!-- The variant of each adapted Lucene class the module's release needs; see compat/. -->
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnVectorsReader}/src/main/java</source>
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnFloatVectorQuery}/src/main/java</source>
                 </sources>
               </configuration>
             </execution>
@@ -234,6 +244,7 @@ SPDX-License-Identifier: Apache-2.0
               <configuration>
                 <sources>
                   <source>${cuvs.lucene.shared.dir}/test/java</source>
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.leafReader}/src/test/java</source>
                 </sources>
               </configuration>
             </execution>
@@ -322,6 +333,11 @@ SPDX-License-Identifier: Apache-2.0
             <rerunFailingTestsCount>0</rerunFailingTestsCount>
             <systemPropertyVariables>
               <java.util.logging.config.file>${cuvs.lucene.shared.dir}/main/resources/logging.properties</java.util.logging.config.file>
+              <!--
+                  Shared by every module: TestBackCompatIndices writes indexes there for the modules
+                  of later Lucene releases, which Maven tests afterwards, to read and upgrade.
+              -->
+              <tests.cuvs.backCompatDir>${project.basedir}/../target/backcompat</tests.cuvs.backCompatDir>
             </systemPropertyVariables>
             <environmentVariables>
               <CUFILE_LOGFILE_PATH>${project.build.directory}/cufile.log</CUFILE_LOGFILE_PATH>
@@ -423,6 +439,7 @@ SPDX-License-Identifier: Apache-2.0
             <java>
                 <includes>
                     <include>src/**/*.java</include>
+                    <include>compat/**/*.java</include>
                 </includes>
                 <googleJavaFormat>
                     <version>1.27.0</version>
