@@ -58,6 +58,8 @@ void initKMeansPlusPlus_distributed(
 
 #define CUVS_KMEANS_COMM_ROOT 0
 
+using cuvs::cluster::kmeans::detail::mix_seed;
+using cuvs::cluster::kmeans::detail::RngStage;
 using cuvs::core::detail::mnmg_comms;
 
 template <typename IndexT>
@@ -77,7 +79,7 @@ std::vector<IndexT> sample_unique_global_indices(IndexT n_samples,
                                                  IndexT sample_size,
                                                  std::uint64_t seed)
 {
-  std::mt19937 gen(seed);
+  std::mt19937_64 gen(seed);
   std::vector<IndexT> sampled;
   sampled.reserve(static_cast<std::size_t>(sample_size));
   std::unordered_set<IndexT> selected;
@@ -163,6 +165,7 @@ std::vector<IndexT> broadcast_sampled_global_indices(raft::resources const& hand
   auto d_sample_ids = raft::make_device_vector<IndexT, IndexT>(handle, sample_size);
   std::vector<IndexT> h_sample_ids(static_cast<std::size_t>(sample_size));
   if (rank == CUVS_KMEANS_COMM_ROOT) {
+    printf("using seed @sample_unique_global_indices = %lu\n", seed);
     h_sample_ids = sample_unique_global_indices(global_n, sample_size, seed);
     raft::copy(
       handle,
@@ -262,6 +265,7 @@ void init_centroids_for_mg_batched(
   auto stream     = comms.stream();
   auto n_clusters = static_cast<IndexT>(params.n_clusters);
 
+  printf("fun: %s, rank = %d, seed = %lu\n", "init_centroid_for_mg_params", rank, params.rng_state.seed);
   if (params.init == cuvs::cluster::kmeans::params::InitMethod::Array) {
     CUVS_LOG_KMEANS(handle,
                     "KMeans.fit: initialize cluster centers from the ndarray array input "
@@ -270,8 +274,18 @@ void init_centroids_for_mg_batched(
   }
 
   if (params.init == cuvs::cluster::kmeans::params::InitMethod::Random) {
-    auto sampled_rows = sample_global_rows<DataT, IndexT, Accessor>(
-      handle, params, X_parts, n_features, n_clusters, rank, rank_counts, global_n, comms, true);
+    auto random_params           = params;
+    random_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::RandomInit);
+    auto sampled_rows = sample_global_rows<DataT, IndexT, Accessor>(handle,
+                                                                 random_params,
+                                                                 X_parts,
+                                                                 n_features,
+                                                                 n_clusters,
+                                                                 rank,
+                                                                 rank_counts,
+                                                                 global_n,
+                                                                 comms,
+                                                                 true);
     raft::copy(centroids.data_handle(), sampled_rows.data_handle(), sampled_rows.size(), stream);
   } else if (params.init == cuvs::cluster::kmeans::params::InitMethod::KMeansPlusPlus) {
     using view_t =
@@ -305,17 +319,29 @@ void init_centroids_for_mg_batched(
       // Host (out-of-core) path: sample a subset to root then run single-GPU
       // KMeans++ on the sampled set and broadcast.
       IndexT init_sample_size = get_global_kmeanspp_init_sample_size(params, global_n, n_clusters);
-      auto init_sample        = sample_global_rows<DataT, IndexT, Accessor>(
-        handle, params, X_parts, n_features, init_sample_size, rank, rank_counts, global_n, comms);
+      auto sample_params           = params;
+      sample_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::HostSubsample);
+      auto init_sample = sample_global_rows<DataT, IndexT, Accessor>(handle,
+                                                                  sample_params,
+                                                                  X_parts,
+                                                                  n_features,
+                                                                  init_sample_size,
+                                                                  rank,
+                                                                  rank_counts,
+                                                                  global_n,
+                                                                  comms);
 
       if (rank == CUVS_KMEANS_COMM_ROOT) {
+        // derive a new seed here
+        auto init_params           = params;
+        init_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::SubsampleInit);
         auto init_view = raft::make_const_mdspan(init_sample.view());
         if (params.oversampling_factor == 0) {
           cuvs::cluster::kmeans::detail::kmeansPlusPlus<DataT, IndexT>(
-            handle, params, init_view, centroids, workspace);
+            handle, init_params, init_view, centroids, workspace);
         } else {
           cuvs::cluster::kmeans::detail::initScalableKMeansPlusPlus<DataT, IndexT>(
-            handle, params, init_view, centroids, workspace);
+            handle, init_params, init_view, centroids, workspace);
         }
       }
       comms.bcast(centroids.data_handle(),
