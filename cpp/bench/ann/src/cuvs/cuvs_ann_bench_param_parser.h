@@ -406,6 +406,14 @@ void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::cagra::index
       } else if constexpr (std::is_same_v<U,
                                           cuvs::neighbors::graph_build_params::nn_descent_params>) {
         parse_build_param<T, IdxT>(nn_descent_conf, arg);
+      } else if constexpr (std::is_same_v<U, cuvs::neighbors::graph_build_params::ace_params>) {
+        if (ace_conf.contains("npartitions")) { arg.npartitions = ace_conf.at("npartitions"); }
+        if (ace_conf.contains("build_dir")) { arg.build_dir = ace_conf.at("build_dir"); }
+        if (ace_conf.contains("ef_construction")) {
+          arg.ef_construction = ace_conf.at("ef_construction");
+        }
+        if (ace_conf.contains("use_disk")) { arg.use_disk = ace_conf.at("use_disk"); }
+        if (ace_conf.contains("target_alpha")) { arg.target_alpha = ace_conf.at("target_alpha"); }
       }
     },
     params.graph_build_params);
@@ -466,17 +474,9 @@ void parse_build_param(const nlohmann::json& conf,
     } else if (conf.value("graph_build_algo", "") == "ACE") {
       cagra_params.graph_build_params = cuvs::neighbors::cagra::graph_build_params::ace_params{};
     }
-    // Parse ACE parameters if provided
-    nlohmann::json ace_conf = collect_conf_with_prefix(conf, "ace_");
-    if (!ace_conf.empty()) {
-      auto ace_params = cuvs::neighbors::cagra::graph_build_params::ace_params();
-      if (ace_conf.contains("npartitions")) { ace_params.npartitions = ace_conf.at("npartitions"); }
-      if (ace_conf.contains("build_dir")) { ace_params.build_dir = ace_conf.at("build_dir"); }
-      if (ace_conf.contains("ef_construction")) {
-        ace_params.ef_construction = ace_conf.at("ef_construction");
-      }
-      if (ace_conf.contains("use_disk")) { ace_params.use_disk = ace_conf.at("use_disk"); }
-      cagra_params.graph_build_params = ace_params;
+    // Preserve ACE precedence among prefixed configs; the shared parser applies the values.
+    if (!collect_conf_with_prefix(conf, "ace_").empty()) {
+      cagra_params.graph_build_params = cuvs::neighbors::cagra::graph_build_params::ace_params{};
     }
     ::parse_build_param<T, IdxT>(conf, cagra_params);
     return cagra_params;

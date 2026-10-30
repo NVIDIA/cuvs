@@ -106,6 +106,12 @@ cdef class AceParams:
         Maximum GPU memory to use for ACE build in GiB. When set to 0
         (default), uses available GPU memory. Useful for testing or
         when running alongside other memory-intensive processes.
+    target_alpha : float, default = 1.0
+        Target number of augmented copies per input vector. A value of 0
+        disables augmentation; values above 1 allow multi-partition spills.
+        Must be finite and in [0, min(3, N - 1)], where N is the effective
+        partition count after build-time adjustment. Sampling can change the
+        realized spill count.
     """
     cdef cuvsAceParams* params
     cdef bytes _build_dir_bytes  # Keep Python bytes alive for property access
@@ -124,12 +130,15 @@ cdef class AceParams:
                  build_dir="/tmp/ace_build",
                  use_disk=False,
                  max_host_memory_gb=0,
-                 max_gpu_memory_gb=0):
+                 max_gpu_memory_gb=0,
+                 target_alpha=1.0):
+        """Initialize ACE parameters, including the expected spill-copy budget."""
         self.params.npartitions = npartitions
         self.params.ef_construction = ef_construction
         self.params.use_disk = use_disk
         self.params.max_host_memory_gb = max_host_memory_gb
         self.params.max_gpu_memory_gb = max_gpu_memory_gb
+        self.params.target_alpha = target_alpha
 
         # Need to replace the default build_dir allocated by
         # cuvsAceParamsCreate
@@ -168,6 +177,11 @@ cdef class AceParams:
     @property
     def max_gpu_memory_gb(self):
         return self.params.max_gpu_memory_gb
+
+    @property
+    def target_alpha(self):
+        """Return the expected number of spill copies per input vector."""
+        return self.params.target_alpha
 
     def get_handle(self):
         return <size_t>self.params
@@ -277,6 +291,7 @@ cdef class IndexParams:
             new_ace_params.use_disk = ace_params.params.use_disk
             new_ace_params.max_host_memory_gb = ace_params.params.max_host_memory_gb
             new_ace_params.max_gpu_memory_gb = ace_params.params.max_gpu_memory_gb
+            new_ace_params.target_alpha = ace_params.params.target_alpha
 
             # Copy the build_dir string
             if new_ace_params.build_dir != NULL:
