@@ -16,7 +16,6 @@
 #include <cuvs/core/bloom_filter.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
-#include <cuvs/neighbors/composite/index.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
@@ -1202,11 +1201,6 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
     // IVF_PQ requires the `n_rows >= n_lists`.
     if (ps.n_rows < 8 && ps.build_algo == graph_build_algo::IVF_PQ) GTEST_SKIP();
 
-    // can only use physical merge for filtered merge
-    if (ps.merge_strategy != cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL) {
-      GTEST_SKIP();
-    }
-
     // Can't filter out more rows than are in the dataset
     if (static_cast<uint32_t>(ps.n_rows) <= test_cagra_sample_filter::offset) { GTEST_SKIP(); }
 
@@ -1572,34 +1566,27 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
         std::vector<cagra::device_padded_index<DataT, IdxT>*> indices_to_merge{&index0, &index1};
 
-        if (ps.merge_strategy == cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL) {
-          // The merged index holds only a view, so merged_dataset must outlive it.
-          auto const merged_rows =
-            static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size());
-          using padded_t      = cuvs::neighbors::device_padded_dataset<DataT, int64_t>;
-          auto merged_dataset = padded_t(cuvs::neighbors::detail::make_dense_array<padded_t>(
-            handle_, merged_rows, static_cast<uint32_t>(ps.dim)));
-          auto merged_idx =
-            ps.physical_merge_params.has_value()
-              ? cagra::merge(handle_,
-                             index_params,
-                             indices_to_merge,
-                             std::as_const(merged_dataset).view(),
-                             *ps.physical_merge_params)
-              : cagra::merge(
-                  handle_, index_params, indices_to_merge, std::as_const(merged_dataset).view());
-          cagra::search(handle_,
-                        search_params,
-                        merged_idx,
-                        search_queries_view,
-                        indices_out_view,
-                        dists_out_view);
-        } else {
-          cuvs::neighbors::composite::composite_index<DataT, IdxT, SearchIdxT> composite(
-            indices_to_merge);
-          composite.search(
-            handle_, search_params, search_queries_view, indices_out_view, dists_out_view);
-        }
+        // The merged index holds only a view, so merged_dataset must outlive it.
+        auto const merged_rows =
+          static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size());
+        using padded_t      = cuvs::neighbors::device_padded_dataset<DataT, int64_t>;
+        auto merged_dataset = padded_t(cuvs::neighbors::detail::make_dense_array<padded_t>(
+          handle_, merged_rows, static_cast<uint32_t>(ps.dim)));
+        auto merged_idx =
+          ps.physical_merge_params.has_value()
+            ? cagra::merge(handle_,
+                           index_params,
+                           indices_to_merge,
+                           std::as_const(merged_dataset).view(),
+                           *ps.physical_merge_params)
+            : cagra::merge(
+                handle_, index_params, indices_to_merge, std::as_const(merged_dataset).view());
+        cagra::search(handle_,
+                      search_params,
+                      merged_idx,
+                      search_queries_view,
+                      indices_out_view,
+                      dists_out_view);
 
         raft::update_host(distances_Cagra.data(), distances_dev.data(), queries_size, stream_);
         raft::update_host(indices_Cagra.data(), indices_dev.data(), queries_size, stream_);
@@ -1775,7 +1762,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {false},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
   // Additional distances tested with a single search algo.
@@ -1823,8 +1810,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {true},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
-     cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
   // Varying dim and build algo.
@@ -1851,8 +1837,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {false},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
-     cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
   // Varying team_size, graph_build_algo
@@ -1880,8 +1865,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {false},
     {0.995},
     {std::optional<float>{std::nullopt}},
-    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
-     cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
   // Vary team size only.
@@ -1929,8 +1913,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {true},
     {0.985},
     {std::optional<float>{std::nullopt}},
-    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL,
-     cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_LOGICAL});
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
   // Refinement options

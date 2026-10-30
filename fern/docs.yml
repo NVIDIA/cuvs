@@ -396,8 +396,6 @@ navigation:
             path: "./pages/cpp_api/cpp-api-neighbors-epsilon-neighborhood.md"
           - page: "Neighbors HNSW"
             path: "./pages/cpp_api/cpp-api-neighbors-hnsw.md"
-          - page: "Neighbors Composite Index"
-            path: "./pages/cpp_api/cpp-api-neighbors-composite-index.md"
           - page: "Neighbors IVF Binary"
             path: "./pages/cpp_api/cpp-api-neighbors-ivf-binary.md"
           - page: "Neighbors IVF Flat"

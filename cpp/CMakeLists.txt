@@ -1500,7 +1500,6 @@ if(NOT BUILD_CPU_ONLY)
     ${cuvs_cagra_search_cuda_inst_files}
     src/neighbors/detail/cagra/cagra_helpers.cpp
     src/neighbors/dynamic_batching.cu
-    src/neighbors/composite/index.cu
     $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/cagra.cpp>
     $<$<BOOL:${BUILD_CAGRA_HNSWLIB}>:src/neighbors/hnsw.cpp>
     src/neighbors/ivf_binary_index.cpp
