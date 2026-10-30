@@ -241,6 +241,7 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
       ps.min_recall_ratio);
     EXPECT_GE(recall_dynb, ps.min_recall_ratio * recall_upsm)
       << "batched recall " << recall_dynb << " vs upstream recall " << recall_upsm << " for " << ps;
+    EXPECT_TRUE(check_unique_indices(neighbors_dynb_host, ps.n_queries, ps.k)) << ps;
   }
 
   void SetUp() override
