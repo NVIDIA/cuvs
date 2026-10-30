@@ -23,6 +23,7 @@
 #include "../../cluster/kmeans_balanced.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
+#include "../../core/histogram.hpp"
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/mdspan.hpp>
@@ -42,7 +43,6 @@
 #include <raft/matrix/linewise_op.cuh>
 #include <raft/matrix/sample_rows.cuh>
 #include <raft/random/rng.cuh>
-#include <raft/stats/histogram.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/device_atomics.cuh>
@@ -434,13 +434,13 @@ void train_per_cluster(raft::resources const& handle,
   rmm::device_uvector<IdxT> indices_buf(n_rows, stream, device_memory);
   rmm::device_uvector<IdxT> offsets_buf(impl->n_lists() + 1, stream, managed_memory);
 
-  raft::stats::histogram<uint32_t, size_t>(raft::stats::HistTypeAuto,
-                                           reinterpret_cast<int32_t*>(cluster_sizes.data()),
-                                           impl->n_lists(),
-                                           labels,
-                                           n_rows,
-                                           1,
-                                           stream.get());
+  cuvs::detail::histogram<uint32_t, size_t>(raft::stats::HistTypeAuto,
+                                            reinterpret_cast<int32_t*>(cluster_sizes.data()),
+                                            impl->n_lists(),
+                                            labels,
+                                            n_rows,
+                                            1,
+                                            stream.get());
 
   auto cluster_offsets      = offsets_buf.data();
   auto indices              = indices_buf.data();
@@ -1154,13 +1154,13 @@ void extend(raft::resources const& handle,
              raft::make_device_vector_view<const uint32_t>(list_sizes, n_clusters));
 
   // Get the combined cluster sizes
-  raft::stats::histogram<uint32_t, IdxT>(raft::stats::HistTypeAuto,
-                                         reinterpret_cast<int32_t*>(list_sizes),
-                                         IdxT(n_clusters),
-                                         new_data_labels.data(),
-                                         n_rows,
-                                         1,
-                                         stream.get());
+  cuvs::detail::histogram<uint32_t, IdxT>(raft::stats::HistTypeAuto,
+                                          reinterpret_cast<int32_t*>(list_sizes),
+                                          IdxT(n_clusters),
+                                          new_data_labels.data(),
+                                          n_rows,
+                                          1,
+                                          stream.get());
   raft::linalg::add(
     handle,
     raft::make_device_vector_view<const uint32_t>(list_sizes, n_clusters),
