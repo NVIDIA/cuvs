@@ -1234,6 +1234,28 @@ if(NOT BUILD_CPU_ONLY)
       "${cutile_fused_1nn_tiles}" @ONLY
     )
     list(APPEND cutile_fused_1nn_files "${cutile_fused_1nn_tiles}")
+
+    set(pruned_1nn_cutile_dir
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/pruned_top_1_nn/cutile"
+    )
+    set(cutile_pruned_1nn_generated_dir
+        "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/distance/pruned_1nn/cutile"
+    )
+    generate_cutile_kernels(
+      cutile_pruned_1nn_files
+      KERNEL_DIR "${pruned_1nn_cutile_dir}"
+      KERNEL_BASENAME "pruned_1nn_fused_filter"
+      KERNEL_PYTHON "fused_filter_kernel.py"
+      EXPORT_SCRIPT "export_fused_filter.py"
+      OUTPUT_DIRECTORY "${cutile_pruned_1nn_generated_dir}"
+      MATRIX_JSON_FILE "${pruned_1nn_cutile_dir}/fused_filter_cutile_matrix.json"
+                       PYTHON "${cutile_python}" BIN2C "${cutile_bin2c}"
+      FRAGMENT_TAG_FORMAT_CUBIN
+        "cuvs::distance::detail::pruned_nn::fragment_tag_fused_filter_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::detail::jit_lto::@arch_tag@>"
+      FRAGMENT_TAG_HEADER_FILES
+        "<cuvs/detail/jit_lto/pruned_top_1_nn/fused_filter_fragments.hpp>"
+        "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    )
   endif()
   # Note that this matrix contains an `arch_includes` placeholder, since we don't currently have a
   # way to do an item-wise transform on a list after computing the matrix product and before
@@ -1456,6 +1478,7 @@ if(NOT BUILD_CPU_ONLY)
     src/cluster/kmeans_balanced_fit_predict_int8.cu
     src/cluster/kmeans_balanced_predict_int8.cu
     src/cluster/kmeans_balanced_predict_uint8.cu
+    src/cluster/kmeans_superkmeans.cu
     src/cluster/kmeans_transform_double.cu
     src/cluster/kmeans_transform_float.cu
     src/cluster/single_linkage_float.cu
@@ -1570,7 +1593,10 @@ if(NOT BUILD_CPU_ONLY)
     target_sources(
       cuvs_objs
       PRIVATE ${cutile_fused_1nn_files}
-              src/distance/detail/fused_distance_nn/cutile/fused_1nn_tile.cu ${cutile_smoke_files}
+              src/distance/detail/fused_distance_nn/cutile/fused_1nn_tile.cu
+              ${cutile_smoke_files}
+              ${cutile_pruned_1nn_files}
+              src/distance/detail/pruned_top_1_nn/cutile/fused_filter_tile.cu
     )
   endif()
 
@@ -1618,8 +1644,11 @@ if(NOT BUILD_CPU_ONLY)
     PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../c/include>"
     INTERFACE "$<INSTALL_INTERFACE:include>"
-    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}/src"
-            "${cutile_fused_1nn_generated_dir}" "${cutile_smoke_generated_dir}"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${CMAKE_CURRENT_BINARY_DIR}/src"
+            "${cutile_fused_1nn_generated_dir}"
+            "${cutile_smoke_generated_dir}"
+            "${cutile_pruned_1nn_generated_dir}"
   )
 
   # Endian detection
