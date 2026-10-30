@@ -126,7 +126,7 @@ cuvsFilter prefilter);
 | `queries` | in | `DLManagedTensor*` | DLManagedTensor* queries dataset to search |
 | `neighbors` | out | `DLManagedTensor*` | DLManagedTensor* output `k` neighbors for queries |
 | `distances` | out | `DLManagedTensor*` | DLManagedTensor* output `k` distances for queries |
-| `prefilter` | in | [`cuvsFilter`](/api-reference/c-api-neighbors-common#cuvsfilter) | cuvsFilter input prefilter that can be used to filter queries and neighbors based on the given bitmap. |
+| `prefilter` | in | [`cuvsFilter`](/api-reference/c-api-core-filter#cuvsfilter) | cuvsFilter input prefilter that can be used to filter queries and neighbors based on the given bitmap. |
 
 **Returns**
 

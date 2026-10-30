@@ -93,9 +93,41 @@ class FilterCuVSProvider implements CuVSProvider {
    * narrower overloads route here, so this is the only one that has to be forwarded.
    */
   @Override
-  public CagraIndex mergeCagraIndexes(CagraIndex[] arg0, CagraIndexParams arg1, BitSet arg2)
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      CagraIndexParams mergeParams)
       throws Throwable {
-    return delegate.mergeCagraIndexes(arg0, arg1, arg2);
+    return delegate.mergeCagraIndexes(indexes, mergedDatasetHandleAddress, offsets, mergeParams);
+  }
+
+  @Override
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      BitSet filter,
+      CagraIndexParams mergeParams)
+      throws Throwable {
+    return delegate.mergeCagraIndexes(
+        indexes, mergedDatasetHandleAddress, offsets, filter, mergeParams);
+  }
+
+  @Override
+  public long[] cagraMergedDatasetOffsets(CagraIndex[] indexes, BitSet filter) throws Throwable {
+    return delegate.cagraMergedDatasetOffsets(indexes, filter);
+  }
+
+  @Override
+  public CagraIndex.PaddedDataset concatenateCagraDatasets(CagraIndex[] indexes) throws Throwable {
+    return delegate.concatenateCagraDatasets(indexes);
+  }
+
+  @Override
+  public CagraIndex.PaddedDataset concatenateAndFilterCagraDatasets(
+      CagraIndex[] indexes, BitSet filter) throws Throwable {
+    return delegate.concatenateAndFilterCagraDatasets(indexes, filter);
   }
 
   @Override

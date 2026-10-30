@@ -907,6 +907,7 @@ void sort_knn_graph(
                         d_dataset.data_handle(),
                         static_cast<uint32_t>(dataset_size),
                         static_cast<uint32_t>(dataset_dim),
+                        static_cast<uint32_t>(dataset_dim),
                         d_input_graph.data_handle(),
                         static_cast<uint32_t>(input_graph_degree));
   raft::resource::sync_stream(res);

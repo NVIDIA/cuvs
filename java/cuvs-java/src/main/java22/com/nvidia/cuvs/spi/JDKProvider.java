@@ -308,14 +308,49 @@ final class JDKProvider implements CuVSProvider {
   }
 
   @Override
-  public boolean isCagraPaddedDataset(CuVSMatrix dataset) {
-    return CagraIndexImpl.isPaddedDataset(dataset);
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      CagraIndexParams mergeParams) {
+    if (indexes == null || indexes.length == 0) {
+      throw new IllegalArgumentException("At least one index must be provided for merging");
+    }
+    return CagraIndexImpl.merge(indexes, mergedDatasetHandleAddress, offsets, mergeParams);
   }
 
   @Override
   public CagraIndex mergeCagraIndexes(
-      CagraIndex[] indexes, CagraIndexParams mergeParams, BitSet rowFilter) {
-    return CagraIndexImpl.merge(indexes, mergeParams, rowFilter);
+      CagraIndex[] indexes,
+      long mergedDatasetHandleAddress,
+      long[] offsets,
+      BitSet filter,
+      CagraIndexParams mergeParams) {
+    if (indexes == null || indexes.length == 0) {
+      throw new IllegalArgumentException("At least one index must be provided for merging");
+    }
+    return CagraIndexImpl.merge(indexes, mergedDatasetHandleAddress, offsets, filter, mergeParams);
+  }
+
+  @Override
+  public long[] cagraMergedDatasetOffsets(CagraIndex[] indexes, BitSet filter) {
+    return CagraIndexImpl.mergedDatasetOffsets(indexes, filter);
+  }
+
+  @Override
+  public CagraIndex.PaddedDataset concatenateCagraDatasets(CagraIndex[] indexes) {
+    return CagraIndexImpl.concatenateDatasets(indexes);
+  }
+
+  @Override
+  public CagraIndex.PaddedDataset concatenateAndFilterCagraDatasets(
+      CagraIndex[] indexes, BitSet filter) {
+    return CagraIndexImpl.concatenateAndFilterDatasets(indexes, filter);
+  }
+
+  @Override
+  public boolean isCagraPaddedDataset(CuVSMatrix dataset) {
+    return CagraIndexImpl.isPaddedDataset(dataset);
   }
 
   @Override

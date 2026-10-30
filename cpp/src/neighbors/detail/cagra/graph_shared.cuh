@@ -27,6 +27,7 @@ inline constexpr uint64_t kMaxSortDegree = 32 * 32;
                                          DataT const* dataset,         \
                                          uint32_t dataset_size,        \
                                          uint32_t dataset_dim,         \
+                                         uint32_t dataset_stride,      \
                                          uint32_t* knn_graph,          \
                                          uint32_t graph_degree)
 
