@@ -17,6 +17,8 @@
 #include <limits>
 #include <utility>
 
+#include "cub_ptx_query.hpp"
+
 namespace cuvs::core {
 
 namespace {
