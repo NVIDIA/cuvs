@@ -129,8 +129,10 @@ standard_descriptor_spec<Metric, TeamSize, DatasetBlockDim, DataT, IndexT, Dista
     standard_dataset_descriptor_t<TeamSize, DatasetBlockDim, DataT, IndexT, DistanceT, query_t>;
   using base_type = typename desc_type::base_type;
 
-  RAFT_EXPECTS(Metric != cuvs::distance::DistanceType::CosineExpanded || dataset_norms != nullptr,
-               "Dataset norms must be provided for CosineExpanded metric");
+  RAFT_EXPECTS((Metric != cuvs::distance::DistanceType::CosineExpanded &&
+                Metric != cuvs::distance::DistanceType::JaccardExpanded) ||
+                 dataset_norms != nullptr,
+               "Dataset norms must be provided for CosineExpanded and JaccardExpanded metrics");
 
   return host_type{
     desc_type{ptr, size, dim, ld, dataset_norms},

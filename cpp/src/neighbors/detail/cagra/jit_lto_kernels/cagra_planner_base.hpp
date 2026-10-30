@@ -220,8 +220,9 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
           break;
         case cuvs::distance::DistanceType::InnerProduct:
         case cuvs::distance::DistanceType::CosineExpanded:
-          // CosineExpanded reuses the InnerProduct dist_op; the cosine normalization is
-          // layered on by add_normalization_device_function below.
+        case cuvs::distance::DistanceType::JaccardExpanded:
+          // CosineExpanded and JaccardExpanded reuse the InnerProduct dist_op.
+          // add_normalization_device_function links cosine normalization or Jaccard expansion.
           this->add_static_fragment<
             fragment_tag_dist_op<QueryTag, DistanceTag, tag_metric_inner_product>>();
           break;
@@ -255,13 +256,15 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
                                                                               NormT>>();
         });
     };
-    // tag_u8 is only used for BitwiseHamming query layout; cosine norm fragments are built for
-    // float query tag. Use if constexpr so we do not instantiate tag_norm_cosine with tag_u8
-    // (a runtime metric check would still pull in those template specializations).
+    // tag_u8 is only used for BitwiseHamming query layout. Cosine and Jaccard normalization
+    // fragments require the float query tag. Use if constexpr to avoid instantiating either
+    // normalization with tag_u8; a runtime metric check would still instantiate both.
     if constexpr (std::is_same_v<QueryTag, cuvs::neighbors::detail::tag_u8>) {
       go.template operator()<tag_norm_noop>();
     } else if (metric == cuvs::distance::DistanceType::CosineExpanded) {
       go.template operator()<tag_norm_cosine>();
+    } else if (metric == cuvs::distance::DistanceType::JaccardExpanded) {
+      go.template operator()<tag_norm_jaccard>();
     } else {
       go.template operator()<tag_norm_noop>();
     }

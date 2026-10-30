@@ -26,6 +26,17 @@ extern __device__ DistanceT apply_normalization_standard(
   const typename dataset_descriptor_base_t<DataT, IndexT, DistanceT>::args_t args,
   IndexT dataset_index);
 
+// Initialize metric-specific query state in the shared descriptor.
+// All threads in the block must call this during workspace setup.
+template <uint32_t TeamSize,
+          uint32_t DatasetBlockDim,
+          typename DataT,
+          typename IndexT,
+          typename DistanceT,
+          typename QueryT>
+extern __device__ void setup_normalization_standard(
+  typename dataset_descriptor_base_t<DataT, IndexT, DistanceT>::args_t& args, const DataT* query);
+
 template <typename DataT, typename IndexT, typename DistanceT>
 extern __device__ const dataset_descriptor_base_t<DataT, IndexT, DistanceT>* setup_workspace(
   const dataset_descriptor_base_t<DataT, IndexT, DistanceT>*, void*, const DataT*, uint32_t);

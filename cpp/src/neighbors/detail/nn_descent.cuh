@@ -27,6 +27,7 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
+#include <raft/linalg/reduce.cuh>
 #include <raft/matrix/init.cuh>
 #include <raft/matrix/slice.cuh>
 #include <raft/util/arch.cuh>  // raft::util::arch::SM_*
@@ -566,6 +567,13 @@ __device__ __forceinline__ void calculate_metric(float* s_distances,
         if (!can_postprocess_dist && metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
           s_distances[i] = sqrtf(s_distances[i]);
         }
+      } else if (metric == cuvs::distance::DistanceType::JaccardExpanded) {
+        // For binary inputs, l2_norms holds set cardinalities and the dot product
+        // counts their intersection. Two empty sets have distance zero.
+        float intersection = s_distances[i];
+        float set_union =
+          l2_norms[row_neighbors[row_id]] + l2_norms[col_neighbors[col_id]] - intersection;
+        s_distances[i] = set_union > 0.0f ? 1.0f - intersection / set_union : 0.0f;
       }
       s_distances[i] = dist_epilogue(s_distances[i], row_neighbors[row_id], col_neighbors[col_id]);
     } else {
@@ -579,7 +587,8 @@ struct DistAccumulator {
   __device__ __forceinline__ float operator()(float a, float b) const
   {
     if (metric == cuvs::distance::DistanceType::L1) { return raft::abs(a - b); }
-    // dot product: reused by IP, cosine, and L2 (postprocessed in calculate_metric)
+    // Dot product reused by IP, cosine, L2, and binary Jaccard.
+    // calculate_metric applies the metric-specific expansion.
     return a * b;
   }
 };
@@ -2369,10 +2378,10 @@ GNND<Data_t, Index_t>::GNND(raft::resources const& res, const BuildConfig& build
 
   if (build_config.metric == cuvs::distance::DistanceType::L2Expanded ||
       build_config.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-      build_config.metric == cuvs::distance::DistanceType::CosineExpanded) {
-    // for device memory efficiency, we do not allocate a separate array for the data
-    // to normalize the data when using CosineExpanded metric. Instead, we use the l2_norms_ vector
-    // and compute inside the calculate_metric kernel.
+      build_config.metric == cuvs::distance::DistanceType::CosineExpanded ||
+      build_config.metric == cuvs::distance::DistanceType::JaccardExpanded) {
+    // L2 and cosine use squared norms; binary Jaccard uses set cardinalities.
+    // Cosine normalization is applied in calculate_metric without a normalized dataset copy.
     l2_norms_ = raft::make_device_vector<DistData_t, size_t>(res, nrow_);
   }
 };
@@ -2636,6 +2645,22 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   bool needs_l2_norms = build_config_.metric == cuvs::distance::DistanceType::L2Expanded ||
                         build_config_.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
                         build_config_.metric == cuvs::distance::DistanceType::CosineExpanded;
+  bool needs_jaccard_counts = build_config_.metric == cuvs::distance::DistanceType::JaccardExpanded;
+
+  // Reuse the norm buffer for binary set cardinalities, on the same scale as the dot product.
+  auto compute_jaccard_counts = [&](const input_t* batch_data, size_t batch_rows, size_t offset) {
+    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+      res,
+      raft::make_device_matrix_view<const input_t, size_t>(
+        batch_data, batch_rows, build_config_.dataset_dim),
+      raft::make_device_vector_view<DistData_t, size_t>(l2_norms_.data_handle() + offset,
+                                                        batch_rows),
+      DistData_t(0),
+      false,
+      raft::cast_op<DistData_t>{},
+      raft::add_op{},
+      raft::identity_op{});
+  };
 
   // For fp32 host input, downcast to a device-side fp16 buffer when distance computation will be
   // done in fp16 anyway: dispatch matches the SIMT/WMMA decision in local_join() (FP16 explicit, or
@@ -2673,8 +2698,10 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
       size_t n_elems    = batch.size() * build_config_.dataset_dim;
       int num_blocks    = raft::ceildiv(n_elems, static_cast<size_t>(TPB));
       size_t dst_offset = batch.offset() * build_config_.dataset_dim;
-      if (needs_l2_norms) {
-        // Compute l2 norms on the fp32 batches before they're downcast to fp16.
+      if (needs_jaccard_counts) {
+        compute_jaccard_counts(batch.data(), batch.size(), batch.offset());
+      } else if (needs_l2_norms) {
+        // Compute squared L2 norms before downcasting the fp32 batches to fp16.
         compute_l2_norms_kernel<<<batch.size(),
                                   raft::warp_size(),
                                   sizeof(float) *
@@ -2702,6 +2729,11 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
                static_cast<size_t>(nrow_) * build_config_.dataset_dim,
                stream);
     d_data_ptr_ = d_data_direct_.value().data_handle();
+  }
+
+  if (needs_jaccard_counts && !downcast_host_data) {
+    compute_jaccard_counts(static_cast<const input_t*>(d_data_ptr_), nrow_, 0);
+    raft::resource::sync_stream(res);
   }
 
   if (needs_l2_norms && !downcast_host_data) {

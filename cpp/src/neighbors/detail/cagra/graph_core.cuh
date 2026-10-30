@@ -871,10 +871,12 @@ void sort_knn_graph(
   RAFT_EXPECTS(
     metric == cuvs::distance::DistanceType::InnerProduct ||
       metric == cuvs::distance::DistanceType::CosineExpanded ||
+      metric == cuvs::distance::DistanceType::JaccardExpanded ||
       metric == cuvs::distance::DistanceType::L2Expanded ||
       metric == cuvs::distance::DistanceType::BitwiseHamming ||
       metric == cuvs::distance::DistanceType::L1,
-    "Unsupported metric. Only InnerProduct, CosineExpanded, L2Expanded, BitwiseHamming and L1 are "
+    "Unsupported metric. Only InnerProduct, CosineExpanded, JaccardExpanded, L2Expanded, "
+    "BitwiseHamming and L1 are "
     "supported");
   const uint64_t dataset_size = dataset.extent(0);
   const uint64_t dataset_dim  = dataset.extent(1);

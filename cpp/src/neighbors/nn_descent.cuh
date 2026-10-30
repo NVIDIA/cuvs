@@ -27,6 +27,7 @@ namespace cuvs::neighbors::nn_descent {
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
  *
@@ -66,6 +67,7 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
  *
@@ -109,6 +111,7 @@ void build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
  *
@@ -148,6 +151,7 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
  *

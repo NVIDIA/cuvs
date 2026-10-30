@@ -182,7 +182,7 @@ cdef class IndexParams:
 
     metric : str, default = "sqeuclidean"
         String denoting the metric type, valid values for metric are
-        ["sqeuclidean", "inner_product", "cosine"], where:
+        ["sqeuclidean", "inner_product", "cosine", "jaccard"], where:
 
             - sqeuclidean is the euclidean distance without the square root
               operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2
@@ -190,6 +190,11 @@ cdef class IndexParams:
               distance(a, b) = \\sum_i a_i * b_i.
             - cosine distance is defined as
               distance(a, b) = 1 - \\sum_i a_i * b_i / ( ||a||_2 * ||b||_2).
+
+            - jaccard distance for binary (0/1) vectors is
+              distance(a, b) = 1 - intersection(a, b) / union(a, b). Two empty sets have
+              distance zero. Requires build_algo="nn_descent" or
+              build_algo="iterative_cagra_search".
 
     intermediate_graph_degree : int, default = 128
     graph_degree : int, default = 64
@@ -242,6 +247,14 @@ cdef class IndexParams:
         # Declare cdef variables at the top of the function
         cdef cuvsIvfPqParams_t ivf_pq_params_ptr
         cdef cuvsAceParams_t new_ace_params
+
+        if metric == "jaccard" and build_algo not in (
+            "nn_descent", "iterative_cagra_search"
+        ):
+            raise ValueError(
+                'Jaccard distance requires build_algo="nn_descent" or '
+                'build_algo="iterative_cagra_search".'
+            )
 
         self.params.metric = <cuvsDistanceType>DISTANCE_TYPES[metric]
         self.params.intermediate_graph_degree = intermediate_graph_degree
@@ -469,6 +482,7 @@ def build(IndexParams index_params, dataset, resources=None):
         - L2
         - InnerProduct
         - Cosine
+        - Jaccard
 
     Parameters
     ----------

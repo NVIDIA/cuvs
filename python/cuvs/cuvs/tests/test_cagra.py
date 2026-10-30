@@ -358,3 +358,79 @@ def test_cagra_ivf_pq(
     recall = calc_recall(out_idx, skl_idx)
 
     assert recall > 0.9
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float16, np.int8, np.uint8])
+@pytest.mark.parametrize("algo", ["single_cta", "multi_cta", "multi_kernel"])
+@pytest.mark.parametrize("build_algo", ["nn_descent", "iterative_cagra_search"])
+def test_cagra_jaccard(dtype, algo, build_algo):
+    from scipy.spatial.distance import cdist
+
+    rng = np.random.default_rng(1158)
+    dataset = (rng.random((512, 65)) < 0.25).astype(dtype)
+    dataset[:2] = 0
+    dataset[2:4] = 1
+    queries = np.concatenate((dataset[:4], dataset[32:44]))
+    expected = cdist(queries.astype(bool), dataset.astype(bool), "jaccard")
+    index = cagra.build(
+        cagra.IndexParams(
+            metric="jaccard",
+            build_algo=build_algo,
+            graph_degree=32,
+            intermediate_graph_degree=64,
+        ),
+        device_ndarray(dataset),
+    )
+    distances, neighbors = cagra.search(
+        cagra.SearchParams(algo=algo, itopk_size=128),
+        index,
+        device_ndarray(queries),
+        10,
+    )
+    distances = cp.asnumpy(cp.asarray(distances))
+    neighbors = cp.asnumpy(cp.asarray(neighbors))
+    np.testing.assert_allclose(
+        distances, np.take_along_axis(expected, neighbors, axis=1), atol=1e-6
+    )
+    assert np.all(np.diff(distances, axis=1) >= 0)
+    for ids in neighbors:
+        assert len(np.unique(ids)) == len(ids)
+
+    # Count all strictly closer neighbors, allowing any IDs tied at the boundary.
+    k = neighbors.shape[1]
+    cutoff = np.partition(expected, k - 1, axis=1)[:, k - 1, None]
+    returned = np.take_along_axis(expected, neighbors, axis=1)
+    strict_count = np.sum(expected < cutoff, axis=1)
+    strict_hits = np.sum(returned < cutoff, axis=1)
+    boundary_hits = np.minimum(np.sum(returned == cutoff, axis=1), k - strict_count)
+    assert np.mean((strict_hits + boundary_hits) / k) >= 0.9
+
+
+@pytest.mark.parametrize("build_algo", ["ivf_pq", "ace"])
+def test_cagra_jaccard_unsupported_builder(build_algo):
+    with pytest.raises(ValueError, match='Jaccard.*build_algo="nn_descent"'):
+        cagra.IndexParams(metric="jaccard", build_algo=build_algo)
+
+
+def test_cagra_jaccard_default_builder():
+    with pytest.raises(ValueError, match='Jaccard.*build_algo="nn_descent"'):
+        cagra.IndexParams(metric="jaccard")
+
+
+@pytest.mark.parametrize("build_algo", ["nn_descent", "iterative_cagra_search"])
+def test_cagra_jaccard_supported_builder_params(build_algo):
+    params = cagra.IndexParams(
+        metric="jaccard", build_algo=build_algo, nn_descent_niter=7
+    )
+    assert params.metric == "jaccard"
+    expected = cagra.IndexParams(build_algo=build_algo)
+    assert params.build_algo == expected.build_algo
+    assert params.nn_descent_niter == 7
+
+
+@pytest.mark.parametrize("metric", ["sqeuclidean", "inner_product", "cosine"])
+def test_cagra_default_builder(metric):
+    params = cagra.IndexParams(metric=metric)
+    assert params.metric == metric
+    expected = cagra.IndexParams(build_algo="ivf_pq")
+    assert params.build_algo == expected.build_algo

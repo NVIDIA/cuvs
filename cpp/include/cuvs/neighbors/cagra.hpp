@@ -568,7 +568,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     return mapping_fd_;
   }
 
-  /** Dataset norms for cosine distance [size] */
+  /** Scaled L2 norms for cosine or scaled set cardinalities for binary Jaccard [size]. */
   [[nodiscard]] inline auto dataset_norms() const noexcept
     -> std::optional<raft::device_vector_view<const float, int64_t>>
   {
@@ -643,7 +643,9 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     update_graph(res, knn_graph);
 
     if constexpr (cuvs::neighbors::is_device_dataset_view_v<DatasetViewT>) {
-      if (metric_ == cuvs::distance::DistanceType::CosineExpanded && dataset.n_rows() > 0) {
+      if ((metric_ == cuvs::distance::DistanceType::CosineExpanded ||
+           metric_ == cuvs::distance::DistanceType::JaccardExpanded) &&
+          dataset.n_rows() > 0) {
         compute_dataset_norms_(res);
       }
     }
@@ -668,7 +670,8 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
       graph_degree_(other.graph_degree_)
   {
     if constexpr (is_device_dataset_view_v<DatasetViewT>) {
-      if (metric() == cuvs::distance::DistanceType::CosineExpanded) {
+      if (metric() == cuvs::distance::DistanceType::CosineExpanded ||
+          metric() == cuvs::distance::DistanceType::JaccardExpanded) {
         if (dataset_.n_rows() > 0) { compute_dataset_norms_(res); }
       }
     }
