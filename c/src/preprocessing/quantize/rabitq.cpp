@@ -71,10 +71,10 @@ rabitq::rotator* _rotator_ptr(cuvsRabitqRotator_t rotator)
   return reinterpret_cast<rabitq::rotator*>(rotator->addr);
 }
 
-rabitq::quantizer* _quantizer_ptr(cuvsRabitqQuantizer_t quantizer)
+rabitq::encoder* _encoder_ptr(cuvsRabitqEncoder_t encoder)
 {
-  if (quantizer == nullptr || quantizer->addr == 0) { RAFT_FAIL("quantizer is not initialized"); }
-  return reinterpret_cast<rabitq::quantizer*>(quantizer->addr);
+  if (encoder == nullptr || encoder->addr == 0) { RAFT_FAIL("encoder is not initialized"); }
+  return reinterpret_cast<rabitq::encoder*>(encoder->addr);
 }
 
 /** For tensors that must be device-accessible: a uniform diagnostic for host ones. */
@@ -146,7 +146,7 @@ std::optional<centroid_mdspan_type> _optional_centroid(DLManagedTensor* centroid
 
 template <typename CodeT>
 void _transform(cuvsResources_t res,
-                cuvsRabitqQuantizer_t quantizer,
+                cuvsRabitqEncoder_t encoder,
                 cuvsRabitqRotator_t rotator,
                 DLManagedTensor* dataset_tensor,
                 DLManagedTensor* centroid_tensor,
@@ -155,7 +155,7 @@ void _transform(cuvsResources_t res,
                 DLManagedTensor* vl_tensor)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  auto* q      = _quantizer_ptr(quantizer);
+  auto* q      = _encoder_ptr(encoder);
   auto* r      = _rotator_ptr(rotator);
 
   _expect_float32(delta_tensor, "delta");
@@ -176,7 +176,7 @@ void _transform(cuvsResources_t res,
 
 template <typename CodeT>
 void _transform_full(cuvsResources_t res,
-                     cuvsRabitqQuantizer_t quantizer,
+                     cuvsRabitqEncoder_t encoder,
                      cuvsRabitqRotator_t rotator,
                      DLManagedTensor* dataset_tensor,
                      DLManagedTensor* centroid_tensor,
@@ -184,7 +184,7 @@ void _transform_full(cuvsResources_t res,
                      DLManagedTensor* factors_tensor)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  auto* q      = _quantizer_ptr(quantizer);
+  auto* q      = _encoder_ptr(encoder);
   auto* r      = _rotator_ptr(rotator);
 
   _expect_float32(factors_tensor, "factors");
@@ -203,14 +203,14 @@ void _transform_full(cuvsResources_t res,
 
 template <typename CodeT>
 void _transform_residuals(cuvsResources_t res,
-                          cuvsRabitqQuantizer_t quantizer,
+                          cuvsRabitqEncoder_t encoder,
                           DLManagedTensor* residuals_tensor,
                           DLManagedTensor* codes_tensor,
                           DLManagedTensor* delta_tensor,
                           DLManagedTensor* vl_tensor)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  auto* q      = _quantizer_ptr(quantizer);
+  auto* q      = _encoder_ptr(encoder);
 
   _expect_float32(residuals_tensor, "residuals");
   _expect_float32(delta_tensor, "delta");
@@ -227,14 +227,14 @@ void _transform_residuals(cuvsResources_t res,
 
 template <typename CodeT>
 void _transform_residuals_full(cuvsResources_t res,
-                               cuvsRabitqQuantizer_t quantizer,
+                               cuvsRabitqEncoder_t encoder,
                                DLManagedTensor* residuals_tensor,
                                DLManagedTensor* rotated_centroid_tensor,
                                DLManagedTensor* codes_tensor,
                                DLManagedTensor* factors_tensor)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  auto* q      = _quantizer_ptr(quantizer);
+  auto* q      = _encoder_ptr(encoder);
 
   _expect_float32(residuals_tensor, "residuals");
   _expect_float32(factors_tensor, "factors");
@@ -283,17 +283,17 @@ extern "C" cuvsError_t cuvsRabitqRotatorDestroy(cuvsRabitqRotator_t rotator)
   });
 }
 
-extern "C" cuvsError_t cuvsRabitqQuantizerCreate(cuvsRabitqQuantizer_t* quantizer)
+extern "C" cuvsError_t cuvsRabitqEncoderCreate(cuvsRabitqEncoder_t* encoder)
 {
-  return cuvs::core::translate_exceptions([=] { *quantizer = new cuvsRabitqQuantizer{}; });
+  return cuvs::core::translate_exceptions([=] { *encoder = new cuvsRabitqEncoder{}; });
 }
 
-extern "C" cuvsError_t cuvsRabitqQuantizerDestroy(cuvsRabitqQuantizer_t quantizer)
+extern "C" cuvsError_t cuvsRabitqEncoderDestroy(cuvsRabitqEncoder_t encoder)
 {
   return cuvs::core::translate_exceptions([=] {
-    if (quantizer == nullptr) { return; }
-    delete reinterpret_cast<rabitq::quantizer*>(quantizer->addr);
-    delete quantizer;
+    if (encoder == nullptr) { return; }
+    delete reinterpret_cast<rabitq::encoder*>(encoder->addr);
+    delete encoder;
   });
 }
 
@@ -358,41 +358,41 @@ extern "C" cuvsError_t cuvsRabitqRotatorMakeFromState(cuvsResources_t res,
   });
 }
 
-extern "C" cuvsError_t cuvsRabitqQuantizerMake(cuvsResources_t res,
-                                               cuvsRabitqQuantizerParams_t params,
-                                               int64_t dim,
-                                               cuvsRabitqQuantizer_t quantizer)
+extern "C" cuvsError_t cuvsRabitqEncoderMake(cuvsResources_t res,
+                                             cuvsRabitqQuantizerParams_t params,
+                                             int64_t dim,
+                                             cuvsRabitqEncoder_t encoder)
 {
   return cuvs::core::translate_exceptions([=] {
-    if (quantizer == nullptr) { RAFT_FAIL("quantizer is not allocated"); }
+    if (encoder == nullptr) { RAFT_FAIL("encoder is not allocated"); }
     auto res_ptr          = reinterpret_cast<raft::resources*>(res);
     auto quantizer_params = _convert_params(params);
-    auto* ret = new rabitq::quantizer(rabitq::make_quantizer(*res_ptr, quantizer_params, dim));
-    delete reinterpret_cast<rabitq::quantizer*>(quantizer->addr);
-    quantizer->addr = reinterpret_cast<uintptr_t>(ret);
+    auto* ret = new rabitq::encoder(rabitq::make_encoder(*res_ptr, quantizer_params, dim));
+    delete reinterpret_cast<rabitq::encoder*>(encoder->addr);
+    encoder->addr = reinterpret_cast<uintptr_t>(ret);
   });
 }
 
-extern "C" cuvsError_t cuvsRabitqPipelineMake(cuvsResources_t res,
-                                              cuvsRabitqQuantizerParams_t params,
-                                              int64_t dim,
-                                              cuvsRabitqRotator_t rotator,
-                                              cuvsRabitqQuantizer_t quantizer)
+extern "C" cuvsError_t cuvsRabitqQuantizerMake(cuvsResources_t res,
+                                               cuvsRabitqQuantizerParams_t params,
+                                               int64_t dim,
+                                               cuvsRabitqRotator_t rotator,
+                                               cuvsRabitqEncoder_t encoder)
 {
   return cuvs::core::translate_exceptions([=] {
     if (rotator == nullptr) { RAFT_FAIL("rotator is not allocated"); }
-    if (quantizer == nullptr) { RAFT_FAIL("quantizer is not allocated"); }
+    if (encoder == nullptr) { RAFT_FAIL("encoder is not allocated"); }
     auto res_ptr          = reinterpret_cast<raft::resources*>(res);
     auto quantizer_params = _convert_params(params);
-    auto built            = rabitq::make_pipeline(*res_ptr, quantizer_params, dim);
+    auto built            = rabitq::make_quantizer(*res_ptr, quantizer_params, dim);
 
-    auto* new_rotator   = new rabitq::rotator(std::move(built.rotator));
-    auto* new_quantizer = new rabitq::quantizer(built.quantizer);
+    auto* new_rotator = new rabitq::rotator(std::move(built.rotator));
+    auto* new_encoder = new rabitq::encoder(built.encoder);
 
     delete reinterpret_cast<rabitq::rotator*>(rotator->addr);
-    delete reinterpret_cast<rabitq::quantizer*>(quantizer->addr);
-    rotator->addr   = reinterpret_cast<uintptr_t>(new_rotator);
-    quantizer->addr = reinterpret_cast<uintptr_t>(new_quantizer);
+    delete reinterpret_cast<rabitq::encoder*>(encoder->addr);
+    rotator->addr = reinterpret_cast<uintptr_t>(new_rotator);
+    encoder->addr = reinterpret_cast<uintptr_t>(new_encoder);
   });
 }
 
@@ -416,7 +416,7 @@ extern "C" cuvsError_t cuvsRabitqRotate(cuvsResources_t res,
 }
 
 extern "C" cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
-                                           cuvsRabitqQuantizer_t quantizer,
+                                           cuvsRabitqEncoder_t encoder,
                                            cuvsRabitqRotator_t rotator,
                                            DLManagedTensor* dataset_tensor,
                                            DLManagedTensor* centroid_tensor,
@@ -429,7 +429,7 @@ extern "C" cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
     auto codes = codes_tensor->dl_tensor;
     if (codes.dtype.code == kDLUInt && codes.dtype.bits == 8) {
       _transform<uint8_t>(res,
-                          quantizer,
+                          encoder,
                           rotator,
                           dataset_tensor,
                           centroid_tensor,
@@ -438,7 +438,7 @@ extern "C" cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
                           vl_tensor);
     } else if (codes.dtype.code == kDLUInt && codes.dtype.bits == 16) {
       _transform<uint16_t>(res,
-                           quantizer,
+                           encoder,
                            rotator,
                            dataset_tensor,
                            centroid_tensor,
@@ -453,7 +453,7 @@ extern "C" cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
 }
 
 extern "C" cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
-                                               cuvsRabitqQuantizer_t quantizer,
+                                               cuvsRabitqEncoder_t encoder,
                                                cuvsRabitqRotator_t rotator,
                                                DLManagedTensor* dataset_tensor,
                                                DLManagedTensor* centroid_tensor,
@@ -465,10 +465,10 @@ extern "C" cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
     auto codes = codes_tensor->dl_tensor;
     if (codes.dtype.code == kDLUInt && codes.dtype.bits == 8) {
       _transform_full<uint8_t>(
-        res, quantizer, rotator, dataset_tensor, centroid_tensor, codes_tensor, factors_tensor);
+        res, encoder, rotator, dataset_tensor, centroid_tensor, codes_tensor, factors_tensor);
     } else if (codes.dtype.code == kDLUInt && codes.dtype.bits == 16) {
       _transform_full<uint16_t>(
-        res, quantizer, rotator, dataset_tensor, centroid_tensor, codes_tensor, factors_tensor);
+        res, encoder, rotator, dataset_tensor, centroid_tensor, codes_tensor, factors_tensor);
     } else {
       RAFT_FAIL(
         "Unsupported codes DLtensor dtype: %d and bits: %d", codes.dtype.code, codes.dtype.bits);
@@ -477,7 +477,7 @@ extern "C" cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
 }
 
 extern "C" cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
-                                                    cuvsRabitqQuantizer_t quantizer,
+                                                    cuvsRabitqEncoder_t encoder,
                                                     DLManagedTensor* residuals_tensor,
                                                     DLManagedTensor* codes_tensor,
                                                     DLManagedTensor* delta_tensor,
@@ -488,10 +488,10 @@ extern "C" cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
     auto codes = codes_tensor->dl_tensor;
     if (codes.dtype.code == kDLUInt && codes.dtype.bits == 8) {
       _transform_residuals<uint8_t>(
-        res, quantizer, residuals_tensor, codes_tensor, delta_tensor, vl_tensor);
+        res, encoder, residuals_tensor, codes_tensor, delta_tensor, vl_tensor);
     } else if (codes.dtype.code == kDLUInt && codes.dtype.bits == 16) {
       _transform_residuals<uint16_t>(
-        res, quantizer, residuals_tensor, codes_tensor, delta_tensor, vl_tensor);
+        res, encoder, residuals_tensor, codes_tensor, delta_tensor, vl_tensor);
     } else {
       RAFT_FAIL(
         "Unsupported codes DLtensor dtype: %d and bits: %d", codes.dtype.code, codes.dtype.bits);
@@ -500,7 +500,7 @@ extern "C" cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
 }
 
 extern "C" cuvsError_t cuvsRabitqTransformResidualsFull(cuvsResources_t res,
-                                                        cuvsRabitqQuantizer_t quantizer,
+                                                        cuvsRabitqEncoder_t encoder,
                                                         DLManagedTensor* residuals_tensor,
                                                         DLManagedTensor* rotated_centroid_tensor,
                                                         DLManagedTensor* codes_tensor,
@@ -511,14 +511,14 @@ extern "C" cuvsError_t cuvsRabitqTransformResidualsFull(cuvsResources_t res,
     auto codes = codes_tensor->dl_tensor;
     if (codes.dtype.code == kDLUInt && codes.dtype.bits == 8) {
       _transform_residuals_full<uint8_t>(res,
-                                         quantizer,
+                                         encoder,
                                          residuals_tensor,
                                          rotated_centroid_tensor,
                                          codes_tensor,
                                          factors_tensor);
     } else if (codes.dtype.code == kDLUInt && codes.dtype.bits == 16) {
       _transform_residuals_full<uint16_t>(res,
-                                          quantizer,
+                                          encoder,
                                           residuals_tensor,
                                           rotated_centroid_tensor,
                                           codes_tensor,
@@ -564,21 +564,20 @@ extern "C" cuvsError_t cuvsRabitqRotatorGetState(cuvsRabitqRotator_t rotator,
   });
 }
 
-extern "C" cuvsError_t cuvsRabitqQuantizerGetDim(cuvsRabitqQuantizer_t quantizer, int64_t* dim)
+extern "C" cuvsError_t cuvsRabitqEncoderGetDim(cuvsRabitqEncoder_t encoder, int64_t* dim)
 {
-  return cuvs::core::translate_exceptions([=] { *dim = _quantizer_ptr(quantizer)->dim; });
+  return cuvs::core::translate_exceptions([=] { *dim = _encoder_ptr(encoder)->dim; });
 }
 
-extern "C" cuvsError_t cuvsRabitqQuantizerGetPaddedDim(cuvsRabitqQuantizer_t quantizer,
-                                                       int64_t* padded_dim)
+extern "C" cuvsError_t cuvsRabitqEncoderGetPaddedDim(cuvsRabitqEncoder_t encoder,
+                                                     int64_t* padded_dim)
 {
-  return cuvs::core::translate_exceptions(
-    [=] { *padded_dim = _quantizer_ptr(quantizer)->padded_dim; });
+  return cuvs::core::translate_exceptions([=] { *padded_dim = _encoder_ptr(encoder)->padded_dim; });
 }
 
-extern "C" cuvsError_t cuvsRabitqQuantizerGetConstScalingFactor(cuvsRabitqQuantizer_t quantizer,
-                                                                float* const_scaling_factor)
+extern "C" cuvsError_t cuvsRabitqEncoderGetConstScalingFactor(cuvsRabitqEncoder_t encoder,
+                                                              float* const_scaling_factor)
 {
   return cuvs::core::translate_exceptions(
-    [=] { *const_scaling_factor = _quantizer_ptr(quantizer)->const_scaling_factor; });
+    [=] { *const_scaling_factor = _encoder_ptr(encoder)->const_scaling_factor; });
 }

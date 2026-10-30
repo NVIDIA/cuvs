@@ -72,26 +72,26 @@ void check_rotator(rabitq::rotator const& rot)
   }
 }
 
-void check_quantizer(rabitq::quantizer const& q)
+void check_encoder(rabitq::encoder const& q)
 {
-  RAFT_EXPECTS(q.dim > 0, "rabitq: quantizer is not initialized (dim == 0); use make_quantizer()");
+  RAFT_EXPECTS(q.dim > 0, "rabitq: encoder is not initialized (dim == 0); use make_encoder()");
   RAFT_EXPECTS(q.padded_dim == detail::padded_dim(q.dim),
-               "rabitq: quantizer.padded_dim is inconsistent with quantizer.dim");
+               "rabitq: encoder.padded_dim is inconsistent with encoder.dim");
   check_params(q.params_quantizer);
 }
 
-/** The quantizer and the rotator must agree on the padded working dimension. */
-void check_peers(rabitq::quantizer const& q, rabitq::rotator const& rot)
+/** The encoder and the rotator must agree on the padded working dimension. */
+void check_peers(rabitq::encoder const& q, rabitq::rotator const& rot)
 {
-  check_quantizer(q);
+  check_encoder(q);
   check_rotator(rot);
   RAFT_EXPECTS(rot.padded_dim == q.padded_dim,
-               "rabitq: rotator.padded_dim must match quantizer.padded_dim");
+               "rabitq: rotator.padded_dim must match encoder.padded_dim");
 }
 
 /** One code element per padded dimension, each holding an `ex_bits + 1` bit value. */
 template <typename CodeT>
-void check_codes(rabitq::quantizer const& q,
+void check_codes(rabitq::encoder const& q,
                  int64_t n_rows,
                  raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes)
 {
@@ -100,7 +100,7 @@ void check_codes(rabitq::quantizer const& q,
                "rabitq: the code element type is too narrow for ex_bits + 1 bits");
   RAFT_EXPECTS(codes.extent(0) == n_rows, "rabitq: codes.extent(0) must match the row count");
   RAFT_EXPECTS(codes.extent(1) == q.padded_dim,
-               "rabitq: codes.extent(1) must equal quantizer.padded_dim");
+               "rabitq: codes.extent(1) must equal encoder.padded_dim");
 }
 
 void check_rows(int64_t n_rows)
@@ -141,7 +141,7 @@ void check_factors(int64_t n_rows,
  * row for the buffers its rows are copied into.
  */
 [[nodiscard]] auto transform_batch_rows(raft::resources const& res,
-                                        rabitq::quantizer const& q,
+                                        rabitq::encoder const& q,
                                         rabitq::rotator const& rot,
                                         int64_t n_rows,
                                         size_t staging_row_bytes) -> int64_t
@@ -239,7 +239,7 @@ void for_each_batch(raft::resources const& res,
 
 template <typename CodeT, typename Accessor>
 void transform_impl(raft::resources const& res,
-                    rabitq::quantizer const& q,
+                    rabitq::encoder const& q,
                     rabitq::rotator const& rot,
                     dataset_view<Accessor> dataset,
                     std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -250,12 +250,12 @@ void transform_impl(raft::resources const& res,
   const int64_t n_rows = dataset.extent(0);
   check_peers(q, rot);
   RAFT_EXPECTS(dataset.extent(1) == q.dim,
-               "rabitq::transform: dataset.extent(1) must equal quantizer.dim");
+               "rabitq::transform: dataset.extent(1) must equal encoder.dim");
   check_codes(q, n_rows, codes);
   check_delta_vl(n_rows, delta, vl);
   if (centroid.has_value()) {
     RAFT_EXPECTS(centroid->extent(0) == q.dim,
-                 "rabitq::transform: centroid must hold quantizer.dim elements");
+                 "rabitq::transform: centroid must hold encoder.dim elements");
   }
   if (n_rows == 0) { return; }
 
@@ -292,7 +292,7 @@ void transform_impl(raft::resources const& res,
 
 template <typename CodeT, typename Accessor>
 void transform_full_impl(raft::resources const& res,
-                         rabitq::quantizer const& q,
+                         rabitq::encoder const& q,
                          rabitq::rotator const& rot,
                          dataset_view<Accessor> dataset,
                          std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -302,12 +302,12 @@ void transform_full_impl(raft::resources const& res,
   const int64_t n_rows = dataset.extent(0);
   check_peers(q, rot);
   RAFT_EXPECTS(dataset.extent(1) == q.dim,
-               "rabitq::transform: dataset.extent(1) must equal quantizer.dim");
+               "rabitq::transform: dataset.extent(1) must equal encoder.dim");
   check_codes(q, n_rows, codes);
   check_factors(n_rows, factors);
   if (centroid.has_value()) {
     RAFT_EXPECTS(centroid->extent(0) == q.dim,
-                 "rabitq::transform: centroid must hold quantizer.dim elements");
+                 "rabitq::transform: centroid must hold encoder.dim elements");
   }
   if (n_rows == 0) { return; }
 
@@ -343,17 +343,17 @@ void transform_full_impl(raft::resources const& res,
 template <typename CodeT>
 void transform_residuals_impl(
   raft::resources const& res,
-  rabitq::quantizer const& q,
+  rabitq::encoder const& q,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
   raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
   raft::device_vector_view<float, int64_t> delta,
   raft::device_vector_view<float, int64_t> vl)
 {
   const int64_t n_rows = residuals.extent(0);
-  check_quantizer(q);
+  check_encoder(q);
   check_rows(n_rows);
   RAFT_EXPECTS(residuals.extent(1) == q.padded_dim,
-               "rabitq::transform_residuals: residuals.extent(1) must equal quantizer.padded_dim");
+               "rabitq::transform_residuals: residuals.extent(1) must equal encoder.padded_dim");
   check_codes(q, n_rows, codes);
   check_delta_vl(n_rows, delta, vl);
   if (n_rows == 0) { return; }
@@ -376,23 +376,23 @@ void transform_residuals_impl(
 template <typename CodeT>
 void transform_residuals_full_impl(
   raft::resources const& res,
-  rabitq::quantizer const& q,
+  rabitq::encoder const& q,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
   std::optional<raft::device_vector_view<const float, int64_t>> rotated_centroid,
   raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
   raft::device_matrix_view<float, int64_t, raft::row_major> factors)
 {
   const int64_t n_rows = residuals.extent(0);
-  check_quantizer(q);
+  check_encoder(q);
   check_rows(n_rows);
   RAFT_EXPECTS(residuals.extent(1) == q.padded_dim,
-               "rabitq::transform_residuals: residuals.extent(1) must equal quantizer.padded_dim");
+               "rabitq::transform_residuals: residuals.extent(1) must equal encoder.padded_dim");
   check_codes(q, n_rows, codes);
   check_factors(n_rows, factors);
   if (rotated_centroid.has_value()) {
     RAFT_EXPECTS(
       rotated_centroid->extent(0) == q.padded_dim,
-      "rabitq::transform_residuals: rotated_centroid must hold quantizer.padded_dim elements");
+      "rabitq::transform_residuals: rotated_centroid must hold encoder.padded_dim elements");
   }
   if (n_rows == 0) { return; }
 
@@ -449,12 +449,12 @@ rotator make_rotator(raft::resources const& res, params const& params, int64_t d
 // RaBitQ needs no training data: `res` only supplies the stream, the workspace
 // memory resource and the device properties used by the scaling-factor
 // estimator below (and is unused when `params.use_fast` is false).
-quantizer make_quantizer(raft::resources const& res, params const& params, int64_t dim)
+encoder make_encoder(raft::resources const& res, params const& params, int64_t dim)
 {
-  RAFT_EXPECTS(dim > 0, "rabitq::make_quantizer: dim must be positive");
+  RAFT_EXPECTS(dim > 0, "rabitq::make_encoder: dim must be positive");
   check_params(params);
 
-  quantizer q;
+  encoder q;
   q.params_quantizer = params;
   q.dim              = dim;
   q.padded_dim       = detail::padded_dim(dim);
@@ -472,12 +472,12 @@ quantizer make_quantizer(raft::resources const& res, params const& params, int64
   return q;
 }
 
-pipeline make_pipeline(raft::resources const& res, params const& params, int64_t dim)
+quantizer make_quantizer(raft::resources const& res, params const& params, int64_t dim)
 {
-  pipeline p{res};
-  p.rotator   = make_rotator(res, params, dim);
-  p.quantizer = make_quantizer(res, params, dim);
-  return p;
+  quantizer q{res};
+  q.rotator = make_rotator(res, params, dim);
+  q.encoder = make_encoder(res, params, dim);
+  return q;
 }
 
 void rotate(raft::resources const& res,
@@ -500,7 +500,7 @@ void rotate(raft::resources const& res,
 }
 
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -508,11 +508,11 @@ void transform(raft::resources const& res,
                raft::device_vector_view<float, int64_t> delta,
                raft::device_vector_view<float, int64_t> vl)
 {
-  transform_impl(res, quantizer, rotator, dataset, centroid, codes, delta, vl);
+  transform_impl(res, encoder, rotator, dataset, centroid, codes, delta, vl);
 }
 
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -520,11 +520,11 @@ void transform(raft::resources const& res,
                raft::device_vector_view<float, int64_t> delta,
                raft::device_vector_view<float, int64_t> vl)
 {
-  transform_impl(res, quantizer, rotator, dataset, centroid, codes, delta, vl);
+  transform_impl(res, encoder, rotator, dataset, centroid, codes, delta, vl);
 }
 
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -532,11 +532,11 @@ void transform(raft::resources const& res,
                raft::device_vector_view<float, int64_t> delta,
                raft::device_vector_view<float, int64_t> vl)
 {
-  transform_impl(res, quantizer, rotator, dataset, centroid, codes, delta, vl);
+  transform_impl(res, encoder, rotator, dataset, centroid, codes, delta, vl);
 }
 
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -544,93 +544,93 @@ void transform(raft::resources const& res,
                raft::device_vector_view<float, int64_t> delta,
                raft::device_vector_view<float, int64_t> vl)
 {
-  transform_impl(res, quantizer, rotator, dataset, centroid, codes, delta, vl);
+  transform_impl(res, encoder, rotator, dataset, centroid, codes, delta, vl);
 }
 
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
                raft::device_matrix_view<float, int64_t, raft::row_major> factors)
 {
-  transform_full_impl(res, quantizer, rotator, dataset, centroid, codes, factors);
+  transform_full_impl(res, encoder, rotator, dataset, centroid, codes, factors);
 }
 
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
                raft::device_matrix_view<float, int64_t, raft::row_major> factors)
 {
-  transform_full_impl(res, quantizer, rotator, dataset, centroid, codes, factors);
+  transform_full_impl(res, encoder, rotator, dataset, centroid, codes, factors);
 }
 
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
                raft::device_matrix_view<float, int64_t, raft::row_major> factors)
 {
-  transform_full_impl(res, quantizer, rotator, dataset, centroid, codes, factors);
+  transform_full_impl(res, encoder, rotator, dataset, centroid, codes, factors);
 }
 
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
                raft::device_matrix_view<float, int64_t, raft::row_major> factors)
 {
-  transform_full_impl(res, quantizer, rotator, dataset, centroid, codes, factors);
+  transform_full_impl(res, encoder, rotator, dataset, centroid, codes, factors);
 }
 
 void transform_residuals(raft::resources const& res,
-                         quantizer const& quantizer,
+                         encoder const& encoder,
                          raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
                          raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
                          raft::device_vector_view<float, int64_t> delta,
                          raft::device_vector_view<float, int64_t> vl)
 {
-  transform_residuals_impl(res, quantizer, residuals, codes, delta, vl);
+  transform_residuals_impl(res, encoder, residuals, codes, delta, vl);
 }
 
 void transform_residuals(raft::resources const& res,
-                         quantizer const& quantizer,
+                         encoder const& encoder,
                          raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
                          raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
                          raft::device_vector_view<float, int64_t> delta,
                          raft::device_vector_view<float, int64_t> vl)
 {
-  transform_residuals_impl(res, quantizer, residuals, codes, delta, vl);
+  transform_residuals_impl(res, encoder, residuals, codes, delta, vl);
 }
 
 void transform_residuals(
   raft::resources const& res,
-  quantizer const& quantizer,
+  encoder const& encoder,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
   std::optional<raft::device_vector_view<const float, int64_t>> rotated_centroid,
   raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
   raft::device_matrix_view<float, int64_t, raft::row_major> factors)
 {
-  transform_residuals_full_impl(res, quantizer, residuals, rotated_centroid, codes, factors);
+  transform_residuals_full_impl(res, encoder, residuals, rotated_centroid, codes, factors);
 }
 
 void transform_residuals(
   raft::resources const& res,
-  quantizer const& quantizer,
+  encoder const& encoder,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
   std::optional<raft::device_vector_view<const float, int64_t>> rotated_centroid,
   raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
   raft::device_matrix_view<float, int64_t, raft::row_major> factors)
 {
-  transform_residuals_full_impl(res, quantizer, residuals, rotated_centroid, codes, factors);
+  transform_residuals_full_impl(res, encoder, residuals, rotated_centroid, codes, factors);
 }
 
 }  // namespace cuvs::preprocessing::quantize::rabitq

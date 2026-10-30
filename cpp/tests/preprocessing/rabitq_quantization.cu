@@ -133,7 +133,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
   }
 
   /** The two peers must agree on the documented padding rule. */
-  void verify_shape(rotator const& rot, quantizer const& quant)
+  void verify_shape(rotator const& rot, encoder const& quant)
   {
     const int64_t padded = expected_padded_dim(ps_.dim);
     ASSERT_EQ(quant.dim, ps_.dim);
@@ -267,19 +267,19 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
   {
     const auto p = make_params();
 
-    auto pipe = make_pipeline(handle_, p, ps_.dim);
-    verify_shape(pipe.rotator, pipe.quantizer);
+    auto pipe = make_quantizer(handle_, p, ps_.dim);
+    verify_shape(pipe.rotator, pipe.encoder);
     verify_state(pipe.rotator);
 
-    // The peers built on their own must be interchangeable with the pipeline's.
+    // The peers built on their own must be interchangeable with the quantizer's.
     auto rot   = make_rotator(handle_, p, ps_.dim);
-    auto quant = make_quantizer(handle_, p, ps_.dim);
+    auto quant = make_encoder(handle_, p, ps_.dim);
     verify_shape(rot, quant);
     verify_state(rot);
-    ASSERT_EQ(rot.padded_dim, pipe.quantizer.padded_dim);
+    ASSERT_EQ(rot.padded_dim, pipe.encoder.padded_dim);
     ASSERT_NEAR(quant.const_scaling_factor,
-                pipe.quantizer.const_scaling_factor,
-                1e-6f * std::fabs(pipe.quantizer.const_scaling_factor) + 1e-20f);
+                pipe.encoder.const_scaling_factor,
+                1e-6f * std::fabs(pipe.encoder.const_scaling_factor) + 1e-20f);
     if (ps_.rotator_type == rotator_kind::matmul) {
       const size_t n = static_cast<size_t>(rot.padded_dim) * static_cast<size_t>(rot.padded_dim);
       ASSERT_TRUE(devArrMatch(pipe.rotator.rotation_matrix.data_handle(),
@@ -297,10 +297,10 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
 
     // dim must be positive, and ex_bits must stay inside the tight-start table.
     EXPECT_THROW(make_rotator(handle_, p, 0), raft::logic_error);
-    EXPECT_THROW(make_quantizer(handle_, p, -1), raft::logic_error);
+    EXPECT_THROW(make_encoder(handle_, p, -1), raft::logic_error);
     auto bad_params    = p;
     bad_params.ex_bits = 9;
-    EXPECT_THROW(make_quantizer(handle_, bad_params, ps_.dim), raft::logic_error);
+    EXPECT_THROW(make_encoder(handle_, bad_params, ps_.dim), raft::logic_error);
   }
 
   // -------------------------------------------------------------------------
@@ -374,8 +374,8 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
   void testTransform()
   {
     const auto p     = make_params();
-    auto pipe        = make_pipeline(handle_, p, ps_.dim);
-    const int64_t pd = pipe.quantizer.padded_dim;
+    auto pipe        = make_quantizer(handle_, p, ps_.dim);
+    const int64_t pd = pipe.encoder.padded_dim;
     const int64_t n  = ps_.rows;
     const size_t len = static_cast<size_t>(n) * static_cast<size_t>(pd);
     auto data        = raft::make_const_mdspan(dataset_.view());
@@ -394,7 +394,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
 
     // --- (codes, delta, vl) output mode, no centroid ---
     transform(handle_,
-              pipe.quantizer,
+              pipe.encoder,
               pipe.rotator,
               data,
               std::nullopt,
@@ -402,7 +402,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
               delta_a.view(),
               vl_a.view());
     transform(handle_,
-              pipe.quantizer,
+              pipe.encoder,
               pipe.rotator,
               h_data,
               std::nullopt,
@@ -417,7 +417,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     verify_finite(vl_a.data_handle(), static_cast<size_t>(n), "vl");
     verify_vl(delta_a.data_handle(), vl_a.data_handle(), n);
 
-    // determinism: the same pipeline on the same rows, read from device and from
+    // determinism: the same quantizer on the same rows, read from device and from
     // host memory -> identical output (one batch here, so for matmul too)
     expect_same_codes(
       h_codes_a, h_codes_b, "transform() (delta, vl) differs between device and host input");
@@ -440,15 +440,10 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
 
     auto centroid_view = raft::make_const_mdspan(centroid_.view());
     std::optional<raft::device_vector_view<const float, int64_t>> centroid_opt(centroid_view);
+    transform(
+      handle_, pipe.encoder, pipe.rotator, data, centroid_opt, ff_codes_a.view(), factors_a.view());
     transform(handle_,
-              pipe.quantizer,
-              pipe.rotator,
-              data,
-              centroid_opt,
-              ff_codes_a.view(),
-              factors_a.view());
-    transform(handle_,
-              pipe.quantizer,
+              pipe.encoder,
               pipe.rotator,
               h_data,
               centroid_opt,
@@ -491,15 +486,15 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
 
   /**
    * With no padding needed, transform() is exactly rotate() followed by
-   * transform_residuals() - same rotator, same launch shapes, same quantizer
+   * transform_residuals() - same rotator, same launch shapes, same encoder
    * kernel - so the two paths must agree.
    */
-  void testResidualsMatchTransform(pipeline const& pipe,
+  void testResidualsMatchTransform(quantizer const& pipe,
                                    std::vector<CodeT> const& h_codes_ref,
                                    raft::device_vector<float, int64_t> const& delta_ref,
                                    raft::device_vector<float, int64_t> const& vl_ref)
   {
-    const int64_t pd = pipe.quantizer.padded_dim;
+    const int64_t pd = pipe.encoder.padded_dim;
     const int64_t n  = ps_.rows;
     const size_t len = static_cast<size_t>(n) * static_cast<size_t>(pd);
 
@@ -512,7 +507,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     auto delta = raft::make_device_vector<float, int64_t>(handle_, n);
     auto vl    = raft::make_device_vector<float, int64_t>(handle_, n);
     transform_residuals(
-      handle_, pipe.quantizer, residuals_view, codes.view(), delta.view(), vl.view());
+      handle_, pipe.encoder, residuals_view, codes.view(), delta.view(), vl.view());
     raft::resource::sync_stream(handle_, stream_);
 
     auto h_codes = verify_codes(codes.data_handle(), len);
@@ -534,7 +529,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     auto ff_codes = raft::make_device_matrix<CodeT, int64_t>(handle_, n, pd);
     auto factors  = raft::make_device_matrix<float, int64_t>(handle_, n, 3);
     transform_residuals(
-      handle_, pipe.quantizer, residuals_view, std::nullopt, ff_codes.view(), factors.view());
+      handle_, pipe.encoder, residuals_view, std::nullopt, ff_codes.view(), factors.view());
     raft::resource::sync_stream(handle_, stream_);
     auto h_ff_codes = verify_codes(ff_codes.data_handle(), len);
     if (ps_.use_fast) {
@@ -552,7 +547,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     if (n > 1) {
       auto short_delta = raft::make_device_vector<float, int64_t>(handle_, n - 1);
       EXPECT_THROW(transform_residuals(handle_,
-                                       pipe.quantizer,
+                                       pipe.encoder,
                                        residuals_view,
                                        codes.view(),
                                        short_delta.view(),
@@ -642,9 +637,9 @@ TEST(RabitqQuantizationBasicTest, CodeWidthValidation)
 
   params p;
   p.ex_bits = 8;  // 9 bits per code element
-  auto pipe = make_pipeline(handle, p, kDim);
+  auto pipe = make_quantizer(handle, p, kDim);
 
-  const int64_t kPadded = pipe.quantizer.padded_dim;
+  const int64_t kPadded = pipe.encoder.padded_dim;
 
   auto dataset = raft::make_device_matrix<float, int64_t>(handle, kRows, kDim);
   raft::random::RngState r(1234ULL);
@@ -656,7 +651,7 @@ TEST(RabitqQuantizationBasicTest, CodeWidthValidation)
 
   auto narrow = raft::make_device_matrix<uint8_t, int64_t>(handle, kRows, kPadded);
   EXPECT_THROW(transform(handle,
-                         pipe.quantizer,
+                         pipe.encoder,
                          pipe.rotator,
                          data,
                          std::nullopt,
@@ -666,24 +661,18 @@ TEST(RabitqQuantizationBasicTest, CodeWidthValidation)
                raft::logic_error);
 
   auto wide = raft::make_device_matrix<uint16_t, int64_t>(handle, kRows, kPadded);
-  EXPECT_NO_THROW(transform(handle,
-                            pipe.quantizer,
-                            pipe.rotator,
-                            data,
-                            std::nullopt,
-                            wide.view(),
-                            delta.view(),
-                            vl.view()));
+  EXPECT_NO_THROW(transform(
+    handle, pipe.encoder, pipe.rotator, data, std::nullopt, wide.view(), delta.view(), vl.view()));
   raft::resource::sync_stream(handle);
 }
 
-/** A rotator and a quantizer built for different dims are not peers. */
+/** A rotator and an encoder built for different dims are not peers. */
 TEST(RabitqQuantizationBasicTest, MismatchedPeers)
 {
   raft::resources handle;
   params p;
   auto rot   = make_rotator(handle, p, 128);
-  auto quant = make_quantizer(handle, p, 256);
+  auto quant = make_encoder(handle, p, 256);
   ASSERT_NE(rot.padded_dim, quant.padded_dim);
 
   auto dataset = raft::make_device_matrix<float, int64_t>(handle, 4, 256);
@@ -709,14 +698,14 @@ TEST(RabitqQuantizationBasicTest, EmptyInput)
   raft::resources handle;
   constexpr int64_t kDim = 64;
   params p;
-  auto pipe = make_pipeline(handle, p, kDim);
+  auto pipe = make_quantizer(handle, p, kDim);
 
   auto dataset = raft::make_device_matrix<float, int64_t>(handle, 0, kDim);
-  auto codes   = raft::make_device_matrix<uint8_t, int64_t>(handle, 0, pipe.quantizer.padded_dim);
+  auto codes   = raft::make_device_matrix<uint8_t, int64_t>(handle, 0, pipe.encoder.padded_dim);
   auto delta   = raft::make_device_vector<float, int64_t>(handle, 0);
   auto vl      = raft::make_device_vector<float, int64_t>(handle, 0);
   EXPECT_NO_THROW(transform(handle,
-                            pipe.quantizer,
+                            pipe.encoder,
                             pipe.rotator,
                             raft::make_const_mdspan(dataset.view()),
                             std::nullopt,
@@ -725,7 +714,7 @@ TEST(RabitqQuantizationBasicTest, EmptyInput)
                             vl.view()));
   auto h_dataset = raft::make_host_matrix<float, int64_t>(0, kDim);
   EXPECT_NO_THROW(transform(handle,
-                            pipe.quantizer,
+                            pipe.encoder,
                             pipe.rotator,
                             raft::make_const_mdspan(h_dataset.view()),
                             std::nullopt,
@@ -768,8 +757,8 @@ TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
   for (int64_t dim : {96, 128, 960}) {
     params p;
     p.rotator     = rotator_kind::fht_kac;
-    auto pipe     = make_pipeline(handle, p, dim);
-    const auto pd = pipe.quantizer.padded_dim;
+    auto pipe     = make_quantizer(handle, p, dim);
+    const auto pd = pipe.encoder.padded_dim;
     ASSERT_EQ(pd, dim) << "the reference path needs dim % 32 == 0";
 
     auto dataset  = raft::make_device_matrix<float, int64_t>(handle, kRows, dim);
@@ -818,11 +807,11 @@ TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
       auto delta   = raft::make_device_vector<float, int64_t>(handle, kRows);
       auto vl      = raft::make_device_vector<float, int64_t>(handle, kRows);
       auto factors = raft::make_device_matrix<float, int64_t>(handle, kRows, 3);
-      transform_residuals(handle, pipe.quantizer, ref_in, codes.view(), delta.view(), vl.view());
+      transform_residuals(handle, pipe.encoder, ref_in, codes.view(), delta.view(), vl.view());
       const auto ref_codes = to_host(codes.data_handle(), n_codes);
       const auto ref_delta = to_host(delta.data_handle(), kRows);
       const auto ref_vl    = to_host(vl.data_handle(), kRows);
-      transform_residuals(handle, pipe.quantizer, ref_in, ref_c, codes.view(), factors.view());
+      transform_residuals(handle, pipe.encoder, ref_in, ref_c, codes.view(), factors.view());
       const auto ref_ff_codes = to_host(codes.data_handle(), n_codes);
       const auto ref_factors  = to_host(factors.data_handle(), n_factors);
 
@@ -849,13 +838,13 @@ TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
         };
         call([&] {
           transform(
-            res, pipe.quantizer, pipe.rotator, rows, c, codes.view(), delta.view(), vl.view());
+            res, pipe.encoder, pipe.rotator, rows, c, codes.view(), delta.view(), vl.view());
         });
         expect_same(to_host(codes.data_handle(), n_codes), ref_codes, "codes", what);
         expect_same(to_host(delta.data_handle(), kRows), ref_delta, "delta", what);
         expect_same(to_host(vl.data_handle(), kRows), ref_vl, "vl", what);
         call([&] {
-          transform(res, pipe.quantizer, pipe.rotator, rows, c, codes.view(), factors.view());
+          transform(res, pipe.encoder, pipe.rotator, rows, c, codes.view(), factors.view());
         });
         expect_same(to_host(codes.data_handle(), n_codes), ref_ff_codes, "full-factor codes", what);
         expect_same(to_host(factors.data_handle(), n_factors), ref_factors, "factors", what);

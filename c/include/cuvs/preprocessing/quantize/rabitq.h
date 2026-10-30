@@ -52,7 +52,7 @@ enum cuvsRabitqDeltaKind {
 /**
  * @brief RaBitQ quantizer parameters.
  *
- * These parameters fully describe both the rotator and the quantizer: RaBitQ is
+ * These parameters fully describe both the rotator and the encoder: RaBitQ is
  * data-oblivious, so none of them are learned from a dataset. This is why the
  * factories below take a `dim` instead of a training dataset.
  */
@@ -77,7 +77,7 @@ struct cuvsRabitqQuantizerParams {
   enum cuvsRabitqDeltaKind delta_mode;
   /**
    * When true, every vector is quantized with a single pre-estimated scaling
-   * factor (see cuvsRabitqQuantizerGetConstScalingFactor) instead of running
+   * factor (see cuvsRabitqEncoderGetConstScalingFactor) instead of running
    * the per-vector rescale search. This is substantially faster and is the
    * recommended setting; disable it to trade build throughput for slightly
    * tighter codes.
@@ -120,8 +120,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerParamsDestroy(cuvsRabitqQuantizerPara
  * cuvsRabitqRotatorMakeFromState. Re-running cuvsRabitqRotatorMake with the
  * same params reproduces them only on the same GPU model and library version.
  *
- * A rotator is an independent peer of the quantizer: neither contains the
- * other, and a single rotator may be shared by several quantizers.
+ * A rotator is an independent peer of the encoder: neither contains the
+ * other, and a single rotator may be shared by several encoders.
  */
 typedef struct {
   uintptr_t addr;
@@ -133,7 +133,7 @@ typedef cuvsRabitqRotator* cuvsRabitqRotator_t;
  * @brief Allocate a RaBitQ rotator handle
  *
  * The handle starts out empty; populate it with cuvsRabitqRotatorMake,
- * cuvsRabitqRotatorMakeFromState or cuvsRabitqPipelineMake before use.
+ * cuvsRabitqRotatorMakeFromState or cuvsRabitqQuantizerMake before use.
  *
  * @param[in] rotator cuvsRabitqRotator_t to allocate
  * @return cuvsError_t
@@ -160,28 +160,28 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotatorDestroy(cuvsRabitqRotator_t rotator);
  */
 typedef struct {
   uintptr_t addr;
-} cuvsRabitqQuantizer;
+} cuvsRabitqEncoder;
 
-typedef cuvsRabitqQuantizer* cuvsRabitqQuantizer_t;
-
-/**
- * @brief Allocate a RaBitQ quantizer handle
- *
- * The handle starts out empty; populate it with cuvsRabitqQuantizerMake or
- * cuvsRabitqPipelineMake before use.
- *
- * @param[in] quantizer cuvsRabitqQuantizer_t to allocate
- * @return cuvsError_t
- */
-CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerCreate(cuvsRabitqQuantizer_t* quantizer);
+typedef cuvsRabitqEncoder* cuvsRabitqEncoder_t;
 
 /**
- * @brief De-allocate a RaBitQ quantizer
+ * @brief Allocate a RaBitQ encoder handle
  *
- * @param[in] quantizer
+ * The handle starts out empty; populate it with cuvsRabitqEncoderMake or
+ * cuvsRabitqQuantizerMake before use.
+ *
+ * @param[in] encoder cuvsRabitqEncoder_t to allocate
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerDestroy(cuvsRabitqQuantizer_t quantizer);
+CUVS_EXPORT cuvsError_t cuvsRabitqEncoderCreate(cuvsRabitqEncoder_t* encoder);
+
+/**
+ * @brief De-allocate a RaBitQ encoder
+ *
+ * @param[in] encoder
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsRabitqEncoderDestroy(cuvsRabitqEncoder_t encoder);
 
 /**
  * @brief Initializes a RaBitQ rotator.
@@ -223,7 +223,7 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotatorMakeFromState(cuvsResources_t res,
                                                        cuvsRabitqRotator_t rotator);
 
 /**
- * @brief Initializes a RaBitQ quantizer.
+ * @brief Initializes a RaBitQ encoder.
  *
  * No training data is required, which is why this takes a `dim` rather than a
  * dataset. When cuvsRabitqQuantizerParams::use_fast is set, this estimates the
@@ -231,39 +231,38 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotatorMakeFromState(cuvsResources_t res,
  * performed here.
  *
  * @param[in] res raft resource
- * @param[in] params configure the quantizer, e.g. ex_bits
+ * @param[in] params configure the encoder, e.g. ex_bits
  * @param[in] dim dimensionality of the un-rotated input vectors
- * @param[out] quantizer an allocated quantizer handle to initialize
+ * @param[out] encoder an allocated encoder handle to initialize
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerMake(cuvsResources_t res,
-                                                cuvsRabitqQuantizerParams_t params,
-                                                int64_t dim,
-                                                cuvsRabitqQuantizer_t quantizer);
+CUVS_EXPORT cuvsError_t cuvsRabitqEncoderMake(cuvsResources_t res,
+                                              cuvsRabitqQuantizerParams_t params,
+                                              int64_t dim,
+                                              cuvsRabitqEncoder_t encoder);
 
 /**
- * @brief Initializes a rotator and a quantizer from the same parameters.
+ * @brief Initializes a RaBitQ quantizer: a rotator and an encoder from the same parameters.
  *
- * Equivalent to calling cuvsRabitqRotatorMake and cuvsRabitqQuantizerMake with
+ * Equivalent to calling cuvsRabitqRotatorMake and cuvsRabitqEncoderMake with
  * the same arguments. No training data is required.
  *
- * There is deliberately no opaque `cuvsRabitqPipeline` handle: the C++
- * `pipeline` struct is only a composition of the two independent peers - it
- * adds no state and no behaviour of its own - so two out-parameters are the
- * honest C spelling of it.
+ * There is deliberately no opaque quantizer handle: the C++ `quantizer` struct
+ * is only a composition of the two independent peers - it adds no state and no
+ * behaviour of its own - so two out-parameters are the honest C spelling of it.
  *
  * @param[in] res raft resource
  * @param[in] params configure both components
  * @param[in] dim dimensionality of the un-rotated input vectors
  * @param[out] rotator an allocated rotator handle to initialize
- * @param[out] quantizer an allocated quantizer handle to initialize
+ * @param[out] encoder an allocated encoder handle to initialize
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsRabitqPipelineMake(cuvsResources_t res,
-                                               cuvsRabitqQuantizerParams_t params,
-                                               int64_t dim,
-                                               cuvsRabitqRotator_t rotator,
-                                               cuvsRabitqQuantizer_t quantizer);
+CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerMake(cuvsResources_t res,
+                                                cuvsRabitqQuantizerParams_t params,
+                                                int64_t dim,
+                                                cuvsRabitqRotator_t rotator,
+                                                cuvsRabitqEncoder_t encoder);
 
 /**
  * @brief Applies the random rotation to already-padded rows.
@@ -306,8 +305,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotate(cuvsResources_t res,
  * place. `centroid` and the outputs must be on device.
  *
  * @param[in] res raft resource
- * @param[in] quantizer a RaBitQ quantizer
- * @param[in] rotator the rotator whose padded dim matches the quantizer
+ * @param[in] encoder a RaBitQ encoder
+ * @param[in] rotator the rotator whose padded dim matches the encoder
  * @param[in] dataset a row-major `n_rows x dim` float32 host or device matrix
  * @param[in] centroid optional un-rotated `dim` float32 device vector; when non-NULL, codes are
  *            computed on the residuals w.r.t. this centroid. Pass NULL to skip centering.
@@ -318,7 +317,7 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotate(cuvsResources_t res,
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
-                                            cuvsRabitqQuantizer_t quantizer,
+                                            cuvsRabitqEncoder_t encoder,
                                             cuvsRabitqRotator_t rotator,
                                             DLManagedTensor* dataset,
                                             DLManagedTensor* centroid,
@@ -344,8 +343,8 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
  * rotator.
  *
  * @param[in] res raft resource
- * @param[in] quantizer a RaBitQ quantizer
- * @param[in] rotator the rotator whose padded dim matches the quantizer
+ * @param[in] encoder a RaBitQ encoder
+ * @param[in] rotator the rotator whose padded dim matches the encoder
  * @param[in] dataset a row-major `n_rows x dim` float32 host or device matrix
  * @param[in] centroid optional un-rotated `dim` float32 device vector; treated as zero when NULL
  * @param[out] codes a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes
@@ -353,7 +352,7 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
-                                                cuvsRabitqQuantizer_t quantizer,
+                                                cuvsRabitqEncoder_t encoder,
                                                 cuvsRabitqRotator_t rotator,
                                                 DLManagedTensor* dataset,
                                                 DLManagedTensor* centroid,
@@ -364,13 +363,13 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
  * @brief Quantizes pre-rotated residuals, emitting per-vector `(delta, vl)` factors.
  *
  * The rotator is not needed here: `residuals` must already be rotated, padded
- * to the quantizer's padded dim and centered (centroid subtracted). Use this
+ * to the encoder's padded dim and centered (centroid subtracted). Use this
  * when the residuals are produced elsewhere, e.g. by an IVF build that has
  * already rotated its data, or by cuvsRabitqRotate plus a subtraction of your
  * own.
  *
  * @param[in] res raft resource
- * @param[in] quantizer a RaBitQ quantizer
+ * @param[in] encoder a RaBitQ encoder
  * @param[in] residuals a row-major `n_rows x padded_dim` float32 device matrix, rotated and
  *            centered
  * @param[out] codes a row-major `n_rows x padded_dim` device matrix of uint8 or uint16 codes
@@ -380,7 +379,7 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformFull(cuvsResources_t res,
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
-                                                     cuvsRabitqQuantizer_t quantizer,
+                                                     cuvsRabitqEncoder_t encoder,
                                                      DLManagedTensor* residuals,
                                                      DLManagedTensor* codes,
                                                      DLManagedTensor* delta,
@@ -389,14 +388,14 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
 /**
  * @brief Quantizes pre-rotated residuals, emitting the full factor triplet.
  *
- * As above, `residuals` must already be rotated, padded to the quantizer's
+ * As above, `residuals` must already be rotated, padded to the encoder's
  * padded dim and centered. The full-factor formula also reads the centroid,
  * which must be supplied *in the rotated, padded space* (run cuvsRabitqRotate
  * on it with the same rotator that produced the residuals); pass NULL to treat
  * it as zero.
  *
  * @param[in] res raft resource
- * @param[in] quantizer a RaBitQ quantizer
+ * @param[in] encoder a RaBitQ encoder
  * @param[in] residuals a row-major `n_rows x padded_dim` float32 device matrix, rotated and
  *            centered
  * @param[in] rotated_centroid optional rotated, padded centroid (a `padded_dim` float32 device
@@ -406,7 +405,7 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransformResiduals(cuvsResources_t res,
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsRabitqTransformResidualsFull(cuvsResources_t res,
-                                                         cuvsRabitqQuantizer_t quantizer,
+                                                         cuvsRabitqEncoder_t encoder,
                                                          DLManagedTensor* residuals,
                                                          DLManagedTensor* rotated_centroid,
                                                          DLManagedTensor* codes,
@@ -464,39 +463,39 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotatorGetState(cuvsRabitqRotator_t rotator,
                                                   DLManagedTensor* state);
 
 /**
- * @brief Get the dimensionality of the un-rotated input vectors a quantizer expects.
+ * @brief Get the dimensionality of the un-rotated input vectors an encoder expects.
  *
- * @param[in] quantizer a RaBitQ quantizer
+ * @param[in] encoder a RaBitQ encoder
  * @param[out] dim dimensionality of the un-rotated input vectors
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerGetDim(cuvsRabitqQuantizer_t quantizer, int64_t* dim);
+CUVS_EXPORT cuvsError_t cuvsRabitqEncoderGetDim(cuvsRabitqEncoder_t encoder, int64_t* dim);
 
 /**
- * @brief Get the working dimension of a quantizer: `dim` rounded up to a multiple of 32.
+ * @brief Get the working dimension of an encoder: `dim` rounded up to a multiple of 32.
  *
  * This is the number of code elements emitted per vector, i.e. the second
  * extent that the `codes` tensor must have.
  *
- * @param[in] quantizer a RaBitQ quantizer
+ * @param[in] encoder a RaBitQ encoder
  * @param[out] padded_dim the working dimension
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerGetPaddedDim(cuvsRabitqQuantizer_t quantizer,
-                                                        int64_t* padded_dim);
+CUVS_EXPORT cuvsError_t cuvsRabitqEncoderGetPaddedDim(cuvsRabitqEncoder_t encoder,
+                                                      int64_t* padded_dim);
 
 /**
  * @brief Get the scaling factor shared by all vectors on the fast path.
  *
- * Estimated from random Gaussian probe vectors when the quantizer was made.
+ * Estimated from random Gaussian probe vectors when the encoder was made.
  * Left at 1.0 (and unused) when cuvsRabitqQuantizerParams::use_fast is false.
  *
- * @param[in] quantizer a RaBitQ quantizer
+ * @param[in] encoder a RaBitQ encoder
  * @param[out] const_scaling_factor the shared scaling factor
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsRabitqQuantizerGetConstScalingFactor(cuvsRabitqQuantizer_t quantizer,
-                                                                 float* const_scaling_factor);
+CUVS_EXPORT cuvsError_t cuvsRabitqEncoderGetConstScalingFactor(cuvsRabitqEncoder_t encoder,
+                                                               float* const_scaling_factor);
 
 /**
  * @}

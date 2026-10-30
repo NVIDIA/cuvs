@@ -57,7 +57,7 @@ enum class delta_kind : uint8_t {
  * @brief RaBitQ quantizer parameters.
  *
  * These parameters fully describe the quantizer: RaBitQ is data-oblivious, so
- * none of them are learned from a dataset (see make_quantizer / make_rotator).
+ * none of them are learned from a dataset (see make_quantizer).
  */
 struct params {
   /**
@@ -80,7 +80,7 @@ struct params {
   delta_kind delta_mode = delta_kind::reconstruction;
   /**
    * When true, every vector is quantized with a single pre-estimated scaling
-   * factor (`quantizer::const_scaling_factor`) instead of running the
+   * factor (`encoder::const_scaling_factor`) instead of running the
    * per-vector rescale search. This is substantially faster and is the
    * recommended setting; disable it to trade build throughput for slightly
    * tighter codes.
@@ -104,8 +104,8 @@ struct params {
  * with the same `params` reproduces them only on the same GPU model and
  * library version.
  *
- * A rotator is an independent peer of the quantizer: neither contains the
- * other, and a single rotator may be shared by several quantizers.
+ * A rotator is an independent peer of the encoder: neither contains the
+ * other, and a single rotator may be shared by several encoders.
  */
 struct rotator {
   /** Which implementation the state below belongs to. */
@@ -146,8 +146,8 @@ struct rotator {
  * and has no serialization API - it is cheap to rebuild from `params` and
  * `dim`.
  */
-struct quantizer {
-  /** Parameters used to build this quantizer. */
+struct encoder {
+  /** Parameters used to build this encoder. */
   params params_quantizer;
   /**
    * Scaling factor shared by all vectors on the `params::use_fast` path,
@@ -162,19 +162,20 @@ struct quantizer {
 };
 
 /**
- * @brief Convenience composition of the two peers for the common end-to-end flow.
+ * @brief A RaBitQ quantizer: the rotator and the encoder applied after it.
  *
- * Holds one rotator and one quantizer; it adds no state and no behaviour of its
- * own. Pass `pipeline::quantizer` and `pipeline::rotator` to transform().
+ * The entry point for the common end-to-end flow. It composes the two peers and
+ * adds no state and no behaviour of its own. Pass `quantizer::encoder` and
+ * `quantizer::rotator` to transform().
  */
-struct pipeline {
-  /** Rotation applied before quantization. */
+struct quantizer {
+  /** Rotation applied before encoding. */
   rabitq::rotator rotator;
-  /** Quantizer applied to the rotated residuals. */
-  rabitq::quantizer quantizer;
+  /** Encoder applied to the rotated residuals. */
+  rabitq::encoder encoder;
 
-  /** @brief Construct an empty (uninitialized) pipeline. */
-  explicit pipeline(raft::resources const& res) : rotator(res) {}
+  /** @brief Construct an empty (uninitialized) quantizer. */
+  explicit quantizer(raft::resources const& res) : rotator(res) {}
 };
 
 /**
@@ -201,7 +202,7 @@ struct pipeline {
 rotator make_rotator(raft::resources const& res, params const& params, int64_t dim);
 
 /**
- * @brief Initializes a RaBitQ quantizer.
+ * @brief Initializes a RaBitQ encoder.
  *
  * No training data is required. When `params::use_fast` is set, this estimates
  * the constant scaling factor on the GPU, which is the only non-trivial work
@@ -211,31 +212,31 @@ rotator make_rotator(raft::resources const& res, params const& params, int64_t d
  * @code{.cpp}
  * raft::resources res;
  * cuvs::preprocessing::quantize::rabitq::params params;
- * auto quantizer =
- *   cuvs::preprocessing::quantize::rabitq::make_quantizer(res, params, dataset.extent(1));
+ * auto encoder =
+ *   cuvs::preprocessing::quantize::rabitq::make_encoder(res, params, dataset.extent(1));
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] params configure the quantizer, e.g. ex_bits
+ * @param[in] params configure the encoder, e.g. ex_bits
  * @param[in] dim dimensionality of the un-rotated input vectors
  *
- * @return quantizer
+ * @return encoder
  */
-quantizer make_quantizer(raft::resources const& res, params const& params, int64_t dim);
+encoder make_encoder(raft::resources const& res, params const& params, int64_t dim);
 
 /**
- * @brief Initializes a rotator and a quantizer from the same parameters.
+ * @brief Initializes a RaBitQ quantizer: a rotator and an encoder from the same parameters.
  *
- * Equivalent to calling make_rotator() and make_quantizer() with the same
+ * Equivalent to calling make_rotator() and make_encoder() with the same
  * arguments. No training data is required.
  *
  * Usage example:
  * @code{.cpp}
  * raft::resources res;
  * cuvs::preprocessing::quantize::rabitq::params params;
- * auto pipeline =
- *   cuvs::preprocessing::quantize::rabitq::make_pipeline(res, params, dataset.extent(1));
- * cuvs::preprocessing::quantize::rabitq::transform(res, pipeline.quantizer, pipeline.rotator,
+ * auto quantizer =
+ *   cuvs::preprocessing::quantize::rabitq::make_quantizer(res, params, dataset.extent(1));
+ * cuvs::preprocessing::quantize::rabitq::transform(res, quantizer.encoder, quantizer.rotator,
  *   raft::make_const_mdspan(dataset.view()), std::nullopt, codes.view(), delta.view(), vl.view());
  * @endcode
  *
@@ -243,9 +244,9 @@ quantizer make_quantizer(raft::resources const& res, params const& params, int64
  * @param[in] params configure both components
  * @param[in] dim dimensionality of the un-rotated input vectors
  *
- * @return pipeline
+ * @return quantizer
  */
-pipeline make_pipeline(raft::resources const& res, params const& params, int64_t dim);
+quantizer make_quantizer(raft::resources const& res, params const& params, int64_t dim);
 
 /**
  * @brief Applies the random rotation to already-padded rows.
@@ -298,18 +299,18 @@ void rotate(raft::resources const& res,
  * @code{.cpp}
  * raft::resources res;
  * cuvs::preprocessing::quantize::rabitq::params params;
- * auto quantizer = cuvs::preprocessing::quantize::rabitq::make_quantizer(res, params, dim);
- * auto rotator   = cuvs::preprocessing::quantize::rabitq::make_rotator(res, params, dim);
- * auto codes = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, quantizer.padded_dim);
+ * auto encoder = cuvs::preprocessing::quantize::rabitq::make_encoder(res, params, dim);
+ * auto rotator = cuvs::preprocessing::quantize::rabitq::make_rotator(res, params, dim);
+ * auto codes = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, encoder.padded_dim);
  * auto delta = raft::make_device_vector<float, int64_t>(res, n_rows);
  * auto vl    = raft::make_device_vector<float, int64_t>(res, n_rows);
- * cuvs::preprocessing::quantize::rabitq::transform(res, quantizer, rotator,
+ * cuvs::preprocessing::quantize::rabitq::transform(res, encoder, rotator,
  *   raft::make_const_mdspan(dataset.view()), std::nullopt, codes.view(), delta.view(), vl.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer a RaBitQ quantizer
- * @param[in] rotator the rotator whose `padded_dim` matches the quantizer
+ * @param[in] encoder a RaBitQ encoder
+ * @param[in] rotator the rotator whose `padded_dim` matches the encoder
  * @param[in] dataset a row-major `n_rows x dim` matrix view on device or host
  * @param[in] centroid optional un-rotated `dim` centroid on device; when set, codes are
  *            computed on the residuals w.r.t. this centroid
@@ -319,7 +320,7 @@ void rotate(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -329,7 +330,7 @@ void transform(raft::resources const& res,
 
 /** @copydoc transform */
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -339,7 +340,7 @@ void transform(raft::resources const& res,
 
 /** @copydoc transform */
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -349,7 +350,7 @@ void transform(raft::resources const& res,
 
 /** @copydoc transform */
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -375,16 +376,16 @@ void transform(raft::resources const& res,
  *
  * Usage example:
  * @code{.cpp}
- * auto codes   = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, quantizer.padded_dim);
+ * auto codes   = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, encoder.padded_dim);
  * auto factors = raft::make_device_matrix<float, int64_t>(res, n_rows, 3);
- * cuvs::preprocessing::quantize::rabitq::transform(res, quantizer, rotator,
+ * cuvs::preprocessing::quantize::rabitq::transform(res, encoder, rotator,
  *   raft::make_const_mdspan(dataset.view()), std::make_optional(centroid.view()), codes.view(),
  *   factors.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer a RaBitQ quantizer
- * @param[in] rotator the rotator whose `padded_dim` matches the quantizer
+ * @param[in] encoder a RaBitQ encoder
+ * @param[in] rotator the rotator whose `padded_dim` matches the encoder
  * @param[in] dataset a row-major `n_rows x dim` matrix view on device or host
  * @param[in] centroid optional un-rotated `dim` centroid on device; treated as zero when unset
  * @param[out] codes a row-major `n_rows x padded_dim` matrix view on device
@@ -392,7 +393,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -401,7 +402,7 @@ void transform(raft::resources const& res,
 
 /** @copydoc transform */
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -410,7 +411,7 @@ void transform(raft::resources const& res,
 
 /** @copydoc transform */
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -419,7 +420,7 @@ void transform(raft::resources const& res,
 
 /** @copydoc transform */
 void transform(raft::resources const& res,
-               quantizer const& quantizer,
+               encoder const& encoder,
                rotator const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
@@ -430,21 +431,21 @@ void transform(raft::resources const& res,
  * @brief Quantizes pre-rotated residuals, emitting per-vector `(delta, vl)` factors.
  *
  * The rotator is not needed here: `residuals` must already be rotated, padded
- * to `quantizer::padded_dim` and centered (centroid subtracted). Use this when
+ * to `encoder::padded_dim` and centered (centroid subtracted). Use this when
  * the residuals are produced elsewhere, e.g. by an IVF build that has already
  * rotated its data, and rotate() plus a subtraction of your own.
  *
  * Usage example:
  * @code{.cpp}
- * auto codes = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, quantizer.padded_dim);
+ * auto codes = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, encoder.padded_dim);
  * auto delta = raft::make_device_vector<float, int64_t>(res, n_rows);
  * auto vl    = raft::make_device_vector<float, int64_t>(res, n_rows);
- * cuvs::preprocessing::quantize::rabitq::transform_residuals(res, quantizer, residuals,
+ * cuvs::preprocessing::quantize::rabitq::transform_residuals(res, encoder, residuals,
  *   codes.view(), delta.view(), vl.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer a RaBitQ quantizer
+ * @param[in] encoder a RaBitQ encoder
  * @param[in] residuals a row-major `n_rows x padded_dim` matrix view on device, rotated and
  *            centered
  * @param[out] codes a row-major `n_rows x padded_dim` matrix view on device
@@ -453,7 +454,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform_residuals(raft::resources const& res,
-                         quantizer const& quantizer,
+                         encoder const& encoder,
                          raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
                          raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
                          raft::device_vector_view<float, int64_t> delta,
@@ -461,7 +462,7 @@ void transform_residuals(raft::resources const& res,
 
 /** @copydoc transform_residuals */
 void transform_residuals(raft::resources const& res,
-                         quantizer const& quantizer,
+                         encoder const& encoder,
                          raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
                          raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
                          raft::device_vector_view<float, int64_t> delta,
@@ -471,21 +472,21 @@ void transform_residuals(raft::resources const& res,
  * @brief Quantizes pre-rotated residuals, emitting the full factor triplet.
  *
  * As above, `residuals` must already be rotated, padded to
- * `quantizer::padded_dim` and centered. The full-factor formula also reads the
+ * `encoder::padded_dim` and centered. The full-factor formula also reads the
  * centroid, which must be supplied *in the rotated, padded space* (rotate() it
  * with the same rotator that produced the residuals); pass `std::nullopt` to
  * treat it as zero.
  *
  * Usage example:
  * @code{.cpp}
- * auto codes   = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, quantizer.padded_dim);
+ * auto codes   = raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, encoder.padded_dim);
  * auto factors = raft::make_device_matrix<float, int64_t>(res, n_rows, 3);
- * cuvs::preprocessing::quantize::rabitq::transform_residuals(res, quantizer, residuals,
+ * cuvs::preprocessing::quantize::rabitq::transform_residuals(res, encoder, residuals,
  *   std::make_optional(rotated_centroid.view()), codes.view(), factors.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer a RaBitQ quantizer
+ * @param[in] encoder a RaBitQ encoder
  * @param[in] residuals a row-major `n_rows x padded_dim` matrix view on device, rotated and
  *            centered
  * @param[in] rotated_centroid optional rotated, padded centroid (`padded_dim` elements on device)
@@ -495,7 +496,7 @@ void transform_residuals(raft::resources const& res,
  */
 void transform_residuals(
   raft::resources const& res,
-  quantizer const& quantizer,
+  encoder const& encoder,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
   std::optional<raft::device_vector_view<const float, int64_t>> rotated_centroid,
   raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -504,7 +505,7 @@ void transform_residuals(
 /** @copydoc transform_residuals */
 void transform_residuals(
   raft::resources const& res,
-  quantizer const& quantizer,
+  encoder const& encoder,
   raft::device_matrix_view<const float, int64_t, raft::row_major> residuals,
   std::optional<raft::device_vector_view<const float, int64_t>> rotated_centroid,
   raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,

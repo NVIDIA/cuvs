@@ -155,7 +155,7 @@ void check_restore(raft::device_resources const& handle,
  */
 void check_host_input(raft::device_resources const& handle,
                       cuvsResources_t res,
-                      cuvsRabitqQuantizer_t quantizer,
+                      cuvsRabitqEncoder_t encoder,
                       cuvsRabitqRotator_t rotator,
                       DLManagedTensor* dataset,
                       DLManagedTensor* centroid,
@@ -193,7 +193,7 @@ void check_host_input(raft::device_resources const& handle,
   for (DLManagedTensor* input : {dataset, &host_dataset}) {
     poison();
     ASSERT_EQ(
-      cuvsRabitqTransform(res, quantizer, rotator, input, centroid, &codes_t, &delta_t, &vl_t),
+      cuvsRabitqTransform(res, encoder, rotator, input, centroid, &codes_t, &delta_t, &vl_t),
       CUVS_SUCCESS);
     ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
     out_codes.push_back(to_host(handle, codes.data(), codes.size()));
@@ -201,9 +201,8 @@ void check_host_input(raft::device_resources const& handle,
     out_vl.push_back(to_host(handle, vl.data(), vl.size()));
 
     poison();
-    ASSERT_EQ(
-      cuvsRabitqTransformFull(res, quantizer, rotator, input, centroid, &codes_t, &factors_t),
-      CUVS_SUCCESS);
+    ASSERT_EQ(cuvsRabitqTransformFull(res, encoder, rotator, input, centroid, &codes_t, &factors_t),
+              CUVS_SUCCESS);
     ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
     out_ff_codes.push_back(to_host(handle, codes.data(), codes.size()));
     out_factors.push_back(to_host(handle, factors.data(), factors.size()));
@@ -221,7 +220,7 @@ void check_host_input(raft::device_resources const& handle,
                           h_codes.data(), n_rows, padded_dim),
                         &host_codes);
   EXPECT_NE(cuvsRabitqTransform(
-              res, quantizer, rotator, &host_dataset, centroid, &host_codes, &delta_t, &vl_t),
+              res, encoder, rotator, &host_dataset, centroid, &host_codes, &delta_t, &vl_t),
             CUVS_SUCCESS);
 
   free_tensor(host_codes);
@@ -233,7 +232,7 @@ void check_host_input(raft::device_resources const& handle,
 }
 
 /**
- * Exercises the whole C surface for one rotator kind: params -> pipeline ->
+ * Exercises the whole C surface for one rotator kind: params -> quantizer ->
  * getters -> transform (device and host input) -> state readback -> restore ->
  * teardown.
  */
@@ -283,30 +282,29 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
 
   // --- factories: one call populates both peers ---
   cuvsRabitqRotator_t rotator;
-  cuvsRabitqQuantizer_t quantizer;
+  cuvsRabitqEncoder_t encoder;
   ASSERT_EQ(cuvsRabitqRotatorCreate(&rotator), CUVS_SUCCESS);
-  ASSERT_EQ(cuvsRabitqQuantizerCreate(&quantizer), CUVS_SUCCESS);
-  ASSERT_EQ(cuvsRabitqPipelineMake(res, params, dim, rotator, quantizer), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsRabitqEncoderCreate(&encoder), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsRabitqQuantizerMake(res, params, dim, rotator, encoder), CUVS_SUCCESS);
 
   // --- metadata getters ---
   enum cuvsRabitqRotatorKind read_kind = CUVS_RABITQ_ROTATOR_KIND_MATMUL;
   ASSERT_EQ(cuvsRabitqRotatorGetKind(rotator, &read_kind), CUVS_SUCCESS);
   EXPECT_EQ(read_kind, kind);
 
-  int64_t rotator_padded_dim   = 0;
-  int64_t quantizer_padded_dim = 0;
-  int64_t quantizer_dim        = 0;
+  int64_t rotator_padded_dim = 0;
+  int64_t encoder_padded_dim = 0;
+  int64_t encoder_dim        = 0;
   ASSERT_EQ(cuvsRabitqRotatorGetPaddedDim(rotator, &rotator_padded_dim), CUVS_SUCCESS);
-  ASSERT_EQ(cuvsRabitqQuantizerGetPaddedDim(quantizer, &quantizer_padded_dim), CUVS_SUCCESS);
-  ASSERT_EQ(cuvsRabitqQuantizerGetDim(quantizer, &quantizer_dim), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsRabitqEncoderGetPaddedDim(encoder, &encoder_padded_dim), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsRabitqEncoderGetDim(encoder, &encoder_dim), CUVS_SUCCESS);
   EXPECT_EQ(rotator_padded_dim, padded_dim);
-  EXPECT_EQ(quantizer_padded_dim, padded_dim);
-  EXPECT_EQ(quantizer_dim, dim);
+  EXPECT_EQ(encoder_padded_dim, padded_dim);
+  EXPECT_EQ(encoder_dim, dim);
 
   // use_fast is on, so the factor was actually estimated on the GPU.
   float const_scaling_factor = 0.0f;
-  ASSERT_EQ(cuvsRabitqQuantizerGetConstScalingFactor(quantizer, &const_scaling_factor),
-            CUVS_SUCCESS);
+  ASSERT_EQ(cuvsRabitqEncoderGetConstScalingFactor(encoder, &const_scaling_factor), CUVS_SUCCESS);
   EXPECT_TRUE(std::isfinite(const_scaling_factor));
   EXPECT_GT(const_scaling_factor, 0.0f);
 
@@ -325,7 +323,7 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
 
   // A NULL centroid must be accepted and mean "no centering".
   ASSERT_EQ(
-    cuvsRabitqTransform(res, quantizer, rotator, &dataset_t, nullptr, &codes_t, &delta_t, &vl_t),
+    cuvsRabitqTransform(res, encoder, rotator, &dataset_t, nullptr, &codes_t, &delta_t, &vl_t),
     CUVS_SUCCESS);
   ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
 
@@ -359,9 +357,9 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
   auto h_codes_uncentered = to_host(handle, codes.data(), codes.size());
   RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), unwritten_sentinel, codes.size(), stream));
   handle.sync_stream();
-  ASSERT_EQ(cuvsRabitqTransform(
-              res, quantizer, rotator, &dataset_t, &centroid_t, &codes_t, &delta_t, &vl_t),
-            CUVS_SUCCESS);
+  ASSERT_EQ(
+    cuvsRabitqTransform(res, encoder, rotator, &dataset_t, &centroid_t, &codes_t, &delta_t, &vl_t),
+    CUVS_SUCCESS);
   ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
   {
     auto h_codes          = to_host(handle, codes.data(), codes.size());
@@ -376,7 +374,7 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
   }
 
   // --- host input ---
-  check_host_input(handle, res, quantizer, rotator, &dataset_t, &centroid_t, padded_dim);
+  check_host_input(handle, res, encoder, rotator, &dataset_t, &centroid_t, padded_dim);
 
   // --- rotator state readback ---
   DLManagedTensor state{};
@@ -430,13 +428,13 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
   free_tensor(vl_t);
 
   EXPECT_EQ(cuvsRabitqRotatorDestroy(rotator), CUVS_SUCCESS);
-  EXPECT_EQ(cuvsRabitqQuantizerDestroy(quantizer), CUVS_SUCCESS);
+  EXPECT_EQ(cuvsRabitqEncoderDestroy(encoder), CUVS_SUCCESS);
   EXPECT_EQ(cuvsRabitqQuantizerParamsDestroy(params), CUVS_SUCCESS);
   EXPECT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
 }
 
 }  // namespace
 
-TEST(RabitqC, PipelineTransformFhtKac) { run_rabitq_c_smoke(CUVS_RABITQ_ROTATOR_KIND_FHT_KAC); }
+TEST(RabitqC, QuantizerTransformFhtKac) { run_rabitq_c_smoke(CUVS_RABITQ_ROTATOR_KIND_FHT_KAC); }
 
-TEST(RabitqC, PipelineTransformMatmul) { run_rabitq_c_smoke(CUVS_RABITQ_ROTATOR_KIND_MATMUL); }
+TEST(RabitqC, QuantizerTransformMatmul) { run_rabitq_c_smoke(CUVS_RABITQ_ROTATOR_KIND_MATMUL); }
