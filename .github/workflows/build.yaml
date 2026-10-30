@@ -55,6 +55,7 @@ jobs:
       node_type: cpu16
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
+      matrix_type: cuda-13-4-nightly
 
   rocky8-clib-standalone-build:
     permissions:
@@ -69,6 +70,7 @@ jobs:
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
+      matrix_type: cuda-13-4-nightly
   rust-build:
     needs: cpp-build
     permissions:
@@ -87,6 +89,7 @@ jobs:
       sha: ${{ inputs.sha }}
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_rust.sh"
+      matrix_type: cuda-13-4-nightly
   go-build:
     needs: cpp-build
     permissions:
@@ -105,6 +108,7 @@ jobs:
       sha: ${{ inputs.sha }}
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_go.sh"
+      matrix_type: cuda-13-4-nightly
   java-build:
     needs: cpp-build
     permissions:
@@ -126,6 +130,7 @@ jobs:
       script: "ci/build_java.sh"
       artifact-name-prefix: "cuvs-java"
       file_to_upload: "java/cuvs-java/target/"
+      matrix_type: cuda-13-4-nightly
   lucene-build:
     # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
     needs: java-build
@@ -148,6 +153,7 @@ jobs:
       script: "ci/build_lucene.sh"
       artifact-name-prefix: "cuvs-lucene"
       file_to_upload: "java/cuvs-lucene/*/target/"
+      matrix_type: cuda-13-4-nightly
   python-build:
     needs: [build-details, cpp-build]
     permissions:
@@ -167,6 +173,7 @@ jobs:
       sha: ${{ inputs.sha }}
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
+      matrix_type: cuda-13-4-nightly
   upload-conda:
     needs: [cpp-build, python-build]
     permissions:
@@ -199,6 +206,7 @@ jobs:
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       matrix_name: docs-build
+      matrix_type: cuda-13-4-nightly
   docs-build:
     needs: [docs-build-matrix]
     if: github.ref_type == 'branch'
@@ -244,6 +252,7 @@ jobs:
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       package-name: libcuvs
       package-type: cpp
+      matrix_type: cuda-13-4-nightly
   wheel-publish-libcuvs:
     needs: wheel-build-libcuvs
     permissions:
@@ -286,6 +295,7 @@ jobs:
       package-type: python
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
+      matrix_type: cuda-13-4-nightly
   wheel-publish-cuvs:
     needs: wheel-build-cuvs
     permissions:
@@ -314,4 +324,4 @@ jobs:
       packages: write
     with:
       push: true
-      cuda: '["12.9", "13.3"]'
+      cuda: '["12.9", "13.4"]'
