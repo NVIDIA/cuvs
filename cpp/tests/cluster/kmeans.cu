@@ -555,9 +555,13 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     ASSERT_TRUE(std::isfinite(inertia_default));
     ASSERT_TRUE(std::isfinite(inertia_explicit));
     ASSERT_TRUE(std::isfinite(inertia_full));
+    ASSERT_TRUE(std::isfinite(inertia_full_host_init));
+    ASSERT_TRUE(std::isfinite(inertia_full_device_init));
     ASSERT_GT(inertia_default, T(0));
     ASSERT_GT(inertia_explicit, T(0));
     ASSERT_GT(inertia_full, T(0));
+    ASSERT_GT(inertia_full_host_init, T(0));
+    ASSERT_GT(inertia_full_device_init, T(0));
 
     const T rel = T(1e-5);
 
@@ -565,9 +569,9 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     // feeding that value explicitly should reproduce the same inertia.
     ASSERT_NEAR(inertia_default, inertia_explicit, std::abs(inertia_default) * rel);
 
-    // Full-dataset seeding has at least as much information as the subsample
-    // default, so the converged inertia should not be worse.
-    ASSERT_LE(inertia_full, inertia_default * (T(1) + rel));
+    // Lloyd iterations should not increase inertia from the same initialization.
+    // Different init_size values can converge to different local minima.
+    ASSERT_LE(inertia_full, inertia_full_host_init * (T(1) + rel));
 
     // With the full dataset, host and device initialization use the same rows
     // in the same order and select the same seeded centers.
