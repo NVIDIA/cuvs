@@ -4,6 +4,7 @@
  */
 
 #include "../../core/nvtx.hpp"
+#include "../../preprocessing/detail/rotation_matrix.cuh"
 #include "ivf_pq_build.cuh"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
@@ -232,34 +233,6 @@ void reset_index(const raft::resources& res, index<int64_t>* index)
     index->inds_ptrs().data_handle(), index->inds_ptrs().size(), stream);
 }
 
-void make_rotation_matrix(raft::resources const& handle,
-                          bool force_random_rotation,
-                          uint32_t n_rows,
-                          uint32_t n_cols,
-                          float* rotation_matrix,
-                          raft::random::RngState rng = raft::random::RngState(7ULL))
-{
-  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
-    "ivf_pq::make_rotation_matrix(%u * %u)", n_rows, n_cols);
-  auto stream  = raft::resource::get_cuda_stream(handle);
-  bool inplace = n_rows == n_cols;
-  uint32_t n   = std::max(n_rows, n_cols);
-  if (force_random_rotation || !inplace) {
-    rmm::device_uvector<float> buf(inplace ? 0 : n * n, stream);
-    float* mat = inplace ? rotation_matrix : buf.data();
-    raft::random::normal(handle, rng, mat, n * n, 0.0f, 1.0f);
-    raft::linalg::detail::qrGetQ_inplace(handle, mat, n, n, stream);
-    if (!inplace) { raft::copy_matrix(rotation_matrix, n_cols, mat, n, n_cols, n_rows, stream); }
-  } else {
-    uint32_t stride = n + 1;
-    auto rotation_matrix_view =
-      raft::make_device_vector_view<float, uint32_t>(rotation_matrix, n * n);
-    raft::linalg::map_offset(handle, rotation_matrix_view, [stride] __device__(uint32_t i) {
-      return static_cast<float>(i % stride == 0u);
-    });
-  }
-}
-
 void extract_centers(raft::resources const& res,
                      const cuvs::neighbors::ivf_pq::index<int64_t>& index,
                      raft::device_matrix_view<float, int64_t, raft::row_major> cluster_centers)
@@ -290,7 +263,12 @@ void make_rotation_matrix(
   uint32_t rot_dim = rotation_matrix.extent(0);
   uint32_t dim     = rotation_matrix.extent(1);
 
-  make_rotation_matrix(res, force_random_rotation, rot_dim, dim, rotation_matrix.data_handle());
+  cuvs::preprocessing::detail::make_rotation_matrix(res,
+                                                    force_random_rotation,
+                                                    rot_dim,
+                                                    dim,
+                                                    rotation_matrix.data_handle(),
+                                                    raft::random::RngState(7ULL));
 }
 
 void pad_centers_with_norms(
