@@ -206,6 +206,27 @@ public final class CuVSParamsHelper {
     }
   }
 
+  static CloseableHandle createHnswMaterializeParamsNative() {
+    try (var localArena = Arena.ofConfined()) {
+      var paramsPtrPtr = localArena.allocate(cuvsHnswMaterializeParams_t);
+      checkCuVSError(
+          cuvsHnswMaterializeParamsCreate(paramsPtrPtr), "cuvsHnswMaterializeParamsCreate");
+      var paramsPtr = paramsPtrPtr.get(cuvsHnswMaterializeParams_t, 0L);
+      return new CloseableHandle() {
+        @Override
+        public MemorySegment handle() {
+          return paramsPtr;
+        }
+
+        @Override
+        public void close() {
+          checkCuVSError(
+              cuvsHnswMaterializeParamsDestroy(paramsPtr), "cuvsHnswMaterializeParamsDestroy");
+        }
+      };
+    }
+  }
+
   static CloseableHandle createTieredIndexParams() {
     try (var localArena = Arena.ofConfined()) {
       var paramsPtrPtr = localArena.allocate(cuvsTieredIndexParams_t);
