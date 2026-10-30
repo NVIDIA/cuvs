@@ -442,6 +442,54 @@ raft::host_matrix_view<const half, int64_t, raft::row_major> dataset)
 
 **Additional overload:** `neighbors::brute_force::build`
 
+Build an INT8 brute-force index from a row-major device dataset.
+
+```cpp
+auto build(raft::resources const& handle,
+const cuvs::neighbors::brute_force::index_params& index_params,
+raft::device_matrix_view<const std::int8_t, int64_t, raft::row_major> dataset)
+-> cuvs::neighbors::brute_force::index<std::int8_t, float>;
+```
+
+INT8 search uses cuBLAS with INT32 dot-product accumulation and returns FLOAT32 distances. The vector dimension must be positive, divisible by four, and at most 131068.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `index_params` |  | `const cuvs::neighbors::brute_force::index_params&` |  |
+| `dataset` |  | `raft::device_matrix_view<const std::int8_t, int64_t, raft::row_major>` |  |
+
+**Returns**
+
+[`cuvs::neighbors::brute_force::index<std::int8_t, float>`](/api-reference/cpp-api-neighbors-brute-force#neighbors-brute-force-index)
+
+**Additional overload:** `neighbors::brute_force::build`
+
+Build an INT8 brute-force index from a row-major host dataset.
+
+```cpp
+auto build(raft::resources const& handle,
+const cuvs::neighbors::brute_force::index_params& index_params,
+raft::host_matrix_view<const std::int8_t, int64_t, raft::row_major> dataset)
+-> cuvs::neighbors::brute_force::index<std::int8_t, float>;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `index_params` |  | `const cuvs::neighbors::brute_force::index_params&` |  |
+| `dataset` |  | `raft::host_matrix_view<const std::int8_t, int64_t, raft::row_major>` |  |
+
+**Returns**
+
+[`cuvs::neighbors::brute_force::index<std::int8_t, float>`](/api-reference/cpp-api-neighbors-brute-force#neighbors-brute-force-index)
+
+**Additional overload:** `neighbors::brute_force::build`
+
 Build the index from the dataset for efficient search.
 
 ```cpp
@@ -489,6 +537,29 @@ Usage example:
 **Returns**
 
 [`cuvs::neighbors::brute_force::index<half, float>`](/api-reference/cpp-api-neighbors-brute-force#neighbors-brute-force-index)
+
+**Additional overload:** `neighbors::brute_force::build`
+
+Build an INT8 brute-force index from a col-major device dataset.
+
+```cpp
+auto build(raft::resources const& handle,
+const cuvs::neighbors::brute_force::index_params& index_params,
+raft::device_matrix_view<const std::int8_t, int64_t, raft::col_major> dataset)
+-> cuvs::neighbors::brute_force::index<std::int8_t, float>;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `index_params` |  | `const cuvs::neighbors::brute_force::index_params&` |  |
+| `dataset` |  | `raft::device_matrix_view<const std::int8_t, int64_t, raft::col_major>` |  |
+
+**Returns**
+
+[`cuvs::neighbors::brute_force::index<std::int8_t, float>`](/api-reference/cpp-api-neighbors-brute-force#neighbors-brute-force-index)
 
 ## Sparse Brute Force index
 

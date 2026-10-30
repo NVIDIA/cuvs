@@ -15,6 +15,8 @@
 #include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/core/export.hpp>
 
+#include <cstdint>
+
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
 namespace brute_force {
@@ -266,6 +268,29 @@ auto build(raft::resources const& handle,
   float metric_arg                    = 0) -> cuvs::neighbors::brute_force::index<half, float>;
 
 /**
+ * @brief Build an INT8 brute-force index from a row-major device dataset.
+ *
+ * INT8 search uses cuBLAS with INT32 dot-product accumulation and returns FLOAT32 distances.
+ * The vector dimension must be positive, divisible by four, and at most 131068.
+ */
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::brute_force::index_params& index_params,
+           raft::device_matrix_view<const std::int8_t, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::brute_force::index<std::int8_t, float>;
+
+/** @brief Build an INT8 brute-force index from a row-major host dataset. */
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::brute_force::index_params& index_params,
+           raft::host_matrix_view<const std::int8_t, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::brute_force::index<std::int8_t, float>;
+
+[[deprecated]] auto build(
+  raft::resources const& handle,
+  raft::device_matrix_view<const std::int8_t, int64_t, raft::row_major> dataset,
+  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Unexpanded,
+  float metric_arg = 0) -> cuvs::neighbors::brute_force::index<std::int8_t, float>;
+
+/**
  * @brief Build the index from the dataset for efficient search.
  *
  * Usage example:
@@ -316,6 +341,18 @@ auto build(raft::resources const& handle,
   raft::device_matrix_view<const half, int64_t, raft::col_major> dataset,
   cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Unexpanded,
   float metric_arg                    = 0) -> cuvs::neighbors::brute_force::index<half, float>;
+
+/** @brief Build an INT8 brute-force index from a col-major device dataset. */
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::brute_force::index_params& index_params,
+           raft::device_matrix_view<const std::int8_t, int64_t, raft::col_major> dataset)
+  -> cuvs::neighbors::brute_force::index<std::int8_t, float>;
+
+[[deprecated]] auto build(
+  raft::resources const& handle,
+  raft::device_matrix_view<const std::int8_t, int64_t, raft::col_major> dataset,
+  cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Unexpanded,
+  float metric_arg = 0) -> cuvs::neighbors::brute_force::index<std::int8_t, float>;
 /**
  * @}
  */
@@ -459,6 +496,30 @@ void search(raft::resources const& handle,
                            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
                            const cuvs::neighbors::filtering::base_filter& sample_filter =
                              cuvs::neighbors::filtering::none_sample_filter{});
+
+/**
+ * @brief Search an INT8 brute-force index with row-major queries.
+ *
+ * Supported metrics are InnerProduct, the expanded and unexpanded L2 variants, and
+ * CosineExpanded. Prefiltering is not currently supported.
+ */
+void search(raft::resources const& handle,
+            const cuvs::neighbors::brute_force::search_params& params,
+            const cuvs::neighbors::brute_force::index<std::int8_t, float>& index,
+            raft::device_matrix_view<const std::int8_t, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+
+[[deprecated]] void search(
+  raft::resources const& handle,
+  const cuvs::neighbors::brute_force::index<std::int8_t, float>& index,
+  raft::device_matrix_view<const std::int8_t, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const cuvs::neighbors::filtering::base_filter& sample_filter =
+    cuvs::neighbors::filtering::none_sample_filter{});
 /**
  * @brief Search ANN using the constructed index.
  *
@@ -593,6 +654,25 @@ void search(raft::resources const& handle,
                            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
                            const cuvs::neighbors::filtering::base_filter& sample_filter =
                              cuvs::neighbors::filtering::none_sample_filter{});
+
+/** @brief Search an INT8 brute-force index with col-major queries. */
+void search(raft::resources const& handle,
+            const cuvs::neighbors::brute_force::search_params& params,
+            const cuvs::neighbors::brute_force::index<std::int8_t, float>& index,
+            raft::device_matrix_view<const std::int8_t, int64_t, raft::col_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+            const cuvs::neighbors::filtering::base_filter& sample_filter =
+              cuvs::neighbors::filtering::none_sample_filter{});
+
+[[deprecated]] void search(
+  raft::resources const& handle,
+  const cuvs::neighbors::brute_force::index<std::int8_t, float>& index,
+  raft::device_matrix_view<const std::int8_t, int64_t, raft::col_major> queries,
+  raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<float, int64_t, raft::row_major> distances,
+  const cuvs::neighbors::filtering::base_filter& sample_filter =
+    cuvs::neighbors::filtering::none_sample_filter{});
 /**
  * @}
  */

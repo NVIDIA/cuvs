@@ -9,7 +9,7 @@
 
 #include <cuvs/neighbors/brute_force.hpp>
 
-#include <raft/core/copy.hpp>
+#include <raft/core/copy.cuh>
 
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
@@ -114,12 +114,17 @@ index<T, DistT>::index(raft::resources const& res,
   // api, which isn't supported
   // Instead, transpose the input matrices if they are passed as col-major.
   // (note: we're doing the transpose here to avoid doing per query)
-  raft::linalg::transpose(res,
-                          const_cast<T*>(dataset_view.data_handle()),
-                          dataset_.data_handle(),
-                          dataset_view.extent(0),
-                          dataset_view.extent(1),
-                          raft::resource::get_cuda_stream(res).get());
+  auto const stream = raft::resource::get_cuda_stream(res);
+  if constexpr (std::is_same_v<T, std::int8_t>) {
+    raft::copy(res, dataset_.view(), dataset_view);
+  } else {
+    raft::linalg::transpose(res,
+                            const_cast<T*>(dataset_view.data_handle()),
+                            dataset_.data_handle(),
+                            dataset_view.extent(0),
+                            dataset_view.extent(1),
+                            stream.get());
+  }
   dataset_view_ = raft::make_const_mdspan(dataset_.view());
 }
 
@@ -144,12 +149,17 @@ index<T, DistT>::index(raft::resources const& res,
   // api, which isn't supported
   // Instead, transpose the input matrices if they are passed as col-major.
   // (note: we're doing the transpose here to avoid doing per query)
-  raft::linalg::transpose(res,
-                          const_cast<T*>(dataset_view.data_handle()),
-                          dataset_.data_handle(),
-                          dataset_view.extent(0),
-                          dataset_view.extent(1),
-                          raft::resource::get_cuda_stream(res).get());
+  auto const stream = raft::resource::get_cuda_stream(res);
+  if constexpr (std::is_same_v<T, std::int8_t>) {
+    raft::copy(res, dataset_.view(), dataset_view);
+  } else {
+    raft::linalg::transpose(res,
+                            const_cast<T*>(dataset_view.data_handle()),
+                            dataset_.data_handle(),
+                            dataset_view.extent(0),
+                            dataset_view.extent(1),
+                            stream.get());
+  }
   dataset_view_ = raft::make_const_mdspan(dataset_.view());
 }
 
@@ -251,9 +261,11 @@ void index<T, DistT>::update_dataset(
 
 CUVS_INST_BFKNN(float, float);
 CUVS_INST_BFKNN(half, float);
+CUVS_INST_BFKNN(std::int8_t, float);
 
 template class cuvs::neighbors::brute_force::index<float, float>;
 template class cuvs::neighbors::brute_force::index<half, float>;
+template class cuvs::neighbors::brute_force::index<std::int8_t, float>;
 
 #undef CUVS_INST_BFKNN
 

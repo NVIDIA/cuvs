@@ -14,6 +14,7 @@
 #include "./faiss_distance_utils.h"
 #include "./fused_l2_knn.cuh"
 #include "./haversine_distance.cuh"
+#include "./int8_brute_force.cuh"
 #include "./knn_utils.cuh"
 
 #include <raft/core/bitmap.cuh>
@@ -912,32 +913,40 @@ void search(raft::resources const& res,
             raft::device_matrix_view<DistT, int64_t, raft::row_major> distances,
             const cuvs::neighbors::filtering::base_filter& sample_filter_ref)
 {
-  try {
-    auto& sample_filter =
+  if constexpr (std::is_same_v<T, std::int8_t>) {
+    try {
       dynamic_cast<const cuvs::neighbors::filtering::none_sample_filter&>(sample_filter_ref);
-    return brute_force_search<T, int64_t, DistT>(res, idx, queries, neighbors, distances);
-  } catch (const std::bad_cast&) {
-  }
-  if constexpr (std::is_same_v<LayoutT, raft::col_major>) {
-    RAFT_FAIL("filtered search isn't available with col_major queries yet");
+      return int8_brute_force_search<int64_t, LayoutT>(res, idx, queries, neighbors, distances);
+    } catch (const std::bad_cast&) {
+      RAFT_FAIL("filtered search is not available for INT8 brute-force indexes");
+    }
   } else {
     try {
-      auto& sample_filter =
-        dynamic_cast<const cuvs::neighbors::filtering::bitmap_filter<uint32_t, int64_t>&>(
-          sample_filter_ref);
-      return brute_force_search_filtered<T, int64_t, uint32_t, DistT>(
-        res, idx, queries, &sample_filter, neighbors, distances);
+      dynamic_cast<const cuvs::neighbors::filtering::none_sample_filter&>(sample_filter_ref);
+      return brute_force_search<T, int64_t, DistT>(res, idx, queries, neighbors, distances);
     } catch (const std::bad_cast&) {
     }
+    if constexpr (std::is_same_v<LayoutT, raft::col_major>) {
+      RAFT_FAIL("filtered search isn't available with col_major queries yet");
+    } else {
+      try {
+        auto& sample_filter =
+          dynamic_cast<const cuvs::neighbors::filtering::bitmap_filter<uint32_t, int64_t>&>(
+            sample_filter_ref);
+        return brute_force_search_filtered<T, int64_t, uint32_t, DistT>(
+          res, idx, queries, &sample_filter, neighbors, distances);
+      } catch (const std::bad_cast&) {
+      }
 
-    try {
-      auto& sample_filter =
-        dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>&>(
-          sample_filter_ref);
-      return brute_force_search_filtered<T, int64_t, uint32_t, DistT>(
-        res, idx, queries, &sample_filter, neighbors, distances);
-    } catch (const std::bad_cast&) {
-      RAFT_FAIL("Unsupported sample filter type");
+      try {
+        auto& sample_filter =
+          dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t>&>(
+            sample_filter_ref);
+        return brute_force_search_filtered<T, int64_t, uint32_t, DistT>(
+          res, idx, queries, &sample_filter, neighbors, distances);
+      } catch (const std::bad_cast&) {
+        RAFT_FAIL("Unsupported sample filter type");
+      }
     }
   }
 }
