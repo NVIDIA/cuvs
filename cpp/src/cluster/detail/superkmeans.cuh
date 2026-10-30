@@ -17,6 +17,7 @@
 #include <raft/linalg/map_then_reduce.cuh>
 #include <raft/matrix/sample_rows.cuh>
 #include <raft/random/rng_state.hpp>
+#include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
 #include <algorithm>
@@ -94,15 +95,48 @@ void predict(const raft::resources& handle,
                                           cuvs::spatial::knn::detail::utils::mapping<float>{});
 }
 
-/** The first `cols` dims of n rows (row stride `stride`) as half, packed (row stride `cols`). */
+/**
+ * The first `cols` dims of n rows (row stride `stride`) as half, packed (row stride `cols`), and
+ * the squared norms of those half values over the first kDimTileSize dims (the fused filter's,
+ * from the same values as its dot products); a warp per row.
+ */
 template <typename S>
-void copy_first_columns(
-  const raft::resources& handle, const S* in, int64_t n, int64_t stride, int64_t cols, half* out)
+RAFT_KERNEL copy_first_columns_kernel(const S* __restrict__ in,
+                                      int64_t n,
+                                      int64_t stride,
+                                      int64_t cols,
+                                      half* __restrict__ out,
+                                      float* __restrict__ norms)
 {
-  raft::linalg::map_offset(
-    handle, raft::make_device_vector_view(out, n * cols), [=] __device__(int64_t i) {
-      return static_cast<half>(in[i / cols * stride + i % cols]);
-    });
+  const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / pruned_nn::kWarpSize;
+  if (row >= n) { return; }
+  float s = 0.f;
+  for (int64_t j = threadIdx.x % pruned_nn::kWarpSize; j < cols; j += pruned_nn::kWarpSize) {
+    const half h        = static_cast<half>(in[row * stride + j]);
+    out[row * cols + j] = h;
+    if (j < pruned_nn::kDimTileSize) {
+      const float f = __half2float(h);
+      s += f * f;
+    }
+  }
+  s = raft::warpReduce(s);
+  if (threadIdx.x % pruned_nn::kWarpSize == 0) { norms[row] = s; }
+}
+
+template <typename S>
+void copy_first_columns(const raft::resources& handle,
+                        const S* in,
+                        int64_t n,
+                        int64_t stride,
+                        int64_t cols,
+                        half* out,
+                        float* norms)
+{
+  constexpr uint32_t kThreads = 256;
+  const auto blocks           = raft::ceildiv<int64_t>(n * pruned_nn::kWarpSize, kThreads);
+  auto stream                 = raft::resource::get_cuda_stream(handle).get();
+  copy_first_columns_kernel<<<blocks, kThreads, 0, stream>>>(in, n, stride, cols, out, norms);
+  RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
 /**
@@ -139,11 +173,17 @@ class pruned_assignment {
     params_.ratios      = ratios_.data_handle();
     params_.first_ratio = ratios[pruned_nn::kDimTileSize];
     raft::copy(ratios_.data_handle(), ratios.data(), ratios.size(), stream);
-    pruned_nn::squared_norms(
-      X.data_handle(), n_rows_, dim_, pruned_nn::kDimTileSize, row_norms_.data_handle(), stream);
-    if constexpr (!std::is_same_v<T, half>) {
-      copy_first_columns(
-        handle, X.data_handle(), n_rows_, dim_, filter_dim_, filter_rows_.data_handle());
+    if constexpr (std::is_same_v<T, half>) {
+      pruned_nn::squared_norms(
+        X.data_handle(), n_rows_, dim_, pruned_nn::kDimTileSize, row_norms_.data_handle(), stream);
+    } else {
+      copy_first_columns(handle,
+                         X.data_handle(),
+                         n_rows_,
+                         dim_,
+                         filter_dim_,
+                         filter_rows_.data_handle(),
+                         row_norms_.data_handle());
     }
     // The host ratios are released when the copy is done
     raft::resource::sync_stream(handle);
@@ -157,25 +197,19 @@ class pruned_assignment {
               raft::device_vector_view<uint32_t, int64_t> labels,
               bool order_next)
   {
-    auto stream = raft::resource::get_cuda_stream(handle_).get();
     copy_first_columns(handle_,
                        centroids.data_handle(),
                        n_clusters_,
                        dim_,
                        filter_dim_,
-                       filter_centroids_.data_handle());
+                       filter_centroids_.data_handle(),
+                       centroid_norms_.data_handle());
     const T* kernel_centroids = nullptr;
     if constexpr (std::is_same_v<T, half>) {
       kernel_centroids = filter_centroids_.data_handle();
     } else {
       kernel_centroids = centroids.data_handle();
     }
-    pruned_nn::squared_norms(kernel_centroids,
-                             n_clusters_,
-                             dim_,
-                             pruned_nn::kDimTileSize,
-                             centroid_norms_.data_handle(),
-                             stream);
     params_.next_row_order = order_next ? row_order_.data_handle() : nullptr;
     cuvs::distance::pruned_top_1_nn<T>(handle_,
                                        {labels.data_handle(), dist_.data_handle()},

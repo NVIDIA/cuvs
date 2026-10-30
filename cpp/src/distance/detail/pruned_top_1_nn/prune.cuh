@@ -75,8 +75,11 @@ __device__ __forceinline__ void warp_reduce_sum_n(T* values)
   }
 }
 
-/** Squared norm of each of n rows (row stride `stride`) over their first `cols` dims; a warp per
- * row. */
+/**
+ * Squared norm of each of n rows (row stride `stride`) over their first `cols` dims; a warp per
+ * row. Not raft::linalg::rowNorm: raft's row reductions take whole contiguous rows (row length =
+ * stride), and masking the other columns would still read them all.
+ */
 template <typename T>
 RAFT_KERNEL squared_norms_kernel(
   const T* __restrict__ rows, int64_t n, int64_t stride, int64_t cols, float* __restrict__ out)

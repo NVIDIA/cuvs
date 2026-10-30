@@ -198,8 +198,9 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  * @param y           [n, k] row-major
  * @param x_fp16      [m, kDimTileSize]: x's first dims in FP16, for float; ignored for half
  * @param y_fp16      [n, kDimTileSize]: y's first dims in FP16, for float; ignored for half
- * @param xn          [m] squared norms of x over the first kDimTileSize dims
- * @param yn          [n] squared norms of y over the first kDimTileSize dims
+ * @param xn          [m] squared norms of x over the first kDimTileSize dims, of the FP16 values
+ *                    the filter reads (x_fp16 for float)
+ * @param yn          [n] the same for y
  * @param workspace   pruned_top_1_nn_workspace_size(handle, m) bytes, 256-byte aligned
  */
 template <typename DataT>
