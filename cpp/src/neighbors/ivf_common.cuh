@@ -14,6 +14,8 @@
 #include <raft/linalg/map.cuh>
 #include <raft/matrix/detail/select_warpsort.cuh>  // matrix::detail::select::warpsort::warp_sort_distributed
 
+#include <vector>
+
 namespace cuvs::neighbors::ivf::detail {
 
 // Forward declaration of helper function to avoid including cub/device/* in header
@@ -260,16 +262,19 @@ void recompute_internal_state(const raft::resources& res, Index& index)
   auto tmp_res = raft::resource::get_workspace_resource_ref(res);
   rmm::device_uvector<uint32_t> sorted_sizes(index.n_lists(), stream, tmp_res);
 
-  // Actualize the list pointers
+  // Actualize the list pointers: gather them on the host and upload each array with a single copy
+  // instead of one tiny pageable H2D copy per list. The host buffers outlive the sync_stream below.
   auto data_ptrs = index.data_ptrs();
   auto inds_ptrs = index.inds_ptrs();
+  std::vector<typename decltype(data_ptrs)::value_type> data_ptrs_host(index.n_lists());
+  std::vector<typename decltype(inds_ptrs)::value_type> inds_ptrs_host(index.n_lists());
   for (uint32_t label = 0; label < index.n_lists(); label++) {
-    auto& list          = index.lists()[label];
-    const auto data_ptr = list ? list->data_ptr() : nullptr;
-    const auto inds_ptr = list ? list->indices_ptr() : nullptr;
-    raft::copy(&data_ptrs(label), &data_ptr, 1, stream);
-    raft::copy(&inds_ptrs(label), &inds_ptr, 1, stream);
+    auto& list            = index.lists()[label];
+    data_ptrs_host[label] = list ? list->data_ptr() : nullptr;
+    inds_ptrs_host[label] = list ? list->indices_ptr() : nullptr;
   }
+  raft::copy(data_ptrs.data_handle(), data_ptrs_host.data(), data_ptrs_host.size(), stream);
+  raft::copy(inds_ptrs.data_handle(), inds_ptrs_host.data(), inds_ptrs_host.size(), stream);
 
   // Sort the cluster sizes in the descending order.
   // Use helper function to avoid including cub/device/* in this header
