@@ -30,7 +30,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.apache.lucene.codecs.CodecUtil;
-import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.ByteVectorValues;
@@ -50,7 +49,6 @@ import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IOContext.Context;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.hnsw.IntToIntFunction;
@@ -60,7 +58,13 @@ import org.apache.lucene.util.hnsw.IntToIntFunction;
  *
  * @since 25.10
  */
-public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
+public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
+
+  /**
+   * Largest number of hits searched for with CAGRA in one segment. Beyond it the brute force index
+   * is searched instead if the segment has one, and otherwise CAGRA returns only this many.
+   */
+  static final int MAX_CAGRA_K = 1024;
 
   private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
       Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
@@ -105,6 +109,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   CuVS2510GPUVectorsReader(
       SegmentReadState state, FlatVectorsReader flatReader, FilterBitsetCache filterBitsetCache)
       throws IOException {
+    super(flatReader);
     this.flatVectorsReader = flatReader;
     this.filterBitsetCache = filterBitsetCache;
     this.fieldInfos = state.fieldInfos;
@@ -131,7 +136,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
       } finally {
         CodecUtil.checkFooter(meta, priorException);
       }
-      var ioContext = state.context.withReadAdvice(ReadAdvice.SEQUENTIAL);
+      var ioContext = LuceneCompat.sequentialReadContext(state.context);
       cuvsIndexInput = openCuVSInput(state, versionMeta, ioContext);
       /*
        * Do not load indexes on the GPU when this reader is opened for a merge, which reads them
@@ -517,7 +522,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * Returns the k nearest neighbor documents using cuVS's CAGRA or brute force algorithm for this field, to the given vector.
    */
   @Override
-  public void search(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
+  protected void doSearch(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
       throws IOException {
     var fieldEntry = getFieldEntry(field, VectorEncoding.FLOAT32);
     if (fieldEntry.count() == 0 || knnCollector.k() == 0) {
@@ -568,7 +573,14 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
 
     try {
       List<Map<Integer, Float>> searchResult = null;
-      if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
+      // Lucene's own query may also ask for more than MAX_CAGRA_K hits, even for a k below it: on
+      // Lucene 10.3, as many as it expects from this segment. Without a brute force index, CAGRA
+      // returns as many as it can. That is enough for any k up to MAX_CAGRA_K; a filtered search
+      // that needs more is redone exactly by Lucene, but an unfiltered one gets at most
+      // MAX_CAGRA_K hits from this segment, a documented limit of CAGRA-only indexes.
+      if (cuvsIndex.getCagraIndex() != null
+          && (knnCollector.k() <= MAX_CAGRA_K || cuvsIndex.getBruteforceIndex() == null)) {
+        topK = Math.min(topK, MAX_CAGRA_K);
         CagraSearchParams searchParams;
         if (knnCollector instanceof GPUPerLeafCuVSKnnCollector) {
           GPUPerLeafCuVSKnnCollector collector = (GPUPerLeafCuVSKnnCollector) knnCollector;
@@ -678,7 +690,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * This is not supported.
    */
   @Override
-  public void search(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
+  protected void doSearch(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
       throws IOException {
     throw new UnsupportedOperationException("Byte vectors are not currently supported");
   }
@@ -748,6 +760,19 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
               + versionVectorData,
           in);
     }
+  }
+
+  /**
+   * Whether this segment has a CAGRA index for the given field. Unlike {@link
+   * #getCagraIndexForField}, this never loads an index onto the GPU.
+   *
+   * @param field the vector field name
+   */
+  boolean hasCagraIndex(String field) {
+    FieldInfo info = fieldInfos.fieldInfo(field);
+    if (info == null) return false;
+    FieldEntry fieldEntry = fields.get(info.number);
+    return fieldEntry != null && fieldEntry.cagraIndexLength() > 0;
   }
 
   /**

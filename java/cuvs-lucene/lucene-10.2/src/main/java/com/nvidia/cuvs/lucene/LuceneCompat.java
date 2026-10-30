@@ -9,6 +9,8 @@ import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene101.Lucene101Codec;
 import org.apache.lucene.codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
+import org.apache.lucene.store.IOContext;
+import org.apache.lucene.store.ReadAdvice;
 
 /**
  * The Lucene calls that differ between the Lucene releases cuvs-lucene supports, for Lucene 10.2.
@@ -24,7 +26,17 @@ final class LuceneCompat {
   static final int LUCENE_MAJOR = 10;
   static final int LUCENE_MINOR = 2;
 
+  // The codec generation that writes on this Lucene release: the version number of the Lucene
+  // codec that codecs of this generation wrap (Lucene101Codec). Codecs of other generations are
+  // read-only. Also a compile-time constant, for the same reason.
+  static final int CURRENT_CODEC_GENERATION = 101;
+
   private LuceneCompat() {}
+
+  /** Returns {@code context} with a hint that the file will be read sequentially. */
+  static IOContext sequentialReadContext(IOContext context) {
+    return context.withReadAdvice(ReadAdvice.SEQUENTIAL);
+  }
 
   /** Returns Lucene 10.2's {@code Lucene101Codec}. */
   static Codec lucene101Codec() {

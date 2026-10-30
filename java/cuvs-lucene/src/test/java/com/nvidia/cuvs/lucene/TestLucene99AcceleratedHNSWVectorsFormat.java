@@ -91,7 +91,8 @@ public class TestLucene99AcceleratedHNSWVectorsFormat extends BaseCuVSKnnVectors
         assertVectorsKeepTheirDocuments(r, "f2", f2);
 
         // opportunistically check boundary condition - search with a 0 topK
-        var topDocs = r.searchNearestVectors("f1", randomVector(384), 0, null, 10);
+        var topDocs =
+            TestLuceneCompat.searchNearestVectors(r, "f1", randomVector(384), 0, null, 10);
         assertEquals(0, topDocs.scoreDocs.length);
         assertEquals(0, topDocs.totalHits.value());
       }
