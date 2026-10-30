@@ -149,8 +149,8 @@ struct cuvsAceParams {
    *
    * Small values might improve recall but potentially degrade performance and
    * increase memory usage. Partitions should not be too small to prevent issues
-   * in KNN graph construction. The partition size is on average 2 * (n_rows /
-   * npartitions) * dim * sizeof(T). 2 is because of the core and augmented
+   * in KNN graph construction. The partition size is on average `(1 + nsubpartitions) *
+   * (n_rows / npartitions) * dim * sizeof(T)`, accounting for core and augmented
    * vectors. Please account for imbalance in the partition sizes (up to 3x in
    * our tests).
    *
@@ -199,6 +199,17 @@ struct cuvsAceParams {
    * Useful for testing or when running alongside other memory-intensive processes.
    */
   double max_gpu_memory_gb;
+  /**
+   * Number of additional nearest partitions assigned to each vector. Default: 1.
+   * Must be positive and smaller than npartitions (unless automatically selected).
+   * Increasing this improves overlap at the cost of build time, memory, and disk space.
+   */
+  size_t nsubpartitions;
+  /**
+   * Build pruned partial graphs, then add reverse edges globally. Default: false.
+   * In disk mode, incoming edges are buffered to temporary files and merged on the CPU.
+   */
+  bool add_global_reverse_edges;
 };
 
 typedef struct cuvsAceParams* cuvsAceParams_t;

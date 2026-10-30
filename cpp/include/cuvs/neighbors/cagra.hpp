@@ -180,20 +180,25 @@ struct ace_params {
    *
    * Small values might improve recall but potentially degrade performance and
    * increase memory usage. Partitions should not be too small to prevent issues
-   * in KNN graph construction. The partition size is on average 2 * (n_rows / npartitions) * dim *
-   * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the
-   * partition sizes (up to 3x in our tests).
+   * in KNN graph construction. The partition size is on average `(1 + nsubpartitions) * (n_rows /
+   * npartitions) * dim * sizeof(T)`, accounting for the core and augmented vectors. Please account
+   * for imbalance in the partition sizes (up to 3x in our tests).
    *
    * If the specified number of partitions results in partitions that exceed
    * available memory, the value will be automatically increased to fit memory
    * constraints and a warning will be issued.
    */
   size_t npartitions = 0;
+  /** Number of additional nearest partitions assigned to each vector. Must be positive and
+   * smaller than npartitions (unless npartitions is auto-selected). Increasing this improves
+   * overlap at the cost of build time, memory, and temporary disk space. Default: 1.
+   */
+  size_t nsubpartitions = 1;
   /**
    * The index quality for the ACE build.
    *
-   * Bigger values increase the index quality. At some point, increasing this will no longer improve
-   * the quality.
+   * Bigger values increase the index quality. At some point, increasing this will no longer
+   * improve the quality.
    */
   size_t ef_construction = 120;
   /**
@@ -205,6 +210,9 @@ struct ace_params {
    * already exist, but ACE's named artifacts must not already exist. Simultaneous
    * builds must use different directories. On failure, ACE removes only artifacts
    * it created and never deletes unrelated directory contents.
+   * With `add_global_reverse_edges`, temporary incoming-edge records also require up to
+   * `dataset_size * graph_degree * (2 * sizeof(IdxT) + sizeof(uint32_t))` bytes, plus any
+   * record alignment padding. These records are removed after the merge.
    */
   std::string build_dir = "/tmp/ace_build";
   /**
@@ -213,6 +221,20 @@ struct ace_params {
    * When true, enables disk-based operations for memory-efficient graph construction.
    */
   bool use_disk = false;
+
+  /**
+   * Build pruned core-plus-argument partial graphs, then add reverse edges globally.
+   *
+   * Each partition first builds an intermediate kNN graph and prunes it without a local
+   * reverse-edge merge. Then build the reverse-edge graph globally and merge it into the pruned
+   * graph. In disk mode (explicit or automatic), incoming edges are buffered
+   * to temporary files while building each pruned partition, then merged on the CPU one
+   * destination partition at a time, retaining at most `ceil(graph_degree / 2)` incoming candidates
+   * per node in memory.
+   * The merge preserves edge-rank priority; ties use reordered source ID in disk mode
+   * and are GPU-scheduling-dependent in memory mode. Disabled by default.
+   */
+  bool add_global_reverse_edges = false;
 
   /**
    * Maximum host memory to use for ACE build in GiB.
@@ -330,8 +352,8 @@ struct index_params : cuvs::neighbors::index_params {
    *
    *  - `true` (default) means `build` attaches the input dataset as a **non-owning view** to the
    * index. The caller is responsible for keeping the underlying dataset storage alive for as long
-   * as the index is used. A device-backed index is ready to search immediately; a host-backed index
-   * retains the dataset for operations such as serialization but is not searchable.
+   * as the index is used. A device-backed index is ready to search immediately; a host-backed
+   * index retains the dataset for operations such as serialization but is not searchable.
    *  - `false` means `build` only builds the graph and the caller is expected to attach a dataset
    * separately via `cuvs::neighbors::cagra::update_dataset` before searching.
    *
@@ -417,10 +439,11 @@ struct index_params : cuvs::neighbors::index_params {
    *
    * * IMPORTANT NOTE *
    *
-   * The reference HNSW index and the corresponding from-CAGRA generated HNSW index will NOT produce
-   * exactly the same recalls and QPS for the same parameter `ef`. The graphs are different
+   * The reference HNSW index and the corresponding from-CAGRA generated HNSW index will NOT
+   * produce exactly the same recalls and QPS for the same parameter `ef`. The graphs are different
    * internally. Depending on the selected heuristics, the CAGRA-produced graph's QPS-Recall curve
-   * may be shifted along the curve right or left. See the heuristics descriptions for more details.
+   * may be shifted along the curve right or left. See the heuristics descriptions for more
+   * details.
    *
    * Usage example:
    * @code{.cpp}
@@ -453,8 +476,8 @@ struct extend_params {
   /** The additional dataset is divided into chunks and added to the graph. This is the knob to
    * adjust the tradeoff between the recall and operation throughput. Large chunk sizes can result
    * in high throughput, but use more working memory (O(max_chunk_size*degree^2)). This can also
-   * degrade recall because no edges are added between the nodes in the same chunk. Auto select when
-   * 0. */
+   * degrade recall because no edges are added between the nodes in the same chunk. Auto select
+   * when 0. */
   uint32_t max_chunk_size = 0;
 };
 /**
@@ -724,7 +747,8 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   }
 
   /**
-   * Replace the source indices with a new source indices taking the ownership of the passed vector.
+   * @brief Replace the source indices with a new source indices taking the ownership of the passed
+   * vector.
    */
   void update_source_indices(raft::device_vector<index_type, int64_t>&& source_indices)
   {

@@ -7,6 +7,7 @@
 
 #include "detail/ann_utils.cuh"
 #include "detail/cagra/add_nodes.cuh"
+#include "detail/cagra/cagra_ace.cuh"
 #include "detail/cagra/cagra_build.cuh"
 #include "detail/cagra/cagra_merge.cuh"
 #include "detail/cagra/cagra_search.cuh"
@@ -340,6 +341,10 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
     }
     return idx;
   } else if constexpr (cuvs::neighbors::is_dense_row_major_device_dataset_view_v<DatasetViewT>) {
+    RAFT_EXPECTS(
+      !std::holds_alternative<graph_build_params::ace_params>(params.graph_build_params),
+      "cagra::build: ACE requires a dataset in host memory; device-resident datasets are not "
+      "supported. Pass a host dataset view when using ace_params.");
     auto idx = cuvs::neighbors::cagra::detail::build_from_device_matrix<T, IdxT, DatasetViewT>(
       res, params, dataset);
     if (params.attach_dataset_on_build) {

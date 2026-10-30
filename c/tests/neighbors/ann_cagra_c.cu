@@ -1186,6 +1186,10 @@ TEST(CagraC, BuildSearchACEMemory)
 
   cuvsAceParams_t ace_params;
   cuvsAceParamsCreate(&ace_params);
+  EXPECT_EQ(ace_params->nsubpartitions, 1);
+  EXPECT_FALSE(ace_params->add_global_reverse_edges);
+  ace_params->nsubpartitions = 0;
+  ace_params->add_global_reverse_edges = true;
   ace_params->npartitions = 2;
   ace_params->ef_construction = 120;
   ace_params->use_disk = false;
@@ -1193,6 +1197,8 @@ TEST(CagraC, BuildSearchACEMemory)
   build_params->graph_build_params = ace_params;
   cuvsDataset_t dataset_view;
   ASSERT_EQ(cuvsDatasetMakeStandardView(res, &dataset_tensor, &dataset_view), CUVS_SUCCESS);
+  EXPECT_EQ(cuvsCagraBuild(res, build_params, dataset_view, index), CUVS_ERROR);
+  ace_params->nsubpartitions = 1;
   ASSERT_EQ(cuvsCagraBuild(res, build_params, dataset_view, index), CUVS_SUCCESS);
 
   // Host build yields a host index. Attach a caller-provided device padded dataset

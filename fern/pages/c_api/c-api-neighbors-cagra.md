@@ -102,6 +102,8 @@ struct cuvsAceParams {
   bool use_disk;
   double max_host_memory_gb;
   double max_gpu_memory_gb;
+  size_t nsubpartitions;
+  bool add_global_reverse_edges;
 };
 ```
 
@@ -109,12 +111,14 @@ struct cuvsAceParams {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `npartitions` | `size_t` | Number of partitions for ACE (Augmented Core Extraction) partitioned build.<br /><br />When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average 2 * (n_rows / npartitions) * dim * sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
+| `npartitions` | `size_t` | Number of partitions for ACE (Augmented Core Extraction) partitioned build.<br /><br />When set to 0 (default), the number of partitions is automatically derived based on available host and GPU memory to maximize partition size while ensuring the build fits in memory.<br /><br />Small values might improve recall but potentially degrade performance and increase memory usage. Partitions should not be too small to prevent issues in KNN graph construction. The partition size is on average `(1 + nsubpartitions) * (n_rows / npartitions) * dim * sizeof(T)`, accounting for core and augmented vectors. Please account for imbalance in the partition sizes (up to 3x in our tests).<br /><br />If the specified number of partitions results in partitions that exceed available memory, the value will be automatically increased to fit memory constraints and a warning will be issued. |
 | `ef_construction` | `size_t` | The index quality for the ACE build.<br /><br />Bigger values increase the index quality. At some point, increasing this will no longer improve the quality. |
 | `build_dir` | `const char*` | Directory to store ACE build artifacts (e.g., KNN graph, optimized graph).<br /><br />Used when `use_disk` is true or when the graph does not fit in host and GPU memory. This should be the fastest disk in the system and hold enough space for twice the dataset, final graph, and label mapping. The directory may already exist, but ACE's named artifacts must not already exist. Simultaneous builds must use different directories. On failure, ACE removes only artifacts it created and never deletes unrelated directory contents. |
 | `use_disk` | `bool` | Whether to use disk-based storage for ACE build.<br /><br />When true, enables disk-based operations for memory-efficient graph construction. |
 | `max_host_memory_gb` | `double` | Maximum host memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available host memory. When set to a positive value, limits host memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
 | `max_gpu_memory_gb` | `double` | Maximum GPU memory to use for ACE build in GiB.<br /><br />When set to 0 (default), uses available GPU memory. When set to a positive value, limits GPU memory usage to the specified amount. Useful for testing or when running alongside other memory-intensive processes. |
+| `nsubpartitions` | `size_t` | Number of additional nearest partitions assigned to each vector. Default: 1. Must be positive and smaller than npartitions (unless automatically selected). Increasing this improves overlap at the cost of build time, memory, and disk space. |
+| `add_global_reverse_edges` | `bool` | Build pruned partial graphs, then add reverse edges globally. Default: false. In disk mode, incoming edges are buffered to temporary files and merged on the CPU. |
 
 <a id="cuvscagraindexparams"></a>
 ### cuvsCagraIndexParams
