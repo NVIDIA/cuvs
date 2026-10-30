@@ -31,6 +31,9 @@ inline const char* fused_1nn_kernel_entrypoint()
   } else if constexpr (std::is_same_v<DataTag, cuvs::neighbors::detail::tag_h>) {
     if constexpr (is_high_dim) return "fused_1nn_h_i32_hd";
     return is_relaxed ? "fused_1nn_h_i32_relaxed" : "fused_1nn_h_i32";
+  } else if constexpr (std::is_same_v<DataTag, cuvs::neighbors::detail::tag_u8>) {
+    static_assert(!is_relaxed && !is_high_dim, "bit-packed fused 1-NN has only the strict ABI");
+    return "fused_1nn_u8_i32";
   } else {
     static_assert(sizeof(DataTag) == 0, "unsupported fused 1-NN cuTile data type");
     return "";
@@ -129,6 +132,36 @@ struct Fused1nnTilePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
 #endif
     this->add_static_fragment<
       fragment_tag_fused_1nn_cubin<DataTag, IndexTag, Tile120, AbiTag, cutile_arch_12_0>>();
+  }
+};
+
+/**
+ * Planner for bit-packed (BitwiseHamming) rows, which the launcher promotes into a padded layout,
+ * so only the strict ABI exists. The kernel needs block-scaled fp4 MMA (Blackwell and later); on
+ * GPUs without a tile try_get_launcher() == nullptr and callers keep the SIMT popcount kernel.
+ */
+template <>
+struct Fused1nnTilePlanner<uint8_t, cutile_abi_strict>
+  : cuvs::detail::jit_lto::TileAlgorithmPlanner {
+  using DataTag  = cuvs::neighbors::detail::tag_u8;
+  using IndexTag = cuvs::neighbors::detail::tag_index_i32;
+
+  inline static cuvs::detail::jit_lto::TileLauncherCache launcher_cache{};
+
+  Fused1nnTilePlanner()
+    : TileAlgorithmPlanner(fused_1nn_kernel_entrypoint<DataTag, cutile_abi_strict>(),
+                           launcher_cache)
+  {
+  }
+
+  void add_entrypoint()
+  {
+    this->add_static_fragment<
+      fragment_tag_fused_1nn_cubin<DataTag,
+                                   IndexTag,
+                                   fused_1nn_matrix_tile_u8_cutile_arch_10_0_strict,
+                                   cutile_abi_strict,
+                                   cuvs::detail::jit_lto::cutile_arch_10_0>>();
   }
 };
 

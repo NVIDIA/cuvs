@@ -194,6 +194,48 @@ inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
   }
 }
 
+#if CUVS_CUTILE_ENABLED
+/** Bitwise-Hamming labels from the tensor-core (cuTile) fused 1-NN; see predict_bitwise_hamming. */
+template <typename IdxT, typename LabelT>
+void predict_bitwise_hamming_cutile(const raft::resources& handle,
+                                    const uint8_t* centers,
+                                    IdxT n_clusters,
+                                    IdxT dim,
+                                    const uint8_t* dataset,
+                                    IdxT n_rows,
+                                    LabelT* labels,
+                                    rmm::device_async_resource_ref mr)
+{
+  auto stream = raft::resource::get_cuda_stream(handle);
+  rmm::device_uvector<IdxT> nearest(n_rows, stream, mr);
+  rmm::device_uvector<float> distances(n_rows, stream, mr);
+  rmm::device_uvector<int> index_workspace(
+    std::is_same_v<IdxT, int64_t>
+      ? cuvs::distance::detail::fused_1nn_cutile_index_workspace_rows<uint8_t>(n_rows)
+      : 0,
+    stream,
+    mr);
+  cuvs::distance::detail::launch_fused_1nn_tile<uint8_t, IdxT>(
+    handle,
+    nearest.data(),
+    distances.data(),
+    dataset,
+    centers,
+    nullptr,
+    nullptr,
+    n_rows,
+    n_clusters,
+    dim,
+    cuvs::distance::DistanceType::BitwiseHamming,
+    false,
+    index_workspace.data());
+  raft::linalg::map(handle,
+                    raft::make_device_vector_view<const IdxT, IdxT>(nearest.data(), n_rows),
+                    raft::make_device_vector_view<LabelT, IdxT>(labels, n_rows),
+                    raft::cast_op<LabelT>{});
+}
+#endif
+
 /**
  * @brief Predict labels for the dataset; uint8_t only (specialization for BitwiseHamming).
  */
@@ -214,6 +256,18 @@ inline void predict_bitwise_hamming(const raft::resources& handle,
 
   RAFT_EXPECTS(n_clusters > 0 && dim > 0, "Centers must have nonzero dimensions");
   if (n_rows == 0) { return; }
+
+#if CUVS_CUTILE_ENABLED
+  // The tensor-core kernel needs block-scaled fp4 MMA (Blackwell and later); elsewhere it reports
+  // unavailable and the SIMT popcount kernel below runs.
+  if constexpr (std::is_same_v<IdxT, int> || std::is_same_v<IdxT, int64_t>) {
+    if (cuvs::distance::detail::is_fused_1nn_tile_available<uint8_t, IdxT>(
+          dataset, centers, n_rows, n_clusters, dim, params.metric)) {
+      predict_bitwise_hamming_cutile(handle, centers, n_clusters, dim, dataset, n_rows, labels, mr);
+      return;
+    }
+  }
+#endif
 
   auto workspace = raft::make_device_mdarray<char, IdxT>(
     handle, mr, raft::make_extents<IdxT>((sizeof(int)) * n_rows));

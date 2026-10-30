@@ -204,6 +204,24 @@
           "arch_tag": "cutile_arch_10_0"
         },
         {
+          "data_type": "binary",
+          "data_abbrev": "u8",
+          "gpu_code": "sm_100",
+          "cc_major": 10,
+          "cc_minor": 0,
+          "arch_tag": "cutile_arch_10_0",
+          "_abi": [
+            {
+              "matrix_layout": "strict",
+              "abi_abbrev": "strict",
+              "abi_tag": "cutile_abi_strict",
+              "tile_m": 128,
+              "tile_n": 128,
+              "tile_k": 128
+            }
+          ]
+        },
+        {
           "data_type": "float",
           "data_abbrev": "f",
           "_abi": [

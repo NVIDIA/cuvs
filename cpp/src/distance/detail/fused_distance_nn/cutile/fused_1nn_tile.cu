@@ -12,8 +12,12 @@
 #include <cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/util/cuda_utils.cuh>
+#include <raft/util/reduction.cuh>
+
+#include <rmm/device_uvector.hpp>
 
 #include <algorithm>
 #include <cstdint>
@@ -87,9 +91,13 @@ size_t checked_tensor_bytes(IdxT rows, IdxT cols, size_t element_size)
 template <typename DataT, typename AbiTag>
 bool has_fused_1nn_tile_launcher()
 {
-  Fused1nnTilePlanner<DataT, AbiTag> planner;
-  planner.add_entrypoint();
-  return planner.try_get_launcher() != nullptr;
+  if constexpr (std::is_same_v<DataT, uint8_t> && !std::is_same_v<AbiTag, cutile_abi_strict>) {
+    return false;
+  } else {
+    Fused1nnTilePlanner<DataT, AbiTag> planner;
+    planner.add_entrypoint();
+    return planner.try_get_launcher() != nullptr;
+  }
 }
 
 template <typename DataT, typename IdxT, typename AbiTag>
@@ -126,6 +134,9 @@ void launch_fused_1nn_tile_impl(raft::resources const& handle,
       break;
     case cuvs::distance::DistanceType::CosineExpanded:
       metric_code = static_cast<int>(cuvs::distance::DistanceType::CosineExpanded);
+      break;
+    case cuvs::distance::DistanceType::BitwiseHamming:
+      metric_code = static_cast<int>(cuvs::distance::DistanceType::BitwiseHamming);
       break;
     default: RAFT_FAIL("Unsupported cuTile fused 1-NN metric");
   }
@@ -243,9 +254,10 @@ void validate_fused_1nn_tile_launch(IdxT* nearest_idx,
     RAFT_EXPECTS(is_16_byte_aligned(nearest_idx),
                  "cuTile fused 1-NN requires a 16-byte-aligned int32 index output");
   }
-  RAFT_EXPECTS(
-    metric == cuvs::distance::DistanceType::InnerProduct || (xn != nullptr && yn != nullptr),
-    "cuTile fused 1-NN requires norm buffers for this metric");
+  RAFT_EXPECTS((std::is_same_v<DataT, uint8_t>) ||
+                 metric == cuvs::distance::DistanceType::InnerProduct ||
+                 (xn != nullptr && yn != nullptr),
+               "cuTile fused 1-NN requires norm buffers for this metric");
   RAFT_EXPECTS(is_16_byte_aligned(xn) && is_16_byte_aligned(yn),
                "cuTile fused 1-NN requires 16-byte-aligned norm buffers");
 
@@ -284,6 +296,114 @@ void validate_fused_1nn_tile_launch(IdxT* nearest_idx,
   }
 }
 
+// Bit-packed rows are promoted in chunks of about this many bytes: enough rows to fill the GPU many
+// times over, while the workspace stays small next to the codes themselves.
+constexpr int64_t kBinaryChunkBytes = int64_t{128} << 20;
+
+/**
+ * One warp per row: bit j of each input byte becomes e2m1 nibble j of a 32-bit word (0x2 = 1.0 for
+ * a one, 0x0 for a zero), rows padded with zero nibbles to pitch_words, and the row's popcount,
+ * which the kernel uses in place of a norm.
+ */
+RAFT_KERNEL promote_and_popcount_binary_rows_kernel(const uint8_t* codes,
+                                                    int64_t n_rows,
+                                                    int64_t n_bytes,
+                                                    int64_t pitch_words,
+                                                    uint32_t* e2m1,
+                                                    float* popcount)
+{
+  const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / raft::WarpSize;
+  const int lane    = threadIdx.x % raft::WarpSize;
+  if (row >= n_rows) { return; }
+  const uint8_t* src = codes + row * n_bytes;
+  uint32_t* dst      = e2m1 + row * pitch_words;
+  int count          = 0;
+  for (int64_t j = lane; j < pitch_words; j += raft::WarpSize) {
+    uint32_t b = j < n_bytes ? src[j] : 0u;
+    count += __popc(b);
+    // Moves bit j to bit 4j, then times 2: one nibble per bit, 0x2 or 0x0.
+    b      = (b | (b << 12)) & 0x000F000Fu;
+    b      = (b | (b << 6)) & 0x03030303u;
+    dst[j] = ((b | (b << 3)) & 0x11111111u) << 1;
+  }
+  count = raft::warpReduce(count);
+  if (lane == 0) { popcount[row] = static_cast<float>(count); }
+}
+
+void promote_and_popcount_binary_rows(const uint8_t* codes,
+                                      int64_t n_rows,
+                                      int64_t n_bytes,
+                                      int64_t pitch_words,
+                                      uint32_t* e2m1,
+                                      float* popcount,
+                                      cudaStream_t stream)
+{
+  constexpr int kBlock = 256;
+  const auto n_blocks  = raft::ceildiv<int64_t>(n_rows, kBlock / raft::WarpSize);
+  promote_and_popcount_binary_rows_kernel<<<n_blocks, kBlock, 0, stream>>>(
+    codes, n_rows, n_bytes, pitch_words, e2m1, popcount);
+  RAFT_CUDA_TRY(cudaPeekAtLastError());
+}
+
+/** Bit-packed rows: promote the centers once, then the rows chunk by chunk, and search each chunk.
+ */
+template <typename IdxT>
+void launch_binary_1nn_tile(raft::resources const& handle,
+                            IdxT* nearest_idx,
+                            float* nearest_dist,
+                            const uint8_t* x,
+                            const uint8_t* y,
+                            IdxT m,
+                            IdxT n,
+                            IdxT k,
+                            void* index_workspace)
+{
+  const auto stream = raft::resource::get_cuda_stream(handle);
+  const auto mr     = raft::resource::get_large_workspace_resource_ref(handle);
+  // One word of nibbles per input byte, rows padded to 16 bytes.
+  const int64_t pitch_words = (static_cast<int64_t>(k) + 3) / 4 * 4;
+  rmm::device_uvector<uint32_t> y_e2m1(n * pitch_words, stream, mr);
+  rmm::device_uvector<float> y_popcount(n, stream, mr);
+  promote_and_popcount_binary_rows(
+    y, n, k, pitch_words, y_e2m1.data(), y_popcount.data(), stream.get());
+
+  // Whole 128-row blocks keep every chunk's outputs 16-byte aligned.
+  const int64_t chunk_rows =
+    std::min<int64_t>(m, std::max<int64_t>(kBinaryChunkBytes / (pitch_words * 4) / 128, 1) * 128);
+  rmm::device_uvector<uint32_t> x_e2m1(chunk_rows * pitch_words, stream, mr);
+  rmm::device_uvector<float> x_popcount(chunk_rows, stream, mr);
+  for (int64_t offset = 0; offset < m; offset += chunk_rows) {
+    const auto rows = static_cast<int>(std::min<int64_t>(chunk_rows, m - offset));
+    promote_and_popcount_binary_rows(
+      x + offset * k, rows, k, pitch_words, x_e2m1.data(), x_popcount.data(), stream.get());
+    int* chunk_idx = nullptr;
+    if constexpr (std::is_same_v<IdxT, int>) {
+      chunk_idx = nearest_idx == nullptr ? nullptr : nearest_idx + offset;
+    } else {
+      chunk_idx = nearest_idx == nullptr ? nullptr : static_cast<int*>(index_workspace);
+    }
+    launch_fused_1nn_tile_impl<uint8_t, int, cutile_abi_strict>(
+      handle,
+      chunk_idx,
+      nearest_dist + offset,
+      reinterpret_cast<const uint8_t*>(x_e2m1.data()),
+      reinterpret_cast<const uint8_t*>(y_e2m1.data()),
+      x_popcount.data(),
+      y_popcount.data(),
+      rows,
+      static_cast<int>(n),
+      static_cast<int>(pitch_words * 4),
+      cuvs::distance::DistanceType::BitwiseHamming,
+      false);
+    if constexpr (std::is_same_v<IdxT, int64_t>) {
+      if (nearest_idx != nullptr) {
+        raft::linalg::unaryOp(
+          nearest_idx + offset, chunk_idx, rows, raft::cast_op<int64_t>{}, stream.get());
+      }
+    }
+  }
+}
+
 }  // namespace
 
 template <typename DataT, typename IdxT>
@@ -295,6 +415,12 @@ bool is_fused_1nn_tile_available(
   static_assert(std::is_same_v<IdxT, int> || std::is_same_v<IdxT, int64_t>);
 
   if (x == nullptr || y == nullptr || m <= 0 || n <= 0 || k <= 0) { return false; }
+  if constexpr (std::is_same_v<DataT, uint8_t>) {
+    // Rows are promoted into an aligned workspace of 4 * k bytes each, so the strict tile fits.
+    constexpr int64_t max_i32 = std::numeric_limits<int>::max();
+    return metric == cuvs::distance::DistanceType::BitwiseHamming && n <= max_i32 &&
+           k <= max_i32 / 4 && has_fused_1nn_tile_launcher<DataT, cutile_abi_strict>();
+  }
   if (metric != cuvs::distance::DistanceType::InnerProduct &&
       metric != cuvs::distance::DistanceType::L2Expanded &&
       metric != cuvs::distance::DistanceType::L2SqrtExpanded &&
@@ -326,8 +452,7 @@ bool is_fused_1nn_tile_available(
 }
 
 template <typename DataT, typename IdxT>
-  requires is_fused_1nn_cutile_data_v<DataT>
-void launch_fused_1nn_tile(raft::resources const& handle,
+void launch_dense_1nn_tile(raft::resources const& handle,
                            IdxT* nearest_idx,
                            fused_1nn_cutile_distance_t<DataT>* nearest_dist,
                            const DataT* x,
@@ -424,6 +549,32 @@ void launch_fused_1nn_tile(raft::resources const& handle,
   }
 }
 
+template <typename DataT, typename IdxT>
+  requires is_fused_1nn_cutile_data_v<DataT>
+void launch_fused_1nn_tile(raft::resources const& handle,
+                           IdxT* nearest_idx,
+                           fused_1nn_cutile_distance_t<DataT>* nearest_dist,
+                           const DataT* x,
+                           const DataT* y,
+                           const fused_1nn_cutile_norm_t<DataT>* xn,
+                           const fused_1nn_cutile_norm_t<DataT>* yn,
+                           IdxT m,
+                           IdxT n,
+                           IdxT k,
+                           cuvs::distance::DistanceType metric,
+                           bool is_sqrt,
+                           void* index_workspace)
+{
+  if constexpr (std::is_same_v<DataT, uint8_t>) {
+    validate_fused_1nn_tile_launch(
+      nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, index_workspace);
+    launch_binary_1nn_tile(handle, nearest_idx, nearest_dist, x, y, m, n, k, index_workspace);
+  } else {
+    launch_dense_1nn_tile(
+      handle, nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt, index_workspace);
+  }
+}
+
 #define CUVS_INST_IS_FUSED_1NN_TILE_AVAILABLE(DataT, IdxT)            \
   template CUVS_EXPORT bool is_fused_1nn_tile_available<DataT, IdxT>( \
     const DataT*, const DataT*, IdxT, IdxT, IdxT, cuvs::distance::DistanceType)
@@ -432,6 +583,8 @@ CUVS_INST_IS_FUSED_1NN_TILE_AVAILABLE(float, int);
 CUVS_INST_IS_FUSED_1NN_TILE_AVAILABLE(float, int64_t);
 CUVS_INST_IS_FUSED_1NN_TILE_AVAILABLE(half, int);
 CUVS_INST_IS_FUSED_1NN_TILE_AVAILABLE(half, int64_t);
+CUVS_INST_IS_FUSED_1NN_TILE_AVAILABLE(uint8_t, int);
+CUVS_INST_IS_FUSED_1NN_TILE_AVAILABLE(uint8_t, int64_t);
 
 #undef CUVS_INST_IS_FUSED_1NN_TILE_AVAILABLE
 
@@ -455,6 +608,8 @@ CUVS_INST_LAUNCH_FUSED_1NN_TILE(float, int);
 CUVS_INST_LAUNCH_FUSED_1NN_TILE(float, int64_t);
 CUVS_INST_LAUNCH_FUSED_1NN_TILE(half, int);
 CUVS_INST_LAUNCH_FUSED_1NN_TILE(half, int64_t);
+CUVS_INST_LAUNCH_FUSED_1NN_TILE(uint8_t, int);
+CUVS_INST_LAUNCH_FUSED_1NN_TILE(uint8_t, int64_t);
 
 #undef CUVS_INST_LAUNCH_FUSED_1NN_TILE
 
