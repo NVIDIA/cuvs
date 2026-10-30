@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,6 +13,11 @@
 
 #include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/core/export.hpp>
+
+#include <cstdint>
+#include <type_traits>
+#include <utility>
+#include <variant>
 
 namespace CUVS_EXPORT cuvs {
 namespace preprocessing {
@@ -42,20 +47,153 @@ struct params {
 };
 
 /**
+ * @brief Non-owning view of a binary quantizer, with the constness semantics of an mdspan:
+ * `quantizer_view<T>` can modify the thresholds, `quantizer_view<const T>` cannot.
+ *
+ * The threshold is either the vector of per-dimension thresholds (whose extent is the dimension),
+ * or just the dimension of the vectors, which stands for the zero quantizer: no thresholds are
+ * stored and zero is the threshold in every dimension. These are different quantizers even when
+ * the vector is empty.
+ *
+ * @tparam T data element type, possibly const
+ * @tparam ContainerPolicy the container policy of the owning quantizer (bound to the element type
+ *   without const); the device memory by default
+ */
+template <typename T,
+          typename ContainerPolicy =
+            raft::device_accessor<raft::device_container_policy<std::remove_const_t<T>>>>
+struct quantizer_view {
+  /** The owning vector of the thresholds, which defines the memory space of the view. */
+  using vector_type      = raft::mdarray<std::remove_const_t<T>,
+                                         raft::vector_extent<int64_t>,
+                                         raft::layout_c_contiguous,
+                                         ContainerPolicy>;
+  using vector_view_type = std::conditional_t<std::is_const_v<T>,
+                                              typename vector_type::const_view_type,
+                                              typename vector_type::view_type>;
+
+  /** The thresholds [dim], or the dimension for the zero quantizer. */
+  std::variant<uint32_t, vector_view_type> value;
+
+  /** The zero quantizer of dimension zero. */
+  quantizer_view() = default;
+
+  /** The zero quantizer of the given dimension (number of bits). */
+  explicit quantizer_view(uint32_t dim) noexcept : value{dim} {}
+
+  /** The quantizer with the given thresholds; its dimension is the extent of the vector. */
+  explicit quantizer_view(vector_view_type thresholds) noexcept : value{thresholds} {}
+
+  /** The number of dimensions (bits) of the quantized vectors. */
+  [[nodiscard]] auto dim() const noexcept -> uint32_t
+  {
+    return std::visit(
+      [](const auto& v) -> uint32_t {
+        if constexpr (std::is_same_v<std::decay_t<decltype(v)>, uint32_t>) {
+          return v;
+        } else {
+          return static_cast<uint32_t>(v.extent(0));
+        }
+      },
+      value);
+  }
+
+  /** A mutable view decays to the read-only one, the way an mdspan does. */
+  template <typename U>
+    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
+  operator quantizer_view<U, ContainerPolicy>()
+    const noexcept  // NOLINT(google-explicit-constructor)
+  {
+    return std::visit(
+      [](const auto& v) -> quantizer_view<U, ContainerPolicy> {
+        if constexpr (std::is_same_v<std::decay_t<decltype(v)>, uint32_t>) {
+          return quantizer_view<U, ContainerPolicy>{v};
+        } else {
+          return quantizer_view<U, ContainerPolicy>{raft::make_const_mdspan(v)};
+        }
+      },
+      value);
+  }
+};
+
+/**
  * @brief Store the threshold vector for quantization. In the binary::transform function, a bit is
  * set if the corresponding element in the dataset vector is greater than the corresponding element
  * in the threshold vector.
  *
+ * The threshold is either the vector of per-dimension thresholds (whose extent is the dimension),
+ * or just the dimension of the vectors, which stands for the zero quantizer: no thresholds are
+ * stored and zero is the threshold in every dimension. These are different quantizers even when
+ * the vector is empty. A default-constructed quantizer is the zero quantizer of dimension zero.
+ *
  * @tparam T data element type
+ * @tparam ContainerPolicy the container policy of the thresholds (bound to `T`); the device memory
+ *   by default
  *
  */
-template <typename T>
+template <typename T,
+          typename ContainerPolicy = raft::device_accessor<raft::device_container_policy<T>>>
 struct quantizer {
-  /** Threshold vector used for binarization. */
-  raft::device_vector<T, int64_t> threshold;
+  static_assert(!std::is_const_v<T>, "An owning quantizer cannot hold const elements.");
 
-  /** @brief Construct a quantizer with an empty threshold vector. */
-  quantizer(raft::resources const& res) : threshold(raft::make_device_vector<T, int64_t>(res, 0)) {}
+  using threshold_type =
+    raft::mdarray<T, raft::vector_extent<int64_t>, raft::layout_c_contiguous, ContainerPolicy>;
+  using view_type       = quantizer_view<T, ContainerPolicy>;
+  using const_view_type = quantizer_view<const T, ContainerPolicy>;
+
+  /** The thresholds [dim], or the dimension for the zero quantizer. */
+  std::variant<uint32_t, threshold_type> value;
+
+  /** The zero quantizer of dimension zero. */
+  quantizer() = default;
+
+  /** The zero quantizer of the given dimension (number of bits). */
+  explicit quantizer(uint32_t dim) noexcept : value{dim} {}
+
+  /** The quantizer owning the given thresholds; its dimension is the extent of the vector. */
+  explicit quantizer(threshold_type&& thresholds) : value{std::move(thresholds)} {}
+
+  /** The number of dimensions (bits) of the quantized vectors. */
+  [[nodiscard]] auto dim() const noexcept -> uint32_t
+  {
+    return std::visit(
+      [](const auto& v) -> uint32_t {
+        if constexpr (std::is_same_v<std::decay_t<decltype(v)>, uint32_t>) {
+          return v;
+        } else {
+          return static_cast<uint32_t>(v.extent(0));
+        }
+      },
+      value);
+  }
+
+  /** A non-owning view of the quantizer. */
+  [[nodiscard]] auto view() noexcept -> view_type
+  {
+    return std::visit(
+      [](auto& v) -> view_type {
+        if constexpr (std::is_same_v<std::decay_t<decltype(v)>, uint32_t>) {
+          return view_type{v};
+        } else {
+          return view_type{v.view()};
+        }
+      },
+      value);
+  }
+
+  /** A read-only non-owning view of the quantizer. */
+  [[nodiscard]] auto view() const noexcept -> const_view_type
+  {
+    return std::visit(
+      [](const auto& v) -> const_view_type {
+        if constexpr (std::is_same_v<std::decay_t<decltype(v)>, uint32_t>) {
+          return const_view_type{v};
+        } else {
+          return const_view_type{v.view()};
+        }
+      },
+      value);
+  }
 };
 
 /**

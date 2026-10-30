@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp"
 #include "ann_nn_descent.cuh"
 
 #include <cuvs/preprocessing/quantize/bbq.hpp>
-#include <cuvs_internal/preprocessing/bbq_cpu_quantize.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
@@ -17,22 +17,18 @@
 
 #include <cuda/stream>
 
-#include <algorithm>
 #include <cfloat>
-#include <cmath>
 #include <cstdint>
 #include <optional>
-#include <sstream>
 #include <vector>
 
 #include <raft/core/logger.hpp>
 
 namespace cuvs::neighbors::nn_descent {
-// The host reference quantizer is shared with the ann-bench CAGRA wrapper, so these tests and
-// the benchmark can never disagree about the code format.
-namespace cpu_bbq = cuvs_internal::bbq;
+
 using cuvs::preprocessing::quantize::bbq::get_bit_width;
-using cuvs_internal::bbq::make_device_bbq_dataset;
+using cuvs::preprocessing::quantize::bbq::detail::make_device_bbq_dataset;
+using cuvs::preprocessing::quantize::bbq::detail::quantize_to_device;
 
 struct AnnNNDescentBbqInputs : AnnNNDescentInputs {
   cuvs::preprocessing::quantize::bbq::bbq_code_layout layout;
@@ -109,15 +105,14 @@ class AnnNNDescentBbqTest : public ::testing::TestWithParam<AnnNNDescentBbqInput
       raft::update_host(host_data.data(), database.data_handle(), host_data.size(), stream_);
       raft::resource::sync_stream(handle_);
 
-      auto owning_dataset =
-        cuvs_internal::bbq::quantize_to_device(handle_,
+      auto owning_dataset = quantize_to_device(handle_,
                                                host_data.data(),
                                                ps.n_rows,
                                                ps.dim,
                                                ps.metric,
                                                ps.layout,
                                                ps.second_dataset_layout.value_or(ps.layout));
-      auto dataset = owning_dataset.view();
+      auto dataset        = owning_dataset.view();
       nn_descent::index_params index_params;
       index_params.metric                    = ps.metric;
       index_params.graph_degree              = ps.graph_degree;

@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
@@ -18,8 +17,7 @@
 #include <cstdint>
 #include <type_traits>
 
-namespace CUVS_EXPORT cuvs {
-namespace preprocessing::quantize::bbq {
+namespace cuvs::preprocessing::quantize::bbq::detail {
 
 #ifdef __CUDACC__
 
@@ -421,9 +419,8 @@ __device__ __forceinline__ void bbq_code_inner_product_2x1(const uint8_t* row_a0
                                                            uint32_t& total0,
                                                            uint32_t& total1)
 {
-  namespace bbq = cuvs::preprocessing::quantize::bbq;
   if constexpr (DocumentLayout == QueryLayout && DocumentLayout == bbq_code_layout::packed_4b) {
-    bbq::code_inner_product_packed_4b_symmetric_2x1<DocumentRowBytes>(
+    code_inner_product_packed_4b_symmetric_2x1<DocumentRowBytes>(
       row_a0, row_a1, row_b, total0, total1);
   } else if constexpr (DocumentLayout == QueryLayout &&
                        (DocumentLayout == bbq_code_layout::packed_8b ||
@@ -431,12 +428,11 @@ __device__ __forceinline__ void bbq_code_inner_product_2x1(const uint8_t* row_a0
     // packed_7b is packed_8b with the top bit masked off, matching code_inner_product's
     // (1 << bits) - 1 mask for the same two layouts.
     constexpr uint8_t code_mask = DocumentLayout == bbq_code_layout::packed_7b ? 0x7Fu : 0xFFu;
-    bbq::code_inner_product_packed_8b_2x1<DocumentRowBytes>(
+    code_inner_product_packed_8b_2x1<DocumentRowBytes>(
       row_a0, row_a1, row_b, total0, total1, code_mask);
   } else {
-    bbq::
-      code_inner_product_planes_2x1<DocumentPlanes, QueryPlanes, DocumentRowBytes, QueryRowBytes>(
-        row_a0, row_a1, row_b, total0, total1);
+    code_inner_product_planes_2x1<DocumentPlanes, QueryPlanes, DocumentRowBytes, QueryRowBytes>(
+      row_a0, row_a1, row_b, total0, total1);
   }
 }
 
@@ -511,5 +507,4 @@ __device__ __forceinline__ float bbq_calculate_metric(
 
 #endif  // __CUDACC__
 
-}  // namespace preprocessing::quantize::bbq
-}  // namespace CUVS_EXPORT cuvs
+}  // namespace cuvs::preprocessing::quantize::bbq::detail

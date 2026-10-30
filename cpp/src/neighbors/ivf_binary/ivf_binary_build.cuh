@@ -24,8 +24,10 @@
 #include <raft/linalg/map.cuh>
 #include <raft/stats/histogram.cuh>
 #include <raft/util/cudart_utils.hpp>
+#include <raft/util/integer_utils.hpp>
 
 #include <algorithm>
+#include <optional>
 #include <vector>
 
 namespace cuvs::neighbors::ivf_binary::detail {
@@ -47,14 +49,33 @@ RAFT_KERNEL accumulate_center_counts(
   }
 }
 
-/** See cuvs::neighbors::ivf_binary::extend docs; the vectors are validated by the caller. */
+/** The rows of the codes must be as long as the dimension of the quantizer requires. */
+inline void check_dataset(device_binary_dataset_view<float, int64_t> dataset)
+{
+  RAFT_EXPECTS(dataset.dim() > 0, "The dimension of the dataset must be positive.");
+  RAFT_EXPECTS(
+    dataset.data_const_view().extent(1) == raft::div_rounding_up_safe<int64_t>(dataset.dim(), 8),
+    "The row length of the codes must be ceil(dim / 8) bytes.");
+}
+
+/** See cuvs::neighbors::ivf_binary::extend docs */
 inline void extend(raft::resources const& handle,
-                   index<int64_t>* idx,
-                   const uint8_t* new_vectors,
-                   const int64_t* new_indices,
-                   int64_t n_rows)
+                   device_binary_dataset_view<float, int64_t> dataset,
+                   std::optional<raft::device_vector_view<const int64_t, int64_t>> indices,
+                   index<int64_t>* idx)
 {
   using LabelT = uint32_t;
+  RAFT_EXPECTS(idx != nullptr, "index cannot be empty.");
+  check_dataset(dataset);
+  RAFT_EXPECTS(dataset.dim() == idx->dim(),
+               "The dimension of the vectors must equal the dimension of the index.");
+  const int64_t n_rows = dataset.n_rows();
+  if (indices.has_value()) {
+    RAFT_EXPECTS(n_rows == indices->extent(0),
+                 "new_vectors and new_indices have different number of rows");
+  }
+  const uint8_t* new_vectors = dataset.data_const_view().data_handle();
+  const int64_t* new_indices = indices.has_value() ? indices->data_handle() : nullptr;
   RAFT_EXPECTS(new_indices != nullptr || idx->size() == 0,
                "You must pass data indices when the index is non-empty.");
   if (n_rows == 0) { return; }
@@ -168,10 +189,11 @@ inline auto build(raft::resources const& handle,
                   const index_params& params,
                   device_binary_dataset_view<float, int64_t> dataset) -> index<int64_t>
 {
+  check_dataset(dataset);
   auto stream          = raft::resource::get_cuda_stream(handle);
   const int64_t n_rows = dataset.n_rows();
   const auto codes     = dataset.data_const_view();
-  const auto threshold = dataset.const_dictionary_view().threshold;
+  const auto manifest  = dataset.const_manifest_view();
   cuvs::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "ivf_binary::build(%zu, %u)", size_t(n_rows), dataset.dim());
 
@@ -183,9 +205,13 @@ inline auto build(raft::resources const& handle,
   const auto dim = idx.storage_dim();
   auto& lists    = index_access::lists(idx);
 
-  auto& quantizer     = index_access::quantizer(idx);
-  quantizer.threshold = raft::make_device_vector<float, int64_t>(handle, threshold.extent(0));
-  if (threshold.extent(0) > 0) { raft::copy(handle, quantizer.threshold.view(), threshold); }
+  // The index starts with the zero-threshold quantizer of the dataset dimension
+  if (const auto* threshold = std::get_if<1>(&manifest.value)) {
+    auto thresholds = raft::make_device_vector<float, int64_t>(handle, threshold->extent(0));
+    raft::copy(handle, thresholds.view(), *threshold);
+    index_access::quantizer(idx) =
+      cuvs::preprocessing::quantize::binary::quantizer<float>(std::move(thresholds));
+  }
 
   utils::memzero(
     lists.accum_sorted_sizes().data_handle(), lists.accum_sorted_sizes().size(), stream);
@@ -221,14 +247,14 @@ inline auto build(raft::resources const& handle,
       decoded_centers_view,
       raft::identity_op{});
 
-    cuvs::preprocessing::quantize::binary::quantizer<float> zero_threshold(handle);
+    cuvs::preprocessing::quantize::binary::quantizer<float> zero_threshold(idx.dim());
     cuvs::preprocessing::quantize::binary::transform(handle,
                                                      zero_threshold,
                                                      raft::make_const_mdspan(decoded_centers_view),
                                                      index_access::centers(idx).view());
   }
 
-  if (params.add_data_on_build) { extend(handle, &idx, codes.data_handle(), nullptr, n_rows); }
+  if (params.add_data_on_build) { detail::extend(handle, dataset, std::nullopt, &idx); }
   return idx;
 }
 

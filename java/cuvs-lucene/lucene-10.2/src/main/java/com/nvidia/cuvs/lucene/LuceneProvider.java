@@ -26,8 +26,24 @@ import org.apache.lucene.search.TaskExecutor;
 /**
  * Dynamically loads Lucene format, reader, and writer classes with a fallback mechanism.
  *
+ * <p>Remains unchanged, for source compatibility, only in {@code cuvs-lucene-10.2}; the artifacts
+ * for later Lucene releases do not have it. To migrate off it:
+ *
+ * <ul>
+ *   <li>Get the cuvs-lucene codecs from {@link CuVSCodecs} instead of building them from {@link
+ *       #getCodec}.
+ *   <li>Create Lucene formats, readers and writers directly, for example {@code new
+ *       Lucene99FlatVectorsFormat(scorer)}. With one cuvs-lucene artifact per Lucene release, the
+ *       classes are known at compile time.
+ *   <li>Don't read Lucene constants through {@link #getStaticIntParam}: a {@code VERSION_CURRENT}
+ *       read this way does not match the data written on Lucene 10.3 and later.
+ * </ul>
+ *
  * @since 25.12
+ * @deprecated only available with Lucene 10.2 and will be removed together with it; see above for
+ *     replacements.
  */
+@Deprecated(since = "26.12", forRemoval = true)
 public class LuceneProvider {
 
   static final Logger log = Logger.getLogger(LuceneProvider.class.getName());
