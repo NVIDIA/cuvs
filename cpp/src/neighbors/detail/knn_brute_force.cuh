@@ -11,6 +11,7 @@
 #include <cuvs/selection/select_k.hpp>
 
 #include "../../distance/detail/distance_ops/l2_exp.cuh"
+#include "./cutile_topk/fused_topk_tile.hpp"
 #include "./faiss_distance_utils.h"
 #include "./fused_l2_knn.cuh"
 #include "./haversine_distance.cuh"
@@ -23,6 +24,7 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
+#include <raft/core/resource/device_properties.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
@@ -372,7 +374,8 @@ void brute_force_knn_impl(
   cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded,
   DistType metricArg                  = 0,
   std::vector<DistType*>* input_norms = nullptr,
-  const DistType* search_norms        = nullptr)
+  const DistType* search_norms        = nullptr,
+  bool allow_approximate              = false)
 {
   auto userStream = raft::resource::get_cuda_stream(handle);
 
@@ -449,6 +452,96 @@ void brute_force_knn_impl(
     IdxType* out_i_ptr  = out_I + (i * k * n);
 
     auto stream = raft::resource::get_next_usable_stream(handle, i);
+
+    bool used_fused_topk = false;
+    if constexpr ((std::is_same_v<value_t, float> || std::is_same_v<value_t, half>) &&
+                  std::is_same_v<DistType, float>) {
+      // Approximation permission guards every preparation and kernel launch.
+      const bool all_neighbors = input[i] == search_items && sizes[i] == n;
+      if (allow_approximate && input.size() == 1 && rowMajorIndex && rowMajorQuery &&
+          is_fused_topk_pk2_auto_dispatch_available() &&
+          (is_fused_topk_pk2_candidate<value_t>(n, sizes[i], D, k, metric, all_neighbors) ||
+           is_fused_topk_pk4_candidate<value_t>(n, sizes[i], D, k, metric, all_neighbors)) &&
+          fused_topk_public_buffers_supported(
+            out_i_ptr, out_d_ptr, search_items, input[i], n, sizes[i], D, k)) {
+        const auto& properties = raft::resource::get_device_properties(handle);
+        const int num_splits =
+          fused_topk_public_num_splits(n, sizes[i], properties.multiProcessorCount);
+        int active_dimensions         = static_cast<int>(D);
+        const value_t* active_queries = search_items;
+        const value_t* active_corpus  = input[i];
+        rmm::device_uvector<value_t> packed_queries(0, stream);
+        rmm::device_uvector<value_t> packed_corpus(0, stream);
+        const int padded       = fused_topk_padded_dimensions<value_t>(active_dimensions);
+        const size_t row_bytes = static_cast<size_t>(padded) * sizeof(value_t);
+        // Dense zero extension preserves each metric. Prepare fresh storage on
+        // this stream; graph calls share one packed allocation, never a cache.
+        // If pitch/byte limits disallow preparation, retain the relaxed launcher.
+        if (padded != active_dimensions && row_bytes <= properties.memPitch &&
+            static_cast<size_t>(n) <= std::numeric_limits<size_t>::max() / row_bytes &&
+            static_cast<size_t>(sizes[i]) <= std::numeric_limits<size_t>::max() / row_bytes) {
+          auto prepare =
+            [&](const value_t* source, IntType rows, rmm::device_uvector<value_t>& destination) {
+              destination.resize(static_cast<size_t>(rows) * padded, stream);
+              RAFT_CUDA_TRY(cudaMemsetAsync(
+                destination.data(), 0, static_cast<size_t>(rows) * row_bytes, stream.get()));
+              const size_t source_bytes = static_cast<size_t>(D) * sizeof(value_t);
+              RAFT_CUDA_TRY(cudaMemcpy2DAsync(destination.data(),
+                                              row_bytes,
+                                              source,
+                                              source_bytes,
+                                              source_bytes,
+                                              rows,
+                                              cudaMemcpyDeviceToDevice,
+                                              stream.get()));
+            };
+          prepare(input[i], sizes[i], packed_corpus);
+          active_corpus = packed_corpus.data();
+          if (all_neighbors) {
+            active_queries = active_corpus;
+          } else {
+            prepare(search_items, n, packed_queries);
+            active_queries = packed_queries.data();
+          }
+          active_dimensions = padded;
+        }
+        const size_t bytes = k == 2 ? fused_topk_pk2_workspace_bytes<IdxType>(n, num_splits)
+                                    : fused_topk_pk4_workspace_bytes<IdxType>(n, num_splits, k);
+        rmm::device_uvector<uint8_t> workspace(bytes, stream);
+        if (k == 2) {
+          used_fused_topk =
+            try_fused_topk_pk2_tile<IdxType>(out_i_ptr,
+                                             out_d_ptr,
+                                             active_queries,
+                                             active_corpus,
+                                             static_cast<IdxType>(n),
+                                             static_cast<IdxType>(sizes[i]),
+                                             static_cast<IdxType>(active_dimensions),
+                                             num_splits,
+                                             metric,
+                                             stream.get(),
+                                             workspace.data());
+        } else {
+          used_fused_topk =
+            try_fused_topk_pk4_tile<IdxType>(out_i_ptr,
+                                             out_d_ptr,
+                                             active_queries,
+                                             active_corpus,
+                                             static_cast<IdxType>(n),
+                                             static_cast<IdxType>(sizes[i]),
+                                             static_cast<IdxType>(active_dimensions),
+                                             static_cast<IdxType>(k),
+                                             num_splits,
+                                             metric,
+                                             stream.get(),
+                                             workspace.data());
+        }
+      }
+    }
+    if (used_fused_topk) {
+      RAFT_CUDA_TRY(cudaPeekAtLastError());
+      continue;
+    }
 
     if (k <= 64 && rowMajorQuery == rowMajorIndex && rowMajorQuery == true &&
         (metric == cuvs::distance::DistanceType::L2Unexpanded ||
@@ -556,7 +649,8 @@ void brute_force_search(
   raft::device_matrix_view<const T, int64_t, QueryLayoutT> queries,
   raft::device_matrix_view<IdxT, int64_t, raft::row_major> neighbors,
   raft::device_matrix_view<DistanceT, int64_t, raft::row_major> distances,
-  std::optional<raft::device_vector_view<const DistanceT, int64_t>> query_norms = std::nullopt)
+  std::optional<raft::device_vector_view<const DistanceT, int64_t>> query_norms = std::nullopt,
+  bool allow_approximate                                                        = false)
 {
   RAFT_EXPECTS(neighbors.extent(1) == distances.extent(1), "Value of k must match for outputs");
   RAFT_EXPECTS(idx.dataset().extent(1) == queries.extent(1),
@@ -586,7 +680,8 @@ void brute_force_search(
     idx.metric(),
     idx.metric_arg(),
     norms.size() ? &norms : nullptr,
-    query_norms ? query_norms->data_handle() : nullptr);
+    query_norms ? query_norms->data_handle() : nullptr,
+    allow_approximate);
 }
 
 /**
@@ -910,12 +1005,14 @@ void search(raft::resources const& res,
             raft::device_matrix_view<const T, int64_t, LayoutT> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<DistT, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter_ref)
+            const cuvs::neighbors::filtering::base_filter& sample_filter_ref,
+            bool allow_approximate = false)
 {
   try {
     auto& sample_filter =
       dynamic_cast<const cuvs::neighbors::filtering::none_sample_filter&>(sample_filter_ref);
-    return brute_force_search<T, int64_t, DistT>(res, idx, queries, neighbors, distances);
+    return brute_force_search<T, int64_t, DistT>(
+      res, idx, queries, neighbors, distances, std::nullopt, allow_approximate);
   } catch (const std::bad_cast&) {
   }
   if constexpr (std::is_same_v<LayoutT, raft::col_major>) {

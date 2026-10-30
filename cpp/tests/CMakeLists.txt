@@ -117,8 +117,13 @@ endfunction()
 
 ConfigureTest(
   NAME NEIGHBORS_TEST
-  PATH neighbors/brute_force.cu neighbors/brute_force_prefiltered.cu neighbors/sparse_brute_force.cu
-       neighbors/refine.cu neighbors/distance_nn.cu neighbors/knn_merge_parts.cu
+  PATH neighbors/brute_force.cu
+       neighbors/brute_force_prefiltered.cu
+       neighbors/sparse_brute_force.cu
+       neighbors/refine.cu
+       neighbors/distance_nn.cu
+       neighbors/fused_topk_tile.cu
+       neighbors/knn_merge_parts.cu
   GPUS 1
   PERCENT 100
 )

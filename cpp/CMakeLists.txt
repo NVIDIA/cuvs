@@ -1235,6 +1235,133 @@ if(NOT BUILD_CPU_ONLY)
     )
     list(APPEND cutile_fused_1nn_files "${cutile_fused_1nn_tiles}")
   endif()
+
+  set(fused_topk_cutile_dir "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cutile_topk")
+  set(cutile_fused_topk_pk2_generated_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/neighbors/fused_topk/pk2"
+  )
+  set(cutile_fused_topk_pk2_tiles
+      "${cutile_fused_topk_pk2_generated_dir}/fused_topk_pk2_cutile_tiles.hpp"
+  )
+  if(CUVS_CUTILE_ENABLED)
+    generate_cutile_kernels(
+      cutile_fused_topk_pk2_files
+      KERNEL_DIR "${fused_topk_cutile_dir}"
+      KERNEL_BASENAME "fused_topk_pk2"
+      KERNEL_PYTHON "fused_topk_kernel.py"
+      EXPORT_SCRIPT "export_fused_topk.py"
+      OUTPUT_DIRECTORY "${cutile_fused_topk_pk2_generated_dir}"
+      MATRIX_JSON_FILE "${fused_topk_cutile_dir}/fused_topk_pk2_cutile_matrix.json"
+                       PYTHON "${cutile_python}" BIN2C "${cutile_bin2c}"
+      FRAGMENT_TAG_FORMAT_CUBIN
+        "cuvs::neighbors::detail::fragment_tag_fused_topk_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, @physical_k@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@, cuvs::detail::jit_lto::@arch_tag@>"
+      FRAGMENT_TAG_HEADER_FILES
+        "<cuvs/detail/jit_lto/neighbors/fused_topk_fragments.hpp>"
+        "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    )
+    generate_string_matrix(
+      cutile_fused_topk_pk2_tile_aliases
+      MATRIX_JSON_FILE
+      "${fused_topk_cutile_dir}/fused_topk_pk2_cutile_matrix.json"
+      ITEM_FORMAT
+      "using fused_topk_pk2_matrix_tile_@data_abbrev@_@arch_tag@_@abi_abbrev@ = cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>@semicolon@"
+      GLUE
+      "\n"
+    )
+    set(CUTILE_TILE_METADATA_INCLUDE
+        "#include <cuvs/detail/jit_lto/neighbors/fused_topk_fragments.hpp>"
+    )
+    set(CUTILE_TILE_METADATA_NAMESPACE "cuvs::neighbors::detail")
+    set(CUTILE_TILE_METADATA_ALIASES "${cutile_fused_topk_pk2_tile_aliases}")
+    configure_file(
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/cutile_tile_metadata.hpp.in"
+      "${cutile_fused_topk_pk2_tiles}" @ONLY
+    )
+    list(APPEND cutile_fused_topk_pk2_files "${cutile_fused_topk_pk2_tiles}")
+  endif()
+  set(cutile_fused_topk_pk4_generated_dir
+      "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/neighbors/fused_topk/pk4"
+  )
+  set(cutile_fused_topk_pk4_tiles
+      "${cutile_fused_topk_pk4_generated_dir}/fused_topk_pk4_cutile_tiles.hpp"
+  )
+  if(CUVS_CUTILE_ENABLED)
+    generate_cutile_kernels(
+      cutile_fused_topk_pk4_files
+      KERNEL_DIR "${fused_topk_cutile_dir}"
+      KERNEL_BASENAME "fused_topk_pk4"
+      KERNEL_PYTHON "fused_topk_kernel.py"
+      EXPORT_SCRIPT "export_fused_topk.py"
+      OUTPUT_DIRECTORY "${cutile_fused_topk_pk4_generated_dir}"
+      MATRIX_JSON_FILE "${fused_topk_cutile_dir}/fused_topk_pk4_cutile_matrix.json"
+                       PYTHON "${cutile_python}" BIN2C "${cutile_bin2c}"
+      FRAGMENT_TAG_FORMAT_CUBIN
+        "cuvs::neighbors::detail::fragment_tag_fused_topk_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, @physical_k@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@, cuvs::detail::jit_lto::@arch_tag@>"
+      FRAGMENT_TAG_HEADER_FILES
+        "<cuvs/detail/jit_lto/neighbors/fused_topk_fragments.hpp>"
+        "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    )
+    generate_string_matrix(
+      cutile_fused_topk_pk4_tile_aliases
+      MATRIX_JSON_FILE
+      "${fused_topk_cutile_dir}/fused_topk_pk4_cutile_matrix.json"
+      ITEM_FORMAT
+      "using fused_topk_pk4_matrix_tile_@data_abbrev@_@arch_tag@_@abi_abbrev@ = cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>@semicolon@"
+      GLUE
+      "\n"
+    )
+    set(CUTILE_TILE_METADATA_INCLUDE
+        "#include <cuvs/detail/jit_lto/neighbors/fused_topk_fragments.hpp>"
+    )
+    set(CUTILE_TILE_METADATA_NAMESPACE "cuvs::neighbors::detail")
+    set(CUTILE_TILE_METADATA_ALIASES "${cutile_fused_topk_pk4_tile_aliases}")
+    configure_file(
+      "${CMAKE_CURRENT_SOURCE_DIR}/cmake/modules/cutile_tile_metadata.hpp.in"
+      "${cutile_fused_topk_pk4_tiles}" @ONLY
+    )
+    list(APPEND cutile_fused_topk_pk4_files "${cutile_fused_topk_pk4_tiles}")
+    set_property(
+      SOURCE "${fused_topk_cutile_dir}/fused_topk_tile.cu"
+      APPEND
+      PROPERTY INCLUDE_DIRECTORIES "${cutile_fused_topk_pk4_generated_dir}"
+    )
+  endif()
+  # PK24 staged exports: distinct registrations and symbols, shared maintained factory.
+  if(CUVS_CUTILE_ENABLED)
+    foreach(topk_stage select refine witness)
+      generate_cutile_kernels(
+        cutile_fused_topk_stage_files
+        KERNEL_DIR "${fused_topk_cutile_dir}"
+        KERNEL_BASENAME "fused_topk_${topk_stage}"
+        KERNEL_PYTHON "fused_topk_kernel.py"
+        EXPORT_SCRIPT "export_fused_topk_${topk_stage}.py"
+        OUTPUT_DIRECTORY
+          "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/neighbors/fused_topk/${topk_stage}"
+        MATRIX_JSON_FILE "${fused_topk_cutile_dir}/fused_topk_${topk_stage}_cutile_matrix.json"
+                         PYTHON "${cutile_python}" BIN2C "${cutile_bin2c}"
+        FRAGMENT_TAG_FORMAT_CUBIN
+          "cuvs::neighbors::detail::fragment_tag_fused_topk_stage_cubin<cuvs::neighbors::detail::tag_@data_abbrev@, cuvs::neighbors::detail::tag_index_@index_abbrev@, @physical_k@, cuvs::distance::detail::cutile_tile_config<@tile_m@, @tile_n@, @tile_k@>, cuvs::distance::detail::@abi_tag@, cuvs::detail::jit_lto::@arch_tag@, cuvs::neighbors::detail::fused_topk_stage::${topk_stage}>"
+        FRAGMENT_TAG_HEADER_FILES
+          "<cuvs/detail/jit_lto/neighbors/fused_topk_fragments.hpp>"
+          "<cuvs/detail/jit_lto/cutile_arch_tags.hpp>" "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      )
+    endforeach()
+    foreach(topk_stage_file IN LISTS cutile_fused_topk_stage_files)
+      if(topk_stage_file MATCHES "_cubin\\.h$")
+        string(REGEX REPLACE "_cubin\\.h$" ".cubin" topk_stage_image "${topk_stage_file}")
+        # APPEND adds dependencies to an existing output rule; COMMAND is not required.
+
+        # cmake-lint: disable=E1125
+        add_custom_command(
+          OUTPUT "${topk_stage_image}"
+          APPEND
+          DEPENDS "${fused_topk_cutile_dir}/export_fused_topk.py"
+        )
+      endif()
+    endforeach()
+  endif()
+  # End PK24 staged exports.
+
   # Note that this matrix contains an `arch_includes` placeholder, since we don't currently have a
   # way to do an item-wise transform on a list after computing the matrix product and before
   # configuring the file
@@ -1570,7 +1697,12 @@ if(NOT BUILD_CPU_ONLY)
     target_sources(
       cuvs_objs
       PRIVATE ${cutile_fused_1nn_files}
-              src/distance/detail/fused_distance_nn/cutile/fused_1nn_tile.cu ${cutile_smoke_files}
+              src/distance/detail/fused_distance_nn/cutile/fused_1nn_tile.cu
+              ${cutile_fused_topk_pk2_files}
+              ${cutile_fused_topk_pk4_files}
+              ${cutile_fused_topk_stage_files}
+              src/neighbors/detail/cutile_topk/fused_topk_tile.cu
+              ${cutile_smoke_files}
     )
   endif()
 
@@ -1618,8 +1750,11 @@ if(NOT BUILD_CPU_ONLY)
     PUBLIC "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
            "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../c/include>"
     INTERFACE "$<INSTALL_INTERFACE:include>"
-    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_BINARY_DIR}/src"
-            "${cutile_fused_1nn_generated_dir}" "${cutile_smoke_generated_dir}"
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src"
+            "${CMAKE_CURRENT_BINARY_DIR}/src"
+            "${cutile_fused_1nn_generated_dir}"
+            "${cutile_fused_topk_pk2_generated_dir}"
+            "${cutile_smoke_generated_dir}"
   )
 
   # Endian detection
