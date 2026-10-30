@@ -30,10 +30,7 @@ public class GPUSearchParams {
     CUSTOM
   }
 
-  /*
-   * TODO: Update boundaries for all parameters when a consensus is reached.
-   * Issue: https://github.com/rapidsai/cuvs-lucene/issues/99
-   */
+  // Bounds for the public CAGRA build parameters.
   public static final int MIN_WRITER_THREADS = 1;
   public static final int MAX_WRITER_THREADS = 512;
   public static final int MIN_INT_GRAPH_DEG = 2;
@@ -387,31 +384,11 @@ public class GPUSearchParams {
      * @throws IllegalArgumentException
      */
     private void validate() throws IllegalArgumentException {
-      if (writerThreads < MIN_WRITER_THREADS || writerThreads > MAX_WRITER_THREADS) {
-        throw new IllegalArgumentException(
-            "writerThreads not in valid range. Valid range: ["
-                + MIN_WRITER_THREADS
-                + ", "
-                + MAX_WRITER_THREADS
-                + "]");
-      }
-      if (intermediateGraphDegree < MIN_INT_GRAPH_DEG
-          || intermediateGraphDegree > MAX_INT_GRAPH_DEG) {
-        throw new IllegalArgumentException(
-            "intermediateGraphDegree not in valid range. Valid range: ["
-                + MIN_INT_GRAPH_DEG
-                + ", "
-                + MAX_INT_GRAPH_DEG
-                + "]");
-      }
-      if (graphdegree < MIN_GRAPH_DEG || graphdegree > MAX_GRAPH_DEG) {
-        throw new IllegalArgumentException(
-            "graphdegree not in valid range. Valid range: ["
-                + MIN_GRAPH_DEG
-                + ", "
-                + MAX_GRAPH_DEG
-                + "]");
-      }
+      ParameterValidation.checkRange(
+          "writerThreads", writerThreads, MIN_WRITER_THREADS, MAX_WRITER_THREADS);
+      ParameterValidation.checkRange(
+          "intermediateGraphDegree", intermediateGraphDegree, MIN_INT_GRAPH_DEG, MAX_INT_GRAPH_DEG);
+      ParameterValidation.checkRange("graphdegree", graphdegree, MIN_GRAPH_DEG, MAX_GRAPH_DEG);
       if (Objects.isNull(cagraGraphBuildAlgo)) {
         throw new IllegalArgumentException("cagraGraphBuildAlgo cannot be null.");
       }
@@ -424,15 +401,11 @@ public class GPUSearchParams {
       if (Objects.isNull(cuvsDistanceType)) {
         throw new IllegalArgumentException("cuvsDistanceType cannot be null.");
       }
-      if (nnDescentNumIterations < MIN_NN_DESCENT_NUM_ITERATIONS
-          || nnDescentNumIterations > MAX_NN_DESCENT_NUM_ITERATIONS) {
-        throw new IllegalArgumentException(
-            "nnDescentNumIterations not in valid range. Valid range: ["
-                + MIN_NN_DESCENT_NUM_ITERATIONS
-                + ", "
-                + MAX_NN_DESCENT_NUM_ITERATIONS
-                + "]");
-      }
+      ParameterValidation.checkRange(
+          "nnDescentNumIterations",
+          nnDescentNumIterations,
+          MIN_NN_DESCENT_NUM_ITERATIONS,
+          MAX_NN_DESCENT_NUM_ITERATIONS);
       if (buildQuality < MIN_BUILD_QUALITY) {
         throw new IllegalArgumentException(
             "buildQuality must not be less than " + MIN_BUILD_QUALITY + ".");

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -35,6 +35,10 @@ constexpr auto get_pairwise_scalar_type_tag()
     return cuvs::neighbors::detail::tag_f{};
   } else if constexpr (std::is_same_v<T, double>) {
     return cuvs::neighbors::detail::tag_d{};
+  } else if constexpr (std::is_same_v<T, uint8_t>) {
+    return cuvs::neighbors::detail::tag_u8{};
+  } else if constexpr (std::is_same_v<T, uint32_t>) {
+    return cuvs::neighbors::detail::tag_u32{};
   } else if constexpr (std::is_same_v<T, half> || std::is_same_v<T, __half>) {
     return cuvs::neighbors::detail::tag_h{};
   } else {
@@ -82,6 +86,11 @@ template <typename OpT>
 struct pairwise_distance_op_tag {
   static_assert(pairwise_matrix_jit_always_false_v<OpT>,
                 "Pairwise matrix JIT LTO does not have a distance-op tag for this type");
+};
+
+template <typename DataT, typename AccT, typename IdxT>
+struct pairwise_distance_op_tag<ops::bitwise_hamming_distance_op<DataT, AccT, IdxT>> {
+  using type = tag_distance_bitwise_hamming;
 };
 
 template <typename DataT, typename AccT, typename IdxT>

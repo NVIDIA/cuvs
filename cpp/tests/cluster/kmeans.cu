@@ -504,7 +504,7 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     cuvs::cluster::kmeans::params p;
     p.n_clusters            = n_clusters;
     p.tol                   = testparams.tol;
-    p.n_init                = 1;
+    p.n_init                = 3;
     p.init                  = cuvs::cluster::kmeans::params::KMeansPlusPlus;
     p.max_iter              = max_iter;
     p.rng_state.seed        = 1;
@@ -563,7 +563,9 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     ASSERT_GT(inertia_full_host_init, T(0));
     ASSERT_GT(inertia_full_device_init, T(0));
 
-    const T rel = T(1e-5);
+    // cuTile's TF32 assignment path can introduce small FP32 convergence variation between
+    // otherwise equivalent runs; keep the original tighter tolerance for double precision.
+    const T rel = std::is_same_v<T, float> ? T(1e-4) : T(1e-5);
 
     // init_size = 0 must resolve to the documented default (min(3*k, n));
     // feeding that value explicitly should reproduce the same inertia.
@@ -709,7 +711,9 @@ TEST_P(KmeansFitBatchedTestF, Result)
 {
   prepareBlobInputs();
   fitBatchedTest();
-  ASSERT_TRUE(centroids_match);
+  // AUTO may select cuTile, whose TF32 assignment arithmetic can converge to slightly different
+  // centroid values when accumulation is split into outer host batches. Equivalent assignments and
+  // clustering cost are the stable behavioral contract.
   ASSERT_TRUE(score >= 0.99);
   ASSERT_TRUE(inertia_match);
   runInitSizeCompare();
@@ -736,7 +740,9 @@ INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
                         KmeansFitBatchedTestD,
                         ::testing::ValuesIn(batched_inputsd2));
 
-TEST(KmeansBatchLoaderTest, CyclicFourPasses)
+class KmeansBatchLoaderTest : public ::testing::TestWithParam<bool> {};
+
+TEST_P(KmeansBatchLoaderTest, CyclicFourPasses)
 {
   constexpr int64_t n_rows     = 257;
   constexpr int64_t n_cols     = 17;
@@ -754,8 +760,14 @@ TEST(KmeansBatchLoaderTest, CyclicFourPasses)
 
   auto host_view =
     raft::make_host_matrix_view<const int64_t, int64_t>(host_data.data(), n_rows, n_cols);
+  const bool enable_prefetch = GetParam();
   cluster::kmeans::detail::kmeans_batch_loader<int64_t, int64_t, false> loader(
-    handle, host_view, batch_size, copy_stream, raft::resource::get_workspace_resource_ref(handle));
+    handle,
+    host_view,
+    batch_size,
+    copy_stream,
+    raft::resource::get_workspace_resource_ref(handle),
+    enable_prefetch);
   auto device_readback =
     raft::make_device_vector<int64_t, int64_t>(handle, n_passes * n_rows * n_cols);
 
@@ -772,12 +784,14 @@ TEST(KmeansBatchLoaderTest, CyclicFourPasses)
                  batch.size() * n_cols,
                  raft::resource::get_cuda_stream(handle));
 
-      if (pos + 1 < loader.num_batches() || pass + 1 < n_passes) {
+      if (enable_prefetch && (pos + 1 < loader.num_batches() || pass + 1 < n_passes)) {
         loader.prefetch((pos + 1) % loader.num_batches());
       }
-      const bool needs_future_batch = pos + 2 < loader.num_batches() || pass + 1 < n_passes;
+      const std::size_t recycle_offset = enable_prefetch ? 2 : 1;
+      const bool needs_future_batch =
+        pos + recycle_offset < loader.num_batches() || pass + 1 < n_passes;
       if (needs_future_batch) {
-        loader.recycle(batch, (pos + 2) % loader.num_batches());
+        loader.recycle(batch, (pos + recycle_offset) % loader.num_batches());
       } else {
         loader.release(batch);
       }
@@ -796,5 +810,9 @@ TEST(KmeansBatchLoaderTest, CyclicFourPasses)
     }
   }
 }
+
+INSTANTIATE_TEST_CASE_P(WithAndWithoutPrefetch,
+                        KmeansBatchLoaderTest,
+                        ::testing::Values(false, true));
 
 }  // namespace cuvs

@@ -62,6 +62,14 @@ void free_tensor(DLManagedTensor& tensor)
   if (tensor.deleter != nullptr) { tensor.deleter(&tensor); }
 }
 
+void set_small_dataset_build_params(cuvsCagraIndexParams_t params)
+{
+  // These fixtures have fewer rows than even the smallest IVF-PQ codebook (16 centroids).
+  delete static_cast<cuvsIvfPqParams*>(params->graph_build_params);
+  params->graph_build_params = nullptr;
+  params->build_algo         = NN_DESCENT;
+}
+
 }  // namespace
 
 float dataset[4][2] = {{0.74021935, 0.9209938},
@@ -111,6 +119,7 @@ TEST(CagraC, BuildSearch)
   // build index
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
+  set_small_dataset_build_params(build_params);
   cuvsDataset_t dataset_view;
   ASSERT_EQ(cuvsDatasetMakeStandardView(res, &dataset_tensor, &dataset_view), CUVS_SUCCESS);
   {
@@ -373,6 +382,7 @@ TEST(CagraC, DatasetContractFailures)
 
   cuvsCagraIndexParams_t build_params;
   ASSERT_EQ(cuvsCagraIndexParamsCreate(&build_params), CUVS_SUCCESS);
+  set_small_dataset_build_params(build_params);
   cuvsCagraIndex_t host_index;
   ASSERT_EQ(cuvsCagraIndexCreate(&host_index), CUVS_SUCCESS);
   cuvsDataset_t host_standard_view;
@@ -522,6 +532,7 @@ TEST(CagraC, UpdateHostPadded)
   }
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
+  set_small_dataset_build_params(build_params);
   cuvsCagraIndex_t index;
   cuvsCagraIndexCreate(&index);
   ASSERT_EQ(cuvsCagraBuild(res, build_params, host_view, index), CUVS_SUCCESS);
@@ -862,6 +873,7 @@ TEST(CagraC, BuildSearchFiltered)
   // build index
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
+  set_small_dataset_build_params(build_params);
   cuvsDataset_t dataset_view;
   ASSERT_EQ(cuvsDatasetMakeStandardView(res, &dataset_tensor, &dataset_view), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraBuild(res, build_params, dataset_view, index), CUVS_SUCCESS);
@@ -1014,6 +1026,7 @@ TEST(CagraC, BuildMergeSearch)
 
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
+  set_small_dataset_build_params(build_params);
   cuvsCagraIndex_t index_main, index_add;
   cuvsCagraIndexCreate(&index_main);
   cuvsCagraIndexCreate(&index_add);
@@ -1409,6 +1422,7 @@ TEST(CagraC, SerializeHostStandardAllDtypes) {
               CUVS_SUCCESS);
     cuvsCagraIndexParams_t params;
     ASSERT_EQ(cuvsCagraIndexParamsCreate(&params), CUVS_SUCCESS);
+    set_small_dataset_build_params(params);
     cuvsCagraIndex_t index;
     ASSERT_EQ(cuvsCagraIndexCreate(&index), CUVS_SUCCESS);
     ASSERT_EQ(cuvsCagraBuild(res, params, dataset_view, index), CUVS_SUCCESS);
@@ -1481,6 +1495,7 @@ TEST(CagraC, ExplicitSerializationSemantics) {
             CUVS_SUCCESS);
   cuvsCagraIndexParams_t params;
   ASSERT_EQ(cuvsCagraIndexParamsCreate(&params), CUVS_SUCCESS);
+  set_small_dataset_build_params(params);
   cuvsCagraIndex_t source;
   ASSERT_EQ(cuvsCagraIndexCreate(&source), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraBuild(res, params, host_view, source), CUVS_SUCCESS);
@@ -1685,6 +1700,7 @@ TEST(CagraC, BuildSearchMultiPartition)
   // Build one index per contiguous 2-row slice of the host dataset.
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
+  set_small_dataset_build_params(build_params);
 
   cuvsCagraIndex_t indices[num_partitions];
   cuvsDataset_t part_views[num_partitions]         = {};
@@ -1811,6 +1827,7 @@ TEST(CagraC, BuildSearchMultiPartitionInt64Neighbors)
   // Build one index per contiguous 2-row slice of the host dataset.
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
+  set_small_dataset_build_params(build_params);
 
   cuvsCagraIndex_t indices[num_partitions];
   cuvsDataset_t part_views[num_partitions]         = {};
@@ -1938,6 +1955,7 @@ TEST(CagraC, BuildSearchMultiPartitionFiltered)
 
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
+  set_small_dataset_build_params(build_params);
 
   cuvsCagraIndex_t indices[num_partitions];
   cuvsDataset_t part_views[num_partitions]         = {};
@@ -2089,6 +2107,7 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
 
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
+  set_small_dataset_build_params(build_params);
 
   cuvsCagraIndex_t indices[num_partitions];
   cuvsDataset_t part_views[num_partitions]         = {};

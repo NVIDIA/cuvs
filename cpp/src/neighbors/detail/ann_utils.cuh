@@ -9,6 +9,7 @@
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/core/memory_type.hpp>
 #include <raft/core/nvtx.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/cuda_stream_pool.hpp>
@@ -58,10 +59,9 @@ struct pointer_residency_count<Type, Types...> {
   static inline auto run(const Type* ptr, const Types*... ptrs) -> std::tuple<int, int>
   {
     auto [on_device, on_host] = pointer_residency_count<Types...>::run(ptrs...);
-    cudaPointerAttributes attr;
-    RAFT_CUDA_TRY(cudaPointerGetAttributes(&attr, ptr));
-    if (attr.devicePointer || attr.type == cudaMemoryTypeDevice) { ++on_device; }
-    if (attr.hostPointer || attr.type == cudaMemoryTypeUnregistered) { ++on_host; }
+    auto info                 = raft::get_pointer_memory_info(ptr);
+    if (info.device_pointer != nullptr) { ++on_device; }
+    if (raft::is_host_accessible(info.type)) { ++on_host; }
     return std::make_tuple(on_device, on_host);
   }
 };
@@ -215,6 +215,18 @@ HDI constexpr auto mapping<int8_t>::operator()(const float& x) const -> int8_t
   // Carefully clamp floats if out-of-bounds.
   return static_cast<int8_t>(std::clamp<float>(x * 128.0f, -128.0f, 127.0f));
 }
+
+template <typename OutT, typename IdxT>
+struct bitwise_decode_op {
+  explicit bitwise_decode_op(const uint8_t* binary_vecs) : binary_vecs(binary_vecs) {}
+  const uint8_t* binary_vecs;
+  HDI constexpr auto operator()(const IdxT& i) const -> OutT
+  {
+    // Rows contain complete bytes, so flattened bit offsets directly address the packed input.
+    // Avoid multiplying the packed dimension (or row offset) in a potentially narrow index type.
+    return ((binary_vecs[i >> 3] >> (i & 7)) & 1) ? OutT{1} : OutT{-1};
+  }
+};
 
 /**
  * @brief Sets the first num bytes of the block of memory pointed by ptr to the specified value.

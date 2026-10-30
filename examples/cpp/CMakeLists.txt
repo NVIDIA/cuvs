@@ -14,6 +14,7 @@ include(rapids-cpm)
 include(rapids-cuda)
 include(rapids-export)
 include(rapids-find)
+include(GNUInstallDirs)
 
 # ------------- configure project --------------#
 
@@ -53,6 +54,7 @@ add_executable(IVF_FLAT_EXAMPLE src/ivf_flat_example.cu)
 add_executable(IVF_PQ_EXAMPLE src/ivf_pq_example.cu)
 add_executable(VAMANA_EXAMPLE src/vamana_example.cu)
 add_executable(SCANN_EXAMPLE src/scann_example.cu)
+add_executable(SCANN_TWO_LEVEL_EXAMPLE src/scann_two_level_example.cu)
 
 # `$<TARGET_NAME_IF_EXISTS:conda_env>` is a generator expression that ensures that targets are
 # installed in a conda environment, if one exists
@@ -87,3 +89,26 @@ target_link_libraries(IVF_PQ_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:
 target_link_libraries(IVF_FLAT_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
 target_link_libraries(VAMANA_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
 target_link_libraries(SCANN_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(SCANN_TWO_LEVEL_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+
+install(
+  TARGETS BRUTE_FORCE_EXAMPLE
+          BALANCED_KMEANS_EXAMPLE
+          CAGRA_EXAMPLE
+          CAGRA_FILTER_UDF_EXAMPLE
+          CAGRA_BLOOM_FILTER_EXAMPLE
+          CAGRA_ROARING_BITMAP_FILTER_EXAMPLE
+          CAGRA_HNSW_ACE_BUILD_EXAMPLE
+          CAGRA_HNSW_ACE_EXAMPLE
+          CAGRA_PERSISTENT_EXAMPLE
+          DYNAMIC_BATCHING_EXAMPLE
+          HNSW_ACE_EXAMPLE
+          HNSW_ACE_LAYERED_EXAMPLE
+          HNSW_OPENAI_EXAMPLE
+          IVF_FLAT_EXAMPLE
+          IVF_PQ_EXAMPLE
+          VAMANA_EXAMPLE
+          SCANN_EXAMPLE
+          SCANN_TWO_LEVEL_EXAMPLE
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}/examples/libcuvs COMPONENT cuvs_examples
+)

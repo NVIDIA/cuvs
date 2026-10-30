@@ -171,7 +171,8 @@ void pairwise_distance_gemm(raft::resources const& handle,
                             IdxT N,
                             IdxT K,
                             const AccT* x_norm,
-                            const AccT* y_norm)
+                            const AccT* y_norm,
+                            bool strict_fp32)
 {
   const auto stream = raft::resource::get_cuda_stream(handle);
   cudaDataType_t xyType, zType;
@@ -201,9 +202,8 @@ void pairwise_distance_gemm(raft::resources const& handle,
   } else if constexpr (std::is_same_v<DataT, float>) {
     xyType      = CUDA_R_32F;
     zType       = CUDA_R_32F;
-    computeType = CUBLAS_COMPUTE_32F_FAST_TF32;
-    // Note: Alternative compute types that can be used include:
-    // CUBLAS_COMPUTE_32F, CUBLAS_COMPUTE_32F_FAST_16F,
+    computeType = strict_fp32 ? CUBLAS_COMPUTE_32F : CUBLAS_COMPUTE_32F_FAST_TF32;
+    // Other reduced-precision alternatives include CUBLAS_COMPUTE_32F_FAST_16F,
     // CUBLAS_COMPUTE_32F_FAST_16BF, CUBLAS_COMPUTE_32F_EMULATED_16BFX9
   } else if constexpr (std::is_same_v<DataT, double>) {
     xyType      = CUDA_R_64F;
@@ -273,6 +273,7 @@ void pairwise_distance_gemm(raft::resources const& handle,
  * @param[in]  isRowMajor    whether the input/output is row or column major.
  * @param[in]  metric        Distance metric to be used (supports L2, cosine)
  * @param[in]  metric_arg    power argument for distances like Minkowski (not supported for now)
+ * @param[in]  strict_fp32    disable fast TF32 for FP32 GEMM
  */
 template <typename DataT, typename AccT, typename OutT, typename IdxT>
 void unfusedDistanceNNMinReduce(raft::resources const& handle,
@@ -289,12 +290,14 @@ void unfusedDistanceNNMinReduce(raft::resources const& handle,
                                 bool initOutBuffer,
                                 bool isRowMajor,
                                 DistanceType metric,
-                                float metric_arg)
+                                float metric_arg,
+                                bool strict_fp32 = false)
 {
   ASSERT(isRowMajor, "unfusedDistanceNN only supports row major inputs");
 
   ASSERT(m > 0 && n > 0 && k > 0, "unfusedDistanceNN requires non-zero m, n, and k");
-  pairwise_distance_gemm<DataT, AccT, OutT, IdxT>(handle, (AccT*)workspace, x, y, m, n, k, xn, yn);
+  pairwise_distance_gemm<DataT, AccT, OutT, IdxT>(
+    handle, (AccT*)workspace, x, y, m, n, k, xn, yn, strict_fp32);
 
   ASSERT((metric == DistanceType::CosineExpanded) || (metric == DistanceType::L2Expanded) ||
            (metric == DistanceType::L2SqrtExpanded),

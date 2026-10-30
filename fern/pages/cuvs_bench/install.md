@@ -14,7 +14,7 @@ conda create --name cuvs_benchmarks
 conda activate cuvs_benchmarks
 
 # to install GPU package:
-conda install -c rapidsai -c conda-forge cuvs-bench=<rapids_version> 'cuda-version=13.3.*'
+conda install -c rapidsai -c conda-forge cuvs-bench=<cuvs_version> 'cuda-version=13.3.*'
 
 # to install CPU package for usage in CPU-only systems:
 conda install -c rapidsai -c conda-forge  cuvs-bench-cpu
@@ -40,7 +40,7 @@ docker pull rapidsai/cuvs-bench:26.06a-cuda12-py3.13 # substitute cuvs-bench for
 CUDA and Python versions can be changed to supported values:
 
 - Supported CUDA versions: 12, 13
-- Supported Python versions: 3.11, 3.12, 3.13, and 3.14
+- Supported Python versions: 3.12, 3.13, and 3.14
 
 Exact tags are listed on Docker Hub:
 

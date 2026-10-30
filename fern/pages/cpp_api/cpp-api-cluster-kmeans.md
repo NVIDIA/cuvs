@@ -60,11 +60,11 @@ struct params : base_params {
 | `verbosity` | `rapids_logger::level_enum` | verbosity level. |
 | `rng_state` | `raft::random::RngState` | Seed to the random number generator. |
 | `n_init` | `int` | Number of instance k-means algorithm will be run with different seeds. |
-| `oversampling_factor` | `double` | Oversampling factor for use in the k-means\|\| algorithm.<br /><br />In the single-GPU path the value `0` is overloaded as an algorithm switch that selects the classic sequential k-means++ instead of the scalable variant. Any value `&gt; 0` is used as-is.<br /><br />In the multi-GPU path (a `fit` call issued with a multi-GPU `handle` and device-resident inputs) any value `&lt; 1.0` (including `0`) is internally clamped to `1.0`. Values `&gt;= 1.0` are passed through unchanged. |
+| `oversampling_factor` | `double` | Oversampling factor for use in the k-means\|\| algorithm.<br /><br />In the single-GPU path the value `0` is overloaded as an algorithm switch that selects the classic sequential k-means++ instead of the scalable variant. Any value `> 0` is used as-is.<br /><br />In the multi-GPU path (a `fit` call issued with a multi-GPU `handle` and device-resident inputs) any value `< 1.0` (including `0`) is internally clamped to `1.0`. Values `>= 1.0` are passed through unchanged. |
 | `batch_samples` | `int` | batch_samples and batch_centroids are used to tile 1NN computation which is useful to optimize/control the memory footprint<br />Default tile is [batch_samples x n_clusters] i.e. when batch_centroids is 0 then don't tile the centroids<br /><br />NB: These parameters are unrelated to device_buffer_samples, which specifies the number of training vectors that get buffered on device when the training vectors are passed in on host. |
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
 | `init_size` | `int64_t` | Number of samples to randomly draw for the KMeansPlusPlus initialization step. A random subset of this size is used for centroid seeding.<br /><br />Only applies when dataset is on host; for device data the full dataset is always used for seeding and this parameter is ignored.<br /><br />When set to 0 (default) with host data uses `min(3 * n_clusters, n_samples)` as a default.<br /><br />In Batched multi-GPU host-data fits, the effective KMeansPlusPlus initialization sample is materialized on device on every rank. Every rank must have enough GPU memory for this sample, and rank 0 must also have enough GPU memory for the seeding workspace.<br /><br />Default: 0. |
-| `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch when fitting with host data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path and ignored by device-data overloads.<br /><br />In multi-GPU mode this is a per-rank batch size: each rank processes up to this many local samples per batch, clamped to that rank's local sample count. This is is ignored by device-data overloads.<br />Default: 0 (process all data at once). |
+| `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch when fitting with host data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path and ignored by device-data overloads.<br /><br />Default: 0. For a single host input matrix, this creates one full-dataset input buffer on the GPU, even when an auxiliary stream is configured. To stream that matrix in smaller batches, set a positive value less than n_samples.<br /><br />Inputs spanning multiple batches are double-buffered when the handle has an auxiliary stream, and use one buffer otherwise. No auxiliary stream pool is configured by<br />default, so transfers and compute are serialized. Configure a pool with at least one auxiliary stream to enable transfer/compute overlap. Budget about `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer, plus algorithm workspaces. Sample weights require the same number of additional buffers with `device_buffer_samples * sizeof(value_type)` bytes each. In these estimates, substitute n_samples for device_buffer_samples when it is 0.<br /><br />In multi-GPU mode this is a per-rank batch size: each rank processes up to this many local samples per batch, clamped to that rank's local sample count. This is ignored by device-data overloads. |
 
 <a id="cluster-kmeans-balanced-donor-selection"></a>
 ### cluster::kmeans::balanced_donor_selection
@@ -123,9 +123,11 @@ raft::host_scalar_view<int64_t> n_iter);
 
 Runs on multiple GPUs when `handle` carries an SNMG clique (`raft::resource::is_multi_gpu(handle)`) or initialized RAFT comms (`raft::resource::comms_initialized(handle)`), and on a single GPU otherwise.
 
-TODO: Evaluate replacing the extent type with int64_t. Reference issue: https://github.com/nvidia/cuvs/issues/1961
+TODO: Evaluate replacing the extent type with int64_t. Reference issue: https://github.com/NVIDIA/cuvs/issues/1961
 
-This overload supports out-of-core computation where the dataset resides on the host. Data is processed in batches, streaming from host to device. The batch size is controlled by `params.device_buffer_samples`.
+This overload supports out-of-core computation where the dataset resides on the host. Data is processed in batches, streaming from host to device. The batch size is controlled by `params.device_buffer_samples`. Multiple batches are double-buffered when an auxiliary stream is available. Without a stream pool, the fit uses one input buffer and remains correct but serialized. One auxiliary stream is sufficient to overlap transfer and compute. Pageable and unregistered `mmap`-backed input is read through one batch-sized pinned host staging buffer per device buffer. The complete input is never registered or copied into pinned memory. Already pinned input is transferred directly. Overlap depends on the host reader supplying batches fast enough for the GPU.
+
+A pool memory resource is optional but recommended, especially for repeated fits. Configure both pools before `fit` and before first using the handle's workspace resources.
 
 Multi-GPU dispatch is selected automatically based on the handle state:
 
@@ -421,6 +423,8 @@ raft::device_matrix_view<float, int64_t> centroids,
 std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 ```
 
+**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. CosineExpanded is not supported in packed binary mode.<br />With the flag disabled, uint8_t values are numeric.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
@@ -705,6 +709,8 @@ raft::device_matrix_view<const uint8_t, int64_t> X,
 raft::device_matrix_view<const float, int64_t> centroids,
 raft::device_vector_view<uint32_t, int64_t> labels);
 ```
+
+**Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. CosineExpanded is not supported in packed binary mode.<br />With the flag disabled, uint8_t values are numeric.
 
 **Parameters**
 
@@ -1080,7 +1086,7 @@ raft::host_scalar_view<float> inertia,
 raft::host_scalar_view<int> n_iter);
 ```
 
-Each rank supplies its local training data as a vector of partitions. For host-resident partitions the implementation streams each partition using `params.device_buffer_samples` (per rank). For device-resident partitions `device_buffer_samples` is ignored and each local partition is processed in full.
+Each rank supplies its local training data as a vector of partitions. For host-resident partitions the implementation streams each partition using `params.device_buffer_samples` (per rank). For device-resident partitions `device_buffer_samples` is ignored and each local partition is processed in full. Host partitions spanning multiple batches are double-buffered when an auxiliary stream is available. Each rank needs one auxiliary stream for transfer/compute overlap; otherwise execution uses one input buffer and is correct but serialized. Pageable and unregistered `mmap`-backed partitions use bounded pinned host staging buffers; already pinned partitions are transferred directly. Overlap depends on the host reader supplying batches fast enough for the GPU. A per-device memory pool is also recommended. With `raft::device_resources_snmg`, configure these before `fit` with `handle.set_stream_pool(1)` and `handle.set_memory_pool(percent)`; both calls apply the setting to every device managed by the handle. With independently managed per-rank resources, configure the stream pool and current RMM memory resource in each process.
 
 The active backend is selected by the resources attached to `handle`:
 

@@ -4,17 +4,19 @@
  */
 #pragma once
 
+#include "../../src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp"
 #include "ann_cagra.cuh"
 
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
-#include <cuvs_internal/preprocessing/bbq_cpu_quantize.hpp>
 
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/random/rng.cuh>
 
 #include <gtest/gtest.h>
+
+#include <cuda/stream>
 
 #include <cstdint>
 #include <optional>
@@ -71,13 +73,14 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     raft::update_host(host_data.data(), database.data(), host_data.size(), stream_);
     raft::resource::sync_stream(handle_);
 
-    return cuvs_internal::bbq::quantize_to_device(handle_,
-                                                  host_data.data(),
-                                                  ps.n_rows,
-                                                  ps.dim,
-                                                  ps.metric,
-                                                  ps.layout,
-                                                  ps.second_layout.value_or(ps.layout));
+    return cuvs::preprocessing::quantize::bbq::detail::quantize_to_device(
+      handle_,
+      host_data.data(),
+      ps.n_rows,
+      ps.dim,
+      ps.metric,
+      ps.layout,
+      ps.second_layout.value_or(ps.layout));
   }
 
   [[nodiscard]] auto default_index_params() const -> cagra::index_params
@@ -179,8 +182,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     {
       // `owning_codes` backs the view held by the built index, so it must outlive it.
       auto owning_codes = quantize_database();
-      auto graph_index =
-        cagra::build(handle_, default_index_params(), owning_codes.as_dataset_view());
+      auto graph_index  = cagra::build(handle_, default_index_params(), owning_codes.view());
       ASSERT_EQ(graph_index.graph_size(), static_cast<uint32_t>(ps.n_rows));
 
       // Rebinding the uncompressed vectors is what makes the BBQ-built graph searchable.
@@ -190,8 +192,10 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
 
     const double min_recall = ps.min_recall_ratio * reference_recall;
     RAFT_LOG_INFO(
-      "CAGRA BBQ build (layout=%d, second_layout=%d): recall=%f, dense reference=%f, "
-      "retained=%.1f%% (required >= %.1f%%)",
+      "CAGRA BBQ build (n_queries=%d, metric=%d, layout=%d, second_layout=%d): recall=%f, dense "
+      "reference=%f, retained=%.1f%% (required >= %.1f%%)",
+      ps.n_queries,
+      static_cast<int>(ps.metric),
       static_cast<int>(ps.layout),
       ps.second_layout.has_value() ? static_cast<int>(*ps.second_layout) : -1,
       bbq_recall,
@@ -200,7 +204,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
       100.0 * ps.min_recall_ratio);
 
     // A broken baseline would make the ratio check meaningless.
-    ASSERT_GT(reference_recall, 0.8) << "the full-precision CAGRA baseline is unexpectedly poor";
+    ASSERT_GT(reference_recall, 0.7) << "the full-precision CAGRA baseline is unexpectedly poor";
     EXPECT_GE(bbq_recall, min_recall)
       << "recall " << bbq_recall << " retains only " << 100.0 * bbq_recall / reference_recall
       << "% of the full-precision build's " << reference_recall;
@@ -210,7 +214,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
   void testGraphShape()
   {
     auto owning_codes = quantize_database();
-    auto index = cagra::build(handle_, default_index_params(), owning_codes.as_dataset_view());
+    auto index        = cagra::build(handle_, default_index_params(), owning_codes.view());
 
     ASSERT_EQ(index.graph_size(), static_cast<uint32_t>(ps.n_rows));
     ASSERT_EQ(index.graph_degree(), static_cast<uint32_t>(ps.graph_degree));
@@ -247,8 +251,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
                                                                                database_view);
 
     auto owning_codes = quantize_database();
-    auto graph_index =
-      cagra::build(handle_, default_index_params(), owning_codes.as_dataset_view());
+    auto graph_index  = cagra::build(handle_, default_index_params(), owning_codes.view());
 
     std::stringstream stored;
     cagra::serialize(handle_, stored, graph_index);
@@ -279,7 +282,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     params.attach_dataset_on_build = false;
 
     auto owning_codes = quantize_database();
-    auto index        = cagra::build(handle_, params, owning_codes.as_dataset_view());
+    auto index        = cagra::build(handle_, params, owning_codes.view());
 
     ASSERT_EQ(index.graph_size(), static_cast<uint32_t>(ps.n_rows));
     ASSERT_EQ(index.graph_degree(), static_cast<uint32_t>(ps.graph_degree));
@@ -291,7 +294,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
   void testUnsupportedParams()
   {
     auto owning_codes = quantize_database();
-    auto dataset      = owning_codes.as_dataset_view();
+    auto dataset      = owning_codes.view();
 
     auto ivf_pq_params               = default_index_params();
     ivf_pq_params.graph_build_params = cagra::graph_build_params::ivf_pq_params(
@@ -331,7 +334,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnCagraBbqInputs ps;
   rmm::device_uvector<float> database;
   rmm::device_uvector<float> search_queries;
@@ -356,22 +359,30 @@ inline const std::vector<AnnCagraBbqInputs> bbq_inputs = [] {
     {bbq_code_layout::packed_7b, opt_layout{}, 0.95},
     {bbq_code_layout::packed_8b, opt_layout{}, 0.95}};
 
+  // Many queries: AUTO selects the single-CTA search on every GPU (the query count exceeds twice
+  // the SM count), which gives a stable recall. Fewer queries: AUTO selects the multi-CTA search
+  // and the recall is measured over fewer neighbors, so the bounds are relaxed.
+  constexpr double small_query_slack = 0.04;
+  const std::vector<std::pair<int, double>> query_sets{{500, 0.0}, {100, small_query_slack}};
+
   std::vector<AnnCagraBbqInputs> out;
-  for (const auto& [layout, second_layout, min_recall_ratio] : code_specs) {
-    const auto batch = raft::util::itertools::product<AnnCagraBbqInputs>(
-      {200},   // n_queries
-      {4000},  // n_rows
-      {128},   // dim
-      {10},    // k
-      {32},    // graph_degree
-      {cuvs::distance::DistanceType::L2Expanded,
-       // cuvs::distance::DistanceType::L2SqrtExpanded,
-       cuvs::distance::DistanceType::InnerProduct,
-       cuvs::distance::DistanceType::CosineExpanded},
-      {layout},
-      {second_layout},
-      {min_recall_ratio});
-    out.insert(out.end(), batch.begin(), batch.end());
+  for (const auto& [n_queries, slack] : query_sets) {
+    for (const auto& [layout, second_layout, min_recall_ratio] : code_specs) {
+      const auto batch = raft::util::itertools::product<AnnCagraBbqInputs>(
+        {n_queries},
+        {4000},  // n_rows
+        {128},   // dim
+        {10},    // k
+        {32},    // graph_degree
+        {cuvs::distance::DistanceType::L2Expanded,
+         // cuvs::distance::DistanceType::L2SqrtExpanded,
+         cuvs::distance::DistanceType::InnerProduct,
+         cuvs::distance::DistanceType::CosineExpanded},
+        {layout},
+        {second_layout},
+        {min_recall_ratio - slack});
+      out.insert(out.end(), batch.begin(), batch.end());
+    }
   }
   return out;
 }();

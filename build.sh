@@ -81,7 +81,7 @@ RUST_BUILD_DIR=${REPODIR}/rust/target
 JAVA_INTERNAL_BUILD_DIR=${REPODIR}/java/internal/build
 JAVA_BUILD_DIR=${REPODIR}/java/cuvs-java/target
 JAVA_PANAMA_DIR=${REPODIR}/java/cuvs-java/src/main/java22/com/nvidia/cuvs/internal/panama
-LUCENE_BUILD_DIR=${REPODIR}/java/cuvs-lucene/target
+LUCENE_BUILD_DIRS=("${REPODIR}"/java/cuvs-lucene/target "${REPODIR}"/java/cuvs-lucene/*/target)
 BUILD_DIRS=(
     "${LIBCUVS_BUILD_DIR}"
     "${PYTHON_BUILD_DIR}"
@@ -89,7 +89,7 @@ BUILD_DIRS=(
     "${JAVA_INTERNAL_BUILD_DIR}"
     "${JAVA_BUILD_DIR}"
     "${JAVA_PANAMA_DIR}"
-    "${LUCENE_BUILD_DIR}"
+    "${LUCENE_BUILD_DIRS[@]}"
 )
 
 # Set defaults for vars modified by flags to this script
@@ -98,7 +98,7 @@ VERBOSE_FLAG=""
 BUILD_TESTS=ON
 BUILD_MG_ALGOS=ON
 BUILD_MNMG_TESTS=OFF
-BUILD_TYPE=Release
+BUILD_TYPE=${LIBCUVS_BUILD_TYPE:=Release}
 COMPILE_LIBRARY=OFF
 INSTALL_TARGET=install
 BUILD_REPORT_METRICS=""
@@ -443,7 +443,7 @@ if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims ||
     cmake -S "${REPODIR}"/cpp -B "${LIBCUVS_BUILD_DIR}" \
           -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
           -DCMAKE_CUDA_ARCHITECTURES="${CUVS_CMAKE_CUDA_ARCHITECTURES}" \
-          -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+          -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
           -DBUILD_C_LIBRARY=${COMPILE_LIBRARY} \
           -DCUVS_NVTX=${NVTX} \
           -DCUDA_LOG_COMPILE_TIME=${LOG_COMPILE_TIME} \

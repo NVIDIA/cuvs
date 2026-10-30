@@ -35,6 +35,7 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatFieldVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
@@ -61,8 +62,8 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(CuVS2510GPUVectorsWriter.class);
   private static final String COMPONENT = "CuVS2510GPUVectorsWriter";
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
   private static final int MIN_CAGRA_INDEX_SIZE = 2;
 
   private final GPUSearchParams gpuSearchParams;
@@ -71,15 +72,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   private final InfoStream infoStream;
   private IndexOutput meta = null, cuvsIndex = null;
   private boolean finished;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * The cuVS index Types.
@@ -254,7 +246,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         CagraIndexParamsFactory.create(gpuSearchParams, dataset.size(), dataset.columns());
     try (CagraIndex index =
             CagraIndex.newBuilder(getCuVSResourcesInstance())
-                .withDataset(dataset)
+                .fromDataset(dataset)
                 .withIndexParams(params)
                 .build();
         var deviceVectors = dataset.toDevice(getCuVSResourcesInstance())) {
@@ -627,25 +619,16 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
           Files.deleteIfExists(tmpFile);
         }
       }
-    } finally {
-      // Every index is released even if one of them fails, and the first failure carries the rest
-      // so that none of them is lost. IOUtils cannot do this here: CagraIndex.close() throws
-      // Exception rather than IOException, so it is not a Closeable.
-      Exception failure = null;
-      for (CagraIndex index : indexes) {
-        try {
-          index.close();
-        } catch (Exception e) {
-          if (failure == null) {
-            failure = e;
-          } else {
-            failure.addSuppressed(e);
-          }
-        }
-      }
-      if (failure != null) {
-        throw failure;
-      }
+    } catch (Throwable t) {
+      // Close failures are attached to the one in flight, so that it is the one that propagates.
+      throw Utils.closeAll(t, indexes.toArray(new AutoCloseable[0]));
+    }
+    // Every index is released even if one of them fails, and the first failure carries the rest
+    // so that none of them is lost. IOUtils cannot do this here: CagraIndex.close() throws
+    // Exception rather than IOException, so it is not a Closeable.
+    Throwable failure = Utils.closeAll(null, indexes.toArray(new AutoCloseable[0]));
+    if (failure != null) {
+      throw failure;
     }
   }
 

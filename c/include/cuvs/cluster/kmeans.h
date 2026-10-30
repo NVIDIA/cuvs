@@ -105,7 +105,18 @@ struct cuvsKMeansParams {
 
   /**
    * Number of samples to process per GPU batch for the batched (host-data) API.
-   * When set to 0, defaults to n_samples (process all at once).
+   * Default: 0, which uses n_samples (process all at once). For a single host
+   * input matrix, this creates one full-dataset input buffer on the GPU, even
+   * when a stream pool is configured. Set a positive value less than n_samples
+   * to stream that matrix in smaller batches.
+   * Multiple batches use one input buffer without a stream pool and two when
+   * an auxiliary stream enables transfer/compute overlap. No stream pool is
+   * configured by default, so transfers and compute are serialized. Call
+   * cuvsResourcesSetStreamPool(res, 1) to enable overlap for multiple batches.
+   * Each input buffer uses about
+   * device_buffer_samples * n_features * sizeof(value_type) bytes (substitute
+   * n_samples when device_buffer_samples is 0), excluding algorithm workspaces
+   * and optional sample-weight buffers.
    */
   int64_t device_buffer_samples;
 
@@ -159,6 +170,19 @@ typedef enum { CUVS_KMEANS_TYPE_KMEANS = 0, CUVS_KMEANS_TYPE_KMEANS_BALANCED = 1
  *   X may reside on either host (CPU) or device (GPU) memory.
  *   When X is on the host the data is buffered to the GPU in
  *   batches controlled by params->device_buffer_samples.
+ *   Multiple batches use one input buffer by default. For transfer/compute
+ *   overlap, call cuvsResourcesSetStreamPool(res, 1); this enables
+ *   double-buffering. Without it the result is unchanged, but transfers and
+ *   compute are serialized. Pinned host memory (for example, from
+ *   cuvsRMMHostAlloc) is crucial for OOC performance; pageable or unregistered
+ *   mmap-backed input degrades throughput rapidly.
+ *
+ *   A memory pool is optional but recommended, especially for repeated fits:
+ * @code{.c}
+ *   cuvsResourcesSetMemoryPool(res, 80);
+ *   cuvsResourcesSetStreamPool(res, 1);
+ *   cuvsKMeansFit(res, params, X, sample_weight, centroids, &inertia, &n_iter);
+ * @endcode
  *
  * @param[in]     res           opaque C handle
  * @param[in]     params        Parameters for KMeans model.

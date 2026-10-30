@@ -13,8 +13,11 @@ import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
+import org.apache.lucene.search.TaskExecutor;
 
 /**
  * cuVS based Scalar Quantized KnnVectorsFormat for indexing on GPU and searching on the CPU.
@@ -25,20 +28,11 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
 
   private static final Logger log =
       Logger.getLogger(LuceneAcceleratedHNSWScalarQuantizedVectorsFormat.class.getName());
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
   private static final int MAX_DIMENSIONS = 4096;
 
   private final AcceleratedHNSWParams acceleratedHNSWParams;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      FLAT_VECTORS_FORMAT = LUCENE_PROVIDER.getLuceneScalarQuantizedVectorsFormatInstance();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
+  // Created on first use and then reused; see flatVectorsFormat().
+  private volatile FlatVectorsFormat flatVectorsFormat;
 
   /**
    * Initializes {@link LuceneAcceleratedHNSWScalarQuantizedVectorsFormat} with default values.
@@ -65,24 +59,24 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
-    var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
+    LuceneVersionGuard.ensureCompatible();
+    var flatWriter = flatVectorsFormat().fieldsWriter(state);
     if (isSupported()) {
       log.info("cuVS is supported so using the Lucene99AcceleratedHNSWQuantizedVectorsWriter");
       return new LuceneAcceleratedHNSWScalarQuantizedVectorsWriter(
           state, acceleratedHNSWParams, flatWriter);
     } else {
-      try {
-        // Fallback to Lucene's Lucene99HnswScalarQuantizedVectorsFormat
-        log.warning(
-            "GPU based indexing not supported, falling back to using the"
-                + " Lucene99HnswScalarQuantizedVectorsFormat");
-        KnnVectorsFormat fallbackFormat =
-            LUCENE_PROVIDER.getLuceneHnswScalarQuantizedVectorsFormatInstance(
-                acceleratedHNSWParams.getBeamWidth(), acceleratedHNSWParams.getMaxConn());
-        return fallbackFormat.fieldsWriter(state);
-      } catch (Exception e) {
-        throw Utils.handleThrowable(e);
-      }
+      // Builds the graph on the CPU over the scalar-quantized flat writer opened above, which is
+      // what Lucene99HnswScalarQuantizedVectorsFormat writes, so the reader below reads it.
+      log.warning(
+          "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
+      return new Lucene99HnswVectorsWriter(
+          state,
+          acceleratedHNSWParams.getMaxConn(),
+          acceleratedHNSWParams.getBeamWidth(),
+          flatWriter,
+          acceleratedHNSWParams.getNumMergeWorkers(),
+          new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
     }
   }
 
@@ -91,12 +85,27 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
    */
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
-    try {
-      return LUCENE_PROVIDER.getLuceneHnswVectorsReaderInstance(
-          state, FLAT_VECTORS_FORMAT.fieldsReader(state));
-    } catch (Exception e) {
-      throw Utils.handleThrowable(e);
+    LuceneVersionGuard.ensureCompatible();
+    return new Lucene99HnswVectorsReader(state, flatVectorsFormat().fieldsReader(state));
+  }
+
+  /**
+   * Returns the format that stores the quantized vectors, creating it on first use.
+   *
+   * <p>Not created when this format is: Lucene's service loader creates every registered format
+   * eagerly, and on a Lucene release that moved {@code Lucene99ScalarQuantizedVectorsFormat} to its
+   * backward codecs, creating it there would break every format and codec lookup in the JVM before
+   * {@link LuceneVersionGuard} could report the mismatch. It is created through {@link
+   * LuceneCompat}, which is not loaded, and so not linked, until then.
+   */
+  private FlatVectorsFormat flatVectorsFormat() {
+    FlatVectorsFormat format = flatVectorsFormat;
+    if (format == null) {
+      // Flat formats hold no state, so two threads racing here at most create a spare one.
+      format = LuceneCompat.lucene99ScalarQuantizedFlatFormat();
+      flatVectorsFormat = format;
     }
+    return format;
   }
 
   /**

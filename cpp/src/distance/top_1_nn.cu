@@ -9,7 +9,7 @@ namespace cuvs::distance {
 
 #define CUVS_INSTANTIATE_TOP_1_NN_WORKSPACE_SIZE(DataT, IdxT)            \
   template CUVS_EXPORT std::size_t top_1_nn_workspace_size<DataT, IdxT>( \
-    IdxT, IdxT, const detail::Top1nnTuning&, detail::Top1nnBackend)
+    IdxT, IdxT, IdxT, const detail::Top1nnTuning&, detail::Top1nnBackend, bool)
 
 CUVS_INSTANTIATE_TOP_1_NN_WORKSPACE_SIZE(float, int);
 CUVS_INSTANTIATE_TOP_1_NN_WORKSPACE_SIZE(float, int64_t);
@@ -19,6 +19,28 @@ CUVS_INSTANTIATE_TOP_1_NN_WORKSPACE_SIZE(half, int);
 CUVS_INSTANTIATE_TOP_1_NN_WORKSPACE_SIZE(half, int64_t);
 
 #undef CUVS_INSTANTIATE_TOP_1_NN_WORKSPACE_SIZE
+
+#define CUVS_INSTANTIATE_PROBE_TOP_1_NN(DataT, IdxT)                         \
+  template CUVS_EXPORT detail::Top1nnPlan<IdxT> probe_top_1_nn<DataT, IdxT>( \
+    raft::resources const&,                                                  \
+    const DataT*,                                                            \
+    const DataT*,                                                            \
+    IdxT,                                                                    \
+    IdxT,                                                                    \
+    IdxT,                                                                    \
+    const detail::Top1nnTuning&,                                             \
+    DistanceType,                                                            \
+    detail::Top1nnBackend,                                                   \
+    bool)
+
+CUVS_INSTANTIATE_PROBE_TOP_1_NN(float, int);
+CUVS_INSTANTIATE_PROBE_TOP_1_NN(float, int64_t);
+CUVS_INSTANTIATE_PROBE_TOP_1_NN(double, int);
+CUVS_INSTANTIATE_PROBE_TOP_1_NN(double, int64_t);
+CUVS_INSTANTIATE_PROBE_TOP_1_NN(half, int);
+CUVS_INSTANTIATE_PROBE_TOP_1_NN(half, int64_t);
+
+#undef CUVS_INSTANTIATE_PROBE_TOP_1_NN
 
 #define CUVS_INSTANTIATE_TOP_1_NN(DataT, IdxT, NormT, OutputKind)                            \
   template CUVS_EXPORT void                                                                  \
@@ -40,7 +62,7 @@ CUVS_INSTANTIATE_TOP_1_NN_WORKSPACE_SIZE(half, int64_t);
     bool,                                                                                    \
     DistanceType,                                                                            \
     float,                                                                                   \
-    detail::Top1nnBackend)
+    const detail::Top1nnPlan<IdxT>&)
 
 CUVS_INSTANTIATE_TOP_1_NN(float, int, float, kvp);
 CUVS_INSTANTIATE_TOP_1_NN(float, int, float, scalar);

@@ -4,7 +4,7 @@
 # syntax=docker/dockerfile:1.5
 
 # ==============================================================================
-# RAPIDS cuVS Docker Image - Vector Search and Clustering on GPU
+# NVIDIA cuVS Docker Image - Vector Search and Clustering on GPU
 #
 # Usage:
 #   docker build -t cuvs:latest .
@@ -17,7 +17,7 @@
 # Configurable build arguments - override with --build-arg during build
 ARG CUDA_VER=12.9.1
 
-# Python version for the conda environment (supported: 3.11, 3.12, 3.13)
+# Python version for the conda environment (supported: 3.12, 3.13, 3.14)
 ARG PYTHON_VER=3.12
 
 # RAPIDS/cuVS version
@@ -32,9 +32,9 @@ RUN echo "  Building cuVS Docker image with:" && \
     echo "   RAPIDS Version: ${RAPIDS_VER}"
 
 # Container metadata
-LABEL maintainer="RAPIDS cuVS Team"
-LABEL description="RAPIDS cuVS - Vector Search and Clustering on GPU"
-LABEL org.opencontainers.image.source="https://github.com/nvidia/cuvs"
+LABEL maintainer="NVIDIA cuVS Team"
+LABEL description="NVIDIA cuVS - Vector Search and Clustering on GPU"
+LABEL org.opencontainers.image.source="https://github.com/NVIDIA/cuvs"
 LABEL org.opencontainers.image.usage="docker run --gpus all -it <image>"
 
 # Environment setup
