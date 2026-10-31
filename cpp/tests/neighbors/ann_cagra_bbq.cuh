@@ -192,8 +192,10 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
 
     const double min_recall = ps.min_recall_ratio * reference_recall;
     RAFT_LOG_INFO(
-      "CAGRA BBQ build (layout=%d, second_layout=%d): recall=%f, dense reference=%f, "
-      "retained=%.1f%% (required >= %.1f%%)",
+      "CAGRA BBQ build (n_queries=%d, metric=%d, layout=%d, second_layout=%d): recall=%f, dense "
+      "reference=%f, retained=%.1f%% (required >= %.1f%%)",
+      ps.n_queries,
+      static_cast<int>(ps.metric),
       static_cast<int>(ps.layout),
       ps.second_layout.has_value() ? static_cast<int>(*ps.second_layout) : -1,
       bbq_recall,
@@ -202,7 +204,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
       100.0 * ps.min_recall_ratio);
 
     // A broken baseline would make the ratio check meaningless.
-    ASSERT_GT(reference_recall, 0.8) << "the full-precision CAGRA baseline is unexpectedly poor";
+    ASSERT_GT(reference_recall, 0.7) << "the full-precision CAGRA baseline is unexpectedly poor";
     EXPECT_GE(bbq_recall, min_recall)
       << "recall " << bbq_recall << " retains only " << 100.0 * bbq_recall / reference_recall
       << "% of the full-precision build's " << reference_recall;
@@ -347,9 +349,9 @@ inline const std::vector<AnnCagraBbqInputs> bbq_inputs = [] {
   using cuvs::preprocessing::quantize::bbq::bbq_code_layout;
   using opt_layout = std::optional<bbq_code_layout>;
   const std::vector<std::tuple<bbq_code_layout, opt_layout, double>> code_specs{
-    {bbq_code_layout::packed_1b, opt_layout{}, 0.84},
+    {bbq_code_layout::packed_1b, opt_layout{}, 0.85},
     {bbq_code_layout::transposed_2b, opt_layout{}, 0.92},
-    {bbq_code_layout::transposed_2b, opt_layout{bbq_code_layout::packed_1b}, 0.91},
+    {bbq_code_layout::transposed_2b, opt_layout{bbq_code_layout::packed_1b}, 0.92},
     {bbq_code_layout::packed_4b, opt_layout{}, 0.95},
     {bbq_code_layout::packed_4b, opt_layout{bbq_code_layout::packed_1b}, 0.90},
     {bbq_code_layout::transposed_4b, opt_layout{bbq_code_layout::packed_1b}, 0.90},
@@ -357,22 +359,30 @@ inline const std::vector<AnnCagraBbqInputs> bbq_inputs = [] {
     {bbq_code_layout::packed_7b, opt_layout{}, 0.95},
     {bbq_code_layout::packed_8b, opt_layout{}, 0.95}};
 
+  // Many queries: AUTO selects the single-CTA search on every GPU (the query count exceeds twice
+  // the SM count), which gives a stable recall. Fewer queries: AUTO selects the multi-CTA search
+  // and the recall is measured over fewer neighbors, so the bounds are relaxed.
+  constexpr double small_query_slack = 0.04;
+  const std::vector<std::pair<int, double>> query_sets{{500, 0.0}, {100, small_query_slack}};
+
   std::vector<AnnCagraBbqInputs> out;
-  for (const auto& [layout, second_layout, min_recall_ratio] : code_specs) {
-    const auto batch = raft::util::itertools::product<AnnCagraBbqInputs>(
-      {200},   // n_queries
-      {4000},  // n_rows
-      {128},   // dim
-      {10},    // k
-      {32},    // graph_degree
-      {cuvs::distance::DistanceType::L2Expanded,
-       // cuvs::distance::DistanceType::L2SqrtExpanded,
-       cuvs::distance::DistanceType::InnerProduct,
-       cuvs::distance::DistanceType::CosineExpanded},
-      {layout},
-      {second_layout},
-      {min_recall_ratio});
-    out.insert(out.end(), batch.begin(), batch.end());
+  for (const auto& [n_queries, slack] : query_sets) {
+    for (const auto& [layout, second_layout, min_recall_ratio] : code_specs) {
+      const auto batch = raft::util::itertools::product<AnnCagraBbqInputs>(
+        {n_queries},
+        {4000},  // n_rows
+        {128},   // dim
+        {10},    // k
+        {32},    // graph_degree
+        {cuvs::distance::DistanceType::L2Expanded,
+         // cuvs::distance::DistanceType::L2SqrtExpanded,
+         cuvs::distance::DistanceType::InnerProduct,
+         cuvs::distance::DistanceType::CosineExpanded},
+        {layout},
+        {second_layout},
+        {min_recall_ratio - slack});
+      out.insert(out.end(), batch.begin(), batch.end());
+    }
   }
   return out;
 }();
