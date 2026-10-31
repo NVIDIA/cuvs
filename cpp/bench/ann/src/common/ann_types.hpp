@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -44,6 +44,7 @@ enum class HugePages {
 enum class Metric {
   kInnerProduct,
   kEuclidean,
+  kBitwiseHamming,
 };
 
 inline auto parse_metric(const std::string& metric_str) -> Metric
@@ -52,6 +53,8 @@ inline auto parse_metric(const std::string& metric_str) -> Metric
     return cuvs::bench::Metric::kInnerProduct;
   } else if (metric_str == "euclidean") {
     return cuvs::bench::Metric::kEuclidean;
+  } else if (metric_str == "bitwise_hamming") {
+    return cuvs::bench::Metric::kBitwiseHamming;
   } else {
     throw std::runtime_error("invalid metric: '" + metric_str + "'");
   }

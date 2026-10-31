@@ -22,6 +22,9 @@ option(CUVS_ANN_BENCH_USE_FAISS_CPU_FLAT "Include faiss' cpu brute-force algorit
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_FLAT "Include faiss' cpu ivf flat algorithm in benchmark"
        ON
 )
+option(CUVS_ANN_BENCH_USE_FAISS_CPU_BINARY_IVF
+       "Include faiss' cpu binary ivf algorithm in benchmark" ON
+)
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_PQ "Include faiss' cpu ivf pq algorithm in benchmark" ON)
 option(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_RABITQ
        "Include faiss' cpu ivf rabitq algorithm in benchmark" ON
@@ -324,6 +327,12 @@ endif()
 if(CUVS_ANN_BENCH_USE_FAISS_CPU_IVF_FLAT)
   ConfigureAnnBench(
     NAME FAISS_CPU_IVF_FLAT PATH src/faiss/faiss_cpu_benchmark.cpp LINKS ${CUVS_FAISS_TARGETS}
+  )
+endif()
+
+if(CUVS_ANN_BENCH_USE_FAISS_CPU_BINARY_IVF)
+  ConfigureAnnBench(
+    NAME FAISS_CPU_BINARY_IVF PATH src/faiss/faiss_cpu_benchmark.cpp LINKS ${CUVS_FAISS_TARGETS}
   )
 endif()
 

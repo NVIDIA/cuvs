@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -132,7 +132,13 @@ auto create_algo(const std::string& algo_name,
     }
   }
 
-  if constexpr (std::is_same_v<T, uint8_t>) {}
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (algo_name == "faiss_cpu_binary_ivf") {
+      faiss_cpu_binary_ivf::build_param param;
+      parse_base_build_param<T>(conf, param);
+      a = std::make_unique<faiss_cpu_binary_ivf>(parse_metric(distance), dim, param);
+    }
+  }
 
   if (!a) { throw std::runtime_error("invalid algo: '" + algo_name + "'"); }
 
@@ -143,20 +149,27 @@ template <typename T>
 auto create_search_param(const std::string& algo_name, const nlohmann::json& conf)
   -> std::unique_ptr<typename cuvs::bench::algo<T>::search_param>
 {
-  if (algo_name == "faiss_cpu_ivf_flat" || algo_name == "faiss_cpu_ivf_pq" ||
-      algo_name == "faiss_cpu_ivf_rabitq" || algo_name == "faiss_cpu_ivf_sq") {
-    auto param = std::make_unique<typename cuvs::bench::faiss_cpu<T>::search_param>();
-    parse_search_param<T>(conf, *param);
-    return param;
-  } else if (algo_name == "faiss_cpu_flat") {
-    auto param = std::make_unique<typename cuvs::bench::faiss_cpu<T>::search_param>();
-    return param;
-  } else if (algo_name == "faiss_cpu_hnsw_flat") {
-    auto param = std::make_unique<typename cuvs::bench::faiss_cpu_hnsw_flat<T>::search_param>();
-    parse_search_param<T>(conf, *param);
-    return param;
+  if constexpr (std::is_same_v<T, float>) {
+    if (algo_name == "faiss_cpu_ivf_flat" || algo_name == "faiss_cpu_ivf_pq" ||
+        algo_name == "faiss_cpu_ivf_rabitq" || algo_name == "faiss_cpu_ivf_sq") {
+      auto param = std::make_unique<typename cuvs::bench::faiss_cpu<T>::search_param>();
+      parse_search_param<T>(conf, *param);
+      return param;
+    } else if (algo_name == "faiss_cpu_flat") {
+      return std::make_unique<typename cuvs::bench::faiss_cpu<T>::search_param>();
+    } else if (algo_name == "faiss_cpu_hnsw_flat") {
+      auto param = std::make_unique<typename cuvs::bench::faiss_cpu_hnsw_flat<T>::search_param>();
+      parse_search_param<T>(conf, *param);
+      return param;
+    }
   }
-  // else
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (algo_name == "faiss_cpu_binary_ivf") {
+      auto param = std::make_unique<faiss_cpu_binary_ivf::search_param>();
+      parse_search_param<T>(conf, *param);
+      return param;
+    }
+  }
   throw std::runtime_error("invalid algo: '" + algo_name + "'");
 }
 
