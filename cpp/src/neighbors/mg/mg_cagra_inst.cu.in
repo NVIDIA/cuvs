@@ -222,18 +222,15 @@ void distribute_padded_dataset(
     cuvs::neighbors::snmg::detail::serialize(res, index, filename);                                \
   }                                                                                                \
                                                                                                    \
-  template <>                                                                                      \
-  CUVS_EXPORT void deserialize<T, IdxT>(                                                           \
-    const raft::resources& res,                                                                    \
-    const std::string& filename,                                                                   \
-    cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>* index)                \
+  void deserialize(const raft::resources& res,                                                     \
+                   const std::string& filename,                                                    \
+                   cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>* index) \
   {                                                                                                \
     *index =                                                                                       \
       cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>(res, filename);      \
   }                                                                                                \
                                                                                                    \
-  template <>                                                                                      \
-  CUVS_EXPORT void deserialize<T, IdxT>(                                                           \
+  void deserialize(                                                                                \
     const raft::resources& res,                                                                    \
     const std::string& filename,                                                                   \
     cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>* index)              \
@@ -242,8 +239,7 @@ void distribute_padded_dataset(
       cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>(res, filename);    \
   }                                                                                                \
                                                                                                    \
-  template <>                                                                                      \
-  CUVS_EXPORT void distribute<T, IdxT>(                                                            \
+  void distribute(                                                                                 \
     const raft::resources& res,                                                                    \
     const std::string& filename,                                                                   \
     cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>* index)              \
@@ -254,11 +250,9 @@ void distribute_padded_dataset(
     *index = std::move(idx);                                                                       \
   }                                                                                                \
                                                                                                    \
-  template <>                                                                                      \
-  CUVS_EXPORT void distribute<T, IdxT>(                                                            \
-    const raft::resources& res,                                                                    \
-    const std::string& filename,                                                                   \
-    cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>* index)                \
+  void distribute(const raft::resources& res,                                                      \
+                  const std::string& filename,                                                     \
+                  cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>* index)  \
   {                                                                                                \
     auto idx =                                                                                     \
       cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>(res, REPLICATED);    \

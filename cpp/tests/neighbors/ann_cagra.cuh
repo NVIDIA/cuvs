@@ -1334,8 +1334,12 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
           handle_,
           ps.n_rows - static_cast<int64_t>(test_cagra_sample_filter::offset),
           static_cast<uint32_t>(ps.dim)));
-        auto merge_idx      = cuvs::neighbors::cagra::merge(
-          handle_, index_params, indices, std::as_const(merged_dataset).view(), bitset_filter_obj);
+        auto merge_idx      = cuvs::neighbors::cagra::merge(handle_,
+                                                       index_params,
+                                                       indices,
+                                                       std::as_const(merged_dataset).view(),
+                                                       cuvs::neighbors::cagra::merge_params{},
+                                                       bitset_filter_obj);
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
           search_queries.data(), ps.n_queries, ps.dim);

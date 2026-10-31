@@ -33,7 +33,7 @@
 namespace cuvs::neighbors::cagra {
 
 template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
+void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
 {
   // raft::linalg::reduce wants row-major with leading dim = row pitch in elements.
   // Skip norm precomputation for VPQ/empty/non-dense views; CosineExpanded with VPQ is handled
@@ -550,25 +550,13 @@ void extend(raft::resources const& handle,
 }
 
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
-  raft::resources const& handle,
-  const cagra::index_params& params,
-  std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
-  DatasetViewT merged_dataset,
-  const cuvs::neighbors::filtering::base_filter& row_filter)
-{
-  return cagra::detail::merge<T, IdxT, DatasetViewT>(
-    handle, params, indices, merged_dataset, row_filter);
-}
-
-template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
-  raft::resources const& handle,
-  const cagra::index_params& params,
-  std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
-  DatasetViewT merged_dataset,
-  const cagra::merge_params& merge_params,
-  const cuvs::neighbors::filtering::base_filter& row_filter)
+auto merge(raft::resources const& handle,
+           const cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
+           DatasetViewT merged_dataset,
+           const cagra::merge_params& merge_params,
+           const cuvs::neighbors::filtering::base_filter& row_filter)
+  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
   return cagra::detail::merge<T, IdxT, DatasetViewT>(
     handle, params, indices, merged_dataset, merge_params, row_filter);
@@ -674,25 +662,3 @@ auto update_dataset(raft::resources const& res,
 /** @} */  // end group cagra
 
 }  // namespace cuvs::neighbors::cagra
-
-#define CUVS_INST_CAGRA_MERGE(T, IdxT, DatasetViewT)                                   \
-  template CUVS_EXPORT int64_t                                                         \
-  cuvs::neighbors::cagra::detail::merged_dataset_size<T, IdxT, DatasetViewT>(          \
-    raft::resources const& handle,                                                     \
-    std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices, \
-    cuvs::neighbors::filtering::base_filter const& row_filter);                        \
-  template CUVS_EXPORT cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>            \
-  cuvs::neighbors::cagra::merge<T, IdxT, DatasetViewT>(                                \
-    raft::resources const& handle,                                                     \
-    const cuvs::neighbors::cagra::index_params& params,                                \
-    std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,       \
-    DatasetViewT merged_dataset,                                                       \
-    cuvs::neighbors::filtering::base_filter const& row_filter);                        \
-  template CUVS_EXPORT cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>            \
-  cuvs::neighbors::cagra::merge<T, IdxT, DatasetViewT>(                                \
-    raft::resources const& handle,                                                     \
-    const cuvs::neighbors::cagra::index_params& params,                                \
-    std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,       \
-    DatasetViewT merged_dataset,                                                       \
-    const cuvs::neighbors::cagra::merge_params& merge_params,                          \
-    cuvs::neighbors::filtering::base_filter const& row_filter);

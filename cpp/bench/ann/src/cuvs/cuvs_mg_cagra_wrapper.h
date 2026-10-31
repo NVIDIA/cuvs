@@ -151,7 +151,7 @@ void cuvs_mg_cagra<T, IdxT>::load(const std::string& file)
   index_ = std::make_shared<
     cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>(
     clique_, index_params_.mode);
-  cuvs::neighbors::cagra::deserialize<T, IdxT>(clique_, file, index_.get());
+  cuvs::neighbors::cagra::deserialize(clique_, file, index_.get());
   query_dim_ = static_cast<uint32_t>(dim_);
   if (!index_->ann_interfaces_.empty() && index_->ann_interfaces_[0].index_.has_value()) {
     query_dim_ = static_cast<uint32_t>(index_->ann_interfaces_[0].index_->dim());

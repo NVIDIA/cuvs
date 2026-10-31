@@ -3469,9 +3469,9 @@ struct merge_params {
 
 /** @brief Merge multiple physical CAGRA indices into one.
  *
- * The overload without `merge_params` uses `merge_algo::AUTO`. AUTO runs Fastener only after a
- * non-mutating preflight validates every input and option; otherwise it calls the existing rebuild
- * implementation. REBUILD always preserves every input dataset.
+ * `merge_params` selects the algorithm and defaults to `merge_algo::AUTO`. AUTO runs Fastener only
+ * after a non-mutating preflight validates every input and option; otherwise it calls the existing
+ * rebuild implementation. REBUILD always preserves every input dataset.
  *
  * Fastener supports unfiltered, uncompressed `float`, `half`, `int8_t`, and `uint8_t`
  * indices using L2Expanded and `uint32_t` graph IDs. Fastener uses `root_fanout` at the first
@@ -3485,8 +3485,8 @@ struct merge_params {
  * which holds only a view of it.
  *
  * @note This API only supports physical merge (`merge_strategy = MERGE_STRATEGY_PHYSICAL`).
- * All input indices must use the same `DatasetViewT` (dense padded or standard device views),
- * and must share one row stride.
+ * All input indices must use the same dataset layout (device padded or device standard), and must
+ * share one row stride.
  *
  * @param[in] res RAFT resources used for the merge.
  * @param[in] params Parameters for the returned CAGRA index.
@@ -3494,31 +3494,82 @@ struct merge_params {
  * @param[in] merged_dataset Caller-owned storage for the consolidated dataset. Must have one row
  * per retained vector after applying `row_filter`, and the same dimension and stride as the input
  * datasets.
+ * @param[in] merge_params Parameters for the merge, including the algorithm selection.
  * @param[in] row_filter Optional row filter. Any filter selects rebuild in AUTO and is rejected by
  * explicit FASTENER.
  * @return The merged physical CAGRA index.
  */
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
-           DatasetViewT merged_dataset,
+           std::vector<cuvs::neighbors::cagra::device_padded_index<float, uint32_t>*>& indices,
+           cuvs::neighbors::device_padded_dataset_view<float, int64_t> merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params = {},
            const cuvs::neighbors::filtering::base_filter& row_filter =
              cuvs::neighbors::filtering::none_sample_filter{})
-  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
+  -> cuvs::neighbors::cagra::device_padded_index<float, uint32_t>;
 
-/** @copydoc merge
- * @param[in] merge_params Parameters for the merge, including the algorithm selection.
- */
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
-           std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
-           DatasetViewT merged_dataset,
-           const cuvs::neighbors::cagra::merge_params& merge_params,
+           std::vector<cuvs::neighbors::cagra::device_standard_index<float, uint32_t>*>& indices,
+           cuvs::neighbors::device_standard_dataset_view<float, int64_t> merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params = {},
            const cuvs::neighbors::filtering::base_filter& row_filter =
              cuvs::neighbors::filtering::none_sample_filter{})
-  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
+  -> cuvs::neighbors::cagra::device_standard_index<float, uint32_t>;
+
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::device_padded_index<half, uint32_t>*>& indices,
+           cuvs::neighbors::device_padded_dataset_view<half, int64_t> merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params = {},
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::device_padded_index<half, uint32_t>;
+
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::device_standard_index<half, uint32_t>*>& indices,
+           cuvs::neighbors::device_standard_dataset_view<half, int64_t> merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params = {},
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::device_standard_index<half, uint32_t>;
+
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>*>& indices,
+           cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params = {},
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>;
+
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>*>& indices,
+           cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params = {},
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>;
+
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>*>& indices,
+           cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params = {},
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>;
+
+auto merge(raft::resources const& res,
+           const cuvs::neighbors::cagra::index_params& params,
+           std::vector<cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>*>& indices,
+           cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> merged_dataset,
+           const cuvs::neighbors::cagra::merge_params& merge_params = {},
+           const cuvs::neighbors::filtering::base_filter& row_filter =
+             cuvs::neighbors::filtering::none_sample_filter{})
+  -> cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>;
 
 /**
  * @}
@@ -4363,7 +4414,7 @@ void serialize(const raft::resources& clique,
  * cuvs::neighbors::cagra::serialize(clique, index, filename);
  * cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>
  *   new_index(clique, REPLICATED);
- * cuvs::neighbors::cagra::deserialize<float, uint32_t>(clique, filename, &new_index);
+ * cuvs::neighbors::cagra::deserialize(clique, filename, &new_index);
  *
  * @endcode
  *
@@ -4371,15 +4422,48 @@ void serialize(const raft::resources& clique,
  * @param[in] filename path to the file to be deserialized
  *
  */
-template <typename T, typename IdxT>
-void deserialize(const raft::resources& clique,
-                 const std::string& filename,
-                 cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>* index);
+void deserialize(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>* index);
 
-template <typename T, typename IdxT>
-void deserialize(const raft::resources& clique,
-                 const std::string& filename,
-                 cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>* index);
+void deserialize(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>* index);
+
+void deserialize(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>* index);
+
+void deserialize(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>* index);
+
+void deserialize(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>* index);
+
+void deserialize(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>*
+    index);
+
+void deserialize(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>*
+    index);
+
+void deserialize(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>*
+    index);
 
 /// \defgroup mg_cpp_distribute ANN MG local index distribution
 
@@ -4397,7 +4481,7 @@ void deserialize(const raft::resources& clique,
  * cuvs::neighbors::cagra::serialize(clique, filename, index);
  * cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>
  *   distributed_index(clique, REPLICATED);
- * cuvs::neighbors::cagra::distribute<float, uint32_t>(clique, filename, &distributed_index);
+ * cuvs::neighbors::cagra::distribute(clique, filename, &distributed_index);
  *
  * @endcode
  *
@@ -4405,15 +4489,48 @@ void deserialize(const raft::resources& clique,
  * @param[in] filename path to the file to be deserialized : a local index
  *
  */
-template <typename T, typename IdxT>
-void distribute(const raft::resources& clique,
-                const std::string& filename,
-                cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>* index);
+void distribute(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_padded_index<float, uint32_t>, float, uint32_t>* index);
 
-template <typename T, typename IdxT>
-void distribute(const raft::resources& clique,
-                const std::string& filename,
-                cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>* index);
+void distribute(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<float, uint32_t>, float, uint32_t>* index);
+
+void distribute(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_padded_index<half, uint32_t>, half, uint32_t>* index);
+
+void distribute(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<half, uint32_t>, half, uint32_t>* index);
+
+void distribute(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_padded_index<int8_t, uint32_t>, int8_t, uint32_t>* index);
+
+void distribute(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<int8_t, uint32_t>, int8_t, uint32_t>*
+    index);
+
+void distribute(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_padded_index<uint8_t, uint32_t>, uint8_t, uint32_t>*
+    index);
+
+void distribute(
+  const raft::resources& clique,
+  const std::string& filename,
+  cuvs::neighbors::mg_index<cagra::device_standard_index<uint8_t, uint32_t>, uint8_t, uint32_t>*
+    index);
 
 /**
  * @brief Build a kNN graph using IVF-PQ.
