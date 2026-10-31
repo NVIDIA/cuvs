@@ -1,0 +1,14 @@
+name: cuvs_kmeans
+groups:
+  base:
+    fit:
+      n_clusters: [1024, 4096, 8192]
+      max_iter: [20]
+      tol: [1.0e-4]
+      init: ["kmeans++", "random"]
+  test:
+    fit:
+      n_clusters: [16]
+      max_iter: [20]
+      tol: [1.0e-4]
+      init: ["kmeans++"]
