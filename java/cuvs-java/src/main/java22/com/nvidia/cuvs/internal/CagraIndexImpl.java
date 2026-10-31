@@ -799,7 +799,14 @@ public class CagraIndexImpl implements CagraIndex {
       assert DLTensor.shape(DLManagedTensor.dl_tensor(graphDeviceTensor)).getAtIndex(int64_t, 1)
           > 0;
 
-      var graph = CuVSMatrixBaseImpl.fromTensor(graphDeviceTensor, resources);
+      CuVSMatrix graph;
+      try {
+        graph = CuVSMatrixBaseImpl.fromTensor(graphDeviceTensor, resources);
+      } finally {
+        // The graph data stays owned by the index, but the tensor's shape and strides were
+        // allocated for this call; fromTensor has copied what it needs, so release them.
+        Util.releaseManagedTensor(graphDeviceTensor);
+      }
       assert graph instanceof CuVSDeviceMatrix;
       return (CuVSDeviceMatrix) graph;
     }
