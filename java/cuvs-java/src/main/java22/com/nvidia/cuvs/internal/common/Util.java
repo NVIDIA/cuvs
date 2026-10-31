@@ -96,6 +96,16 @@ public class Util {
       LINKER.downcallHandle(
           cudaMemcpyAsync$address(), cudaMemcpyAsync$descriptor(), Linker.Option.critical(true));
 
+  private static final MethodHandle alignedAlloc$mh =
+      LINKER.downcallHandle(
+          LINKER.defaultLookup().find("aligned_alloc").orElseThrow(UnsatisfiedLinkError::new),
+          FunctionDescriptor.of(C_POINTER, C_LONG, C_LONG));
+
+  private static final MethodHandle free$mh =
+      LINKER.downcallHandle(
+          LINKER.defaultLookup().find("free").orElseThrow(UnsatisfiedLinkError::new),
+          FunctionDescriptor.ofVoid(C_POINTER));
+
   private static final MethodHandle strdup$mh =
       LINKER.downcallHandle(
           SYMBOL_LOOKUP.find("strdup").orElseThrow(UnsatisfiedLinkError::new),
@@ -206,6 +216,37 @@ public class Util {
       checkCudaError(returnValue, "cudaMemcpyAsync");
     } catch (Throwable ex$) {
       throw new AssertionError("should not reach here", ex$);
+    }
+  }
+
+  /**
+   * Allocates {@code byteSize} bytes of native memory, owned by {@code arena}, without zeroing it.
+   *
+   * <p>{@link Arena#allocate} zero-fills, which for a buffer that is about to be overwritten in
+   * full is a wasted pass over memory (several seconds for a multi-GB dataset). Callers must
+   * initialise every byte they later expose.
+   */
+  public static MemorySegment allocateUninitialized(Arena arena, long byteSize, long alignment) {
+    long size = Math.max(alignment, (byteSize + alignment - 1) / alignment * alignment);
+    try {
+      var address = (MemorySegment) alignedAlloc$mh.invokeExact(alignment, size);
+      if (address.address() == 0) {
+        throw new OutOfMemoryError("aligned_alloc failed for " + size + " bytes");
+      }
+      return address.reinterpret(
+          byteSize,
+          arena,
+          segment -> {
+            try {
+              free$mh.invokeExact(segment);
+            } catch (Throwable t) {
+              throw new AssertionError("should not reach here", t);
+            }
+          });
+    } catch (Error | RuntimeException e) {
+      throw e;
+    } catch (Throwable t) {
+      throw new AssertionError("should not reach here", t);
     }
   }
 
