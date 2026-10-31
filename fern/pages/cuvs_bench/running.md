@@ -58,7 +58,7 @@ Create a custom YAML file with a `base` group to override the default benchmark 
 
 | Library | Algorithms |
 | --- | --- |
-| FAISS_GPU | `faiss_gpu_flat`, `faiss_gpu_ivf_flat`, `faiss_gpu_ivf_pq`, `faiss_gpu_cagra` |
+| FAISS_GPU | `faiss_gpu_flat`, `faiss_gpu_ivf_flat`, `faiss_gpu_ivf_pq`, `faiss_gpu_cagra`, `faiss_gpu_cagra_hnsw` |
 | FAISS_CPU | `faiss_cpu_flat`, `faiss_cpu_ivf_flat`, `faiss_cpu_ivf_pq`, `faiss_cpu_hnsw_flat` |
 | GGNN | `ggnn` |
 | HNSWLIB | `hnswlib` |
@@ -124,6 +124,58 @@ python -m cuvs_bench.plot --dataset deep-1B
 ```
 
 Use `python -m cuvs_bench.split_groundtruth --help` to see the full CLI help for the ground-truth split command.
+
+## Building on a GPU host and searching on a CPU-only host
+
+`faiss_gpu_cagra_hnsw` builds a CAGRA graph on the GPU and saves it as a Faiss `IndexHNSWCagra`, which is a CPU index. The saved index can be copied to a CPU-only host and searched there with `faiss_cpu_hnsw_flat`. The CPU-only host only needs the CPU package (`cuvs-bench-cpu`).
+
+### (1) Build on the GPU host
+
+Build as usual:
+
+```bash
+export DATASET_PATH=/path/to/datasets
+
+python -m cuvs_bench.get_dataset --dataset sift-128-euclidean --dataset-path $DATASET_PATH
+python -m cuvs_bench.run --dataset sift-128-euclidean --dataset-path $DATASET_PATH \
+  --algorithms faiss_gpu_cagra_hnsw --groups base --search-mode latency \
+  --build -k 10 --batch-size 10
+```
+
+This writes one index file per build configuration to `index/` and the build times to `result/build/faiss_gpu_cagra_hnsw,base.csv`. `-k`, `--batch-size`, and `--search-mode` do not affect the build; they are passed only so `cuvs_bench.run` does not prompt for them.
+
+### (2) Copy the files to the CPU-only host
+
+Keep the same layout under the dataset directory. `base.fbin` is not needed, because each index file contains the vectors.
+
+```text
+sift-128-euclidean/
+├── query.fbin
+├── groundtruth.neighbors.ibin
+├── index/
+└── result/build/
+```
+
+### (3) Search on the CPU-only host
+
+Pass the same algorithm and configuration as the build, and add `--search-device cpu`:
+
+```bash
+export DATASET_PATH=/path/to/datasets
+
+OMP_NUM_THREADS=1 python -m cuvs_bench.run --dataset sift-128-euclidean --dataset-path $DATASET_PATH \
+  --algorithms faiss_gpu_cagra_hnsw --groups base --search-mode latency \
+  --search --search-device cpu -k 10 --batch-size 10
+python -m cuvs_bench.plot --dataset sift-128-euclidean --dataset-path $DATASET_PATH \
+  --algorithms faiss_gpu_cagra_hnsw -k 10 --batch-size 10
+```
+
+With `--search-device cpu`, `cuvs_bench.run` searches the saved indexes with `faiss_cpu_hnsw_flat`, so no GPU is needed. It generates the same index names from the configuration's build parameters, so it finds the copied files, and each row of `result/search/faiss_gpu_cagra_hnsw,base,k10,bs10,raw.csv` includes the build time and build parameters from the GPU host.
+
+- `OMP_NUM_THREADS` sets the search thread count. Without it, Faiss uses all cores. The thread count is not recorded in the results.
+- Pass `cuvs_bench.plot` the same `-k` and `--batch-size` as the search.
+- Results are written under the `faiss_gpu_cagra_hnsw` name. A regular search of `faiss_gpu_cagra_hnsw` into the same dataset folder replaces them.
+- The search finds the index files by names generated from the configuration's group and build parameters. If you build with a custom `--configuration`, pass a file on the CPU-only host with the same name, groups, and build parameters, or a subset of them. Its `search` parameters can differ from the build host's, so you can sweep new search parameters without rebuilding.
 
 ## Running with Docker containers
 

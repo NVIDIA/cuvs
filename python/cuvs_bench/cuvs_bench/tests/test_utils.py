@@ -1,12 +1,15 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
 Unit tests for shared backend utilities and Dataset transparent loading.
 """
 
+import os
 import struct
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -24,6 +27,7 @@ from cuvs_bench.backends._utils import (
     compute_recall,
     dtype_from_filename,
     expand_param_grid,
+    get_index_filename,
     load_vectors,
 )
 from cuvs_bench.generate_groundtruth.utils import (
@@ -34,6 +38,7 @@ from cuvs_bench.generate_groundtruth.utils import (
     offset_neighbor_indices,
     write_groundtruth_neighbors,
 )
+from cuvs_bench.orchestrator import BenchmarkOrchestrator
 from cuvs_bench.orchestrator.config_loaders import CppGBenchConfigLoader
 
 
@@ -669,6 +674,64 @@ class TestConfigLoaderMethods:
         assert result["name"] == "glove-100"
         assert result["dims"] == 100
 
+    def test_cpu_search_device_uses_cpu_search_algorithm(self, tmp_path):
+        """CPU search runs the cpu_search executable on the GPU indexes."""
+        executable_dir = tmp_path / "bin"
+        executable_dir.mkdir()
+        (executable_dir / "FAISS_CPU_HNSW_FLAT_ANN_BENCH").touch()
+        loader = CppGBenchConfigLoader()
+        loader._gpu_present = False
+
+        _, configs = loader.load(
+            dataset="sift-128-euclidean",
+            dataset_path=str(tmp_path),
+            algorithms="faiss_gpu_cagra_hnsw",
+            groups="base",
+            count=10,
+            batch_size=10,
+            executable_dir=str(executable_dir),
+            search_device="cpu",
+        )
+
+        assert len(configs) == 1
+        backend_config = configs[0].backend_config
+        assert backend_config["executable_path"] == str(
+            executable_dir / "FAISS_CPU_HNSW_FLAT_ANN_BENCH"
+        )
+        assert backend_config["requires_gpu"] is False
+        assert backend_config["output_filename"] == (
+            "faiss_gpu_cagra_hnsw,base",
+            "faiss_gpu_cagra_hnsw,base,k10,bs10",
+        )
+        assert configs[0].indexes
+        for index in configs[0].indexes:
+            assert index.algo == "faiss_cpu_hnsw_flat"
+            assert index.name.startswith("faiss_gpu_cagra_hnsw.")
+
+    def test_cpu_search_device_rejects_build(self, tmp_path):
+        """CPU search cannot be combined with a build."""
+        orchestrator = BenchmarkOrchestrator(backend_type="cpp_gbench")
+        with pytest.raises(ValueError, match="only applies to search"):
+            orchestrator.run_benchmark(
+                build=True,
+                search=False,
+                dataset="sift-128-euclidean",
+                dataset_path=str(tmp_path),
+                search_device="cpu",
+            )
+
+    def test_cpu_search_device_requires_cpu_search_entry(self, tmp_path):
+        """CPU search fails for algorithms without a cpu_search entry."""
+        loader = CppGBenchConfigLoader()
+        with pytest.raises(ValueError, match="no cpu_search entry"):
+            loader.load(
+                dataset="sift-128-euclidean",
+                dataset_path=str(tmp_path),
+                algorithms="faiss_gpu_ivf_flat",
+                groups="base",
+                search_device="cpu",
+            )
+
     def test_get_dataset_configuration_not_found(self):
         """Test that missing datasets raise ValueError."""
         loader = CppGBenchConfigLoader()
@@ -713,6 +776,43 @@ class TestExpandParamGrid:
         assert len(result) == 4
         assert {"a": 1, "b": 3, "c": 4} in result
         assert {"a": 2, "b": 3, "c": 5} in result
+
+
+class TestGetIndexFilename:
+    """Tests for get_index_filename."""
+
+    LONG_NAME = "faiss_gpu_cagra_hnsw" + ".param_with_a_long_name12345" * 5
+
+    def test_short_name_is_unchanged(self):
+        """Names under 128 characters are used as file names."""
+        name = "faiss_gpu_cagra_hnsw.graph_degree32"
+        assert get_index_filename(name) == name
+
+    def test_long_name_is_shortened(self):
+        """Long names are replaced by a 64-character hex digest."""
+        filename = get_index_filename(self.LONG_NAME)
+        assert len(self.LONG_NAME) >= 128
+        assert len(filename) == 64
+        assert filename != get_index_filename(self.LONG_NAME + "x")
+
+    def test_long_name_is_stable_across_processes(self):
+        """Separate processes, as in build and search runs, agree."""
+        code = (
+            "import sys;"
+            "from cuvs_bench.backends._utils import get_index_filename;"
+            "print(get_index_filename(sys.argv[1]))"
+        )
+        filenames = {
+            subprocess.run(
+                [sys.executable, "-c", code, self.LONG_NAME],
+                env={**os.environ, "PYTHONHASHSEED": seed},
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()[-1]
+            for seed in ("1", "2")
+        }
+        assert filenames == {get_index_filename(self.LONG_NAME)}
 
 
 class TestComputeRecall:

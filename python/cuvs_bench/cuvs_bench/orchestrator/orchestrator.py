@@ -169,6 +169,12 @@ class BenchmarkOrchestrator:
         if not build and not search:
             build, search = True, True
 
+        if loader_kwargs.get("search_device") == "cpu" and build:
+            raise ValueError(
+                "search_device='cpu' only applies to search; build on a GPU "
+                "host first, then run search alone"
+            )
+
         # Branch based on mode
         if mode == "sweep":
             return self._run_sweep(

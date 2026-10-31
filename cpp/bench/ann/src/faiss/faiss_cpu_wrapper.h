@@ -21,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <typeinfo>
 
 namespace {
 
@@ -33,6 +34,13 @@ auto parse_metric_type(cuvs::bench::Metric metric) -> faiss::MetricType
   } else {
     throw std::runtime_error("faiss supports only metric type of inner product and L2");
   }
+}
+
+auto metric_type_name(faiss::MetricType metric_type) -> std::string
+{
+  if (metric_type == faiss::METRIC_INNER_PRODUCT) { return "inner product"; }
+  if (metric_type == faiss::METRIC_L2) { return "L2"; }
+  return std::to_string(metric_type);
 }
 }  // namespace
 
@@ -71,7 +79,7 @@ class faiss_cpu : public algo<T> {
     static_assert(std::is_same_v<T, float>, "faiss support only float type");
   }
 
-  void build(const T* dataset, size_t nrow) final;
+  void build(const T* dataset, size_t nrow) override;
 
   void set_search_param(const search_param_base& param, const void* filter_bitset) override;
 
@@ -185,7 +193,22 @@ template <typename T>
 template <typename Index>
 void faiss_cpu<T>::load_(const std::string& file)
 {
-  index_ = std::shared_ptr<Index>(dynamic_cast<Index*>(faiss::read_index(file.c_str())));
+  std::unique_ptr<faiss::Index> loaded{faiss::read_index(file.c_str())};
+  auto* typed = dynamic_cast<Index*>(loaded.get());
+  if (typed == nullptr) {
+    throw std::runtime_error("'" + file + "' does not contain a " + typeid(Index).name() +
+                             " (found " + typeid(*loaded).name() + ")");
+  }
+  if (typed->d != this->dim_) {
+    throw std::runtime_error("'" + file + "' has dimension " + std::to_string(typed->d) +
+                             ", but the dataset has dimension " + std::to_string(this->dim_));
+  }
+  if (typed->metric_type != metric_type_) {
+    throw std::runtime_error("'" + file + "' uses the " + metric_type_name(typed->metric_type) +
+                             " metric, but the dataset uses " + metric_type_name(metric_type_));
+  }
+  loaded.release();
+  index_.reset(typed);
 }
 
 template <typename T>
@@ -267,8 +290,6 @@ class faiss_cpu_ivfrabitq : public faiss_cpu<T> {
   }
 };
 
-// TODO(snanditale): Enable this in cmake
-//  ref: https://github.com/NVIDIA/raft/issues/1876
 template <typename T>
 class faiss_cpu_ivfsq : public faiss_cpu<T> {
  public:
@@ -342,7 +363,8 @@ template <typename T>
 class faiss_cpu_hnsw_flat : public faiss_cpu<T> {
  public:
   struct build_param : public faiss_cpu<T>::build_param {
-    int M;
+    /** 0 when only loading an existing index. */
+    int M = 0;
     int efConstruction;
   };
   struct search_param : public faiss_cpu<T>::search_param {
@@ -351,9 +373,19 @@ class faiss_cpu_hnsw_flat : public faiss_cpu<T> {
   faiss_cpu_hnsw_flat(Metric metric, int dim, const build_param& param)
     : faiss_cpu<T>(metric, dim, param)
   {
-    this->index_ = std::make_shared<faiss::IndexHNSWFlat>(dim, param.M, this->metric_type_);
-    faiss::IndexHNSWFlat* hnsw_index = static_cast<faiss::IndexHNSWFlat*>(this->index_.get());
-    hnsw_index->hnsw.efConstruction  = param.efConstruction;
+    if (param.M > 0) {
+      this->index_ = std::make_shared<faiss::IndexHNSWFlat>(dim, param.M, this->metric_type_);
+      faiss::IndexHNSWFlat* hnsw_index = static_cast<faiss::IndexHNSWFlat*>(this->index_.get());
+      hnsw_index->hnsw.efConstruction  = param.efConstruction;
+    }
+  }
+
+  void build(const T* dataset, size_t nrow) override
+  {
+    if (!this->index_) {
+      throw std::runtime_error("faiss_cpu_hnsw_flat: the M build parameter is required to build");
+    }
+    faiss_cpu<T>::build(dataset, nrow);
   }
 
   void set_search_param(const typename algo<T>::search_param& param,
@@ -368,7 +400,8 @@ class faiss_cpu_hnsw_flat : public faiss_cpu<T> {
   {
     this->template save_<faiss::IndexHNSWFlat>(file);
   }
-  void load(const std::string& file) override { this->template load_<faiss::IndexHNSWFlat>(file); }
+  // Any IndexHNSW, including an IndexHNSWCagra exported from a GPU CAGRA build.
+  void load(const std::string& file) override { this->template load_<faiss::IndexHNSW>(file); }
 
   std::unique_ptr<algo<T>> copy()
   {

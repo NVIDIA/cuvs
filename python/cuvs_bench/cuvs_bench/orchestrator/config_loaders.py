@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -20,7 +20,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from ..backends._utils import expand_param_grid
+from ..backends._utils import expand_param_grid, get_index_filename
 
 
 @dataclass
@@ -440,6 +440,7 @@ class CppGBenchConfigLoader(ConfigLoader):
         count = kwargs.get("count", 10)
         batch_size = kwargs.get("batch_size", 10000)
         executable_dir = kwargs.get("executable_dir")
+        search_device = kwargs.get("search_device")
 
         config_path = self.config_path
 
@@ -470,7 +471,19 @@ class CppGBenchConfigLoader(ConfigLoader):
 
         result = []
         for algo, algo_conf in algos_conf.items():
-            if not self.validate_algorithm(algos_yaml, algo, self.gpu_present):
+            # The algorithm whose executable runs; with search_device="cpu",
+            # the CPU algorithm that searches this algorithm's saved indexes.
+            run_algo = algo
+            if search_device == "cpu":
+                run_algo = algos_yaml.get(algo, {}).get("cpu_search")
+                if run_algo is None:
+                    raise ValueError(
+                        f"{algo} cannot be searched with search_device='cpu': "
+                        "it has no cpu_search entry in algorithms.yaml"
+                    )
+            if not self.validate_algorithm(
+                algos_yaml, run_algo, self.gpu_present
+            ):
                 continue
 
             for group, group_conf in algo_conf["groups"].items():
@@ -483,18 +496,20 @@ class CppGBenchConfigLoader(ConfigLoader):
                             count,
                             batch_size,
                             executable_dir,
+                            executable_algo=run_algo,
                         )
                     )
                 except FileNotFoundError:
-                    warnings.warn(f"Executable not found for {algo}")
+                    warnings.warn(f"Executable not found for {run_algo}")
                     continue
 
-                algo_info = algos_yaml.get(algo, {})
+                algo_info = algos_yaml.get(run_algo, {})
                 group_meta = {
                     "executable": executable,
                     "executable_path": executable_path,
                     "file_name": file_name,
                     "algo_info": algo_info,
+                    "run_algo": run_algo,
                     "algos_conf": algos_conf,
                     "conf_file": {
                         "dataset": dataset_conf,
@@ -567,6 +582,8 @@ class CppGBenchConfigLoader(ConfigLoader):
                 batch_size,
                 tune_mode=build_from_tune,
             )
+            for index in indexes:
+                index["algo"] = group_meta["run_algo"]
 
             key = (executable, executable_path, file_name)
             if key not in executables_to_run:
@@ -708,6 +725,7 @@ class CppGBenchConfigLoader(ConfigLoader):
         k: int,
         batch_size: int,
         executable_dir: Optional[str] = None,
+        executable_algo: Optional[str] = None,
     ) -> Tuple[str, str, Tuple[str, str]]:
         """
         Find the executable for the given algorithm and group.
@@ -726,6 +744,9 @@ class CppGBenchConfigLoader(ConfigLoader):
             The size of each batch for processing.
         executable_dir : Optional[str]
             User-specified directory to search first.
+        executable_algo : Optional[str]
+            Algorithm whose executable runs, if not ``algo``. The result file
+            names still use ``algo``.
 
         Returns
         -------
@@ -733,7 +754,7 @@ class CppGBenchConfigLoader(ConfigLoader):
             A tuple containing the executable name, the path to the executable,
             and the file name.
         """
-        executable = algos_conf[algo]["executable"]
+        executable = algos_conf[executable_algo or algo]["executable"]
         file_name = (f"{algo},{group}", f"{algo},{group},k{k},bs{batch_size}")
         build_path = self.get_build_path(executable, executable_dir)
         if build_path:
@@ -861,12 +882,9 @@ class CppGBenchConfigLoader(ConfigLoader):
                 ):
                     continue
 
-            index_filename = (
-                index_name if len(index_name) < 128 else str(hash(index_name))
-            )
             index["name"] = index_name
             index["file"] = os.path.join(
-                dataset_path, dataset, "index", index_filename
+                dataset_path, dataset, "index", get_index_filename(index_name)
             )
 
             # Validate and filter search params (skipped in tune mode

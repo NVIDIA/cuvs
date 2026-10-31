@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -21,6 +21,7 @@ We standardize on .f16bin here to match the naming convention of the other
 formats (.fbin, .i8bin, .u8bin).
 """
 
+import hashlib
 import itertools
 import os
 from typing import Any, Dict, List, Optional
@@ -151,6 +152,19 @@ def expand_param_grid(
         dict(zip(keys, vals))
         for vals in itertools.product(*param_spec.values())
     ]
+
+
+def get_index_filename(index_name: str) -> str:
+    """
+    Return the file name an index named ``index_name`` is saved under.
+
+    Names of 128 characters or more are replaced by their SHA-256 digest. The
+    digest is the same in every process, so separate build and search runs,
+    including runs on different hosts, resolve the same file.
+    """
+    if len(index_name) < 128:
+        return index_name
+    return hashlib.sha256(index_name.encode()).hexdigest()
 
 
 def compute_recall(
