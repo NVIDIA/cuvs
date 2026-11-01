@@ -206,18 +206,6 @@ def export_binary(
 ) -> str:
     if matrix_layout == "high_dim" and (num_ctas is None or num_ctas <= 1):
         raise ValueError("high_dim exports must specify num_ctas > 1")
-    kernel = make_kernel(
-        data_type,
-        metric,
-        tile_m,
-        tile_n,
-        tile_k,
-        index_type=index_type,
-        gpu_code=gpu_code,
-        matrix_layout=matrix_layout,
-        occupancy=occupancy,
-        num_ctas=num_ctas,
-    )
     signature = _kernel_signature(
         data_type,
         metric,
@@ -229,13 +217,37 @@ def export_binary(
         matrix_layout,
     )
 
-    export_kernel(
-        kernel=kernel,
-        signatures=[signature],
-        output_file=str(output_file),
-        gpu_code=gpu_code,
-        output_format="cubin",
-    )
+    def export(mma_rounding: bool):
+        kernel = make_kernel(
+            data_type,
+            metric,
+            tile_m,
+            tile_n,
+            tile_k,
+            index_type=index_type,
+            gpu_code=gpu_code,
+            matrix_layout=matrix_layout,
+            occupancy=occupancy,
+            num_ctas=num_ctas,
+            mma_rounding=mma_rounding,
+        )
+        export_kernel(
+            kernel=kernel,
+            signatures=[signature],
+            output_file=str(output_file),
+            gpu_code=gpu_code,
+            output_format="cubin",
+        )
+
+    try:
+        export(mma_rounding=True)
+    except ct.TileUnsupportedFeatureError:
+        print(
+            f"{signature.symbol} ({gpu_code}): tileiras < 13.4, "
+            "using the default MMA operand rounding",
+            file=sys.stderr,
+        )
+        export(mma_rounding=False)
 
     return signature.symbol
 

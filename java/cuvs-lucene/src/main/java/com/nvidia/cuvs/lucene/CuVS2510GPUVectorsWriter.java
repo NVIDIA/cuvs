@@ -35,6 +35,7 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatFieldVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
@@ -61,8 +62,8 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(CuVS2510GPUVectorsWriter.class);
   private static final String COMPONENT = "CuVS2510GPUVectorsWriter";
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
   private static final int MIN_CAGRA_INDEX_SIZE = 2;
 
   private final GPUSearchParams gpuSearchParams;
@@ -71,15 +72,6 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
   private final InfoStream infoStream;
   private IndexOutput meta = null, cuvsIndex = null;
   private boolean finished;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * The cuVS index Types.

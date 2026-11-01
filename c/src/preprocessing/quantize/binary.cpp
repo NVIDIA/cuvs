@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -74,7 +74,7 @@ void* _train(cuvsResources_t res,
     default: RAFT_FAIL("Unsupported threshold");
   }
 
-  auto ret = new cuvs::preprocessing::quantize::binary::quantizer<T>(*res_ptr);
+  auto ret = new cuvs::preprocessing::quantize::binary::quantizer<T>();
 
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
     using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
