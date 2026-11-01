@@ -690,7 +690,7 @@ Build directly from a device VPQ dataset view with FP16 codebooks.
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const& dataset)
+cuvs::neighbors::device_vpq_dataset_view<half, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_pq_index<float, uint32_t, half>;
 ```
 
@@ -704,7 +704,7 @@ The returned index accepts float queries and stores a non-owning copy of `datase
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_vpq_dataset_view<half, int64_t> const&` | device VPQ dataset view |
+| `dataset` | in | `cuvs::neighbors::device_vpq_dataset_view<half, int64_t>` | device VPQ dataset view |
 
 **Returns**
 
@@ -719,7 +719,7 @@ Build from a device padded dataset view (`float`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& dataset)
+cuvs::neighbors::device_padded_dataset_view<float, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_padded_index<float, uint32_t>;
 ```
 
@@ -729,7 +729,7 @@ cuvs::neighbors::device_padded_dataset_view<float, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<float, int64_t> const&` | device padded dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<float, int64_t>` | device padded dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -744,7 +744,7 @@ Build from a device standard dataset view (`float`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_standard_dataset_view<float, int64_t> const& dataset)
+cuvs::neighbors::device_standard_dataset_view<float, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_standard_index<float, uint32_t>;
 ```
 
@@ -754,7 +754,7 @@ cuvs::neighbors::device_standard_dataset_view<float, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<float, int64_t> const&` | device standard dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<float, int64_t>` | device standard dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -769,7 +769,7 @@ Build from a host padded dataset view (`float`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::host_padded_dataset_view<float, int64_t> const& dataset)
+cuvs::neighbors::host_padded_dataset_view<float, int64_t> dataset)
 -> cuvs::neighbors::cagra::host_padded_index<float, uint32_t>;
 ```
 
@@ -779,7 +779,7 @@ cuvs::neighbors::host_padded_dataset_view<float, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<float, int64_t> const&` | host padded dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<float, int64_t>` | host padded dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -794,7 +794,7 @@ Build from a host standard dataset view (`float`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::host_standard_dataset_view<float, int64_t> const& dataset)
+cuvs::neighbors::host_standard_dataset_view<float, int64_t> dataset)
 -> cuvs::neighbors::cagra::host_standard_index<float, uint32_t>;
 ```
 
@@ -804,7 +804,7 @@ cuvs::neighbors::host_standard_dataset_view<float, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<float, int64_t> const&` | host standard dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<float, int64_t>` | host standard dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -819,7 +819,7 @@ Build from a device padded dataset view (`half`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& dataset)
+cuvs::neighbors::device_padded_dataset_view<half, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_padded_index<half, uint32_t>;
 ```
 
@@ -829,7 +829,7 @@ cuvs::neighbors::device_padded_dataset_view<half, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<half, int64_t> const&` | device padded dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<half, int64_t>` | device padded dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -844,7 +844,7 @@ Build from a device standard dataset view (`half`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_standard_dataset_view<half, int64_t> const& dataset)
+cuvs::neighbors::device_standard_dataset_view<half, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_standard_index<half, uint32_t>;
 ```
 
@@ -854,7 +854,7 @@ cuvs::neighbors::device_standard_dataset_view<half, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<half, int64_t> const&` | device standard dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<half, int64_t>` | device standard dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -869,7 +869,7 @@ Build from a host padded dataset view (`half`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::host_padded_dataset_view<half, int64_t> const& dataset)
+cuvs::neighbors::host_padded_dataset_view<half, int64_t> dataset)
 -> cuvs::neighbors::cagra::host_padded_index<half, uint32_t>;
 ```
 
@@ -879,7 +879,7 @@ cuvs::neighbors::host_padded_dataset_view<half, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<half, int64_t> const&` | host padded dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<half, int64_t>` | host padded dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -894,7 +894,7 @@ Build from a host standard dataset view (`half`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::host_standard_dataset_view<half, int64_t> const& dataset)
+cuvs::neighbors::host_standard_dataset_view<half, int64_t> dataset)
 -> cuvs::neighbors::cagra::host_standard_index<half, uint32_t>;
 ```
 
@@ -904,7 +904,7 @@ cuvs::neighbors::host_standard_dataset_view<half, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<half, int64_t> const&` | host standard dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<half, int64_t>` | host standard dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -919,7 +919,7 @@ Build from a device padded dataset view (`int8_t`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& dataset)
+cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_padded_index<int8_t, uint32_t>;
 ```
 
@@ -929,7 +929,7 @@ cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> const&` | device padded dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t>` | device padded dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -944,7 +944,7 @@ Build from a device standard dataset view (`int8_t`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> const& dataset)
+cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_standard_index<int8_t, uint32_t>;
 ```
 
@@ -954,7 +954,7 @@ cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> const&` | device standard dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t>` | device standard dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -969,7 +969,7 @@ Build from a host padded dataset view (`int8_t`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> const& dataset)
+cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::host_padded_index<int8_t, uint32_t>;
 ```
 
@@ -979,7 +979,7 @@ cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> const&` | host padded dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t>` | host padded dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -994,7 +994,7 @@ Build from a host standard dataset view (`int8_t`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> const& dataset)
+cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::host_standard_index<int8_t, uint32_t>;
 ```
 
@@ -1004,7 +1004,7 @@ cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> const&` | host standard dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t>` | host standard dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -1019,7 +1019,7 @@ Build from a device padded dataset view (`uint8_t`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& dataset)
+cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_padded_index<uint8_t, uint32_t>;
 ```
 
@@ -1029,7 +1029,7 @@ cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> const&` | device padded dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t>` | device padded dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -1044,7 +1044,7 @@ Build from a device standard dataset view (`uint8_t`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> const& dataset)
+cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_standard_index<uint8_t, uint32_t>;
 ```
 
@@ -1054,7 +1054,7 @@ cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> const&` | device standard dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t>` | device standard dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -1069,7 +1069,7 @@ Build from a host padded dataset view (`uint8_t`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> const& dataset)
+cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::host_padded_index<uint8_t, uint32_t>;
 ```
 
@@ -1079,7 +1079,7 @@ cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> const&` | host padded dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t>` | host padded dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -1094,7 +1094,7 @@ Build from a host standard dataset view (`uint8_t`).
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const& dataset)
+cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::host_standard_index<uint8_t, uint32_t>;
 ```
 
@@ -1104,7 +1104,7 @@ cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> const&` | host standard dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t>` | host standard dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -1119,7 +1119,7 @@ Build from a device BBQ-quantized dataset view.
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const& dataset)
+cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>;
 ```
 
@@ -1133,7 +1133,7 @@ The returned index cannot be searched: CAGRA has no BBQ search kernels. Call the
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<float, int64_t> const&` | device BBQ dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<float, int64_t>` | device BBQ dataset view [n_rows, dim] |
 
 **Returns**
 
@@ -1143,12 +1143,12 @@ built `device_bbq_index<float, uint32_t>`
 
 **Additional overload:** `neighbors::cagra::build`
 
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; const& dataset)
+cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
 
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const& dataset)
+cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
 ```
 
@@ -1158,7 +1158,7 @@ cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` |  |
 | `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
-| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const&` |  |
+| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<half, int64_t>` |  |
 
 **Returns**
 
@@ -1166,12 +1166,12 @@ cuvs::neighbors::device_bbq_dataset_view<half, int64_t> const& dataset)
 
 **Additional overload:** `neighbors::cagra::build`
 
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; const& dataset)
+cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
 
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const& dataset)
+cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
 ```
 
@@ -1181,7 +1181,7 @@ cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` |  |
 | `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
-| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const&` |  |
+| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t>` |  |
 
 **Returns**
 
@@ -1189,12 +1189,12 @@ cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> const& dataset)
 
 **Additional overload:** `neighbors::cagra::build`
 
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; const& dataset)
+cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
 
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> const& dataset)
+cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
 ```
 
@@ -1204,7 +1204,7 @@ cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> const& dataset)
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` |  |
 | `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
-| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> const&` |  |
+| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t>` |  |
 
 **Returns**
 
