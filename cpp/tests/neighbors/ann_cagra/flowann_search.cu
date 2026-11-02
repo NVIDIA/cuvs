@@ -506,3 +506,45 @@ TEST(FlowannSearch, PaddedMultiCtaQueriesMatchAcrossBatches)
     }
   }
 }
+
+TEST_P(FlowannSearchModesTest, MappedInvalidIdsMatchTheOutputWidth)
+{
+  raft::resources res;
+  auto host = raft::make_host_matrix<float, int64_t>(4, 4);
+  std::fill_n(host.data_handle(), host.size(), 0.0f);
+  auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host.view());
+  flowann::device_padded_index<float> index(
+    res, cuvs::distance::DistanceType::L2Expanded, dataset->view());
+  auto inner = raft::make_host_matrix<std::uint8_t, int64_t>(0, 0);
+  auto cross = raft::make_host_matrix<std::uint32_t, int64_t>(4, 2);
+  auto ids = raft::make_host_vector<std::uint32_t, int64_t>(4);
+  for (std::uint32_t row = 0; row < 4; ++row) {
+    cross(row, 0) = 1;
+    cross(row, 1) = (row + 1) % 4;
+    ids(row) = 3 - row;
+  }
+  index.update_graph(res, raft::make_const_mdspan(inner.view()),
+                     raft::make_const_mdspan(cross.view()), 1, 0);
+  index.update_source_indices(res, raft::make_const_mdspan(ids.view()));
+  auto queries = raft::make_device_matrix<float, int64_t>(res, 2, 4);
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 2, 2);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, 2, 2);
+  auto bits = raft::make_device_vector<std::uint32_t, int64_t>(res, 1);
+  RAFT_CUDA_TRY(cudaMemsetAsync(queries.data_handle(), 0, queries.size() * sizeof(float),
+    raft::resource::get_cuda_stream(res).get()));
+  RAFT_CUDA_TRY(cudaMemsetAsync(bits.data_handle(), 0, sizeof(std::uint32_t),
+    raft::resource::get_cuda_stream(res).get()));
+  cuvs::neighbors::filtering::bitset_filter filter(
+    cuvs::core::bitset_view<std::uint32_t, int64_t>(bits.data_handle(), 4));
+  flowann::search_context context(index.cross_graph());
+  flowann::search_params params;
+  params.algo = GetParam();
+  params.itopk_size = 32;
+  params.max_iterations = 16;
+  flowann::search(res, params, index, context, raft::make_const_mdspan(queries.view()),
+    neighbors.view(), distances.view(), filter);
+  int64_t actual[4];
+  raft::copy(actual, neighbors.data_handle(), 4, raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  for (auto id : actual) { EXPECT_EQ(id, int64_t{-1}); }
+}
