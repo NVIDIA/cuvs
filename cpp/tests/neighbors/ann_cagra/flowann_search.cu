@@ -405,6 +405,7 @@ RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
   state.pending.head = mode == 0 ? 510 : 0;
   queue.state->reservation_head = mode == 1 ? flowann::detail::queue_capacity : 0;
   queue.state->gpu_tail = 0;
+  queue.state->capacity = flowann::detail::queue_capacity;
   queue.released_sequence[0] = 0;
   for (std::uint32_t i = 0; i < 8; ++i) {
     topk[i] = (i + 1) | 0x80000000u;
