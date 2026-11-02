@@ -334,7 +334,8 @@ TEST(FlowannSerialize, RoundTripsCurrentVpqFormat)
   raft::copy(device_encoded.data_handle(), host_encoded.data_handle(), host_encoded.size(), stream);
   auto dataset = std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
     std::move(device_encoded),
-    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(device_vq), std::move(device_pq)});
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(device_vq),
+                                                                      std::move(device_pq)});
   flowann::vpq_f16_index<float> index(
     res, cuvs::distance::DistanceType::L2Expanded, dataset->view(), 2, 2);
 
