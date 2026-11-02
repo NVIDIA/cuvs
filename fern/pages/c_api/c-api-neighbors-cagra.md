@@ -162,19 +162,19 @@ struct cuvsCagraTieredGraphParams {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `device_graph_budget_bytes` | `size_t` |  |
-| `node_per_cacheline` | `uint16_t` |  |
-| `grouping_enabled` | `bool` |  |
-| `n_groups` | `uint32_t` |  |
-| `n_bits` | `uint16_t` |  |
-| `balance_tolerance` | `double` |  |
-| `training_rows` | `size_t` |  |
-| `assignment_batch_rows` | `size_t` |  |
-| `kmeans_n_iters` | `uint32_t` |  |
-| `validate` | `bool` |  |
-| `num_seeds` | `uint32_t` |  |
-| `seed_training_rows` | `size_t` |  |
-| `seed` | `uint64_t` |  |
+| `device_graph_budget_bytes` | `size_t` | Maximum packed resident graph bytes, excluding datasets and queues. Zero stores all edges on host. |
+| `node_per_cacheline` | `uint16_t` | Consecutive nodes per packed row: [1, 64] with grouping, [1, 32] without grouping. |
+| `grouping_enabled` | `bool` | Group and reorder nodes for locality; false retains the rank-only layout. |
+| `n_groups` | `uint32_t` | Final group count, at most 65,536. Zero uses one group if IDs fit; otherwise ceil(N * (1 + balance_tolerance) / 2^b). Each k-means node has at most 16 children. |
+| `n_bits` | `uint16_t` | Local-ID width. Zero selects min(24, max(4, align_up_4(ceil(log2(N))))). Explicit widths must be in [1, 32]. |
+| `balance_tolerance` | `double` | Allowed relative deviation from average group size, in the open interval (0, 1). Hard ID capacity still applies. |
+| `training_rows` | `size_t` | Maximum sample rows per k-means node. Zero shares a 160,000-row budget by subtree leaf count, bounded by 256 to 10,000 rows per child and actual node size. |
+| `assignment_batch_rows` | `size_t` | Rows assigned per GPU batch. Zero targets a 256 MiB vector buffer; distance/label buffers and host capacity-repair storage are additional. |
+| `kmeans_n_iters` | `uint32_t` | Positive number of balanced k-means training iterations. |
+| `validate` | `bool` | Verify encoded edges after rearrangement; intended for tests and small builds. |
+| `num_seeds` | `uint32_t` | Number of medoid seeds generated at build time; zero disables seed generation. |
+| `seed_training_rows` | `size_t` | Rows sampled to train seed centroids. Zero selects an automatic limit. |
+| `seed` | `uint64_t` | Deterministic seed for rotating the uniform k-means training sample. |
 
 <a id="cuvscagratieredsearchparams"></a>
 ### cuvsCagraTieredSearchParams
@@ -197,13 +197,13 @@ struct cuvsCagraTieredSearchParams {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `num_seeds` | `uint32_t` |  |
-| `sync_window_scale` | `float` |  |
-| `sync_drop_threshold` | `uint32_t` |  |
-| `num_queues` | `uint32_t` |  |
-| `empty_pause` | `uint32_t` |  |
-| `collect_statistics` | `bool` |  |
-| `keep_pollers_running` | `bool` |  |
+| `num_seeds` | `uint32_t` | Maximum number of stored medoid seeds used per query; zero uses random initialization. |
+| `sync_window_scale` | `float` | Scale for the adaptive deferred-cross-edge synchronization window. |
+| `sync_drop_threshold` | `uint32_t` | Parent-position drop that forces synchronization of a submitted cross-edge request. |
+| `num_queues` | `uint32_t` | Positive number of independent GPU-to-CPU command queues. |
+| `empty_pause` | `uint32_t` | Number of CPU pause instructions after an empty poll; zero disables this pause. |
+| `collect_statistics` | `bool` | Collect aggregate queue and polling counters. |
+| `keep_pollers_running` | `bool` | Keep pollers active between calls for low latency. Consumes host CPU while idle. |
 
 <a id="cuvscagraindexparams"></a>
 ### cuvsCagraIndexParams
@@ -220,6 +220,7 @@ struct cuvsCagraIndexParams {
   enum cuvsCagraGraphBuildAlgo build_algo;
   size_t nn_descent_niter;
   void* graph_build_params;
+  enum cuvsCagraGraphStorage graph_storage;
 };
 ```
 
@@ -233,6 +234,16 @@ struct cuvsCagraIndexParams {
 | `build_algo` | [`enum cuvsCagraGraphBuildAlgo`](/api-reference/c-api-neighbors-cagra#cuvscagragraphbuildalgo) | ANN algorithm to build knn graph. |
 | `nn_descent_niter` | `size_t` | Number of Iterations to run if building with NN_DESCENT |
 | `graph_build_params` | `void*` | Optional: specify graph build params based on build_algo<br />- IVF_PQ: cuvsIvfPqParams_t<br />- ACE: cuvsAceParams_t<br />- Others: nullptr |
+| `graph_storage` | [`enum cuvsCagraGraphStorage`](/api-reference/c-api-neighbors-cagra#cuvscagragraphstorage) | Graph representation selected for construction. The default is CUVS_CAGRA_GRAPH_DEVICE. |
+
+<a id="cuvscagraindexparams-cuvscagratieredgraphparams"></a>
+### cuvsCagraIndexParams::cuvsCagraTieredGraphParams
+
+Tiered layout settings used when graph_storage is CUVS_CAGRA_GRAPH_TIERED.
+
+```c
+struct cuvsCagraTieredGraphParams tiered;
+```
 
 <a id="cuvscagramergealgo"></a>
 ### cuvsCagraMergeAlgo
@@ -685,6 +696,15 @@ struct cuvsCagraSearchParams {
 | `persistent_device_usage` | `float` | Set the fraction of maximum grid size used by persistent kernel. Value 1.0 means the kernel grid size is maximum possible for the selected device. The value must be greater than 0.0 and not greater than 1.0.<br /><br />One may need to run other kernels alongside this persistent kernel. This parameter can be used to reduce the grid size of the persistent kernel to leave a few SMs idle.<br />Note: running any other work on GPU alongside with the persistent kernel makes the setup fragile.<br />- Running another kernel in another thread usually works, but no progress guaranteed<br />- Any CUDA allocations block the context (this issue may be obscured by using pools)<br />- Memory copies to not-pinned host memory may block the context<br /><br />Even when we know there are no other kernels working at the same time, setting kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care. If you suspect this is an issue, you can reduce this number to ~0.9 without a significant impact on the throughput. |
 | `use_tiered_params` | `bool` | Enable the tiered settings below. Allocate this struct with cuvsCagraSearchParamsCreate(). |
 
+<a id="cuvscagrasearchparams-cuvscagratieredsearchparams"></a>
+### cuvsCagraSearchParams::cuvsCagraTieredSearchParams
+
+Tiered queue and search settings used only when use_tiered_params is true.
+
+```c
+struct cuvsCagraTieredSearchParams tiered;
+```
+
 <a id="cuvscagrasearchparamscreate"></a>
 ### cuvsCagraSearchParamsCreate
 
@@ -827,19 +847,43 @@ cuvsError_t cuvsCagraIndexGetSize(cuvsCagraIndex_t index, int64_t* size);
 <a id="cuvscagraindexgetgraphstorage"></a>
 ### cuvsCagraIndexGetGraphStorage
 
-Return the graph representation without exposing tiered storage buffers.
+Get the graph representation of a CAGRA index.
 
 ```c
 cuvsError_t cuvsCagraIndexGetGraphStorage(
-cuvsCagraIndex_t index, enum cuvsCagraGraphStorage *storage);
+cuvsCagraIndex_t index, enum cuvsCagraGraphStorage* storage);
 ```
+
+Returns the selected storage kind without exposing the device and host edge buffers.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `index` |  | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) |  |
-| `storage` |  | [`enum cuvsCagraGraphStorage*`](/api-reference/c-api-neighbors-cagra#cuvscagragraphstorage) |  |
+| `index` | in | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | Initialized CAGRA index handle. |
+| `storage` | out | [`enum cuvsCagraGraphStorage*`](/api-reference/c-api-neighbors-cagra#cuvscagragraphstorage) | Receives CUVS_CAGRA_GRAPH_DEVICE or CUVS_CAGRA_GRAPH_TIERED. |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvscagraindexgetgraphdegree"></a>
+### cuvsCagraIndexGetGraphDegree
+
+Get the complete graph degree of a CAGRA index.
+
+```c
+cuvsError_t cuvsCagraIndexGetGraphDegree(cuvsCagraIndex_t index, int64_t* graph_degree);
+```
+
+For a tiered index this includes both resident and host edges.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `index` | in | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | Initialized CAGRA index handle. |
+| `graph_degree` | out | `int64_t*` | Receives the complete graph degree. |
 
 **Returns**
 
