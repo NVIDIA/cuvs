@@ -1492,25 +1492,55 @@ auto build(raft::resources const& res,
            cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset)
   -> cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>;
 
-// clang-format off
-/** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params, cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset) */
-// clang-format on
+/**
+ * @brief Build from a device BBQ-quantized dataset view of type `half`.
+ *
+ * Construction uses quantized codes and requires nn-descent. The metric must match the
+ * quantizer corrections and be L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct.
+ * The returned index has no BBQ search support; use the type-changing `update_dataset`
+ * with an uncompressed device-padded dataset before searching the resulting graph.
+ *
+ * @param[in] res RAFT resources used for graph construction.
+ * @param[in] params CAGRA index build parameters.
+ * @param[in] dataset Device BBQ dataset view with shape [n_rows, dim].
+ * @return Built `device_bbq_index<half, uint32_t>`.
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset)
   -> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
 
-// clang-format off
-/** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params, cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset) */
-// clang-format on
+/**
+ * @brief Build from a device BBQ-quantized dataset view of type `int8_t`.
+ *
+ * Construction uses quantized codes and requires nn-descent. The metric must match the
+ * quantizer corrections and be L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct.
+ * The returned index has no BBQ search support; use the type-changing `update_dataset`
+ * with an uncompressed device-padded dataset before searching the resulting graph.
+ *
+ * @param[in] res RAFT resources used for graph construction.
+ * @param[in] params CAGRA index build parameters.
+ * @param[in] dataset Device BBQ dataset view with shape [n_rows, dim].
+ * @return Built `device_bbq_index<int8_t, uint32_t>`.
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset)
   -> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
 
-// clang-format off
-/** @copydoc build(raft::resources const& res, const cuvs::neighbors::cagra::index_params& params, cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset) */
-// clang-format on
+/**
+ * @brief Build from a device BBQ-quantized dataset view of type `uint8_t`.
+ *
+ * Construction uses quantized codes and requires nn-descent. The metric must match the
+ * quantizer corrections and be L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct.
+ * The returned index has no BBQ search support; use the type-changing `update_dataset`
+ * with an uncompressed device-padded dataset before searching the resulting graph.
+ *
+ * @param[in] res RAFT resources used for graph construction.
+ * @param[in] params CAGRA index build parameters.
+ * @param[in] dataset Device BBQ dataset view with shape [n_rows, dim].
+ * @return Built `device_bbq_index<uint8_t, uint32_t>`.
+ */
 auto build(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset)
