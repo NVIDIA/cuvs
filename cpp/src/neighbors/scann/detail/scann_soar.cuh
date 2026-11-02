@@ -46,7 +46,7 @@ void compute_soar_labels(raft::resources const& dev_resources,
 {
   auto dim = dataset.extent(1);
 
-  // Convert the dataset to float (with the standard integer scaling) for the float math below.
+  // Transform the dataset into floats to use gemm operations from cublas.
   auto ds_f = raft::make_device_matrix<float, int64_t>(dev_resources, dataset.extent(0), dim);
   raft::linalg::map(
     dev_resources, ds_f.view(), cuvs::spatial::knn::detail::utils::mapping<float>{}, dataset);
