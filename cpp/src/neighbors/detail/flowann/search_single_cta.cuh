@@ -144,13 +144,14 @@ struct single_cta_plan
     this->smem_size = base_smem_size + additional_smem_size;
     // graph_state is declared with __shared__ in the JIT kernel, in addition to
     // the dynamic workspace passed to the launch API. Include alignment padding.
-    auto const total_smem_size = raft::round_up_safe<std::size_t>(
-                                   sizeof(graph_state<IndexT>), std::size_t{128}) +
-                                 this->smem_size;
+    auto const total_smem_size =
+      raft::round_up_safe<std::size_t>(sizeof(graph_state<IndexT>), std::size_t{128}) +
+      this->smem_size;
     auto const properties = raft::resource::get_device_properties(res);
     RAFT_EXPECTS(total_smem_size <= properties.sharedMemPerBlockOptin,
                  "FlowANN search needs %zu bytes of shared memory, device limit is %zu",
-                 total_smem_size, properties.sharedMemPerBlockOptin);
+                 total_smem_size,
+                 properties.sharedMemPerBlockOptin);
 
     constexpr std::uint32_t min_block_size       = 64;
     constexpr std::uint32_t min_radix_block_size = 256;
@@ -163,7 +164,8 @@ struct single_cta_plan
         block_size *= 2;
       }
       constexpr std::uint32_t smem_per_warp_limit = 4096;
-      while (block_size < max_block_size && total_smem_size > smem_per_warp_limit / 32 * block_size) {
+      while (block_size < max_block_size &&
+             total_smem_size > smem_per_warp_limit / 32 * block_size) {
         block_size *= 2;
       }
       auto const properties = raft::resource::get_device_properties(res);

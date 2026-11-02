@@ -894,7 +894,6 @@ TEST(FlowannBuild, SearchesAutomaticAndExplicitWidths)
   }
 }
 
-
 TEST(FlowannBuild, IterativeConstructionClampsOversizedDegrees)
 {
   raft::resources res;
@@ -907,8 +906,8 @@ TEST(FlowannBuild, IterativeConstructionClampsOversizedDegrees)
   }
   auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host.view());
   flowann::index_params params;
-  params.grouping.enabled = false;
-  params.cagra_params.graph_degree = 64;
+  params.grouping.enabled                       = false;
+  params.cagra_params.graph_degree              = 64;
   params.cagra_params.intermediate_graph_degree = 128;
   params.cagra_params.graph_build_params =
     cuvs::neighbors::cagra::graph_build_params::iterative_search_params{};
