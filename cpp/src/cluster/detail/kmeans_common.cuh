@@ -30,7 +30,6 @@
 #include <raft/linalg/reduce_rows_by_key.cuh>
 #include <raft/matrix/gather.cuh>
 #include <raft/random/permute.cuh>
-#include <raft/random/rng.cuh>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 

@@ -6,9 +6,9 @@ All NVIDIA cuVS routine implementations live in the C++ core. For every non-C++ 
 
 ## CUDA GPU Requirements
 
-Pre-compiled NVIDIA cuVS packages are available for Linux on x86_64 and aarch64. Native Windows support is not available at this time. On Windows, use WSL2 with GPU passthrough. See the [RAPIDS WSL2 guide](https://rapids.ai/start.html#wsl2).
+Pre-compiled NVIDIA cuVS packages are available for Linux on x86_64 and aarch64. Native Windows support is not available at this time. On Windows, use WSL2 with GPU passthrough. See the [CUDA-X for data science WSL2 guide](https://docs.nvidia.com/datascience/install/#wsl2).
 
-Source builds and package installs require a supported NVIDIA GPU. For current source builds, use CUDA Toolkit 12.2 or newer and an Ampere architecture GPU or newer, which means compute capability 8.0 or higher.
+Source builds and package installs require a supported NVIDIA GPU. For current source builds, use CUDA Toolkit 12.9 or newer and an Volta architecture GPU or newer, which means compute capability 7.0 or higher.
 
 ## Language Guides
 
@@ -25,17 +25,38 @@ Most source builds use the repository `build.sh` script. The script wraps CMake,
 
 The common source-build prerequisites are:
 
-1. CMake 3.26.4 or newer.
-2. GCC 9.3 or newer, with GCC 11.4 or newer recommended.
-3. CUDA Toolkit 12.2 or newer.
-4. An Ampere architecture GPU or newer.
+1. CMake 4.0 or newer.
+2. GCC 13.3 or newer.
+3. A Python 3 interpreter.
+  * cuTile ( CUDA 13.1 or newer ): the `cuda.tile` Python package, `tileiras` and `bin2c`. With conda install `cutile-python` and `cuda-tileiras`; with pip install `cuda-tile` and `cuda-toolkit[tileiras]`.
+4. CUDA Toolkit 12.9 or newer.
+5. For CUDA Toolkit 12:
+  * Volta architecture or better ([Compute Capability](https://docs.nvidia.com/deploy/cuda-compatibility/latest/) >=7.0)
+6. For CUDA Toolkit 13 or newer:
+  * Turing architecture or better (Compute Capability >=7.5) with CUDA 13.x
+
+
+
+Optional components have additional requirements:
+
+- Multi-node multi-GPU tests (`--mnmg-tests`):
+  - UCX
+  - UCXX
+- Benchmarks (`bench-ann`):
+  - `glog`
+  - `openblas`
+  - `nlohmann_json`
+  - On x86_64, for the DiskANN algorithms:
+    - `mkl-devel` 2023
+    - `libaio`
+    - Boost 1.87 (`libboost-devel`)
 
 ### Create a Build Environment
 
 The recommended way to construct an environment with the dependencies required to build NVIDIA cuVS is to use conda with the repository environment YAML file:
 
 ```bash
-conda env create --name cuvs -f conda/environments/all_cuda-133_arch-$(uname -m).yaml
+conda env create --name cuvs -f conda/environments/all_cuda-134_arch-$(uname -m).yaml
 conda activate cuvs
 ```
 
@@ -73,7 +94,7 @@ The helper accepts the following environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CUVS_TARBALL_CUDA_VERSION` | `13.3.0` | CUDA version for the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_CUDA_VERSION` | `13.4.3` | CUDA version for the `rapidsai/ci-wheel` base image. |
 | `CUVS_TARBALL_PYTHON_VERSION` | `3.14` | Python version for the `rapidsai/ci-wheel` base image. |
 | `CUVS_TARBALL_BUILD_OUTPUT_DIR` | `./build` | Host directory where the tarball is written. |
 
@@ -83,7 +104,7 @@ See https://hub.docker.com/r/rapidsai/ci-wheel/tags
 For example:
 
 ```bash
-CUVS_TARBALL_CUDA_VERSION=13.3.0 \
+CUVS_TARBALL_CUDA_VERSION=13.4.3 \
 CUVS_TARBALL_PYTHON_VERSION=3.14 \
   ./build.sh tarball
 ```
@@ -114,7 +135,7 @@ If you do not want to use the helper script, build the image directly from the r
 ```bash
 docker build \
   -f Dockerfile.standalone \
-  --build-arg CUDA_VERSION="13.3.0" \
+  --build-arg CUDA_VERSION="13.4.3" \
   --build-arg PYTHON_VERSION="3.14" \
   --build-arg RAPIDS_VERSION="$(head -1 ./VERSION | cut -d. -f1,2 )" \
   -t cuvs-standalone-c:local \

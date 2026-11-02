@@ -394,8 +394,8 @@ from_cagra(raft::resources const& res,
     host_dataset = raft::make_host_matrix<T, int64_t>(dataset_view.n_rows(), dataset_view.dim());
     raft::copy_matrix(host_dataset.data_handle(),
                       host_dataset.extent(1),
-                      dataset_view.view().data_handle(),
-                      dataset_view.stride(),
+                      dataset_view.data_const_view().data_handle(),
+                      dataset_view.data_const_view().stride(0),
                       host_dataset.extent(1),
                       dataset_view.n_rows(),
                       raft::resource::get_cuda_stream(res));
@@ -423,7 +423,8 @@ from_cagra(raft::resources const& res,
   // move cagra graph to host or access it from host if available
   auto host_graph_view = cagra_index.graph();
   auto host_graph      = raft::make_host_matrix<uint32_t, int64_t>(0, 0);
-  if (!raft::is_host_accessible(raft::memory_type_from_pointer(host_graph_view.data_handle()))) {
+  if (!raft::is_host_accessible(
+        raft::get_pointer_memory_info(host_graph_view.data_handle()).type)) {
     // copy cagra graph to host
     host_graph = raft::make_host_matrix<uint32_t, int64_t>(host_graph_view.extent(0),
                                                            host_graph_view.extent(1));
@@ -1839,12 +1840,13 @@ void serialize_to_hnswlib_from_inmem(
     source_stride  = dim;
   } else if constexpr (is_host_cagra_hnsw_export_index_v<T, CagraIndexT>) {
     RAFT_FAIL("serialize_to_hnswlib_from_inmem requires dataset for host CAGRA index");
-  } else if (auto dataset_view = index_.dataset(); dataset_view.view().data_handle() != nullptr) {
+  } else if (auto dataset_view = index_.dataset();
+             dataset_view.data_const_view().data_handle() != nullptr) {
     n_rows         = dataset_view.n_rows();
     dim            = dataset_view.dim();
     device_dataset = true;
-    source_dataset = dataset_view.view().data_handle();
-    source_stride  = dataset_view.stride();
+    source_dataset = dataset_view.data_const_view().data_handle();
+    source_stride  = dataset_view.data_const_view().stride(0);
   } else {
     RAFT_FAIL("serialize_to_hnswlib_from_inmem: No dataset provided");
   }
@@ -1964,12 +1966,12 @@ from_cagra(raft::resources const& res,
   } else if constexpr (is_host_cagra_hnsw_export_index_v<T, CagraIndexT>) {
     RAFT_FAIL("hnsw::from_cagra<GPU> requires dataset for host CAGRA index");
   } else if (auto dataset_view = cagra_index.dataset();
-             dataset_view.view().data_handle() != nullptr) {
+             dataset_view.data_const_view().data_handle() != nullptr) {
     n_rows         = dataset_view.n_rows();
     dim            = dataset_view.dim();
     device_copy    = true;
-    source_dataset = dataset_view.view().data_handle();
-    source_stride  = dataset_view.stride();
+    source_dataset = dataset_view.data_const_view().data_handle();
+    source_stride  = dataset_view.data_const_view().stride(0);
   } else {
     RAFT_FAIL("hnsw::from_cagra<GPU>: No dataset provided");
   }
@@ -2095,7 +2097,7 @@ from_cagra(raft::resources const& res,
     // gather points from dataset to form query set on host
     auto host_query_set = raft::make_host_matrix<T, int64_t>(num_pts, dim);
     // TODO: Use `raft::matrix::gather` when available as a public API
-    // Issue: https://github.com/rapidsai/raft/issues/2572
+    // Issue: https://github.com/NVIDIA/raft/issues/2572
 #pragma omp parallel for num_threads(num_threads)
     for (auto i = start_idx; i < end_idx; i++) {
       auto pt_id = order[i];
@@ -3001,11 +3003,10 @@ std::unique_ptr<index<T>> build(raft::resources const& res,
     cagra_params.graph_build_params     = cagra_ace_params;
   }
 
-  // Public HNSW API uses host_matrix_view; CAGRA build expects a padded dataset view.
+  // Public HNSW API uses host_matrix_view; CAGRA build expects a dataset view.
   // Host build stores only the graph; vectors are passed separately to from_cagra below.
-  cuvs::neighbors::host_padded_dataset_view<T, int64_t> host_padded_view(
-    dataset, static_cast<uint32_t>(dataset.extent(1)));
-  auto ace_host_index = cuvs::neighbors::cagra::build(res, cagra_params, host_padded_view);
+  auto host_standard_view = cuvs::neighbors::make_host_standard_dataset_view(dataset);
+  auto ace_host_index     = cuvs::neighbors::cagra::build(res, cagra_params, host_standard_view);
 
   RAFT_LOG_INFO("hnsw::build - Converting CAGRA index to HNSW format");
 

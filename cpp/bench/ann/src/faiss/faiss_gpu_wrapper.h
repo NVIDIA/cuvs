@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -417,7 +417,7 @@ class faiss_gpu_ivfpq : public faiss_gpu<T> {
 };
 
 // TODO(snanditale): Enable this in cmake
-//  ref: https://github.com/rapidsai/raft/issues/1876
+//  ref: https://github.com/NVIDIA/raft/issues/1876
 template <typename T>
 class faiss_gpu_ivfsq : public faiss_gpu<T> {
  public:

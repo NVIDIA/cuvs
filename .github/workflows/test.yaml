@@ -62,7 +62,8 @@ jobs:
       script: "ci/test_cpp.sh ${{ matrix.shard }} ${{ matrix.num_shards }}"
       sha: ${{ inputs.sha }}
       cache-paths: .cache/cuda-jit
-      cache-key-prefix: libcuvs-cudajit-v1
+      # One cache per test shard: each shard links a different set of kernels.
+      cache-key-prefix: libcuvs-cudajit-v1-shard${{ matrix.shard }}of${{ matrix.num_shards }}
       # Caches are immutable. Re-key when the JIT-relevant sources change so a completed run can
       # save newly compiled entries; restore a compatible earlier archive first.
       cache-key-files: |
@@ -91,6 +92,7 @@ jobs:
       cache-read-only: ${{ inputs.branch != 'main' }}
       cache-environment: |
         CUDA_CACHE_PATH=.cache/cuda-jit
+      matrix_type: cuda-13-4-nightly,nightly
   conda-python-tests:
     permissions:
       actions: read
@@ -106,6 +108,7 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/test_python.sh
       sha: ${{ inputs.sha }}
+      matrix_type: cuda-13-4-nightly,nightly
   conda-java-tests:
     permissions:
       actions: read
@@ -120,6 +123,7 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: "ci/test_java.sh"
+      matrix_type: cuda-13-4-nightly
   conda-lucene-tests:
     permissions:
       actions: read
@@ -134,6 +138,7 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: "ci/test_lucene.sh"
+      matrix_type: cuda-13-4-nightly
   wheel-tests-cuvs:
     permissions:
       actions: read
@@ -149,3 +154,4 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: ci/test_wheel_cuvs.sh
+      matrix_type: cuda-13-4-nightly,nightly

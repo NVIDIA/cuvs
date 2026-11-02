@@ -14,6 +14,7 @@ include(rapids-cpm)
 include(rapids-cuda)
 include(rapids-export)
 include(rapids-find)
+include(GNUInstallDirs)
 
 # ------------- configure project --------------#
 
@@ -89,3 +90,25 @@ target_link_libraries(IVF_FLAT_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXIST
 target_link_libraries(VAMANA_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
 target_link_libraries(SCANN_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
 target_link_libraries(SCANN_TWO_LEVEL_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+
+install(
+  TARGETS BRUTE_FORCE_EXAMPLE
+          BALANCED_KMEANS_EXAMPLE
+          CAGRA_EXAMPLE
+          CAGRA_FILTER_UDF_EXAMPLE
+          CAGRA_BLOOM_FILTER_EXAMPLE
+          CAGRA_ROARING_BITMAP_FILTER_EXAMPLE
+          CAGRA_HNSW_ACE_BUILD_EXAMPLE
+          CAGRA_HNSW_ACE_EXAMPLE
+          CAGRA_PERSISTENT_EXAMPLE
+          DYNAMIC_BATCHING_EXAMPLE
+          HNSW_ACE_EXAMPLE
+          HNSW_ACE_LAYERED_EXAMPLE
+          HNSW_OPENAI_EXAMPLE
+          IVF_FLAT_EXAMPLE
+          IVF_PQ_EXAMPLE
+          VAMANA_EXAMPLE
+          SCANN_EXAMPLE
+          SCANN_TWO_LEVEL_EXAMPLE
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}/examples/libcuvs COMPONENT cuvs_examples
+)

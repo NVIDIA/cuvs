@@ -9,6 +9,9 @@
 #include <cuvs/neighbors/cagra.hpp>
 #include <raft/core/device_resources_snmg.hpp>
 
+#include <algorithm>
+#include <vector>
+
 namespace cuvs::bench {
 using namespace cuvs::neighbors;
 
@@ -31,7 +34,7 @@ class cuvs_mg_cagra : public algo<T>, public algo_gpu {
   };
 
   cuvs_mg_cagra(Metric metric, int dim, const build_param& param, int concurrent_searches = 1)
-    : algo<T>(metric, dim), index_params_(param), clique_()
+    : algo<T>(metric, dim), index_params_(param), clique_(), query_dim_(dim)
   {
     clique_.set_memory_pool(80);
   }
@@ -77,6 +80,10 @@ class cuvs_mg_cagra : public algo<T>, public algo_gpu {
   float refine_ratio_;
   build_param index_params_;
   cuvs::neighbors::mg_search_params<cagra::search_params> search_params_;
+  // The width of the rows the index was built on, which is the width queries must have. An MG index
+  // built from a padded host dataset takes the row stride as its dimension, so for a dimension that
+  // is not aligned this is the padded width and the queries are zero-padded to it.
+  uint32_t query_dim_;
   std::shared_ptr<
     cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>
     index_;
@@ -93,13 +100,23 @@ void cuvs_mg_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
 
   auto dataset_mds =
     raft::make_host_matrix_view<const T, int64_t, raft::row_major>(dataset, nrow, dim_);
-  // The row alignment of the host view is irrelevant: every per-rank device shard is padded
-  // individually during the multi-GPU build.
-  cuvs::neighbors::host_padded_dataset_view<T, int64_t> dataset_view(dataset_mds,
-                                                                     static_cast<uint32_t>(dim_));
-  auto idx = cuvs::neighbors::cagra::build(clique_, build_params, dataset_view);
-  index_   = std::make_shared<
-      cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>(
+  auto idx = [&] {
+    if (cuvs::neighbors::matrix_row_width_matches_cagra_required(dataset_mds)) {
+      // The rows are aligned already: view the input without a copy.
+      query_dim_ = static_cast<uint32_t>(dim_);
+      return cuvs::neighbors::cagra::build(
+        clique_, build_params, cuvs::neighbors::make_host_padded_dataset_view(dataset_mds));
+    }
+    // A padded view cannot wrap rows that are not aligned, so the host rows get padded in a copy.
+    // The copy is only needed while building. The index takes the padded row width as its
+    // dimension; the padding is zero, which leaves the distances unchanged.
+    auto dataset_padded     = cuvs::neighbors::make_host_padded_dataset(clique_, dataset_mds);
+    auto const& padded_view = std::as_const(*dataset_padded).view();
+    query_dim_              = static_cast<uint32_t>(padded_view.data_const_view().stride(0));
+    return cuvs::neighbors::cagra::build(clique_, build_params, padded_view);
+  }();
+  index_ = std::make_shared<
+    cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>(
     std::move(idx));
 }
 
@@ -135,6 +152,10 @@ void cuvs_mg_cagra<T, IdxT>::load(const std::string& file)
     cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_padded_index<T, IdxT>, T, IdxT>>(
     clique_, index_params_.mode);
   cuvs::neighbors::cagra::deserialize<T, IdxT>(clique_, file, index_.get());
+  query_dim_ = static_cast<uint32_t>(dim_);
+  if (!index_->ann_interfaces_.empty() && index_->ann_interfaces_[0].index_.has_value()) {
+    query_dim_ = static_cast<uint32_t>(index_->ann_interfaces_[0].index_->dim());
+  }
 }
 
 template <typename T, typename IdxT>
@@ -150,8 +171,19 @@ void cuvs_mg_cagra<T, IdxT>::search_base(
   static_assert(std::is_integral_v<algo_base::index_type>);
   static_assert(std::is_integral_v<IdxT>);
 
+  // The queries have to be as wide as the index rows; pad them with zeros when the index is wider.
+  thread_local std::vector<T> padded_queries;
+  if (query_dim_ != static_cast<uint32_t>(dim_)) {
+    padded_queries.assign(static_cast<size_t>(batch_size) * query_dim_, T{});
+    for (int i = 0; i < batch_size; i++) {
+      std::copy_n(queries + static_cast<size_t>(i) * dim_,
+                  dim_,
+                  padded_queries.data() + static_cast<size_t>(i) * query_dim_);
+    }
+    queries = padded_queries.data();
+  }
   auto queries_view =
-    raft::make_host_matrix_view<const T, int64_t, raft::row_major>(queries, batch_size, dim_);
+    raft::make_host_matrix_view<const T, int64_t, raft::row_major>(queries, batch_size, query_dim_);
   auto neighbors_view =
     raft::make_host_matrix_view<int64_t, int64_t, raft::row_major>(neighbors, batch_size, k);
   auto distances_view =
