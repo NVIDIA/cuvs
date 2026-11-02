@@ -66,7 +66,7 @@ TEST(FlowannStorage, ComputesCosineNormsWithoutSearchImplementation)
   host(1, 1)   = 2.0f;
   auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host.view());
   flowann::device_padded_index<float> index(
-    res, cuvs::distance::DistanceType::CosineExpanded, dataset->as_dataset_view());
+    res, cuvs::distance::DistanceType::CosineExpanded, dataset->view());
   ASSERT_TRUE(index.dataset_norms().has_value());
   float norms[2]{};
   raft::copy(norms, index.dataset_norms()->data_handle(), 2, raft::resource::get_cuda_stream(res));
