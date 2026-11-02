@@ -110,6 +110,37 @@ struct single_cta_plan
 
   void set_launch_params(raft::resources const& res, std::uint32_t num_seeds)
   {
+    // Seed initialization inserts every requested seed before selecting the internal top-k.
+    // The inherited CAGRA plan only budgets for the retained top-k and graph expansion.
+    if (num_seeds > this->itopk_size) {
+      namespace hashmap = cuvs::neighbors::cagra::detail::hashmap;
+      if (this->small_hash_bitlen != 0) {
+        auto bits = this->small_hash_bitlen;
+        while (bits <= 13 && num_seeds > hashmap::get_size(bits) * this->hashmap_max_fill_rate) {
+          ++bits;
+        }
+        if (bits <= 13) {
+          this->hash_bitlen = this->small_hash_bitlen = bits;
+        } else {
+          RAFT_EXPECTS(this->hashmap_mode != cuvs::neighbors::cagra::hash_mode::SMALL,
+                       "FlowANN seeds exceed the small visited hashmap capacity");
+          this->small_hash_bitlen = 0;
+          this->hash_bitlen       = 11;
+        }
+      }
+      if (this->small_hash_bitlen == 0) {
+        auto const max_visited =
+          static_cast<std::uint64_t>(num_seeds) +
+          (static_cast<std::uint64_t>(this->search_width) + additional_buffer_width) *
+            this->graph_degree * this->max_iterations;
+        while (this->hash_bitlen <= 20 &&
+               max_visited > hashmap::get_size(this->hash_bitlen) * this->hashmap_max_fill_rate) {
+          ++this->hash_bitlen;
+        }
+        RAFT_EXPECTS(this->hash_bitlen <= 20,
+                     "FlowANN seeds and traversal exceed the visited hashmap capacity");
+      }
+    }
     auto const expansion_candidates =
       (static_cast<std::uint32_t>(this->search_width) + additional_buffer_width) *
       static_cast<std::uint32_t>(this->graph_degree);
@@ -376,6 +407,7 @@ void search_single_cta(raft::resources const& res,
   if (params.max_queries == 0) {
     params.max_queries = std::min<std::size_t>(queries.extent(0), device_properties.maxGridSize[1]);
   }
+  params.max_queries = std::min<std::size_t>(params.max_queries, device_properties.maxGridSize[1]);
   RAFT_EXPECTS(params.max_queries > 0, "FlowANN max_queries must be positive");
 
   auto descriptor = make_dataset_descriptor<data_t, index_t, distance_t>(res, params, index);

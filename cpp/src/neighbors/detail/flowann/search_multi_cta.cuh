@@ -203,9 +203,8 @@ void search_multi_cta(raft::resources const& res,
   if (queries.extent(0) == 0) { return; }
 
   auto const properties = raft::resource::get_device_properties(res);
-  if (params.max_queries == 0) {
-    params.max_queries = std::min<std::size_t>(queries.extent(0), properties.maxGridSize[1]);
-  }
+  params.max_queries    = std::min<std::size_t>(
+    params.max_queries == 0 ? queries.extent(0) : params.max_queries, properties.maxGridSize[1]);
 
   auto descriptor = make_dataset_descriptor<data_t, index_t, distance_t>(res, params, index);
   auto const topk = static_cast<std::uint32_t>(neighbors.extent(1));

@@ -40,5 +40,7 @@ The installed RPATH defaults to `$ORIGIN`, so moving an installation does not re
 build host's GDRCopy prefix. Packagers with a fixed runtime layout may set
 `CUVS_FLOWANN_GDRCOPY_INSTALL_RPATH` to their deployment search paths. The same setting applies
 to `libcuvs_c` when `CUVSC_STATIC_CUVS_LIBRARY=ON`, since that library then carries the GDRCopy
-dependency directly. Compile-time package discovery still uses `GDRCopy_ROOT` or the usual
+dependency directly. A standalone C build accepts the same cache setting independently of the
+C++ build's feature flags. Set it in each separate build when using a custom deployment path.
+Compile-time package discovery still uses `GDRCopy_ROOT` or the usual
 CMake search paths and does not establish the runtime layout.
