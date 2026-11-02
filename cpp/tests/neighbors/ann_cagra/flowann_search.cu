@@ -9,6 +9,7 @@
 #include <neighbors/detail/flowann/flowann.hpp>
 
 #include <neighbors/detail/flowann/queue.cuh>
+#include <neighbors/detail/flowann/search_single_cta_jit.cuh>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_setter.hpp>
@@ -386,3 +387,76 @@ INSTANTIATE_TEST_SUITE_P(SingleAndMultiCta,
                                            cuvs::neighbors::cagra::search_algo::MULTI_CTA));
 
 }  // namespace
+
+namespace {
+RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
+                                       std::uint32_t mode,
+                                       std::uint32_t* output)
+{
+  if (threadIdx.x != 0) { return; }
+  __shared__ flowann::detail::graph_state<std::uint32_t> state;
+  __shared__ std::uint32_t traversed[32];
+  std::uint32_t topk[8];
+  std::uint32_t positions[8];
+  for (std::uint32_t i = 0; i < 32; ++i) { traversed[i] = ~std::uint32_t{0}; }
+  state.pending.initialize();
+  // Mode 0 has one free pending slot; mode 1 has a full device queue;
+  // mode 2 has capacity in both and must publish the complete batch.
+  state.pending.head = mode == 0 ? 510 : 0;
+  queue.state->reservation_head = mode == 1 ? flowann::detail::queue_capacity : 0;
+  queue.state->gpu_tail = 0;
+  queue.released_sequence[0] = 0;
+  for (std::uint32_t i = 0; i < 8; ++i) {
+    topk[i] = (i + 1) | 0x80000000u;
+    positions[i] = i;
+    state.parent_ids[i] = i + 1;
+    state.parent_valid[i] = true;
+    cuvs::neighbors::cagra::detail::hashmap::insert(traversed, 5, i + 1);
+  }
+  flowann::detail::tiered_graph_provider<float, std::uint32_t, float> provider{};
+  provider.state = &state;
+  provider.queue = queue;
+  provider.submit_parents(positions, topk, 8, 1, traversed, 5);
+  output[0] = state.pending.size();
+  output[1] = queue.state->reservation_head;
+  output[2] = 0;
+  output[3] = 0;
+  for (std::uint32_t i = 0; i < 8; ++i) {
+    output[2] += (topk[i] & 0x80000000u) != 0;
+    output[3] += cuvs::neighbors::cagra::detail::hashmap::search<std::uint32_t, 1>(
+      traversed, 5, i + 1);
+  }
+  output[4] = mode == 2 ? flowann::detail::command_ready(queue.command_words[7]) : 0;
+}
+}  // namespace
+
+TEST(FlowannSearch, RetriesParentsWithoutOverwritingPendingRequests)
+{
+  raft::resources res;
+  auto queue_state = raft::make_device_vector<flowann::detail::queue_state, int64_t>(res, 1);
+  auto commands = raft::make_device_vector<unsigned long long, int64_t>(res, 8);
+  auto released = raft::make_device_vector<unsigned long long, int64_t>(res, 1);
+  auto output = raft::make_device_vector<std::uint32_t, int64_t>(res, 5);
+  flowann::detail::queue_view queue{};
+  queue.state = queue_state.data_handle();
+  queue.command_words = commands.data_handle();
+  queue.released_sequence = released.data_handle();
+  for (std::uint32_t mode = 0; mode < 3; ++mode) {
+    check_pending_backpressure<<<1, 1, 0, raft::resource::get_cuda_stream(res)>>>(
+      queue, mode, output.data_handle());
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    std::uint32_t actual[5];
+    raft::copy(actual, output.data_handle(), 5, raft::resource::get_cuda_stream(res));
+    raft::resource::sync_stream(res);
+    EXPECT_EQ(actual[0], mode == 0 ? 510 : mode == 1 ? 0 : 8);
+    EXPECT_EQ(actual[1], mode == 1 ? flowann::detail::queue_capacity : mode == 2 ? 8 : 0);
+    EXPECT_EQ(actual[2], mode == 2 ? 8 : 0);
+    EXPECT_EQ(actual[3], mode == 2 ? 8 : 0);
+    EXPECT_EQ(actual[4], mode == 2 ? 1 : 0);
+  }
+}
+
+TEST(FlowannSearch, EmptyQueriesAreANoOp)
+{
+  EXPECT_NO_THROW(run_dense_search(cuvs::neighbors::cagra::search_algo::SINGLE_CTA, {}));
+}
