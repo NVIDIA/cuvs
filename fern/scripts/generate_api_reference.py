@@ -3620,7 +3620,7 @@ def split_description_breaks(line: str) -> list[str]:
 
 def parse_doxygen_kind(declaration: str) -> str:
     untemplated = strip_leading_cpp_templates(declaration)
-    if re.fullmatch(r"\s*(?:struct|class)\s+[\w:]+\s+[*&\s]*[A-Za-z_]\w*\s*;", untemplated):
+    if re.fullmatch(r"\s*(?:struct|class)\s+[\w:]+(?:\s+|\s*[*&]+\s*)[A-Za-z_]\w*\s*;?\s*", untemplated):
         return "member"
     if re.search(r"^\s*(?:typedef\s+)?(?:struct|class)\b", untemplated) and (
         "{" in declaration or not untemplated.lstrip().startswith("typedef")
