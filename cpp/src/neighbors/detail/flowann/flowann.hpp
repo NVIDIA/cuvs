@@ -755,7 +755,7 @@ class index : public cuvs::neighbors::index {
   std::uint32_t resident_degree_   = 0;
   raft::device_matrix<inner_index_type, int64_t, raft::row_major> inner_graph_;
   raft::host_matrix<graph_index_type, int64_t, raft::row_major> cross_graph_;
-  DatasetViewT dataset_{};
+  DatasetViewT dataset_{cuvs::neighbors::detail::make_empty_dataset_view<DatasetViewT>(0)};
   std::optional<raft::device_vector<float, int64_t>> dataset_norms_;
   std::optional<raft::device_vector<IdxT, int64_t>> source_indices_;
   std::optional<raft::device_vector<std::uint32_t, int64_t>> subgraph_offsets_;
