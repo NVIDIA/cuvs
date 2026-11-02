@@ -491,6 +491,12 @@ TEST_P(FlowannSearchModesTest, MappedInvalidIdsMatchTheOutputWidth)
   index.update_graph(
     res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(cross.view()), 1, 0);
   index.update_source_indices(res, raft::make_const_mdspan(ids.view()));
+  auto offsets = raft::make_host_vector<std::uint32_t, int64_t>(1);
+  auto groups  = raft::make_host_vector<std::uint32_t, int64_t>(4);
+  offsets(0)   = 0;
+  std::fill_n(groups.data_handle(), groups.size(), 0u);
+  index.update_subgraph_layout(
+    res, raft::make_const_mdspan(offsets.view()), raft::make_const_mdspan(groups.view()));
   auto queries   = raft::make_device_matrix<float, int64_t>(res, 2, 4);
   auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 2, 2);
   auto distances = raft::make_device_matrix<float, int64_t>(res, 2, 2);
