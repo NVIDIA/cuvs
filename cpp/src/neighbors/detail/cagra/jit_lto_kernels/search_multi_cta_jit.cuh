@@ -157,7 +157,8 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
   uint32_t* const num_executed_iterations, /* stats */
   const IndexT graph_size,
   const uint32_t query_id_offset,  // Offset to add to query_id when calling filter
-  cagra_sample_filter<SourceIndexT> filter_payload)
+  cagra_sample_filter<SourceIndexT> filter_payload,
+  const std::uint32_t query_stride = 0)
 {
   using DATA_T     = DataT;
   using INDEX_T    = IndexT;
@@ -210,7 +211,10 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
   uint32_t smem_ws_size_in_bytes = dataset_desc->smem_ws_size_in_bytes();
 
   auto smem_desc =
-    setup_workspace<DataT, IndexT, DistanceT>(dataset_desc, smem, queries_ptr, query_id);
+    setup_workspace<DataT, IndexT, DistanceT>(
+      dataset_desc, smem,
+      query_stride == 0 ? queries_ptr : queries_ptr + static_cast<std::size_t>(query_id) * query_stride,
+      query_stride == 0 ? query_id : 0);
 
   auto* __restrict__ result_indices_buffer =
     reinterpret_cast<INDEX_T*>(smem + smem_ws_size_in_bytes);

@@ -401,7 +401,6 @@ void search_single_cta(raft::resources const& res,
       launcher_filter));
   RAFT_EXPECTS(launcher != nullptr, "Failed to create the FlowANN single-CTA JIT launcher");
 
-  auto const query_dim = static_cast<std::uint32_t>(queries.extent(1));
   std::unique_ptr<cuvs::neighbors::device_padded_dataset<data_t, int64_t>> padded_queries;
   data_t const* query_data{};
   std::uint32_t query_stride{};
@@ -415,7 +414,7 @@ void search_single_cta(raft::resources const& res,
     query_data     = view.view().data_handle();
     query_stride   = view.stride();
   }
-  auto const max_batch_queries = query_stride == query_dim ? plan.max_queries : std::size_t{1};
+  auto const max_batch_queries = plan.max_queries;
   auto const stream            = raft::resource::get_cuda_stream(res).get();
   auto const* descriptor_ptr   = descriptor.dev_ptr(stream);
   auto const inner_graph       = index.inner_graph();
@@ -457,6 +456,7 @@ void search_single_cta(raft::resources const& res,
         distances.data_handle() + static_cast<std::size_t>(offset) * topk,
         topk,
         query_ptr,
+        query_stride,
         inner_graph.data_handle(),
         static_cast<std::uint32_t>(inner_graph.extent(1)),
         static_cast<std::uint32_t>(index.node_per_cacheline()),
