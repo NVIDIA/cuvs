@@ -717,7 +717,7 @@ void serialize(raft::resources const& res, std::ostream& os, vpq_f16_index<T, Id
   raft::serialize_scalar(res, os, manifest.vq_n_centers());
   raft::serialize_scalar(res, os, manifest.pq_n_centers());
   raft::serialize_scalar(res, os, manifest.pq_len());
-  raft::serialize_scalar(res, os, dataset.data_view().extent(1));
+  raft::serialize_scalar(res, os, static_cast<std::uint32_t>(dataset.data_view().extent(1)));
   raft::serialize_mdspan(res, os, manifest.vq_code_book);
   raft::serialize_mdspan(res, os, manifest.pq_code_book);
   raft::serialize_mdspan(res, os, dataset.data_view());
