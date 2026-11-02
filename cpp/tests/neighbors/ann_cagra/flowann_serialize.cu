@@ -685,7 +685,7 @@ TEST(FlowannSerialize, RoundTripsPaddedDenseRows)
   }
   auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host.view());
   flowann::device_padded_index<float> index(
-    res, cuvs::distance::DistanceType::L2Expanded, dataset->view(), 2, 2);
+    res, cuvs::distance::DistanceType::CosineExpanded, dataset->view(), 2, 2);
   install_compact_test_graph(res, index);
   auto offsets = raft::make_host_vector<std::uint32_t, int64_t>(1);
   auto ids     = raft::make_host_vector<std::uint32_t, int64_t>(4);
@@ -715,4 +715,26 @@ TEST(FlowannSerialize, RoundTripsPaddedDenseRows)
       EXPECT_EQ(actual(row, col), host(row, col));
     }
   }
+  auto physical = raft::make_host_matrix<float, int64_t>(4, 8);
+  raft::copy(physical.data_handle(),
+             rows.data_handle(),
+             physical.size(),
+             raft::resource::get_cuda_stream(res));
+  float expected_norms[4], actual_norms[4];
+  raft::copy(
+    expected_norms, index.dataset_norms()->data_handle(), 4, raft::resource::get_cuda_stream(res));
+  raft::copy(actual_norms,
+             restored.index.dataset_norms()->data_handle(),
+             4,
+             raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  for (int64_t row = 0; row < 4; ++row) {
+    EXPECT_FLOAT_EQ(actual_norms[row], expected_norms[row]);
+    for (int64_t col = 5; col < 8; ++col) {
+      EXPECT_EQ(physical(row, col), 0.0f);
+    }
+  }
+  std::stringstream reserialized(std::ios::in | std::ios::out | std::ios::binary);
+  flowann::serialize(res, reserialized, restored.index);
+  EXPECT_EQ(reserialized.str(), stream.str());
 }
