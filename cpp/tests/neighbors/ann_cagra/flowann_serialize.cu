@@ -68,14 +68,14 @@ auto f16_bits(float value) -> std::uint16_t
 
 void write_legacy_dataset_body(raft::resources const& res,
                                std::ostream& stream,
-                               bool invalid_vq_label = false)
+                               bool invalid_vq_label = false,
+                               std::uint32_t encoded_length = 6)
 {
   constexpr int64_t rows                 = 4;
   constexpr std::uint32_t dim            = 4;
   constexpr std::uint32_t vq_centers     = 2;
   constexpr std::uint32_t pq_centers     = 256;
   constexpr std::uint32_t pq_len         = 2;
-  constexpr std::uint32_t encoded_length = 6;
 
   raft::serialize_scalar(res, stream, flowann::detail::legacy_vpq_dataset_tag);
   raft::serialize_scalar(res, stream, CUDA_R_16F);
@@ -188,7 +188,7 @@ auto make_legacy_graph(raft::resources const& res) -> std::stringstream
   return stream;
 }
 
-auto make_legacy_combined_vpq(raft::resources const& res) -> std::stringstream
+auto make_legacy_combined_vpq(raft::resources const& res, std::uint32_t row_length = 6) -> std::stringstream
 {
   std::stringstream stream(std::ios::in | std::ios::out | std::ios::binary);
   char const historical_dtype[4] = {'|', 'u', '1', '\0'};
@@ -196,7 +196,7 @@ auto make_legacy_combined_vpq(raft::resources const& res) -> std::stringstream
   raft::serialize_scalar(res, stream, flowann::detail::legacy_serialization_version);
   write_legacy_graph_body(res, stream, legacy_metric_header::historical_unsigned_enum);
   raft::serialize_scalar(res, stream, true);
-  write_legacy_dataset_body(res, stream);
+  write_legacy_dataset_body(res, stream, false, row_length);
   stream.seekg(0);
   return stream;
 }
@@ -605,3 +605,63 @@ TEST(FlowannSerialize, SearchesLegacyCombinedVpqWithAndWithoutFixedSeeds)
 }
 
 }  // namespace
+
+
+TEST(FlowannSerialize, RejectsCurrentOutOfRangeSourceIds)
+{
+  raft::resources res;
+  auto legacy = make_legacy_combined_vpq(res);
+  auto bundle = flowann::deserialize_vpq_f16<float>(res, legacy);
+  std::uint32_t ids[] = {4, 1, 2, 3};
+  bundle.index.update_source_indices(
+    res, raft::make_host_vector_view<const std::uint32_t, int64_t>(ids, 4));
+  std::stringstream current(std::ios::in | std::ios::out | std::ios::binary);
+  flowann::serialize(res, current, bundle.index);
+  current.seekg(0);
+  EXPECT_ANY_THROW(flowann::deserialize_vpq_f16<float>(res, current));
+}
+
+TEST(FlowannSerialize, RejectsCurrentOutOfRangeVqLabels)
+{
+  raft::resources res;
+  auto legacy = make_legacy_combined_vpq(res);
+  auto bundle = flowann::deserialize_vpq_f16<float>(res, legacy);
+  std::uint32_t invalid = bundle.dataset->vq_n_centers();
+  raft::copy(bundle.dataset->data.data_handle(),
+             reinterpret_cast<std::uint8_t const*>(&invalid), sizeof(invalid),
+             raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  std::stringstream current(std::ios::in | std::ios::out | std::ios::binary);
+  flowann::serialize(res, current, bundle.index);
+  current.seekg(0);
+  EXPECT_ANY_THROW(flowann::deserialize_vpq_f16<float>(res, current));
+}
+
+TEST(FlowannSerialize, NormalizesLegacyRowPaddingForCurrentRoundTrip)
+{
+  raft::resources res;
+  auto legacy = make_legacy_combined_vpq(res, 12);
+  auto bundle = flowann::deserialize_vpq_f16<float>(res, legacy);
+  EXPECT_EQ(bundle.dataset->encoded_row_length(), 8);
+  std::stringstream current(std::ios::in | std::ios::out | std::ios::binary);
+  flowann::serialize(res, current, bundle.index);
+  current.seekg(0);
+  auto restored = flowann::deserialize_vpq_f16<float>(res, current);
+  EXPECT_EQ(restored.dataset->encoded_row_length(), 8);
+  EXPECT_EQ(restored.index.size(), bundle.index.size());
+}
+
+TEST(FlowannSerialize, RejectsUnsupportedLegacyMetrics)
+{
+  raft::resources res;
+  for (auto metric : {cuvs::distance::DistanceType::InnerProduct,
+                      static_cast<cuvs::distance::DistanceType>(999)}) {
+    auto stream = make_legacy_graph(res);
+    // The typed legacy header consists of dtype, version, rows, dimension, degree, metric.
+    stream.seekp(4 + sizeof(int) + 3 * sizeof(std::uint32_t));
+    raft::serialize_scalar(res, stream, metric);
+    stream.seekg(0);
+    flowann::vpq_f16_index<float> index(res);
+    EXPECT_ANY_THROW(flowann::detail::deserialize_legacy_graph(res, stream, &index));
+  }
+}
