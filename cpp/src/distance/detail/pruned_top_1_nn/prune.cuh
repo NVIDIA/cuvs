@@ -10,6 +10,7 @@
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/reduction.cuh>
+#include <raft/util/vectorized.cuh>
 
 #include <cmath>
 #include <cstdint>
@@ -146,7 +147,29 @@ struct first_filter_lists {
 };
 
 /**
- * Distances over one dim tile between the row (`row_tile`, lane l holding dims l + 32 j) and the N
+ * One dim tile of a vector (16-byte aligned) into the warp's registers as floats, in 16-byte loads:
+ * lane l holds dims (32 j + l) * V + [0, V) at tile[j * V + [0, V)], V = 16 / sizeof(T).
+ */
+template <uint32_t Dims, typename T>
+__device__ __forceinline__ void load_tile(const T* __restrict__ values,
+                                          float (&tile)[Dims / kWarpSize])
+{
+  constexpr uint32_t kVec = 16 / sizeof(T);
+  static_assert(Dims % (kWarpSize * kVec) == 0, "a dim tile is whole 16-byte loads per lane");
+  const uint32_t lane = threadIdx.x % kWarpSize;
+#pragma unroll
+  for (uint32_t j = 0; j < Dims / (kWarpSize * kVec); j++) {
+    raft::TxN_t<T, kVec> v;
+    v.load(values, (j * kWarpSize + lane) * kVec);
+#pragma unroll
+    for (uint32_t k = 0; k < kVec; k++) {
+      tile[j * kVec + k] = static_cast<float>(v.val.data[k]);
+    }
+  }
+}
+
+/**
+ * Distances over one dim tile between the row (`row_tile`, laid out by load_tile) and the N
  * survivors at window positions [first, first + N), their ids held one per lane in `ids`; the lane
  * holding each survivor adds its distance to `distance`. The N centroids' loads are issued back to
  * back.
@@ -165,10 +188,12 @@ __device__ __forceinline__ void add_tile_distances(const float (&row_tile)[Dims 
   for (uint32_t i = 0; i < N; i++) {
     const T* centroid =
       centroids + static_cast<int64_t>(__shfl_sync(kFullMask, ids, first + i)) * stride;
+    float centroid_tile[Dims / kWarpSize];
+    load_tile<Dims>(centroid, centroid_tile);
     partial[i] = 0;
 #pragma unroll
     for (uint32_t j = 0; j < Dims / kWarpSize; j++) {
-      const float diff = row_tile[j] - static_cast<float>(centroid[lane + j * kWarpSize]);
+      const float diff = row_tile[j] - centroid_tile[j];
       partial[i]       = fmaf(diff, diff, partial[i]);
     }
   }
@@ -202,21 +227,20 @@ __device__ __forceinline__ int64_t pack_survivor(uint32_t id, float distance)
  *
  * The survivor list stays in the row's region of `lists`, but for its first kWarpSize entries,
  * copied to shared memory; the warp reads it a window of kWarpSize entries at a time, lane l
- * holding entry l, and each re-filter compacts it in place. The launch bounds leave the compiler up
- * to 64 registers, for more centroid loads in flight.
+ * holding entry l, and each re-filter compacts it in place.
  */
 template <typename T>
-RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ rows,
-                                                          const uint32_t* __restrict__ row_order,
-                                                          const T* __restrict__ centroids,
-                                                          uint32_t centroid_offset,
-                                                          uint32_t dim,
-                                                          uint32_t partial_dim,
-                                                          float eps0,
-                                                          first_filter_lists lists,
-                                                          uint32_t* __restrict__ labels,
-                                                          float* __restrict__ dist,
-                                                          uint32_t* __restrict__ survivors)
+RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
+                         const uint32_t* __restrict__ row_order,
+                         const T* __restrict__ centroids,
+                         uint32_t centroid_offset,
+                         uint32_t dim,
+                         uint32_t partial_dim,
+                         float eps0,
+                         first_filter_lists lists,
+                         uint32_t* __restrict__ labels,
+                         float* __restrict__ dist,
+                         uint32_t* __restrict__ survivors)
 {
   __shared__ int64_t head[kWarpSize];
   const uint32_t lane        = threadIdx.x;
@@ -246,10 +270,7 @@ RAFT_KERNEL __launch_bounds__(kWarpSize, 32) prune_kernel(const T* __restrict__ 
     // The re-filter's ratio
     const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, eps0);
     float row_tile[kDimTileSize / kWarpSize];
-#pragma unroll
-    for (uint32_t j = 0; j < kDimTileSize / kWarpSize; j++) {
-      row_tile[j] = static_cast<float>(row_values[d + lane + j * kWarpSize]);
-    }
+    load_tile<kDimTileSize>(row_values + d, row_tile);
     uint32_t kept = 0;
     for (uint32_t base = 0; base < n_left; base += kWarpSize) {
       const uint32_t w    = min(kWarpSize, n_left - base);

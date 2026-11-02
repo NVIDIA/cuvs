@@ -179,16 +179,24 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
 }
 
 /**
- * Updates each row of x to its nearest row of y in L2, starting from its current one. Not exact:
- * from the distance to the current neighbor (the bound), a fused partial GEMM over the first
- * detail::pruned_nn::kDimTileSize dims (FP16) keeps the candidates under the bound times its
- * ratio; the pruning kernel adds the candidates' tail dims a tile at a time, keeping those under
- * the bound times the ratio for the dims so far (see PrunedTop1nnParams::eps0), and takes the
- * closest left if it beats the current neighbor. A neighbor pruned away early can be missed.
+ * Updates each row of x to its nearest row of y in L2, starting from its current one: the pruned
+ * assignment of SuperKMeans (Kuffo, Hepkema, Boncz, "A Super Fast K-means for Indexing Vector
+ * Embeddings", https://arxiv.org/abs/2603.20009). With b a row's squared distance to its current
+ * neighbor and ratio(i) = (i / k) * (1 + eps0 / sqrt(i))^2 (ADSampling's bound, see
+ * PrunedTop1nnParams::eps0):
  *
- * Rows go in batches of kRowBatchSize against batches of kCentroidBatchSize rows of y. The row
- * batches round-robin over the main stream and, with a stream pool on the handle, its first stream,
- * which waits on and is synchronized with the main stream.
+ *  1. a fused FP16 GEMM over the first detail::pruned_nn::kDimTileSize dims keeps the rows of y
+ *     whose partial distance is under b * ratio(kDimTileSize);
+ *  2. the pruning kernel adds the survivors' remaining dims a tile at a time, keeping those under
+ *     b * ratio(dims so far);
+ *  3. the closest survivor over all k dims replaces the current neighbor, and b, if closer.
+ *
+ * Not exact: a neighbor pruned away on a partial distance is missed.
+ *
+ * Rows go in batches of kRowBatchSize against batches of kCentroidBatchSize rows of y, each
+ * centroid batch tightening b for the next. The row batches round-robin over the main stream and,
+ * with a stream pool on the handle, its first stream, which waits on and is synchronized with the
+ * main stream.
  *
  * @param output      in: each row's current neighbor (nearest_idx); out: its nearest neighbor and
  *                    squared distance
