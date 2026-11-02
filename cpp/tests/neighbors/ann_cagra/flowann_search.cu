@@ -443,7 +443,7 @@ TEST(FlowannSearch, RetriesParentsWithoutOverwritingPendingRequests)
   queue.command_words = commands.data_handle();
   queue.released_sequence = released.data_handle();
   for (std::uint32_t mode = 0; mode < 3; ++mode) {
-    check_pending_backpressure<<<1, 1, 0, raft::resource::get_cuda_stream(res)>>>(
+    check_pending_backpressure<<<1, 1, 0, raft::resource::get_cuda_stream(res).get()>>>(
       queue, mode, output.data_handle());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
     std::uint32_t actual[5];
