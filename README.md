@@ -1,4 +1,4 @@
-# <div align="left"><img src="https://rapids.ai/assets/images/rapids_logo.png" width="90px"/>&nbsp;cuVS: Vector Search and Clustering on the GPU</div>
+# cuVS: Vector Search and Clustering on the GPU
 
 
 ## Contents
@@ -15,11 +15,10 @@
 - [Documentation](https://docs.nvidia.com/cuvs): Library documentation.
 - [Build and Install Guide](https://docs.nvidia.com/cuvs/installation): Instructions for installing and building cuVS.
 - [Getting Started Guide](https://docs.nvidia.com/cuvs/getting-started): Guide to getting started with cuVS.
-- [Code Examples](https://github.com/nvidia/cuvs/tree/HEAD/examples): Self-contained Code Examples.
+- [Code Examples](https://github.com/NVIDIA/cuvs/tree/HEAD/examples): Self-contained Code Examples.
 - [API Reference Documentation](https://docs.nvidia.com/cuvs/api_reference): API Documentation.
-- [RAPIDS Community](https://rapids.ai/community.html): Get help, contribute, and collaborate.
-- [GitHub repository](https://github.com/nvidia/cuvs): Download the cuVS source code.
-- [Issue tracker](https://github.com/nvidia/cuvs/issues): Report issues or request features.
+- [GitHub repository](https://github.com/NVIDIA/cuvs): Download the cuVS source code.
+- [Issue tracker](https://github.com/NVIDIA/cuvs/issues): Report issues or request features.
 
 ## What is cuVS?
 
@@ -69,7 +68,7 @@ In addition to the items above, cuVS shoulders the burden of keeping non-trivial
 
 ## cuVS Technology Stack
 
-cuVS is built on top of the RAPIDS RAFT library of high performance machine learning primitives and provides all the necessary routines for vector search and clustering on the GPU.
+cuVS is built on top of the NVIDIA RAFT library of high performance machine learning primitives and provides all the necessary routines for vector search and clustering on the GPU.
 
 ![cuVS is built on top of low-level CUDA libraries and provides many important routines that enable vector search and clustering on the GPU](img/tech_stack.png "cuVS Technology Stack")
 
@@ -82,7 +81,7 @@ cuVS comes with pre-built packages that can be installed through [conda](https:/
 > [!NOTE]
 > If compiled binary size is a concern, please note that the cuVS builds for CUDA 13 are roughly half the size of CUDA 12 builds. This is a result of improved compression rates in the newer supported CUDA drivers. We will be adopting the newer drivers for CUDA 12 builds in Spring of 2026, which will ultimately bring them down to roughly the size of the CUDA 13 builds. In the meantime, the NVIDIA cuVS team is continuing to shave down the binary sizes for all supported CUDA versions. If binary size is an issue for you, please consider linking to cuVS statically either by building from source or using pre-built `libcuvs-static` conda package.
 
-Please see the [Build and Install Guide](https://docs.rapids.ai/api/cuvs/nightly/build/) for more information on installing the available cuVS packages and building from source.
+Please see the [Build and Install Guide](https://docs.nvidia.com/cuvs/installation) for more information on installing the available cuVS packages and building from source.
 
 ### Standalone C library (Docker)
 
@@ -118,7 +117,7 @@ cagra::index_params index_params;
 auto index = cagra::build(res, index_params, dataset);
 ```
 
-For more code examples of the C++ APIs, including drop-in Cmake project templates, please refer to the [C++ examples](https://github.com/nvidia/cuvs/tree/HEAD/examples) directory in the codebase.
+For more code examples of the C++ APIs, including drop-in Cmake project templates, please refer to the [C++ examples](https://github.com/NVIDIA/cuvs/tree/HEAD/examples) directory in the codebase.
 
 ### C API
 
@@ -147,7 +146,7 @@ cuvsCagraIndexParamsDestroy(index_params);
 cuvsResourcesDestroy(res);
 ```
 
-For more code examples of the C APIs, including drop-in Cmake project templates, please refer to the [C examples](https://github.com/nvidia/cuvs/tree/main/examples/c)
+For more code examples of the C APIs, including drop-in Cmake project templates, please refer to the [C examples](https://github.com/NVIDIA/cuvs/tree/main/examples/c)
 
 ### Rust API
 
@@ -194,11 +193,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-For more code examples of the Rust APIs, including a drop-in project templates, please refer to the [Rust examples](https://github.com/nvidia/cuvs/tree/main/examples/rust).
+For more code examples of the Rust APIs, including a drop-in project templates, please refer to the [Rust examples](https://github.com/NVIDIA/cuvs/tree/main/examples/rust).
 
 ## Contributing
 
-If you are interested in contributing to the cuVS library, please read our [Contributing guidelines](docs/source/contributing.md). Refer to the [Developer Guide](docs/source/developer_guide.md) for details on the developer guidelines, workflows, and principles.
+If you are interested in contributing to the cuVS library, please read our [Contributing guidelines](fern/pages/contributing.md). Refer to the [Developer Guide](fern/pages/developer_guide.md) for details on the developer guidelines, workflows, and principles.
 
 ## References
 

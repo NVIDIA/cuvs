@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -9,6 +9,7 @@
 #include "cutlass.cuh"
 
 // The distance operations:
+#include "../distance_ops/bitwise_hamming.cuh"
 #include "../distance_ops/canberra.cuh"
 #include "../distance_ops/correlation.cuh"
 #include "../distance_ops/cosine.cuh"

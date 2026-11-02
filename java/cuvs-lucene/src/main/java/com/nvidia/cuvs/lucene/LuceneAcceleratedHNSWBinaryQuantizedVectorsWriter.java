@@ -15,6 +15,7 @@ import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_I
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_INDEX_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_EXT;
 import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_META_CODEC_NAME;
+import static com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat.HNSW_VERSION;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.closeCuVSResourcesInstance;
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.getCuVSResourcesInstance;
 import static org.apache.lucene.index.VectorEncoding.FLOAT32;
@@ -33,7 +34,6 @@ import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnFieldVectorsWriter;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsFormat;
 import org.apache.lucene.index.DocsWithFieldSet;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.FloatVectorValues;
@@ -63,6 +63,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
   private final FlatVectorsWriter flatVectorsWriter;
   private final List<FieldWriter> fields = new ArrayList<>();
   private final InfoStream infoStream;
+  private final HostInputMemory hostInputMemory;
   private final AcceleratedHNSWParams acceleratedHNSWParams;
   private IndexOutput hnswMeta = null, hnswVectorIndex = null;
   private boolean finished;
@@ -86,6 +87,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
     this.acceleratedHNSWParams = acceleratedHNSWParams;
     this.flatVectorsWriter = flatVectorsWriter;
     this.infoStream = state.infoStream;
+    this.hostInputMemory = new HostInputMemory(infoStream, COMPONENT, state.segmentInfo.name);
 
     vemFileName =
         IndexFileNames.segmentFileName(
@@ -102,13 +104,13 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
       CodecUtil.writeIndexHeader(
           hnswMeta,
           HNSW_META_CODEC_NAME,
-          Lucene99HnswVectorsFormat.VERSION_CURRENT,
+          HNSW_VERSION,
           state.segmentInfo.getId(),
           state.segmentSuffix);
       CodecUtil.writeIndexHeader(
           hnswVectorIndex,
           HNSW_INDEX_CODEC_NAME,
-          Lucene99HnswVectorsFormat.VERSION_CURRENT,
+          HNSW_VERSION,
           state.segmentInfo.getId(),
           state.segmentSuffix);
 
@@ -146,53 +148,58 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * @throws IOException
    */
   private void writeFieldInternal(FieldInfo fieldInfo, List<byte[]> vectors) throws IOException {
-    if (vectors.size() == 0) {
-      writeEmpty(fieldInfo, hnswMeta);
+    int size = vectors.size();
+    if (writeTrivialField(fieldInfo, size)) {
       return;
     }
 
     try {
       int dimensions = fieldInfo.getVectorDimension();
       int bytesPerVector = (dimensions + 7) / 8;
+      hostInputMemory.withMatrix(
+          fieldInfo.name,
+          size,
+          bytesPerVector,
+          CuVSMatrix.DataType.BYTE,
+          builder -> {
+            for (byte[] vector : vectors) {
+              builder.addVector(vector);
+            }
+            writeNonTrivialField(fieldInfo, builder.build());
+          });
+    } catch (Throwable t) {
+      throw Utils.handleThrowable(t);
+    }
+  }
 
-      CuVSMatrix dataset =
-          Utils.createByteMatrix(vectors, bytesPerVector, getCuVSResourcesInstance());
-
-      if (dataset.size() < 2) {
-        writeSingleVectorGraph(fieldInfo, vectors);
-        return;
-      }
-
+  /** Builds and writes an index from an owned binary-vector matrix. */
+  private void writeNonTrivialField(FieldInfo fieldInfo, CuVSMatrix dataset) throws IOException {
+    try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(dataset)) {
+      int size = (int) dataset.size();
+      int dimensions = fieldInfo.getVectorDimension();
       CagraIndexParams params =
           CagraIndexParamsFactory.create(acceleratedHNSWParams, dataset.size(), dataset.columns());
-
       CagraIndex cagraIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
-              .withDataset(dataset)
+              .fromDataset(dataset)
               .withIndexParams(params)
               .build();
+      ownedIndex.transferTo(cagraIndex);
 
       CuVSMatrix adjacencyListMatrix = cagraIndex.getGraph();
-      int size = (int) dataset.size();
-
-      // Create multi-layer HNSW graph from CAGRA
       GPUBuiltHnswGraph hnswGraph =
           createMultiLayerHnswGraph(
-              fieldInfo,
-              size,
               dimensions,
               adjacencyListMatrix,
-              vectors,
+              dataset,
               acceleratedHNSWParams.getHnswLayers(),
               params,
-              QuantizationType.BINARY);
+              QuantizationType.BINARY,
+              acceleratedHNSWParams.getMaxConn());
 
       long vectorIndexOffset = hnswVectorIndex.getFilePointer();
-      // Write the graph to the vector index
       int[][] graphLevelNodeOffsets = writeGraph(hnswGraph, hnswVectorIndex);
       long vectorIndexLength = hnswVectorIndex.getFilePointer() - vectorIndexOffset;
-
-      // Write metadata
       writeMeta(
           hnswVectorIndex,
           hnswMeta,
@@ -201,13 +208,24 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
-
-      cagraIndex.close();
-
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
     } catch (Throwable t) {
-      Utils.handleThrowable(t);
+      throw Utils.handleThrowable(t);
     }
+  }
+
+  /** Writes the empty or one-vector representation, if {@code size} is trivial. */
+  private boolean writeTrivialField(FieldInfo fieldInfo, int size) throws IOException {
+    if (size == 0) {
+      writeEmpty(fieldInfo, hnswMeta, acceleratedHNSWParams.getMaxConn());
+      return true;
+    }
+    if (size == 1) {
+      writeSingleVectorGraph(fieldInfo);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -261,11 +279,9 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    * Builds and writes a single vector graph.
    *
    * @param fieldInfo instance of FieldInfo
-   * @param vectors the list of binary quantized vectors
    * @throws IOException I/O Exceptions
    */
-  private void writeSingleVectorGraph(FieldInfo fieldInfo, List<byte[]> vectors)
-      throws IOException {
+  private void writeSingleVectorGraph(FieldInfo fieldInfo) throws IOException {
     // Workaround for CAGRA not supporting single vector indexes
     try {
       int size = 1;
@@ -290,7 +306,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
           vectorIndexLength,
           size,
           hnswGraph,
-          graphLevelNodeOffsets);
+          graphLevelNodeOffsets,
+          acceleratedHNSWParams.getMaxConn());
 
     } catch (Throwable t) {
       Utils.handleThrowable(t);
@@ -362,7 +379,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
    */
   @Override
   public long ramBytesUsed() {
-    long total = SHALLOW_RAM_BYTES_USED;
+    long total = SHALLOW_RAM_BYTES_USED + hostInputMemory.ramBytesUsed();
     for (var field : fields) {
       total += field.ramBytesUsed();
     }
