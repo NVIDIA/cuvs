@@ -738,3 +738,56 @@ TEST(FlowannSerialize, RoundTripsPaddedDenseRows)
   flowann::serialize(res, reserialized, restored.index);
   EXPECT_EQ(reserialized.str(), stream.str());
 }
+
+TEST(FlowannSerialize, LoadsDenseRowsWithOlderPhysicalPitch)
+{
+  raft::resources res;
+  auto host     = raft::make_host_matrix<float, int64_t>(4, 5);
+  auto physical = raft::make_host_matrix<float, int64_t>(4, 12);
+  std::fill_n(physical.data_handle(), physical.size(), 9.0f);
+  for (int64_t row = 0; row < 4; ++row) {
+    for (int64_t col = 0; col < 5; ++col) {
+      host(row, col) = physical(row, col) = 1.0f + row + col;
+    }
+  }
+  auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host.view());
+  flowann::device_padded_index<float> index(
+    res, cuvs::distance::DistanceType::CosineExpanded, dataset->view(), 2, 2);
+  install_compact_test_graph(res, index);
+  auto offsets = raft::make_host_vector<std::uint32_t, int64_t>(1);
+  auto ids     = raft::make_host_vector<std::uint32_t, int64_t>(4);
+  offsets(0)   = 0;
+  std::fill_n(ids.data_handle(), ids.size(), std::uint32_t{0});
+  index.update_subgraph_layout(
+    res, raft::make_const_mdspan(offsets.view()), raft::make_const_mdspan(ids.view()));
+  std::stringstream stream(std::ios::in | std::ios::out | std::ios::binary);
+  flowann::detail::serialize_common(
+    res, stream, index, flowann::detail::serialized_dataset_kind::dense);
+  raft::serialize_scalar(res, stream, std::uint32_t{12});
+  raft::serialize_mdspan(res, stream, physical.view());
+  stream.seekg(0);
+  auto restored = flowann::deserialize_device_padded<float>(res, stream);
+  auto rows     = restored.dataset->data_view();
+  EXPECT_EQ(rows.extent(1), 5);
+  EXPECT_EQ(rows.stride(0), 8);
+  auto actual = raft::make_host_matrix<float, int64_t>(4, 8);
+  raft::copy(
+    actual.data_handle(), rows.data_handle(), actual.size(), raft::resource::get_cuda_stream(res));
+  float expected_norms[4], actual_norms[4];
+  raft::copy(
+    expected_norms, index.dataset_norms()->data_handle(), 4, raft::resource::get_cuda_stream(res));
+  raft::copy(actual_norms,
+             restored.index.dataset_norms()->data_handle(),
+             4,
+             raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  for (int64_t row = 0; row < 4; ++row) {
+    EXPECT_FLOAT_EQ(actual_norms[row], expected_norms[row]);
+    for (int64_t col = 0; col < 5; ++col) {
+      EXPECT_EQ(actual(row, col), host(row, col));
+    }
+    for (int64_t col = 5; col < 8; ++col) {
+      EXPECT_EQ(actual(row, col), 0.0f);
+    }
+  }
+}
