@@ -10,6 +10,8 @@
 
 #include "kernel.cuh"
 
+#include <neighbors/detail/cagra/hashmap.hpp>
+
 namespace cuvs::neighbors::cagra::experimental::flowann::detail {
 
 inline constexpr std::uint32_t pending_capacity = 512;
@@ -82,5 +84,55 @@ struct graph_state {
   std::uint32_t iteration;
   bool use_seed_cache;
 };
+
+#ifdef __CUDACC__
+/** Submit a complete parent batch or restore its traversal state for retry. */
+template <typename IndexT>
+RAFT_DEVICE_INLINE_FUNCTION void submit_parent_requests(queue_view const& queue,
+                                                        graph_state<IndexT>* state,
+                                                        const IndexT* parent_indices,
+                                                        const IndexT* internal_topk,
+                                                        std::uint32_t search_width,
+                                                        std::uint16_t sync_window,
+                                                        IndexT* traversed_hashmap,
+                                                        std::uint32_t traversed_hash_bitlen)
+{
+  constexpr IndexT index_msb =
+    cuvs::neighbors::cagra::detail::utils::gen_index_msb_1_mask<IndexT>::value;
+  std::uint32_t commands[max_search_width];
+  std::uint32_t command_count = 0;
+  for (std::uint32_t i = 0; i < search_width; ++i) {
+    if (!state->parent_valid[i]) { continue; }
+    commands[command_count++] = static_cast<std::uint32_t>(state->parent_ids[i]);
+  }
+
+  queue_reservation first{};
+  bool reserved = command_count == 0;
+  // One slot is reserved to distinguish a full pending ring from an empty one.
+  // Do not publish commands unless every reservation can be tracked until release.
+  if (command_count <= state->pending.available()) {
+    for (std::uint32_t attempt = 0; attempt < 200 && !reserved; ++attempt) {
+      reserved = try_reserve_deferred(queue, command_count, &first);
+    }
+  }
+  if (command_count > 0 && reserved) {
+    submit_batch(queue, first, commands, command_count);
+    for (std::uint32_t i = 0; i < command_count; ++i) {
+      state->pending.push({commands[i], reservation_at(first, i), sync_window});
+    }
+  } else if (!reserved) {
+    // Parent selection marked these nodes as traversed. Retry their cross rows
+    // after making progress on older requests rather than silently losing edges.
+    for (std::uint32_t i = 0; i < search_width; ++i) {
+      if (!state->parent_valid[i]) { continue; }
+      const_cast<IndexT*>(internal_topk)[parent_indices[i]] &= ~index_msb;
+      if (traversed_hashmap != nullptr) {
+        cuvs::neighbors::cagra::detail::hashmap::remove(
+          traversed_hashmap, traversed_hash_bitlen, state->parent_ids[i]);
+      }
+    }
+  }
+}
+#endif
 
 }  // namespace cuvs::neighbors::cagra::experimental::flowann::detail
