@@ -142,7 +142,7 @@ SPDX-License-Identifier: Apache-2.0
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
+                <version>3.16.0</version>
                 <executions>
                     <execution>
                         <id>default-compile</id>
@@ -177,9 +177,16 @@ SPDX-License-Identifier: Apache-2.0
                 </executions>
             </plugin>
             <plugin>
+                <!-- Keep at 3.5.x: 3.6.0 switches to the JUnit Platform provider, which breaks '-Dtest=Class#method' filtering with the randomizedtesting runner (surefire-junit4 is not published past 3.5.6). -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.6</version>
+            </plugin>
+            <plugin>
+                <!-- Keep at 3.5.x: 3.6.0 switches to the JUnit Platform provider, which breaks '-Dtest=Class#method' filtering with the randomizedtesting runner (surefire-junit4 is not published past 3.5.6). -->
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <version>3.5.2</version>
+                <version>3.5.6</version>
                 <configuration>
                     <forkCount>1</forkCount>
                     <argLine>--enable-native-access=com.nvidia.cuvs</argLine>
@@ -199,7 +206,7 @@ SPDX-License-Identifier: Apache-2.0
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.4.2</version>
+                <version>3.5.1</version>
                 <configuration>
                     <archive>
                         <manifest>
@@ -215,7 +222,7 @@ SPDX-License-Identifier: Apache-2.0
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
-                <version>2.2.1</version>
+                <version>3.4.0</version>
                 <executions>
                     <execution>
                         <id>attach-sources</id>
@@ -232,12 +239,15 @@ SPDX-License-Identifier: Apache-2.0
                 </executions>
                 <configuration>
                     <excludeResources>true</excludeResources>
+                    <archive>
+                        <addMavenDescriptor>false</addMavenDescriptor>
+                    </archive>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
-                <version>3.11.2</version>
+                <version>3.12.0</version>
                 <executions>
                     <execution>
                         <id>attach-javadocs</id>
@@ -280,6 +290,12 @@ SPDX-License-Identifier: Apache-2.0
                         </googleJavaFormat>
                     </java>
                 </configuration>
+            </plugin>
+            <plugin>
+                <!-- Not bound to a phase: pins the version used by 'mvn install:install-file' in java/build.sh. -->
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-install-plugin</artifactId>
+                <version>3.2.0</version>
             </plugin>
         </plugins>
     </build>
@@ -339,7 +355,7 @@ SPDX-License-Identifier: Apache-2.0
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-resources-plugin</artifactId>
-                        <version>3.3.1</version>
+                        <version>3.5.0</version>
                         <executions>
                             <execution>
                                 <id>copy-native-libs</id>
@@ -348,7 +364,7 @@ SPDX-License-Identifier: Apache-2.0
                                     <goal>copy-resources</goal>
                                 </goals>
                                 <configuration>
-                                    <overwrite>true</overwrite>
+                                    <changeDetection>always</changeDetection>
                                     <outputDirectory>${project.build.directory}/native-libs/${os.arch}/${os.name}</outputDirectory>
                                     <resources>
                                         <resource>
@@ -378,7 +394,7 @@ SPDX-License-Identifier: Apache-2.0
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-assembly-plugin</artifactId>
-                        <version>3.4.2</version>
+                        <version>3.8.0</version>
                         <configuration>
                             <descriptors>
                                 <descriptor>src/assembly/native-with-deps.xml</descriptor>
@@ -425,7 +441,7 @@ SPDX-License-Identifier: Apache-2.0
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-resources-plugin</artifactId>
-                        <version>3.3.1</version>
+                        <version>3.5.0</version>
                         <executions>
                             <execution>
                                 <id>copy-native-libs</id>
@@ -434,7 +450,7 @@ SPDX-License-Identifier: Apache-2.0
                                     <goal>copy-resources</goal>
                                 </goals>
                                 <configuration>
-                                    <overwrite>true</overwrite>
+                                    <changeDetection>always</changeDetection>
                                     <outputDirectory>${project.build.directory}/native-libs/${os.arch}/${os.name}</outputDirectory>
                                     <resources>
                                         <resource>
@@ -464,7 +480,7 @@ SPDX-License-Identifier: Apache-2.0
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-assembly-plugin</artifactId>
-                        <version>3.4.2</version>
+                        <version>3.8.0</version>
                         <configuration>
                             <descriptors>
                                 <descriptor>src/assembly/native-with-deps.xml</descriptor>
@@ -511,7 +527,7 @@ SPDX-License-Identifier: Apache-2.0
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-resources-plugin</artifactId>
-                        <version>3.3.1</version>
+                        <version>3.5.0</version>
                         <executions>
                             <execution>
                                 <id>copy-native-libs</id>
@@ -520,7 +536,7 @@ SPDX-License-Identifier: Apache-2.0
                                     <goal>copy-resources</goal>
                                 </goals>
                                 <configuration>
-                                    <overwrite>true</overwrite>
+                                    <changeDetection>always</changeDetection>
                                     <outputDirectory>${project.build.directory}/native-libs/${os.arch}/${os.name}</outputDirectory>
                                     <resources>
                                         <resource>
@@ -550,7 +566,7 @@ SPDX-License-Identifier: Apache-2.0
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-assembly-plugin</artifactId>
-                        <version>3.4.2</version>
+                        <version>3.8.0</version>
                         <configuration>
                             <descriptors>
                                 <descriptor>src/assembly/native-with-deps.xml</descriptor>
@@ -597,7 +613,7 @@ SPDX-License-Identifier: Apache-2.0
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-resources-plugin</artifactId>
-                        <version>3.3.1</version>
+                        <version>3.5.0</version>
                         <executions>
                             <execution>
                                 <id>copy-native-libs</id>
@@ -606,7 +622,7 @@ SPDX-License-Identifier: Apache-2.0
                                     <goal>copy-resources</goal>
                                 </goals>
                                 <configuration>
-                                    <overwrite>true</overwrite>
+                                    <changeDetection>always</changeDetection>
                                     <outputDirectory>${project.build.directory}/native-libs/${os.arch}/${os.name}</outputDirectory>
                                     <resources>
                                         <resource>
@@ -636,7 +652,7 @@ SPDX-License-Identifier: Apache-2.0
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>
                         <artifactId>maven-assembly-plugin</artifactId>
-                        <version>3.4.2</version>
+                        <version>3.8.0</version>
                         <configuration>
                             <descriptors>
                                 <descriptor>src/assembly/native-with-deps.xml</descriptor>

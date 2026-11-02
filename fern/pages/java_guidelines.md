@@ -40,16 +40,20 @@ The Java bindings should call the NVIDIA cuVS C APIs rather than C++ or CUDA imp
 Use `AutoCloseable` for resources, matrices, indexes, temporary native allocations, and native handle wrappers. Examples and tests should use try-with-resources whenever practical:
 
 ```java
-try (CuVSResources resources = CuVSResources.create();
-    CuVSMatrix dataset = loadDatasetMatrix();
-    CagraIndex index =
-        CagraIndex.newBuilder(resources)
-            .withDataset(dataset)
-            .withIndexParams(indexParams)
-            .build()) {
-  SearchResults results = index.search(query);
+try (CuVSResources resources = CuVSResources.create()) {
+  // The index takes ownership of the dataset and closes it.
+  CuVSMatrix dataset = loadDatasetMatrix();
+  try (CagraIndex index =
+      CagraIndex.newBuilder(resources)
+          .fromDataset(dataset)
+          .withIndexParams(indexParams)
+          .build()) {
+    SearchResults results = index.search(query);
+  }
 }
 ```
+
+An object that takes ownership of another, as an index does of the dataset it is built from, closes it, so the caller doesn't close it again.
 
 When an implementation creates a native handle, make the matching destroy call visible in `close()`. Close resources in the reverse order they were acquired, and guard against double-close or use-after-close when an object can outlive a native allocation.
 

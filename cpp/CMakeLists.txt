@@ -1905,8 +1905,6 @@ endif()
 # ##################################################################################################
 # * build test executable ----------------------------------------------------
 
-add_subdirectory(internal)
-
 if(BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)

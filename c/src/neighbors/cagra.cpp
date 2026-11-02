@@ -55,14 +55,8 @@ struct cuvs_cagra_c_api_index_lifetime_holder {
 /** Owns how to delete co-located index storage; `cuvsCagraIndex::addr` points here. */
 struct sg_cagra_c_api_index_box {
   void* index_ptr;
-  enum class dataset_layout : uint8_t {
-    device_padded,
-    device_standard,
-    device_vpq,
-    device_bbq,
-    host_padded,
-    host_standard
-  } layout;
+  using dataset_layout = cuvs::neighbors::cagra::c_api_dataset_layout;
+  dataset_layout layout;
   cuvs::neighbors::c_api::detail::owner_record owner_rec;
 };
 
@@ -178,14 +172,13 @@ static void merge_indices_for_layout(
     auto const final_row_count =
       cuvs::neighbors::cagra::detail::merged_dataset_size<T, uint32_t, DatasetViewT>(
         *res_ptr, index_ptrs, row_filter);
-    auto const dim    = static_cast<uint32_t>(index_ptrs.front()->dim());
-    auto const stride = static_cast<int64_t>(index_ptrs.front()->dataset().stride());
+    auto const dim = static_cast<uint32_t>(index_ptrs.front()->dim());
 
     try {
-      auto matrix = raft::make_device_matrix<T, int64_t>(*res_ptr, final_row_count, stride);
       using owner_t = cuvs::neighbors::owning_dataset_for_view_t<DatasetViewT>;
-      auto owner    = std::make_unique<owner_t>(std::move(matrix), dim);
-      auto view     = owner->as_dataset_view();
+      auto owner    = std::make_unique<owner_t>(
+        cuvs::neighbors::detail::make_dense_array<owner_t>(*res_ptr, final_row_count, dim));
+      auto view     = std::as_const(*owner).view();
       auto merged_idx =
         cuvs::neighbors::cagra::merge(
           *res_ptr, params_cpp, index_ptrs, view, merge_params, row_filter);
@@ -218,8 +211,10 @@ static void merge_indices_for_layout(
       cuvs::neighbors::host_standard_dataset_view<T, int64_t>>;
     using host_owner_t = cuvs::neighbors::owning_dataset_for_view_t<host_view_t>;
 
-    auto matrix = raft::make_host_matrix<T, int64_t>(final_row_count, stride);
-    std::fill_n(matrix.data_handle(), static_cast<std::size_t>(matrix.size()), T{});
+    auto matrix = cuvs::neighbors::detail::make_dense_array<host_owner_t>(
+      *res_ptr, final_row_count, dim);
+    auto const stride = static_cast<int64_t>(matrix.mapping().stride(0));
+    std::fill_n(matrix.data_handle(), matrix.mapping().required_span_size(), T{});
 
     std::size_t row_offset = 0;
     auto stream            = raft::resource::get_cuda_stream(*res_ptr);
@@ -227,8 +222,8 @@ static void merge_indices_for_layout(
       auto const& input = index->dataset();
       raft::copy_matrix(matrix.data_handle() + row_offset * static_cast<std::size_t>(stride),
                         static_cast<std::size_t>(stride),
-                        input.view().data_handle(),
-                        static_cast<std::size_t>(input.stride()),
+                        input.data_const_view().data_handle(),
+                        static_cast<std::size_t>(input.data_const_view().stride(0)),
                         static_cast<std::size_t>(dim),
                         static_cast<std::size_t>(input.n_rows()),
                         stream);
@@ -236,8 +231,8 @@ static void merge_indices_for_layout(
     }
     raft::resource::sync_stream(*res_ptr);
 
-    auto owner      = std::make_unique<host_owner_t>(std::move(matrix), dim);
-    auto view       = owner->as_dataset_view();
+    auto owner      = std::make_unique<host_owner_t>(std::move(matrix));
+    auto view       = std::as_const(*owner).view();
     auto merged_idx = cuvs::neighbors::cagra::build(*res_ptr, params_cpp, view);
     auto* holder =
       new cuvs_cagra_c_api_index_lifetime_holder<T, host_view_t>{std::move(merged_idx)};
@@ -402,7 +397,7 @@ static void with_dataset_view(cuvsDataset_t dataset, Fn&& fn)
   RAFT_EXPECTS(dataset->addr != 0, "null dataset storage");
   if (dataset->is_owning) {
     auto* owner = reinterpret_cast<OwnerT*>(dataset->addr);
-    auto view   = owner->as_dataset_view();
+    auto view   = std::as_const(*owner).view();
     fn(view);
   } else {
     fn(*reinterpret_cast<ViewT*>(dataset->addr));
@@ -1383,7 +1378,7 @@ void get_dataset_view(cuvsCagraIndex_t index, DLManagedTensor* dataset)
         RAFT_FAIL(
           "cuvsCagraIndexGetDataset does not expose quantized datasets as dense DLPack tensors");
       } else {
-        cuvs::core::to_dlpack(idx.dataset().view(), dataset);
+        cuvs::core::to_dlpack(cuvs::neighbors::dense_row_major_view(idx.dataset()), dataset);
       }
     });
 }
@@ -1507,6 +1502,12 @@ void* cagra_c_api_index_ptr(cuvsCagraIndex const* idx)
   // Matches `sg_cagra_c_api_index_box::index_ptr` (first member); keep in sync with that layout.
   if (idx == nullptr || idx->addr == 0) { return nullptr; }
   return *reinterpret_cast<void**>(idx->addr);
+}
+
+c_api_dataset_layout cagra_c_api_index_layout(cuvsCagraIndex const* idx)
+{
+  RAFT_EXPECTS(idx != nullptr && idx->addr != 0, "the CAGRA index handle is empty");
+  return reinterpret_cast<sg_cagra_c_api_index_box*>(idx->addr)->layout;
 }
 }  // namespace cuvs::neighbors::cagra
 
