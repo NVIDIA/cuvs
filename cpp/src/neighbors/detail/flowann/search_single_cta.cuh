@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "graph_state.cuh"
 #include "launcher.hpp"
 #include "queue.cuh"
 
@@ -141,6 +142,15 @@ struct single_cta_plan
         std::max<std::uint32_t>(additional_smem_size, sizeof(typename scan_op_t::TempStorage));
     }
     this->smem_size = base_smem_size + additional_smem_size;
+    // graph_state is declared with __shared__ in the JIT kernel, in addition to
+    // the dynamic workspace passed to the launch API. Include alignment padding.
+    auto const total_smem_size = raft::round_up_safe<std::size_t>(
+                                   sizeof(graph_state<IndexT>), std::size_t{128}) +
+                                 this->smem_size;
+    auto const properties = raft::resource::get_device_properties(res);
+    RAFT_EXPECTS(total_smem_size <= properties.sharedMemPerBlockOptin,
+                 "FlowANN search needs %zu bytes of shared memory, device limit is %zu",
+                 total_smem_size, properties.sharedMemPerBlockOptin);
 
     constexpr std::uint32_t min_block_size       = 64;
     constexpr std::uint32_t min_radix_block_size = 256;
@@ -153,7 +163,7 @@ struct single_cta_plan
         block_size *= 2;
       }
       constexpr std::uint32_t smem_per_warp_limit = 4096;
-      while (block_size<max_block_size&& this->smem_size> smem_per_warp_limit / 32 * block_size) {
+      while (block_size < max_block_size && total_smem_size > smem_per_warp_limit / 32 * block_size) {
         block_size *= 2;
       }
       auto const properties = raft::resource::get_device_properties(res);
@@ -253,7 +263,8 @@ void postprocess_distances(raft::resources const& res,
 
 class context_run_guard {
  public:
-  explicit context_run_guard(search_context& context) : context_(context)
+  explicit context_run_guard(search_context& context, cudaStream_t stream)
+    : context_(context), stream_(stream)
   {
     search_context_access::acquire_search(context_);
   }
@@ -263,6 +274,9 @@ class context_run_guard {
   ~context_run_guard()
   {
     if (active_) {
+      // A failed launch or an exception during a later batch must not stop pollers
+      // while an earlier kernel still waits for its host-serviced requests.
+      RAFT_CUDA_TRY_NO_THROW(cudaStreamSynchronize(stream_));
       try {
         active_ = false;
         search_context_access::release_search(context_);
@@ -279,6 +293,7 @@ class context_run_guard {
 
  private:
   search_context& context_;
+  cudaStream_t stream_;
   bool active_{true};
 };
 
@@ -353,6 +368,8 @@ void search_single_cta(raft::resources const& res,
   auto const seed_lookup_capacity =
     requested_seeds == 0 ? 0u : static_cast<std::uint32_t>(seed_lookup_keys->extent(0));
 
+  if (queries.extent(0) == 0) { return; }
+
   auto device_properties = raft::resource::get_device_properties(res);
   if (params.max_queries == 0) {
     params.max_queries = std::min<std::size_t>(queries.extent(0), device_properties.maxGridSize[1]);
@@ -411,7 +428,7 @@ void search_single_cta(raft::resources const& res,
   auto const num_queries = static_cast<std::uint32_t>(queries.extent(0));
   using kernel_type = search_single_cta_kernel_func_t<data_t, index_t, distance_t, source_index_t>;
 
-  context_run_guard running(context);
+  context_run_guard running(context, stream);
   for (std::uint32_t offset = 0; offset < num_queries;
        offset += static_cast<std::uint32_t>(max_batch_queries)) {
     auto const count =
