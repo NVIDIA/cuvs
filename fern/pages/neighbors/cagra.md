@@ -1463,7 +1463,9 @@ $$
 
 CAGRA can store its graph across GPU and host memory using the FlowANN implementation.
 Enable `CUVS_ENABLE_FLOWANN_SEARCH` and `CUVS_ENABLE_FLOWANN_BUILD` when building cuVS.
-`CUVS_FLOWANN_USE_GDRCOPY` selects GDRCopy or the CUDA-copy transport. These options are
+`CUVS_FLOWANN_USE_GDRCOPY` defaults to `ON`. With FlowANN search enabled, this default
+requires GDRCopy to be installed and discoverable at CMake configuration time. Set
+`-DCUVS_FLOWANN_USE_GDRCOPY=OFF` to select the CUDA-copy transport instead. These options are
 not required for ordinary CAGRA. The public entry points remain CAGRA's `build`, `search`,
 `serialize`, and `deserialize`; there is no separate public FlowANN index type.
 
