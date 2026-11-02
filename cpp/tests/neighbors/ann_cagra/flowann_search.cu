@@ -96,7 +96,7 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
       return cuvs::neighbors::make_device_padded_dataset_view(res, device_dataset.view());
     }
     dataset_owner = cuvs::neighbors::make_device_padded_dataset(res, device_dataset.view());
-    return dataset_owner->as_dataset_view();
+    return dataset_owner->view();
   }();
 
   flowann::device_padded_index<float> index(
