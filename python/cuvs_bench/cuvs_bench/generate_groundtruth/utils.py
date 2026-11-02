@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -8,6 +8,22 @@ import os
 import numpy as np
 
 from cuvs_bench._bin_format import read_bin_header, write_bin_header
+
+
+def add_jitter(
+    queries: np.ndarray,
+    rng: np.random.Generator,
+    normalize: bool,
+) -> np.ndarray:
+    """Add Gaussian jitter to query vectors and optionally re-normalize."""
+    noise_scale = float(np.std(queries)) * 0.1
+    queries = queries + rng.normal(0, noise_scale, queries.shape).astype(
+        np.float32
+    )
+    if normalize:
+        norms = np.linalg.norm(queries, axis=1, keepdims=True)
+        queries = queries / np.maximum(norms, 1e-8)
+    return queries.astype(np.float32)
 
 
 def dtype_from_filename(filename):

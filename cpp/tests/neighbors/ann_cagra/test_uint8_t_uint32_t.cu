@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -28,5 +28,14 @@ INSTANTIATE_TEST_CASE_P(AnnCagraFilterTest,
 INSTANTIATE_TEST_CASE_P(AnnCagraIndexMergeTest,
                         AnnCagraIndexMergeTestU8_U32,
                         ::testing::ValuesIn(inputs));
+
+typedef AnnCagraMultiPartitionTest<float, std::uint8_t, std::uint32_t>
+  AnnCagraMultiPartitionTestU8_U32;
+TEST_P(AnnCagraMultiPartitionTestU8_U32, Search) { this->testSearch(); }
+TEST_P(AnnCagraMultiPartitionTestU8_U32, FilteredSearch) { this->testFilteredSearch(); }
+
+INSTANTIATE_TEST_CASE_P(AnnCagraMultiPartitionTest,
+                        AnnCagraMultiPartitionTestU8_U32,
+                        ::testing::ValuesIn(inputs_mp));
 
 }  // namespace cuvs::neighbors::cagra

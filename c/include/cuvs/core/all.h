@@ -11,6 +11,7 @@
 #include <cuvs/core/c_config.h>
 #include <cuvs/core/export.h>
 #include <cuvs/core/c_api.h>
+#include <cuvs/core/dataset.h>
 
 #include <cuvs/cluster/kmeans.h>
 
@@ -46,3 +47,5 @@
 #include <cuvs/preprocessing/quantize/pq.h>
 #include <cuvs/preprocessing/quantize/rabitq.h>
 #include <cuvs/preprocessing/quantize/scalar.h>
+
+#include <cuvs/selection/select_k.h>

@@ -94,7 +94,7 @@ Defines and stores VPQ codebooks upon training
 template <typename T>
 struct quantizer {
   params params_quantizer;
-  cuvs::neighbors::vpq_dataset<T, int64_t> vpq_codebooks;
+  cuvs::neighbors::device_vpq_dataset<T, int64_t> vpq_codebooks;
 };
 ```
 
@@ -103,7 +103,7 @@ struct quantizer {
 | Name | Type | Description |
 | --- | --- | --- |
 | `params_quantizer` | [`params`](/api-reference/cpp-api-preprocessing-quantize-pq#preprocessing-quantize-pq-params) | Parameters used to build this quantizer. |
-| `vpq_codebooks` | [`cuvs::neighbors::vpq_dataset<T, int64_t>`](/api-reference/cpp-api-neighbors-common#neighbors-vpq-dataset) | VPQ codebooks produced during training. |
+| `vpq_codebooks` | [`cuvs::neighbors::device_vpq_dataset<T, int64_t>`](/api-reference/cpp-api-neighbors-common#neighbors-vpq-dataset) | VPQ codebooks produced during training. |
 
 <a id="preprocessing-quantize-pq-build"></a>
 ### preprocessing::quantize::pq::build

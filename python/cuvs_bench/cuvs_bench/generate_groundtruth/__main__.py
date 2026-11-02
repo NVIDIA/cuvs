@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 import argparse
@@ -10,6 +10,7 @@ import sys
 import warnings
 
 from .utils import (
+    add_jitter,
     groundtruth_neighbors_filename,
     memmap_bin_file,
     offset_neighbor_indices,
@@ -109,6 +110,22 @@ def choose_random_queries(dataset, n_queries):
         dataset.shape[0], size=(n_queries,), replace=False
     )
     return dataset[query_idx, :]
+
+
+def choose_random_queries_with_jitter(dataset, n_queries, seed=12345):
+    """Pick ``n_queries`` random rows from ``dataset`` and add Gaussian jitter
+    at scale ``0.1 * std(sample)``.
+    """
+    import numpy as _np
+
+    print("Choosing random vectors from dataset and jittering with noise")
+    rng = _np.random.default_rng(seed)
+    n_rows = dataset.shape[0]
+    # Sort indices so the memmap read is sequential rather than random-access.
+    query_idx = _np.sort(rng.choice(n_rows, size=n_queries, replace=False))
+    sampled = dataset[query_idx, :].astype(_np.float32, copy=True)
+
+    return add_jitter(sampled, rng, normalize=False)
 
 
 def cpu_search(dataset, queries, k, metric="squeclidean"):
@@ -235,18 +252,22 @@ def main():
         "The input and output files are in big-ann-benchmark's binary format.",
         epilog="""Example usage
     # With existing query file
-    python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
-fbin --output=groundtruth_dir --queries=/dataset/query.public.10K.fbin
+    python -m cuvs_bench.generate_groundtruth /dataset/base.fbin \
+--output=groundtruth_dir --queries=/dataset/query.public.10K.fbin
 
     # With randomly generated queries
-    python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
-fbin --output=groundtruth_dir --queries=random --n_queries=10000
+    python -m cuvs_bench.generate_groundtruth /dataset/base.fbin \
+--output=groundtruth_dir --queries=random --n_queries=10000
 
     # Using only a subset of the dataset. Define queries by randomly
     # selecting vectors from the (subset of the) dataset.
-    python -m cuvs_bench.generate_groundtruth --dataset /dataset/base.\
-fbin --nrows=2000000 --cols=128 --output=groundtruth_dir \
+    python -m cuvs_bench.generate_groundtruth /dataset/base.fbin \
+--rows=2000000 --cols=128 --output=groundtruth_dir \
 --queries=random-choice --n_queries=10000
+
+    # Jittered queries (following the logic of cuvs_bench.synthesize_dataset)
+    python -m cuvs_bench.generate_groundtruth /dataset/base.fbin \
+--output=groundtruth_dir --queries=random-jitter --n_queries=10000
     """,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -256,9 +277,11 @@ fbin --nrows=2000000 --cols=128 --output=groundtruth_dir \
         "--queries",
         type=str,
         default="random",
-        help="Queries file name, or one of 'random-choice' or 'random' "
-        "(default). 'random-choice': select n_queries vectors from the input "
-        "dataset. 'random': generate n_queries as uniform random numbers.",
+        help="Queries file name, or one of 'random-choice', 'random-jitter', "
+        "or 'random' (default). 'random-choice': select n_queries vectors "
+        "from the input dataset. 'random-jitter': same as 'random-choice', "
+        "but add std-relative Gaussian noise to each query. 'random': generate "
+        "n_queries as uniform random numbers.",
     )
     parser.add_argument(
         "--output",
@@ -341,7 +364,7 @@ fbin --nrows=2000000 --cols=128 --output=groundtruth_dir \
     if len(args.output) > 0:
         os.makedirs(args.output, exist_ok=True)
 
-    if args.queries == "random" or args.queries == "random-choice":
+    if args.queries in {"random", "random-choice", "random-jitter"}:
         if args.n_queries is None:
             raise RuntimeError(
                 "n_queries must be given to generate random queries"
@@ -352,9 +375,13 @@ fbin --nrows=2000000 --cols=128 --output=groundtruth_dir \
             )
         elif args.queries == "random-choice":
             queries = choose_random_queries(dataset, args.n_queries)
+        elif args.queries == "random-jitter":
+            queries = choose_random_queries_with_jitter(
+                dataset, args.n_queries
+            )
 
         queries_filename = os.path.join(
-            args.output, "queries" + suffix_from_dtype(dtype)
+            args.output, "queries" + suffix_from_dtype(queries.dtype)
         )
         print("Writing queries file", queries_filename)
         write_bin(queries_filename, queries)

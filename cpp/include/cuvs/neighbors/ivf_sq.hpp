@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include "common.hpp"
 #include <cstdint>
 #include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>

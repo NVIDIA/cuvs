@@ -10,9 +10,11 @@
 extern crate cuvs_sys as ffi;
 
 pub mod cluster;
+mod dataset;
 pub mod distance;
 pub mod dlpack;
 pub mod error;
+mod ffi_utils;
 pub mod neighbors;
 pub mod resources;
 #[cfg(test)]

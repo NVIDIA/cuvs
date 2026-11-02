@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -46,7 +46,7 @@ CUVS_INST_HNSW_BUILD(int8_t);
   std::unique_ptr<index<T>> from_cagra(                                               \
     raft::resources const& res,                                                       \
     const index_params& params,                                                       \
-    const cuvs::neighbors::cagra::index<T, uint32_t>& cagra_index,                    \
+    const cuvs::neighbors::cagra::device_padded_index<T, uint32_t>& cagra_index,      \
     std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset) \
   {                                                                                   \
     return detail::from_cagra<T>(res, params, cagra_index, dataset);                  \
@@ -58,6 +58,57 @@ CUVS_INST_HNSW_FROM_CAGRA(uint8_t);
 CUVS_INST_HNSW_FROM_CAGRA(int8_t);
 
 #undef CUVS_INST_HNSW_FROM_CAGRA
+
+#define CUVS_INST_HNSW_FROM_CAGRA_STANDARD(T)                                         \
+  std::unique_ptr<index<T>> from_cagra(                                               \
+    raft::resources const& res,                                                       \
+    const index_params& params,                                                       \
+    const cuvs::neighbors::cagra::device_standard_index<T, uint32_t>& cagra_index,    \
+    std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset) \
+  {                                                                                   \
+    return detail::from_cagra<T>(res, params, cagra_index, dataset);                  \
+  }
+
+CUVS_INST_HNSW_FROM_CAGRA_STANDARD(float);
+CUVS_INST_HNSW_FROM_CAGRA_STANDARD(half);
+CUVS_INST_HNSW_FROM_CAGRA_STANDARD(uint8_t);
+CUVS_INST_HNSW_FROM_CAGRA_STANDARD(int8_t);
+
+#undef CUVS_INST_HNSW_FROM_CAGRA_STANDARD
+
+#define CUVS_INST_HNSW_FROM_CAGRA_HOST(T)                                             \
+  std::unique_ptr<index<T>> from_cagra(                                               \
+    raft::resources const& res,                                                       \
+    const index_params& params,                                                       \
+    const cuvs::neighbors::cagra::host_padded_index<T, uint32_t>& cagra_index,        \
+    std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset) \
+  {                                                                                   \
+    return detail::from_cagra<T>(res, params, cagra_index, dataset);                  \
+  }
+
+CUVS_INST_HNSW_FROM_CAGRA_HOST(float);
+CUVS_INST_HNSW_FROM_CAGRA_HOST(half);
+CUVS_INST_HNSW_FROM_CAGRA_HOST(uint8_t);
+CUVS_INST_HNSW_FROM_CAGRA_HOST(int8_t);
+
+#undef CUVS_INST_HNSW_FROM_CAGRA_HOST
+
+#define CUVS_INST_HNSW_FROM_CAGRA_HOST_STANDARD(T)                                    \
+  std::unique_ptr<index<T>> from_cagra(                                               \
+    raft::resources const& res,                                                       \
+    const index_params& params,                                                       \
+    const cuvs::neighbors::cagra::host_standard_index<T, uint32_t>& cagra_index,      \
+    std::optional<raft::host_matrix_view<const T, int64_t, raft::row_major>> dataset) \
+  {                                                                                   \
+    return detail::from_cagra<T>(res, params, cagra_index, dataset);                  \
+  }
+
+CUVS_INST_HNSW_FROM_CAGRA_HOST_STANDARD(float);
+CUVS_INST_HNSW_FROM_CAGRA_HOST_STANDARD(half);
+CUVS_INST_HNSW_FROM_CAGRA_HOST_STANDARD(uint8_t);
+CUVS_INST_HNSW_FROM_CAGRA_HOST_STANDARD(int8_t);
+
+#undef CUVS_INST_HNSW_FROM_CAGRA_HOST_STANDARD
 
 #define CUVS_INST_HNSW_EXTEND(T)                                                            \
   void extend(raft::resources const& res,                                                   \

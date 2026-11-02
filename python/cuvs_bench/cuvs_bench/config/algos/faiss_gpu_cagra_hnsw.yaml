@@ -7,6 +7,6 @@ groups:
       graph_degree: [32, 64]
       intermediate_graph_degree: [64, 128]
       cagra_build_algo: ["NN_DESCENT"]
-      base_level_only: [False, True]
+      base_level_only: [false, true]
     search:
       efSearch: [16, 32, 64, 128, 256, 512, 768, 1024]

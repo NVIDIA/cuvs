@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -10,6 +10,7 @@
 
 // neighbors_device_intrinsics / memory_ops come via search_single_cta_device_helpers.cuh
 #include "../hashmap.hpp"
+#include "../multi_partition_desc.hpp"
 #include "../topk_by_radix.cuh"
 #include "../utils.hpp"
 
@@ -51,7 +52,8 @@ template <bool TOPK_BY_BITONIC_SORT,
           typename DataT,
           typename IndexT,
           typename DistanceT,
-          typename SourceIndexT>
+          typename SourceIndexT,
+          typename BitsetT = cagra_bitset<SourceIndexT>>
 RAFT_DEVICE_INLINE_FUNCTION void search_core(
   uintptr_t result_indices_ptr,
   DistanceT* const result_distances_ptr,
@@ -83,6 +85,8 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
 {
   using LOAD_T = device::LOAD_128BIT_T;
 
+  // Maps a graph node id to its source index (for output and filtering). The multi-partition bit
+  // offset is NOT folded in here — it applies only to the bitset test below, not to output indices.
   auto to_source_index = [source_indices_ptr](IndexT x) {
     return source_indices_ptr == nullptr ? static_cast<SourceIndexT>(x) : source_indices_ptr[x];
   };
@@ -640,6 +644,96 @@ __device__ void search_single_cta_p_impl(
       }
     }
   }
+}
+
+// Multi-partition variant of search_kernel_jit. Grid is (1, num_queries, num_partitions); each
+// CTA handles one (query, partition) pair via search_core with that partition's dataset_desc,
+// graph, and graph_degree. Hashmap is partition-major [num_partitions, num_queries, hash_size];
+// result buffers are partition-major [num_partitions, num_queries, top_k].
+template <bool TOPK_BY_BITONIC_SORT,
+          bool BITONIC_SORT_AND_MERGE_MULTI_WARPS,
+          typename DataT,
+          typename IndexT,
+          typename DistanceT,
+          typename SourceIndexT>
+__device__ void search_single_cta_mp_impl(
+  const multi_partition_desc_t<DataT, IndexT, DistanceT>* partitions,
+  const DataT* queries_ptr,
+  IndexT* intermediate_neighbors_ptr,
+  DistanceT* intermediate_distances_ptr,
+  const std::uint32_t top_k,
+  const unsigned num_distilation,
+  const uint64_t rand_xor_mask,
+  const std::uint32_t num_seeds,
+  IndexT* visited_hashmap_ptr,
+  const std::uint32_t max_candidates,
+  const std::uint32_t max_itopk,
+  const std::uint32_t internal_topk,
+  const std::uint32_t search_width,
+  const std::uint32_t min_iteration,
+  const std::uint32_t max_iteration,
+  std::uint32_t* num_executed_iterations,
+  const std::uint32_t hash_bitlen,
+  const std::uint32_t small_hash_bitlen,
+  const std::uint32_t small_hash_reset_interval,
+  const std::uint32_t query_id_offset)
+{
+  const uint32_t query_id = blockIdx.y;
+  const uint32_t part_id  = blockIdx.z;
+  const auto& part        = partitions[part_id];
+
+  // Each partition carries its own bitset (a view into the combined buffer); test it with the plain
+  // bitset sample_filter fragment at partition-local indices.
+  cagra_bitset<SourceIndexT> part_bitset{part.bitset_ptr,
+                                         static_cast<SourceIndexT>(part.bitset_len),
+                                         static_cast<SourceIndexT>(part.original_nbits)};
+  cagra_sample_filter<SourceIndexT> filter_payload{};
+  filter_payload.filter_data = (part.bitset_ptr != nullptr) ? &part_bitset : nullptr;
+
+  IndexT* part_hashmap_ptr = (visited_hashmap_ptr != nullptr)
+                               ? visited_hashmap_ptr + part_id * static_cast<size_t>(gridDim.y) *
+                                                         hashmap::get_size(hash_bitlen)
+                               : nullptr;
+
+  const size_t partition_offset    = static_cast<size_t>(part_id) * gridDim.y * top_k;
+  IndexT* part_result_indices      = intermediate_neighbors_ptr + partition_offset;
+  DistanceT* part_result_distances = intermediate_distances_ptr + partition_offset;
+
+  constexpr uintptr_t kTag           = raft::Pow2<sizeof(IndexT)>::Log2;
+  const uintptr_t tagged_indices_ptr = reinterpret_cast<uintptr_t>(part_result_indices) | kTag;
+
+  search_core<TOPK_BY_BITONIC_SORT,
+              BITONIC_SORT_AND_MERGE_MULTI_WARPS,
+              DataT,
+              IndexT,
+              DistanceT,
+              SourceIndexT>(tagged_indices_ptr,
+                            part_result_distances,
+                            top_k,
+                            queries_ptr,
+                            part.graph,
+                            part.graph_degree,
+                            static_cast<const SourceIndexT*>(nullptr),
+                            num_distilation,
+                            rand_xor_mask,
+                            static_cast<const IndexT*>(nullptr),
+                            num_seeds,
+                            part_hashmap_ptr,
+                            max_candidates,
+                            max_itopk,
+                            internal_topk,
+                            search_width,
+                            min_iteration,
+                            max_iteration,
+                            num_executed_iterations,
+                            hash_bitlen,
+                            small_hash_bitlen,
+                            small_hash_reset_interval,
+                            query_id,
+                            query_id_offset,
+                            part.dataset_desc,
+                            filter_payload,
+                            /*graph_size=*/IndexT{0});
 }
 
 }  // namespace cuvs::neighbors::cagra::detail::single_cta_search

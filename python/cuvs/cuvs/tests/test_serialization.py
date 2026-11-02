@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -6,8 +6,12 @@ import numpy as np
 import pytest
 from pylibraft.common import device_ndarray
 
+from cuvs.common import make_device_padded_dataset
 from cuvs.neighbors import brute_force, cagra, ivf_flat, ivf_pq
-from cuvs.tests.ann_utils import calc_recall, generate_data
+from cuvs.tests.ann_utils import (
+    calc_recall,
+    generate_data,
+)
 
 
 @pytest.mark.parametrize("dtype", [np.float32, np.int8, np.ubyte])
@@ -15,9 +19,9 @@ def test_save_load_ivf_flat(dtype):
     run_save_load(ivf_flat, dtype)
 
 
-@pytest.mark.parametrize("dtype", [np.float32, np.int8, np.ubyte])
-def test_save_load_cagra(dtype):
-    run_save_load(cagra, dtype)
+@pytest.mark.parametrize("dtype", [np.float32, np.float16, np.int8, np.ubyte])
+def test_save_load_cagra(dtype, tmp_path):
+    run_save_load(cagra, dtype, tmp_path / "cagra-index.bin")
 
 
 def test_save_load_ivf_pq():
@@ -28,7 +32,7 @@ def test_save_load_brute_force():
     run_save_load(brute_force, np.float32)
 
 
-def run_save_load(ann_module, dtype):
+def run_save_load(ann_module, dtype, filename="my_index.bin"):
     n_rows = 10000
     n_cols = 50
     n_queries = 1000
@@ -43,9 +47,18 @@ def run_save_load(ann_module, dtype):
         index = ann_module.build(build_params, dataset_device)
 
     assert index.trained
-    filename = "my_index.bin"
+    filename = str(filename)
     ann_module.save(filename, index)
-    loaded_index = ann_module.load(filename)
+    if ann_module == cagra:
+        loaded_index = ann_module.Index()
+        out_dataset = ann_module.Dataset()
+        ann_module.load(
+            loaded_index,
+            filename,
+            out_dataset=out_dataset,
+        )
+    else:
+        loaded_index = ann_module.load(filename)
 
     queries = generate_data((n_queries, n_cols), dtype)
 
@@ -91,3 +104,65 @@ def run_save_load(ann_module, dtype):
     if not all_match:
         recall = calc_recall(neighbors, neighbors2)
         assert recall >= 0.998
+
+
+def test_cagra_graph_only_serialization(tmp_path):
+    n_rows = 2048
+    n_cols = 32
+    dataset = generate_data((n_rows, n_cols), np.float32)
+    dataset_device = device_ndarray(dataset)
+    index = cagra.build(cagra.IndexParams(), dataset_device)
+
+    graph_path = tmp_path / "cagra-graph.bin"
+    cagra.save(str(graph_path), index, include_dataset=False)
+
+    loaded = cagra.Index()
+    cagra.load(loaded, str(graph_path))
+
+    missing_dataset_index = cagra.Index()
+    missing_dataset_owner = cagra.Dataset()
+    with pytest.raises(Exception, match="no dataset"):
+        cagra.load(
+            missing_dataset_index,
+            str(graph_path),
+            out_dataset=missing_dataset_owner,
+        )
+
+    padded_dataset = make_device_padded_dataset(dataset)
+    cagra.update_dataset(loaded, padded_dataset)
+    queries = device_ndarray(generate_data((64, n_cols), np.float32))
+    search_params = cagra.SearchParams()
+    original_distances, original_neighbors = cagra.search(
+        search_params, index, queries, 10
+    )
+    loaded_distances, loaded_neighbors = cagra.search(
+        search_params, loaded, queries, 10
+    )
+    assert np.allclose(
+        original_distances.copy_to_host(),
+        loaded_distances.copy_to_host(),
+    )
+    assert np.array_equal(
+        original_neighbors.copy_to_host(),
+        loaded_neighbors.copy_to_host(),
+    )
+
+
+def test_cagra_deserialize_output_must_be_empty(tmp_path):
+    dataset = device_ndarray(generate_data((2048, 32), np.float32))
+    index = cagra.build(cagra.IndexParams(), dataset)
+    path = tmp_path / "cagra-full.bin"
+    cagra.save(str(path), index, include_dataset=True)
+    output = cagra.Dataset()
+    first_loaded = cagra.Index()
+    cagra.load(first_loaded, str(path), out_dataset=output)
+
+    assert output.memory_type == "device"
+    assert output.layout == "padded"
+    second_loaded = cagra.Index()
+    with pytest.raises(Exception, match="must be null"):
+        cagra.load(second_loaded, str(path), out_dataset=output)
+
+    # Destroying the index and its separately owned dataset are independent.
+    del first_loaded
+    del output

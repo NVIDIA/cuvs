@@ -56,6 +56,24 @@ mvn integration-test -Dit.test=com.nvidia.cuvs.CagraBuildAndSearchIT#testFloatIn
 It is also possible to ask the test runner to run a specific test or suite multiple
 times, by passing `-Dtests.iters=10` through the command line.
 
+## Filter bitset device pool
+
+Multi-partition filters are uploaded lazily and share a process-lifetime device resource. By
+default, filter allocations use a growable RMM pool with a 4 MiB initial reservation. Applications
+can customize the initial size by setting:
+
+```sh
+java -Dcom.nvidia.cuvs.filterBitsetPoolSize=536870912 ...
+```
+
+Set the property before the first filter bitset is uploaded. The value is rounded up to RMM's
+256-byte alignment requirement. It is an initial reservation rather than a memory cap, and the pool
+can grow as needed. Setting the property to `0` explicitly disables pooling and keeps the default
+workspace resource. An invalid or negative value produces a warning and uses the 4 MiB default.
+
+This process-wide setting is independent of any host-side filter cache and is distinct from
+`com.nvidia.cuvs.workspacePoolSize`, which configures per-query search workspace pools.
+
 ## Examples
 
 A few starter examples of CAGRA, HNSW, and Bruteforce indexing and searching are provided in the `examples` directory.

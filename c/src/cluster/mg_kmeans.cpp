@@ -199,7 +199,7 @@ void dispatch_fit(cuvsResources_t res,
 }  // namespace
 
 extern "C" cuvsError_t cuvsMultiGpuKMeansFit(cuvsResources_t res,
-                                             cuvsKMeansParams_v2_t params,
+                                             cuvsKMeansParams_t params,
                                              DLManagedTensor* X,
                                              DLManagedTensor* sample_weight,
                                              DLManagedTensor* centroids,

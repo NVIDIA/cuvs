@@ -1,5 +1,5 @@
 {
-  "filter_name": ["none", "bitset"],
+  "filter_name": ["none", "bitset", "bloom_filter"],
   "_bitset": [
     {
       "bitset_type": "uint32_t",

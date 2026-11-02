@@ -10,7 +10,7 @@ groups:
       cagra_build_algo: ["NN_DESCENT"]
     search:
       itopk: [32, 64, 128, 256, 512, 768, 1024]
-      search_width: [1 ,2 ,4 ,8, 16, 32]
+      search_width: [1, 2, 4, 8, 16, 32]
       max_iterations: [16, 20, 24, 28, 32, 64, 128]
   test:
     build:

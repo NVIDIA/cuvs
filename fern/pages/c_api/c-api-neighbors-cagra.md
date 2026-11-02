@@ -334,7 +334,14 @@ cuvsError_t cuvsCagraExtendParamsDestroy(cuvsCagraExtendParams_t params);
 <a id="cuvscagraextend"></a>
 ### cuvsCagraExtend
 
-Extend a CAGRA index with a `DLManagedTensor` which has underlying `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`, or `kDLCPU`. Also, acceptable underlying types are:
+Extend a CAGRA index using a caller-owned pre-concatenated device-padded
+dataset view. The caller must build `extended_dataset` as `old || new`
+before calling. Rows `[0, new_start_row)` are the original vectors; rows
+`[new_start_row, n_rows)` are the additional vectors. `new_start_row`
+must equal the current index size. The library only extends the graph
+and rebinds the index to `extended_dataset`.
+
+Acceptable underlying types are:
 
 1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
 2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`
@@ -344,7 +351,8 @@ Extend a CAGRA index with a `DLManagedTensor` which has underlying `DLDeviceType
 ```c
 cuvsError_t cuvsCagraExtend(cuvsResources_t res,
 cuvsCagraExtendParams_t params,
-DLManagedTensor* additional_dataset,
+cuvsDataset_t extended_dataset,
+int64_t new_start_row,
 cuvsCagraIndex_t index);
 ```
 
@@ -354,7 +362,8 @@ cuvsCagraIndex_t index);
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
 | `params` | in | [`cuvsCagraExtendParams_t`](/api-reference/c-api-neighbors-cagra#cuvscagraextendparams) | cuvsCagraExtendParams_t used to extend CAGRA index |
-| `additional_dataset` | in | `DLManagedTensor*` | DLManagedTensor* additional dataset |
+| `extended_dataset` | in | `cuvsDataset_t` | Caller-owned device-padded dataset already containing old \|\| new |
+| `new_start_row` | in | `int64_t` | Row index where the additional vectors begin |
 | `index` | in,out | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | cuvsCagraIndex_t CAGRA index |
 
 **Returns**
@@ -664,17 +673,20 @@ Note that the DLManagedTensor graph returned will have an associated 'deleter' f
 <a id="cuvscagrabuild"></a>
 ### cuvsCagraBuild
 
-Build a CAGRA index with a `DLManagedTensor` which has underlying `DLDeviceType` equal to `kDLCUDA`, `kDLCUDAHost`, `kDLCUDAManaged`, or `kDLCPU`. Also, acceptable underlying types are:
+Build a CAGRA index from a dataset view handle. Acceptable underlying types are:
 
 1. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
 2. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`
 3. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`
 4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`
 
+The memory space and layout `dataset` was constructed with select the C++ build overload. Build the
+handle with the matching type-specific view factory; memory residency is inferred from the tensor.
+
 ```c
 cuvsError_t cuvsCagraBuild(cuvsResources_t res,
 cuvsCagraIndexParams_t params,
-DLManagedTensor* dataset,
+cuvsDataset_t dataset,
 cuvsCagraIndex_t index);
 ```
 
@@ -684,7 +696,7 @@ cuvsCagraIndex_t index);
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
 | `params` | in | [`cuvsCagraIndexParams_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindexparams) | cuvsCagraIndexParams_t used to build CAGRA index |
-| `dataset` | in | `DLManagedTensor*` | DLManagedTensor* training dataset |
+| `dataset` | in | `cuvsDataset_t` | Training dataset or dataset view |
 | `index` | inout | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | cuvsCagraIndex_t Newly built CAGRA index. This index needs to be already created with cuvsCagraIndexCreate. |
 
 **Returns**
@@ -730,16 +742,15 @@ cuvsFilter filter);
 
 ## CAGRA C-API serialize functions
 
-<a id="cuvscagraserialize"></a>
-### cuvsCagraSerialize
+<a id="cuvscagraserializegraph"></a>
+### cuvsCagraSerializeGraph
 
-Save the index to file.
+Save the CAGRA graph to file without its dataset.
 
 ```c
-cuvsError_t cuvsCagraSerialize(cuvsResources_t res,
+cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
 const char* filename,
-cuvsCagraIndex_t index,
-bool include_dataset);
+cuvsCagraIndex_t index);
 ```
 
 Experimental, both the API and the serialization format are subject to change.
@@ -749,9 +760,31 @@ Experimental, both the API and the serialization format are subject to change.
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
-| `filename` | in | `const char*` | the file name for saving the index |
+| `filename` | in | `const char*` | the file name for saving the graph |
 | `index` | in | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | CAGRA index |
-| `include_dataset` | in | `bool` | Whether or not to write out the dataset to the file. |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvscagraserializegraphanddataset"></a>
+### cuvsCagraSerializeGraphAndDataset
+
+Save the CAGRA graph and its attached host or device dataset to file. Returns an error without modifying the destination file if no dataset is attached.
+
+```c
+cuvsError_t cuvsCagraSerializeGraphAndDataset(cuvsResources_t res,
+const char* filename,
+cuvsCagraIndex_t index);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+| `filename` | in | `const char*` | the file name for saving the graph and dataset |
+| `index` | in | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | CAGRA index with an attached dataset |
 
 **Returns**
 
@@ -784,16 +817,14 @@ Experimental, both the API and the serialization format are subject to change.
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-<a id="cuvscagradeserialize"></a>
-### cuvsCagraDeserialize
+<a id="cuvscagradeserializegraph"></a>
+### cuvsCagraDeserializeGraph
 
-Load index from file.
+Load the graph from either serialized file form without retaining its dataset.
 
 ```c
-cuvsError_t cuvsCagraDeserialize(cuvsResources_t res, const char* filename, cuvsCagraIndex_t index);
+cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res, const char* filename, cuvsCagraIndex_t index);
 ```
-
-Experimental, both the API and the serialization format are subject to change.
 
 **Parameters**
 
@@ -801,7 +832,38 @@ Experimental, both the API and the serialization format are subject to change.
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
 | `filename` | in | `const char*` | the name of the file that stores the index |
-| `index` | inout | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | cuvsCagraIndex_t CAGRA index loaded from disk. This index needs to be already created with cuvsCagraIndexCreate. |
+| `index` | inout | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | Pre-created CAGRA index populated on success and unchanged on failure |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvscagradeserializegraphanddataset"></a>
+### cuvsCagraDeserializeGraphAndDataset
+
+Load the graph and dataset. The function allocates an owning dataset that preserves the
+serialized host/device memory type and standard/padded layout. The caller must keep it alive while
+the index uses its non-owning view and destroy it separately. Only a device-padded result is
+immediately searchable through the C API; attach a caller-owned device-padded view with
+`cuvsCagraUpdateDataset` for any other kind.
+
+```c
+cuvsError_t cuvsCagraDeserializeGraphAndDataset(cuvsResources_t res,
+const char* filename,
+cuvsCagraIndex_t index,
+cuvsDataset_t* out_dataset);
+```
+
+Returns an error when the file has no dataset or the output pointer does not point to a null handle. The index and output remain unchanged on failure.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuvsResources_t opaque C handle |
+| `filename` | in | `const char*` | the name of the file that stores the graph and dataset |
+| `index` | inout | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | Pre-created CAGRA index populated on success and unchanged on failure |
+| `out_dataset` | out | [`cuvsDataset_t`](/api-reference/c-api-core-dataset#cuvsdataset-t) | Receives the allocated owning dataset handle; must point to null on entry |
 
 **Returns**
 
@@ -847,6 +909,7 @@ cuvsCagraIndexParams_t params,
 cuvsCagraIndex_t* indices,
 size_t num_indices,
 cuvsFilter filter,
+cuvsDataset_t merged_dataset,
 cuvsCagraIndex_t output_index);
 ```
 
@@ -870,6 +933,7 @@ Example:
 | `indices` | in | [`cuvsCagraIndex_t*`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | Array of input cuvsCagraIndex_t handles to merge |
 | `num_indices` | in | `size_t` | Number of input indices |
 | `filter` | in | [`cuvsFilter`](/api-reference/c-api-neighbors-common#cuvsfilter) | Filter that can be used to filter out vectors from the merged index |
+| `merged_dataset` | out | `cuvsDataset_t` | Empty owning dataset handle. Merge allocates and populates its device storage using the input index layout. Keep it alive while using the output index. |
 | `output_index` | out | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | Output handle that will store the merged index. Must be initialized using `cuvsCagraIndexCreate` before use. |
 
 **Returns**

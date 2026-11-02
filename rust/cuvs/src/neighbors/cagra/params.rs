@@ -22,99 +22,6 @@ use crate::error::check_cuvs;
 
 use super::{CagraError, GraphBuildAlgo, HashMode, SearchAlgo};
 
-// ---------------------------------------------------------------------------
-// CompressionParams
-// ---------------------------------------------------------------------------
-
-/// VPQ (Vector-Product Quantization) compression parameters.
-///
-/// Attach to [`IndexParams`] to enable compressed dataset storage.
-pub struct CompressionParams {
-    handle: ffi::cuvsCagraCompressionParams_t,
-}
-
-#[bon]
-impl CompressionParams {
-    #[builder]
-    pub fn new(
-        pq_bits: Option<u32>,
-        pq_dim: Option<u32>,
-        vq_n_centers: Option<u32>,
-        kmeans_n_iters: Option<u32>,
-        vq_kmeans_trainset_fraction: Option<f64>,
-        pq_kmeans_trainset_fraction: Option<f64>,
-    ) -> Result<Self, CagraError> {
-        if let Some(bits) = pq_bits
-            && !(4..=16).contains(&bits)
-        {
-            return Err(CagraError::Validation(format!(
-                "pq_bits must be within [4, 16], got {bits}"
-            )));
-        }
-        for (name, fraction) in [
-            ("vq_kmeans_trainset_fraction", vq_kmeans_trainset_fraction),
-            ("pq_kmeans_trainset_fraction", pq_kmeans_trainset_fraction),
-        ] {
-            if let Some(value) = fraction
-                && !(0.0..=1.0).contains(&value)
-            {
-                return Err(CagraError::Validation(format!(
-                    "{name} must be in [0, 1], got {value}"
-                )));
-            }
-        }
-
-        let params = Self::create_handle()?;
-        unsafe {
-            if let Some(v) = pq_bits {
-                (*params.handle).pq_bits = v;
-            }
-            if let Some(v) = pq_dim {
-                (*params.handle).pq_dim = v;
-            }
-            if let Some(v) = vq_n_centers {
-                (*params.handle).vq_n_centers = v;
-            }
-            if let Some(v) = kmeans_n_iters {
-                (*params.handle).kmeans_n_iters = v;
-            }
-            if let Some(v) = vq_kmeans_trainset_fraction {
-                (*params.handle).vq_kmeans_trainset_fraction = v;
-            }
-            if let Some(v) = pq_kmeans_trainset_fraction {
-                (*params.handle).pq_kmeans_trainset_fraction = v;
-            }
-        }
-
-        Ok(params)
-    }
-}
-
-impl CompressionParams {
-    /// Allocate parameters populated with the library defaults.
-    fn create_handle() -> Result<Self, CagraError> {
-        let mut handle = ptr::null_mut();
-        check_cuvs(unsafe { ffi::cuvsCagraCompressionParamsCreate(&mut handle) })?;
-        Ok(Self { handle })
-    }
-
-    fn handle(&self) -> ffi::cuvsCagraCompressionParams_t {
-        self.handle
-    }
-}
-
-impl fmt::Debug for CompressionParams {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_tuple("CompressionParams").field(unsafe { &*self.handle }).finish()
-    }
-}
-
-impl Drop for CompressionParams {
-    fn drop(&mut self) {
-        let _ = unsafe { ffi::cuvsCagraCompressionParamsDestroy(self.handle) };
-    }
-}
-
 #[derive(Debug)]
 enum RequestedGraphBuild {
     Auto,
@@ -144,7 +51,6 @@ pub struct IndexParams {
     // Saved so Drop can restore the C-owned default IVF-PQ params before the C
     // destructor runs; other graph strategies temporarily replace it with null.
     default_graph_build_params: *mut c_void,
-    compression: Option<CompressionParams>,
 }
 
 #[bon]
@@ -154,13 +60,11 @@ impl IndexParams {
         metric: Option<DistanceType>,
         intermediate_graph_degree: Option<usize>,
         graph_degree: Option<usize>,
-        compression: Option<CompressionParams>,
         #[builder(setters(vis = "", some_fn = graph_build_internal))] graph_build: Option<
             RequestedGraphBuild,
         >,
     ) -> Result<Self, CagraError> {
         let mut params = Self::create_handle()?;
-        let effective_metric = metric.unwrap_or_else(|| unsafe { (*params.handle).metric.into() });
         let effective_intermediate_degree = intermediate_graph_degree
             .unwrap_or_else(|| unsafe { (*params.handle).intermediate_graph_degree });
         let effective_graph_degree =
@@ -180,12 +84,6 @@ impl IndexParams {
             return Err(CagraError::Validation("nn_descent_niter must be > 0".into()));
         }
 
-        if compression.is_some() && effective_metric != DistanceType::L2Expanded {
-            return Err(CagraError::Validation(
-                "VPQ compression is only supported with L2Expanded distance metric".into(),
-            ));
-        }
-
         unsafe {
             if let Some(v) = metric {
                 (*params.handle).metric = v.into();
@@ -196,11 +94,6 @@ impl IndexParams {
             if let Some(v) = graph_degree {
                 (*params.handle).graph_degree = v;
             }
-        }
-
-        if let Some(compression) = compression {
-            unsafe { (*params.handle).compression = compression.handle() };
-            params.compression = Some(compression);
         }
 
         params.apply_graph_build(graph_build);
@@ -263,7 +156,7 @@ impl IndexParams {
         let mut handle = ptr::null_mut();
         check_cuvs(unsafe { ffi::cuvsCagraIndexParamsCreate(&mut handle) })?;
         let default_graph_build_params = unsafe { (*handle).graph_build_params };
-        Ok(Self { handle, default_graph_build_params, compression: None })
+        Ok(Self { handle, default_graph_build_params })
     }
 
     pub(super) fn handle(&self) -> ffi::cuvsCagraIndexParams_t {
@@ -343,6 +236,7 @@ impl SearchParams {
         max_iterations: Option<usize>,
         algo: Option<SearchAlgo>,
         team_size: Option<usize>,
+        search_width: Option<usize>,
         min_iterations: Option<usize>,
         thread_block_size: Option<usize>,
         hashmap_mode: Option<HashMode>,
@@ -350,6 +244,9 @@ impl SearchParams {
         hashmap_max_fill_rate: Option<f32>,
         num_random_samplings: Option<u32>,
         rand_xor_mask: Option<u64>,
+        persistent: Option<bool>,
+        persistent_lifetime: Option<f32>,
+        persistent_device_usage: Option<f32>,
     ) -> Result<Self, CagraError> {
         let params = Self::create_handle()?;
 
@@ -367,10 +264,10 @@ impl SearchParams {
         }
 
         if let Some(n) = team_size
-            && !matches!(n, 0 | 8 | 16 | 32)
+            && !matches!(n, 0 | 4 | 8 | 16 | 32)
         {
             return Err(CagraError::Validation(format!(
-                "team_size must be 0 (auto), 8, 16, or 32, got {n}"
+                "team_size must be 0 (auto), 4, 8, 16, or 32, got {n}"
             )));
         }
 
@@ -383,18 +280,35 @@ impl SearchParams {
         }
 
         if let Some(bitlen) = hashmap_min_bitlen
-            && bitlen > 20
+            && bitlen != 0
+            && !(9..=20).contains(&bitlen)
         {
             return Err(CagraError::Validation(format!(
-                "hashmap_min_bitlen must be <= 20, got {bitlen}"
+                "hashmap_min_bitlen must be 0 (auto) or in [9, 20], got {bitlen}"
             )));
         }
 
         if let Some(rate) = hashmap_max_fill_rate
-            && !(0.1..0.9).contains(&rate)
+            && (!rate.is_finite() || rate <= 0.1 || rate >= 0.9)
         {
             return Err(CagraError::Validation(format!(
-                "hashmap_max_fill_rate must be in [0.1, 0.9), got {rate}"
+                "hashmap_max_fill_rate must be in (0.1, 0.9), got {rate}"
+            )));
+        }
+
+        if let Some(n) = num_random_samplings
+            && n == 0
+        {
+            return Err(CagraError::Validation(
+                "num_random_samplings must be greater than 0".to_string(),
+            ));
+        }
+
+        if let Some(usage) = persistent_device_usage
+            && (!usage.is_finite() || usage <= 0.0 || usage > 1.0)
+        {
+            return Err(CagraError::Validation(format!(
+                "persistent_device_usage must be in (0, 1], got {usage}"
             )));
         }
 
@@ -420,6 +334,9 @@ impl SearchParams {
             if let Some(v) = team_size {
                 (*params.handle).team_size = v;
             }
+            if let Some(v) = search_width {
+                (*params.handle).search_width = v;
+            }
             if let Some(v) = min_iterations {
                 (*params.handle).min_iterations = v;
             }
@@ -440,6 +357,15 @@ impl SearchParams {
             }
             if let Some(v) = rand_xor_mask {
                 (*params.handle).rand_xor_mask = v;
+            }
+            if let Some(v) = persistent {
+                (*params.handle).persistent = v;
+            }
+            if let Some(v) = persistent_lifetime {
+                (*params.handle).persistent_lifetime = v;
+            }
+            if let Some(v) = persistent_device_usage {
+                (*params.handle).persistent_device_usage = v;
             }
         }
 
@@ -547,31 +473,6 @@ mod tests {
     }
 
     #[test]
-    fn index_params_rejects_non_l2_metric_with_compression() {
-        let compression = CompressionParams::builder().pq_bits(8).build().unwrap();
-        let err = IndexParams::builder()
-            .metric(DistanceType::InnerProduct)
-            .compression(compression)
-            .build()
-            .unwrap_err();
-        assert!(err.to_string().contains("VPQ compression is only supported with L2Expanded"));
-    }
-
-    #[test]
-    fn index_params_with_compression() {
-        let params = IndexParams::builder()
-            .compression(CompressionParams::builder().pq_bits(4).pq_dim(8).build().unwrap())
-            .build()
-            .unwrap();
-        unsafe {
-            let c = (*params.handle).compression;
-            assert!(!c.is_null());
-            assert_eq!((*c).pq_bits, 4);
-            assert_eq!((*c).pq_dim, 8);
-        }
-    }
-
-    #[test]
     fn index_params_selects_default_graph_build_strategies() {
         let ace_params = IndexParams::builder().ace().build().unwrap();
         unsafe {
@@ -587,30 +488,6 @@ mod tests {
     }
 
     #[test]
-    fn compression_params_rejects_pq_bits_below_range() {
-        let err = CompressionParams::builder().pq_bits(3).build().unwrap_err();
-        assert!(err.to_string().contains("pq_bits"));
-    }
-
-    #[test]
-    fn compression_params_validate_training_fractions() {
-        CompressionParams::builder()
-            .vq_kmeans_trainset_fraction(0.0)
-            .pq_kmeans_trainset_fraction(1.0)
-            .build()
-            .unwrap();
-
-        assert!(matches!(
-            CompressionParams::builder().vq_kmeans_trainset_fraction(-0.1).build(),
-            Err(CagraError::Validation(_))
-        ));
-        assert!(matches!(
-            CompressionParams::builder().pq_kmeans_trainset_fraction(1.1).build(),
-            Err(CagraError::Validation(_))
-        ));
-    }
-
-    #[test]
     fn search_params_all_defaults() {
         let params = SearchParams::builder().build().unwrap();
         unsafe {
@@ -621,8 +498,33 @@ mod tests {
 
     #[test]
     fn search_params_rejects_invalid_team_size() {
-        let err = SearchParams::builder().team_size(4).build().unwrap_err();
+        let err = SearchParams::builder().team_size(2).build().unwrap_err();
         assert!(err.to_string().contains("team_size must be"));
+    }
+
+    #[test]
+    fn search_params_sets_latest_fields() {
+        let params = SearchParams::builder()
+            .team_size(4)
+            .search_width(2)
+            .hashmap_min_bitlen(9)
+            .hashmap_max_fill_rate(0.5)
+            .num_random_samplings(2)
+            .persistent(true)
+            .persistent_lifetime(1.5)
+            .persistent_device_usage(0.8)
+            .build()
+            .unwrap();
+
+        unsafe {
+            assert_eq!((*params.handle).team_size, 4);
+            assert_eq!((*params.handle).search_width, 2);
+            assert_eq!((*params.handle).hashmap_min_bitlen, 9);
+            assert_eq!((*params.handle).num_random_samplings, 2);
+            assert!((*params.handle).persistent);
+            assert_eq!((*params.handle).persistent_lifetime, 1.5);
+            assert_eq!((*params.handle).persistent_device_usage, 0.8);
+        }
     }
 
     #[test]

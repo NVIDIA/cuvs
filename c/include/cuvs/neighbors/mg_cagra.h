@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -153,6 +153,31 @@ CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraBuild(cuvsResources_t res,
                                    cuvsMultiGpuCagraIndexParams_t params,
                                    DLManagedTensor* dataset_tensor,
                                    cuvsMultiGpuCagraIndex_t index);
+
+/**
+ * @}
+ */
+
+/**
+ * @defgroup mg_cagra_c_index_update Multi-GPU CAGRA index dataset update
+ * @{
+ */
+
+/**
+ * @brief Update a Multi-GPU CAGRA index with a device-padded dataset.
+ *
+ * Standard indexes are converted to device-padded indexes. Existing device-padded indexes are
+ * updated in place with the same layout.
+ *
+ * @param[in] res cuvsResources_t opaque C handle
+ * @param[in] device_padded_dataset caller-owned device-padded dataset view
+ * @param[in,out] index Multi-GPU CAGRA index
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsMultiGpuCagraUpdateDataset(
+  cuvsResources_t res,
+  cuvsDataset_t device_padded_dataset,
+  cuvsMultiGpuCagraIndex_t index);
 
 /**
  * @}

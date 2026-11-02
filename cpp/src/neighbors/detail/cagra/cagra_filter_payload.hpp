@@ -8,6 +8,7 @@
 #include "../sample_filter_data.cuh"
 #include "jit_lto_kernels/cagra_filter_payload.cuh"
 
+#include <cuvs/core/bloom_filter.hpp>
 #include <raft/core/error.hpp>
 
 #include <cuda_runtime_api.h>
@@ -40,7 +41,7 @@ std::uint64_t cagra_payload_hash(PayloadT const& payload)
 template <typename PayloadT>
 struct cagra_device_payload_owner {
   struct state {
-    PayloadT host_payload{};
+    PayloadT host_payload;
     PayloadT* device_payload{nullptr};
     cudaStream_t stream{};
     cudaEvent_t ready_event{};
@@ -140,6 +141,12 @@ struct is_bitset_filter<::cuvs::neighbors::filtering::bitset_filter<bitset_t, in
   : std::true_type {};
 
 template <typename T>
+struct is_bloom_filter : std::false_type {};
+
+template <>
+struct is_bloom_filter<::cuvs::neighbors::filtering::bloom_filter> : std::true_type {};
+
+template <typename T>
 struct is_udf_filter : std::false_type {};
 
 template <>
@@ -154,6 +161,16 @@ template <typename SourceIndexT, typename FilterT>
     const_cast<std::uint32_t*>(bitset_view.data()),
     static_cast<SourceIndexT>(bitset_view.size()),
     static_cast<SourceIndexT>(bitset_view.get_original_nbits())};
+}
+
+template <typename FilterT>
+::cuvs::neighbors::detail::bloom_filter_data_t<std::uint32_t> make_cagra_bloom_filter_storage(
+  const FilterT& filter)
+{
+  RAFT_EXPECTS(filter.filter_data != nullptr,
+               "bloom_filter requires a cuvs::core::bloom_filter object.");
+  auto const* bloom_filter_obj = static_cast<const ::cuvs::core::bloom_filter*>(filter.filter_data);
+  return ::cuvs::neighbors::detail::bloom_filter_factory::make(*bloom_filter_obj);
 }
 
 template <typename PayloadT>
@@ -177,6 +194,8 @@ void fill_cagra_sample_filter(cagra_sample_filter<SourceIndexT>& out,
   using DecayedFilter = std::decay_t<FilterT>;
   if constexpr (is_bitset_filter<DecayedFilter>::value) {
     out.filter_data = make_cagra_bitset_filter_payload<SourceIndexT>(filter, stream);
+  } else if constexpr (is_bloom_filter<DecayedFilter>::value) {
+    out.filter_data = get_cagra_device_payload(make_cagra_bloom_filter_storage(filter), stream);
   } else if constexpr (is_udf_filter<DecayedFilter>::value) {
     out.filter_data = filter.filter_data;
   }
@@ -188,6 +207,8 @@ std::uint64_t cagra_filter_payload_hash(const FilterT& filter)
   using DecayedFilter = std::decay_t<FilterT>;
   if constexpr (is_bitset_filter<DecayedFilter>::value) {
     return cagra_payload_hash(make_cagra_bitset_filter_storage<SourceIndexT>(filter));
+  } else if constexpr (is_bloom_filter<DecayedFilter>::value) {
+    return cagra_payload_hash(make_cagra_bloom_filter_storage(filter));
   } else if constexpr (requires { filter.filter; }) {
     return cagra_filter_payload_hash<SourceIndexT>(filter.filter);
   } else {
@@ -199,7 +220,7 @@ template <typename FilterT>
 void* cagra_filter_data_ptr(const FilterT& filter)
 {
   using DecayedFilter = std::decay_t<FilterT>;
-  if constexpr (is_udf_filter<DecayedFilter>::value) {
+  if constexpr (is_bloom_filter<DecayedFilter>::value || is_udf_filter<DecayedFilter>::value) {
     return filter.filter_data;
   } else if constexpr (requires { filter.filter; }) {
     return cagra_filter_data_ptr(filter.filter);

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -63,6 +63,8 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
     CagraIndex index =
         CagraIndex.newBuilder(resources).withDataset(dataset).withIndexParams(indexParams).build();
 
+    // hnswlib search runs on the host, so a host-built index serializes straight from its own
+    // host-resident vectors without a detour through device-padded storage.
     // Saving the HNSW index on to the disk.
     String hnswIndexFileName = UUID.randomUUID() + ".hnsw";
     var hnswIndexPath = Path.of(hnswIndexFileName);
@@ -73,7 +75,10 @@ public class HnswBuildAndSearchIT extends CuVSTestCase {
 
       // Use NONE hierarchy since serializeToHNSW creates a base-layer-only index
       HnswIndexParams hnswIndexParams =
-          new HnswIndexParams.Builder().withVectorDimension(2).withHierarchy(HnswHierarchy.NONE).build();
+          new HnswIndexParams.Builder()
+              .withVectorDimension(2)
+              .withHierarchy(HnswHierarchy.NONE)
+              .build();
       try (var inputStreamHNSW = Files.newInputStream(hnswIndexPath)) {
         var hnswIndex =
             HnswIndex.newBuilder(resources)
