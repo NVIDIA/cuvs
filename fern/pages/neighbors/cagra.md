@@ -1539,3 +1539,18 @@ Tiered storage does not expose a device adjacency matrix through `graph()`. Data
 extension, merge, multi-partition search, and GPU persistent search are unsupported and report
 errors. Ordinary device graph storage retains the existing defaults and behavior. Rebuild consumers
 against the updated headers: the C/C++ parameter and index layouts have changed.
+
+
+## Migrating existing C++ applications
+
+The FlowANN integration changes the C++ layouts of `cuvs::neighbors::cagra::index`,
+`index_params`, and `search_params`. This also applies when FlowANN is disabled at build time.
+Rebuild applications and any libraries that pass or instantiate these types, using headers
+from the same cuVS version as the linked library. Do not combine previously compiled CAGRA
+objects with the new library. Ordinary device-graph searches keep their existing defaults;
+leave `search_params::tiered` unset for those indexes.
+
+A tiered index stores device and host edges separately. Check `index::graph_storage()` before
+calling `index::graph()`, which throws for tiered indexes. Use the tiered search and persistence
+APIs for that representation. The C++ layout change does not by itself require a C ABI SONAME
+change; the C API follows its separate ABI policy.

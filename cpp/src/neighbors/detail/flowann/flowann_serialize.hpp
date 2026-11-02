@@ -103,6 +103,31 @@ inline void validate_matrix_size(std::uint64_t rows,
     component);
 }
 
+// File and string streams can reject impossible payloads before allocating. A non-seekable
+// stream retains its original state and falls back to the ordinary checked read path.
+inline void validate_remaining_payload(std::istream& is,
+                                       std::uint64_t count,
+                                       std::size_t element_size,
+                                       char const* component)
+{
+  auto const state    = is.rdstate();
+  auto const position = is.tellg();
+  if (position == std::istream::pos_type(-1)) {
+    is.clear(state);
+    return;
+  }
+  is.seekg(0, std::ios::end);
+  auto const end = is.tellg();
+  is.clear(state);
+  is.seekg(position);
+  RAFT_EXPECTS(static_cast<bool>(is), "FlowANN cannot restore the %s stream position", component);
+  if (end == std::istream::pos_type(-1)) { return; }
+  RAFT_EXPECTS(end >= position && element_size > 0 &&
+                 count <= static_cast<std::uint64_t>(end - position) / element_size,
+               "FlowANN %s payload is truncated",
+               component);
+}
+
 inline auto is_legacy_f16_dtype(raft::numpy_serializer::dtype_t dtype) -> bool
 {
   // RAFT historically serialized CUDA half as kind 'e'. NumPy uses kind 'f' for float16.
@@ -132,6 +157,7 @@ auto read_host_matrix(std::istream& is,
                "FlowANN legacy %s shape exceeds int64",
                component);
 
+  validate_remaining_payload(is, expected_rows * expected_cols, sizeof(T), component);
   auto result      = raft::make_host_matrix<T, int64_t>(static_cast<int64_t>(expected_rows),
                                                    static_cast<int64_t>(expected_cols));
   auto const bytes = result.size() * sizeof(T);
@@ -157,6 +183,7 @@ auto read_host_vector(std::istream& is, std::uint64_t expected_size, char const*
                "FlowANN %s shape exceeds int64",
                component);
 
+  validate_remaining_payload(is, expected_size, sizeof(T), component);
   auto result = raft::make_host_vector<T, int64_t>(static_cast<int64_t>(expected_size));
   RAFT_EXPECTS(static_cast<bool>(
                  is.read(reinterpret_cast<char*>(result.data_handle()), result.size() * sizeof(T))),
@@ -385,6 +412,7 @@ inline auto read_host_f16_bits(std::istream& is,
                "FlowANN legacy %s shape exceeds int64",
                component);
 
+  validate_remaining_payload(is, expected_rows * expected_cols, sizeof(std::uint16_t), component);
   auto result = raft::make_host_matrix<std::uint16_t, int64_t>(static_cast<int64_t>(expected_rows),
                                                                static_cast<int64_t>(expected_cols));
   auto const bytes = result.size() * sizeof(std::uint16_t);
@@ -446,6 +474,7 @@ auto deserialize_legacy_graph_body(raft::resources const& res,
   RAFT_EXPECTS(inner_rows <= static_cast<std::uint64_t>(std::numeric_limits<int64_t>::max()) &&
                  inner_cols <= static_cast<std::uint64_t>(std::numeric_limits<int64_t>::max()),
                "FlowANN legacy inner graph shape exceeds int64");
+  validate_remaining_payload(is, inner_rows * inner_cols, sizeof(std::uint8_t), "inner graph");
   auto inner_graph = raft::make_host_matrix<std::uint8_t, int64_t>(
     static_cast<int64_t>(inner_rows), static_cast<int64_t>(inner_cols));
   RAFT_EXPECTS(static_cast<bool>(is.read(reinterpret_cast<char*>(inner_graph.data_handle()),
@@ -746,6 +775,8 @@ auto deserialize_device_padded(raft::resources const& res, std::istream& is)
   auto const stride = raft::deserialize_scalar<std::uint32_t>(res, is);
   RAFT_EXPECTS(stride >= graph.dim, "FlowANN dense dataset stride is smaller than its dimension");
   detail::validate_matrix_size(graph.n_rows, stride, sizeof(T), "dense dataset");
+  detail::validate_remaining_payload(
+    is, static_cast<std::uint64_t>(graph.n_rows) * stride, sizeof(T), "dense dataset");
   auto owned =
     cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
       res, graph.n_rows, graph.dim);
@@ -842,10 +873,13 @@ auto deserialize_vpq_f16(raft::resources const& res, std::istream& is)
   detail::validate_matrix_size(pq_n_centers, pq_len, sizeof(half), "PQ codebook");
   detail::validate_matrix_size(graph.n_rows, row_length, sizeof(std::uint8_t), "VPQ codes");
 
+  detail::validate_remaining_payload(
+    is, static_cast<std::uint64_t>(vq_n_centers) * graph.dim, sizeof(half), "VQ codebook");
   auto vq_code_book = raft::make_device_matrix<half, std::uint32_t>(res, vq_n_centers, graph.dim);
-  auto pq_code_book = raft::make_device_matrix<half, std::uint32_t>(res, pq_n_centers, pq_len);
-  auto encoded = raft::make_device_matrix<std::uint8_t, int64_t>(res, graph.n_rows, row_length);
   raft::deserialize_mdspan(res, is, vq_code_book.view());
+  detail::validate_remaining_payload(
+    is, static_cast<std::uint64_t>(pq_n_centers) * pq_len, sizeof(half), "PQ codebook");
+  auto pq_code_book = raft::make_device_matrix<half, std::uint32_t>(res, pq_n_centers, pq_len);
   raft::deserialize_mdspan(res, is, pq_code_book.view());
   auto host_encoded =
     detail::read_host_matrix<std::uint8_t>(is, graph.n_rows, row_length, "VPQ codes");
@@ -856,6 +890,7 @@ auto deserialize_vpq_f16(raft::resources const& res, std::istream& is)
                 sizeof(vq_label));
     RAFT_EXPECTS(vq_label < vq_n_centers, "FlowANN VPQ row %u has an out-of-range VQ label", row);
   }
+  auto encoded = raft::make_device_matrix<std::uint8_t, int64_t>(res, graph.n_rows, row_length);
   raft::copy(encoded.data_handle(),
              host_encoded.data_handle(),
              host_encoded.size(),

@@ -123,6 +123,12 @@ set_target_properties(
              VISIBILITY_INLINES_HIDDEN ON
 )
 
+if(CUVSC_STATIC_CUVS_LIBRARY AND CUVS_ENABLE_FLOWANN_SEARCH AND CUVS_FLOWANN_USE_GDRCOPY)
+  # This shared library carries the GDRCopy dependency when cuvs itself is linked statically.
+  set_property(TARGET cuvs_c APPEND PROPERTY INSTALL_RPATH
+               "${CUVS_FLOWANN_GDRCOPY_INSTALL_RPATH}")
+endif()
+
 # Setup the VERSION and SOVERSION of our library
 #
 # Long term goal is that every release that breaks the C ABI will update `cuvs_abi_version` allowing
