@@ -89,13 +89,14 @@ struct multi_cta_plan
       sizeof(IndexT) * cuvs::neighbors::cagra::detail::hashmap::get_size(this->small_hash_bitlen) +
       sizeof(IndexT) + sizeof(int);
 
-    auto const total_smem_size = raft::round_up_safe<std::size_t>(
-                                   sizeof(graph_state<IndexT>), std::size_t{128}) +
-                                 this->smem_size;
+    auto const total_smem_size =
+      raft::round_up_safe<std::size_t>(sizeof(graph_state<IndexT>), std::size_t{128}) +
+      this->smem_size;
     auto const properties = raft::resource::get_device_properties(res);
     RAFT_EXPECTS(total_smem_size <= properties.sharedMemPerBlockOptin,
                  "FlowANN search needs %zu bytes of shared memory, device limit is %zu",
-                 total_smem_size, properties.sharedMemPerBlockOptin);
+                 total_smem_size,
+                 properties.sharedMemPerBlockOptin);
 
     constexpr std::uint32_t min_block_size = 64;
     constexpr std::uint32_t max_block_size = 1024;
@@ -103,7 +104,8 @@ struct multi_cta_plan
     if (block_size == 0) {
       block_size                                  = min_block_size;
       constexpr std::uint32_t smem_per_warp_limit = 4096;
-      while (block_size < max_block_size && total_smem_size > smem_per_warp_limit / 32 * block_size) {
+      while (block_size < max_block_size &&
+             total_smem_size > smem_per_warp_limit / 32 * block_size) {
         block_size *= 2;
       }
       auto const properties = raft::resource::get_device_properties(res);
@@ -396,7 +398,7 @@ void search_dispatch(raft::resources const& res,
       std::max<std::uint64_t>(32ull + 3ull * index.graph_degree(), params.num_seeds) <= 256;
     algo = params.itopk_size <= 512 &&
                (!multi_cta_fits || effective_max_queries >=
-                                    static_cast<std::size_t>(properties.multiProcessorCount) * 2)
+                                     static_cast<std::size_t>(properties.multiProcessorCount) * 2)
              ? cuvs::neighbors::cagra::search_algo::SINGLE_CTA
              : cuvs::neighbors::cagra::search_algo::MULTI_CTA;
   }

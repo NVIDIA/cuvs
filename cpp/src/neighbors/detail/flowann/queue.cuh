@@ -218,18 +218,23 @@ RAFT_DEVICE_INLINE_FUNCTION void submit(queue_view queue,
   submit_batch(queue, reservation, &row_id, 1);
 }
 
-RAFT_DEVICE_INLINE_FUNCTION auto result_ready(queue_view const& queue, queue_reservation reservation)
-  -> bool
+RAFT_DEVICE_INLINE_FUNCTION auto result_ready(queue_view const& queue,
+                                              queue_reservation reservation) -> bool
 {
-  if (load_published_counter(&queue.result_sequence[reservation.slot]) == reservation.sequence + 1) {
+  if (load_published_counter(&queue.result_sequence[reservation.slot]) ==
+      reservation.sequence + 1) {
     return true;
   }
   if (queue.abort_flag == nullptr) { return false; }
   auto const now = clock64();
+  if (queue.next_abort_check == 0) {
+    queue.next_abort_check = now + (1ull << 24);
+    return false;
+  }
   if (now < queue.next_abort_check) { return false; }
   // Read the host-written emergency signal at a bounded interval. Ordinary completion
   // stays in device memory; continuously loading mapped host memory stalls queue traffic.
-  queue.next_abort_check = now + (1ull << 20);
+  queue.next_abort_check = now + (1ull << 24);
   cuda::atomic_ref<std::uint32_t, cuda::thread_scope_system> aborted(
     *const_cast<std::uint32_t*>(queue.abort_flag));
   return aborted.load(cuda::memory_order_acquire) != 0;
