@@ -1,6 +1,10 @@
 on:
   workflow_call:
     inputs:
+      matrix_type:
+        default: "auto"
+        required: false
+        type: string
       build_type:
         description: "One of: [branch, nightly, pull-request]"
         required: true
@@ -55,6 +59,7 @@ jobs:
     with:
       build_type: ${{ inputs.build_type }}
       matrix_name: conda-cpp-build
+      matrix_type: ${{ inputs.matrix_type }}
       matrix_filter: 'map(. + {GPU: (if .ARCH == "amd64" then "rtxpro6000" else "l4" end), DRIVER: "latest"}) | ${{ inputs.matrix_filter }}'
   run:
     name: ${{ matrix.CUDA_VER }}, ${{ matrix.PY_VER }}, ${{ matrix.ARCH }}, ${{ matrix.LINUX_VER }}${{ inputs.node_type == '' && format(', {0}, {1}-driver', matrix.GPU, matrix.DRIVER) || '' }}

@@ -256,7 +256,7 @@ struct dataset<bbq_dataset_container, DataT, IdxT, Accessor> {
   std::vector<owning_storage_type> quantizers;
 
   dataset(owning_storage_type&& quantizer) noexcept { add_quantizer(std::move(quantizer)); }
-  [[nodiscard]] auto as_dataset_view() const noexcept
+  [[nodiscard]] auto view() const noexcept
     -> dataset_view<bbq_dataset_container,
                     DataT,
                     IdxT,

@@ -72,7 +72,7 @@ public class HnswExample {
       // Create the index with the dataset
       CagraIndex index =
           CagraIndex.newBuilder(resources)
-              .withDataset(vectors)
+              .fromDataset(vectors)
               .withIndexParams(indexParams)
               .build();
 
