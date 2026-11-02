@@ -350,6 +350,34 @@ Standard K-Means minimizes inertia. It can produce uneven cluster sizes if the d
 
 Balanced K-Means encourages more even cluster sizes. It is useful when clusters will be used as partitions for later work and very large clusters would create load imbalance. In NVIDIA cuVS, balanced K-Means is exposed through `balanced_params` in C++ and through `hierarchical=True` in C and Python.
 
+### Accessing the balanced training hierarchy in C++
+
+The balanced `fit` and `fit_predict` functions accept optional outputs for the coarse centroids and the original parent cluster of each fine cluster, using caller-allocated device buffers:
+
+```cpp
+// X is a device_matrix_view<const float, int64_t> with shape [N, D].
+// K = 9 gives M = round(sqrt(K)) = 3 parent clusters.
+auto centroids = raft::make_device_matrix<float, int64_t>(res, 9, X.extent(1));
+auto parent_centroids = raft::make_device_matrix<float, int64_t>(res, 3, X.extent(1));
+auto centroid_to_parent = raft::make_device_vector<uint32_t, int64_t>(res, 9);
+kmeans::balanced_params params;
+kmeans::fit(res, params, X, centroids.view(), std::nullopt, parent_centroids.view(), centroid_to_parent.view());
+```
+
+For `K` fine clusters, `parent_centroids` has shape `[M, D]`, where `M = min(K, floor(sqrt(K) + 0.5))`, and `centroid_to_parent` has length `K`. Packed binary input uses the expanded feature dimension for both centroid arrays. `centroid_to_parent[j]` identifies the parent cluster under which fine cluster `j` was originally trained.
+
+Either output can be requested independently by passing `std::nullopt` for the other. In both `fit` and `fit_predict`, the optional inertia argument precedes these outputs. Inertia is computed for float input, matching the existing balanced `fit` support. Existing source calls remain valid, but C++ callers must rebuild because the function signatures have changed.
+
+These outputs describe the **training hierarchy before global refinement**. Refinement still updates the fine centroids and can move points across the original coarse boundaries. It does not update the returned coarse centroids or parent mapping. Prediction continues to use all final fine centroids, without restricting assignments by parent. To request the same hierarchy with labels, use `fit_predict(res, params, X, centroids.view(), labels.view(), std::nullopt, parent_centroids.view(), centroid_to_parent.view())`.
+
+For balanced `fit_predict` with float input, request inertia without hierarchy outputs as follows:
+
+```cpp
+float inertia;
+kmeans::fit_predict(res, params, X, centroids.view(), labels.view(),
+                    raft::make_host_scalar_view(&inertia));
+```
+
 ## Configuration parameters
 
 ### Fit parameters

@@ -654,12 +654,17 @@ void fit(raft::resources const& handle,
  *                              [dim = n_clusters x n_features]
  * @param[out]    inertia       Sum of squared distances of samples to their
  *                              closest cluster center.
+ * @param[out] parent_centroids Optional coarse training centroids [M, F].
+ * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
  */
-void fit(const raft::resources& handle,
-         cuvs::cluster::kmeans::balanced_params const& params,
-         raft::device_matrix_view<const float, int64_t> X,
-         raft::device_matrix_view<float, int64_t> centroids,
-         std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+void fit(
+  const raft::resources& handle,
+  cuvs::cluster::kmeans::balanced_params const& params,
+  raft::device_matrix_view<const float, int64_t> X,
+  raft::device_matrix_view<float, int64_t> centroids,
+  std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+  std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+  std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 
 /**
  * @brief Find balanced clusters with k-means algorithm.
@@ -691,12 +696,17 @@ void fit(const raft::resources& handle,
  *                              [dim = n_clusters x n_features]
  * @param[out]    inertia       Sum of squared distances of samples to their
  *                              closest cluster center.
+ * @param[out] parent_centroids Optional coarse training centroids [M, F].
+ * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
  */
-void fit(const raft::resources& handle,
-         cuvs::cluster::kmeans::balanced_params const& params,
-         raft::device_matrix_view<const int8_t, int64_t> X,
-         raft::device_matrix_view<float, int64_t> centroids,
-         std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+void fit(
+  const raft::resources& handle,
+  cuvs::cluster::kmeans::balanced_params const& params,
+  raft::device_matrix_view<const int8_t, int64_t> X,
+  raft::device_matrix_view<float, int64_t> centroids,
+  std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+  std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+  std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 
 /**
  * @brief Find balanced clusters with k-means algorithm.
@@ -728,12 +738,17 @@ void fit(const raft::resources& handle,
  *                              [dim = n_clusters x n_features]
  * @param[out]    inertia       Sum of squared distances of samples to their
  *                              closest cluster center.
+ * @param[out] parent_centroids Optional coarse training centroids [M, F].
+ * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
  */
-void fit(const raft::resources& handle,
-         cuvs::cluster::kmeans::balanced_params const& params,
-         raft::device_matrix_view<const half, int64_t> X,
-         raft::device_matrix_view<float, int64_t> centroids,
-         std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+void fit(
+  const raft::resources& handle,
+  cuvs::cluster::kmeans::balanced_params const& params,
+  raft::device_matrix_view<const half, int64_t> X,
+  raft::device_matrix_view<float, int64_t> centroids,
+  std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+  std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+  std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 
 /**
  * @brief Find balanced clusters with k-means algorithm.
@@ -771,12 +786,17 @@ void fit(const raft::resources& handle,
  *                              [dim = n_clusters x n_features]
  * @param[out]    inertia       Sum of squared distances of samples to their
  *                              closest cluster center.
+ * @param[out] parent_centroids Optional coarse training centroids [M, F].
+ * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
  */
-void fit(const raft::resources& handle,
-         cuvs::cluster::kmeans::balanced_params const& params,
-         raft::device_matrix_view<const uint8_t, int64_t> X,
-         raft::device_matrix_view<float, int64_t> centroids,
-         std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+void fit(
+  const raft::resources& handle,
+  cuvs::cluster::kmeans::balanced_params const& params,
+  raft::device_matrix_view<const uint8_t, int64_t> X,
+  raft::device_matrix_view<float, int64_t> centroids,
+  std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+  std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+  std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 
 /**
  * @brief Predict the closest cluster each sample in X belongs to.
@@ -1546,12 +1566,19 @@ void fit_predict(raft::resources const& handle,
  * @param[out]    labels        Index of the cluster each sample in X belongs
  *                              to.
  *                              [len = n_samples]
+ * @param[out] inertia Optional sum of squared distances (float input only).
+ * @param[out] parent_centroids Optional coarse training centroids [M, F].
+ * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
  */
-void fit_predict(const raft::resources& handle,
-                 cuvs::cluster::kmeans::balanced_params const& params,
-                 raft::device_matrix_view<const float, int64_t> X,
-                 raft::device_matrix_view<float, int64_t> centroids,
-                 raft::device_vector_view<uint32_t, int64_t> labels);
+void fit_predict(
+  const raft::resources& handle,
+  cuvs::cluster::kmeans::balanced_params const& params,
+  raft::device_matrix_view<const float, int64_t> X,
+  raft::device_matrix_view<float, int64_t> centroids,
+  raft::device_vector_view<uint32_t, int64_t> labels,
+  std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+  std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+  std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 
 /**
  * @brief Compute balanced k-means clustering and predicts cluster index for each sample
@@ -1590,12 +1617,19 @@ void fit_predict(const raft::resources& handle,
  * @param[out]    labels        Index of the cluster each sample in X belongs
  *                              to.
  *                              [len = n_samples]
+ * @param[out] inertia Optional sum of squared distances (float input only).
+ * @param[out] parent_centroids Optional coarse training centroids [M, F].
+ * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
  */
-void fit_predict(const raft::resources& handle,
-                 cuvs::cluster::kmeans::balanced_params const& params,
-                 raft::device_matrix_view<const int8_t, int64_t> X,
-                 raft::device_matrix_view<float, int64_t> centroids,
-                 raft::device_vector_view<uint32_t, int64_t> labels);
+void fit_predict(
+  const raft::resources& handle,
+  cuvs::cluster::kmeans::balanced_params const& params,
+  raft::device_matrix_view<const int8_t, int64_t> X,
+  raft::device_matrix_view<float, int64_t> centroids,
+  raft::device_vector_view<uint32_t, int64_t> labels,
+  std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+  std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+  std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 
 /**
  * @brief Transform X to a cluster-distance space.

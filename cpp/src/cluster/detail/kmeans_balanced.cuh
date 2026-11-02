@@ -1276,7 +1276,7 @@ void build_clusters(const raft::resources& handle,
                      device_memory);
 }
 
-/** Calculate how many fine clusters should belong to each mesocluster. */
+/** Calculate how many fine clusters should belong to each parent cluster. */
 template <typename IdxT, typename CounterT>
 inline auto arrange_fine_clusters(IdxT n_clusters,
                                   IdxT n_mesoclusters,
@@ -1301,7 +1301,7 @@ inline auto arrange_fine_clusters(IdxT n_clusters,
       // Although the algorithm is meant to produce balanced clusters, when something
       // goes wrong, we may get empty clusters (e.g. during development/debugging).
       // The code below ensures a proportional arrangement of fine cluster numbers
-      // per mesocluster, even if some clusters are empty.
+      // per parent cluster, even if some clusters are empty.
       if (mesocluster_sizes[i] == 0) {
         fine_clusters_nums[i] = 0;
       } else {
@@ -1338,11 +1338,11 @@ inline auto arrange_fine_clusters(IdxT n_clusters,
 }
 
 /**
- *  Given the (coarse) mesoclusters and the distribution of fine clusters within them,
+ *  Given the (coarse) parent clusters and the distribution of fine clusters within them,
  *  build the fine clusters.
  *
- *  Processing one mesocluster at a time:
- *   1. Copy mesocluster data into a separate buffer
+ *  Processing one parent cluster at a time:
+ *   1. Copy parent cluster data into a separate buffer
  *   2. Predict fine cluster
  *   3. Refince the fine cluster centers
  *
@@ -1350,9 +1350,9 @@ inline auto arrange_fine_clusters(IdxT n_clusters,
  *  this function returns the total number of fine clusters, which can be checked to be
  *  the same as the requested number of clusters.
  *
- *  Note: this function uses at most `fine_clusters_nums_max` points per mesocluster for training;
- *  if one of the clusters is larger than that (as given by `mesocluster_sizes`), the extra data
- *  is ignored.
+ *  Note: this function uses at most `fine_clusters_nums_max` points per parent cluster for
+ * training; if one of the clusters is larger than that (as given by `mesocluster_sizes`), the extra
+ * data is ignored.
  */
 template <typename T,
           typename MathT,
@@ -1381,8 +1381,8 @@ auto build_fine_clusters(const raft::resources& handle,
   auto stream          = raft::resource::get_cuda_stream(handle);
   IdxT transformed_dim = centers_dim<T>(dim, params.is_packed_binary);
   rmm::device_uvector<IdxT> mc_trainset_ids_buf(mesocluster_size_max, stream, managed_memory);
-  // for small cluster counts the maximum mesocluster size is proportional to the number of rows, so
-  // we use large workspace
+  // for small cluster counts the maximum parent cluster size is proportional to the number of rows,
+  // so we use large workspace
   auto large_ws = raft::resource::get_large_workspace_resource_ref(handle);
   rmm::device_uvector<T> mc_trainset_buf(mesocluster_size_max * dim, stream, large_ws);
   rmm::device_uvector<MathT> mc_trainset_norm_buf(mesocluster_size_max, stream, device_memory);
@@ -1399,7 +1399,7 @@ auto build_fine_clusters(const raft::resources& handle,
   rmm::device_uvector<CounterT> mc_trainset_csizes_tmp(
     fine_clusters_nums_max, stream, device_memory);
 
-  // Training clusters in each meso-cluster
+  // Training clusters in each parent cluster
   IdxT n_clusters_done = 0;
   for (IdxT i = 0; i < n_mesoclusters; i++) {
     IdxT k = 0;
@@ -1464,6 +1464,13 @@ auto build_fine_clusters(const raft::resources& handle,
   return n_clusters_done;
 }
 
+/** Number of coarse clusters used to construct K fine clusters. */
+template <typename IdxT>
+inline IdxT num_mesoclusters(IdxT n_clusters)
+{
+  return std::min(n_clusters, static_cast<IdxT>(std::sqrt(n_clusters) + 0.5));
+}
+
 /**
  * @brief Hierarchical balanced k-means
  *
@@ -1483,6 +1490,9 @@ auto build_fine_clusters(const raft::resources& handle,
  * @param[out] inertia         (optional) If non-null, the sum of squared distances of samples to
  *                             their closest cluster center is written here.
  *                             Only supported when T == MathT (float/double).
+ * @param[out] parent_centroids Optional device output for coarse centroids before global
+ * refinement.
+ * @param[out] centroid_to_parent    Optional device output for original fine-to-coarse parent IDs.
  */
 template <typename T, typename MathT, typename IdxT, typename MappingOpT>
 void build_hierarchical(const raft::resources& handle,
@@ -1493,7 +1503,9 @@ void build_hierarchical(const raft::resources& handle,
                         MathT* cluster_centers,
                         IdxT n_clusters,
                         MappingOpT mapping_op,
-                        MathT* inertia = nullptr)
+                        MathT* inertia               = nullptr,
+                        MathT* parent_centroids      = nullptr,
+                        uint32_t* centroid_to_parent = nullptr)
 {
   auto stream          = raft::resource::get_cuda_stream(handle);
   using LabelT         = uint32_t;
@@ -1502,7 +1514,7 @@ void build_hierarchical(const raft::resources& handle,
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "build_hierarchical(%zu, %u)", static_cast<size_t>(n_rows), n_clusters);
 
-  IdxT n_mesoclusters = std::min(n_clusters, static_cast<IdxT>(std::sqrt(n_clusters) + 0.5));
+  IdxT n_mesoclusters = num_mesoclusters(n_clusters);
   RAFT_LOG_DEBUG("build_hierarchical: n_mesoclusters: %u", n_mesoclusters);
 
   // TODO: Remove the explicit managed memory- we shouldn't be creating this on the user's behalf.
@@ -1557,7 +1569,7 @@ void build_hierarchical(const raft::resources& handle,
   typedef typename std::conditional_t<sizeof(IdxT) == 8, unsigned long long int, unsigned int>
     CounterT;
 
-  // build coarse clusters (mesoclusters)
+  // build coarse clusters (parent clusters)
   rmm::device_uvector<LabelT> mesocluster_labels_buf(n_rows, stream, managed_memory);
   rmm::device_uvector<CounterT> mesocluster_sizes_buf(n_mesoclusters, stream, managed_memory);
   {
@@ -1575,6 +1587,12 @@ void build_hierarchical(const raft::resources& handle,
                    mapping_op,
                    device_memory,
                    dataset_norm);
+    if (parent_centroids != nullptr) {
+      raft::copy(handle,
+                 raft::make_device_vector_view(parent_centroids, n_mesoclusters * transformed_dim),
+                 raft::make_device_vector_view<const MathT>(mesocluster_centers_buf.data(),
+                                                            n_mesoclusters * transformed_dim));
+    }
   }
 
   auto mesocluster_sizes  = mesocluster_sizes_buf.data();
@@ -1585,6 +1603,18 @@ void build_hierarchical(const raft::resources& handle,
   // build fine clusters
   auto [mesocluster_size_max, fine_clusters_nums_max, fine_clusters_nums, fine_clusters_csum] =
     arrange_fine_clusters(n_clusters, n_mesoclusters, n_rows, mesocluster_sizes);
+
+  // Preserve construction ancestry; global refinement does not update this mapping.
+  if (centroid_to_parent != nullptr) {
+    for (IdxT i = 0; i < n_mesoclusters; ++i) {
+      if (fine_clusters_nums[i] == 0) { continue; }
+      raft::matrix::fill(
+        handle,
+        raft::make_device_matrix_view<uint32_t, IdxT>(
+          centroid_to_parent + fine_clusters_csum[i], fine_clusters_nums[i], IdxT{1}),
+        static_cast<uint32_t>(i));
+    }
+  }
 
   const IdxT mesocluster_size_max_balanced = raft::div_rounding_up_safe<size_t>(
     2lu * size_t(n_rows), std::max<size_t>(size_t(n_mesoclusters), 1lu));
