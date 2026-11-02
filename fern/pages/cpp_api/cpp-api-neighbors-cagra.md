@@ -1327,6 +1327,87 @@ The returned index cannot be searched: CAGRA has no BBQ search kernels. Call the
 
 built `device_bbq_index<float, uint32_t>`
 
+**Additional overload:** `neighbors::cagra::build`
+
+Build from a device BBQ-quantized dataset view of type `half`.
+
+```cpp
+auto build(raft::resources const& res,
+const cuvs::neighbors::cagra::index_params& params,
+cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset)
+-> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
+```
+
+Construction uses quantized codes and requires nn-descent. The metric must match the quantizer corrections and be L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct. The returned index has no BBQ search support; use the type-changing `update_dataset` with an uncompressed device-padded dataset before searching the resulting graph.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | `raft::resources const&` | RAFT resources used for graph construction. |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters. |
+| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<half, int64_t>` | Device BBQ dataset view with shape [n_rows, dim]. |
+
+**Returns**
+
+`cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>`
+
+Built `device_bbq_index<half, uint32_t>`.
+
+**Additional overload:** `neighbors::cagra::build`
+
+Build from a device BBQ-quantized dataset view of type `int8_t`.
+
+```cpp
+auto build(raft::resources const& res,
+const cuvs::neighbors::cagra::index_params& params,
+cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset)
+-> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
+```
+
+Construction uses quantized codes and requires nn-descent. The metric must match the quantizer corrections and be L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct. The returned index has no BBQ search support; use the type-changing `update_dataset` with an uncompressed device-padded dataset before searching the resulting graph.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | `raft::resources const&` | RAFT resources used for graph construction. |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters. |
+| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t>` | Device BBQ dataset view with shape [n_rows, dim]. |
+
+**Returns**
+
+`cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>`
+
+Built `device_bbq_index<int8_t, uint32_t>`.
+
+**Additional overload:** `neighbors::cagra::build`
+
+Build from a device BBQ-quantized dataset view of type `uint8_t`.
+
+```cpp
+auto build(raft::resources const& res,
+const cuvs::neighbors::cagra::index_params& params,
+cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset)
+-> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
+```
+
+Construction uses quantized codes and requires nn-descent. The metric must match the quantizer corrections and be L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct. The returned index has no BBQ search support; use the type-changing `update_dataset` with an uncompressed device-padded dataset before searching the resulting graph.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | `raft::resources const&` | RAFT resources used for graph construction. |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters. |
+| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t>` | Device BBQ dataset view with shape [n_rows, dim]. |
+
+**Returns**
+
+`cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>`
+
+Built `device_bbq_index<uint8_t, uint32_t>`.
+
 ## CAGRA extend functions
 
 <a id="neighbors-cagra-extend"></a>
