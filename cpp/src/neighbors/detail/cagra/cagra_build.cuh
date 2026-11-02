@@ -1112,13 +1112,14 @@ auto build_graph(raft::resources const& res,
     raft::resource::sync_stream(res);
     return host_graph;
   }
-  return build_cagra_host_graph_from_knn_params<T, IdxT>(res,
-                                                         params,
-                                                         knn_build_params,
-                                                         static_cast<int64_t>(n_rows),
-                                                         intermediate_degree,
-                                                         graph_degree,
-                                                         dataset.data_view());
+  return build_cagra_host_graph_from_knn_params<T, IdxT>(
+    res,
+    params,
+    knn_build_params,
+    static_cast<int64_t>(n_rows),
+    intermediate_degree,
+    graph_degree,
+    cuvs::neighbors::dense_row_major_view(dataset));
 }
 
 /**
