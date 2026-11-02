@@ -47,6 +47,19 @@ struct quantizer {
 | `min_` | `T` | Minimum value of the quantization range. |
 | `max_` | `T` | Maximum value of the quantization range. |
 
+<a id="preprocessing-quantize-scalar-quantizer-view"></a>
+### preprocessing::quantize::scalar::quantizer::view
+
+Return a value copy of this quantizer.
+
+```cpp
+[[nodiscard]] auto view() const noexcept -> view_type;
+```
+
+**Returns**
+
+`view_type`
+
 <a id="preprocessing-quantize-scalar-train"></a>
 ### preprocessing::quantize::scalar::train
 
@@ -513,6 +526,107 @@ Usage example:
 | `quantizer` | in | [`const quantizer<half>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<half, int64_t>` | a row-major matrix view on host |
+
+**Returns**
+
+`void`
+
+<a id="preprocessing-quantize-scalar-per-dim-quantizer-const-view"></a>
+### preprocessing::quantize::scalar::per_dim_quantizer_const_view
+
+Read-only device offsets and a shared step size. The owner must outlive stream work.
+
+```cpp
+struct per_dim_quantizer_const_view {
+  raft::device_vector_view<const float, int64_t> offsets;
+  float scale;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `offsets` | `raft::device_vector_view<const float, int64_t>` |  |
+| `scale` | `float` |  |
+
+<a id="preprocessing-quantize-scalar-per-dim-quantizer"></a>
+### preprocessing::quantize::scalar::per_dim_quantizer
+
+Owns corpus-trained offsets on the device; query batches reuse its view.
+
+```cpp
+struct per_dim_quantizer {
+  raft::device_vector<float, int64_t> offsets;
+  float scale;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `offsets` | `raft::device_vector<float, int64_t>` |  |
+| `scale` | `float` |  |
+
+<a id="preprocessing-quantize-scalar-per-dim-quantizer-view"></a>
+### preprocessing::quantize::scalar::per_dim_quantizer::view
+
+Borrow device offsets; this owner must outlive stream work using the view.
+
+```cpp
+[[nodiscard]] auto view() const noexcept -> view_type;
+```
+
+**Returns**
+
+`view_type`
+
+**Additional overload:** `preprocessing::quantize::scalar::transform`
+
+Encode finite FP32 values as clamp(rintf((x - offset[j]) * (1 / scale)), -127, 127).
+
+```cpp
+void transform(raft::resources const& res,
+per_dim_quantizer_const_view quantizer,
+raft::device_matrix_view<const float, int64_t> dataset,
+raft::device_matrix_view<int8_t, int64_t> out);
+```
+
+Rounds ties to even. Use the corpus quantizer for query batches. Custom offsets and scale are supported; scale and its reciprocal must be finite and positive. Input/output shapes must match, with width equal to offsets.size(). Enqueued on the resource stream.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `quantizer` |  | [`per_dim_quantizer_const_view`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-per-dim-quantizer-const-view) |  |
+| `dataset` |  | `raft::device_matrix_view<const float, int64_t>` |  |
+| `out` |  | `raft::device_matrix_view<int8_t, int64_t>` |  |
+
+**Returns**
+
+`void`
+
+**Additional overload:** `preprocessing::quantize::scalar::inverse_transform`
+
+Reconstruct offsets[j] + scale * code; same shape/scale requirements as transform.
+
+```cpp
+void inverse_transform(raft::resources const& res,
+per_dim_quantizer_const_view quantizer,
+raft::device_matrix_view<const int8_t, int64_t> dataset,
+raft::device_matrix_view<float, int64_t> out);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `quantizer` |  | [`per_dim_quantizer_const_view`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-per-dim-quantizer-const-view) |  |
+| `dataset` |  | `raft::device_matrix_view<const int8_t, int64_t>` |  |
+| `out` |  | `raft::device_matrix_view<float, int64_t>` |  |
 
 **Returns**
 

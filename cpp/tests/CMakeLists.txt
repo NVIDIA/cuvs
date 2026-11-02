@@ -477,6 +477,7 @@ ConfigureTest(
 ConfigureTest(
   NAME PREPROCESSING_TEST
   PATH preprocessing/scalar_quantization.cu
+       preprocessing/scalar_dataset.cu
        preprocessing/binary_quantization.cu
        preprocessing/spectral_embedding.cu
        preprocessing/product_quantization.cu

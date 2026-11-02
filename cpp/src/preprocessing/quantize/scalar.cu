@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -57,5 +57,28 @@ CUVS_INST_QUANTIZATION(float, int8_t);
 CUVS_INST_QUANTIZATION(half, int8_t);
 
 #undef CUVS_INST_QUANTIZATION
+
+per_dim_quantizer train_per_dim(raft::resources const& res,
+                                raft::device_matrix_view<const float, int64_t> dataset,
+                                params params)
+{
+  return detail::train_per_dim(res, dataset, params);
+}
+
+void transform(raft::resources const& res,
+               per_dim_quantizer_const_view quantizer,
+               raft::device_matrix_view<const float, int64_t> dataset,
+               raft::device_matrix_view<int8_t, int64_t> out)
+{
+  detail::transform(res, quantizer, dataset, out);
+}
+
+void inverse_transform(raft::resources const& res,
+                       per_dim_quantizer_const_view quantizer,
+                       raft::device_matrix_view<const int8_t, int64_t> dataset,
+                       raft::device_matrix_view<float, int64_t> out)
+{
+  detail::inverse_transform(res, quantizer, dataset, out);
+}
 
 }  // namespace cuvs::preprocessing::quantize::scalar

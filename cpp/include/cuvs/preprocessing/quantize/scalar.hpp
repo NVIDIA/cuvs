@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -46,6 +46,11 @@ struct params {
  */
 template <typename T>
 struct quantizer {
+  using view_type = quantizer<T>;
+
+  /** Return a value copy of this quantizer. */
+  [[nodiscard]] auto view() const noexcept -> view_type { return *this; }
+
   /** Minimum value of the quantization range. */
   T min_;
   /** Maximum value of the quantization range. */
@@ -472,6 +477,50 @@ void inverse_transform(raft::resources const& res,
                        const quantizer<half>& quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<half, int64_t> out);
+
+/** Read-only device offsets and a shared step size. The owner must outlive stream work. */
+struct per_dim_quantizer_const_view {
+  raft::device_vector_view<const float, int64_t> offsets;
+  float scale;
+};
+
+/** Owns corpus-trained offsets on the device; query batches reuse its view. */
+struct per_dim_quantizer {
+  using view_type = per_dim_quantizer_const_view;
+  raft::device_vector<float, int64_t> offsets;
+  float scale;
+
+  /** Borrow device offsets; this owner must outlive stream work using the view. */
+  [[nodiscard]] auto view() const noexcept -> view_type { return {offsets.view(), scale}; }
+};
+
+/**
+ * Apply params.quantile independently to each dimension using all finite corpus rows.
+ * The default 0.99 retains the central 99%; 1.0 uses the full min/max range.
+ * offset[j] = (min[j] + max[j]) / 2; scale = max_j((max[j] - min[j]) / 2) / 127.
+ * Requires nonempty input. Constant data uses scale = 1; positive scales are floored to the
+ * smallest normal float. Synchronizes the resource stream to return the scale.
+ */
+per_dim_quantizer train_per_dim(raft::resources const& res,
+                                raft::device_matrix_view<const float, int64_t> dataset,
+                                params params = {});
+
+/**
+ * Encode finite FP32 values as clamp(rintf((x - offset[j]) * (1 / scale)), -127, 127).
+ * Rounds ties to even. Use the corpus quantizer for query batches. Custom offsets and scale
+ * are supported; scale and its reciprocal must be finite and positive. Input/output shapes
+ * must match, with width equal to offsets.size(). Enqueued on the resource stream.
+ */
+void transform(raft::resources const& res,
+               per_dim_quantizer_const_view quantizer,
+               raft::device_matrix_view<const float, int64_t> dataset,
+               raft::device_matrix_view<int8_t, int64_t> out);
+
+/** Reconstruct offsets[j] + scale * code; same shape/scale requirements as transform. */
+void inverse_transform(raft::resources const& res,
+                       per_dim_quantizer_const_view quantizer,
+                       raft::device_matrix_view<const int8_t, int64_t> dataset,
+                       raft::device_matrix_view<float, int64_t> out);
 
 /** @} */  // end of group scalar
 
