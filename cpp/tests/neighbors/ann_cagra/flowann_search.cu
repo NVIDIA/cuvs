@@ -73,7 +73,7 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
 {
   raft::resources res;
   constexpr int64_t rows = 8;
-  auto const dim = static_cast<int64_t>(query_dim);
+  auto const dim         = static_cast<int64_t>(query_dim);
 
   auto host_dataset = raft::make_host_matrix<float, int64_t>(rows, dim);
   for (int64_t row = 0; row < rows; ++row) {
@@ -419,10 +419,10 @@ RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
   queue.released_sequence[0]    = 0;
   for (std::uint32_t i = 0; i < 8; ++i) {
     queue.command_words[i] = flowann::detail::empty_command;
-    topk[i]               = (i + 1) | 0x80000000u;
-    positions[i]          = i;
-    state.parent_ids[i]   = i + 1;
-    state.parent_valid[i] = true;
+    topk[i]                = (i + 1) | 0x80000000u;
+    positions[i]           = i;
+    state.parent_ids[i]    = i + 1;
+    state.parent_valid[i]  = true;
     cuvs::neighbors::cagra::detail::hashmap::insert(traversed, 5, i + 1);
   }
   flowann::detail::submit_parent_requests(queue, &state, positions, topk, 8, 1, traversed, 5);
@@ -473,14 +473,35 @@ TEST(FlowannSearch, EmptyQueriesAreANoOp)
   EXPECT_NO_THROW(run_dense_search(cuvs::neighbors::cagra::search_algo::SINGLE_CTA, {}));
 }
 
-
 TEST(FlowannSearch, PaddedSingleCtaQueriesMatchAcrossBatches)
 {
   for (std::uint32_t dim : {5u, 33u}) {
-    auto one = run_dense_search(cuvs::neighbors::cagra::search_algo::SINGLE_CTA,
-      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 1, 32, 1, 2, false, 2, 0, dim);
+    auto one     = run_dense_search(cuvs::neighbors::cagra::search_algo::SINGLE_CTA,
+                                    {0.1f, 12.2f, 1.1f, 10.3f, 2.2f},
+                                    {},
+                                16,
+                                false,
+                                1,
+                                32,
+                                1,
+                                2,
+                                false,
+                                2,
+                                0,
+                                dim);
     auto batched = run_dense_search(cuvs::neighbors::cagra::search_algo::SINGLE_CTA,
-      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 3, 32, 1, 2, false, 2, 0, dim);
+                                    {0.1f, 12.2f, 1.1f, 10.3f, 2.2f},
+                                    {},
+                                    16,
+                                    false,
+                                    3,
+                                    32,
+                                    1,
+                                    2,
+                                    false,
+                                    2,
+                                    0,
+                                    dim);
     for (int64_t row = 0; row < 5; ++row) {
       for (int64_t rank = 0; rank < 2; ++rank) {
         EXPECT_EQ(batched.neighbors(row, rank), one.neighbors(row, rank));
@@ -490,14 +511,35 @@ TEST(FlowannSearch, PaddedSingleCtaQueriesMatchAcrossBatches)
   }
 }
 
-
 TEST(FlowannSearch, PaddedMultiCtaQueriesMatchAcrossBatches)
 {
   for (std::uint32_t dim : {5u, 33u}) {
-    auto one = run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA,
-      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 1, 32, 1, 2, false, 2, 0, dim);
+    auto one     = run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA,
+                                    {0.1f, 12.2f, 1.1f, 10.3f, 2.2f},
+                                    {},
+                                16,
+                                false,
+                                1,
+                                32,
+                                1,
+                                2,
+                                false,
+                                2,
+                                0,
+                                dim);
     auto batched = run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA,
-      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 3, 32, 1, 2, false, 2, 0, dim);
+                                    {0.1f, 12.2f, 1.1f, 10.3f, 2.2f},
+                                    {},
+                                    16,
+                                    false,
+                                    3,
+                                    32,
+                                    1,
+                                    2,
+                                    false,
+                                    2,
+                                    0,
+                                    dim);
     for (int64_t row = 0; row < 5; ++row) {
       for (int64_t rank = 0; rank < 2; ++rank) {
         EXPECT_EQ(batched.neighbors(row, rank), one.neighbors(row, rank));
@@ -517,34 +559,44 @@ TEST_P(FlowannSearchModesTest, MappedInvalidIdsMatchTheOutputWidth)
     res, cuvs::distance::DistanceType::L2Expanded, dataset->view());
   auto inner = raft::make_host_matrix<std::uint8_t, int64_t>(0, 0);
   auto cross = raft::make_host_matrix<std::uint32_t, int64_t>(4, 2);
-  auto ids = raft::make_host_vector<std::uint32_t, int64_t>(4);
+  auto ids   = raft::make_host_vector<std::uint32_t, int64_t>(4);
   for (std::uint32_t row = 0; row < 4; ++row) {
     cross(row, 0) = 1;
     cross(row, 1) = (row + 1) % 4;
-    ids(row) = 3 - row;
+    ids(row)      = 3 - row;
   }
-  index.update_graph(res, raft::make_const_mdspan(inner.view()),
-                     raft::make_const_mdspan(cross.view()), 1, 0);
+  index.update_graph(
+    res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(cross.view()), 1, 0);
   index.update_source_indices(res, raft::make_const_mdspan(ids.view()));
-  auto queries = raft::make_device_matrix<float, int64_t>(res, 2, 4);
+  auto queries   = raft::make_device_matrix<float, int64_t>(res, 2, 4);
   auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 2, 2);
   auto distances = raft::make_device_matrix<float, int64_t>(res, 2, 2);
-  auto bits = raft::make_device_vector<std::uint32_t, int64_t>(res, 1);
-  RAFT_CUDA_TRY(cudaMemsetAsync(queries.data_handle(), 0, queries.size() * sizeof(float),
-    raft::resource::get_cuda_stream(res).get()));
-  RAFT_CUDA_TRY(cudaMemsetAsync(bits.data_handle(), 0, sizeof(std::uint32_t),
-    raft::resource::get_cuda_stream(res).get()));
+  auto bits      = raft::make_device_vector<std::uint32_t, int64_t>(res, 1);
+  RAFT_CUDA_TRY(cudaMemsetAsync(queries.data_handle(),
+                                0,
+                                queries.size() * sizeof(float),
+                                raft::resource::get_cuda_stream(res).get()));
+  RAFT_CUDA_TRY(cudaMemsetAsync(
+    bits.data_handle(), 0, sizeof(std::uint32_t), raft::resource::get_cuda_stream(res).get()));
   cuvs::neighbors::filtering::bitset_filter filter(
     cuvs::core::bitset_view<std::uint32_t, int64_t>(bits.data_handle(), 4));
   flowann::search_context context(index.cross_graph());
   flowann::search_params params;
-  params.algo = GetParam();
-  params.itopk_size = 32;
+  params.algo           = GetParam();
+  params.itopk_size     = 32;
   params.max_iterations = 16;
-  flowann::search(res, params, index, context, raft::make_const_mdspan(queries.view()),
-    neighbors.view(), distances.view(), filter);
+  flowann::search(res,
+                  params,
+                  index,
+                  context,
+                  raft::make_const_mdspan(queries.view()),
+                  neighbors.view(),
+                  distances.view(),
+                  filter);
   int64_t actual[4];
   raft::copy(actual, neighbors.data_handle(), 4, raft::resource::get_cuda_stream(res));
   raft::resource::sync_stream(res);
-  for (auto id : actual) { EXPECT_EQ(id, int64_t{-1}); }
+  for (auto id : actual) {
+    EXPECT_EQ(id, int64_t{-1});
+  }
 }
