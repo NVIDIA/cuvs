@@ -346,6 +346,7 @@ CAGRA search parameters
 | `persistent` | `bool, default = false` | Whether to use the persistent version of the kernel |
 | `persistent_lifetime` | `float` | Persistent kernel: time in seconds before the kernel stops if no requests are received. |
 | `persistent_device_usage` | `float` | Sets the fraction of maximum grid size used by persistent kernel. |
+| `tiered` | `TieredSearchParams or None, default = None` | Optional queue and search settings for a tiered index. None uses the native defaults. Pass TieredSearchParams to select stored medoid seeds, queue count, polling, and deferred cross-edge synchronization settings. Tiered indexes support single_cta, multi_cta, and auto search. Persistent search is unavailable for tiered indexes. |
 
 **Constructor**
 

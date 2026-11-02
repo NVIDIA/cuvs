@@ -8,7 +8,23 @@ import numpy as np
 import pytest
 from pylibraft.common import device_ndarray
 
+from cuvs.common.exceptions import CuvsException
 from cuvs.neighbors import cagra
+
+
+def _build_tiered(*args, **kwargs):
+    try:
+        return cagra.build(*args, **kwargs)
+    except CuvsException as error:
+        # Default builds keep the Python parameters available but omit the native
+        # builder. Propagate every other native error so regressions still fail.
+        disabled_messages = (
+            "Tiered building is disabled in this cuVS library",
+            "Tiered build requires enabled FlowANN building and a device-padded dense dataset",
+        )
+        if any(message in str(error) for message in disabled_messages):
+            pytest.skip("This cuVS library was built without FlowANN building")
+        raise
 
 
 def _recall(found, expected):
@@ -35,7 +51,7 @@ def test_cagra_tiered_build_search_and_serialize(tmp_path):
     queries = dataset[:32].copy()
     k = 10
 
-    index = cagra.build(
+    index = _build_tiered(
         cagra.IndexParams(
             build_algo="nn_descent",
             intermediate_graph_degree=32,
@@ -136,7 +152,7 @@ def test_cagra_tiered_compressed_round_trip(tmp_path):
         vq_kmeans_trainset_fraction=1.0,
         pq_kmeans_trainset_fraction=1.0,
     )
-    index = cagra.build(params, vectors, compression=pq)
+    index = _build_tiered(params, vectors, compression=pq)
     assert index.graph_storage == "tiered"
     assert len(index) == len(vectors)
     queries = device_ndarray(vectors[:4].copy())
