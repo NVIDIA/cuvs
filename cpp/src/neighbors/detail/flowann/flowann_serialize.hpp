@@ -306,7 +306,8 @@ auto deserialize_common_after_version(raft::resources const& res,
       read_host_vector<std::uint32_t>(is, source_count, "source-index mapping"));
     for (std::uint32_t i = 0; i < source_count; ++i) {
       RAFT_EXPECTS((*source_indices)(i) < n_rows,
-                   "FlowANN source-index mapping contains an out-of-range ID at row %u", i);
+                   "FlowANN source-index mapping contains an out-of-range ID at row %u",
+                   i);
     }
   }
   auto subgraph_offsets = read_host_vector<std::uint32_t>(is, n_subgraphs, "subgraph offsets");
@@ -414,9 +415,9 @@ auto deserialize_legacy_graph_body(raft::resources const& res,
   auto const node_per_cacheline = raft::deserialize_scalar<std::uint16_t>(res, is);
   auto const n_bits             = raft::deserialize_scalar<std::uint16_t>(res, is);
 
-  constexpr auto dataset_kind =
-    cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT> ? serialized_dataset_kind::vpq_f16
-                                                       : serialized_dataset_kind::dense;
+  constexpr auto dataset_kind = cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT>
+                                  ? serialized_dataset_kind::vpq_f16
+                                  : serialized_dataset_kind::dense;
   RAFT_EXPECTS(is_supported_metric<T>(dataset_kind, metric),
                "FlowANN legacy graph uses an unsupported distance metric");
   RAFT_EXPECTS(n_rows > 0, "FlowANN legacy graph must not be empty");
@@ -815,17 +816,18 @@ auto deserialize_vpq_f16(raft::resources const& res, std::istream& is)
   auto encoded = raft::make_device_matrix<std::uint8_t, int64_t>(res, graph.n_rows, row_length);
   raft::deserialize_mdspan(res, is, vq_code_book.view());
   raft::deserialize_mdspan(res, is, pq_code_book.view());
-  auto host_encoded = detail::read_host_matrix<std::uint8_t>(
-    is, graph.n_rows, row_length, "VPQ codes");
+  auto host_encoded =
+    detail::read_host_matrix<std::uint8_t>(is, graph.n_rows, row_length, "VPQ codes");
   for (std::uint32_t row = 0; row < graph.n_rows; ++row) {
     std::uint32_t vq_label;
     std::memcpy(&vq_label,
                 host_encoded.data_handle() + static_cast<std::size_t>(row) * row_length,
                 sizeof(vq_label));
-    RAFT_EXPECTS(vq_label < vq_n_centers,
-                 "FlowANN VPQ row %u has an out-of-range VQ label", row);
+    RAFT_EXPECTS(vq_label < vq_n_centers, "FlowANN VPQ row %u has an out-of-range VQ label", row);
   }
-  raft::copy(encoded.data_handle(), host_encoded.data_handle(), host_encoded.size(),
+  raft::copy(encoded.data_handle(),
+             host_encoded.data_handle(),
+             host_encoded.size(),
              raft::resource::get_cuda_stream(res));
   // Host rows must outlive the asynchronous upload.
   raft::resource::sync_stream(res);
