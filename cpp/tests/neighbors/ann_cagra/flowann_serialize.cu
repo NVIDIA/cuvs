@@ -657,8 +657,13 @@ TEST(FlowannSerialize, RejectsUnsupportedLegacyMetrics)
   for (auto metric : {cuvs::distance::DistanceType::InnerProduct,
                       static_cast<cuvs::distance::DistanceType>(999)}) {
     auto stream = make_legacy_graph(res);
-    // The typed legacy header consists of dtype, version, rows, dimension, degree, metric.
-    stream.seekp(4 + sizeof(int) + 3 * sizeof(std::uint32_t));
+    // Every scalar has its own NumPy header. Walk the header to replace only the metric.
+    stream.seekg(4);
+    (void)raft::deserialize_scalar<int>(res, stream);
+    for (int field = 0; field < 3; ++field) {
+      (void)raft::deserialize_scalar<std::uint32_t>(res, stream);
+    }
+    stream.seekp(stream.tellg());
     raft::serialize_scalar(res, stream, metric);
     stream.seekg(0);
     flowann::vpq_f16_index<float> index(res);
