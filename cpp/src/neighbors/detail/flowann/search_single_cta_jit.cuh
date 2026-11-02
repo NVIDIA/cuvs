@@ -630,7 +630,8 @@ __device__ void search_kernel_jit(
     dataset_desc,
     filter_payload,
     graph_size,
-    query_stride);
+    query_stride,
+    true);
 }
 
 }  // namespace cuvs::neighbors::cagra::experimental::flowann::detail
