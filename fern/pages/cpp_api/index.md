@@ -14,7 +14,14 @@ These pages are generated from the documented public headers in the cuVS source 
 - [Binary](/api-reference/cpp-api-core-dataset-binary)
 - [Bloom Filter](/api-reference/cpp-api-core-bloom-filter)
 - [Common Types](/api-reference/cpp-api-common-types)
+- [Dense](/api-reference/cpp-api-core-dataset-dense)
+- [Empty](/api-reference/cpp-api-core-dataset-empty)
 - [Roaring Allowlist](/api-reference/cpp-api-core-roaring-allowlist)
+- [Sparse](/api-reference/cpp-api-core-dataset-sparse)
+- [SQ](/api-reference/cpp-api-core-dataset-sq)
+- [Type](/api-reference/cpp-api-core-dataset-type)
+- [View](/api-reference/cpp-api-core-dataset-view)
+- [Vpq](/api-reference/cpp-api-core-dataset-vpq)
 
 ## Distance
 
