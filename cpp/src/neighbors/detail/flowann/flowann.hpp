@@ -48,6 +48,8 @@ struct queue_params {
   std::uint32_t empty_pause = 64;
   /** Collect aggregate queue and polling statistics. */
   bool collect_statistics = false;
+  /** Opt in to pinning pollers; otherwise inherit caller CPU affinity. */
+  bool pin_pollers = false;
 };
 
 /** Aggregate counters collected by the host-serviced cross-graph queues. */

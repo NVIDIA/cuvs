@@ -135,6 +135,30 @@ class cuda_stream {
   cudaStream_t stream_{};
 };
 
+// A host-written flag remains publishable even if CUDA copies fail in a poller.
+class mapped_abort_flag {
+ public:
+  mapped_abort_flag()
+  {
+    RAFT_CUDA_TRY(cudaHostAlloc(&host_, sizeof(std::uint32_t), cudaHostAllocMapped));
+    try {
+      *host_ = 0;
+      RAFT_CUDA_TRY(cudaHostGetDevicePointer(&device_, host_, 0));
+    } catch (...) {
+      RAFT_CUDA_TRY_NO_THROW(cudaFreeHost(host_));
+      throw;
+    }
+  }
+  mapped_abort_flag(mapped_abort_flag const&) = delete;
+  auto operator=(mapped_abort_flag const&) -> mapped_abort_flag& = delete;
+  ~mapped_abort_flag() { RAFT_CUDA_TRY_NO_THROW(cudaFreeHost(host_)); }
+  void abort() noexcept { std::atomic_ref<std::uint32_t>(*host_).store(1, std::memory_order_release); }
+  auto device_ptr() const noexcept -> std::uint32_t const* { return device_; }
+ private:
+  std::uint32_t* host_{};
+  std::uint32_t* device_{};
+};
+
 class cuda_host_buffer {
  public:
   cuda_host_buffer()                                           = default;
@@ -257,6 +281,7 @@ class host_queue {
     view_.result_sequence = add_bytes<unsigned long long>(storage_.get(), layout_.result_sequence);
     view_.released_sequence =
       add_bytes<unsigned long long>(storage_.get(), layout_.released_sequence);
+    view_.abort_flag = abort_flag_.device_ptr();
 
     copy_stream_.create();
     // Pageable copies may synchronize inside the driver and contend with lazy
@@ -270,6 +295,11 @@ class host_queue {
   auto operator=(host_queue const&) -> host_queue& = delete;
 
   [[nodiscard]] auto view() const noexcept -> detail::queue_view { return view_; }
+  void abort() noexcept { abort_flag_.abort(); }
+  auto invalid_requests() const noexcept -> std::uint64_t
+  {
+    return invalid_requests_.load(std::memory_order_relaxed);
+  }
 
   [[nodiscard]] auto poll_batch() -> bool
   {
@@ -301,11 +331,14 @@ class host_queue {
 
     for (std::uint32_t i = 0; i < count; ++i) {
       auto const row_id = static_cast<std::uint32_t>(command_staging_[i]);
-      RAFT_EXPECTS(
-        row_id < row_count_, "FlowANN queue received out-of-range cross-graph row %u", row_id);
-      std::copy_n(cross_graph_ + static_cast<std::size_t>(row_id) * row_length_,
-                  row_length_,
-                  row_staging_.data() + static_cast<std::size_t>(i) * row_length_);
+      auto* destination = row_staging_.data() + static_cast<std::size_t>(i) * row_length_;
+      if (row_id < row_count_) {
+        std::copy_n(cross_graph_ + static_cast<std::size_t>(row_id) * row_length_, row_length_, destination);
+      } else {
+        // Complete malformed requests with an empty row so GPU waiters can finish.
+        std::fill_n(destination, row_length_, 0u);
+        invalid_requests_.fetch_add(1, std::memory_order_relaxed);
+      }
       result_sequence_staging_[i] = cpu_tail_ + i + 1;
     }
     write_ring(row_staging_.data(), layout_.rows, first_slot, count, row_length_);
@@ -401,12 +434,14 @@ class host_queue {
   std::uint32_t row_length_;
   bool collect_statistics_;
   queue_layout layout_;
+  mapped_abort_flag abort_flag_;
   cuda_allocation storage_;
   detail::queue_view view_{};
   unsigned long long cpu_tail_{};
   std::atomic<std::uint64_t> polls_{};
   std::atomic<std::uint64_t> empty_polls_{};
   std::atomic<std::uint64_t> processed_commands_{};
+  std::atomic<std::uint64_t> invalid_requests_{};
   std::vector<unsigned long long> empty_commands_;
   std::vector<unsigned long long> command_staging_;
   std::vector<unsigned long long> result_sequence_staging_;
@@ -474,6 +509,14 @@ struct search_context::impl {
   void throw_if_failed()
   {
     if (poller_error_ != nullptr) { std::rethrow_exception(poller_error_); }
+  }
+
+  void throw_if_invalid_requests() const
+  {
+    for (auto const& queue : queues_) {
+      RAFT_EXPECTS(queue->invalid_requests() == 0,
+                   "FlowANN queue received an out-of-range cross-graph row");
+    }
   }
 
   [[nodiscard]] auto should_run() const noexcept -> bool
@@ -544,6 +587,7 @@ struct search_context::impl {
     }
     --pending_pause_requests_;
     pause_cv_.notify_all();
+    throw_if_invalid_requests();
   }
 
   void resume()
@@ -552,6 +596,7 @@ struct search_context::impl {
     pause_cv_.wait(lock,
                    [this] { return pending_pause_requests_ == 0 || poller_error_ != nullptr; });
     throw_if_failed();
+    throw_if_invalid_requests();
     manually_resumed_ = true;
     update_pollers(lock);
   }
@@ -562,6 +607,7 @@ struct search_context::impl {
     pause_cv_.wait(lock,
                    [this] { return pending_pause_requests_ == 0 || poller_error_ != nullptr; });
     throw_if_failed();
+    throw_if_invalid_requests();
     manually_resumed_ = false;
     ++active_searches_;
     try {
@@ -583,6 +629,7 @@ struct search_context::impl {
       pause_cv_.notify_all();
       update_pollers(lock);
     }
+    throw_if_invalid_requests();
   }
 
   void begin_session()
@@ -591,6 +638,7 @@ struct search_context::impl {
     pause_cv_.wait(lock,
                    [this] { return pending_pause_requests_ == 0 || poller_error_ != nullptr; });
     throw_if_failed();
+    throw_if_invalid_requests();
     ++active_sessions_;
     try {
       update_pollers(lock);
@@ -612,7 +660,10 @@ struct search_context::impl {
   {
     try {
       RAFT_CUDA_TRY(cudaSetDevice(device_id_));
-      bind_to_physical_cpu(queue_id);
+      if (params_.pin_pollers) {
+        static std::atomic<std::uint32_t> next_poller{0};
+        bind_to_physical_cpu(next_poller.fetch_add(1, std::memory_order_relaxed));
+      }
       while (!stop_token.stop_requested()) {
         if (paused_.load(std::memory_order_acquire)) {
           queue.publish_progress();
@@ -639,6 +690,7 @@ struct search_context::impl {
         }
       }
     } catch (...) {
+      queue.abort();
       std::lock_guard lock(pause_mutex_);
       if (poller_error_ == nullptr) { poller_error_ = std::current_exception(); }
       ++failed_pollers_;
