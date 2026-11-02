@@ -520,7 +520,6 @@ TEST(FlowannSearch, AutoFallsBackForGraphsTooWideForMultiCta)
   EXPECT_NEAR(result.distances(0, 0), 0.01f, 1e-4f);
 }
 
-
 TEST(FlowannSearch, PaddedSingleCtaQueriesMatchAcrossBatches)
 {
   for (std::uint32_t dim : {5u, 33u}) {

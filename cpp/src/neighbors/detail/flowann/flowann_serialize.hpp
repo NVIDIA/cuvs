@@ -110,7 +110,7 @@ inline void validate_remaining_payload(std::istream& is,
                                        std::size_t element_size,
                                        char const* component)
 {
-  auto const state = is.rdstate();
+  auto const state    = is.rdstate();
   auto const position = is.tellg();
   if (position == std::istream::pos_type(-1)) {
     is.clear(state);
@@ -124,7 +124,8 @@ inline void validate_remaining_payload(std::istream& is,
   if (end == std::istream::pos_type(-1)) { return; }
   RAFT_EXPECTS(end >= position && element_size > 0 &&
                  count <= static_cast<std::uint64_t>(end - position) / element_size,
-               "FlowANN %s payload is truncated", component);
+               "FlowANN %s payload is truncated",
+               component);
 }
 
 inline auto is_legacy_f16_dtype(raft::numpy_serializer::dtype_t dtype) -> bool
