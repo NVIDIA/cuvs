@@ -85,8 +85,7 @@ TEST(CagraTiered, OwnsDataAcrossMoveAndSerialization)
     EXPECT_EQ(idx.graph_storage(), cagra::graph_storage_kind::tiered);
     EXPECT_EQ(run(idx), expected);
     auto replacement = cuvs::neighbors::make_device_padded_dataset(res, host.view());
-    EXPECT_THROW(cagra::update_dataset(res, std::move(idx), replacement->view()),
-                 raft::exception);
+    EXPECT_THROW(cagra::update_dataset(res, std::move(idx), replacement->view()), raft::exception);
     EXPECT_EQ(run(idx), expected);
   }
 }
