@@ -742,3 +742,34 @@ TEST(FlowannBuild, SearchesAutomaticAndExplicitWidths)
     }
   }
 }
+
+
+TEST(FlowannBuild, IterativeConstructionClampsOversizedDegrees)
+{
+  raft::resources res;
+  constexpr int64_t rows = 32, dim = 16;
+  auto host = raft::make_host_matrix<float, int64_t>(rows, dim);
+  for (int64_t row = 0; row < rows; ++row) {
+    for (int64_t col = 0; col < dim; ++col) {
+      host(row, col) = static_cast<float>((row * 37 + col * 13) % 211) * 0.01f;
+    }
+  }
+  auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host.view());
+  flowann::index_params params;
+  params.grouping.enabled = false;
+  params.cagra_params.graph_degree = 64;
+  params.cagra_params.intermediate_graph_degree = 128;
+  params.cagra_params.graph_build_params =
+    cuvs::neighbors::cagra::graph_build_params::iterative_search_params{};
+  auto built = flowann::build(res, params, dataset->as_dataset_view());
+  ASSERT_EQ(built.index.size(), rows);
+  ASSERT_EQ(built.index.graph_degree(), rows - 1);
+  auto cross = built.index.cross_graph();
+  ASSERT_EQ(cross.extent(1), rows);
+  for (int64_t row = 0; row < rows; ++row) {
+    ASSERT_EQ(cross(row, 0), rows - 1);
+    for (int64_t col = 1; col < rows; ++col) {
+      EXPECT_LT(cross(row, col), rows);
+    }
+  }
+}
