@@ -6,7 +6,7 @@ slug: api-reference/c-api-neighbors-cagra
 
 _Source header: `cuvs/neighbors/cagra.h`_
 
-## C API for CUDA ANN Graph-based nearest
+## C API for CUDA ANN Graph-based nearest neighbor search
 
 <a id="cuvscagragraphbuildalgo"></a>
 ### cuvsCagraGraphBuildAlgo
@@ -221,6 +221,7 @@ struct cuvsCagraIndexParams {
   size_t nn_descent_niter;
   void* graph_build_params;
   enum cuvsCagraGraphStorage graph_storage;
+  struct cuvsCagraTieredGraphParams tiered;
 };
 ```
 
@@ -235,15 +236,7 @@ struct cuvsCagraIndexParams {
 | `nn_descent_niter` | `size_t` | Number of Iterations to run if building with NN_DESCENT |
 | `graph_build_params` | `void*` | Optional: specify graph build params based on build_algo<br />- IVF_PQ: cuvsIvfPqParams_t<br />- ACE: cuvsAceParams_t<br />- Others: nullptr |
 | `graph_storage` | [`enum cuvsCagraGraphStorage`](/api-reference/c-api-neighbors-cagra#cuvscagragraphstorage) | Graph representation selected for construction. The default is CUVS_CAGRA_GRAPH_DEVICE. |
-
-<a id="cuvscagraindexparams-cuvscagratieredgraphparams"></a>
-### cuvsCagraIndexParams::cuvsCagraTieredGraphParams
-
-Tiered layout settings used when graph_storage is CUVS_CAGRA_GRAPH_TIERED.
-
-```c
-struct cuvsCagraTieredGraphParams tiered;
-```
+| `tiered` | [`struct cuvsCagraTieredGraphParams`](/api-reference/c-api-neighbors-cagra#cuvscagratieredgraphparams) | Tiered layout settings used when graph_storage is CUVS_CAGRA_GRAPH_TIERED. |
 
 <a id="cuvscagramergealgo"></a>
 ### cuvsCagraMergeAlgo
@@ -515,7 +508,7 @@ This factory function selects the graph build algorithm and its parameters based
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest
+## C API for CUDA ANN Graph-based nearest neighbor search
 
 <a id="cuvscagraextendparams"></a>
 ### cuvsCagraExtendParams
@@ -603,7 +596,7 @@ The caller must build `extended_dataset` as `old \|\| new` (size `n_old + n_new`
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest
+## C API for CUDA ANN Graph-based nearest neighbor search
 
 <a id="cuvscagrasearchalgo"></a>
 ### cuvsCagraSearchAlgo
@@ -673,6 +666,7 @@ struct cuvsCagraSearchParams {
   float persistent_lifetime;
   float persistent_device_usage;
   bool use_tiered_params;
+  struct cuvsCagraTieredSearchParams tiered;
 };
 ```
 
@@ -697,15 +691,7 @@ struct cuvsCagraSearchParams {
 | `persistent_lifetime` | `float` | Persistent kernel: time in seconds before the kernel stops if no requests received. |
 | `persistent_device_usage` | `float` | Set the fraction of maximum grid size used by persistent kernel. Value 1.0 means the kernel grid size is maximum possible for the selected device. The value must be greater than 0.0 and not greater than 1.0.<br /><br />One may need to run other kernels alongside this persistent kernel. This parameter can be used to reduce the grid size of the persistent kernel to leave a few SMs idle.<br />Note: running any other work on GPU alongside with the persistent kernel makes the setup fragile.<br />- Running another kernel in another thread usually works, but no progress guaranteed<br />- Any CUDA allocations block the context (this issue may be obscured by using pools)<br />- Memory copies to not-pinned host memory may block the context<br /><br />Even when we know there are no other kernels working at the same time, setting kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care. If you suspect this is an issue, you can reduce this number to ~0.9 without a significant impact on the throughput. |
 | `use_tiered_params` | `bool` | Enable the tiered settings below. Allocate this struct with cuvsCagraSearchParamsCreate(). |
-
-<a id="cuvscagrasearchparams-cuvscagratieredsearchparams"></a>
-### cuvsCagraSearchParams::cuvsCagraTieredSearchParams
-
-Tiered queue and search settings used only when use_tiered_params is true.
-
-```c
-struct cuvsCagraTieredSearchParams tiered;
-```
+| `tiered` | [`struct cuvsCagraTieredSearchParams`](/api-reference/c-api-neighbors-cagra#cuvscagratieredsearchparams) | Tiered queue and search settings used only when use_tiered_params is true. |
 
 <a id="cuvscagrasearchparamscreate"></a>
 ### cuvsCagraSearchParamsCreate
@@ -747,7 +733,7 @@ cuvsCagraSearchParamsDestroy(cuvsCagraSearchParams_t params);
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest neighbor
+## C API for CUDA ANN Graph-based nearest neighbor search
 
 <a id="cuvscagraindex"></a>
 ### cuvsCagraIndex
@@ -971,7 +957,7 @@ This is the centralized dataset update operation for C callers. The index's opaq
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest neighbor
+## C API for CUDA ANN Graph-based nearest neighbor search
 
 <a id="cuvscagrabuild"></a>
 ### cuvsCagraBuild
@@ -1038,7 +1024,7 @@ Requires graph_storage=CUVS_CAGRA_GRAPH_TIERED and enabled FlowANN building. The
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest
+## C API for CUDA ANN Graph-based nearest neighbor search
 
 <a id="cuvscagrasearch"></a>
 ### cuvsCagraSearch
