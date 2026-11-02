@@ -142,6 +142,8 @@ LUCENE_EXTENSION_POINTS = frozenset(
         "KnnVectorsFormat",
         "KnnVectorsReader",
         "KnnVectorsWriter",
+        # cuvs-lucene's own base for its codecs, a FilterCodec.
+        "CuVSFilterCodec",
     }
 )
 JAVA_SUPERTYPE_RE = re.compile(r"\b(?:extends|implements)\s+(?P<name>\w+)")
