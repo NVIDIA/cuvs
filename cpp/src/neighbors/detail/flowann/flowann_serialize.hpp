@@ -606,7 +606,8 @@ auto deserialize_legacy_vpq_f16_body(raft::resources const& res, std::istream& i
 
   return {std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
             std::move(data),
-            cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)}),
+            cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{
+              std::move(vq_code_book), std::move(pq_code_book)}),
           std::move(offsets),
           std::move(subgraph_ids)};
 }
@@ -696,10 +697,13 @@ void serialize(raft::resources const& res,
                device_padded_index<T, IdxT> const& index)
 {
   detail::serialize_common(res, os, index, detail::serialized_dataset_kind::dense);
-  raft::serialize_scalar(res, os, static_cast<std::uint32_t>(index.dataset().data_view().stride(0)));
+  raft::serialize_scalar(
+    res, os, static_cast<std::uint32_t>(index.dataset().data_view().stride(0)));
   auto rows = index.dataset().data_view();
-  raft::serialize_mdspan(res, os, raft::make_device_matrix_view<const T, int64_t>(
-    rows.data_handle(), rows.extent(0), rows.stride(0)));
+  raft::serialize_mdspan(res,
+                         os,
+                         raft::make_device_matrix_view<const T, int64_t>(
+                           rows.data_handle(), rows.extent(0), rows.stride(0)));
   RAFT_EXPECTS(os.good(), "FlowANN failed while serializing its dense dataset");
 }
 
@@ -708,7 +712,7 @@ template <typename T, typename IdxT = std::uint32_t>
 void serialize(raft::resources const& res, std::ostream& os, vpq_f16_index<T, IdxT> const& index)
 {
   detail::serialize_common(res, os, index, detail::serialized_dataset_kind::vpq_f16);
-  auto const dataset = index.dataset();
+  auto const dataset  = index.dataset();
   auto const manifest = dataset.manifest_view();
   raft::serialize_scalar(res, os, manifest.vq_n_centers());
   raft::serialize_scalar(res, os, manifest.pq_n_centers());
@@ -747,14 +751,23 @@ auto deserialize_device_padded(raft::resources const& res, std::istream& is)
   raft::deserialize_mdspan(res, is, storage.view());
   // Serialized rows retain their physical stride; the current dataset owns a canonical
   // padded layout with the original logical dimension.
-  auto logical_rows = raft::make_device_strided_matrix_view<const T, int64_t>(
-    storage.data_handle(), static_cast<int64_t>(graph.n_rows), static_cast<int64_t>(graph.dim),
-    static_cast<int64_t>(stride));
-  auto owned = cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
-    res, graph.n_rows, graph.dim);
-  raft::copy_matrix(owned.data_handle(), owned.mapping().stride(0), logical_rows.data_handle(), stride,
-                    graph.dim, graph.n_rows, raft::resource::get_cuda_stream(res));
-  auto dataset = std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(std::move(owned));
+  auto logical_rows =
+    raft::make_device_strided_matrix_view<const T, int64_t>(storage.data_handle(),
+                                                            static_cast<int64_t>(graph.n_rows),
+                                                            static_cast<int64_t>(graph.dim),
+                                                            static_cast<int64_t>(stride));
+  auto owned =
+    cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
+      res, graph.n_rows, graph.dim);
+  raft::copy_matrix(owned.data_handle(),
+                    owned.mapping().stride(0),
+                    logical_rows.data_handle(),
+                    stride,
+                    graph.dim,
+                    graph.n_rows,
+                    raft::resource::get_cuda_stream(res));
+  auto dataset =
+    std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(std::move(owned));
   device_padded_index<T, IdxT> index(
     res, graph.metric, dataset->view(), graph.node_per_cacheline, graph.n_bits);
   detail::populate_deserialized_index(res, index, std::move(graph));
@@ -845,7 +858,8 @@ auto deserialize_vpq_f16(raft::resources const& res, std::istream& is)
   raft::resource::sync_stream(res);
   auto dataset = std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
     std::move(encoded),
-    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)});
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book),
+                                                                      std::move(pq_code_book)});
   RAFT_EXPECTS(dataset->dim() == graph.dim && dataset->n_rows() == graph.n_rows,
                "FlowANN VPQ dataset metadata does not match the graph");
 
