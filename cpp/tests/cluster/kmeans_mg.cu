@@ -40,7 +40,7 @@ struct KmeansSNMGInputs {
   kmeans_weight_mode weight_mode;
   int device_buffer_samples;
   int n_init;
-  cuvs::cluster::kmeans::params::InitMethod init = cuvs::cluster::kmeans::params::Random;
+  cuvs::cluster::kmeans::params::InitMethod init = cuvs::cluster::kmeans::params::Array;
   int max_iter                                   = 20;
 };
 
