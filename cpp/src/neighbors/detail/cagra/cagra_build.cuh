@@ -1095,9 +1095,8 @@ auto build_graph(raft::resources const& res,
     adjusted_params.graph_degree              = graph_degree;
     auto device_graph                         = [&]() {
       if constexpr (cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>) {
-        auto padded = cuvs::neighbors::make_device_padded_dataset(res, dataset.view());
-        auto graph =
-          iterative_build_graph<T, IdxT>(res, adjusted_params, padded->as_dataset_view());
+        auto padded = cuvs::neighbors::make_device_padded_dataset(res, dataset.data_view());
+        auto graph  = iterative_build_graph<T, IdxT>(res, adjusted_params, padded->view());
         raft::resource::sync_stream(res);
         return graph;
       } else {
@@ -1119,7 +1118,7 @@ auto build_graph(raft::resources const& res,
                                                          static_cast<int64_t>(n_rows),
                                                          intermediate_degree,
                                                          graph_degree,
-                                                         dataset.view());
+                                                         dataset.data_view());
 }
 
 /**
