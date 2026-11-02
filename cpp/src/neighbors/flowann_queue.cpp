@@ -367,9 +367,9 @@ class host_queue {
     // cudaMalloc can return a suballocation after the graph build, so align within an owning
     // allocation instead of relying on cudaMalloc's current address.
     constexpr std::size_t gpu_page_size = 64u * 1024u;
-    RAFT_EXPECTS(layout_.total_size <= std::numeric_limits<std::size_t>::max() -
-                                       (gpu_page_size - 1),
-                 "FlowANN GDRCopy mapping size overflows");
+    RAFT_EXPECTS(
+      layout_.total_size <= std::numeric_limits<std::size_t>::max() - (gpu_page_size - 1),
+      "FlowANN GDRCopy mapping size overflows");
     mapped_size_ = align_up(layout_.total_size, gpu_page_size);
     storage_.allocate(mapped_size_, gpu_page_size);
 #else
