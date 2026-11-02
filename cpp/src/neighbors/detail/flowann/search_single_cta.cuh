@@ -124,8 +124,9 @@ struct single_cta_plan
         } else {
           RAFT_EXPECTS(this->hashmap_mode != cuvs::neighbors::cagra::hash_mode::SMALL,
                        "FlowANN seeds exceed the small visited hashmap capacity");
-          this->small_hash_bitlen = 0;
-          this->hash_bitlen       = 11;
+          this->small_hash_bitlen         = 0;
+          this->small_hash_reset_interval = 1024 * 1024;
+          this->hash_bitlen               = 11;
         }
       }
       if (this->small_hash_bitlen == 0) {
