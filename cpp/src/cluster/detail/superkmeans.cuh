@@ -141,9 +141,8 @@ void copy_first_columns(const raft::resources& handle,
 
 /**
  * The pruned assignment (cuvs::distance::pruned_top_1_nn) and what it keeps across iterations: the
- * rows' norms and FP16 copy, the pruning ratios, the row order, and the workspace. The centroids
- * the 1-NN reads are T: for half rows, a half copy of the float centroids, which is also the
- * filter's.
+ * rows' norms and FP16 copy, the row order, and the workspace. The centroids the 1-NN reads are
+ * T: for half rows, a half copy of the float centroids, which is also the filter's.
  */
 template <typename T>
 class pruned_assignment {
@@ -157,7 +156,6 @@ class pruned_assignment {
       dim_(X.extent(1)),
       n_clusters_(n_clusters),
       filter_dim_(std::is_same_v<T, half> ? dim_ : pruned_nn::kDimTileSize),
-      ratios_(raft::make_device_vector<float, int64_t>(handle, dim_ + 1)),
       row_norms_(raft::make_device_vector<float, int64_t>(handle, n_rows_)),
       centroid_norms_(raft::make_device_vector<float, int64_t>(handle, n_clusters)),
       dist_(raft::make_device_vector<float, int64_t>(handle, n_rows_)),
@@ -168,11 +166,7 @@ class pruned_assignment {
       workspace_(raft::make_device_vector<char, int64_t>(
         handle, cuvs::distance::pruned_top_1_nn_workspace_size(handle, n_rows_)))
   {
-    auto stream         = raft::resource::get_cuda_stream(handle).get();
-    const auto ratios   = pruned_nn::adsampling_ratios(dim_);
-    params_.ratios      = ratios_.data_handle();
-    params_.first_ratio = ratios[pruned_nn::kDimTileSize];
-    raft::copy(ratios_.data_handle(), ratios.data(), ratios.size(), stream);
+    auto stream = raft::resource::get_cuda_stream(handle).get();
     if constexpr (std::is_same_v<T, half>) {
       pruned_nn::squared_norms(
         X.data_handle(), n_rows_, dim_, pruned_nn::kDimTileSize, row_norms_.data_handle(), stream);
@@ -185,8 +179,6 @@ class pruned_assignment {
                          filter_rows_.data_handle(),
                          row_norms_.data_handle());
     }
-    // The host ratios are released when the copy is done
-    raft::resource::sync_stream(handle);
   }
 
   /**
@@ -233,7 +225,7 @@ class pruned_assignment {
   raft::device_matrix_view<const T, int64_t> X_;
   int64_t n_rows_, dim_, n_clusters_, filter_dim_;
   cuvs::distance::PrunedTop1nnParams params_;
-  raft::device_vector<float, int64_t> ratios_, row_norms_, centroid_norms_, dist_;
+  raft::device_vector<float, int64_t> row_norms_, centroid_norms_, dist_;
   raft::device_vector<uint32_t, int64_t> row_order_;
   raft::device_matrix<half, int64_t> filter_rows_, filter_centroids_;
   raft::device_vector<char, int64_t> workspace_;

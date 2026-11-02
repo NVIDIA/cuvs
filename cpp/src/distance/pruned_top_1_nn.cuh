@@ -30,11 +30,9 @@ namespace cuvs::distance {
 
 /** The pruned 1-NN's bounds, and the order its pruning kernel takes the rows in. */
 struct PrunedTop1nnParams {
-  /** [k + 1] on device: ratios[i] scales a row's bound after i dims (see
-   * detail::pruned_nn::adsampling_ratios). */
-  const float* ratios = nullptr;
-  /** ratios[detail::pruned_nn::kDimTileSize] on host: the first filter's. */
-  float first_ratio = 1.0f;
+  /** ADSampling's margin: a row's bound after i dims is scaled by
+   * detail::pruned_nn::adsampling_ratio(i, k, eps0). */
+  float eps0 = 1.5f;
   /** [m], optional: each row batch's rows in the order to prune them, heaviest first. */
   const uint32_t* row_order = nullptr;
   /** [m], optional: the order for the next call, from this call's first-filter survivors. May be
@@ -183,10 +181,10 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
 /**
  * Updates each row of x to its nearest row of y in L2, starting from its current one. Not exact:
  * from the distance to the current neighbor (the bound), a fused partial GEMM over the first
- * detail::pruned_nn::kDimTileSize dims (FP16) keeps the candidates under the bound times
- * params.first_ratio; the pruning kernel adds the candidates' tail dims a tile at a time, keeping
- * those under the bound times params.ratios[dims so far], and takes the closest left if it beats
- * the current neighbor. A neighbor pruned away early can be missed.
+ * detail::pruned_nn::kDimTileSize dims (FP16) keeps the candidates under the bound times its
+ * ratio; the pruning kernel adds the candidates' tail dims a tile at a time, keeping those under
+ * the bound times the ratio for the dims so far (see PrunedTop1nnParams::eps0), and takes the
+ * closest left if it beats the current neighbor. A neighbor pruned away early can be missed.
  *
  * Rows go in batches of kRowBatchSize against batches of kCentroidBatchSize rows of y. The row
  * batches round-robin over the main stream and, with a stream pool on the handle, its first stream,
@@ -228,7 +226,6 @@ void pruned_top_1_nn(raft::resources const& handle,
                "Pruned 1-NN needs the fused filter's cuTile kernel and k a multiple of %u above it",
                kDimTileSize);
   RAFT_EXPECTS(m > 0 && n > 0, "Pruned 1-NN needs rows in x and y");
-  RAFT_EXPECTS(params.ratios != nullptr, "Pruned 1-NN needs the pruning ratios");
   RAFT_EXPECTS(kHalf || (x_fp16 != nullptr && y_fp16 != nullptr),
                "Pruned 1-NN on float needs FP16 copies of x's and y's first dims");
   const workspace_layout layout(handle, m);
@@ -276,7 +273,7 @@ void pruned_top_1_nn(raft::resources const& handle,
                           xn + i,
                           yn + j,
                           row_dist,
-                          params.first_ratio,
+                          adsampling_ratio(kDimTileSize, static_cast<uint32_t>(k), params.eps0),
                           static_cast<int>(kDimTileSize),
                           packed,
                           count,
@@ -289,7 +286,7 @@ void pruned_top_1_nn(raft::resources const& handle,
             static_cast<uint32_t>(j),
             k,
             kDimTileSize,
-            params.ratios,
+            params.eps0,
             first_filter_lists{packed, count, kCentroidBatchSize},
             row_labels,
             row_dist,
