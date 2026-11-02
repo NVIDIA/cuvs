@@ -18,3 +18,19 @@ threading guideline during maintainer review; this rationale does not claim that
 Pollers inherit the caller's CPU affinity by default. Internal callers may opt into
 physical-core pinning with `queue_params::pin_pollers`; pinned contexts share a process-wide
 allocation counter rather than all starting at CPU zero.
+
+
+## Deploying a GDRCopy-enabled library
+
+GDRCopy remains an external runtime dependency; installing cuVS does not bundle `libgdrapi`.
+The runtime environment must provide a compatible `libgdrapi` and its SONAME links. Place them
+beside the installed cuVS libraries, install them in the system loader paths, or set
+`LD_LIBRARY_PATH` to the runtime GDRCopy directory before loading cuVS. The kernel driver is
+also required for GDRCopy transfers.
+
+The installed RPATH defaults to `$ORIGIN`, so moving an installation does not retain the
+build host's GDRCopy prefix. Packagers with a fixed runtime layout may set
+`CUVS_FLOWANN_GDRCOPY_INSTALL_RPATH` to their deployment search paths. The same setting applies
+to `libcuvs_c` when `CUVSC_STATIC_CUVS_LIBRARY=ON`, since that library then carries the GDRCopy
+dependency directly. Compile-time package discovery still uses `GDRCopy_ROOT` or the usual
+CMake search paths and does not establish the runtime layout.
