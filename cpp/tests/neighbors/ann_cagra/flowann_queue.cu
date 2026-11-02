@@ -803,7 +803,7 @@ TEST(FlowannQueue, HostAbortCompletesAWaitWithoutCudaCopies)
   auto* host_flag = static_cast<std::uint32_t*>(attributes.hostPointer);
   ASSERT_NE(host_flag, nullptr);
   auto completed = raft::make_device_vector<std::uint32_t, int64_t>(res, 1);
-  wait_for_host_abort<<<1, 1, 0, raft::resource::get_cuda_stream(res)>>>(
+  wait_for_host_abort<<<1, 1, 0, raft::resource::get_cuda_stream(res).get()>>>(
     queue, completed.data_handle());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
   std::jthread signal([host_flag] {
