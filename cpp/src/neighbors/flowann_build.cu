@@ -395,7 +395,7 @@ auto rank_graph_edge_order(raft::resources const& res,
   -> raft::host_matrix<std::uint8_t, int64_t, raft::row_major>
 {
   using value_type =
-    std::remove_const_t<typename decltype(std::declval<DatasetViewT const&>().view())::value_type>;
+    std::remove_const_t<typename decltype(std::declval<DatasetViewT const&>().data_view())::value_type>;
   constexpr bool host_dataset = cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>;
 
   auto const n_rows = static_cast<std::uint64_t>(graph.extent(0));
@@ -481,8 +481,8 @@ auto rank_graph_edge_order(raft::resources const& res,
 
   auto const stream         = raft::resource::get_cuda_stream(res);
   auto const raw_stream     = cuda_stream_handle(stream);
-  auto const dataset_rows   = dataset.view();
-  auto const dataset_stride = dataset.stride();
+  auto const dataset_rows   = dataset.data_view();
+  auto const dataset_stride = dataset.data_view().stride(0);
   raft::copy(device_labels.data_handle(), labels.data_handle(), labels.extent(0), stream);
   for (std::uint64_t offset = 0; offset < n_rows; offset += batch_rows) {
     auto const count =
@@ -558,7 +558,7 @@ auto convert_uniform_ranked_graph(
   DatasetViewT const& dataset) -> uniform_conversion_result
 {
   using value_type =
-    std::remove_const_t<typename decltype(std::declval<DatasetViewT const&>().view())::value_type>;
+    std::remove_const_t<typename decltype(std::declval<DatasetViewT const&>().data_view())::value_type>;
   constexpr bool host_dataset = cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>;
 
   auto const n_rows = static_cast<std::uint64_t>(graph.extent(0));
@@ -679,8 +679,8 @@ auto convert_uniform_ranked_graph(
                shared_bytes,
                shared_memory_limit);
 
-  auto const dataset_rows   = dataset.view();
-  auto const dataset_stride = dataset.stride();
+  auto const dataset_rows   = dataset.data_view();
+  auto const dataset_stride = dataset.data_view().stride(0);
   for (std::uint64_t offset = 0; offset < n_rows; offset += batch_rows) {
     auto const count =
       static_cast<std::uint32_t>(std::min<std::uint64_t>(batch_rows, n_rows - offset));
@@ -779,7 +779,7 @@ auto gather_grouping_rows(raft::resources const& res,
     for (std::size_t i = 0; i < ids.size(); ++i) {
       for (int64_t col = 0; col < dim; ++col) {
         staging(i * dim + col) =
-          static_cast<float>(dataset.view().data_handle()[ids[i] * dataset.stride() + col]);
+          static_cast<float>(dataset.data_view().data_handle()[ids[i] * dataset.data_view().stride(0) + col]);
       }
     }
     raft::copy(result.data_handle(), staging.data_handle(), result.size(), stream);
@@ -791,12 +791,12 @@ auto gather_grouping_rows(raft::resources const& res,
       static_cast<unsigned>(std::min<std::uint64_t>((result.size() + 255) / 256, 65535));
     gather_float_rows_kernel<<<blocks, 256, 0, cuda_stream_handle(stream)>>>(
       result.data_handle(),
-      dataset.view().data_handle(),
+      dataset.data_view().data_handle(),
       device_ids.data_handle(),
       0,
       ids.size(),
       dim,
-      dataset.stride());
+      dataset.data_view().stride(0));
     RAFT_CUDA_TRY(cudaPeekAtLastError());
     raft::resource::sync_stream(res);
   }
@@ -949,7 +949,7 @@ auto generate_group_labels(raft::resources const& res,
             auto const source = source_id(begin + offset + row);
             for (int64_t col = 0; col < dim; ++col) {
               (*staging)(row* dim + col) = static_cast<float>(
-                dataset.view().data_handle()[std::uint64_t{source} * dataset.stride() + col]);
+                dataset.data_view().data_handle()[std::uint64_t{source} * dataset.data_view().stride(0) + col]);
             }
           }
           raft::copy(batch.data_handle(), staging->data_handle(), size * dim, stream);
@@ -962,12 +962,12 @@ auto generate_group_labels(raft::resources const& res,
             static_cast<unsigned>(std::min<std::uint64_t>((size * dim + 255) / 256, 65535));
           gather_float_rows_kernel<<<blocks, 256, 0, cuda_stream_handle(stream)>>>(
             batch.data_handle(),
-            dataset.view().data_handle(),
+            dataset.data_view().data_handle(),
             device_ids->data_handle(),
             0,
             size,
             dim,
-            dataset.stride());
+            dataset.data_view().stride(0));
           RAFT_CUDA_TRY(cudaPeekAtLastError());
         }
         auto batch_view =
@@ -1052,7 +1052,7 @@ auto generate_medoid_seeds(raft::resources const& res,
   -> raft::host_vector<graph_index_type, int64_t>
 {
   using source_type =
-    std::remove_const_t<typename decltype(std::declval<DatasetViewT const&>().view())::value_type>;
+    std::remove_const_t<typename decltype(std::declval<DatasetViewT const&>().data_view())::value_type>;
   constexpr bool host_dataset = cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>;
 
   RAFT_EXPECTS(params.num_seeds > 0 && params.num_seeds <= dataset.n_rows(),
@@ -1084,7 +1084,7 @@ auto generate_medoid_seeds(raft::resources const& res,
   }
 
   auto sample           = raft::make_device_matrix<float, int64_t>(res, sample_rows, dim);
-  auto const rows       = dataset.view();
+  auto const rows       = dataset.data_view();
   auto const stream     = raft::resource::get_cuda_stream(res);
   auto const raw_stream = cuda_stream_handle(stream);
   if constexpr (host_dataset) {
@@ -1094,7 +1094,7 @@ auto generate_medoid_seeds(raft::resources const& res,
 #pragma omp parallel for schedule(static)
 #endif
     for (std::uint64_t row = 0; row < sample_rows; ++row) {
-      auto const* input = rows.data_handle() + sample_ids_host(row) * dataset.stride();
+      auto const* input = rows.data_handle() + sample_ids_host(row) * dataset.data_view().stride(0);
       auto* output      = sample_host.data_handle() + row * dim;
       for (std::uint32_t column = 0; column < dim; ++column) {
         output[column] = static_cast<float>(input[column]);
@@ -1116,7 +1116,7 @@ auto generate_medoid_seeds(raft::resources const& res,
                                                                  0,
                                                                  sample_rows,
                                                                  dim,
-                                                                 dataset.stride());
+                                                                 dataset.data_view().stride(0));
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   }
 
@@ -1168,7 +1168,7 @@ auto generate_medoid_seeds(raft::resources const& res,
 #pragma omp parallel for schedule(static)
 #endif
       for (std::uint64_t row = 0; row < count; ++row) {
-        auto const* input = rows.data_handle() + (offset + row) * dataset.stride();
+        auto const* input = rows.data_handle() + (offset + row) * dataset.data_view().stride(0);
         auto* output      = batch_host->data_handle() + row * dim;
         for (std::uint32_t column = 0; column < dim; ++column) {
           output[column] = static_cast<float>(input[column]);
@@ -1183,7 +1183,7 @@ auto generate_medoid_seeds(raft::resources const& res,
       auto const blocks      = static_cast<std::uint32_t>(
         std::min<std::uint64_t>((count * dim + threads - 1) / threads, std::uint64_t{65535}));
       gather_float_rows_kernel<<<blocks, threads, 0, raw_stream>>>(
-        batch.data_handle(), rows.data_handle(), nullptr, offset, count, dim, dataset.stride());
+        batch.data_handle(), rows.data_handle(), nullptr, offset, count, dim, dataset.data_view().stride(0));
       RAFT_CUDA_TRY(cudaPeekAtLastError());
     }
 
@@ -2061,17 +2061,16 @@ auto reorder_dense_dataset(raft::resources const& res,
                            std::vector<graph_index_type> const& new_to_old)
   -> std::unique_ptr<cuvs::neighbors::device_padded_dataset<T, int64_t>>
 {
-  auto const source_data = source.view();
+  auto const source_data = source.data_view();
   auto reordered =
-    raft::make_device_matrix<T, int64_t>(res, source_data.extent(0), source_data.extent(1));
+    cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(res, source.n_rows(), source.dim());
   gather_device_rows(res,
                      reordered.data_handle(),
                      source_data.data_handle(),
                      source_data.extent(0),
-                     static_cast<std::uint32_t>(source_data.extent(1)),
+                     static_cast<std::uint32_t>(source_data.stride(0)),
                      new_to_old);
-  return std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(std::move(reordered),
-                                                                              source.dim());
+  return std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(std::move(reordered));
 }
 
 auto reorder_vpq_dataset(raft::resources const& res,
@@ -2079,30 +2078,31 @@ auto reorder_vpq_dataset(raft::resources const& res,
                          std::vector<graph_index_type> const& new_to_old)
   -> std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>
 {
-  auto const& source_data = source.dset();
+  auto const source_data = source;
   auto vq_code_book       = raft::make_device_matrix<half, std::uint32_t>(
-    res, source_data.vq_code_book.extent(0), source_data.vq_code_book.extent(1));
+    res, source_data.manifest_view().vq_code_book.extent(0), source_data.manifest_view().vq_code_book.extent(1));
   auto pq_code_book = raft::make_device_matrix<half, std::uint32_t>(
-    res, source_data.pq_code_book.extent(0), source_data.pq_code_book.extent(1));
+    res, source_data.manifest_view().pq_code_book.extent(0), source_data.manifest_view().pq_code_book.extent(1));
   auto encoded = raft::make_device_matrix<std::uint8_t, int64_t>(
-    res, source_data.data.extent(0), source_data.data.extent(1));
+    res, source_data.data_view().extent(0), source_data.data_view().extent(1));
   auto const stream = raft::resource::get_cuda_stream(res);
   raft::copy(vq_code_book.data_handle(),
-             source_data.vq_code_book.data_handle(),
-             source_data.vq_code_book.size(),
+             source_data.manifest_view().vq_code_book.data_handle(),
+             source_data.manifest_view().vq_code_book.size(),
              stream);
   raft::copy(pq_code_book.data_handle(),
-             source_data.pq_code_book.data_handle(),
-             source_data.pq_code_book.size(),
+             source_data.manifest_view().pq_code_book.data_handle(),
+             source_data.manifest_view().pq_code_book.size(),
              stream);
   gather_device_rows(res,
                      encoded.data_handle(),
-                     source_data.data.data_handle(),
-                     source_data.data.extent(0),
-                     static_cast<std::uint32_t>(source_data.data.extent(1)),
+                     source_data.data_view().data_handle(),
+                     source_data.data_view().extent(0),
+                     static_cast<std::uint32_t>(source_data.data_view().extent(1)),
                      new_to_old);
   return std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-    std::move(vq_code_book), std::move(pq_code_book), std::move(encoded));
+    std::move(encoded),
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)});
 }
 
 auto reorder_vpq_dataset_consuming(
@@ -2112,18 +2112,26 @@ auto reorder_vpq_dataset_consuming(
   -> std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>
 {
   RAFT_EXPECTS(source != nullptr, "FlowANN VPQ conversion requires a dataset owner");
-  auto const n_rows     = source->data.extent(0);
-  auto const row_length = source->data.extent(1);
+  auto const n_rows     = source->data_view().extent(0);
+  auto const row_length = source->data_view().extent(1);
   RAFT_EXPECTS(n_rows == static_cast<int64_t>(new_to_old.size()),
                "FlowANN VPQ dataset and graph row counts differ");
 
   auto host_source  = raft::make_host_matrix<std::uint8_t, int64_t>(n_rows, row_length);
   auto const stream = raft::resource::get_cuda_stream(res);
-  raft::copy(host_source.data_handle(), source->data.data_handle(), source->data.size(), stream);
+  raft::copy(host_source.data_handle(), source->data_view().data_handle(), source->data_view().size(), stream);
   raft::resource::sync_stream(res);
 
-  auto vq_code_book = std::move(source->vq_code_book);
-  auto pq_code_book = std::move(source->pq_code_book);
+  // The dataset API exposes codebook views rather than detachable owners. Copy only
+  // the bounded codebooks, then release the old encoded rows before allocating new rows.
+  auto manifest = source->const_manifest_view();
+  auto vq_code_book = raft::make_device_matrix<half, std::uint32_t>(
+    res, manifest.vq_code_book.extent(0), manifest.vq_code_book.extent(1));
+  auto pq_code_book = raft::make_device_matrix<half, std::uint32_t>(
+    res, manifest.pq_code_book.extent(0), manifest.pq_code_book.extent(1));
+  raft::copy(vq_code_book.data_handle(), manifest.vq_code_book.data_handle(), manifest.vq_code_book.size(), stream);
+  raft::copy(pq_code_book.data_handle(), manifest.pq_code_book.data_handle(), manifest.pq_code_book.size(), stream);
+  raft::resource::sync_stream(res);
   source.reset();
 
   auto host_reordered = raft::make_host_matrix<std::uint8_t, int64_t>(n_rows, row_length);
@@ -2143,7 +2151,8 @@ auto reorder_vpq_dataset_consuming(
   raft::copy(encoded.data_handle(), host_reordered.data_handle(), host_reordered.size(), stream);
   raft::resource::sync_stream(res);
   return std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-    std::move(vq_code_book), std::move(pq_code_book), std::move(encoded));
+    std::move(encoded),
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)});
 }
 
 template <typename CagraIndexT>
@@ -2338,7 +2347,7 @@ auto build_dense_integrated(raft::resources const& res,
     auto dataset_owner  = detail::reorder_dense_dataset(res, dataset, conversion.new_to_old);
     flowann::device_padded_index<T, std::uint32_t> index(res,
                                                          params.cagra_params.metric,
-                                                         dataset_owner->as_dataset_view(),
+                                                         dataset_owner->view(),
                                                          params.node_per_cacheline,
                                                          grouping.n_bits);
     std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seed_view;
@@ -2364,18 +2373,18 @@ auto build_dense_integrated(raft::resources const& res,
   if (params.num_seeds > 0) { seeds.emplace(detail::generate_medoid_seeds(res, params, dataset)); }
   auto const seeds_end = std::chrono::steady_clock::now();
 
-  auto source_rows = dataset.view();
+  auto source_rows = dataset.data_view();
   auto owned_rows =
-    raft::make_device_matrix<T, int64_t>(res, source_rows.extent(0), source_rows.extent(1));
+    cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(res, dataset.n_rows(), dataset.dim());
   raft::copy(owned_rows.data_handle(),
              source_rows.data_handle(),
-             source_rows.size(),
+             owned_rows.mapping().required_span_size(),
              raft::resource::get_cuda_stream(res));
   auto dataset_owner = std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
-    std::move(owned_rows), dataset.dim());
+    std::move(owned_rows));
   flowann::device_padded_index<T, std::uint32_t> index(res,
                                                        params.cagra_params.metric,
-                                                       dataset_owner->as_dataset_view(),
+                                                       dataset_owner->view(),
                                                        params.node_per_cacheline,
                                                        conversion.layout.n_bits);
   detail::populate_uniform_index(res, index, std::move(conversion));
@@ -2438,11 +2447,11 @@ auto build_vpq_integrated(raft::resources const& res,
       cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, dataset));
     auto source_indices = conversion.new_to_old;
     auto dataset_owner =
-      detail::reorder_vpq_dataset(res, unordered_dataset->as_dataset_view(), conversion.new_to_old);
+      detail::reorder_vpq_dataset(res, unordered_dataset->view(), conversion.new_to_old);
     unordered_dataset.reset();
     flowann::vpq_f16_index<T, std::uint32_t> index(res,
                                                    params.cagra_params.metric,
-                                                   dataset_owner->as_dataset_view(),
+                                                   dataset_owner->view(),
                                                    params.node_per_cacheline,
                                                    grouping.n_bits);
     std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seed_view;
@@ -2472,7 +2481,7 @@ auto build_vpq_integrated(raft::resources const& res,
     cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, dataset));
   flowann::vpq_f16_index<T, std::uint32_t> index(res,
                                                  params.cagra_params.metric,
-                                                 dataset_owner->as_dataset_view(),
+                                                 dataset_owner->view(),
                                                  params.node_per_cacheline,
                                                  conversion.layout.n_bits);
   detail::populate_uniform_index(res, index, std::move(conversion));
@@ -2524,7 +2533,7 @@ auto build_device_padded_from_cagra(
   auto dataset = detail::reorder_dense_dataset(res, cagra_index.dataset(), conversion.new_to_old);
   flowann::device_padded_index<T, std::uint32_t> index(res,
                                                        cagra_index.metric(),
-                                                       dataset->as_dataset_view(),
+                                                       dataset->view(),
                                                        params.node_per_cacheline,
                                                        params.n_bits);
   detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
@@ -2545,7 +2554,7 @@ auto build_vpq_from_cagra(
   auto dataset = detail::reorder_vpq_dataset(res, cagra_index.dataset(), conversion.new_to_old);
   flowann::vpq_f16_index<T, std::uint32_t> index(res,
                                                  cagra_index.metric(),
-                                                 dataset->as_dataset_view(),
+                                                 dataset->view(),
                                                  params.node_per_cacheline,
                                                  params.n_bits);
   detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
@@ -2577,7 +2586,7 @@ auto build_vpq_from_cagra_consuming(
   auto dataset =
     detail::reorder_vpq_dataset_consuming(res, std::move(vpq_dataset), conversion.new_to_old);
   flowann::vpq_f16_index<T, std::uint32_t> index(
-    res, metric, dataset->as_dataset_view(), params.node_per_cacheline, params.n_bits);
+    res, metric, dataset->view(), params.node_per_cacheline, params.n_bits);
   detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
   return {std::move(dataset), std::move(index)};
 }

@@ -163,7 +163,7 @@ TEST(FlowannBuild, IntegratedBuildKeepsShortestNeighborsResident)
   auto const row_bytes = flowann::detail::packed_row_bytes(nodes_per_row, bits, resident_degree);
   params.device_graph_budget_bytes = (rows / nodes_per_row) * row_bytes;
 
-  auto built = flowann::build(res, params, dataset->as_dataset_view());
+  auto built = flowann::build(res, params, dataset->view());
   ASSERT_EQ(built.index.graph_degree(), full_degree);
   ASSERT_EQ(built.index.resident_degree(), resident_degree);
   ASSERT_EQ(built.index.cross_degree(), full_degree - resident_degree);
@@ -279,7 +279,7 @@ TEST(FlowannBuild, IntegratedBuildGroupsRearrangesAndPreservesSourceIds)
   params.grouping.kmeans_n_iters        = 4;
   params.grouping.validate              = true;
 
-  auto built = flowann::build(res, params, dataset->as_dataset_view());
+  auto built = flowann::build(res, params, dataset->view());
   EXPECT_EQ(built.index.graph_degree(), 8);
   EXPECT_EQ(built.index.resident_degree(), 0);
   EXPECT_GT(built.index.inner_graph().size(), 0);
@@ -344,7 +344,7 @@ TEST(FlowannBuild, IntegratedBuildGeneratesUniqueMedoidSeeds)
   params.num_seeds                 = 4;
   params.seed_training_rows        = 64;
 
-  auto built = flowann::build(res, params, dataset->as_dataset_view());
+  auto built = flowann::build(res, params, dataset->view());
   auto seeds = built.index.seeds();
   ASSERT_TRUE(seeds.has_value());
   ASSERT_EQ(seeds->extent(0), params.num_seeds);
@@ -389,7 +389,7 @@ TEST(FlowannBuild, IntegratedBuildUsesCagraMetricForRanking)
     auto const row_bytes             = flowann::detail::packed_row_bytes(2, bits, resident_degree);
     params.device_graph_budget_bytes = (rows / 2) * row_bytes;
 
-    auto built = flowann::build(res, params, dataset->as_dataset_view());
+    auto built = flowann::build(res, params, dataset->view());
     auto inner = raft::make_host_matrix<std::uint8_t, int64_t>(built.index.inner_graph().extent(0),
                                                                built.index.inner_graph().extent(1));
     raft::copy(inner.data_handle(),
@@ -584,7 +584,7 @@ TEST(FlowannBuild, SupportsIvfPqAndIterativeCagraGraphBuilders)
             cuvs::neighbors::cagra::graph_build_params::ivf_pq_params(
               raft::matrix_extent<int64_t>(rows, dim), params.cagra_params.metric)};
 
-    auto built = flowann::build(res, params, dataset->as_dataset_view());
+    auto built = flowann::build(res, params, dataset->view());
     EXPECT_EQ(built.index.size(), rows);
     EXPECT_EQ(built.index.graph_degree(), 8);
     EXPECT_EQ(built.index.resident_degree(), 0);
@@ -637,7 +637,7 @@ TEST(FlowannBuild, SearchesZeroAndFullResidentLayouts)
       params.device_graph_budget_bytes = (rows / 2) * row_bytes;
     }
 
-    auto built = flowann::build(res, params, dataset->as_dataset_view());
+    auto built = flowann::build(res, params, dataset->view());
     EXPECT_EQ(built.index.resident_degree(), all_resident ? degree : 0);
     EXPECT_EQ(built.index.cross_degree(), all_resident ? 0 : degree);
 
@@ -852,7 +852,7 @@ TEST(FlowannBuild, SearchesAutomaticAndExplicitWidths)
       params.device_graph_budget_bytes = (rows / 2) * row_bytes;
     }
 
-    auto built = flowann::build(res, params, dataset->as_dataset_view());
+    auto built = flowann::build(res, params, dataset->view());
     ASSERT_EQ(built.index.n_bits(), requested_bits == 0 ? 8 : requested_bits);
     EXPECT_EQ(built.index.resident_degree(), 0);
     EXPECT_EQ(built.index.cross_degree(), degree);
@@ -911,11 +911,11 @@ TEST(FlowannBuild, IterativeConstructionClampsOversizedDegrees)
   params.cagra_params.intermediate_graph_degree = 128;
   params.cagra_params.graph_build_params =
     cuvs::neighbors::cagra::graph_build_params::iterative_search_params{};
-  auto built = flowann::build(res, params, dataset->as_dataset_view());
+  auto built = flowann::build(res, params, dataset->view());
   ASSERT_EQ(built.index.size(), rows);
   ASSERT_EQ(built.index.graph_degree(), rows - 1);
   auto resident =
-    cuvs::neighbors::cagra::build(res, params.cagra_params, dataset->as_dataset_view());
+    cuvs::neighbors::cagra::build(res, params.cagra_params, dataset->view());
   EXPECT_EQ(resident.graph_degree(), rows - 1);
   auto cross = built.index.cross_graph();
   ASSERT_EQ(cross.extent(1), rows);
