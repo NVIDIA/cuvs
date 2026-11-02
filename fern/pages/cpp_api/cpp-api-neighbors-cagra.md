@@ -173,7 +173,7 @@ struct search_params : cuvs::neighbors::search_params {
 | `persistent_device_usage` | `float` | Set the fraction of maximum grid size used by persistent kernel. Value 1.0 means the kernel grid size is maximum possible for the selected device. The value must be greater than 0.0 and not greater than 1.0.<br /><br />One may need to run other kernels alongside this persistent kernel. This parameter can be used to reduce the grid size of the persistent kernel to leave a few SMs idle.<br />Note: running any other work on GPU alongside with the persistent kernel makes the setup fragile.<br />- Running another kernel in another thread usually works, but no progress guaranteed<br />- Any CUDA allocations block the context (this issue may be obscured by using pools)<br />- Memory copies to not-pinned host memory may block the context<br /><br />Even when we know there are no other kernels working at the same time, setting kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care. If you suspect this is an issue, you can reduce this number to ~0.9 without a significant impact on the throughput. |
 | `filtering_rate` | `float` | A parameter indicating the rate of nodes to be filtered-out, when filtering is used. The value must be equal to or greater than 0.0 and less than 1.0. Default value is negative, in which case the filtering rate is automatically calculated when possible. For `filtering::udf_filter`, CAGRA uses `udf_filter::filtering_rate` when this value is negative. If both values are negative, CAGRA assumes 0.0 because a UDF's selectivity cannot be inferred from the source string. |
 | `smem_dtype` | `internal_dtype` | Data type of the query vector and codebook table on shared memory. Currently, only VPQ supports FP8. * |
-| `tiered` | [`std::optional<tiered_search_params>`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-tiered-search-params) | Settings for tiered indexes; ignored only when absent on an ordinary index. |
+| `tiered` | [`std::optional<tiered_search_params>`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-tiered-search-params) | Settings for tiered indexes. Must be unset for ordinary device-graph indexes; search throws otherwise. Tiered indexes use default settings when this is unset. |
 
 ## CAGRA index build parameters
 
@@ -543,7 +543,7 @@ Device neighborhood graph with shape [size, graph_degree].
 -> raft::device_matrix_view<const graph_index_type, int64_t, raft::row_major>;
 ```
 
-and host edge storage and cannot be represented by a single device adjacency matrix.
+Throws raft::logic_error when graph_storage() is tiered. Tiered graphs have separate device and host edge storage and cannot be represented by a single device adjacency matrix.
 
 **Returns**
 
@@ -1326,75 +1326,6 @@ The returned index cannot be searched: CAGRA has no BBQ search kernels. Call the
 `cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>`
 
 built `device_bbq_index<float, uint32_t>`
-
-**Additional overload:** `neighbors::cagra::build`
-
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
-
-```cpp
-auto build(raft::resources const& res,
-const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset)
--> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
-```
-
-**Parameters**
-
-| Name | Direction | Type | Description |
-| --- | --- | --- | --- |
-| `res` |  | `raft::resources const&` |  |
-| `params` |  | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) |  |
-| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<half, int64_t>` |  |
-
-**Returns**
-
-`cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>`
-
-**Additional overload:** `neighbors::cagra::build`
-
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
-
-```cpp
-auto build(raft::resources const& res,
-const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset)
--> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
-```
-
-**Parameters**
-
-| Name | Direction | Type | Description |
-| --- | --- | --- | --- |
-| `res` |  | `raft::resources const&` |  |
-| `params` |  | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) |  |
-| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t>` |  |
-
-**Returns**
-
-`cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>`
-
-**Additional overload:** `neighbors::cagra::build`
-
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
-
-```cpp
-auto build(raft::resources const& res,
-const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset)
--> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
-```
-
-**Parameters**
-
-| Name | Direction | Type | Description |
-| --- | --- | --- | --- |
-| `res` |  | `raft::resources const&` |  |
-| `params` |  | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) |  |
-| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t>` |  |
-
-**Returns**
-
-`cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>`
 
 ## CAGRA extend functions
 

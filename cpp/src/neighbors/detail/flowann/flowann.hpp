@@ -346,6 +346,8 @@ class index : public cuvs::neighbors::index {
                inner_graph.data_handle(),
                inner_graph.size(),
                raft::resource::get_cuda_stream(res));
+    // A non-owning host view may refer to pinned memory released by the caller on return.
+    raft::resource::sync_stream(res);
 
     auto new_cross = raft::make_host_matrix<graph_index_type, int64_t>(cross_graph.extent(0),
                                                                        cross_graph.extent(1));

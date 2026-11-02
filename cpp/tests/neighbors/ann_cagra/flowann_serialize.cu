@@ -20,6 +20,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <rmm/mr/cuda_memory_resource.hpp>
+#include <rmm/mr/limiting_resource_adaptor.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 #include <sstream>
 #include <string>
 
@@ -790,4 +793,41 @@ TEST(FlowannSerialize, LoadsDenseRowsWithOlderPhysicalPitch)
       EXPECT_EQ(actual(row, col), 0.0f);
     }
   }
+}
+
+TEST(FlowannSerialize, RejectsTruncatedDensePayloadBeforeDeviceAllocation)
+{
+  raft::resources res;
+  auto host = raft::make_host_matrix<float, int64_t>(4, 4);
+  std::fill_n(host.data_handle(), host.size(), 0.0f);
+  auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host.view());
+  flowann::device_padded_index<float> index(
+    res, cuvs::distance::DistanceType::L2Expanded, dataset->view(), 2, 2);
+  install_compact_test_graph(res, index);
+  auto offsets = raft::make_host_vector<std::uint32_t, int64_t>(1);
+  auto ids     = raft::make_host_vector<std::uint32_t, int64_t>(4);
+  offsets(0)   = 0;
+  std::fill_n(ids.data_handle(), ids.size(), 0u);
+  index.update_subgraph_layout(
+    res, raft::make_const_mdspan(offsets.view()), raft::make_const_mdspan(ids.view()));
+  std::stringstream stream(std::ios::in | std::ios::out | std::ios::binary);
+  flowann::detail::serialize_common(
+    res, stream, index, flowann::detail::serialized_dataset_kind::dense);
+  constexpr std::uint32_t large_dim = 1u << 28;
+  raft::serialize_scalar(res, stream, large_dim);
+  // Replace only the logical dimension in the common header; omit the dataset payload.
+  stream.seekg(4);
+  (void)raft::deserialize_scalar<int>(res, stream);
+  (void)raft::deserialize_scalar<std::uint32_t>(res, stream);  // kind
+  (void)raft::deserialize_scalar<std::uint32_t>(res, stream);  // rows
+  stream.seekp(stream.tellg());
+  raft::serialize_scalar(res, stream, large_dim);
+  stream.seekg(0);
+  rmm::mr::limiting_resource_adaptor limited(rmm::mr::cuda_memory_resource{}, std::size_t{1} << 20);
+  struct restore_resource {
+    cuda::mr::any_resource<cuda::mr::device_accessible> previous;
+    ~restore_resource() { rmm::mr::set_current_device_resource(previous); }
+  } restore{rmm::mr::set_current_device_resource(limited)};
+  // A bad header must produce a format error, rather than requesting a multi-GB allocation.
+  EXPECT_THROW((flowann::deserialize_device_padded<float>(res, stream)), raft::logic_error);
 }

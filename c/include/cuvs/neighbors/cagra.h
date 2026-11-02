@@ -1,6 +1,6 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION &
- * AFFILIATES. All rights reserved. SPDX-License-Identifier: Apache-2.0
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
@@ -21,8 +21,7 @@ extern "C" {
 #endif
 
 /**
- * @defgroup cagra_c_index_params C API for CUDA ANN Graph-based nearest
- * neighbor search
+ * @defgroup cagra_c_index_params C API for CUDA ANN Graph-based nearest neighbor search
  * @{
  */
 
@@ -37,52 +36,47 @@ enum cuvsCagraGraphBuildAlgo {
   IVF_PQ = 1,
   /* Experimental, use NN-Descent to build all-neighbors knn graph */
   NN_DESCENT = 2,
-  /* Experimental, use iterative cagra search and optimize to build the knn
-     graph */
+  /* Experimental, use iterative cagra search and optimize to build the knn graph */
   ITERATIVE_CAGRA_SEARCH = 3,
   /**
-   * Experimental, use ACE (Augmented Core Extraction) to build the graph. ACE
-   * partitions the dataset into core and augmented partitions and builds a
-   * sub-index for each partition. This enables building indices for datasets
-   * too large to fit in GPU or host memory. See cuvsAceParams for more details
-   * about the ACE algorithm and its parameters.
+   * Experimental, use ACE (Augmented Core Extraction) to build the graph. ACE partitions the
+   * dataset into core and augmented partitions and builds a sub-index for each partition. This
+   * enables building indices for datasets too large to fit in GPU or host memory.
+   * See cuvsAceParams for more details about the ACE algorithm and its parameters.
    */
   ACE = 4
 };
 
 /**
- * @brief A strategy for selecting the graph build parameters based on similar
- * HNSW index parameters.
+ * @brief A strategy for selecting the graph build parameters based on similar HNSW index
+ * parameters.
  *
- * Define how cuvsCagraIndexParamsFromHnswParams should construct a graph to
- * construct a graph that is to be converted to (used by) a CPU HNSW index.
+ * Define how cuvsCagraIndexParamsFromHnswParams should construct a graph to construct a graph
+ * that is to be converted to (used by) a CPU HNSW index.
  */
 enum cuvsCagraHnswHeuristicType {
   /**
    * Create a graph that is very similar to an HNSW graph in
-   * terms of the number of nodes and search performance. Since HNSW produces a
-   * variable-degree graph (2M being the max graph degree) and CAGRA produces a
-   * fixed-degree graph, there's always a difference in the performance of the
-   * two.
+   * terms of the number of nodes and search performance. Since HNSW produces a variable-degree
+   * graph (2M being the max graph degree) and CAGRA produces a fixed-degree graph, there's always a
+   * difference in the performance of the two.
    *
-   * This function attempts to produce such a graph that the QPS and recall of
-   * the two graphs being searched by HNSW are close for any search parameter
-   * combination. The CAGRA-produced graph tends to have a "longer tail" on the
-   * low recall side (that is being slightly faster and less precise).
+   * This function attempts to produce such a graph that the QPS and recall of the two graphs being
+   * searched by HNSW are close for any search parameter combination. The CAGRA-produced graph tends
+   * to have a "longer tail" on the low recall side (that is being slightly faster and less
+   * precise).
    *
    */
    CUVS_CAGRA_HEURISTIC_SIMILAR_SEARCH_PERFORMANCE = 0,
   /**
-   * Create a graph that has the same binary size as an HNSW graph with the
-   * given parameters (graph_degree = 2 * M) while trying to match the search
-   * performance as closely as possible.
+   * Create a graph that has the same binary size as an HNSW graph with the given parameters
+   * (graph_degree = 2 * M) while trying to match the search performance as closely as possible.
    *
-   * The reference HNSW index and the corresponding from-CAGRA generated HNSW
-   * index will NOT produce the same recalls and QPS for the same parameter ef.
-   * The graphs are different internally. For the same ef, the from-CAGRA index
-   * likely has a slightly higher recall and slightly lower QPS. However, the
-   * Recall-QPS curves should be similar (i.e. the points are just shifted along
-   * the curve).
+   * The reference HNSW index and the corresponding from-CAGRA generated HNSW index will NOT produce
+   * the same recalls and QPS for the same parameter ef. The graphs are different internally. For
+   * the same ef, the from-CAGRA index likely has a slightly higher recall and slightly lower QPS.
+   * However, the Recall-QPS curves should be similar (i.e. the points are just shifted along the
+   * curve).
    */
    CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT = 1
 };
@@ -90,9 +84,8 @@ enum cuvsCagraHnswHeuristicType {
 /**
  * Parameters for PQ dataset compression.
  *
- * The `cuvsCagraCompressionParams` name is retained for ABI compatibility and
- * is planned for removal in the 27.02 ABI-breaking release. Use `cuvsPqParams`
- * in new code.
+ * The `cuvsCagraCompressionParams` name is retained for ABI compatibility and is planned for
+ * removal in the 27.02 ABI-breaking release. Use `cuvsPqParams` in new code.
  */
 struct cuvsCagraCompressionParams {
   /**
@@ -100,8 +93,8 @@ struct cuvsCagraCompressionParams {
    *
    * Possible values: [4, 5, 6, 7, 8].
    *
-   * Hint: the smaller the `pq_bits`, the smaller the index size and the better
-   * the search performance, but the lower the recall.
+   * Hint: the smaller the `pq_bits`, the smaller the index size and the better the search
+   * performance, but the lower the recall.
    */
   uint32_t pq_bits;
   /**
@@ -112,12 +105,11 @@ struct cuvsCagraCompressionParams {
    */
   uint32_t pq_dim;
   /**
-   * Vector Quantization (VQ) codebook size - number of "coarse cluster
-   * centers". When zero, an optimal value is selected using a heuristic.
+   * Vector Quantization (VQ) codebook size - number of "coarse cluster centers".
+   * When zero, an optimal value is selected using a heuristic.
    */
   uint32_t vq_n_centers;
-  /** The number of iterations searching for kmeans centers (both VQ & PQ
-   * phases). */
+  /** The number of iterations searching for kmeans centers (both VQ & PQ phases). */
   uint32_t kmeans_n_iters;
   /**
    * The fraction of data to use during iterative kmeans building (VQ phase).
@@ -170,8 +162,8 @@ struct cuvsAceParams {
   /**
    * The index quality for the ACE build.
    *
-   * Bigger values increase the index quality. At some point, increasing this
-   * will no longer improve the quality.
+   * Bigger values increase the index quality. At some point, increasing this will no longer
+   * improve the quality.
    */
   size_t ef_construction;
   /**
@@ -180,34 +172,31 @@ struct cuvsAceParams {
    * Used when `use_disk` is true or when the graph does not fit in host and GPU
    * memory. This should be the fastest disk in the system and hold enough space
    * for twice the dataset, final graph, and label mapping. The directory may
-   * already exist, but ACE's named artifacts must not already exist.
-   * Simultaneous builds must use different directories. On failure, ACE removes
-   * only artifacts it created and never deletes unrelated directory contents.
+   * already exist, but ACE's named artifacts must not already exist. Simultaneous
+   * builds must use different directories. On failure, ACE removes only artifacts
+   * it created and never deletes unrelated directory contents.
    */
   const char* build_dir;
   /**
    * Whether to use disk-based storage for ACE build.
    *
-   * When true, enables disk-based operations for memory-efficient graph
-   * construction.
+   * When true, enables disk-based operations for memory-efficient graph construction.
    */
   bool use_disk;
   /**
    * Maximum host memory to use for ACE build in GiB.
    *
    * When set to 0 (default), uses available host memory.
-   * When set to a positive value, limits host memory usage to the specified
-   * amount. Useful for testing or when running alongside other memory-intensive
-   * processes.
+   * When set to a positive value, limits host memory usage to the specified amount.
+   * Useful for testing or when running alongside other memory-intensive processes.
    */
   double max_host_memory_gb;
   /**
    * Maximum GPU memory to use for ACE build in GiB.
    *
    * When set to 0 (default), uses available GPU memory.
-   * When set to a positive value, limits GPU memory usage to the specified
-   * amount. Useful for testing or when running alongside other memory-intensive
-   * processes.
+   * When set to a positive value, limits GPU memory usage to the specified amount.
+   * Useful for testing or when running alongside other memory-intensive processes.
    */
   double max_gpu_memory_gb;
 };
@@ -364,8 +353,8 @@ cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params);
 /**
  * @brief Allocate CAGRA Compression params, and populate with default values.
  *
- * Deprecated: Use `cuvsPqParamsCreate`. This compatibility API is planned for
- * removal in the 27.02 ABI-breaking release.
+ * Deprecated: Use `cuvsPqParamsCreate`. This compatibility API is planned for removal in
+ * the 27.02 ABI-breaking release.
  *
  * @param[in] params cuvsCagraCompressionParams_t to allocate
  * @return cuvsError_t
@@ -376,8 +365,8 @@ cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t *params);
 /**
  * @brief De-allocate CAGRA Compression params.
  *
- * Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for
- * removal in the 27.02 ABI-breaking release.
+ * Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for removal in
+ * the 27.02 ABI-breaking release.
  *
  * @param[in] params
  * @return cuvsError_t
@@ -404,8 +393,8 @@ CUVS_EXPORT cuvsError_t cuvsAceParamsDestroy(cuvsAceParams_t params);
 /**
  * @brief Create CAGRA index parameters similar to an HNSW index
  *
- * This factory function creates CAGRA parameters that yield a graph compatible
- * with an HNSW graph with the given parameters.
+ * This factory function creates CAGRA parameters that yield a graph compatible with
+ * an HNSW graph with the given parameters.
  *
  * @param[out] params The CAGRA index params to populate
  * @param[in] n_rows Number of rows in the dataset
@@ -424,16 +413,15 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsFromHnswParams(
 /**
  * @brief Create CAGRA index parameters heuristically tuned for a dataset
  *
- * This factory function selects the graph build algorithm and its parameters
- * based on the shape of the dataset.
+ * This factory function selects the graph build algorithm and its parameters based on the shape of
+ * the dataset.
  *
  * @param[out] params The CAGRA index params to populate
  * @param[in] n_rows Number of rows in the dataset
  * @param[in] dim Number of dimensions in the dataset
  * @param[in] graph_degree Degree of the output graph
  * @param[in] metric Distance metric to use
- * @param[in] build_quality Higher values increase build quality (and cost) up
- * to a point
+ * @param[in] build_quality Higher values increase build quality (and cost) up to a point
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsFromDataset(
@@ -445,8 +433,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsFromDataset(
  */
 
 /**
- * @defgroup cagra_c_extend_params C API for CUDA ANN Graph-based nearest
- * neighbor search
+ * @defgroup cagra_c_extend_params C API for CUDA ANN Graph-based nearest neighbor search
  * @{
  */
 /**
@@ -454,12 +441,11 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsFromDataset(
  *
  */
 struct cuvsCagraExtendParams {
-  /** The additional dataset is divided into chunks and added to the graph. This
-   * is the knob to adjust the tradeoff between the recall and operation
-   * throughput. Large chunk sizes can result in high throughput, but use more
-   * working memory (O(max_chunk_size*degree^2)). This can also degrade recall
-   * because no edges are added between the nodes in the same chunk. Auto select
-   * when 0. */
+  /** The additional dataset is divided into chunks and added to the graph. This is the knob to
+   * adjust the tradeoff between the recall and operation throughput. Large chunk sizes can result
+   * in high throughput, but use more working memory (O(max_chunk_size*degree^2)). This can also
+   * degrade recall because no edges are added between the nodes in the same chunk. Auto select when
+   * 0. */
   uint32_t max_chunk_size;
 };
 
@@ -488,8 +474,7 @@ cuvsCagraExtendParamsDestroy(cuvsCagraExtendParams_t params);
  */
 
 /**
- * @defgroup cagra_c_search_params C API for CUDA ANN Graph-based nearest
- * neighbor search
+ * @defgroup cagra_c_search_params C API for CUDA ANN Graph-based nearest neighbor search
  * @{
  */
 
@@ -517,14 +502,13 @@ enum cuvsCagraHashMode { HASH = 0, SMALL = 1, AUTO_HASH = 100 };
  *
  */
 struct cuvsCagraSearchParams {
-  /** Maximum number of queries to search at the same time (batch size). Auto
-   * select when 0.*/
+  /** Maximum number of queries to search at the same time (batch size). Auto select when 0.*/
   size_t max_queries;
 
   /** Number of intermediate search results retained during the search.
    *
-   *  This is the main knob to adjust trade off between accuracy and search
-   * speed. Higher values improve the search accuracy.
+   *  This is the main knob to adjust trade off between accuracy and search speed.
+   *  Higher values improve the search accuracy.
    */
   size_t itopk_size;
 
@@ -540,8 +524,8 @@ struct cuvsCagraSearchParams {
   /** Number of threads used to calculate a single distance. 4, 8, 16, or 32. */
   size_t team_size;
 
-  /** Number of graph nodes to select as the starting point for the search in
-   * each iteration. aka search width?*/
+  /** Number of graph nodes to select as the starting point for the search in each iteration. aka
+   * search width?*/
   size_t search_width;
   /** Lower limit of search iterations. */
   size_t min_iterations;
@@ -560,31 +544,27 @@ struct cuvsCagraSearchParams {
   /** Bit mask used for initial random seed node selection. */
   uint64_t rand_xor_mask;
 
-  /** Whether to use the persistent version of the kernel (only SINGLE_CTA is
-   * supported a.t.m.) */
+  /** Whether to use the persistent version of the kernel (only SINGLE_CTA is supported a.t.m.) */
   bool persistent;
-  /** Persistent kernel: time in seconds before the kernel stops if no requests
-   * received. */
+  /** Persistent kernel: time in seconds before the kernel stops if no requests received. */
   float persistent_lifetime;
   /**
    * Set the fraction of maximum grid size used by persistent kernel.
-   * Value 1.0 means the kernel grid size is maximum possible for the selected
-   * device. The value must be greater than 0.0 and not greater than 1.0.
+   * Value 1.0 means the kernel grid size is maximum possible for the selected device.
+   * The value must be greater than 0.0 and not greater than 1.0.
    *
-   * One may need to run other kernels alongside this persistent kernel. This
-   * parameter can be used to reduce the grid size of the persistent kernel to
-   * leave a few SMs idle. Note: running any other work on GPU alongside with
-   * the persistent kernel makes the setup fragile.
-   *   - Running another kernel in another thread usually works, but no progress
-   * guaranteed
-   *   - Any CUDA allocations block the context (this issue may be obscured by
-   * using pools)
+   * One may need to run other kernels alongside this persistent kernel. This parameter can
+   * be used to reduce the grid size of the persistent kernel to leave a few SMs idle.
+   * Note: running any other work on GPU alongside with the persistent kernel makes the setup
+   * fragile.
+   *   - Running another kernel in another thread usually works, but no progress guaranteed
+   *   - Any CUDA allocations block the context (this issue may be obscured by using pools)
    *   - Memory copies to not-pinned host memory may block the context
    *
-   * Even when we know there are no other kernels working at the same time,
-   * setting kDeviceUsage to 1.0 surprisingly sometimes hurts performance.
-   * Proceed with care. If you suspect this is an issue, you can reduce this
-   * number to ~0.9 without a significant impact on the throughput.
+   * Even when we know there are no other kernels working at the same time, setting
+   * kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care.
+   * If you suspect this is an issue, you can reduce this number to ~0.9 without a significant
+   * impact on the throughput.
    */
   float persistent_device_usage;
   /** Enable the tiered settings below. Allocate this struct with
@@ -620,19 +600,16 @@ cuvsCagraSearchParamsDestroy(cuvsCagraSearchParams_t params);
  */
 
 /**
- * @defgroup cagra_c_index C API for CUDA ANN Graph-based nearest neighbor
- * search
+ * @defgroup cagra_c_index C API for CUDA ANN Graph-based nearest neighbor search
  * @{
  */
 
 /**
- * @brief Struct holding the CAGRA index storage address and vector element
- * dtype (DLPack-style)
+ * @brief Struct holding the CAGRA index storage address and vector element dtype (DLPack-style)
  *
- * Matches the usual cuVS C index pattern (`addr` + `dtype`). \p addr points at
- * implementation-owned storage (not always a bare `cagra::index*`); free only
- * via \ref cuvsCagraIndexDestroy. \p dtype describes index vector elements for
- * queries and template dispatch.
+ * Matches the usual cuVS C index pattern (`addr` + `dtype`). \p addr points at implementation-owned
+ * storage (not always a bare `cagra::index*`); free only via \ref cuvsCagraIndexDestroy. \p dtype
+ * describes index vector elements for queries and template dispatch.
  */
 typedef struct cuvsCagraIndex {
   uintptr_t addr;
@@ -747,15 +724,13 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index,
 /**
  * @brief Update a CAGRA index with a device-padded or device-PQ dataset.
  *
- * This is the centralized dataset update operation for C callers. The index's
- * opaque handle is rebound to an index over the supplied dataset layout.
- * Device-padded and device-PQ datasets can be attached to any supported index
- * layout. The caller retains ownership of \p dataset and must keep it alive
- * while \p index uses it.
+ * This is the centralized dataset update operation for C callers. The index's opaque handle is
+ * rebound to an index over the supplied dataset layout. Device-padded and device-PQ datasets can
+ * be attached to any supported index layout. The caller retains ownership of \p dataset and must
+ * keep it alive while \p index uses it.
  *
  * @param[in] res      cuvsResources_t opaque C handle
- * @param[in] dataset  owning or non-owning device-padded or device-PQ dataset
- * handle
+ * @param[in] dataset  owning or non-owning device-padded or device-PQ dataset handle
  * @param[inout] index CAGRA index handle
  * @return cuvsError_t
  */
@@ -768,8 +743,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
  */
 
 /**
- * @defgroup cagra_c_index_build C API for CUDA ANN Graph-based nearest neighbor
- * search
+ * @defgroup cagra_c_index_build C API for CUDA ANN Graph-based nearest neighbor search
  * @{
  */
 
@@ -781,15 +755,14 @@ CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
  *        3. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`
  *        4. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`
  *
- * The memory space and layout \p dataset was constructed with select the C++
- * build overload. Build the handle with an owning factory or the matching
- * dataset view factory
+ * The memory space and layout \p dataset was constructed with select the C++ build overload.
+ * Build the handle with an owning factory or the matching dataset view factory
  * (`cuvsDatasetMakePaddedView`, `cuvsDatasetMakeStandardView`, or
  * `cuvsDatasetMakeBbqView`).
  *
- * Note that a dataset residing in host memory produces a host-backed index,
- * which must be made search-ready with `cuvsCagraUpdateDataset` (using a
- * device-padded dataset) before calling `cuvsCagraSearch`.
+ * Note that a dataset residing in host memory produces a host-backed index, which
+ * must be made search-ready with `cuvsCagraUpdateDataset` (using a device-padded
+ * dataset) before calling `cuvsCagraSearch`.
  *
  * @code {.c}
  * #include <cuvs/core/c_api.h>
@@ -799,13 +772,12 @@ CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
  * cuvsResources_t res;
  * cuvsError_t res_create_status = cuvsResourcesCreate(&res);
  *
- * // Assume a populated `DLManagedTensor` type here holding a device padded
- * dataset DLManagedTensor dataset;
+ * // Assume a populated `DLManagedTensor` type here holding a device padded dataset
+ * DLManagedTensor dataset;
  *
  * // Wrap it in a non-owning dataset handle
  * cuvsDataset_t dataset_view;
- * cuvsError_t view_create_status = cuvsDatasetMakePaddedView(res, &dataset,
- * &dataset_view);
+ * cuvsError_t view_create_status = cuvsDatasetMakePaddedView(res, &dataset, &dataset_view);
  *
  * // Create default index params
  * cuvsCagraIndexParams_t params;
@@ -825,18 +797,17 @@ CUVS_EXPORT cuvsError_t cuvsCagraUpdateDataset(cuvsResources_t res,
  * cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);
  * @endcode
  *
- * A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an
- * iterative CAGRA-Q index. VPQ input requires `L2Expanded` and
- * `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the VPQ dataset must outlive
- * the index because the index stores a non-owning view. A
- * `CUVS_DATASET_LAYOUT_BBQ` dataset builds a graph-only index; attach a
- * searchable dataset with `cuvsCagraUpdateDataset` before search.
+ * A `CUVS_DATASET_LAYOUT_PQ` dataset created by `cuvsDatasetMakePQ` builds an iterative CAGRA-Q
+ * index. VPQ input requires `L2Expanded` and `ITERATIVE_CAGRA_SEARCH` (or `AUTO_SELECT`), and the
+ * VPQ dataset must outlive the index because the index stores a non-owning view.
+ * A `CUVS_DATASET_LAYOUT_BBQ` dataset builds a graph-only index; attach a searchable dataset with
+ * `cuvsCagraUpdateDataset` before search.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraIndexParams_t used to build CAGRA index
  * @param[in] dataset cuvsDataset_t training dataset or dataset view
- * @param[inout] index cuvsCagraIndex_t Newly built CAGRA index. This index
- * needs to be already created with cuvsCagraIndexCreate.
+ * @param[inout] index cuvsCagraIndex_t Newly built CAGRA index. This index needs to be already
+ *                                      created with cuvsCagraIndexCreate.
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraBuild(cuvsResources_t res,
@@ -875,26 +846,22 @@ CUVS_EXPORT cuvsError_t cuvsCagraBuildCompressed(cuvsResources_t res,
  */
 
 /**
- * @defgroup cagra_c_extend_params C API for CUDA ANN Graph-based nearest
- * neighbor search
+ * @defgroup cagra_c_extend_params C API for CUDA ANN Graph-based nearest neighbor search
  * @{
  */
 
 /**
- * @brief Extend a CAGRA index with a caller-owned pre-concatenated padded
- * dataset.
+ * @brief Extend a CAGRA index with a caller-owned pre-concatenated padded dataset.
  *
- * The caller must build `extended_dataset` as `old || new` (size `n_old +
- * n_new`) before calling. Rows `[0, new_start_row)` are the original vectors;
- * rows `[new_start_row, n_rows)` are the additional vectors. `new_start_row`
- * must equal the current index size. The library only extends the graph and
- * rebinds the index to `extended_dataset`; keep that dataset alive for the
- * index lifetime.
+ * The caller must build `extended_dataset` as `old || new` (size `n_old + n_new`) before calling.
+ * Rows `[0, new_start_row)` are the original vectors; rows `[new_start_row, n_rows)` are the
+ * additional vectors. `new_start_row` must equal the current index size. The library only extends
+ * the graph and rebinds the index to `extended_dataset`; keep that dataset alive for the index
+ * lifetime.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraExtendParams_t used to extend CAGRA index
- * @param[in] extended_dataset cuvsDataset_t caller-owned device-padded dataset
- * of old || new
+ * @param[in] extended_dataset cuvsDataset_t caller-owned device-padded dataset of old || new
  * @param[in] new_start_row row index where the additional vectors begin
  * @param[in,out] index cuvsCagraIndex_t CAGRA index
  * @return cuvsError_t
@@ -910,8 +877,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraExtend(cuvsResources_t res,
  */
 
 /**
- * @defgroup cagra_c_index_search C API for CUDA ANN Graph-based nearest
- * neighbor search
+ * @defgroup cagra_c_index_search C API for CUDA ANN Graph-based nearest neighbor search
  * @{
  */
 /**
@@ -925,12 +891,9 @@ CUVS_EXPORT cuvsError_t cuvsCagraExtend(cuvsResources_t res,
  *          b. `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 16`
  *          c. `kDLDataType.code == kDLInt` and `kDLDataType.bits = 8`
  *          d. `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 8`
- *        2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits =
- 32`
- *                     or `kDLDataType.code == kDLInt`  and `kDLDataType.bits =
- 64`
- *        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits =
- 32`
+ *        2. `neighbors`: `kDLDataType.code == kDLUInt` and `kDLDataType.bits = 32`
+ *                     or `kDLDataType.code == kDLInt`  and `kDLDataType.bits = 64`
+ *        3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
  *
  * @code {.c}
  * #include <cuvs/core/c_api.h>
@@ -950,8 +913,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraExtend(cuvsResources_t res,
  * cuvsError_t params_create_status = cuvsCagraSearchParamsCreate(&params);
  *
  * // Search the `index` built using `cuvsCagraBuild`
- * cuvsError_t search_status = cuvsCagraSearch(res, params, index, &queries,
- &neighbors,
+ * cuvsError_t search_status = cuvsCagraSearch(res, params, index, &queries, &neighbors,
  * &distances);
  *
  * // de-allocate `params` and `res`
@@ -974,41 +936,37 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearch(
     DLManagedTensor *distances, cuvsFilter filter);
 
 /**
- * @brief Search multiple CAGRA index partitions concurrently and return the
- * global top-k per query.
+ * @brief Search multiple CAGRA index partitions concurrently and return the global top-k per
+ * query.
  *
- * For each query row, the function searches all partitions in parallel into an
- * internal intermediate buffer, applies per-partition distance post-processing,
- * runs a batched top-k merge across partitions, and writes the final outputs to
- * the caller-supplied device tensors. All work is submitted to the CUDA stream
- * associated with @p res; use @c cuvsStreamSync to wait for completion.
+ * For each query row, the function searches all partitions in parallel into an internal
+ * intermediate buffer, applies per-partition distance post-processing, runs a batched top-k
+ * merge across partitions, and writes the final outputs to the caller-supplied device tensors.
+ * All work is submitted to the CUDA stream associated with @p res; use @c cuvsStreamSync to
+ * wait for completion.
  *
- * The index element type may be float32, float16, int8, or uint8. All
- * partitions must share the same element type, and the queries must use that
- * same type.
+ * The index element type may be float32, float16, int8, or uint8. All partitions must share the
+ * same element type, and the queries must use that same type.
  *
  * @param[in]  res            cuvsResources_t opaque C handle
  * @param[in]  params         search parameters (shared across partitions)
  * @param[in]  num_partitions number of index partitions
- * @param[in]  indices        array of num_partitions cuvsCagraIndex_t pointers,
- * all of the same element type
- * @param[in]  queries        DLManagedTensor* (device, same dtype as the
- * indices, [n_queries, dim]); the queries matrix is searched against every
- * partition
- * @param[out] partition_ids  DLManagedTensor* (device, uint32, [n_queries, k]);
- * which partition each returned neighbor came from
- * @param[out] neighbors      DLManagedTensor* (device, uint32 or int64,
- * [n_queries, k]); ordinal in the corresponding partition's dataset
- * @param[out] distances      DLManagedTensor* (device, float32, [n_queries,
- * k]); post-processed distance for each (query, neighbor)
- * @param[in]  filters        array of `num_partitions` filters, one per
- * partition (or NULL for a fully unfiltered search). `filters[i]` applies to
- * partition `i`: use
- *                            {.type=NO_FILTER, .addr=0} for no filter on that
- * partition, or
- *                            {.type=BITSET, .addr=ptr} where ptr is a
- * uintptr_t-cast DLManagedTensor* holding that partition's own bitset (one bit
- * per vector in that partition; standard 32-bit packing).
+ * @param[in]  indices        array of num_partitions cuvsCagraIndex_t pointers, all of the same
+ *                            element type
+ * @param[in]  queries        DLManagedTensor* (device, same dtype as the indices, [n_queries,
+ *                            dim]); the queries matrix is searched against every partition
+ * @param[out] partition_ids  DLManagedTensor* (device, uint32, [n_queries, k]); which partition
+ *                            each returned neighbor came from
+ * @param[out] neighbors      DLManagedTensor* (device, uint32 or int64, [n_queries, k]); ordinal
+ *                            in the corresponding partition's dataset
+ * @param[out] distances      DLManagedTensor* (device, float32, [n_queries, k]); post-processed
+ *                            distance for each (query, neighbor)
+ * @param[in]  filters        array of `num_partitions` filters, one per partition (or NULL for a
+ *                            fully unfiltered search). `filters[i]` applies to partition `i`: use
+ *                            {.type=NO_FILTER, .addr=0} for no filter on that partition, or
+ *                            {.type=BITSET, .addr=ptr} where ptr is a uintptr_t-cast
+ *                            DLManagedTensor* holding that partition's own bitset (one bit per
+ *                            vector in that partition; standard 32-bit packing).
  */
 CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(
     cuvsResources_t res, cuvsCagraSearchParams_t params,
@@ -1028,13 +986,11 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(
 /**
  * Save the CAGRA graph to file without its dataset.
  *
- * This supports dense, PQ-backed, and BBQ-built indexes. The serialized file
- * does not contain vector data. After deserialization the index cannot be
- * searched until a compatible dataset is attached with
- * `cuvsCagraUpdateDataset`.
+ * This supports dense, PQ-backed, and BBQ-built indexes. The serialized file does not contain
+ * vector data. After deserialization the index cannot be searched until a compatible dataset is
+ * attached with `cuvsCagraUpdateDataset`.
  *
- * Experimental, both the API and the serialization format are subject to
- * change.
+ * Experimental, both the API and the serialization format are subject to change.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] filename the file name for saving the graph
@@ -1047,13 +1003,12 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
 /**
  * Save the CAGRA graph and its attached dataset to file.
  *
- * The index stores a non-owning dataset view. The caller must keep the memory
- * of the dataset backing that view alive while this function runs. Returns
- * CUVS_ERROR without modifying the destination file if the index has no
- * attached dataset. PQ and BBQ datasets are not serialized by this function.
+ * The index stores a non-owning dataset view. The caller must keep the memory of the dataset
+ * backing that view alive while this function runs. Returns CUVS_ERROR without modifying the
+ * destination file if the index has no attached dataset. PQ and BBQ datasets are not serialized
+ * by this function.
  *
- * Experimental, both the API and the serialization format are subject to
- * change.
+ * Experimental, both the API and the serialization format are subject to change.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] filename the file name for saving the graph and dataset
@@ -1065,11 +1020,9 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraphAndDataset(
 /**
  * Save the CAGRA index to file in hnswlib format.
  * NOTE: The saved index can only be read by the hnswlib wrapper in cuVS,
- *       as the serialization format is not compatible with the original
- * hnswlib.
+ *       as the serialization format is not compatible with the original hnswlib.
  *
- * Experimental, both the API and the serialization format are subject to
- * change.
+ * Experimental, both the API and the serialization format are subject to change.
  *
  * @code{.c}
  * #include <cuvs/core/c_api.h>
@@ -1095,17 +1048,14 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeToHnswlib(cuvsResources_t res,
 /**
  * Load the CAGRA graph from file without retaining a serialized dataset.
  *
- * This succeeds whether or not the file contains a dataset. Use
- * cuvsCagraUpdateDataset to attach a caller-owned device-padded or device-PQ
- * dataset before searching the graph-only index.
+ * This succeeds whether or not the file contains a dataset. Use cuvsCagraUpdateDataset to attach a
+ * caller-owned device-padded or device-PQ dataset before searching the graph-only index.
  *
- * Experimental, both the API and the serialization format are subject to
- * change.
+ * Experimental, both the API and the serialization format are subject to change.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] filename the name of the file that stores the index
- * @param[inout] index pre-created CAGRA index populated on success and
- * unchanged on failure
+ * @param[inout] index pre-created CAGRA index populated on success and unchanged on failure
  */
 CUVS_EXPORT cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res,
                                                   const char* filename,
@@ -1150,8 +1100,9 @@ CUVS_EXPORT cuvsError_t cuvsCagraDeserializeGraphAndDataset(
  * @param[in] metric cuvsDistanceType to use in the index
  * @param[in] graph the knn graph to use, shape (size, graph_degree)
  * @param[in] dataset the dataset to use, shape (size, dim)
- * @param[inout] index cuvsCagraIndex_t CAGRA index populated with the graph and
- * dataset. This index needs to be already created with cuvsCagraIndexCreate.
+ * @param[inout] index cuvsCagraIndex_t CAGRA index populated with the graph and dataset.
+ *                                      This index needs to be already created with
+ *                                      cuvsCagraIndexCreate.
  *
  * @code {.c}
  * #include <cuvs/core/c_api.h>
@@ -1172,8 +1123,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraDeserializeGraphAndDataset(
  * cuvsDistanceType metric = L2Expanded;
  *
  * // Build the CAGRA Index from the graph/dataset
- * cuvsError_t status = cuvsCagraIndexFromArgs(res, metric, &graph, &dataset,
- * index);
+ * cuvsError_t status = cuvsCagraIndexFromArgs(res, metric, &graph, &dataset, index);
  *
  * @endcode
  */
@@ -1195,10 +1145,9 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
 /**
  * @brief Merge multiple CAGRA indices into a single CAGRA index.
  *
- * All input indices must have been built with the same data type
- * (`index.dtype`) and have the same dimensionality (`index.dims`). The merged
- * index uses the output parameters specified in `cuvsCagraIndexParams`. The
- * merge algorithm is selected automatically.
+ * All input indices must have been built with the same data type (`index.dtype`) and
+ * have the same dimensionality (`index.dims`). The merged index uses the output
+ * parameters specified in `cuvsCagraIndexParams`. The merge algorithm is selected automatically.
  *
  * Input indices must have:
  *  - `index.dtype.code` and `index.dtype.bits` matching across all indices.
@@ -1223,8 +1172,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
  * cuvsCagraIndexCreate(&index2);
  * cuvsCagraIndexCreate(&merged_index);
  *
- * // Assume index1 and index2 have device datasets and were built using
- * cuvsCagraBuild.
+ * // Assume index1 and index2 have device datasets and were built using cuvsCagraBuild.
  *
  * cuvsCagraIndexParams_t merge_params;
  * cuvsError_t params_create_status = cuvsCagraIndexParamsCreate(&merge_params);
@@ -1233,35 +1181,30 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
  * cuvsDatasetCreate(&merged_dataset);
  * cuvsFilter filter = {.type = NO_FILTER, .addr = 0};
  *
- * cuvsError_t merge_status = cuvsCagraMerge(res, merge_params,
- * (cuvsCagraIndex_t[]){index1, index2}, 2, filter, merged_dataset,
- * merged_index);
+ * cuvsError_t merge_status = cuvsCagraMerge(res, merge_params, (cuvsCagraIndex_t[]){index1,
+ * index2}, 2, filter, merged_dataset, merged_index);
  *
  * // Use merged_index for search operations
  *
  * cuvsCagraIndexDestroy(merged_index);
  * cuvsDatasetDestroy(merged_dataset);
- * cuvsError_t params_destroy_status =
- * cuvsCagraIndexParamsDestroy(merge_params); cuvsError_t res_destroy_status =
- * cuvsResourcesDestroy(res);
+ * cuvsError_t params_destroy_status = cuvsCagraIndexParamsDestroy(merge_params);
+ * cuvsError_t res_destroy_status = cuvsResourcesDestroy(res);
  * @endcode
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraIndexParams_t parameters for the output index
  * @param[in] indices Array of input cuvsCagraIndex_t handles to merge
  * @param[in] num_indices Number of input indices
- * @param[in] filter Filter that can be used to filter out vectors from the
- * merged index
- * @param[out] merged_dataset Empty owning dataset handle. Merge first attempts
- * to allocate and populate device storage with the same layout as the input
- * indices. For an unfiltered merge, if device allocation fails, it falls back
- * to host storage and returns a host-backed output index. Keep this dataset
- * alive while using \p output_index. A host-backed output index must be updated
- *                            with `cuvsCagraUpdateDataset` before device
- * search.
+ * @param[in] filter Filter that can be used to filter out vectors from the merged index
+ * @param[out] merged_dataset Empty owning dataset handle. Merge first attempts to allocate and
+ *                            populate device storage with the same layout as the input indices. For
+ *                            an unfiltered merge, if device allocation fails, it falls back to host
+ *                            storage and returns a host-backed output index. Keep this dataset alive
+ *                            while using \p output_index. A host-backed output index must be updated
+ *                            with `cuvsCagraUpdateDataset` before device search.
  * @param[out] output_index Output handle that will store the merged index.
- *                          Must be initialized using `cuvsCagraIndexCreate`
- * before use.
+ *                          Must be initialized using `cuvsCagraIndexCreate` before use.
  */
 CUVS_EXPORT cuvsError_t cuvsCagraMerge(cuvsResources_t res,
                            cuvsCagraIndexParams_t params,
@@ -1275,21 +1218,19 @@ CUVS_EXPORT cuvsError_t cuvsCagraMerge(cuvsResources_t res,
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraIndexParams_t parameters for the output index
- * @param[in] merge_params cuvsCagraMergeParams_t parameters controlling the
- * merge algorithm, or NULL to use AUTO defaults
+ * @param[in] merge_params cuvsCagraMergeParams_t parameters controlling the merge algorithm, or
+ *                         NULL to use AUTO defaults
  * @param[in] indices Array of input cuvsCagraIndex_t handles to merge
  * @param[in] num_indices Number of input indices
- * @param[in] filter Filter that can be used to filter out vectors from the
- * merged index
- * @param[out] merged_dataset Empty owning dataset handle. Merge first attempts
- * to allocate and populate device storage with the same layout as the input
- * indices. For an unfiltered merge, AUTO and REBUILD can fall back to host
- * storage if device allocation fails; explicit FASTENER reports the allocation
- *                            failure instead. Keep this dataset alive while
- * using `output_index`. A host-backed output index must be updated with
+ * @param[in] filter Filter that can be used to filter out vectors from the merged index
+ * @param[out] merged_dataset Empty owning dataset handle. Merge first attempts to allocate and
+ *                            populate device storage with the same layout as the input indices. For
+ *                            an unfiltered merge, AUTO and REBUILD can fall back to host storage if
+ *                            device allocation fails; explicit FASTENER reports the allocation
+ *                            failure instead. Keep this dataset alive while using `output_index`.
+ *                            A host-backed output index must be updated with
  *                            `cuvsCagraUpdateDataset` before device search.
- * @param[out] output_index Output handle initialized with
- * `cuvsCagraIndexCreate`
+ * @param[out] output_index Output handle initialized with `cuvsCagraIndexCreate`
  */
 CUVS_EXPORT cuvsError_t cuvsCagraMergeWithParams(
     cuvsResources_t res, cuvsCagraIndexParams_t params,
