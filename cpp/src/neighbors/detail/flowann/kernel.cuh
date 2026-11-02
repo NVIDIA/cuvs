@@ -26,6 +26,7 @@ using search_single_cta_kernel_func_t =
        DistanceT*,
        std::uint32_t,
        const DataT*,
+       std::uint32_t,
        const std::uint8_t*,
        std::uint32_t,
        std::uint32_t,
