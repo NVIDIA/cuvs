@@ -61,10 +61,21 @@ add_executable(IVF_PQ_EXAMPLE src/ivf_pq_example.cu)
 add_executable(VAMANA_EXAMPLE src/vamana_example.cu)
 add_executable(SCANN_EXAMPLE src/scann_example.cu)
 add_executable(SCANN_TWO_LEVEL_EXAMPLE src/scann_two_level_example.cu)
+# These tools use private implementation headers from the matching cuVS source tree.
+if(CUVS_ENABLE_FLOWANN_SEARCH)
+  get_target_property(flowann_cuvs_imported cuvs::cuvs IMPORTED)
+  if(flowann_cuvs_imported)
+    set(flowann_private_includes "${CMAKE_CURRENT_SOURCE_DIR}/../../cpp/src")
+  else()
+    get_target_property(flowann_cuvs_source cuvs::cuvs SOURCE_DIR)
+    set(flowann_private_includes "${flowann_cuvs_source}/src")
+  endif()
+endif()
+
 if(CUVS_ENABLE_FLOWANN_SEARCH AND NOT TARGET FLOWANN_BENCHMARK)
   find_package(OpenMP REQUIRED COMPONENTS CXX CUDA)
   add_executable(FLOWANN_BENCHMARK src/flowann_benchmark.cu)
-  target_include_directories(FLOWANN_BENCHMARK PRIVATE "${cuvs_SOURCE_DIR}/cpp/src")
+  target_include_directories(FLOWANN_BENCHMARK PRIVATE "${flowann_private_includes}")
   target_link_libraries(
     FLOWANN_BENCHMARK
     PRIVATE cuvs::cuvs OpenMP::OpenMP_CXX OpenMP::OpenMP_CUDA
@@ -73,7 +84,7 @@ if(CUVS_ENABLE_FLOWANN_SEARCH AND NOT TARGET FLOWANN_BENCHMARK)
 endif()
 if(CUVS_ENABLE_FLOWANN_BUILD AND NOT TARGET FLOWANN_BUILD_BENCHMARK)
   add_executable(FLOWANN_BUILD_BENCHMARK src/flowann_build_benchmark.cu)
-  target_include_directories(FLOWANN_BUILD_BENCHMARK PRIVATE "${cuvs_SOURCE_DIR}/cpp/src")
+  target_include_directories(FLOWANN_BUILD_BENCHMARK PRIVATE "${flowann_private_includes}")
   target_link_libraries(
     FLOWANN_BUILD_BENCHMARK PRIVATE cuvs::cuvs OpenMP::OpenMP_CUDA
                                     $<TARGET_NAME_IF_EXISTS:conda_env>
