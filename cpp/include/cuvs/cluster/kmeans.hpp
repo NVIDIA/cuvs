@@ -148,16 +148,22 @@ struct params : base_params {
    * Only used by the batched (host-data) code path and ignored by
    * device-data overloads.
    *
+   * Default: 0. For a single host input matrix, this creates one full-dataset input
+   * buffer on the GPU, even when an auxiliary stream is configured. To stream that
+   * matrix in smaller batches, set a positive value less than n_samples.
+   *
    * Inputs spanning multiple batches are double-buffered when the handle has an auxiliary
-   * stream, and use one buffer otherwise. Budget about
+   * stream, and use one buffer otherwise. No auxiliary stream pool is configured by
+   * default, so transfers and compute are serialized. Configure a pool with at least
+   * one auxiliary stream to enable transfer/compute overlap. Budget about
    * `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer,
    * plus algorithm workspaces. Sample weights require the same number of additional buffers
-   * with `device_buffer_samples * sizeof(value_type)` bytes each.
+   * with `device_buffer_samples * sizeof(value_type)` bytes each. In these estimates,
+   * substitute n_samples for device_buffer_samples when it is 0.
    *
    * In multi-GPU mode this is a per-rank batch size: each rank processes up
    * to this many local samples per batch, clamped to that rank's local sample
    * count. This is ignored by device-data overloads.
-   * Default: 0 (process all data at once).
    */
   int64_t device_buffer_samples = 0;
 };
@@ -261,8 +267,10 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  * Multiple batches are double-buffered when an auxiliary stream is available.
  * Without a stream pool, the fit uses one input buffer and remains correct but
  * serialized. One auxiliary stream is sufficient to overlap transfer and compute.
- * Pinned host memory is crucial for OOC performance: ordinary pageable or
- * unregistered `mmap`-backed input degrades throughput rapidly.
+ * Pageable and unregistered `mmap`-backed input is read through
+ * one batch-sized pinned host staging buffer per device buffer. The complete input is
+ * never registered or copied into pinned memory. Already pinned input is transferred directly.
+ * Overlap depends on the host reader supplying batches fast enough for the GPU.
  *
  * A pool memory resource is optional but recommended, especially for repeated
  * fits. Configure both pools before `fit` and before first using the handle's
@@ -1747,9 +1755,11 @@ void cluster_cost(
  * `device_buffer_samples` is ignored and each local partition is processed in full.
  * Host partitions spanning multiple batches are double-buffered when an auxiliary stream
  * is available. Each rank needs one auxiliary stream for transfer/compute overlap;
- * otherwise execution uses one input buffer and is correct but serialized. Pinned host memory is
- * crucial: pageable or unregistered `mmap`-backed input degrades throughput rapidly. A per-device
- * memory pool is also recommended.
+ * otherwise execution uses one input buffer and is correct but serialized. Pageable and
+ * unregistered `mmap`-backed partitions use bounded pinned host staging buffers;
+ * already pinned partitions are transferred directly. Overlap depends on the
+ * host reader supplying batches fast enough for the GPU. A per-device memory pool is also
+ * recommended.
  * With `raft::device_resources_snmg`, configure these before `fit` with
  * `handle.set_stream_pool(1)` and `handle.set_memory_pool(percent)`; both calls
  * apply the setting to every device managed by the handle. With independently

@@ -168,6 +168,7 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       int maxIterations,
       CagraSearchParams.SearchAlgo searchAlgo) {
     super(field, target, k, filter);
+    LuceneVersionGuard.ensureCompatible();
     validateSearchParameters(iTopK, searchWidth, k, threadBlockSize, maxIterations, searchAlgo);
     this.iTopK = iTopK;
     this.searchWidth = searchWidth;
