@@ -605,7 +605,8 @@ auto deserialize_legacy_vpq_f16_body(raft::resources const& res, std::istream& i
                                 stream));
 
   return {std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-            std::move(vq_code_book), std::move(pq_code_book), std::move(data)),
+            std::move(data),
+            cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)}),
           std::move(offsets),
           std::move(subgraph_ids)};
 }
@@ -653,7 +654,7 @@ auto deserialize_legacy_combined_vpq_f16_after_version(raft::resources const& re
                "FlowANN graph and VPQ dataset row counts differ");
   RAFT_EXPECTS(graph_dim == dataset_data.dataset->dim(),
                "FlowANN graph and VPQ dataset dimensions differ");
-  index.update_dataset(res, dataset_data.dataset->as_dataset_view());
+  index.update_dataset(res, dataset_data.dataset->view());
   index.update_subgraph_layout(
     res,
     raft::make_host_vector_view<const std::uint32_t, int64_t>(
@@ -674,7 +675,7 @@ auto deserialize_vpq_f16(raft::resources const& res,
 {
   auto dataset_data = detail::deserialize_legacy_vpq_f16<T>(res, dataset_filename);
   flowann::vpq_f16_index<T, IdxT> index(res);
-  index.update_dataset(res, dataset_data.dataset->as_dataset_view());
+  index.update_dataset(res, dataset_data.dataset->view());
   detail::deserialize_legacy_graph(res, graph_filename, &index);
   RAFT_EXPECTS(index.size() == static_cast<IdxT>(dataset_data.dataset->n_rows()),
                "FlowANN graph and VPQ dataset row counts differ");
@@ -695,8 +696,10 @@ void serialize(raft::resources const& res,
                device_padded_index<T, IdxT> const& index)
 {
   detail::serialize_common(res, os, index, detail::serialized_dataset_kind::dense);
-  raft::serialize_scalar(res, os, index.dataset().stride());
-  raft::serialize_mdspan(res, os, index.dataset().view());
+  raft::serialize_scalar(res, os, static_cast<std::uint32_t>(index.dataset().data_view().stride(0)));
+  auto rows = index.dataset().data_view();
+  raft::serialize_mdspan(res, os, raft::make_device_matrix_view<const T, int64_t>(
+    rows.data_handle(), rows.extent(0), rows.stride(0)));
   RAFT_EXPECTS(os.good(), "FlowANN failed while serializing its dense dataset");
 }
 
@@ -705,14 +708,15 @@ template <typename T, typename IdxT = std::uint32_t>
 void serialize(raft::resources const& res, std::ostream& os, vpq_f16_index<T, IdxT> const& index)
 {
   detail::serialize_common(res, os, index, detail::serialized_dataset_kind::vpq_f16);
-  auto const& dataset = index.dataset().dset();
-  raft::serialize_scalar(res, os, dataset.vq_n_centers());
-  raft::serialize_scalar(res, os, dataset.pq_n_centers());
-  raft::serialize_scalar(res, os, dataset.pq_len());
-  raft::serialize_scalar(res, os, dataset.encoded_row_length());
-  raft::serialize_mdspan(res, os, raft::make_const_mdspan(dataset.vq_code_book.view()));
-  raft::serialize_mdspan(res, os, raft::make_const_mdspan(dataset.pq_code_book.view()));
-  raft::serialize_mdspan(res, os, raft::make_const_mdspan(dataset.data.view()));
+  auto const dataset = index.dataset();
+  auto const manifest = dataset.manifest_view();
+  raft::serialize_scalar(res, os, manifest.vq_n_centers());
+  raft::serialize_scalar(res, os, manifest.pq_n_centers());
+  raft::serialize_scalar(res, os, manifest.pq_len());
+  raft::serialize_scalar(res, os, dataset.data_view().extent(1));
+  raft::serialize_mdspan(res, os, manifest.vq_code_book);
+  raft::serialize_mdspan(res, os, manifest.pq_code_book);
+  raft::serialize_mdspan(res, os, dataset.data_view());
   RAFT_EXPECTS(os.good(), "FlowANN failed while serializing its VPQ dataset");
 }
 
@@ -741,10 +745,18 @@ auto deserialize_device_padded(raft::resources const& res, std::istream& is)
   auto storage =
     raft::make_device_matrix<T, int64_t>(res, static_cast<int64_t>(graph.n_rows), stride);
   raft::deserialize_mdspan(res, is, storage.view());
-  auto dataset = std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
-    std::move(storage), graph.dim);
+  // Serialized rows retain their physical stride; the current dataset owns a canonical
+  // padded layout with the original logical dimension.
+  auto logical_rows = raft::make_device_strided_matrix_view<const T, int64_t>(
+    storage.data_handle(), static_cast<int64_t>(graph.n_rows), static_cast<int64_t>(graph.dim),
+    static_cast<int64_t>(stride));
+  auto owned = cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
+    res, graph.n_rows, graph.dim);
+  raft::copy_matrix(owned.data_handle(), owned.mapping().stride(0), logical_rows.data_handle(), stride,
+                    graph.dim, graph.n_rows, raft::resource::get_cuda_stream(res));
+  auto dataset = std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(std::move(owned));
   device_padded_index<T, IdxT> index(
-    res, graph.metric, dataset->as_dataset_view(), graph.node_per_cacheline, graph.n_bits);
+    res, graph.metric, dataset->view(), graph.node_per_cacheline, graph.n_bits);
   detail::populate_deserialized_index(res, index, std::move(graph));
   return {std::move(dataset), std::move(index)};
 }
@@ -832,12 +844,13 @@ auto deserialize_vpq_f16(raft::resources const& res, std::istream& is)
   // Host rows must outlive the asynchronous upload.
   raft::resource::sync_stream(res);
   auto dataset = std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-    std::move(vq_code_book), std::move(pq_code_book), std::move(encoded));
+    std::move(encoded),
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)});
   RAFT_EXPECTS(dataset->dim() == graph.dim && dataset->n_rows() == graph.n_rows,
                "FlowANN VPQ dataset metadata does not match the graph");
 
   vpq_f16_index<T, IdxT> index(
-    res, graph.metric, dataset->as_dataset_view(), graph.node_per_cacheline, graph.n_bits);
+    res, graph.metric, dataset->view(), graph.node_per_cacheline, graph.n_bits);
   detail::populate_deserialized_index(res, index, std::move(graph));
   return {std::move(dataset), std::move(index)};
 }

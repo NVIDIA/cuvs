@@ -47,7 +47,7 @@ TEST(CagraTiered, OwnsDataAcrossMoveAndSerialization)
     bp.tiered.emplace();
     bp.tiered->device_graph_budget_bytes = budget;
     auto input    = cuvs::neighbors::make_device_padded_dataset(res, host.view());
-    auto original = cagra::build(res, bp, input->as_dataset_view());
+    auto original = cagra::build(res, bp, input->view());
     input.reset();
     auto idx = std::move(original);
     EXPECT_EQ(idx.graph_storage(), cagra::graph_storage_kind::tiered);
@@ -85,7 +85,7 @@ TEST(CagraTiered, OwnsDataAcrossMoveAndSerialization)
     EXPECT_EQ(idx.graph_storage(), cagra::graph_storage_kind::tiered);
     EXPECT_EQ(run(idx), expected);
     auto replacement = cuvs::neighbors::make_device_padded_dataset(res, host.view());
-    EXPECT_THROW(cagra::update_dataset(res, std::move(idx), replacement->as_dataset_view()),
+    EXPECT_THROW(cagra::update_dataset(res, std::move(idx), replacement->view()),
                  raft::exception);
     EXPECT_EQ(run(idx), expected);
   }

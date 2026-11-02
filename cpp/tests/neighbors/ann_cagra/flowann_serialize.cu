@@ -246,7 +246,7 @@ TEST(FlowannSerialize, LoadsAndNormalizesLegacyVpq)
   auto host_codes =
     raft::make_host_matrix<std::uint8_t, int64_t>(4, data.dataset->encoded_row_length());
   raft::copy(host_codes.data_handle(),
-             data.dataset->data.data_handle(),
+             data.dataset->data_view().data_handle(),
              host_codes.size(),
              raft::resource::get_cuda_stream(res));
   raft::resource::sync_stream(res);
@@ -333,9 +333,10 @@ TEST(FlowannSerialize, RoundTripsCurrentVpqFormat)
   raft::copy(device_pq.data_handle(), host_pq.data_handle(), host_pq.size(), stream);
   raft::copy(device_encoded.data_handle(), host_encoded.data_handle(), host_encoded.size(), stream);
   auto dataset = std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-    std::move(device_vq), std::move(device_pq), std::move(device_encoded));
+    std::move(device_encoded),
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(device_vq), std::move(device_pq)});
   flowann::vpq_f16_index<float> index(
-    res, cuvs::distance::DistanceType::L2Expanded, dataset->as_dataset_view(), 2, 2);
+    res, cuvs::distance::DistanceType::L2Expanded, dataset->view(), 2, 2);
 
   auto graph = install_compact_test_graph(res, index);
 
@@ -408,15 +409,15 @@ TEST(FlowannSerialize, RoundTripsCurrentVpqFormat)
              restored_seeds.size(),
              stream);
   raft::copy(restored_vq.data_handle(),
-             restored.dataset->vq_code_book.data_handle(),
+             restored.dataset->manifest_view().vq_code_book.data_handle(),
              restored_vq.size(),
              stream);
   raft::copy(restored_pq.data_handle(),
-             restored.dataset->pq_code_book.data_handle(),
+             restored.dataset->manifest_view().pq_code_book.data_handle(),
              restored_pq.size(),
              stream);
   raft::copy(restored_encoded.data_handle(),
-             restored.dataset->data.data_handle(),
+             restored.dataset->data_view().data_handle(),
              restored_encoded.size(),
              stream);
   raft::resource::sync_stream(res);
@@ -463,7 +464,7 @@ TEST(FlowannSerialize, RoundTripsCompactDegreeMetadata)
   std::fill_n(host_dataset.data_handle(), host_dataset.size(), 0.0f);
   auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host_dataset.view());
   flowann::device_padded_index<float> index(
-    res, cuvs::distance::DistanceType::L2Expanded, dataset->as_dataset_view(), 2, 2);
+    res, cuvs::distance::DistanceType::L2Expanded, dataset->view(), 2, 2);
 
   install_compact_test_graph(res, index);
   auto offsets = raft::make_host_vector<std::uint32_t, int64_t>(1);
@@ -627,7 +628,7 @@ TEST(FlowannSerialize, RejectsCurrentOutOfRangeVqLabels)
   auto legacy           = make_legacy_combined_vpq(res);
   auto bundle           = flowann::deserialize_vpq_f16<float>(res, legacy);
   std::uint32_t invalid = bundle.dataset->vq_n_centers();
-  raft::copy(bundle.dataset->data.data_handle(),
+  raft::copy(bundle.dataset->data_view().data_handle(),
              reinterpret_cast<std::uint8_t const*>(&invalid),
              sizeof(invalid),
              raft::resource::get_cuda_stream(res));
