@@ -7,7 +7,7 @@ import (
 	"errors"
 	"unsafe"
 
-	cuvs "github.com/rapidsai/cuvs/go"
+	cuvs "github.com/nvidia/cuvs/go"
 )
 
 // Cagra ANN Index

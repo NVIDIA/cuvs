@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -342,7 +342,8 @@ def test_build_precomputed(codebook_kind, metric):
 @pytest.mark.parametrize("pq_bits", [6, 8])
 def test_transform(codebook_kind, dtype, n_rows, pq_bits):
     n_cols = 32
-    n_lists = 50
+    # Keep enough subvectors in each IVF list to train the per-cluster codebook.
+    n_lists = 4 if n_rows == 500 else 50
     pq_dim = 8
 
     # build the ivf-pq index
@@ -354,6 +355,8 @@ def test_transform(codebook_kind, dtype, n_rows, pq_bits):
         pq_bits=pq_bits,
         pq_dim=pq_dim,
         codebook_kind=codebook_kind,
+        # The 500-row dataset needs more than the default half for 256 centroids.
+        kmeans_trainset_fraction=1.0,
     )
     index = ivf_pq.build(build_params, dataset_device)
 

@@ -20,7 +20,7 @@ template <typename DataTag,
           typename SampleFilterJitTag>
 struct CagraMultiCtaSearchPlanner
   : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag> {
-  static inline LauncherJitCache launcher_jit_cache{};
+  static inline rtcx::launcher_jit_cache launcher_jit_cache{};
 
   CagraMultiCtaSearchPlanner(cuvs::distance::DistanceType /*metric*/,
                              uint32_t /*team_size*/,
@@ -49,7 +49,7 @@ template <typename DataTag,
           typename SampleFilterJitTag>
 struct CagraMultiCtaMpSearchPlanner
   : CagraPlannerBase<DataTag, IndexTag, DistanceTag, QueryTag, CodebookTag, SampleFilterJitTag> {
-  static inline LauncherJitCache launcher_jit_cache{};
+  static inline rtcx::launcher_jit_cache launcher_jit_cache{};
 
   CagraMultiCtaMpSearchPlanner(cuvs::distance::DistanceType /*metric*/,
                                uint32_t /*team_size*/,

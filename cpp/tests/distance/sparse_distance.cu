@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2018-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2018-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -80,7 +80,7 @@ class SparseDistanceTest
 
     cuvs::distance::pairwise_distance(handle, x, x, out, params.metric, params.metric_arg);
 
-    RAFT_CUDA_TRY(cudaStreamSynchronize(resource::get_cuda_stream(handle)));
+    RAFT_CUDA_TRY(cudaStreamSynchronize(resource::get_cuda_stream(handle).get()));
   }
 
   void compare()
@@ -170,6 +170,17 @@ const std::vector<SparseDistanceInputs<int, float>> inputs_i32_f = {
      0.0,
    },
    cuvs::distance::DistanceType::L2Expanded,
+   0.0},
+  {20,
+   {0, 11, 21},
+   {0, 4, 5, 7, 8, 10, 13, 14, 15, 18, 19, 0, 4, 5, 7, 8, 10, 13, 14, 15, 18},
+   {2.9352813f, 0.1709524f, 5.168284f,  0.48228836f, 3.9235523f, 3.8868608f,  8.493825f,
+    8.992293f,  6.592113f,  3.660306f,  0.94532025f, 2.7735677f, 0.20729525f, 6.1782174f,
+    1.102455f,  3.238499f,  2.1612496f, 8.672486f,   8.703129f,  5.9809756f,  3.6141617f},
+   // The expanded form gives a slightly negative squared distance between the
+   // first row and itself in float32, which used to come out as NaN.
+   {0.0, 2.50277, 2.50277, 0.0},
+   cuvs::distance::DistanceType::L2SqrtExpanded,
    0.0},
   {2,
    {0, 2, 4, 6, 8},

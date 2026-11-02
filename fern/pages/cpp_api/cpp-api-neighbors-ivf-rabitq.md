@@ -2,7 +2,7 @@
 slug: api-reference/cpp-api-neighbors-ivf-rabitq
 ---
 
-# IVF RaBitQ
+# IVF Rabitq
 
 _Source header: `cuvs/neighbors/ivf_rabitq.hpp`_
 

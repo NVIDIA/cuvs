@@ -1,2 +1,2 @@
-github.com/rapidsai/cuvs/go v0.0.0-20250313193519-2f9df39e52cc h1:KaikmdTcld8icYGg5/5K1U69FTRpXlnYJZPBPFPrV5g=
-github.com/rapidsai/cuvs/go v0.0.0-20250313193519-2f9df39e52cc/go.mod h1:qQPopaJ6Z5DXM+HqtP8TzatknrfiCE7vBf/p1+lVFr8=
+github.com/nvidia/cuvs/go v0.0.0-20250313193519-2f9df39e52cc h1:KaikmdTcld8icYGg5/5K1U69FTRpXlnYJZPBPFPrV5g=
+github.com/nvidia/cuvs/go v0.0.0-20250313193519-2f9df39e52cc/go.mod h1:qQPopaJ6Z5DXM+HqtP8TzatknrfiCE7vBf/p1+lVFr8=

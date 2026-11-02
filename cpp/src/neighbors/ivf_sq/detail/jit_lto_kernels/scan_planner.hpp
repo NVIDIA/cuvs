@@ -1,22 +1,22 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
-#include <cuvs/detail/jit_lto/AlgorithmPlanner.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>
+#include <rtcx/algorithm_planner.hpp>
 
 #include <string>
 
 namespace cuvs::neighbors::ivf_sq::detail {
 
-struct IvfSqScanPlanner : AlgorithmPlanner {
-  inline static LauncherJitCache launcher_jit_cache{};
+struct IvfSqScanPlanner : rtcx::algorithm_planner {
+  inline static rtcx::launcher_jit_cache launcher_jit_cache{};
 
-  IvfSqScanPlanner() : AlgorithmPlanner("ivf_sq_scan", launcher_jit_cache) {}
+  IvfSqScanPlanner() : rtcx::algorithm_planner("ivf_sq_scan", launcher_jit_cache) {}
 
   template <int Capacity>
   void add_entrypoint()

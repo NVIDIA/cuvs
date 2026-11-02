@@ -95,11 +95,10 @@ CUVS_EXPORT cuvsError_t cuvsResourcesCreate(cuvsResources_t* res);
  * The returned handle wraps all reachable memory resources (host, pinned,
  * managed, device, workspace, large_workspace) with allocation-tracking
  * adaptors and replaces the global host and device memory resources for the
- * lifetime of the handle. It is otherwise indistinguishable from a handle
- * created by ::cuvsResourcesCreate and can be used wherever a
- * ::cuvsResources_t is accepted. The CSV reporter is stopped and the global
- * memory resources are restored when the handle is destroyed via
- * ::cuvsResourcesDestroy.
+ * lifetime of the handle. It can be used with single-GPU operations that
+ * accept a ::cuvsResources_t, except ::cuvsResourcesSetMemoryPool. The CSV
+ * reporter is stopped and the global memory resources are restored when the
+ * handle is destroyed via ::cuvsResourcesDestroy.
  *
  * @param[out] res                 cuvsResources_t opaque C handle
  * @param[in]  csv_path            Path to the output CSV file
@@ -121,6 +120,31 @@ CUVS_EXPORT cuvsError_t cuvsResourcesCreateWithMemoryTracking(cuvsResources_t* r
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsResourcesDestroy(cuvsResources_t res);
+
+/**
+ * @brief Set a memory pool on the device used by these resources
+ *
+ * Call before the handle's first operation that configures or uses a workspace
+ * or large workspace resource. RAFT captures the allocator when either resource
+ * is registered, so later device pool changes are rejected. Only handles
+ * created by ::cuvsResourcesCreate are supported. Passing a handle created by
+ * ::cuvsResourcesCreateWithMemoryTracking returns CUVS_ERROR.
+ *
+ * @param[in] res cuvsResources_t opaque C handle
+ * @param[in] percent_of_free_memory Percentage of free device memory to allocate for the pool
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsResourcesSetMemoryPool(cuvsResources_t res,
+                                                   int percent_of_free_memory);
+
+/**
+ * @brief Set a CUDA stream pool on these resources
+ *
+ * @param[in] res cuvsResources_t opaque C handle
+ * @param[in] num_streams Number of non-blocking CUDA streams in the pool
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsResourcesSetStreamPool(cuvsResources_t res, size_t num_streams);
 
 /**
  * @brief Set cudaStream_t on cuvsResources_t to queue CUDA kernels on APIs
@@ -206,11 +230,25 @@ CUVS_EXPORT cuvsError_t cuvsMultiGpuResourcesDestroy(cuvsResources_t res);
 /**
  * @brief Set a memory pool on all devices managed by the multi-GPU resources
  *
+ * Call before the first operation that configures or uses a workspace or large
+ * workspace resource on the handle or any managed device. RAFT captures the
+ * allocator when either resource is registered, so later pool changes are rejected.
+ *
  * @param[in] res cuvsResources_t opaque C handle for multi-GPU resources
  * @param[in] percent_of_free_memory Percent of free memory to allocate for the pool
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsMultiGpuResourcesSetMemoryPool(cuvsResources_t res, int percent_of_free_memory);
+
+/**
+ * @brief Set a CUDA stream pool on all devices managed by the multi-GPU resources
+ *
+ * @param[in] res cuvsResources_t opaque C handle for multi-GPU resources
+ * @param[in] num_streams Number of CUDA streams in each device's pool
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsMultiGpuResourcesSetStreamPool(cuvsResources_t res,
+                                                           size_t num_streams);
 /** @} */
 
 /**

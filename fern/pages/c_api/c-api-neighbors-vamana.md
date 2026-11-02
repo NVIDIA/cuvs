@@ -178,7 +178,8 @@ The build uses the Vamana insertion-based algorithm to create the graph. The alg
 
 The following distance metrics are supported:
 
-- L2
+- L2Expanded (sqeuclidean)
+- L2SqrtExpanded (l2 / euclidean distance)
 
 Usage example:
 

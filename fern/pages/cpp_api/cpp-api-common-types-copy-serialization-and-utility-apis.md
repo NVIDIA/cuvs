@@ -14,7 +14,7 @@ Asynchronously copies elements between compatible memory locations.
 ```cpp
 template <typename OutputIterator, typename InputIterator, typename SizeType>
 void copy(OutputIterator dst, InputIterator src, SizeType n,
-          rmm::cuda_stream_view stream);
+          cuda::stream_ref stream);
 ```
 
 **Parameters**
@@ -24,7 +24,7 @@ void copy(OutputIterator dst, InputIterator src, SizeType n,
 | `dst` | `OutputIterator` | Destination pointer or iterator. |
 | `src` | `InputIterator` | Source pointer or iterator. |
 | `n` | `SizeType` | Number of elements to copy. |
-| `stream` | `rmm::cuda_stream_view` | CUDA stream used for the copy. |
+| `stream` | `cuda::stream_ref` | CUDA stream used for the copy. |
 
 **Returns**
 
@@ -39,7 +39,7 @@ Copies a dense matrix between compatible matrix views.
 
 ```cpp
 template <typename OutputView, typename InputView>
-void copy_matrix(OutputView dst, InputView src, rmm::cuda_stream_view stream);
+void copy_matrix(OutputView dst, InputView src, cuda::stream_ref stream);
 ```
 
 **Parameters**
@@ -48,7 +48,7 @@ void copy_matrix(OutputView dst, InputView src, rmm::cuda_stream_view stream);
 | --- | --- | --- |
 | `dst` | `OutputView` | Destination matrix view. |
 | `src` | `InputView` | Source matrix view. |
-| `stream` | `rmm::cuda_stream_view` | CUDA stream used for the copy. |
+| `stream` | `cuda::stream_ref` | CUDA stream used for the copy. |
 
 **Returns**
 
@@ -64,7 +64,7 @@ Convenience helper for copying host data to device memory.
 ```cpp
 template <typename DevicePointer, typename HostPointer, typename SizeType>
 void update_device(DevicePointer dst, HostPointer src, SizeType n,
-                   rmm::cuda_stream_view stream);
+                   cuda::stream_ref stream);
 ```
 
 **Parameters**
@@ -74,7 +74,7 @@ void update_device(DevicePointer dst, HostPointer src, SizeType n,
 | `dst` | `DevicePointer` | Destination device pointer. |
 | `src` | `HostPointer` | Source host pointer. |
 | `n` | `SizeType` | Number of elements to copy. |
-| `stream` | `rmm::cuda_stream_view` | CUDA stream used for the copy. |
+| `stream` | `cuda::stream_ref` | CUDA stream used for the copy. |
 
 **Returns**
 
@@ -90,7 +90,7 @@ Convenience helper for copying device data to host memory.
 ```cpp
 template <typename HostPointer, typename DevicePointer, typename SizeType>
 void update_host(HostPointer dst, DevicePointer src, SizeType n,
-                 rmm::cuda_stream_view stream);
+                 cuda::stream_ref stream);
 ```
 
 **Parameters**
@@ -100,7 +100,7 @@ void update_host(HostPointer dst, DevicePointer src, SizeType n,
 | `dst` | `HostPointer` | Destination host pointer. |
 | `src` | `DevicePointer` | Source device pointer. |
 | `n` | `SizeType` | Number of elements to copy. |
-| `stream` | `rmm::cuda_stream_view` | CUDA stream used for the copy. |
+| `stream` | `cuda::stream_ref` | CUDA stream used for the copy. |
 
 **Returns**
 

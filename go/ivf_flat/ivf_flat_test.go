@@ -4,7 +4,7 @@ import (
 	"math/rand/v2"
 	"testing"
 
-	cuvs "github.com/rapidsai/cuvs/go"
+	cuvs "github.com/nvidia/cuvs/go"
 )
 
 func TestIvfFlat(t *testing.T) {

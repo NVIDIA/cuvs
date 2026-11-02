@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "common.hpp"
+#include <cuda_fp16.h>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <raft/core/device_mdspan.hpp>
@@ -14,7 +16,6 @@
 #include <raft/core/resource/stream_view.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/integer_utils.hpp>
-#include <rmm/cuda_stream_view.hpp>
 
 #include <cuvs/core/export.hpp>
 #include <optional>
@@ -210,7 +211,7 @@ struct index : cuvs::neighbors::index {
       dataset_ = cuvs::neighbors::make_device_padded_dataset_view(res, dataset);
     } else {
       full_precision_storage_ = cuvs::neighbors::make_device_padded_dataset(res, dataset);
-      dataset_                = full_precision_storage_->as_dataset_view();
+      dataset_                = full_precision_storage_->view();
     }
     update_graph(res, vamana_graph);
 
@@ -367,6 +368,16 @@ auto build(raft::resources const& res,
            const cuvs::neighbors::vamana::index_params& params,
            raft::host_matrix_view<const float, int64_t, raft::row_major> dataset)
   -> cuvs::neighbors::vamana::index<float, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::vamana::index_params& params,
+           raft::device_matrix_view<const half, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::vamana::index<half, uint32_t>;
+
+auto build(raft::resources const& res,
+           const cuvs::neighbors::vamana::index_params& params,
+           raft::host_matrix_view<const half, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::vamana::index<half, uint32_t>;
 
 /**
  * @brief Build the index from the dataset for efficient DiskANN search.
@@ -541,6 +552,12 @@ auto build(raft::resources const& res,
 void serialize(raft::resources const& handle,
                const std::string& file_prefix,
                const cuvs::neighbors::vamana::index<float, uint32_t>& index,
+               bool include_dataset = true,
+               bool sector_aligned  = false);
+
+void serialize(raft::resources const& handle,
+               const std::string& file_prefix,
+               const cuvs::neighbors::vamana::index<half, uint32_t>& index,
                bool include_dataset = true,
                bool sector_aligned  = false);
 

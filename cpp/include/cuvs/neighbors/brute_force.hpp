@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -65,6 +65,13 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
    */
   index(raft::resources const& res,
         raft::host_matrix_view<const T, int64_t, raft::row_major> dataset_view,
+        std::optional<raft::device_vector<DistT, int64_t>>&& norms,
+        cuvs::distance::DistanceType metric,
+        DistT metric_arg = 0.0);
+
+  /** Construct a brute force index and take ownership of a row-major device dataset. */
+  index(raft::resources const& res,
+        raft::device_matrix<T, int64_t, raft::row_major>&& dataset,
         std::optional<raft::device_vector<DistT, int64_t>>&& norms,
         cuvs::distance::DistanceType metric,
         DistT metric_arg = 0.0);

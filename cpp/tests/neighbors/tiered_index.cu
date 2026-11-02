@@ -7,6 +7,7 @@
 #include "ann_utils.cuh"
 
 #include <cstdint>
+#include <cuda/stream>
 #include <cuvs/neighbors/tiered_index.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -173,7 +174,7 @@ class ANNTieredIndexTest : public ::testing::TestWithParam<AnnTieredIndexInputs>
           auto padded_dataset =
             cuvs::neighbors::make_device_padded_dataset(handle_, full_database_view);
           auto attached_index = cuvs::neighbors::tiered_index::convert_standard_to_padded_index(
-            handle_, *final_index, padded_dataset->as_dataset_view());
+            handle_, *final_index, padded_dataset->view());
           cuvs::neighbors::tiered_index::search(
             handle_, search_params, attached_index, queries_view, indices_view, distances_view);
         }
@@ -220,7 +221,7 @@ class ANNTieredIndexTest : public ::testing::TestWithParam<AnnTieredIndexInputs>
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnTieredIndexInputs ps;
   rmm::device_uvector<value_type> database;
   rmm::device_uvector<value_type> queries;

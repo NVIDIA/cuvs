@@ -17,6 +17,8 @@ pub mod error;
 mod ffi_utils;
 pub mod neighbors;
 pub mod resources;
+pub mod version;
+
 #[cfg(test)]
 pub(crate) mod test_utils;
 

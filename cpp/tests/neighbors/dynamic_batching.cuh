@@ -18,6 +18,10 @@
 
 #include <cstdint>
 #include <future>
+#include <memory>
+#include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace cuvs::neighbors::dynamic_batching {
@@ -32,6 +36,8 @@ struct dynamic_batching_spec {
   bool conservative_dispatch          = false;
   cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded;
   int64_t max_concurrent_threads      = 128;
+  /** The batched search must reach at least this fraction of the direct search's recall. */
+  double min_recall_ratio = 0.975;
 };
 
 inline ::std::ostream& operator<<(::std::ostream& os, const dynamic_batching_spec& p)
@@ -94,15 +100,40 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
   dynamic_batching::search_params search_params_dynb{};
 
   // indexes
-  std::optional<upstream_type> index_upsm                                  = std::nullopt;
+  std::shared_ptr<upstream_type> index_upsm                                = nullptr;
   std::optional<dynamic_batching::index<data_type, index_type>> index_dynb = std::nullopt;
+
+  /*
+    The upstream index depends only on the dataset (generated from a fixed seed) and the upstream
+    build parameters, which are the same for all parameterizations of a test. Build it once per
+    test and share it between the parameterizations. The dataset it was built from is kept alive
+    with it, because some index types only hold a view of the dataset.
+   */
+  struct upstream_cache {
+    std::string key;
+    std::optional<raft::device_matrix<data_type, int64_t>> dataset = std::nullopt;
+    std::shared_ptr<upstream_type> index                           = nullptr;
+  };
+  static inline upstream_cache cache_{};
+
+  static void TearDownTestSuite() { cache_ = upstream_cache{}; }
 
   void build_all()
   {
     index_dynb.reset();
     index_upsm.reset();
-    index_upsm = UpstreamBuildF(res, build_params_upsm, dataset->view());
-    index_dynb.emplace(res, build_params_dynb, index_upsm.value(), search_params_upsm);
+    auto key = std::string{::testing::UnitTest::GetInstance()->current_test_info()->name()};
+    key      = key.substr(0, key.find('/')) + "/" + std::to_string(ps.n_rows) + "x" +
+          std::to_string(ps.dim) + "/" + std::to_string(static_cast<int>(ps.metric));
+    if (cache_.key != key) {
+      cache_ = upstream_cache{};
+      cache_.index =
+        std::make_shared<upstream_type>(UpstreamBuildF(res, build_params_upsm, dataset->view()));
+      cache_.dataset = std::move(dataset);
+      cache_.key     = key;
+    }
+    index_upsm = cache_.index;
+    index_dynb.emplace(res, build_params_dynb, *index_upsm, search_params_upsm);
   }
 
   void search_all()
@@ -110,7 +141,7 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
     // Search using upstream index - all queries at once
     UpstreamSearchF(res,
                     search_params_upsm,
-                    index_upsm.value(),
+                    *index_upsm,
                     queries->view(),
                     neighbors_upsm->view(),
                     distances_upsm->view(),
@@ -136,8 +167,8 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
     for (int64_t offset = 0; offset < ps.n_queries; offset += get_bs(i++)) {
       auto bs = std::min<int64_t>(get_bs(i), ps.n_queries - offset);
       auto j  = i % ps.max_concurrent_threads;
-      // wait for previous job in the same slot to finish
-      if (i >= ps.max_concurrent_threads) { futures[j].wait(); }
+      // wait for previous job in the same slot to finish (and rethrow its errors)
+      if (i >= ps.max_concurrent_threads) { futures[j].get(); }
       // submit a new job
       futures[j] = std::async(
         std::launch::async,
@@ -156,38 +187,61 @@ struct dynamic_batching_test : public ::testing::TestWithParam<dynamic_batching_
 
     // finalize all resources
     for (int64_t j = 0; j < ps.max_concurrent_threads && j < i; j++) {
-      futures[j].wait();
+      futures[j].get();
       raft::resource::sync_stream(resource_pool[j]);
     }
     raft::resource::sync_stream(res);
   }
 
   /*
-    Check the dynamic batching generated neighbors against the upstream index. They both may be
-    imperfect w.r.t. the ground truth, but they shouldn't differ too much.
+    Check the recall of the dynamic batching generated neighbors against the recall of the upstream
+    index. They both may be imperfect w.r.t. the ground truth, but batching shouldn't lower the
+    recall by much.
    */
   void check_neighbors()
   {
-    auto stream         = raft::resource::get_cuda_stream(res);
-    size_t queries_size = ps.n_queries * ps.k;
+    auto stream           = raft::resource::get_cuda_stream(res);
+    size_t queries_size   = ps.n_queries * ps.k;
+    auto ground_truth_dev = raft::make_device_matrix<index_type, int64_t>(res, ps.n_queries, ps.k);
+    auto ground_truth_dist =
+      raft::make_device_matrix<distance_type, int64_t>(res, ps.n_queries, ps.k);
+    cuvs::neighbors::naive_knn<distance_type, data_type, index_type>(
+      res,
+      ground_truth_dist.data_handle(),
+      ground_truth_dev.data_handle(),
+      queries->data_handle(),
+      cache_.dataset->data_handle(),
+      ps.n_queries,
+      ps.n_rows,
+      ps.dim,
+      ps.k,
+      ps.metric);
+    std::vector<index_type> ground_truth_host(queries_size);
     std::vector<index_type> neighbors_upsm_host(queries_size);
     std::vector<index_type> neighbors_dynb_host(queries_size);
-    std::vector<distance_type> distances_upsm_host(queries_size);
-    std::vector<distance_type> distances_dynb_host(queries_size);
+    raft::copy(ground_truth_host.data(), ground_truth_dev.data_handle(), queries_size, stream);
     raft::copy(neighbors_upsm_host.data(), neighbors_upsm->data_handle(), queries_size, stream);
     raft::copy(neighbors_dynb_host.data(), neighbors_dynb->data_handle(), queries_size, stream);
-    raft::copy(distances_upsm_host.data(), distances_upsm->data_handle(), queries_size, stream);
-    raft::copy(distances_dynb_host.data(), distances_dynb->data_handle(), queries_size, stream);
     raft::resource::sync_stream(res);
-    ASSERT_TRUE(eval_neighbours(neighbors_upsm_host,
-                                neighbors_dynb_host,
-                                distances_upsm_host,
-                                distances_dynb_host,
-                                ps.n_queries,
-                                ps.k,
-                                0.001,
-                                0.9))
-      << ps;
+
+    const double recall_upsm =
+      std::get<0>(calc_recall(ground_truth_host, neighbors_upsm_host, ps.n_queries, ps.k));
+    const double recall_dynb =
+      std::get<0>(calc_recall(ground_truth_host, neighbors_dynb_host, ps.n_queries, ps.k));
+    RAFT_LOG_INFO(
+      "dynamic batching %s (n_queries=%ld, k=%ld, conservative_dispatch=%d): recall upstream=%f, "
+      "batched=%f, ratio=%f (required >= %f)",
+      ::testing::UnitTest::GetInstance()->current_test_info()->name(),
+      static_cast<long>(ps.n_queries),
+      static_cast<long>(ps.k),
+      static_cast<int>(ps.conservative_dispatch),
+      recall_upsm,
+      recall_dynb,
+      recall_dynb / recall_upsm,
+      ps.min_recall_ratio);
+    EXPECT_GE(recall_dynb, ps.min_recall_ratio * recall_upsm)
+      << "batched recall " << recall_dynb << " vs upstream recall " << recall_upsm << " for " << ps;
+    EXPECT_TRUE(check_unique_indices(neighbors_dynb_host, ps.n_queries, ps.k)) << ps;
   }
 
   void SetUp() override
@@ -234,9 +288,12 @@ inline std::vector<dynamic_batching_spec> generate_inputs()
 {
   std::vector<dynamic_batching_spec> inputs{dynamic_batching_spec{}};
 
-  for (auto alt_n_queries : {10, 50, 100}) {
+  // With fewer queries the recall is measured over fewer neighbors, so it varies more.
+  for (auto [alt_n_queries, alt_min_recall_ratio] :
+       std::vector<std::pair<int64_t, double>>{{10, 0.85}, {50, 0.92}, {100, 0.95}}) {
     dynamic_batching_spec input{};
-    input.n_queries = alt_n_queries;
+    input.n_queries        = alt_n_queries;
+    input.min_recall_ratio = alt_min_recall_ratio;
     inputs.push_back(input);
   }
 

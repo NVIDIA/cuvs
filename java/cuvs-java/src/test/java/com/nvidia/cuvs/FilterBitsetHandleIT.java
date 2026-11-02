@@ -47,11 +47,12 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
 
   /** Device storage and views attached to the partition indexes, released by {@link #closeAll}. */
   private final List<CuVSDeviceMatrix> partitionDeviceDatasets = new ArrayList<>();
+
   private final List<CagraIndex.PaddedDatasetView> partitionDatasetViews = new ArrayList<>();
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
+    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
     initializeRandom();
   }
 
@@ -72,7 +73,8 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
         // Warm up the device upload on the long-lived `resources` so the shared allocation is bound
         // to it. Per-thread resources are closed when each search thread finishes; binding the
         // allocation to one of those would free it against destroyed resources at handle close.
-        assertNoFilteredRows(searchOnce(resources, indices, queries, partStart, filters), partStart);
+        assertNoFilteredRows(
+            searchOnce(resources, indices, queries, partStart, filters), partStart);
         List<Throwable> errors =
             runConcurrentSearches(
                 indices, queries, partStart, filters, numThreads, searchesPerThread);
@@ -357,7 +359,7 @@ public class FilterBitsetHandleIT extends CuVSTestCase {
     for (int p = 0; p < partStart.length; p++) {
       float[][] slice = Arrays.copyOfRange(dataset, partStart[p], partStart[p] + PART_ROWS);
       var index =
-          CagraIndex.newBuilder(resources).withDataset(slice).withIndexParams(indexParams).build();
+          CagraIndex.newBuilder(resources).fromDataset(slice).withIndexParams(indexParams).build();
       // DIM=16 float rows are already aligned, so retain the device matrix behind this view.
       try (var hostDataset = CuVSMatrix.ofArray(slice)) {
         var deviceDataset = hostDataset.toDevice(resources);

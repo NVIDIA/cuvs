@@ -126,8 +126,8 @@ struct index_state {
   {
     auto index = std::forward<BuildFn>(build_fn)(res, tiered_params, dataset);
     if constexpr (std::is_same_v<UpstreamT, cuvs::neighbors::cagra::device_standard_index<float>>) {
-      index.update_device_dataset_same_layout(
-        res, cuvs::neighbors::make_device_standard_dataset_view(dataset));
+      index = cuvs::neighbors::cagra::update_dataset(
+        res, std::move(index), cuvs::neighbors::make_device_standard_dataset_view(dataset));
     }
     return std::make_shared<UpstreamT>(std::move(index));
   }
@@ -183,6 +183,10 @@ struct index_state {
               raft::device_matrix_view<value_type, int64_t, raft::row_major> distances,
               const cuvs::neighbors::filtering::base_filter& sample_filter)
   {
+    RAFT_EXPECTS(sample_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Roaring,
+                 "tiered_index::search does not support roaring_bitmap_filter; use direct "
+                 "cagra::search instead.");
+
     // if we only have ANN vectors, search those and return immendiately
     if (bfknn_rows() == 0) {
       search_fn(res, search_params, *ann_index, queries, neighbors, distances, sample_filter);
@@ -257,7 +261,6 @@ struct index_state {
     }
 
     // merge results from ann_index/bfknn together, translating the bfknn ids
-    auto stream                  = raft::resource::get_cuda_stream(res);
     int64_t host_translations[2] = {0, static_cast<int64_t>(ann_rows())};
     auto device_translations     = raft::make_device_vector<int64_t>(res, 2);
     raft::copy(
@@ -299,8 +302,8 @@ inline void update_cagra_ann_dataset_for_stride(
   cuvs::neighbors::cagra::device_standard_index<float>& ann_index,
   raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
 {
-  ann_index.update_device_dataset_same_layout(
-    res, cuvs::neighbors::make_device_standard_dataset_view(dataset));
+  ann_index = cuvs::neighbors::cagra::update_dataset(
+    res, std::move(ann_index), cuvs::neighbors::make_device_standard_dataset_view(dataset));
 }
 
 /**

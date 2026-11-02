@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -7,6 +7,7 @@
 
 #include "hashmap.hpp"
 
+#include <cuda/stream>
 #include <cuvs/neighbors/common.hpp>
 #include <neighbors/detail/cagra/compute_distance-ext.cuh>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -38,8 +39,8 @@ namespace cuvs::neighbors::cagra::detail {
 template <typename T>
 struct lightweight_uvector {
  private:
-  using raft_res_type = const raft::resources*;
-  using rmm_res_type  = std::tuple<rmm::device_async_resource_ref, rmm::cuda_stream_view>;
+  using raft_res_type            = const raft::resources*;
+  using rmm_res_type             = std::tuple<rmm::device_async_resource_ref, cuda::stream_ref>;
   static constexpr size_t kAlign = 256;
 
   std::variant<raft_res_type, rmm_res_type> res_;
@@ -68,21 +69,21 @@ struct lightweight_uvector {
     }
     auto copy_size = std::min(size_, new_size);
     if (copy_size > 0) {
-      cudaMemcpyAsync(new_ptr, ptr_, copy_size * sizeof(T), cudaMemcpyDefault, s);
+      cudaMemcpyAsync(new_ptr, ptr_, copy_size * sizeof(T), cudaMemcpyDefault, s.get());
     }
     if (size_ > 0) { r.deallocate(s, ptr_, size_ * sizeof(T), kAlign); }
     ptr_  = new_ptr;
     size_ = new_size;
   }
 
-  void resize(size_t new_size, rmm::cuda_stream_view stream)
+  void resize(size_t new_size, cuda::stream_ref stream)
   {
     if (new_size == size_) { return; }
     if (std::holds_alternative<raft_res_type>(res_)) {
       auto& h = std::get<raft_res_type>(res_);
       res_    = rmm_res_type{raft::resource::get_workspace_resource_ref(*h), stream};
     } else {
-      std::get<rmm::cuda_stream_view>(std::get<rmm_res_type>(res_)) = stream;
+      std::get<cuda::stream_ref>(std::get<rmm_res_type>(res_)) = stream;
     }
     resize(new_size);
   }
@@ -198,12 +199,34 @@ struct search_plan_impl : public search_plan_impl_base {
 
   void adjust_search_params()
   {
+    if (algo == search_algo::MULTI_CTA && (0.0 < filtering_rate && filtering_rate < 1.0)) {
+      size_t adjusted_itopk_size =
+        (size_t)((float)topk / (1.0 - filtering_rate) +
+                 (float)(itopk_size - topk) / std::sqrt(1.0 - filtering_rate));
+      if (adjusted_itopk_size % 32) { adjusted_itopk_size += 32 - (adjusted_itopk_size % 32); }
+      if (itopk_size < adjusted_itopk_size) {
+        RAFT_LOG_DEBUG(
+          "# internal_topk is increased from %lu to %lu, considering fintering rate %f.",
+          itopk_size,
+          adjusted_itopk_size,
+          filtering_rate);
+        itopk_size = adjusted_itopk_size;
+      }
+    }
     uint32_t _max_iterations = max_iterations;
     if (max_iterations == 0) {
       if (algo == search_algo::MULTI_CTA) {
-        constexpr uint32_t mc_itopk_size   = 32;
-        constexpr uint32_t mc_search_width = 1;
-        _max_iterations                    = mc_itopk_size / mc_search_width;
+        constexpr size_t mc_itopk_size  = 32;
+        const size_t minimum_depth      = 16;
+        const auto effective_itopk_size = raft::ceildiv(itopk_size, mc_itopk_size) * mc_itopk_size;
+        // In multi-CTA algo, search_width and itopk are both knobs on num_ctas
+        const auto num_ctas = max(search_width, raft::ceildiv(effective_itopk_size, mc_itopk_size));
+
+        // Shrink max_iterations when num_ctas is large. In multi-CTA algo, larger num_ctas implies
+        // both more width and depth
+        _max_iterations = minimum_depth + raft::ceildiv(mc_itopk_size - minimum_depth, num_ctas);
+        // Compensate for the difficult case of large topk
+        _max_iterations += raft::ceildiv(static_cast<size_t>(topk), mc_itopk_size);
       } else {
         _max_iterations = itopk_size / search_width;
       }
@@ -218,20 +241,6 @@ struct search_plan_impl : public search_plan_impl_base {
       RAFT_LOG_DEBUG(
         "# max_iterations is increased from %lu to %u.", max_iterations, _max_iterations);
       max_iterations = _max_iterations;
-    }
-    if (algo == search_algo::MULTI_CTA && (0.0 < filtering_rate && filtering_rate < 1.0)) {
-      size_t adjusted_itopk_size =
-        (size_t)((float)topk / (1.0 - filtering_rate) +
-                 (float)(itopk_size - topk) / std::sqrt(1.0 - filtering_rate));
-      if (adjusted_itopk_size % 32) { adjusted_itopk_size += 32 - (adjusted_itopk_size % 32); }
-      if (itopk_size < adjusted_itopk_size) {
-        RAFT_LOG_DEBUG(
-          "# internal_topk is increased from %lu to %lu, considering fintering rate %f.",
-          itopk_size,
-          adjusted_itopk_size,
-          filtering_rate);
-        itopk_size = adjusted_itopk_size;
-      }
     }
     if (itopk_size % 32) {
       uint32_t itopk32 = itopk_size;
@@ -265,12 +274,18 @@ struct search_plan_impl : public search_plan_impl_base {
       // table that each CTA has in the shared memory. This hash table is not
       // shared among CTAs. This hash table is reset and restored in each iteration.
       //
-      const uint32_t max_visited_nodes = mc_itopk_size + (graph_degree * 2);
-      small_hash_bitlen                = 8;  // 256
-      while (max_visited_nodes > hashmap::get_size(small_hash_bitlen) * max_fill_rate) {
+      const uint32_t max_visited_nodes       = mc_itopk_size + (graph_degree * 2);
+      constexpr size_t max_small_hash_bitlen = 14;  // 16K
+      small_hash_bitlen                      = 8;   // 256
+      // Stop at the supported maximum rather than growing without bound: hashmap::get_size()
+      // is 1U << bitlen, which is undefined (and wraps to a small value) once bitlen reaches
+      // 32, so an unbounded loop would never satisfy its exit condition again.
+      while (small_hash_bitlen <= max_small_hash_bitlen &&
+             max_visited_nodes > hashmap::get_size(small_hash_bitlen) * max_fill_rate) {
         small_hash_bitlen += 1;
       }
-      RAFT_EXPECTS(small_hash_bitlen <= 14, "small_hash_bitlen cannot be largen than 14 (16K)");
+      RAFT_EXPECTS(small_hash_bitlen <= max_small_hash_bitlen,
+                   "small_hash_bitlen cannot be largen than 14 (16K)");
       //
       // [traversed_hash_table]
       // Whether a node has ever been used as the starting point for a traversal
@@ -279,13 +294,15 @@ struct search_plan_impl : public search_plan_impl_base {
       //
       const auto max_traversed_nodes =
         mc_num_cta_per_query * max((size_t)mc_itopk_size, max_iterations);
-      unsigned min_bitlen = 11;  // 2K
+      unsigned min_bitlen                  = 11;  // 2K
+      constexpr int64_t max_hash_bitlen_mc = 25;  // 32M
       if (min_bitlen < hashmap_min_bitlen) { min_bitlen = hashmap_min_bitlen; }
       hash_bitlen = min_bitlen;
-      while (max_traversed_nodes > hashmap::get_size(hash_bitlen) * max_fill_rate) {
+      while (hash_bitlen <= max_hash_bitlen_mc &&
+             max_traversed_nodes > hashmap::get_size(hash_bitlen) * max_fill_rate) {
         hash_bitlen += 1;
       }
-      RAFT_EXPECTS(hash_bitlen <= 25, "hash_bitlen cannot be largen than 25 (32M)");
+      RAFT_EXPECTS(hash_bitlen <= max_hash_bitlen_mc, "hash_bitlen cannot be largen than 25 (32M)");
     } else {
       while (hashmap_mode == hash_mode::AUTO || hashmap_mode == hash_mode::SMALL) {
         //
@@ -300,7 +317,8 @@ struct search_plan_impl : public search_plan_impl_base {
         unsigned max_bitlen          = 13;  // 8K
         if (min_bitlen < hashmap_min_bitlen) { min_bitlen = hashmap_min_bitlen; }
         hash_bitlen = min_bitlen;
-        while (max_visited_nodes > hashmap::get_size(hash_bitlen) * max_fill_rate) {
+        while (hash_bitlen <= max_bitlen &&
+               max_visited_nodes > hashmap::get_size(hash_bitlen) * max_fill_rate) {
           hash_bitlen += 1;
         }
         if (hash_bitlen > max_bitlen) {
@@ -337,13 +355,15 @@ struct search_plan_impl : public search_plan_impl_base {
         // maximum fill rate of the hash table.
         //
         uint32_t max_visited_nodes = itopk_size + (search_width * graph_degree * max_iterations);
-        unsigned min_bitlen        = 11;  // 2K
+        unsigned min_bitlen        = 11;         // 2K
+        constexpr int64_t max_hash_bitlen = 20;  // 1M
         if (min_bitlen < hashmap_min_bitlen) { min_bitlen = hashmap_min_bitlen; }
         hash_bitlen = min_bitlen;
-        while (max_visited_nodes > hashmap::get_size(hash_bitlen) * max_fill_rate) {
+        while (hash_bitlen <= max_hash_bitlen &&
+               max_visited_nodes > hashmap::get_size(hash_bitlen) * max_fill_rate) {
           hash_bitlen += 1;
         }
-        RAFT_EXPECTS(hash_bitlen <= 20,
+        RAFT_EXPECTS(hash_bitlen <= max_hash_bitlen,
                      "hash_bitlen cannot be largen than 20 (1M). You can decrease itopk_size, "
                      "search_width or max_iterations to reduce the required hashmap size.");
       }

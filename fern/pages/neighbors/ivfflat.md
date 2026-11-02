@@ -97,8 +97,8 @@ fn build_ivf_flat_index(dataset: &ndarray::Array2<f32>) -> Result<Index> {
 package main
 
 import (
-	cuvs "github.com/rapidsai/cuvs/go"
-	"github.com/rapidsai/cuvs/go/ivf_flat"
+	cuvs "github.com/nvidia/cuvs/go"
+	"github.com/nvidia/cuvs/go/ivf_flat"
 )
 
 func buildIvfFlatIndex(dataset cuvs.Tensor[float32]) (*ivf_flat.IvfFlatIndex, error) {

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -237,7 +237,7 @@ class l2_expanded_distances_t : public distances_t<value_t> {
                                       config_->a_nrows,
                                       search_coo_rows.data(),
                                       config_->a_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
 
     compute_l2(out_dists,
                search_coo_rows.data(),
@@ -248,7 +248,7 @@ class l2_expanded_distances_t : public distances_t<value_t> {
                config_->b_nnz,
                config_->a_nrows,
                config_->b_nrows,
-               raft::resource::get_cuda_stream(config_->handle),
+               raft::resource::get_cuda_stream(config_->handle).get(),
                [] __device__ __host__(value_t dot, value_t q_norm, value_t r_norm) {
                  return -2 * dot + q_norm + r_norm;
                });
@@ -282,8 +282,9 @@ class l2_sqrt_expanded_distances_t : public l2_expanded_distances_t<value_idx, v
       this->config_->handle,
       raft::make_device_vector_view<value_t, int64_t>(out_dists, n),
       [] __device__(value_t input) {
-        int neg = input < 0 ? -1 : 1;
-        return raft::sqrt(abs(input) * neg);
+        // The expanded form can give a slightly negative value for a point
+        // and itself. sqrt of that would be NaN.
+        return input < value_t{0} ? value_t{0} : raft::sqrt(input);
       },
       raft::make_const_mdspan(raft::make_device_vector_view<const value_t, int64_t>(out_dists, n)));
   }
@@ -312,7 +313,7 @@ class correlation_expanded_distances_t : public distances_t<value_t> {
                                       config_->a_nrows,
                                       search_coo_rows.data(),
                                       config_->a_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
 
     compute_corr(out_dists,
                  search_coo_rows.data(),
@@ -324,7 +325,7 @@ class correlation_expanded_distances_t : public distances_t<value_t> {
                  config_->a_nrows,
                  config_->b_nrows,
                  config_->b_ncols,
-                 raft::resource::get_cuda_stream(config_->handle));
+                 raft::resource::get_cuda_stream(config_->handle).get());
   }
 
   ~correlation_expanded_distances_t() = default;
@@ -361,7 +362,7 @@ class cosine_expanded_distances_t : public distances_t<value_t> {
                                       config_->a_nrows,
                                       search_coo_rows.data(),
                                       config_->a_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
 
     compute_l2(out_dists,
                search_coo_rows.data(),
@@ -372,7 +373,7 @@ class cosine_expanded_distances_t : public distances_t<value_t> {
                config_->b_nnz,
                config_->a_nrows,
                config_->b_nrows,
-               raft::resource::get_cuda_stream(config_->handle),
+               raft::resource::get_cuda_stream(config_->handle).get(),
                [] __device__ __host__(value_t dot, value_t q_norm, value_t r_norm) {
                  value_t norms = raft::sqrt(q_norm) * raft::sqrt(r_norm);
                  // deal with potential for 0 in denominator by forcing 0/1 instead
@@ -418,7 +419,7 @@ class hellinger_expanded_distances_t : public distances_t<value_t> {
                                       config_->b_nrows,
                                       coo_rows.data(),
                                       config_->b_nnz,
-                                      raft::resource::get_cuda_stream(config_->handle));
+                                      raft::resource::get_cuda_stream(config_->handle).get());
 
     balanced_coo_pairwise_generalized_spmv<value_idx, value_t>(
       out_dists,

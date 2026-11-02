@@ -172,7 +172,8 @@ public final class MultiPartitionCagraSearchImpl {
               FilterBitsetHandle f = filters.get(i);
               if (f != null) {
                 FilterBitsetHandleImpl.DeviceData dev = ((FilterBitsetHandleImpl) f).getOrUpload();
-                buildCuvsFilterStruct(arena, filterSeg, dev.combinedBitsetDP.handle(), dev.combinedWords);
+                buildCuvsFilterStruct(
+                    arena, filterSeg, dev.combinedBitsetDP.handle(), dev.combinedWords);
               } else {
                 cuvsFilter.type(filterSeg, 0 /* NO_FILTER */);
                 cuvsFilter.addr(filterSeg, 0L);

@@ -44,7 +44,7 @@ public class CagraMultiThreadStabilityIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
+    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
     initializeRandom();
     log.trace("Multi-threaded stability test initialized");
   }
@@ -87,7 +87,7 @@ public class CagraMultiThreadStabilityIT extends CuVSTestCase {
       try (var deviceDataset = CuVSMatrix.ofArray(dataset).toDevice(resources);
           CagraIndex index =
               CagraIndex.newBuilder(resources)
-                  .withDataset(dataset)
+                  .fromDataset(dataset)
                   .withIndexParams(indexParams)
                   .build();
           // Dim=256 floats is already 16-byte aligned, so wrap a padded view directly.
