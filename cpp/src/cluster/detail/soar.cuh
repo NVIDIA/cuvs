@@ -99,6 +99,12 @@ void compute_soar_labels(raft::resources const& dev_resources,
   auto residuals_norm = raft::make_device_matrix<float, int64_t>(
     dev_resources, residuals.extent(0), residuals.extent(1));
 
+  // row_normalize skips zero-residual rows, leaving them unset (garbage); zero-fill so they stay 0.
+  RAFT_CUDA_TRY(cudaMemsetAsync(residuals_norm.data_handle(),
+                                0,
+                                residuals_norm.size() * sizeof(float),
+                                raft::resource::get_cuda_stream(dev_resources).get()));
+
   raft::linalg::row_normalize(dev_resources,
                               residuals,
                               residuals_norm.view(),

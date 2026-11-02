@@ -6,11 +6,15 @@ import numpy as np
 import pytest
 from pylibraft.common import device_ndarray
 
+import rmm
+
 from cuvs.cluster.soar import Params, predict
 
 # Deliberately not the default of 1.0, so that the end-to-end test fails if
 # lambda is dropped anywhere between Params and the C++ implementation.
 LAMBDA = 2.0
+
+NAN_POOL_BYTES = 16 << 20
 
 
 def nearest_centroids(dataset, centroids):
@@ -45,6 +49,22 @@ def make_inputs(n_rows=256, n_features=8, n_clusters=16, seed=0):
     centroids = rng.uniform(-1, 1, (n_clusters, n_features)).astype(np.float32)
     labels = nearest_centroids(dataset, centroids)
     return dataset, centroids, labels
+
+
+@pytest.fixture
+def nan_filled_pool():
+    previous = rmm.mr.get_current_device_resource()
+    rmm.mr.set_current_device_resource(
+        rmm.mr.PoolMemoryResource(
+            rmm.mr.CudaMemoryResource(), initial_pool_size=NAN_POOL_BYTES
+        )
+    )
+    poison = rmm.DeviceBuffer.to_device(
+        np.full(NAN_POOL_BYTES, 0xFF, dtype=np.uint8)
+    )
+    del poison
+    yield
+    rmm.mr.set_current_device_resource(previous)
 
 
 def test_params_defaults():
@@ -124,6 +144,31 @@ def test_predict_with_preallocated_output():
         device_ndarray(labels),
     ).copy_to_host()
     np.testing.assert_array_equal(out.copy_to_host(), expected)
+
+
+# Rows on their centroid (zero residual) used to read unset memory and get a
+# wrong label; NaN-filled memory exposes that, so they must keep their primary.
+def test_predict_zero_residual_keeps_primary(nan_filled_pool):
+    dataset, centroids, _ = make_inputs()
+    n_clusters = centroids.shape[0]
+
+    dataset[:n_clusters] = centroids
+    labels = nearest_centroids(dataset, centroids).astype(np.uint32)
+    np.testing.assert_array_equal(labels[:n_clusters], np.arange(n_clusters))
+
+    soar_labels = predict(
+        Params(lambda_=LAMBDA),
+        device_ndarray(dataset),
+        device_ndarray(centroids),
+        device_ndarray(labels),
+    ).copy_to_host()
+
+    np.testing.assert_array_equal(
+        soar_labels[:n_clusters], labels[:n_clusters]
+    )
+
+    spilled = soar_labels[n_clusters:] != labels[n_clusters:]
+    assert np.count_nonzero(spilled) > 0
 
 
 def test_predict_input_validation():
