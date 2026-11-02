@@ -5,6 +5,8 @@
 #pragma once
 
 #include <cuvs/neighbors/common.hpp>
+#include <cuvs/util/file_io.hpp>
+#include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/numpy_serializer.hpp>
 #include <raft/core/resources.hpp>
@@ -23,6 +25,8 @@
 #include <limits>
 #include <memory>
 #include <type_traits>
+
+#include "../../util/kvikio_serialize.hpp"
 
 namespace cuvs::neighbors::detail {
 
@@ -83,11 +87,11 @@ void serialize(const raft::resources& res, std::ostream& os, ViewT const& datase
 {
   auto n_rows = dataset.n_rows();
   auto dim    = dataset.dim();
-  auto stride = dataset.stride();
+  auto src    = dataset.data_const_view();
+  auto stride = static_cast<uint32_t>(src.stride(0));
   raft::serialize_scalar(res, os, n_rows);
   raft::serialize_scalar(res, os, dim);
   raft::serialize_scalar(res, os, stride);
-  auto src            = dataset.view();
   auto const elements = dense_matrix_elements<DataT>(n_rows, dim, "serialize_dense_dataset");
   raft::numpy_serializer::write_header(os,
                                        {raft::numpy_serializer::get_numpy_dtype<DataT>(),
@@ -97,6 +101,36 @@ void serialize(const raft::resources& res, std::ostream& os, ViewT const& datase
   if (elements == 0) { return; }
 
   if constexpr (cuvs::neighbors::is_device_dataset_view_v<ViewT>) {
+    if (auto* kvikio_stream = dynamic_cast<cuvs::util::kvikio_ofstream*>(&os);
+        kvikio_stream != nullptr) {
+      auto const row_bytes = static_cast<std::size_t>(dim) * sizeof(DataT);
+      if (stride == dim) {
+        raft::resource::sync_stream(res);
+        kvikio_stream->write_device(src.data_handle(), elements * sizeof(DataT));
+        return;
+      }
+
+      auto const batch_rows = static_cast<IdxT>(std::min<std::size_t>(
+        static_cast<std::size_t>(n_rows),
+        std::max<std::size_t>(1, cuvs::util::detail::kDeviceSerializationBatchBytes / row_bytes)));
+      auto packed           = raft::make_device_matrix<DataT, IdxT>(res, batch_rows, dim);
+      auto const stream     = raft::resource::get_cuda_stream(res);
+      for (IdxT first_row = 0; first_row < n_rows; first_row += batch_rows) {
+        auto const rows = std::min<IdxT>(batch_rows, n_rows - first_row);
+        raft::copy_matrix(packed.data_handle(),
+                          dim,
+                          src.data_handle() + first_row * stride,
+                          stride,
+                          dim,
+                          rows,
+                          stream);
+        raft::resource::sync_stream(res);
+        kvikio_stream->write_device(packed.data_handle(),
+                                    static_cast<std::size_t>(rows) * row_bytes);
+      }
+      return;
+    }
+
     auto staging = raft::make_host_matrix<DataT, IdxT>(n_rows, dim);
     raft::copy_matrix(staging.data_handle(),
                       dim,
@@ -157,6 +191,25 @@ struct dense_payload_metadata {
   std::size_t elements;
 };
 
+class device_deserialize_event {
+ public:
+  device_deserialize_event()
+  {
+    RAFT_CUDA_TRY(cudaEventCreateWithFlags(&event_, cudaEventDisableTiming));
+  }
+
+  ~device_deserialize_event() { RAFT_CUDA_TRY_NO_THROW(cudaEventDestroy(event_)); }
+
+  device_deserialize_event(const device_deserialize_event&)            = delete;
+  device_deserialize_event& operator=(const device_deserialize_event&) = delete;
+
+  void record(cudaStream_t stream) { RAFT_CUDA_TRY(cudaEventRecord(event_, stream)); }
+  void wait() { RAFT_CUDA_TRY(cudaEventSynchronize(event_)); }
+
+ private:
+  cudaEvent_t event_{};
+};
+
 template <typename DataT, typename IdxT>
 auto deserialize_dense_payload_metadata(raft::resources const& res, std::istream& is)
   -> dense_payload_metadata<IdxT>
@@ -186,6 +239,25 @@ auto deserialize_dense_payload_metadata(raft::resources const& res, std::istream
                "deserialize_dense_payload: payload shape does not match serialized dimensions");
 
   return {n_rows, dim, stride, elements};
+}
+
+/**
+ * The payload metadata as seen by the dataset that is being restored. The payload on the wire is
+ * always tight `[n_rows x dim]`; the recorded stride only says how the saved dataset laid its rows
+ * out, which the restored dataset does not have to share (a padded file may be loaded as a
+ * contiguous dataset and vice versa). The restored dataset takes the stride its own layout
+ * dictates: the rows stay packed for a contiguous dataset, and the padding is restored for a padded
+ * one.
+ */
+template <typename OwningDatasetT, typename DataT, typename IdxT>
+auto deserialize_dense_payload_metadata_for(raft::resources const& res, std::istream& is)
+  -> dense_payload_metadata<IdxT>
+{
+  auto metadata      = deserialize_dense_payload_metadata<DataT, IdxT>(res, is);
+  using mapping_type = typename OwningDatasetT::data_type::mapping_type;
+  metadata.stride    = static_cast<uint32_t>(
+    make_dense_mapping<mapping_type>(metadata.n_rows, metadata.dim).stride(0));
+  return metadata;
 }
 
 template <typename DataT, typename IdxT>
@@ -227,15 +299,30 @@ void skip_dense_payload(raft::resources const& res, std::istream& is)
   }
 }
 
+/**
+ * Allocate the storage for the payload. The row stride is the one the layout dictates, which is
+ * what `deserialize_dense_payload_metadata_for` records in the metadata.
+ *
+ * The storage owns exactly `required_span_size()` elements, which is the only memory we may write.
+ * Both dense layouts include the padding of every row in their span (a contiguous dataset has no
+ * padding), so zeroing the padding of all rows after this call stays inside the allocation.
+ */
+template <typename OwningDatasetT, typename MetadataT>
+auto make_dense_storage(raft::resources const& res, MetadataT const& metadata)
+{
+  return make_dense_array<OwningDatasetT>(res, metadata.n_rows, metadata.dim);
+}
+
 template <typename DataT, typename IdxT, typename OwningDatasetT>
 auto deserialize_device_dense(raft::resources const& res, std::istream& is)
   -> std::unique_ptr<OwningDatasetT>
 {
-  auto const metadata = deserialize_dense_payload_metadata<DataT, IdxT>(res, is);
-  auto staging        = raft::make_host_matrix<DataT, IdxT>(metadata.n_rows, metadata.dim);
+  auto const metadata =
+    deserialize_dense_payload_metadata_for<OwningDatasetT, DataT, IdxT>(res, is);
+  auto staging = raft::make_host_matrix<DataT, IdxT>(metadata.n_rows, metadata.dim);
   read_dense_bytes(is, staging.data_handle(), metadata.elements);
 
-  auto storage     = raft::make_device_matrix<DataT, IdxT>(res, metadata.n_rows, metadata.stride);
+  auto storage     = make_dense_storage<OwningDatasetT>(res, metadata);
   auto stream      = raft::resource::get_cuda_stream(res);
   bool work_queued = false;
   if (metadata.stride > metadata.dim && metadata.n_rows > 0) {
@@ -244,7 +331,7 @@ auto deserialize_device_dense(raft::resources const& res, std::istream& is)
                                     0,
                                     (metadata.stride - metadata.dim) * sizeof(DataT),
                                     metadata.n_rows,
-                                    stream));
+                                    stream.get()));
     work_queued = true;
   }
   if (metadata.elements > 0) {
@@ -258,15 +345,95 @@ auto deserialize_device_dense(raft::resources const& res, std::istream& is)
     work_queued = true;
   }
   if (work_queued) { raft::resource::sync_stream(res); }
-  return std::make_unique<OwningDatasetT>(std::move(storage), metadata.dim);
+  return std::make_unique<OwningDatasetT>(std::move(storage));
+}
+
+template <typename DataT, typename IdxT, typename OwningDatasetT>
+auto deserialize_device_dense(raft::resources const& res, cuvs::util::kvikio_file_reader& reader)
+  -> std::unique_ptr<OwningDatasetT>
+{
+  auto const metadata =
+    deserialize_dense_payload_metadata_for<OwningDatasetT, DataT, IdxT>(res, reader.stream());
+  auto storage      = make_dense_storage<OwningDatasetT>(res, metadata);
+  auto const stream = raft::resource::get_cuda_stream(res);
+
+  if (metadata.stride > metadata.dim && metadata.n_rows > 0) {
+    RAFT_CUDA_TRY(cudaMemset2DAsync(storage.data_handle() + metadata.dim,
+                                    metadata.stride * sizeof(DataT),
+                                    0,
+                                    (metadata.stride - metadata.dim) * sizeof(DataT),
+                                    metadata.n_rows,
+                                    stream.get()));
+  }
+  raft::resource::sync_stream(res);
+
+  if (metadata.elements == 0) { return std::make_unique<OwningDatasetT>(std::move(storage)); }
+
+  auto const row_bytes = static_cast<std::size_t>(metadata.dim) * sizeof(DataT);
+  if (metadata.stride == metadata.dim) {
+    reader.read_device(storage.data_handle(), metadata.elements * sizeof(DataT));
+  } else {
+    auto const batch_rows = static_cast<IdxT>(std::min<std::size_t>(
+      static_cast<std::size_t>(metadata.n_rows),
+      std::max<std::size_t>(1, cuvs::util::detail::kDeviceSerializationBatchBytes / row_bytes)));
+    auto packed0          = raft::make_device_matrix<DataT, IdxT>(res, batch_rows, metadata.dim);
+    if (batch_rows == metadata.n_rows) {
+      raft::resource::sync_stream(res);
+      reader.read_device(packed0.data_handle(), metadata.elements * sizeof(DataT));
+      raft::copy_matrix(storage.data_handle(),
+                        metadata.stride,
+                        packed0.data_handle(),
+                        metadata.dim,
+                        metadata.dim,
+                        metadata.n_rows,
+                        stream);
+      raft::resource::sync_stream(res);
+      return std::make_unique<OwningDatasetT>(std::move(storage));
+    }
+
+    auto packed1 = raft::make_device_matrix<DataT, IdxT>(res, batch_rows, metadata.dim);
+    raft::resource::sync_stream(res);
+
+    // KvikIO reads block the host but run outside the RAFT stream. Alternate buffers so the next
+    // read can overlap the previous batch's device-to-device scatter.
+    std::array<DataT*, 2> packed_buffers{packed0.data_handle(), packed1.data_handle()};
+    std::array<device_deserialize_event, 2> copy_complete;
+    std::array<bool, 2> copy_in_flight{};
+    std::size_t batch_index = 0;
+    try {
+      for (IdxT first_row = 0; first_row < metadata.n_rows;
+           first_row += batch_rows, ++batch_index) {
+        const std::size_t slot = batch_index % packed_buffers.size();
+        if (copy_in_flight[slot]) { copy_complete[slot].wait(); }
+
+        auto const rows = std::min<IdxT>(batch_rows, metadata.n_rows - first_row);
+        reader.read_device(packed_buffers[slot], static_cast<std::size_t>(rows) * row_bytes);
+        raft::copy_matrix(storage.data_handle() + first_row * metadata.stride,
+                          metadata.stride,
+                          packed_buffers[slot],
+                          metadata.dim,
+                          metadata.dim,
+                          rows,
+                          stream);
+        copy_complete[slot].record(stream.get());
+        copy_in_flight[slot] = true;
+      }
+      raft::resource::sync_stream(res);
+    } catch (...) {
+      RAFT_CUDA_TRY_NO_THROW(cudaStreamSynchronize(stream.get()));
+      throw;
+    }
+  }
+  return std::make_unique<OwningDatasetT>(std::move(storage));
 }
 
 template <typename DataT, typename IdxT, typename OwningDatasetT>
 auto deserialize_host_dense(raft::resources const& res, std::istream& is)
   -> std::unique_ptr<OwningDatasetT>
 {
-  auto const metadata = deserialize_dense_payload_metadata<DataT, IdxT>(res, is);
-  auto storage        = raft::make_host_matrix<DataT, IdxT>(metadata.n_rows, metadata.stride);
+  auto const metadata =
+    deserialize_dense_payload_metadata_for<OwningDatasetT, DataT, IdxT>(res, is);
+  auto storage = make_dense_storage<OwningDatasetT>(res, metadata);
   if (metadata.stride == metadata.dim) {
     read_dense_bytes(is, storage.data_handle(), metadata.elements);
   } else {
@@ -276,7 +443,7 @@ auto deserialize_host_dense(raft::resources const& res, std::istream& is)
       std::memset(row_data + metadata.dim, 0, (metadata.stride - metadata.dim) * sizeof(DataT));
     }
   }
-  return std::make_unique<OwningDatasetT>(std::move(storage), metadata.dim);
+  return std::make_unique<OwningDatasetT>(std::move(storage));
 }
 
 template <typename DataT, typename IdxT>
@@ -290,10 +457,8 @@ auto deserialize_vpq(raft::resources const& res, std::istream& is)
   auto pq_len             = raft::deserialize_scalar<uint32_t>(res, is);
   auto encoded_row_length = raft::deserialize_scalar<uint32_t>(res, is);
 
-  auto vq_code_book =
-    raft::make_device_matrix<DataT, uint32_t, raft::row_major>(res, vq_n_centers, dim);
-  auto pq_code_book =
-    raft::make_device_matrix<DataT, uint32_t, raft::row_major>(res, pq_n_centers, pq_len);
+  auto vq_code_book = raft::make_device_matrix<DataT, uint32_t>(res, vq_n_centers, dim);
+  auto pq_code_book = raft::make_device_matrix<DataT, uint32_t>(res, pq_n_centers, pq_len);
   auto data =
     raft::make_device_matrix<uint8_t, IdxT, raft::row_major>(res, n_rows, encoded_row_length);
 
@@ -302,13 +467,16 @@ auto deserialize_vpq(raft::resources const& res, std::istream& is)
   raft::deserialize_mdspan(res, is, data.view());
 
   return std::make_unique<device_vpq_dataset<DataT, IdxT>>(
-    std::move(vq_code_book), std::move(pq_code_book), std::move(data));
+    std::move(data),
+    typename device_vpq_dataset<DataT, IdxT>::manifest_type{std::move(vq_code_book),
+                                                            std::move(pq_code_book)});
 }
 
-template <typename DataT, typename IdxT, typename OwningDatasetT>
-auto deserialize_dense_dataset(raft::resources const& res, std::istream& is)
+template <typename DataT, typename IdxT, typename OwningDatasetT, typename Input>
+auto deserialize_dense_dataset(raft::resources const& res, Input& input)
   -> std::unique_ptr<OwningDatasetT>
 {
+  auto& is       = cuvs::util::detail::input_stream(input);
   const auto tag = raft::deserialize_scalar<dataset_instance_tag>(res, is);
   RAFT_EXPECTS(tag == kSerializeStridedDataset,
                "deserialize_dataset: expected strided tag, got %u",
@@ -323,9 +491,9 @@ auto deserialize_dense_dataset(raft::resources const& res, std::istream& is)
                static_cast<int>(dtype),
                static_cast<int>(expected_dtype));
   if constexpr (std::is_same_v<OwningDatasetT, device_padded_dataset<DataT, IdxT>>) {
-    return deserialize_device_dense<DataT, IdxT, OwningDatasetT>(res, is);
+    return deserialize_device_dense<DataT, IdxT, OwningDatasetT>(res, input);
   } else if constexpr (std::is_same_v<OwningDatasetT, device_standard_dataset<DataT, IdxT>>) {
-    return deserialize_device_dense<DataT, IdxT, OwningDatasetT>(res, is);
+    return deserialize_device_dense<DataT, IdxT, OwningDatasetT>(res, input);
   } else if constexpr (std::is_same_v<OwningDatasetT, host_padded_dataset<DataT, IdxT>>) {
     return deserialize_host_dense<DataT, IdxT, OwningDatasetT>(res, is);
   } else if constexpr (std::is_same_v<OwningDatasetT, host_standard_dataset<DataT, IdxT>>) {
@@ -359,32 +527,32 @@ void skip_dense_dataset(raft::resources const& res, std::istream& is)
 // dense owner. When a new dataset kind is supported, add a matching overload of
 // deserialize_dataset here rather than extending this one — overload dispatch replaces the old
 // type-erased variant routing.
-template <typename DataT, typename IdxT>
-auto deserialize_padded_dataset(raft::resources const& res, std::istream& is)
+template <typename DataT, typename IdxT, typename Input>
+auto deserialize_padded_dataset(raft::resources const& res, Input& input)
   -> std::unique_ptr<device_padded_dataset<DataT, IdxT>>
 {
-  return deserialize_dense_dataset<DataT, IdxT, device_padded_dataset<DataT, IdxT>>(res, is);
+  return deserialize_dense_dataset<DataT, IdxT, device_padded_dataset<DataT, IdxT>>(res, input);
 }
 
-template <typename DataT, typename IdxT>
-auto deserialize_standard_dataset(raft::resources const& res, std::istream& is)
+template <typename DataT, typename IdxT, typename Input>
+auto deserialize_standard_dataset(raft::resources const& res, Input& input)
   -> std::unique_ptr<device_standard_dataset<DataT, IdxT>>
 {
-  return deserialize_dense_dataset<DataT, IdxT, device_standard_dataset<DataT, IdxT>>(res, is);
+  return deserialize_dense_dataset<DataT, IdxT, device_standard_dataset<DataT, IdxT>>(res, input);
 }
 
-template <typename DataT, typename IdxT>
-auto deserialize_host_padded_dataset(raft::resources const& res, std::istream& is)
+template <typename DataT, typename IdxT, typename Input>
+auto deserialize_host_padded_dataset(raft::resources const& res, Input& input)
   -> std::unique_ptr<host_padded_dataset<DataT, IdxT>>
 {
-  return deserialize_dense_dataset<DataT, IdxT, host_padded_dataset<DataT, IdxT>>(res, is);
+  return deserialize_dense_dataset<DataT, IdxT, host_padded_dataset<DataT, IdxT>>(res, input);
 }
 
-template <typename DataT, typename IdxT>
-auto deserialize_host_standard_dataset(raft::resources const& res, std::istream& is)
+template <typename DataT, typename IdxT, typename Input>
+auto deserialize_host_standard_dataset(raft::resources const& res, Input& input)
   -> std::unique_ptr<host_standard_dataset<DataT, IdxT>>
 {
-  return deserialize_dense_dataset<DataT, IdxT, host_standard_dataset<DataT, IdxT>>(res, is);
+  return deserialize_dense_dataset<DataT, IdxT, host_standard_dataset<DataT, IdxT>>(res, input);
 }
 
 }  // namespace cuvs::neighbors::detail

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -353,7 +353,7 @@ void rotate_padded_centers(
                      &beta,
                      rotated_centers.data_handle(),
                      rot_dim,  // ldc (leading dim of output)
-                     stream);
+                     stream.get());
 }
 
 void resize_list(raft::resources const& res,

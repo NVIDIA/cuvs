@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -173,6 +173,7 @@ struct index : cuvs::neighbors::index {
    * @param[in] sample_filter
    *     filtering function, if any, must be the same for all requests in a batch
    *     (the pointer must be alive for the lifetime of the dynamic batching index)
+   *     Roaring filters are not supported because batching changes the query-row mapping.
    */
   template <typename Upstream>
   index(const raft::resources& res,

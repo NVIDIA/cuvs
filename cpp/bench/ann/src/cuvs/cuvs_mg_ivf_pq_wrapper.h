@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -52,7 +52,7 @@ class cuvs_mg_ivf_pq : public algo<T>, public algo_gpu {
   [[nodiscard]] auto get_sync_stream() const noexcept -> cudaStream_t override
   {
     auto stream = raft::resource::get_cuda_stream(clique_);
-    return stream;
+    return stream.get();
   }
 
   [[nodiscard]] auto uses_stream() const noexcept -> bool override { return false; }

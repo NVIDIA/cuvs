@@ -7,6 +7,7 @@
 #include <cuvs/core/bloom_filter.hpp>
 
 #include <cuco/bloom_filter.cuh>
+#include <cuco/bloom_filter_policy.cuh>
 
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -20,7 +21,7 @@ namespace cuvs::core {
 
 namespace {
 
-using default_filter_policy = cuco::default_filter_policy<bloom_filter::key_type>;
+using default_filter_policy = cuco::bloom_filter_policy<bloom_filter::key_type>;
 
 constexpr auto kPatternBits   = default_filter_policy::pattern_bits;
 constexpr auto kWordsPerBlock = default_filter_policy::words_per_block;

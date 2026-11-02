@@ -1,6 +1,6 @@
 
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -250,10 +250,13 @@ extern "C" cuvsError_t cuvsBruteForceDeserialize(cuvsResources_t res,
     index->dtype.bits = dtype.itemsize * 8;
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_deserialize<float>(res, filename));
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+      index->addr =
+          reinterpret_cast<uintptr_t>(_deserialize<float>(res, filename));
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') &&
+               dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
-      index->addr       = reinterpret_cast<uintptr_t>(_deserialize<half>(res, filename));
+      index->addr =
+          reinterpret_cast<uintptr_t>(_deserialize<half>(res, filename));
     } else {
       RAFT_FAIL("Unsupported index dtype: %d and bits: %d", index->dtype.code, index->dtype.bits);
     }

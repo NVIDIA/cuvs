@@ -108,7 +108,11 @@ endif()
 
 ConfigureTest(NAME cuvs_c_headers PATH core/headers.c)
 ConfigureTest(NAME cuvs_c_test PATH core/c_api.c)
+ConfigureTest(NAME cuvs_c_resource_pool_test PATH core/resource_pool.cpp)
+ConfigureTest(NAME cuvs_c_resource_stream_pool_test PATH core/resource_stream_pool.cpp)
 target_link_libraries(cuvs_c_test PRIVATE CUDA::cudart_static)
+target_link_libraries(cuvs_c_resource_pool_test PRIVATE CUDA::cudart_static)
+target_link_libraries(cuvs_c_resource_stream_pool_test PRIVATE CUDA::cudart_static)
 ConfigureTest(NAME cuvs_c_neighbors_test PATH neighbors/c_api.c)
 
 # ##################################################################################################

@@ -1,11 +1,12 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #pragma once
 
 #include <cuvs/neighbors/common.hpp>
+#include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdarray.hpp>
@@ -50,7 +51,10 @@ enum class DIST_COMP_DTYPE { AUTO = 0, FP32 = 1, FP16 = 2 };
  * that `intermediate_graph_degree` >= 1.5 * graph_degree
  * - `max_iterations`: The number of iterations that nn-descent will refine
  * the graph for. More iterations produce a better quality graph at cost of performance
- * - `termination_threshold`: The delta at which nn-descent will terminate its iterations
+ * - `termination_threshold`: NN-descent terminates when the number of graph updates in an
+ * iteration is less than `termination_threshold * internal_graph_degree * dataset_size`, where
+ * `internal_graph_degree` is the expanded and padded working degree derived from `graph_degree`.
+ * Set to `0.0` to disable early termination. Defaults to `0.001`.
  * - `return_distances`: Boolean to decide whether to return distances array
  * - `dist_comp_dtype`: dtype to use for distance computation. Defaults to `AUTO` which
  * automatically determines the best dtype for distance computation based on the dataset dimensions.
@@ -62,7 +66,7 @@ struct index_params : cuvs::neighbors::index_params {
   size_t graph_degree              = 64;
   size_t intermediate_graph_degree = 128;
   size_t max_iterations            = 20;
-  float termination_threshold      = 0.0001;
+  float termination_threshold      = 0.001;
   bool return_distances            = true;
   DIST_COMP_DTYPE dist_comp_dtype  = DIST_COMP_DTYPE::AUTO;
 
@@ -520,6 +524,58 @@ auto build(raft::resources const& res,
 auto build(raft::resources const& res,
            index_params const& params,
            raft::host_matrix_view<const uint8_t, int64_t, raft::row_major> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
+             std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
+
+/**
+ * @brief Build an NN-Descent index directly from a device-resident BBQ dataset.
+ *
+ * Symmetric compressed-code distances are used during graph construction. Supported metrics are
+ * L2Expanded, L2SqrtExpanded, CosineExpanded, and InnerProduct. The dataset's correction terms
+ * must have been generated for the selected metric.
+ *
+ * @param res raft resources
+ * @param params NN-Descent build parameters
+ * @param dataset BBQ codes and correction terms in device memory
+ * @param graph optional caller-owned host graph
+ * @return index containing the all-neighbors graph
+ */
+auto build(raft::resources const& res,
+           index_params const& params,
+           cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
+             std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
+/**
+ * @copydoc build(raft::resources const& res, index_params const& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+ * std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph = std::nullopt)
+ * -> cuvs::neighbors::nn_descent::index<uint32_t>
+ */
+auto build(raft::resources const& res,
+           index_params const& params,
+           cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
+             std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
+/**
+ * @copydoc build(raft::resources const& res, index_params const& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+ * std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph = std::nullopt)
+ * -> cuvs::neighbors::nn_descent::index<uint32_t>
+ */
+auto build(raft::resources const& res,
+           index_params const& params,
+           cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset,
+           std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
+             std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
+/**
+ * @copydoc build(raft::resources const& res, index_params const& params,
+ * cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+ * std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph = std::nullopt)
+ * -> cuvs::neighbors::nn_descent::index<uint32_t>
+ */
+auto build(raft::resources const& res,
+           index_params const& params,
+           cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset,
            std::optional<raft::host_matrix_view<uint32_t, int64_t, raft::row_major>> graph =
              std::nullopt) -> cuvs::neighbors::nn_descent::index<uint32_t>;
 

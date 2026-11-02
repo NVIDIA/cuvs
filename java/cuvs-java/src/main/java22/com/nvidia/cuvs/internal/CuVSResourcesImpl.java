@@ -6,7 +6,6 @@ package com.nvidia.cuvs.internal;
 
 import static com.nvidia.cuvs.internal.common.Util.checkCuVSError;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
-import static com.nvidia.cuvs.internal.panama.headers_h_1.C_INT;
 
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.DelegatingScopedAccess;
@@ -68,17 +67,13 @@ public class CuVSResourcesImpl implements CuVSResources {
    *                                     CSV samples
    */
   public CuVSResourcesImpl(
-      Path tempDirectory,
-      Path memoryTrackingCsvPath,
-      Duration memoryTrackingSampleInterval) {
+      Path tempDirectory, Path memoryTrackingCsvPath, Duration memoryTrackingSampleInterval) {
     this.tempDirectory = tempDirectory;
     try (var localArena = Arena.ofConfined()) {
       var resourcesMemorySegment = localArena.allocate(cuvsResources_t);
-      byte[] pathBytes =
-          memoryTrackingCsvPath.toString().getBytes(StandardCharsets.UTF_8);
+      byte[] pathBytes = memoryTrackingCsvPath.toString().getBytes(StandardCharsets.UTF_8);
       var pathSegment = localArena.allocate(pathBytes.length + 1L);
-      MemorySegment.copy(
-          pathBytes, 0, pathSegment, ValueLayout.JAVA_BYTE, 0, pathBytes.length);
+      MemorySegment.copy(pathBytes, 0, pathSegment, ValueLayout.JAVA_BYTE, 0, pathBytes.length);
       pathSegment.set(ValueLayout.JAVA_BYTE, pathBytes.length, (byte) 0);
       long sampleIntervalMs = memoryTrackingSampleInterval.toMillis();
       checkCuVSError(

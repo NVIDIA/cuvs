@@ -1,0 +1,245 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package com.nvidia.cuvs.lucene;
+
+import com.nvidia.cuvs.CuVSHostMatrix;
+import com.nvidia.cuvs.CuVSMatrix;
+import com.nvidia.cuvs.CuVSResources;
+import java.io.IOException;
+import java.time.Duration;
+import java.util.List;
+import java.util.Objects;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import org.apache.lucene.util.InfoStream;
+
+/**
+ * This class provides common static utility methods.
+ *
+ * @since 25.10
+ */
+public class Utils {
+
+  static final Logger log = Logger.getLogger(Utils.class.getName());
+
+  /**
+   * A utility method that rethrows known throwable types without changing their identity.
+   *
+   * <p>In particular, {@link Error} instances must not be converted to a {@link
+   * RuntimeException}; callers rely on errors retaining their original type and stack trace.
+   *
+   * <p>This method never returns normally; its return type exists solely so callers can write
+   * {@code throw handleThrowable(t);}, letting the compiler verify that the enclosing statement
+   * always completes abruptly.
+   *
+   * @param t the throwable object
+   * @return never returns; always throws
+   * @throws IOException
+   */
+  static RuntimeException handleThrowable(Throwable t) throws IOException {
+    switch (t) {
+      case IOException ioe -> throw ioe;
+      case Error error -> throw error;
+      case RuntimeException re -> throw re;
+      case null, default -> throw new RuntimeException("UNEXPECTED: exception type", t);
+    }
+  }
+
+  /**
+   * Closes every non-null closeable, even if some fail, and returns the first failure with the
+   * others added as suppressed.
+   *
+   * @param failure a failure already in flight to attach close failures to, or {@code null}
+   * @param closeables what to close; {@code null} entries are skipped
+   * @return {@code failure}, or the first close failure if it is {@code null}; {@code null} if
+   *     nothing failed
+   */
+  static Throwable closeAll(Throwable failure, AutoCloseable... closeables) {
+    for (AutoCloseable closeable : closeables) {
+      if (closeable == null) continue;
+      try {
+        closeable.close();
+      } catch (Throwable t) {
+        if (t instanceof InterruptedException) {
+          Thread.currentThread().interrupt();
+        }
+        if (failure == null) {
+          failure = t;
+        } else if (failure != t) {
+          failure.addSuppressed(t);
+        }
+      }
+    }
+    return failure;
+  }
+
+  /**
+   * A method to build a CuVSMatrix from a list of float vectors.
+   *
+   * Uses CuVSMatrix.Builder to copy vectors directly to device memory
+   * without creating intermediate heap arrays.
+   *
+   * @param data The float vectors
+   * @param dimensions The number float elements in each vector
+   * @param resources The CuVS resources for device matrix creation
+   * @return an instance of CuVSMatrix
+   */
+  static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions, CuVSResources resources) {
+    // Use Builder pattern to avoid intermediate float[][] allocation
+    // and copy directly from List to device memory
+    CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.deviceBuilder(
+            resources,
+            data.size(), // rows (number of vectors)
+            dimensions, // columns (vector dimension)
+            CuVSMatrix.DataType.FLOAT);
+
+    // Add vectors one by one - builder copies directly to device memory
+    for (float[] vector : data) {
+      builder.addVector(vector);
+    }
+
+    return builder.build();
+  }
+
+  /** Builds a host-memory CuVSMatrix from a 2D byte array. */
+  static CuVSHostMatrix createHostByteMatrixFromArray(byte[][] data, int bytesPerVector) {
+    try (CuVSMatrix.Builder<CuVSHostMatrix> builder =
+        CuVSMatrix.hostBuilder(data.length, bytesPerVector, CuVSMatrix.DataType.BYTE)) {
+      for (byte[] vector : data) {
+        builder.addVector(vector);
+      }
+      return builder.build();
+    }
+  }
+
+  // Starts an ownership scope for a dataset that may later be transferred to an index.
+  static <I extends AutoCloseable> OwnedIndex<I> ownDataset(AutoCloseable dataset) {
+    return new OwnedIndex<>(dataset);
+  }
+
+  /**
+   * Owns a dataset until {@link #transferTo} records a successful index build. Closing the scope
+   * then closes either the original dataset or the index that owns it.
+   */
+  static final class OwnedIndex<I extends AutoCloseable> implements AutoCloseable {
+    private AutoCloseable dataset;
+    private I index;
+    private boolean closed;
+
+    private OwnedIndex(AutoCloseable dataset) {
+      this.dataset = Objects.requireNonNull(dataset, "dataset");
+    }
+
+    void transferTo(I index) {
+      if (closed || this.index != null) {
+        throw new IllegalStateException("Dataset ownership has already been transferred");
+      }
+      this.index = Objects.requireNonNull(index, "index");
+    }
+
+    @Override
+    public void close() throws Exception {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      AutoCloseable ownedDataset = dataset;
+      I ownedIndex = index;
+      dataset = null;
+      index = null;
+      if (ownedIndex == null) {
+        ownedDataset.close();
+        return;
+      }
+
+      try {
+        ownedIndex.close();
+      } catch (Throwable indexCloseFailure) {
+        try {
+          ownedDataset.close();
+        } catch (Throwable datasetCloseFailure) {
+          if (indexCloseFailure != datasetCloseFailure) {
+            indexCloseFailure.addSuppressed(datasetCloseFailure);
+          }
+        }
+        rethrowCloseFailure(indexCloseFailure);
+      }
+    }
+  }
+
+  private static void rethrowCloseFailure(Throwable failure) throws Exception {
+    if (failure instanceof Exception exception) {
+      throw exception;
+    }
+    if (failure instanceof Error error) {
+      throw error;
+    }
+    throw new AssertionError("Unexpected throwable from AutoCloseable.close()", failure);
+  }
+
+  /**
+   * A utility method to convert nanoseconds to milliseconds.
+   *
+   * @param nanos
+   * @return milliseconds
+   */
+  static long nanosToMillis(long nanos) {
+    return Duration.ofNanos(nanos).toMillis();
+  }
+
+  /**
+   * Creates an instance of CuVSResources.
+   *
+   * @return an instance of CuVSResources
+   */
+  static CuVSResources cuVSResourcesOrNull() {
+    try {
+      System.loadLibrary("cudart");
+    } catch (UnsatisfiedLinkError e) {
+      log.log(Level.WARNING, "Could not load CUDA runtime library: " + e.getMessage());
+    }
+    try {
+      return CuVSResources.create();
+    } catch (UnsupportedOperationException uoe) {
+      log.log(
+          Level.WARNING,
+          "cuVS is not supported on this platform or java version: " + uoe.getMessage());
+    } catch (Throwable t) {
+      if (t instanceof ExceptionInInitializerError ex) {
+        t = ex.getCause();
+      }
+      log.log(Level.WARNING, "Exception occurred during creation of cuVS resources. " + t);
+    }
+    return null;
+  }
+
+  /**
+   * A utility method that conditionally ignores certain throwable objects
+   *
+   * @param t the throwable object
+   * @param msg the message to check
+   * @throws IOException
+   */
+  static void handleThrowableWithIgnore(Throwable t, String msg) throws IOException {
+    if (t.getMessage().contains(msg)) {
+      return;
+    }
+    handleThrowable(t);
+  }
+
+  /**
+   * Utility to print info/debug messages via InfoStream.
+   *
+   * @param infoStream the writer's infostream
+   * @param component the name of the index writer
+   * @param msg the log message to push via the InfoStream
+   */
+  static void info(InfoStream infoStream, String component, String msg) {
+    if (infoStream.isEnabled(component)) {
+      infoStream.message(component, msg);
+    }
+  }
+}

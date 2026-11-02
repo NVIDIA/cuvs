@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2019-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2019-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -116,7 +116,7 @@ class GramMatrixTest : public ::testing::TestWithParam<GramMatrixInputs> {
  protected:
   GramMatrixTest()
     : params(GetParam()),
-      stream(raft::resource::get_cuda_stream(handle)),
+      stream(raft::resource::get_cuda_stream(handle).get()),
       x1(0, stream),
       x2(0, stream),
       x1_csr_indptr(0, stream),

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2022-2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -351,7 +351,7 @@ void GramMatrixBase<math_t>::linear(raft::resources const& handle,
   math_t beta  = 0.0;
   if (is_row_major) {
     // #TODO: Use mdspan-based API when stride-capable
-    // https://github.com/rapidsai/raft/issues/875
+    // https://github.com/NVIDIA/raft/issues/875
     raft::linalg::gemm(handle,
                        true,
                        false,
@@ -366,10 +366,10 @@ void GramMatrixBase<math_t>::linear(raft::resources const& handle,
                        &beta,
                        out.data_handle(),
                        ld_out,
-                       raft::resource::get_cuda_stream(handle));
+                       raft::resource::get_cuda_stream(handle).get());
   } else {
     // #TODO: Use mdspan-based API when stride-capable
-    // https://github.com/rapidsai/raft/issues/875
+    // https://github.com/NVIDIA/raft/issues/875
     raft::linalg::gemm(handle,
                        false,
                        true,
@@ -384,7 +384,7 @@ void GramMatrixBase<math_t>::linear(raft::resources const& handle,
                        &beta,
                        out.data_handle(),
                        ld_out,
-                       raft::resource::get_cuda_stream(handle));
+                       raft::resource::get_cuda_stream(handle).get());
   }
 }
 

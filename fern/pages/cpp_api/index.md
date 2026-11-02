@@ -5,12 +5,23 @@ These pages are generated from the documented public headers in the cuVS source 
 ## Cluster
 
 - [Agglomerative](/api-reference/cpp-api-cluster-agglomerative)
+- [Gmm](/api-reference/cpp-api-cluster-gmm)
 - [K-Means](/api-reference/cpp-api-cluster-kmeans)
 - [Spectral](/api-reference/cpp-api-cluster-spectral)
 
 ## Common
 
+- [Binary](/api-reference/cpp-api-core-dataset-binary)
+- [Bloom Filter](/api-reference/cpp-api-core-bloom-filter)
 - [Common Types](/api-reference/cpp-api-common-types)
+- [Dense](/api-reference/cpp-api-core-dataset-dense)
+- [Empty](/api-reference/cpp-api-core-dataset-empty)
+- [Roaring Allowlist](/api-reference/cpp-api-core-roaring-allowlist)
+- [Sparse](/api-reference/cpp-api-core-dataset-sparse)
+- [SQ](/api-reference/cpp-api-core-dataset-sq)
+- [Type](/api-reference/cpp-api-core-dataset-type)
+- [View](/api-reference/cpp-api-core-dataset-view)
+- [Vpq](/api-reference/cpp-api-core-dataset-vpq)
 
 ## Distance
 
@@ -28,9 +39,10 @@ These pages are generated from the documented public headers in the cuVS source 
 - [Epsilon Neighborhood](/api-reference/cpp-api-neighbors-epsilon-neighborhood)
 - [HNSW](/api-reference/cpp-api-neighbors-hnsw)
 - [Index](/api-reference/cpp-api-neighbors-composite-index)
+- [IVF Binary](/api-reference/cpp-api-neighbors-ivf-binary)
 - [IVF Flat](/api-reference/cpp-api-neighbors-ivf-flat)
 - [IVF PQ](/api-reference/cpp-api-neighbors-ivf-pq)
-- [IVF RaBitQ](/api-reference/cpp-api-neighbors-ivf-rabitq)
+- [IVF Rabitq](/api-reference/cpp-api-neighbors-ivf-rabitq)
 - [IVF SQ](/api-reference/cpp-api-neighbors-ivf-sq)
 - [NN Descent](/api-reference/cpp-api-neighbors-nn-descent)
 - [Refine](/api-reference/cpp-api-neighbors-refine)
@@ -40,6 +52,7 @@ These pages are generated from the documented public headers in the cuVS source 
 
 ## Preprocessing
 
+- [Bbq](/api-reference/cpp-api-preprocessing-quantize-bbq)
 - [Binary](/api-reference/cpp-api-preprocessing-quantize-binary)
 - [PCA](/api-reference/cpp-api-preprocessing-pca)
 - [PQ](/api-reference/cpp-api-preprocessing-quantize-pq)
@@ -59,3 +72,4 @@ These pages are generated from the documented public headers in the cuVS source 
 
 - [Cutlass Utils](/api-reference/cpp-api-util-cutlass-utils)
 - [File Io](/api-reference/cpp-api-util-file-io)
+- [Host Memory](/api-reference/cpp-api-util-host-memory)

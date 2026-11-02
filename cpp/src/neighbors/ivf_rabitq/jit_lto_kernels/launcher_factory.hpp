@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,7 +12,7 @@
 #include "compute_inner_products_with_lut_block_sort_planner.hpp"
 #include "compute_inner_products_with_lut_planner.hpp"
 
-#include <cuvs/detail/jit_lto/AlgorithmLauncher.hpp>
+#include <rtcx/algorithm_launcher.hpp>
 
 #include <cassert>
 #include <memory>
@@ -39,7 +39,7 @@ inline void add_ex_bits_device_functions(Planner& planner, int ex_bits)
 
 }  // namespace
 
-inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_launcher(
+inline std::shared_ptr<rtcx::algorithm_launcher> make_compute_inner_products_with_lut_launcher(
   int ex_bits, bool with_ex)
 {
   ComputeInnerProductsWithLutPlanner planner;
@@ -54,8 +54,8 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_l
   return planner.get_launcher();
 }
 
-inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_block_sort_launcher(
-  int ex_bits, bool with_ex)
+inline std::shared_ptr<rtcx::algorithm_launcher>
+make_compute_inner_products_with_lut_block_sort_launcher(int ex_bits, bool with_ex)
 {
   ComputeInnerProductsWithLutBlockSortPlanner planner;
   planner.add_entrypoint();
@@ -69,8 +69,8 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut_b
   return planner.get_launcher();
 }
 
-inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut16_opt_launcher(
-  int ex_bits, bool with_ex)
+inline std::shared_ptr<rtcx::algorithm_launcher>
+make_compute_inner_products_with_lut16_opt_launcher(int ex_bits, bool with_ex)
 {
   ComputeInnerProductsWithLut16OptPlanner planner;
   planner.add_entrypoint();
@@ -84,7 +84,7 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_lut16
   return planner.get_launcher();
 }
 
-inline std::shared_ptr<AlgorithmLauncher>
+inline std::shared_ptr<rtcx::algorithm_launcher>
 make_compute_inner_products_with_lut16_opt_block_sort_launcher(int ex_bits, bool with_ex)
 {
   ComputeInnerProductsWithLut16OptBlockSortPlanner planner;
@@ -98,7 +98,7 @@ make_compute_inner_products_with_lut16_opt_block_sort_launcher(int ex_bits, bool
   return planner.get_launcher();
 }
 
-inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_bitwise_launcher(
+inline std::shared_ptr<rtcx::algorithm_launcher> make_compute_inner_products_with_bitwise_launcher(
   int ex_bits, bool with_ex)
 {
   ComputeInnerProductsWithBitwisePlanner planner;
@@ -112,7 +112,7 @@ inline std::shared_ptr<AlgorithmLauncher> make_compute_inner_products_with_bitwi
   return planner.get_launcher();
 }
 
-inline std::shared_ptr<AlgorithmLauncher>
+inline std::shared_ptr<rtcx::algorithm_launcher>
 make_compute_inner_products_with_bitwise_block_sort_launcher(int num_bits,
                                                              int ex_bits,
                                                              bool with_ex)

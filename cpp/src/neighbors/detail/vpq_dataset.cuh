@@ -28,7 +28,7 @@
 #include <raft/util/vectorized.cuh>
 #include <raft/util/warp_primitives.cuh>
 
-// A temporary stub till https://github.com/rapidsai/raft/pull/2077 is re-merged
+// A temporary stub till https://github.com/NVIDIA/raft/pull/2077 is re-merged
 namespace cuvs::util {
 
 /**
@@ -394,7 +394,7 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_kernel(
     out_codes_ptr += sizeof(LabelT);
   }
 
-  cuvs::preprocessing::quantize::detail::bitfield_view_t code_view{out_codes_ptr, pq_bits};
+  cuvs::preprocessing::quantize::pq::detail::bitfield_view_t code_view{out_codes_ptr, pq_bits};
   for (uint32_t j = 0; j < pq_dim; j++) {
     // find PQ label
     CodeT code = compute_code<SubWarpSize, CodeT>(
@@ -408,7 +408,7 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_kernel(
 /**
  * Note: `inline_vq_labels` should only be used for CAGRA-Q compatibility or internal use-cases.
  * Otherwise, vq_labels should be preferred.
- * Issue: https://github.com/rapidsai/cuvs/issues/1722
+ * Issue: https://github.com/NVIDIA/cuvs/issues/1722
  */
 template <typename MathT, typename IdxT, typename DatasetT>
 void process_and_fill_codes(
@@ -488,14 +488,15 @@ void process_and_fill_codes(
     }
     dim3 blocks(
       raft::div_rounding_up_safe<ix_t>(dataset_view.extent(0), kBlockSize / threads_per_vec), 1, 1);
-    kernel<<<blocks, threads, sharedMemorySize, stream>>>(codes_view,
-                                                          dataset_view,
-                                                          pq_centers,
-                                                          vq_centers,
-                                                          raft::make_const_mdspan(labels_view),
-                                                          rows_in_shared_memory,
-                                                          pq_bits,
-                                                          inline_vq_labels);
+    kernel<<<blocks, threads, sharedMemorySize, stream.get()>>>(
+      codes_view,
+      dataset_view,
+      pq_centers,
+      vq_centers,
+      raft::make_const_mdspan(labels_view),
+      rows_in_shared_memory,
+      pq_bits,
+      inline_vq_labels);
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   };
   auto batch_labels = raft::make_device_vector<label_t, IdxT>(res, 0);
@@ -791,7 +792,8 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_subspaces_kernel
   const uint32_t lane_id = subwarp_align::mod(threadIdx.x);
   const LabelT vq_label  = !vq_labels.empty() ? vq_labels(row_ix) : 0;
 
-  cuvs::preprocessing::quantize::detail::bitfield_view_t code_view{&out_codes(row_ix, 0), pq_bits};
+  cuvs::preprocessing::quantize::pq::detail::bitfield_view_t code_view{&out_codes(row_ix, 0),
+                                                                       pq_bits};
   for (uint32_t j = 0; j < pq_dim; j++) {
     // find PQ label
     uint32_t subspace_offset = j * pq_centers.extent(1) * (1 << pq_bits);
@@ -891,13 +893,14 @@ void process_and_fill_codes_subspaces(
     }
     dim3 blocks(
       raft::div_rounding_up_safe<ix_t>(dataset_view.extent(0), kBlockSize / threads_per_vec), 1, 1);
-    kernel<<<blocks, threads, shared_memory_size, stream>>>(codes_view,
-                                                            dataset_view,
-                                                            pq_centers,
-                                                            vq_centers,
-                                                            raft::make_const_mdspan(labels_view),
-                                                            pq_bits,
-                                                            shared_memory_size > 0);
+    kernel<<<blocks, threads, shared_memory_size, stream.get()>>>(
+      codes_view,
+      dataset_view,
+      pq_centers,
+      vq_centers,
+      raft::make_const_mdspan(labels_view),
+      pq_bits,
+      shared_memory_size > 0);
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   };
   if (!need_batching && !need_copy_to_device) {

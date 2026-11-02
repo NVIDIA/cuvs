@@ -15,6 +15,7 @@
 #include <raft/util/cudart_utils.hpp>
 
 #include <cstdint>
+#include <utility>
 
 namespace cuvs::neighbors::cagra {
 
@@ -77,14 +78,15 @@ class cagra_graph_smaller_than_dataset_test : public ::testing::Test {
     cuvs::neighbors::test::padded_device_matrix_for_cagra<data_type> padded_small(
       res, small_dataset_view);
     auto small_index = cagra::build(res, small_index_params, padded_small.view);
-    small_index.update_device_dataset_same_layout(res, padded_small.view);
+    small_index      = cagra::update_dataset(res, std::move(small_index), padded_small.view);
     raft::resource::sync_stream(res);
 
     // Step 2: Update to FULL dataset (1000 points) but keep small graph (500 nodes)
     // This creates the exact bug scenario: dataset.size=1000, graph.extent(0)=500
-    small_index.update_device_dataset_same_layout(res,
-                                                  cuvs::neighbors::make_device_padded_dataset_view(
-                                                    res, raft::make_const_mdspan(dataset.view())));
+    small_index = cagra::update_dataset(res,
+                                        std::move(small_index),
+                                        cuvs::neighbors::make_device_padded_dataset_view(
+                                          res, raft::make_const_mdspan(dataset.view())));
 
     // Verify the mismatch - THIS IS THE BUG SCENARIO!
     ASSERT_EQ(small_index.graph().extent(0), n_graph);  // Graph has 500 nodes

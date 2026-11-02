@@ -8,9 +8,6 @@ import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT;
 import static com.nvidia.cuvs.internal.common.Util.checkCudaError;
 import static com.nvidia.cuvs.internal.common.Util.cudaGetDeviceProperties;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
-import static com.nvidia.cuvs.internal.panama.headers_h.cudaMemGetInfo;
-// Import from the leaf binding class (headers_h extends headers_h_1 …); it inherits every symbol,
-// so this is robust to jextract shifting symbols across the split classes on regeneration.
 
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.CuVSResourcesInfo;

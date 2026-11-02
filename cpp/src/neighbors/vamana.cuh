@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -18,8 +18,6 @@
 #include <cuvs/neighbors/vamana.hpp>
 
 #include <cuvs/neighbors/common.hpp>
-
-#include <rmm/cuda_stream_view.hpp>
 
 namespace cuvs::neighbors::vamana {
 
@@ -45,6 +43,7 @@ namespace cuvs::neighbors::vamana {
  *
  * The following distance metrics are supported:
  * - L2Expanded
+ * - L2SqrtExpanded
  *
  * Usage example:
  * @code{.cpp}
@@ -81,9 +80,12 @@ index<T, IdxT> build(
 template <typename T, typename IdxT>
 void serialize(raft::resources const& res,
                const std::string& file_prefix,
-               const index<T, IdxT>& index_)
+               const index<T, IdxT>& index_,
+               bool include_dataset = true,
+               bool sector_aligned  = false)
 {
-  cuvs::neighbors::vamana::detail::serialize<T, IdxT>(res, file_prefix, index_);
+  cuvs::neighbors::vamana::detail::serialize<T, IdxT>(
+    res, file_prefix, index_, include_dataset, sector_aligned);
 }
 
 template <typename T>

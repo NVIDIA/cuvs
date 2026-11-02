@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs.spi;
@@ -53,10 +53,40 @@ class NativeDependencyLoader {
   static void loadLibraries() throws ProviderInitializationException {
     if (!loaded) {
       try {
+        preloadCudaRuntime();
         LOADER_STRATEGY.loadLibraries();
       } finally {
         loaded = true;
       }
+    }
+  }
+
+  /**
+   * Best-effort preload of the CUDA runtime (libcudart) into the process before loading
+   * {@code cuvs_c}.
+   *
+   * <p>Neither the embedded nor the system loader strategy bundles cudart (it is always
+   * system-loaded, even with the fat jar), so it must be resolvable when {@code cuvs_c} is loaded.
+   * In some deployments (e.g. cuvs-java embedded in an application that manages the classpath, such
+   * as Solr) the CUDA runtime is present but not resolved at {@code cuvs_c} load time, which makes
+   * the first native downcall fail with an unresolved-symbol {@link UnsatisfiedLinkError}.
+   * Preloading cudart here places its soname in the process so the subsequent {@code cuvs_c} load
+   * can satisfy its dependency.
+   *
+   * <p>This is intentionally best-effort: any failure is swallowed. If cudart is genuinely required
+   * but missing, the {@code cuvs_c} load below fails and is surfaced as a
+   * {@link ProviderInitializationException}, degrading to {@code UnsupportedProvider} — we must not
+   * pre-empt that graceful path by throwing here. Reasons a preload may fail while the system is
+   * still usable: cudart is exposed only as a versioned soname ({@code libcudart.so.N}) with no
+   * unversioned {@code libcudart.so} devel symlink for {@link System#loadLibrary} to find, or it
+   * was already loaded by another classloader.
+   */
+  private static void preloadCudaRuntime() {
+    try {
+      System.loadLibrary("cudart");
+    } catch (UnsatisfiedLinkError e) {
+      // Best-effort: cudart is either genuinely missing (the cuvs_c load below will report it) or
+      // already loaded / only present as a versioned soname. Either way, continue.
     }
   }
 

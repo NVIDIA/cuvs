@@ -20,7 +20,7 @@
 namespace cuvs::neighbors::cagra::detail {
 
 // Function types for extern "C" __global__ JIT entry points — must match cudaLibraryGetKernel /
-// AlgorithmLauncher::dispatch signatures exactly (see static_assert in each *_kernel.cu).
+// rtcx::algorithm_launcher::dispatch signatures exactly (see static_assert in each *_kernel.cu).
 
 template <typename DataT, typename IndexT, typename DistanceT, typename SourceIndexT>
 using search_single_cta_kernel_func_t =
@@ -101,6 +101,7 @@ using search_single_cta_p_kernel_func_t =
        const std::uint32_t,
        const std::uint32_t,
        const dataset_descriptor_base_t<DataT, IndexT, DistanceT>*,
+       const IndexT,
        cagra_sample_filter<SourceIndexT>);
 
 }  // namespace single_cta_search

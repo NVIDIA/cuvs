@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -124,7 +124,7 @@ double trustworthiness_score(const raft::resources& h,
                              int n_neighbors,
                              int batchSize = 512)
 {
-  cudaStream_t stream = raft::resource::get_cuda_stream(h);
+  cudaStream_t stream = raft::resource::get_cuda_stream(h).get();
 
   const int KNN_ALLOC = n * (n_neighbors + 1);
   rmm::device_uvector<int64_t> emb_ind(KNN_ALLOC, stream);

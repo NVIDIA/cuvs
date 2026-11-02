@@ -1,8 +1,9 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuda/stream>
 #include <neighbors/ivf_pq/ivf_pq_compute_similarity_impl.cuh>
 #include <neighbors/ivf_pq/ivf_pq_fp_8bit.cuh>
 
@@ -17,7 +18,7 @@ namespace cuvs::neighbors::ivf_pq::detail {
 
 template void cuvs::neighbors::ivf_pq::detail::compute_similarity_run<out_t, lut_t>(
   cuvs::neighbors::ivf_pq::detail::selected<out_t, lut_t> s,
-  rmm::cuda_stream_view stream,
+  cuda::stream_ref stream,
   uint32_t dim,
   uint32_t n_probes,
   uint32_t pq_dim,
