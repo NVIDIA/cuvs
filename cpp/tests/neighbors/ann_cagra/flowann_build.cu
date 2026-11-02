@@ -914,6 +914,9 @@ TEST(FlowannBuild, IterativeConstructionClampsOversizedDegrees)
   auto built = flowann::build(res, params, dataset->as_dataset_view());
   ASSERT_EQ(built.index.size(), rows);
   ASSERT_EQ(built.index.graph_degree(), rows - 1);
+  auto resident =
+    cuvs::neighbors::cagra::build(res, params.cagra_params, dataset->as_dataset_view());
+  EXPECT_EQ(resident.graph_degree(), rows - 1);
   auto cross = built.index.cross_graph();
   ASSERT_EQ(cross.extent(1), rows);
   for (int64_t row = 0; row < rows; ++row) {
