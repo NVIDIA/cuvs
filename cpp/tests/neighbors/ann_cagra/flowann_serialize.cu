@@ -21,8 +21,8 @@
 #include <cstdint>
 #include <cstring>
 #include <sstream>
-#include <rmm/mr/device/limiting_resource_adaptor.hpp>
-#include <rmm/mr/device/per_device_resource.hpp>
+#include <rmm/mr/limiting_resource_adaptor.hpp>
+#include <rmm/mr/per_device_resource.hpp>
 #include <string>
 
 namespace flowann = cuvs::neighbors::cagra::experimental::flowann;
@@ -823,13 +823,13 @@ TEST(FlowannSerialize, RejectsTruncatedDensePayloadBeforeDeviceAllocation)
   stream.seekp(stream.tellg());
   raft::serialize_scalar(res, stream, large_dim);
   stream.seekg(0);
-  auto* upstream = rmm::mr::get_current_device_resource();
+  auto upstream = rmm::mr::get_current_device_resource();
   rmm::mr::limiting_resource_adaptor limited(upstream, std::size_t{1} << 20);
   struct restore_resource {
-    rmm::mr::device_memory_resource* previous;
+    cuda::mr::any_resource<cuda::mr::device_accessible> previous;
     ~restore_resource() { rmm::mr::set_current_device_resource(previous); }
   } restore{upstream};
-  rmm::mr::set_current_device_resource(&limited);
+  rmm::mr::set_current_device_resource(limited);
   // A bad header must produce a format error, rather than requesting a multi-GB allocation.
   EXPECT_THROW((flowann::deserialize_device_padded<float>(res, stream)), raft::logic_error);
 }
