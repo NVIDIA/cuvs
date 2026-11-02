@@ -254,12 +254,12 @@ struct balanced_params : base_params {
  */
 struct superkmeans_params : base_params {
   /**
-   * Number of training iterations.
+   * Number of training iterations (default 10).
    */
   uint32_t n_iters = 10;
 
   /**
-   * Seed to the random number generator (the start rows).
+   * Seed to the random number generator (the start rows); default seed 0.
    */
   raft::random::RngState rng_state{0};
 };

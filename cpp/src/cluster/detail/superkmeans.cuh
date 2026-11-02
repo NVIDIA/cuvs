@@ -21,6 +21,7 @@
 #include <raft/util/cudart_utils.hpp>
 
 #include <algorithm>
+#include <cstdint>
 #include <optional>
 #include <type_traits>
 
@@ -257,8 +258,11 @@ void fit(const raft::resources& handle,
                "SuperKMeans with pruning (n_clusters > %ld) needs dim to be a multiple of %u",
                kMinPrunedK,
                pruned_nn::kDimTileSize);
-  // Without the filter's kernels on this build or device, every iteration assigns in full
-  const bool pruned = prunes(n_clusters, dim) && cuvs::distance::is_pruned_top_1_nn_available(dim);
+  // Without the filter's kernels on this build or device, every iteration assigns in full; so too
+  // for half rows the filter can't read in place (it needs them 16-byte aligned)
+  const bool pruned =
+    prunes(n_clusters, dim) && cuvs::distance::is_pruned_top_1_nn_available(dim) &&
+    (!std::is_same_v<T, half> || reinterpret_cast<uintptr_t>(X.data_handle()) % 16 == 0);
 
   auto stream     = raft::resource::get_cuda_stream(handle);
   auto mapping_op = cuvs::spatial::knn::detail::utils::mapping<float>{};
