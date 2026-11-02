@@ -133,7 +133,6 @@ struct index : cuvs::neighbors::index {
  private:
   friend struct detail::index_access;
 
-  uint32_t dim_;
   bool adaptive_centers_;
   preprocessing::quantize::binary::quantizer<float> quantizer_;
   raft::device_matrix<uint8_t, int64_t, raft::row_major> centers_;
@@ -150,17 +149,19 @@ struct index : cuvs::neighbors::index {
 /**
  * @brief Build the index from a binary-quantized dataset.
  *
- * The thresholds of the dataset dictionary are copied into the index.
+ * The quantizer of the dataset manifest (the thresholds and the dimension) is copied into the
+ * index.
  *
  * Usage example:
  * @code{.cpp}
  *   using namespace cuvs::neighbors;
  *   namespace binary = cuvs::preprocessing::quantize::binary;
  *   auto quantizer = binary::train(handle, binary::params{}, raw_dataset);
- *   auto codes = raft::make_device_matrix<uint8_t, int64_t>(handle, n_rows, (dim + 7) / 8);
+ *   auto codes = raft::make_device_matrix<uint8_t, int64_t>(
+ *     handle, n_rows, raft::div_rounding_up_safe<int64_t>(quantizer.dim(), 8));
  *   binary::transform(handle, quantizer, raw_dataset, codes.view());
- *   auto dataset = cuvs::make_device_binary_dataset_view<int64_t>(
- *     raft::make_const_mdspan(codes.view()), quantizer, dim);
+ *   cuvs::device_binary_dataset_view<float, int64_t> dataset{
+ *     raft::make_const_mdspan(codes.view()), quantizer.view()};
  *   auto index = ivf_binary::build(handle, ivf_binary::index_params{}, dataset);
  * @endcode
  *
