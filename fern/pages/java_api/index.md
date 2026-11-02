@@ -2,8 +2,11 @@
 
 These pages are generated from the Java source files in `java/cuvs-java/src/main`.
 
+For the Apache Lucene codecs built on this API, see the [Lucene API Documentation](/api-reference/lucene-api-documentation) and the [Lucene Integration](/user-guide/lucene) guide.
+
 ## Common
 
+- [BbqQuantizer](/api-reference/java-api-com-nvidia-cuvs-bbqquantizer)
 - [CuVSDeviceMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvsdevicematrix)
 - [CuVSHostMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvshostmatrix)
 - [CuVSMatrix](/api-reference/java-api-com-nvidia-cuvs-cuvsmatrix)
@@ -12,6 +15,7 @@ These pages are generated from the Java source files in `java/cuvs-java/src/main
 - [CuVSResourcesInfo](/api-reference/java-api-com-nvidia-cuvs-cuvsresourcesinfo)
 - [CuVSServiceProvider](/api-reference/java-api-com-nvidia-cuvs-spi-cuvsserviceprovider)
 - [DelegatingScopedAccess](/api-reference/java-api-com-nvidia-cuvs-delegatingscopedaccess)
+- [FilterBitsetHandle](/api-reference/java-api-com-nvidia-cuvs-filterbitsethandle)
 - [GPUInfo](/api-reference/java-api-com-nvidia-cuvs-gpuinfo)
 - [GPUInfoProvider](/api-reference/java-api-com-nvidia-cuvs-gpuinfoprovider)
 - [LibraryException](/api-reference/java-api-com-nvidia-cuvs-libraryexception)
@@ -38,7 +42,11 @@ These pages are generated from the Java source files in `java/cuvs-java/src/main
 - [HnswIndexParams](/api-reference/java-api-com-nvidia-cuvs-hnswindexparams)
 - [HnswQuery](/api-reference/java-api-com-nvidia-cuvs-hnswquery)
 - [HnswSearchParams](/api-reference/java-api-com-nvidia-cuvs-hnswsearchparams)
+- [MultiPartitionCagraSearch](/api-reference/java-api-com-nvidia-cuvs-multipartitioncagrasearch)
+- [MultiPartitionSearchResults](/api-reference/java-api-com-nvidia-cuvs-multipartitionsearchresults)
 - [SearchResults](/api-reference/java-api-com-nvidia-cuvs-searchresults)
 - [TieredIndex](/api-reference/java-api-com-nvidia-cuvs-tieredindex)
 - [TieredIndexParams](/api-reference/java-api-com-nvidia-cuvs-tieredindexparams)
 - [TieredIndexQuery](/api-reference/java-api-com-nvidia-cuvs-tieredindexquery)
+- [VamanaIndex](/api-reference/java-api-com-nvidia-cuvs-vamanaindex)
+- [VamanaIndexParams](/api-reference/java-api-com-nvidia-cuvs-vamanaindexparams)

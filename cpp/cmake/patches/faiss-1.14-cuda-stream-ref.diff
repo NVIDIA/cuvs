@@ -1,0 +1,68 @@
+diff --git a/faiss/gpu/GpuIndexIVFFlat.cu b/faiss/gpu/GpuIndexIVFFlat.cu
+index aef0b26..d8a6f9c 100644
+--- a/faiss/gpu/GpuIndexIVFFlat.cu
++++ b/faiss/gpu/GpuIndexIVFFlat.cu
+@@ -267,7 +267,7 @@ void GpuIndexIVFFlat::train(idx_t n, const float* x) {
+             // transfer centroids to host
+             auto host_centroids = toHost<float, 2>(
+                     cuvs_ivfflat_index.value().centers().data_handle(),
+-                    raft_handle.get_stream(),
++                    raft_handle.get_stream().get(),
+                     {idx_t(nlist), this->d});
+             quantizer->train(nlist, host_centroids.data());
+             quantizer->add(nlist, host_centroids.data());
+diff --git a/faiss/gpu/GpuIndexIVFPQ.cu b/faiss/gpu/GpuIndexIVFPQ.cu
+index a4d849c..fae7df1 100644
+--- a/faiss/gpu/GpuIndexIVFPQ.cu
++++ b/faiss/gpu/GpuIndexIVFPQ.cu
+@@ -431,7 +431,7 @@ void GpuIndexIVFPQ::train(idx_t n, const float* x) {
+             // transfer centroids to host
+             auto host_centroids = toHost<float, 2>(
+                     cluster_centers.data_handle(),
+-                    raft_handle.get_stream(),
++                    raft_handle.get_stream().get(),
+                     {idx_t(nlist), this->d});
+             quantizer->train(nlist, host_centroids.data());
+             quantizer->add(nlist, host_centroids.data());
+diff --git a/faiss/gpu/impl/CuvsIVFFlat.cu b/faiss/gpu/impl/CuvsIVFFlat.cu
+index 59ccb21..2497891 100644
+--- a/faiss/gpu/impl/CuvsIVFFlat.cu
++++ b/faiss/gpu/impl/CuvsIVFFlat.cu
+@@ -459,7 +459,7 @@ void CuvsIVFFlat::copyInvertedListsFrom(const InvertedLists* ivf) {
+                 cuvs_index->centers().data_handle(),
+                 cuvs_index->dim(),
+                 (uint32_t)nlist,
+-                raft_handle.get_stream());
++                raft_handle.get_stream().get());
+     }
+ }
+
+diff --git a/faiss/gpu/utils/CuvsFilterConvert.cu b/faiss/gpu/utils/CuvsFilterConvert.cu
+index 8a10aee..bbc5f8b 100644
+--- a/faiss/gpu/utils/CuvsFilterConvert.cu
++++ b/faiss/gpu/utils/CuvsFilterConvert.cu
+@@ -91,13 +91,13 @@ void convert_to_bitset_range(
+             (n_elements_to_set + threads_per_block - 1) / threads_per_block;
+
+     if (nbits == original_nbits) {
+-        set_range_kernel<uint32_t><<<blocks, threads_per_block, 0, stream>>>(
++        set_range_kernel<uint32_t><<<blocks, threads_per_block, 0, stream.get()>>>(
+                 (uint32_t*)bitset.data(), imin, imax, n_elements_to_set);
+     } else if (original_nbits == 8) {
+-        set_range_kernel<uint8_t><<<blocks, threads_per_block, 0, stream>>>(
++        set_range_kernel<uint8_t><<<blocks, threads_per_block, 0, stream.get()>>>(
+                 (uint8_t*)bitset.data(), imin, imax, n_elements_to_set);
+     } else if (original_nbits == 64) {
+-        set_range_kernel<uint64_t><<<blocks, threads_per_block, 0, stream>>>(
++        set_range_kernel<uint64_t><<<blocks, threads_per_block, 0, stream.get()>>>(
+                 (uint64_t*)bitset.data(), imin, imax, n_elements_to_set);
+     } else {
+         throw std::invalid_argument("Unsupported original_nbits");
+@@ -175,6 +175,6 @@ void convert_to_bitset_bitmap(
+     const int threads_per_block = 256;
+     const int blocks = (n_elements + threads_per_block - 1) / threads_per_block;
+
+-    set_bitmap_kernel<<<blocks, threads_per_block, 0, stream>>>(
++    set_bitmap_kernel<<<blocks, threads_per_block, 0, stream.get()>>>(
+             bitset.data(), d_bitmap_ptr, n_elements, bitset_original_nbits);
+ }

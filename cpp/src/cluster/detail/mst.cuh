@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2021-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,6 +11,7 @@
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/memory_type.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/thrust_policy.hpp>
 #include <raft/label/classlabels.cuh>
 #include <raft/linalg/map.cuh>
 #include <raft/matrix/detail/gather.cuh>
@@ -26,7 +27,53 @@
 #include <thrust/device_ptr.h>
 #include <thrust/sort.h>
 
+#include <random>
+
 namespace cuvs::cluster::agglomerative::detail {
+
+/**
+ * Order MST edges by weight and then by a canonical representation of their endpoints.
+ *
+ * RAFT's MST contract does not prescribe the order of the returned COO edges. The host
+ * dendrogram builder, however, is order-sensitive for edges with equal weights. Keep weight as
+ * the primary key and provide a deterministic order inside each equal-weight bucket.
+ */
+struct mst_edge_less {
+  template <typename Tuple1, typename Tuple2>
+  __host__ __device__ bool operator()(Tuple1 const& lhs, Tuple2 const& rhs) const
+  {
+    auto const lhs_weight = cuda::std::get<2>(lhs);
+    auto const rhs_weight = cuda::std::get<2>(rhs);
+    if (lhs_weight < rhs_weight) return true;
+    if (lhs_weight > rhs_weight) return false;
+
+    auto const lhs_src = cuda::std::get<0>(lhs);
+    auto const lhs_dst = cuda::std::get<1>(lhs);
+    auto const rhs_src = cuda::std::get<0>(rhs);
+    auto const rhs_dst = cuda::std::get<1>(rhs);
+
+    auto const lhs_lo = lhs_src < lhs_dst ? lhs_src : lhs_dst;
+    auto const lhs_hi = lhs_src < lhs_dst ? lhs_dst : lhs_src;
+    auto const rhs_lo = rhs_src < rhs_dst ? rhs_src : rhs_dst;
+    auto const rhs_hi = rhs_src < rhs_dst ? rhs_dst : rhs_src;
+
+    if (lhs_lo < rhs_lo) return true;
+    if (lhs_lo > rhs_lo) return false;
+    if (lhs_hi < rhs_hi) return true;
+    if (lhs_hi > rhs_hi) return false;
+    if (lhs_src < rhs_src) return true;
+    if (lhs_src > rhs_src) return false;
+    return lhs_dst < rhs_dst;
+  }
+};
+
+template <typename value_idx, typename value_t>
+void sort_mst_edges(
+  raft::resources const& handle, value_idx* src, value_idx* dst, value_t* weights, size_t n_edges)
+{
+  auto first = thrust::make_zip_iterator(cuda::std::make_tuple(src, dst, weights));
+  thrust::sort(raft::resource::get_thrust_policy(handle), first, first + n_edges, mst_edge_less{});
+}
 
 template <typename value_idx, typename value_t>
 void merge_msts(raft::sparse::solver::Graph_COO<value_idx, value_idx, value_t>& coo1,
@@ -76,7 +123,7 @@ void connect_knn_graph(
 {
   auto stream = raft::resource::get_cuda_stream(handle);
 
-  raft::sparse::COO<value_t, value_idx> connected_edges(stream);
+  raft::sparse::COO<value_t, value_idx> connected_edges(stream.get());
 
   // default row and column batch sizes are chosen for computing cross component nearest neighbors.
   // Reference: PR #1445
@@ -95,7 +142,7 @@ void connect_knn_graph(
 
   rmm::device_uvector<value_idx> indptr2(m + 1, stream);
   raft::sparse::convert::sorted_coo_to_csr(
-    connected_edges.rows(), connected_edges.nnz, indptr2.data(), m + 1, stream);
+    connected_edges.rows(), connected_edges.nnz, indptr2.data(), m + 1, stream.get());
 
   // On the second call, we hand the MST the original colors
   // and the new set of edges and let it restart the optimization process
@@ -107,11 +154,11 @@ void connect_knn_graph(
                                                                      m,
                                                                      connected_edges.nnz,
                                                                      color,
-                                                                     stream,
+                                                                     stream.get(),
                                                                      false,
                                                                      false);
 
-  merge_msts<value_idx, value_t>(msf, new_mst, stream);
+  merge_msts<value_idx, value_t>(msf, new_mst, stream.get());
 }
 
 /**
@@ -147,10 +194,10 @@ void connect_knn_graph(
     "FixConnectivitiesRedOp");
 
   auto stream      = raft::resource::get_cuda_stream(handle);
-  int n_components = get_n_components(color, m, stream);
+  int n_components = get_n_components(color, m, stream.get());
 
   rmm::device_uvector<value_idx> d_color_remapped(m, stream);
-  raft::label::make_monotonic(d_color_remapped.data(), color, m, stream, true);
+  raft::label::make_monotonic(d_color_remapped.data(), color, m, stream.get(), true);
 
   std::vector<value_idx> h_color(m);
   raft::copy(handle,
@@ -241,33 +288,46 @@ void connect_knn_graph(
       });
   }
 
+  // Store each connecting edge in both directions: raft::sparse::solver::mst
+  // requires a symmetric input CSR (the device-data variant of
+  // connect_knn_graph satisfies this via raft::sparse::linalg::symmetrize).
+  const size_t sym_nnz = 2 * new_nnz;
+  rmm::device_uvector<value_idx> sym_rows(sym_nnz, stream);
+  rmm::device_uvector<value_idx> sym_cols(sym_nnz, stream);
+  rmm::device_uvector<value_t> sym_vals(sym_nnz, stream);
+  raft::copy_async(sym_rows.data(), device_u_indices.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_rows.data() + new_nnz, device_v_indices.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_cols.data(), device_v_indices.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_cols.data() + new_nnz, device_u_indices.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_vals.data(), pairwise_dist_vec.data_handle(), new_nnz, stream);
+  raft::copy_async(sym_vals.data() + new_nnz, pairwise_dist_vec.data_handle(), new_nnz, stream);
+
   // sort in order of rows to run sorted_coo_to_csr
-  auto rows_begin = thrust::device_pointer_cast(device_u_indices.data_handle());
-  auto cols_begin = thrust::device_pointer_cast(device_v_indices.data_handle());
-  auto dist_begin = thrust::device_pointer_cast(pairwise_dist_vec.data_handle());
+  auto rows_begin = thrust::device_pointer_cast(sym_rows.data());
+  auto cols_begin = thrust::device_pointer_cast(sym_cols.data());
+  auto dist_begin = thrust::device_pointer_cast(sym_vals.data());
 
   auto zipped_begin = thrust::make_zip_iterator(cuda::std::make_tuple(cols_begin, dist_begin));
-  thrust::sort_by_key(rows_begin, rows_begin + new_nnz, zipped_begin);
+  thrust::sort_by_key(rows_begin, rows_begin + sym_nnz, zipped_begin);
 
   rmm::device_uvector<value_idx> indptr2(m + 1, stream);
   raft::sparse::convert::sorted_coo_to_csr(
-    device_u_indices.data_handle(), new_nnz, indptr2.data(), m + 1, stream);
+    sym_rows.data(), sym_nnz, indptr2.data(), m + 1, stream.get());
 
   // On the second call, we hand the MST the original colors
   // and the new set of edges and let it restart the optimization process
-  auto new_mst = raft::sparse::solver::mst<value_idx, value_idx, value_t, double>(
-    handle,
-    indptr2.data(),
-    device_v_indices.data_handle(),
-    pairwise_dist_vec.data_handle(),
-    m,
-    new_nnz,
-    color,
-    stream,
-    false,
-    false);
+  auto new_mst = raft::sparse::solver::mst<value_idx, value_idx, value_t, double>(handle,
+                                                                                  indptr2.data(),
+                                                                                  sym_cols.data(),
+                                                                                  sym_vals.data(),
+                                                                                  m,
+                                                                                  sym_nnz,
+                                                                                  color,
+                                                                                  stream.get(),
+                                                                                  false,
+                                                                                  false);
 
-  merge_msts<value_idx, value_t>(msf, new_mst, stream);
+  merge_msts<value_idx, value_t>(msf, new_mst, stream.get());
 }
 
 /**
@@ -317,12 +377,14 @@ void build_sorted_mst(
 
   // We want to have MST initialize colors on first call.
   auto mst_coo = raft::sparse::solver::mst<value_idx, value_idx, value_t, double>(
-    handle, indptr, indices, pw_dists, (value_idx)m, nnz, color, stream, false, true);
+    handle, indptr, indices, pw_dists, (value_idx)m, nnz, color, stream.get(), false, true);
 
   int iters        = 1;
-  int n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream);
+  int n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream.get());
 
-  bool data_on_device = raft::memory_type_from_pointer(X) != raft::memory_type::host;
+  // Pinned memory is reachable by the GPU, but keeps taking the host path.
+  auto const x_type   = raft::get_pointer_memory_info(X).type;
+  bool data_on_device = x_type == raft::memory_type::device || x_type == raft::memory_type::managed;
 
   while (n_components > 1 && iters < max_iter) {
     if (data_on_device) {
@@ -348,7 +410,7 @@ void build_sorted_mst(
 
     iters++;
 
-    n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream);
+    n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream.get());
   }
 
   /**
@@ -371,12 +433,12 @@ void build_sorted_mst(
                " or increase 'max_iter'",
                max_iter);
 
-  raft::sparse::op::coo_sort_by_weight(
-    mst_coo.src.data(), mst_coo.dst.data(), mst_coo.weights.data(), mst_coo.n_edges, stream);
+  sort_mst_edges(
+    handle, mst_coo.src.data(), mst_coo.dst.data(), mst_coo.weights.data(), mst_coo.n_edges);
 
-  raft::copy_async(mst_src, mst_coo.src.data(), mst_coo.n_edges, stream);
-  raft::copy_async(mst_dst, mst_coo.dst.data(), mst_coo.n_edges, stream);
-  raft::copy_async(mst_weight, mst_coo.weights.data(), mst_coo.n_edges, stream);
+  raft::copy_async(mst_src, mst_coo.src.data(), mst_coo.n_edges, stream.get());
+  raft::copy_async(mst_dst, mst_coo.dst.data(), mst_coo.n_edges, stream.get());
+  raft::copy_async(mst_weight, mst_coo.weights.data(), mst_coo.n_edges, stream.get());
 }
 
 };  // namespace  cuvs::cluster::agglomerative::detail

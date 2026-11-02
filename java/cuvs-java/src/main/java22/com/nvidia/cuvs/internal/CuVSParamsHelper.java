@@ -92,6 +92,25 @@ public final class CuVSParamsHelper {
     }
   }
 
+  public static CloseableHandle createVamanaIndexParams() {
+    try (var localArena = Arena.ofConfined()) {
+      var paramsPtrPtr = localArena.allocate(cuvsVamanaIndexParams_t);
+      checkCuVSError(cuvsVamanaIndexParamsCreate(paramsPtrPtr), "cuvsVamanaIndexParamsCreate");
+      var paramsPtr = paramsPtrPtr.get(cuvsVamanaIndexParams_t, 0L);
+      return new CloseableHandle() {
+        @Override
+        public MemorySegment handle() {
+          return paramsPtr;
+        }
+
+        @Override
+        public void close() {
+          checkCuVSError(cuvsVamanaIndexParamsDestroy(paramsPtr), "cuvsVamanaIndexParamsDestroy");
+        }
+      };
+    }
+  }
+
   public static CloseableHandle createIvfPqIndexParams() {
     try (var localArena = Arena.ofConfined()) {
       var paramsPtrPtr = localArena.allocate(cuvsIvfPqIndexParams_t);

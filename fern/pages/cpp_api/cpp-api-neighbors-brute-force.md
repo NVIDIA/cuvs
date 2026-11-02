@@ -71,6 +71,32 @@ Constructs a brute force index from a dataset. This lets us precompute norms for
 
 **Additional overload:** `neighbors::brute_force::index::index`
 
+Construct a brute force index and take ownership of a row-major device dataset.
+
+```cpp
+index(raft::resources const& res,
+raft::device_matrix<T, int64_t, raft::row_major>&& dataset,
+std::optional<raft::device_vector<DistT, int64_t>>&& norms,
+cuvs::distance::DistanceType metric,
+DistT metric_arg = 0.0);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` |  | `raft::resources const&` |  |
+| `dataset` |  | `raft::device_matrix<T, int64_t, raft::row_major>&&` |  |
+| `norms` |  | `std::optional<raft::device_vector<DistT, int64_t>>&&` |  |
+| `metric` |  | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) |  |
+| `metric_arg` |  | `DistT` | Default: `0.0`. |
+
+**Returns**
+
+`void`
+
+**Additional overload:** `neighbors::brute_force::index::index`
+
 Construct a brute force index from dataset
 
 ```cpp

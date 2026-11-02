@@ -27,7 +27,7 @@ _Source: `rust/cuvs/src/lib.rs:12`_
 pub mod distance;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:13`_
+_Source: `rust/cuvs/src/lib.rs:14`_
 
 ## dlpack
 
@@ -35,7 +35,7 @@ _Source: `rust/cuvs/src/lib.rs:13`_
 pub mod dlpack;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:14`_
+_Source: `rust/cuvs/src/lib.rs:15`_
 
 ## error
 
@@ -43,7 +43,7 @@ _Source: `rust/cuvs/src/lib.rs:14`_
 pub mod error;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:15`_
+_Source: `rust/cuvs/src/lib.rs:16`_
 
 ## neighbors
 
@@ -51,7 +51,7 @@ _Source: `rust/cuvs/src/lib.rs:15`_
 pub mod neighbors;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:16`_
+_Source: `rust/cuvs/src/lib.rs:18`_
 
 ## resources
 
@@ -59,7 +59,15 @@ _Source: `rust/cuvs/src/lib.rs:16`_
 pub mod resources;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:17`_
+_Source: `rust/cuvs/src/lib.rs:19`_
+
+## version
+
+```rust
+pub mod version;
+```
+
+_Source: `rust/cuvs/src/lib.rs:20`_
 
 ## dlpack::\{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType\}
 
@@ -67,7 +75,7 @@ _Source: `rust/cuvs/src/lib.rs:17`_
 pub use dlpack::{AsDlTensor, AsDlTensorMut, DLPackError, DLTensorView, DLTensorViewMut, DType};
 ```
 
-_Source: `rust/cuvs/src/lib.rs:21`_
+_Source: `rust/cuvs/src/lib.rs:25`_
 
 ## error::LibraryError
 
@@ -75,7 +83,7 @@ _Source: `rust/cuvs/src/lib.rs:21`_
 pub use error::LibraryError;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:22`_
+_Source: `rust/cuvs/src/lib.rs:26`_
 
 ## resources::Resources
 
@@ -83,7 +91,7 @@ _Source: `rust/cuvs/src/lib.rs:22`_
 pub use resources::Resources;
 ```
 
-_Source: `rust/cuvs/src/lib.rs:23`_
+_Source: `rust/cuvs/src/lib.rs:27`_
 
 ## ReadmeDocTests
 
@@ -95,4 +103,4 @@ pub struct ReadmeDocTests; {
 }
 ```
 
-_Source: `rust/cuvs/src/lib.rs:29`_
+_Source: `rust/cuvs/src/lib.rs:33`_

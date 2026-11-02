@@ -1,16 +1,18 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
 
 from cuda.bindings.cyruntime cimport cudaStream_t
+from libc.stdint cimport uintptr_t
 
 from cuvs.common.c_api cimport (
     cuvsMultiGpuResourcesCreate,
     cuvsMultiGpuResourcesCreateWithDeviceIds,
     cuvsMultiGpuResourcesDestroy,
     cuvsMultiGpuResourcesSetMemoryPool,
+    cuvsMultiGpuResourcesSetStreamPool,
     cuvsResources_t,
     cuvsStreamSet,
     cuvsStreamSync,
@@ -85,7 +87,10 @@ cdef class MultiGpuResources:
             check_cuvs(cuvsMultiGpuResourcesCreate(&self.c_obj))
 
         if stream:
-            check_cuvs(cuvsStreamSet(self.c_obj, <cudaStream_t>stream))
+            # ``stream`` is the integer handle (e.g. ``cupy.cuda.Stream.ptr``);
+            # casting the Python object directly would pass its address.
+            check_cuvs(cuvsStreamSet(self.c_obj,
+                                     <cudaStream_t><uintptr_t>stream))
 
     def sync(self):
         check_cuvs(cuvsStreamSync(self.c_obj))
@@ -93,6 +98,10 @@ cdef class MultiGpuResources:
     def set_memory_pool(self, percent_of_free_memory):
         """
         Set a memory pool on all devices managed by these resources.
+
+        Call this before the first operation that configures or uses a
+        workspace or large workspace resource on the handle or any managed
+        device. Later pool changes are rejected.
 
         Parameters
         ----------
@@ -107,6 +116,20 @@ cdef class MultiGpuResources:
         """
         check_cuvs(cuvsMultiGpuResourcesSetMemoryPool(
             self.c_obj, percent_of_free_memory))
+
+    def set_stream_pool(self, num_streams=1):
+        """
+        Set a CUDA stream pool on all devices managed by these resources.
+
+        Parameters
+        ----------
+        num_streams : int, default=1
+            Number of non-blocking CUDA streams in each device's pool.
+        """
+        if num_streams <= 0:
+            raise ValueError("num_streams must be greater than zero")
+        check_cuvs(cuvsMultiGpuResourcesSetStreamPool(
+            self.c_obj, num_streams))
 
     def get_c_obj(self):
         """

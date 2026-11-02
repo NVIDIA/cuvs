@@ -7,13 +7,13 @@
 #include "../../src/neighbors/detail/knn_brute_force.cuh"
 #include "../../src/neighbors/detail/nn_descent_gnnd.hpp"
 #include "../../src/neighbors/detail/reachability.cuh"
-#include "../test_utils.cuh"
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 
+#include <cuda/stream>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/util/cudart_utils.hpp>
@@ -24,7 +24,6 @@
 
 #include <cstddef>
 #include <iostream>
-#include <string>
 #include <vector>
 
 namespace cuvs::neighbors::nn_descent {
@@ -109,6 +108,7 @@ class AnnNNDescentTest : public ::testing::TestWithParam<AnnNNDescentInputs> {
         index_params.graph_degree              = ps.graph_degree;
         index_params.intermediate_graph_degree = 2 * ps.graph_degree;
         index_params.max_iterations            = 100;
+        index_params.termination_threshold     = 0.002f;
         index_params.return_distances          = true;
 
         auto database_view = raft::make_device_matrix_view<const DataT, int64_t>(
@@ -181,7 +181,7 @@ class AnnNNDescentTest : public ::testing::TestWithParam<AnnNNDescentInputs> {
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentInputs ps;
   rmm::device_uvector<DataT> database;
 };
@@ -339,7 +339,7 @@ class AnnNNDescentDistEpiTest : public ::testing::TestWithParam<AnnNNDescentInpu
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentInputs ps;
   rmm::device_uvector<DataT> database;
 };
@@ -457,7 +457,7 @@ class AnnNNDescentBatchTest : public ::testing::TestWithParam<AnnNNDescentBatchI
 
  private:
   raft::resources handle_;
-  rmm::cuda_stream_view stream_;
+  cuda::stream_ref stream_;
   AnnNNDescentBatchInputs ps;
   rmm::device_uvector<DataT> database;
 };

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -145,7 +145,8 @@ CUVS_EXPORT cuvsError_t cuvsVamanaIndexGetDims(cuvsVamanaIndex_t index, int* dim
  * to improve graph quality. The index_params struct controls the degree of the final graph.
  *
  * The following distance metrics are supported:
- * - L2
+ * - L2Expanded (sqeuclidean)
+ * - L2SqrtExpanded (l2 / euclidean distance)
  *
  * Usage example:
  * @code{.c}

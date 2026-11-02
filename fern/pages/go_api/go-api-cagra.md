@@ -20,7 +20,7 @@ AutoSelect
 )
 ```
 
-_Source: `go/cagra/index_params.go:23`_
+_Source: `go/cagra/index_params.go:18`_
 
 ### HashmapMode Constants
 
@@ -55,7 +55,7 @@ _Source: `go/cagra/search_params.go:19`_
 type BuildAlgo int
 ```
 
-_Source: `go/cagra/index_params.go:21`_
+_Source: `go/cagra/index_params.go:16`_
 
 ### CagraIndex
 
@@ -68,18 +68,6 @@ type CagraIndex struct {
 Cagra ANN Index
 
 _Source: `go/cagra/cagra.go:14`_
-
-### CompressionParams
-
-```go
-type CompressionParams struct {
-	// contains filtered or unexported fields
-}
-```
-
-Supplemental parameters to build CAGRA Index
-
-_Source: `go/cagra/index_params.go:17`_
 
 ### ExtendParams
 
@@ -111,6 +99,42 @@ type IndexParams struct {
 
 _Source: `go/cagra/index_params.go:12`_
 
+### PaddedDataset
+
+```go
+type PaddedDataset struct {
+	// contains filtered or unexported fields
+}
+```
+
+Owning padded dataset handle for explicit CAGRA dataset management.
+
+_Source: `go/cagra/cagra.go:20`_
+
+### PaddedDatasetHandle
+
+```go
+type PaddedDatasetHandle interface {
+	datasetHandle() C.cuvsDataset_t
+}
+```
+
+PaddedDatasetHandle is an owning padded dataset or non-owning padded dataset view.
+
+_Source: `go/cagra/cagra.go:25`_
+
+### PaddedDatasetView
+
+```go
+type PaddedDatasetView struct {
+	// contains filtered or unexported fields
+}
+```
+
+Non-owning padded dataset view handle.
+
+_Source: `go/cagra/cagra.go:30`_
+
 ### SearchAlgo
 
 ```go
@@ -131,6 +155,18 @@ Supplemental parameters to search CAGRA Index
 
 _Source: `go/cagra/search_params.go:13`_
 
+### StandardDatasetView
+
+```go
+type StandardDatasetView struct {
+	// contains filtered or unexported fields
+}
+```
+
+Non-owning standard dataset view handle.
+
+_Source: `go/cagra/cagra.go:35`_
+
 ## Functions
 
 ### BuildIndex
@@ -148,17 +184,7 @@ Builds a new Index from the dataset for efficient search.
 * `dataset` - A row-major Tensor on either the host or device to index
 * `index` - CagraIndex to build
 
-_Source: `go/cagra/cagra.go:38`_
-
-### CreateCompressionParams
-
-```go
-func CreateCompressionParams() (*CompressionParams, error)
-```
-
-Creates a new CompressionParams
-
-_Source: `go/cagra/index_params.go:36`_
+_Source: `go/cagra/cagra.go:226`_
 
 ### CreateExtendParams
 
@@ -178,7 +204,7 @@ func CreateIndex() (*CagraIndex, error)
 
 Creates a new empty Cagra Index
 
-_Source: `go/cagra/cagra.go:20`_
+_Source: `go/cagra/cagra.go:208`_
 
 ### CreateIndexParams
 
@@ -188,7 +214,7 @@ func CreateIndexParams() (*IndexParams, error)
 
 Creates a new IndexParams
 
-_Source: `go/cagra/index_params.go:99`_
+_Source: `go/cagra/index_params.go:31`_
 
 ### CreateSearchParams
 
@@ -203,19 +229,53 @@ _Source: `go/cagra/search_params.go:35`_
 ### ExtendIndex
 
 ```go
-func ExtendIndex[T any](Resources cuvs.Resource, params *ExtendParams, additional_dataset *cuvs.Tensor[T], index *CagraIndex) error
+func ExtendIndex(Resources cuvs.Resource, params *ExtendParams, extended_dataset PaddedDatasetHandle, newStartRow int64, index *CagraIndex) error
 ```
 
-Extends the index with additional data
+Extends the index with a caller-owned pre-concatenated padded dataset.
 
 #### Arguments
 
 * `Resources` - Resources to use
 * `params` - Parameters for extending the index
-* `additional_dataset` - A row-major Tensor on the device to extend the index with
+* `extended_dataset` - Caller-owned padded dataset already containing old \|\| new rows
+* `newStartRow` - Row index where the additional vectors begin (must equal current index size)
 * `index` - CagraIndex to extend
 
-_Source: `go/cagra/cagra.go:55`_
+_Source: `go/cagra/cagra.go:277`_
+
+### MakePaddedDataset
+
+```go
+func MakePaddedDataset[T any](Resources cuvs.Resource, dataset *cuvs.Tensor[T]) (*PaddedDataset, error)
+```
+
+MakePaddedDataset creates an owning padded dataset from a tensor.
+Memory residency is inferred from the tensor device type.
+
+_Source: `go/cagra/cagra.go:84`_
+
+### MakePaddedDatasetView
+
+```go
+func MakePaddedDatasetView[T any](Resources cuvs.Resource, dataset *cuvs.Tensor[T]) (*PaddedDatasetView, error)
+```
+
+MakePaddedDatasetView creates a non-owning padded dataset view from a tensor.
+Memory residency is inferred from the tensor.
+
+_Source: `go/cagra/cagra.go:109`_
+
+### MakeStandardDatasetView
+
+```go
+func MakeStandardDatasetView[T any](Resources cuvs.Resource, dataset *cuvs.Tensor[T]) (*StandardDatasetView, error)
+```
+
+MakeStandardDatasetView creates a non-owning standard dataset view from a tensor.
+Memory residency is inferred from the tensor.
+
+_Source: `go/cagra/cagra.go:159`_
 
 ### SearchIndex
 
@@ -234,7 +294,18 @@ Perform a Approximate Nearest Neighbors search on the Index
 * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 * `allowList` - List of indices to allow in the search, if nil, no filtering is applied
 
-_Source: `go/cagra/cagra.go:85`_
+_Source: `go/cagra/cagra.go:317`_
+
+### UpdateDataset
+
+```go
+func UpdateDataset(Resources cuvs.Resource, paddedDataset PaddedDatasetHandle, index *CagraIndex) error
+```
+
+UpdateDataset updates any CAGRA index layout with a caller-provided padded
+dataset or view and leaves the same handle search-ready.
+
+_Source: `go/cagra/cagra.go:189`_
 
 ## Methods
 
@@ -246,72 +317,7 @@ func (index *CagraIndex) Close() error
 
 Destroys the Cagra Index
 
-_Source: `go/cagra/cagra.go:67`_
-
-### CompressionParams.SetKMeansNIters
-
-```go
-func (p *CompressionParams) SetKMeansNIters(kmeans_n_iters uint32) (*CompressionParams, error)
-```
-
-The number of iterations searching for kmeans centers (both VQ & PQ
-phases).
-
-_Source: `go/cagra/index_params.go:76`_
-
-### CompressionParams.SetPQBits
-
-```go
-func (p *CompressionParams) SetPQBits(pq_bits uint32) (*CompressionParams, error)
-```
-
-The bit length of the vector element after compression by PQ.
-
-_Source: `go/cagra/index_params.go:52`_
-
-### CompressionParams.SetPQDim
-
-```go
-func (p *CompressionParams) SetPQDim(pq_dim uint32) (*CompressionParams, error)
-```
-
-The dimensionality of the vector after compression by PQ. When zero,
-an optimal value is selected using a heuristic.
-
-_Source: `go/cagra/index_params.go:60`_
-
-### CompressionParams.SetPQKMeansTrainsetFraction
-
-```go
-func (p *CompressionParams) SetPQKMeansTrainsetFraction(pq_kmeans_trainset_fraction float64) (*CompressionParams, error)
-```
-
-The fraction of data to use during iterative kmeans building (PQ
-phase). When zero, an optimal value is selected using a heuristic.
-
-_Source: `go/cagra/index_params.go:92`_
-
-### CompressionParams.SetVQKMeansTrainsetFraction
-
-```go
-func (p *CompressionParams) SetVQKMeansTrainsetFraction(vq_kmeans_trainset_fraction float64) (*CompressionParams, error)
-```
-
-The fraction of data to use during iterative kmeans building (VQ
-phase). When zero, an optimal value is selected using a heuristic.
-
-_Source: `go/cagra/index_params.go:84`_
-
-### CompressionParams.SetVQNCenters
-
-```go
-func (p *CompressionParams) SetVQNCenters(vq_n_centers uint32) (*CompressionParams, error)
-```
-
-Vector Quantization (VQ) codebook size - number of "coarse cluster
-centers". When zero, an optimal value is selected using a heuristic.
-
-_Source: `go/cagra/index_params.go:68`_
+_Source: `go/cagra/cagra.go:299`_
 
 ### ExtendParams.Close
 
@@ -344,7 +350,7 @@ func (p *IndexParams) Close() error
 
 Destroys IndexParams
 
-_Source: `go/cagra/index_params.go:152`_
+_Source: `go/cagra/index_params.go:77`_
 
 ### IndexParams.SetBuildAlgo
 
@@ -354,17 +360,7 @@ func (p *IndexParams) SetBuildAlgo(build_algo BuildAlgo) (*IndexParams, error)
 
 ANN algorithm to build knn graph
 
-_Source: `go/cagra/index_params.go:126`_
-
-### IndexParams.SetCompression
-
-```go
-func (p *IndexParams) SetCompression(compression *CompressionParams) (*IndexParams, error)
-```
-
-Compression parameters
-
-_Source: `go/cagra/index_params.go:145`_
+_Source: `go/cagra/index_params.go:58`_
 
 ### IndexParams.SetGraphDegree
 
@@ -374,7 +370,7 @@ func (p *IndexParams) SetGraphDegree(intermediate_graph_degree uintptr) (*IndexP
 
 Degree of output graph
 
-_Source: `go/cagra/index_params.go:119`_
+_Source: `go/cagra/index_params.go:51`_
 
 ### IndexParams.SetIntermediateGraphDegree
 
@@ -384,7 +380,7 @@ func (p *IndexParams) SetIntermediateGraphDegree(intermediate_graph_degree uintp
 
 Degree of input graph for pruning
 
-_Source: `go/cagra/index_params.go:113`_
+_Source: `go/cagra/index_params.go:45`_
 
 ### IndexParams.SetNNDescentNiter
 
@@ -394,7 +390,27 @@ func (p *IndexParams) SetNNDescentNiter(nn_descent_niter uint32) (*IndexParams, 
 
 Number of iterations to run if building with NN_DESCENT
 
-_Source: `go/cagra/index_params.go:138`_
+_Source: `go/cagra/index_params.go:70`_
+
+### PaddedDataset.Close
+
+```go
+func (dataset *PaddedDataset) Close() error
+```
+
+Destroys an owning padded dataset handle.
+
+_Source: `go/cagra/cagra.go:132`_
+
+### PaddedDatasetView.Close
+
+```go
+func (view *PaddedDatasetView) Close() error
+```
+
+Destroys a padded dataset view handle.
+
+_Source: `go/cagra/cagra.go:145`_
 
 ### SearchParams.Close
 
@@ -537,3 +553,13 @@ func (p *SearchParams) SetThreadBlockSize(thread_block_size uintptr) (*SearchPar
 Thread block size. 0, 64, 128, 256, 512, 1024. Auto selection when 0.
 
 _Source: `go/cagra/search_params.go:107`_
+
+### StandardDatasetView.Close
+
+```go
+func (view *StandardDatasetView) Close() error
+```
+
+Destroys a standard dataset view handle.
+
+_Source: `go/cagra/cagra.go:175`_

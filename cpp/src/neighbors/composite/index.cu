@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -84,7 +84,7 @@ void composite_index<T, IdxT, OutputIdxT>::search(
                               temp_neighbors[i].data(),
                               offset,
                               temp_neighbors[i].size(),
-                              stream);
+                              stream.get());
     }
 
     raft::copy_matrix(

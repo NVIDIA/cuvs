@@ -71,8 +71,8 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
   // (and callers configure per-resources workspace pools, so the workspace MRs are genuinely
   // distinct). Binding the allocation to the short-lived per-query resources passed to search
   // crashes: that resources can be torn down (e.g. on segment reader close) while a handle is still
-  // cached in the shared FilterBitsetCache, leaving the free with a dangling resources. A dedicated,
-  // never-closed resources keeps alloc and free on one always-valid workspace MR.
+  // cached in the shared FilterBitsetCache, leaving the free with a dangling resources. A
+  // dedicated, never-closed resources keeps alloc and free on one always-valid workspace MR.
   private static final Object FILTER_RESOURCES_LOCK = new Object();
   private static volatile CuVSResources filterResources;
 
@@ -85,7 +85,8 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
           try {
             r = CuVSResources.create();
           } catch (Throwable t) {
-            throw new RuntimeException("Failed to create resources for filter bitset device memory", t);
+            throw new RuntimeException(
+                "Failed to create resources for filter bitset device memory", t);
           }
           maybeSetFilterPool(r);
           filterResources = r;
@@ -183,8 +184,10 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
 
   private DeviceData upload() {
     long combinedBitsetBytes = (long) combinedLongs.length * Long.BYTES;
-    // Serialize uploads: they share one resources (single stream/host-buffer) and are rare (once per
-    // distinct filter, on cache miss). The free path uses the captured resources handle directly and
+    // Serialize uploads: they share one resources (single stream/host-buffer) and are rare (once
+    // per
+    // distinct filter, on cache miss). The free path uses the captured resources handle directly
+    // and
     // is RMM-thread-safe, so it needs no lock.
     synchronized (FILTER_RESOURCES_LOCK) {
       try (var access = filterResources().access()) {
@@ -203,7 +206,8 @@ public final class FilterBitsetHandleImpl implements FilterBitsetHandle {
 
             checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync in FilterBitsetHandle.upload");
           }
-          // Stream sync has returned — device memory is fully populated. uint32 words = long count * 2.
+          // Stream sync has returned — device memory is fully populated. uint32 words = long count
+          // * 2.
           return new DeviceData(combinedBitsetDP, (long) combinedLongs.length * 2);
         } catch (Throwable t) {
           try {

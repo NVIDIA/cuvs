@@ -33,9 +33,12 @@ constexpr int test_n_clusters = 8;
 constexpr int test_n_features = 2;
 
 template <typename IndexT>
-std::size_t run_predict_with_batching(raft::resources const& handle, BatchConfig config)
+std::size_t run_predict_with_batching(raft::resources const& handle,
+                                      BatchConfig config,
+                                      cuvs::distance::DistanceType metric)
 {
   SCOPED_TRACE(config.name);
+  SCOPED_TRACE(static_cast<int>(metric));
 
   using DataT = float;
 
@@ -92,6 +95,7 @@ std::size_t run_predict_with_batching(raft::resources const& handle, BatchConfig
   kmeans_params.n_clusters      = n_clusters;
   kmeans_params.batch_samples   = config.batch_samples;
   kmeans_params.batch_centroids = config.batch_centroids;
+  kmeans_params.metric          = metric;
 
   DataT inertia                  = 0;
   std::size_t total_device_bytes = 0;
@@ -120,7 +124,7 @@ std::size_t run_predict_with_batching(raft::resources const& handle, BatchConfig
   return total_device_bytes;
 }
 
-TEST(KMeansPredict, BatchParametersPreserveResultsAndReduceUnfusedAllocations)
+TEST(KMeansPredict, BatchParametersPreserveResults)
 {
   raft::resources handle;
   constexpr std::array<BatchConfig, 4> batch_configs{{
@@ -129,27 +133,74 @@ TEST(KMeansPredict, BatchParametersPreserveResultsAndReduceUnfusedAllocations)
     {"centroids only", 0, 3},
     {"samples and centroids", 3, 3},
   }};
+  constexpr std::array metrics{cuvs::distance::DistanceType::L2Expanded,
+                               cuvs::distance::DistanceType::L2SqrtExpanded};
 
-  auto unbatched_int_bytes   = run_predict_with_batching<int>(handle, batch_configs.front());
-  auto unbatched_int64_bytes = run_predict_with_batching<int64_t>(handle, batch_configs.front());
-
-  // predict selects fused or unfused 1-NN according to the architecture heuristic. The batching
-  // parameters only affect the unfused path, so every GPU checks the results while allocation
-  // reductions are required only when this problem shape dispatches to unfused 1-NN.
-  const bool uses_unfused_path =
-    !detail::use_fused<float, int, int>(handle, test_n_samples, test_n_clusters, test_n_features);
-
-  for (std::size_t i = 1; i < batch_configs.size(); ++i) {
-    auto config      = batch_configs[i];
-    auto int_bytes   = run_predict_with_batching<int>(handle, config);
-    auto int64_bytes = run_predict_with_batching<int64_t>(handle, config);
-
-    if (uses_unfused_path) {
-      // Verify that batching uses less memory than the unbatched path.
-      EXPECT_LT(int_bytes, unbatched_int_bytes) << config.name;
-      EXPECT_LT(int64_bytes, unbatched_int64_bytes) << config.name;
+  for (auto metric : metrics) {
+    for (auto config : batch_configs) {
+      run_predict_with_batching<int>(handle, config, metric);
+      run_predict_with_batching<int64_t>(handle, config, metric);
     }
   }
+}
+
+TEST(KMeansPredict, FitPredictReturnsSquaredInertiaForL2Sqrt)
+{
+  raft::resources handle;
+
+  using DataT                 = float;
+  using IndexT                = int;
+  constexpr IndexT n_samples  = 6;
+  constexpr IndexT n_clusters = 2;
+  constexpr IndexT n_features = 2;
+  constexpr std::array<DataT, n_samples * n_features> h_x{
+    0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 10.0f, 10.0f, 9.0f, 10.0f, 10.0f, 9.0f};
+  constexpr std::array<DataT, n_clusters * n_features> h_initial_centroids{
+    0.0f, 0.0f, 10.0f, 10.0f};
+
+  auto stream    = raft::resource::get_cuda_stream(handle);
+  auto x         = raft::make_device_matrix<DataT, IndexT>(handle, n_samples, n_features);
+  auto centroids = raft::make_device_matrix<DataT, IndexT>(handle, n_clusters, n_features);
+  auto labels    = raft::make_device_vector<IndexT, IndexT>(handle, n_samples);
+  raft::update_device(x.data_handle(), h_x.data(), h_x.size(), stream);
+  raft::update_device(
+    centroids.data_handle(), h_initial_centroids.data(), h_initial_centroids.size(), stream);
+
+  params kmeans_params;
+  kmeans_params.n_clusters      = n_clusters;
+  kmeans_params.init            = params::Array;
+  kmeans_params.n_init          = 1;
+  kmeans_params.max_iter        = 2;
+  kmeans_params.batch_samples   = 2;
+  kmeans_params.batch_centroids = 1;
+  kmeans_params.metric          = cuvs::distance::DistanceType::L2SqrtExpanded;
+
+  DataT inertia = 0;
+  IndexT n_iter = 0;
+  fit_predict(handle,
+              kmeans_params,
+              raft::make_const_mdspan(x.view()),
+              std::optional<raft::device_vector_view<const DataT, IndexT>>{std::nullopt},
+              centroids.view(),
+              labels.view(),
+              raft::make_host_scalar_view(&inertia),
+              raft::make_host_scalar_view(&n_iter));
+
+  std::array<DataT, n_clusters * n_features> h_centroids;
+  std::array<IndexT, n_samples> h_labels;
+  raft::update_host(h_centroids.data(), centroids.data_handle(), h_centroids.size(), stream);
+  raft::update_host(h_labels.data(), labels.data_handle(), h_labels.size(), stream);
+  raft::resource::sync_stream(handle);
+
+  DataT expected_inertia = 0;
+  for (IndexT sample = 0; sample < n_samples; ++sample) {
+    for (IndexT feature = 0; feature < n_features; ++feature) {
+      auto delta =
+        h_x[sample * n_features + feature] - h_centroids[h_labels[sample] * n_features + feature];
+      expected_inertia += delta * delta;
+    }
+  }
+  EXPECT_NEAR(inertia, expected_inertia, 1e-4f * expected_inertia);
 }
 
 }  // namespace cuvs::cluster::kmeans

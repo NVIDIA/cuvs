@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -35,6 +35,12 @@ template void detail::GNND<const data_t, int>::local_join<
 template void detail::GNND<const data_t, int>::build<raft::identity_op>(
   const data_t* data,
   const int nrow,
+  int* output_graph,
+  bool return_distances,
+  float* output_distances,
+  raft::identity_op dist_epilogue);
+template void detail::GNND<const data_t, int>::build<raft::identity_op>(
+  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<data_t>, int64_t> dataset,
   int* output_graph,
   bool return_distances,
   float* output_distances,

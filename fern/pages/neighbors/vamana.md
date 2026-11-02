@@ -10,7 +10,7 @@ Vamana works well when you want to build large DiskANN-compatible graph indexes 
 
 [C API](/api-reference/c-api-neighbors-vamana) | [C++ API](/api-reference/cpp-api-neighbors-vamana) | [Python API](/api-reference/python-api-neighbors-vamana) | [Rust API](/api-reference/rust-api-cuvs-neighbors-vamana)
 
-Vamana currently supports build and serialize operations in NVIDIA cuVS. Search is performed by loading the serialized index with DiskANN. Java and Go do not currently expose standalone Vamana bindings.
+Vamana currently supports build and serialize operations in NVIDIA cuVS. Search is performed by loading the serialized index with DiskANN. Java exposes build and serialize through `VamanaIndex`; Go does not currently expose standalone Vamana bindings.
 
 ### Building an index
 
@@ -80,6 +80,30 @@ index_params = vamana.IndexParams(
 )
 
 index = vamana.build(index_params, dataset)
+```
+
+</Tab>
+<Tab title="Java">
+
+```java
+import com.nvidia.cuvs.*;
+
+float[][] dataset = loadData();
+
+try (CuVSResources resources = CuVSResources.create()) {
+  VamanaIndexParams indexParams = new VamanaIndexParams.Builder()
+      .withGraphDegree(64)
+      .withVisitedSize(128)
+      .withQueueSize(255)
+      .build();
+
+  try (VamanaIndex index = VamanaIndex.newBuilder(resources)
+      .withDataset(dataset)
+      .withIndexParams(indexParams)
+      .build()) {
+    // ...
+  }
+}
 ```
 
 </Tab>
@@ -162,6 +186,23 @@ index = vamana.build(vamana.IndexParams(), dataset)
 
 # Writes DiskANN-compatible files using this path prefix.
 vamana.save("/tmp/cuvs-vamana/index", index, include_dataset=True)
+```
+
+</Tab>
+<Tab title="Java">
+
+```java
+import com.nvidia.cuvs.*;
+import java.nio.file.Path;
+
+try (CuVSResources resources = CuVSResources.create();
+     VamanaIndex index = VamanaIndex.newBuilder(resources)
+         .withDataset(loadData())
+         .build()) {
+
+  // Writes DiskANN-compatible files using this path prefix.
+  index.serialize(Path.of("/tmp/cuvs-vamana/index"), true);
+}
 ```
 
 </Tab>

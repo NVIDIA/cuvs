@@ -131,8 +131,6 @@ void single_gpu_assign_clusters(
   std::optional<raft::device_vector_view<const T, int64_t>> norms_view;
   cuvs::neighbors::brute_force::index<T> brute_force_index(res, centroids, norms_view, metric);
 
-  auto stream = resource::get_cuda_stream(res);
-
   for (size_t i = 0; i < num_batches; i++) {
     size_t row_offset              = n_rows_per_batch * i + base_row_offset;
     size_t n_rows_of_current_batch = std::min(n_rows_per_batch, num_rows - row_offset);

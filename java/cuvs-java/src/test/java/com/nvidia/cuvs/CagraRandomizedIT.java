@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -24,7 +24,7 @@ public class CagraRandomizedIT extends CuVSTestCase {
 
   @Before
   public void setup() {
-    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxAmd64());
+    assumeTrue("not supported on " + System.getProperty("os.name"), isLinuxSupportedArch());
     initializeRandom();
     log.trace("Random context initialized for test.");
   }
@@ -35,7 +35,7 @@ public class CagraRandomizedIT extends CuVSTestCase {
     DEVICE
   }
 
-  @Ignore // https://github.com/rapidsai/cuvs/issues/1468
+  @Ignore // https://github.com/NVIDIA/cuvs/issues/1468
   @Test
   public void testResultsTopKWithRandomValues() throws Throwable {
     TestDatasetMemoryKind[] testDatasetMemoryKinds = {
@@ -56,8 +56,7 @@ public class CagraRandomizedIT extends CuVSTestCase {
     int TOP_K_LIMIT = 64; // nocommit This fails beyond 64
 
     int datasetSize =
-        random.nextInt(DATASET_SIZE_LIMIT)
-            + 2; // datasetSize of 1 fails/crashed due to a bug, hence adding 2 here.
+        random.nextInt(DATASET_SIZE_LIMIT) + 2; // A CAGRA graph needs at least 2 rows.
     int dimensions = random.nextInt(DIMENSIONS_LIMIT) + 1;
     int numQueries = random.nextInt(NUM_QUERIES_LIMIT) + 1;
     int topK = Math.min(random.nextInt(TOP_K_LIMIT) + 1, datasetSize);
@@ -128,7 +127,7 @@ public class CagraRandomizedIT extends CuVSTestCase {
         }
         index =
             CagraIndex.newBuilder(resources)
-                .withDataset(datasetBuilder.build())
+                .fromDataset(datasetBuilder.build())
                 .withIndexParams(indexParams)
                 .build();
       } else if (datasetMemoryKind == TestDatasetMemoryKind.DEVICE) {
@@ -140,14 +139,14 @@ public class CagraRandomizedIT extends CuVSTestCase {
         }
         index =
             CagraIndex.newBuilder(resources)
-                .withDataset(datasetBuilder.build())
+                .fromDataset(datasetBuilder.build())
                 .withIndexParams(indexParams)
                 .build();
       } else {
         assert datasetMemoryKind == TestDatasetMemoryKind.HEAP;
         index =
             CagraIndex.newBuilder(resources)
-                .withDataset(vectors)
+                .fromDataset(vectors)
                 .withIndexParams(indexParams)
                 .build();
       }

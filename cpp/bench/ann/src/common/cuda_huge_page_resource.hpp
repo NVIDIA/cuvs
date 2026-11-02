@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
 
+#include <cuda/stream>
 #include <raft/core/error.hpp>
 #include <raft/core/logger_macros.hpp>
 
@@ -24,7 +25,7 @@ namespace raft::mr {
  * works on GH systems.
  *
  * TODO(tfeher): consider improving or removing this helper once we made progress with
- * https://github.com/rapidsai/raft/issues/1819
+ * https://github.com/NVIDIA/raft/issues/1819
  */
 class cuda_huge_page_resource {
  public:

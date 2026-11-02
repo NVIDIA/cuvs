@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,6 +13,7 @@ struct tag_layout_col {};
 struct tag_fin_op_identity {};
 struct tag_fin_op_rbf {};
 
+struct tag_distance_bitwise_hamming {};
 struct tag_distance_canberra {};
 struct tag_distance_correlation {};
 struct tag_distance_cosine {};
