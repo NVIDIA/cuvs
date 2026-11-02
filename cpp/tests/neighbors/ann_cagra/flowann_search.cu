@@ -489,3 +489,20 @@ TEST(FlowannSearch, PaddedSingleCtaQueriesMatchAcrossBatches)
     }
   }
 }
+
+
+TEST(FlowannSearch, PaddedMultiCtaQueriesMatchAcrossBatches)
+{
+  for (std::uint32_t dim : {5u, 33u}) {
+    auto one = run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA,
+      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 1, 32, 1, 2, false, 2, 0, dim);
+    auto batched = run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA,
+      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 3, 32, 1, 2, false, 2, 0, dim);
+    for (int64_t row = 0; row < 5; ++row) {
+      for (int64_t rank = 0; rank < 2; ++rank) {
+        EXPECT_EQ(batched.neighbors(row, rank), one.neighbors(row, rank));
+        EXPECT_NEAR(batched.distances(row, rank), one.distances(row, rank), 1e-4f);
+      }
+    }
+  }
+}

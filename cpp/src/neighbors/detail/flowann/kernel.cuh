@@ -70,6 +70,7 @@ using search_multi_cta_kernel_func_t =
        DistanceT*,
        const cuvs::neighbors::cagra::detail::dataset_descriptor_base_t<DataT, IndexT, DistanceT>*,
        const DataT*,
+       std::uint32_t,
        const std::uint8_t*,
        std::uint32_t,
        std::uint32_t,
