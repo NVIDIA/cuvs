@@ -32,5 +32,4 @@ void fit_predict(const raft::resources& handle,
 {
   cuvs::cluster::kmeans_balanced::fit_predict(handle, params, X, centroids, labels);
 }
-
 }  // namespace cuvs::cluster::kmeans
