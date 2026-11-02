@@ -53,7 +53,7 @@ public class TestPerSegmentGPUFilterSearch extends LuceneTestCase {
 
     try (Directory directory = newDirectory(new ByteBuffersDirectory())) {
       float[][] dataset = generateDataset(random(), datasetSize, dimensions);
-      IndexWriterConfig config = new IndexWriterConfig().setCodec(new CuVS2510GPUSearchCodec());
+      IndexWriterConfig config = new IndexWriterConfig().setCodec(CuVSCodecs.gpuSearch());
       try (IndexWriter writer = new IndexWriter(directory, config)) {
         for (int i = 0; i < datasetSize; i++) {
           Document doc = new Document();
