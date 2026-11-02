@@ -673,3 +673,46 @@ TEST(FlowannSerialize, RejectsUnsupportedLegacyMetrics)
     EXPECT_ANY_THROW(flowann::detail::deserialize_legacy_graph(res, stream, &index));
   }
 }
+
+TEST(FlowannSerialize, RoundTripsPaddedDenseRows)
+{
+  raft::resources res;
+  auto host = raft::make_host_matrix<float, int64_t>(4, 5);
+  for (int64_t row = 0; row < 4; ++row) {
+    for (int64_t col = 0; col < 5; ++col) {
+      host(row, col) = 10.0f * row + col;
+    }
+  }
+  auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host.view());
+  flowann::device_padded_index<float> index(
+    res, cuvs::distance::DistanceType::L2Expanded, dataset->view(), 2, 2);
+  install_compact_test_graph(res, index);
+  auto offsets = raft::make_host_vector<std::uint32_t, int64_t>(1);
+  auto ids     = raft::make_host_vector<std::uint32_t, int64_t>(4);
+  offsets(0)   = 0;
+  std::fill_n(ids.data_handle(), ids.size(), std::uint32_t{0});
+  index.update_subgraph_layout(
+    res, raft::make_const_mdspan(offsets.view()), raft::make_const_mdspan(ids.view()));
+  std::stringstream stream(std::ios::in | std::ios::out | std::ios::binary);
+  flowann::serialize(res, stream, index);
+  stream.seekg(0);
+  auto restored = flowann::deserialize_device_padded<float>(res, stream);
+  EXPECT_EQ(restored.index.dim(), 5);
+  auto rows = restored.dataset->data_view();
+  EXPECT_EQ(rows.extent(1), 5);
+  EXPECT_EQ(rows.stride(0), 8);
+  auto actual = raft::make_host_matrix<float, int64_t>(4, 5);
+  raft::copy_matrix(actual.data_handle(),
+                    int64_t{5},
+                    rows.data_handle(),
+                    rows.stride(0),
+                    int64_t{5},
+                    int64_t{4},
+                    raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  for (int64_t row = 0; row < 4; ++row) {
+    for (int64_t col = 0; col < 5; ++col) {
+      EXPECT_EQ(actual(row, col), host(row, col));
+    }
+  }
+}
