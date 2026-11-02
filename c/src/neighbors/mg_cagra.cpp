@@ -79,7 +79,7 @@ static void with_device_padded_dataset_view(cuvsDataset_t dataset, Fn&& fn)
   using view_t  = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
   if (dataset->is_owning) {
     auto* owner = reinterpret_cast<owner_t*>(dataset->addr);
-    auto view   = owner->as_dataset_view();
+    auto view   = std::as_const(*owner).view();
     fn(view);
   } else {
     fn(*reinterpret_cast<view_t*>(dataset->addr));

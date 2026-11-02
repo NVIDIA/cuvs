@@ -6,19 +6,21 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.getCuVSResourcesInstance;
-import static com.nvidia.cuvs.lucene.Utils.createByteMatrixFromArray;
+import static com.nvidia.cuvs.lucene.Utils.createHostByteMatrixFromArray;
 
 import com.nvidia.cuvs.CagraIndex;
 import com.nvidia.cuvs.CagraIndexParams;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.RowView;
 import java.io.IOException;
+import java.util.AbstractList;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.IndexOutput;
@@ -36,17 +38,8 @@ public class AcceleratedHNSWUtils {
     NONE
   }
 
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 
   /**
    * Creates a dummy HNSW graph for a single vector.
@@ -57,27 +50,18 @@ public class AcceleratedHNSWUtils {
     // Create adjacency list for single node with no neighbors
     int[][] singleNodeAdjacency = new int[][] {{-1}}; // -1 indicates no neighbors
 
-    // Create CuVSMatrix from the adjacency list
-    CuVSMatrix adjacencyMatrix = CuVSMatrix.ofArray(singleNodeAdjacency);
-
-    // Create layer data for single-level graph
-    List<int[]> layerNodes = new ArrayList<>();
-    List<CuVSMatrix> layerAdjacencies = new ArrayList<>();
-
-    // Layer 0: contains all nodes (just the single node)
-    layerNodes.add(null); // Layer 0 contains all nodes, so we don't need to store node list
-    layerAdjacencies.add(adjacencyMatrix);
-
-    // Create the single-layer graph
-    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies);
+    // GPUBuiltHnswGraph copies the adjacency into heap-backed NeighborArrays.
+    try (CuVSMatrix adjacencyMatrix = CuVSMatrix.ofArray(singleNodeAdjacency)) {
+      List<int[]> layerNodes = new ArrayList<>();
+      layerNodes.add(null); // Layer 0 contains all nodes, so its node list is implicit.
+      return new GPUBuiltHnswGraph(size, dimensions, layerNodes, List.of(adjacencyMatrix));
+    }
   }
 
   /**
-   * Creates a multi-layer HNSW graph with dynamic number of layers.
-   * M = ceil(cagraGraphDegree / 2), where cagraGraphDegree is the CAGRA adjacency list's degree
-   * (its column count). Ceil is used to accommodate odd graph degrees.
-   * Each layer contains 1/M nodes from the previous layer
-   * Creates layers until the highest layer has ≤ M nodes
+   * Creates up to {@code hnswLayers} total layers. Layer 0 uses the full CAGRA graph. Each upper
+   * layer samples {@code max(2, floor(previousLayerSize / M))} nodes and is built with graph degree
+   * at most {@code M}. The value {@code M} is the ceiling of half the layer-0 graph degree.
    */
   public static GPUBuiltHnswGraph createMultiLayerHnswGraph(
       FieldInfo fieldInfo,
@@ -89,8 +73,32 @@ public class AcceleratedHNSWUtils {
       CagraIndexParams params,
       QuantizationType quantization)
       throws Throwable {
+    return createMultiLayerHnswGraph(
+        size,
+        dimensions,
+        adjacencyListMatrix,
+        vectors,
+        hnswLayers,
+        params,
+        quantization,
+        Math.ceilDiv((int) adjacencyListMatrix.columns(), 2));
+  }
+
+  /** Builds the layers, each upper one with graph degree at most {@code maxUpperLayerDegree}. */
+  private static GPUBuiltHnswGraph createMultiLayerHnswGraph(
+      int size,
+      int dimensions,
+      CuVSMatrix adjacencyListMatrix,
+      List<?> vectors,
+      int hnswLayers,
+      CagraIndexParams params,
+      QuantizationType quantization,
+      int maxUpperLayerDegree)
+      throws Throwable {
 
     int M = Math.ceilDiv((int) adjacencyListMatrix.columns(), 2);
+    // Created when the first upper layer is built; see maxUpperLayerDegree.
+    CagraIndexParams upperLayerParams = null;
 
     // Store all layers data
     List<int[]> layerNodes = new ArrayList<>();
@@ -103,75 +111,180 @@ public class AcceleratedHNSWUtils {
     int currentLayerSize = size;
     int layerIndex = 1;
     Random random = new Random();
+    Throwable failure = null;
 
-    while (layerIndex < hnswLayers && currentLayerSize > 1) {
-      // Calculate size for next layer (1/M of current layer)
-      int nextLayerSize = Math.max(2, currentLayerSize / M);
-      // Select nodes for this layer
-      SortedSet<Integer> selectedNodesSet = new TreeSet<>();
+    try {
+      while (layerIndex < hnswLayers && currentLayerSize > 1) {
+        if (upperLayerParams == null) {
+          upperLayerParams =
+              CagraIndexParamsFactory.withMaxGraphDegree(params, maxUpperLayerDegree);
+        }
+        // Calculate size for next layer (1/M of current layer)
+        int nextLayerSize = Math.max(2, currentLayerSize / M);
+        // Select nodes for this layer
+        SortedSet<Integer> selectedNodesSet = new TreeSet<>();
 
-      if (layerIndex == 1) {
-        // Select from all nodes (Layer 0)
-        while (selectedNodesSet.size() < nextLayerSize) {
-          selectedNodesSet.add(random.nextInt(size));
+        if (layerIndex == 1) {
+          // Select from all nodes (Layer 0)
+          while (selectedNodesSet.size() < nextLayerSize) {
+            selectedNodesSet.add(random.nextInt(size));
+          }
+        } else {
+          // Select from previous layer nodes
+          int[] prevLayerNodes = layerNodes.get(layerNodes.size() - 1);
+          while (selectedNodesSet.size() < nextLayerSize) {
+            int idx = random.nextInt(prevLayerNodes.length);
+            selectedNodesSet.add(prevLayerNodes[idx]);
+          }
         }
-      } else {
-        // Select from previous layer nodes
-        int[] prevLayerNodes = layerNodes.get(layerNodes.size() - 1);
-        while (selectedNodesSet.size() < nextLayerSize) {
-          int idx = random.nextInt(prevLayerNodes.length);
-          selectedNodesSet.add(prevLayerNodes[idx]);
+
+        // Convert to sorted array
+        int[] selectedNodes =
+            selectedNodesSet.stream().mapToInt(Integer::intValue).sorted().toArray();
+
+        CuVSMatrix upperAdjacency;
+        if (quantization == QuantizationType.NONE) {
+          // Extract vectors for selected nodes
+          float[][] selectedVectors = new float[nextLayerSize][];
+          for (int i = 0; i < nextLayerSize; i++) {
+            selectedVectors[i] = (float[]) vectors.get(selectedNodes[i]);
+          }
+
+          // Build CAGRA graph for this layer
+          upperAdjacency =
+              buildCagraGraphForSubset(
+                  selectedVectors, selectedNodes, 0, upperLayerParams, dimensions, quantization);
+
+        } else {
+
+          // Extract vectors for selected nodes
+          int bytesPerVector = (dimensions + 7) / 8;
+          byte[][] selectedVectors = new byte[nextLayerSize][];
+          for (int i = 0; i < nextLayerSize; i++) {
+            selectedVectors[i] = (byte[]) vectors.get(selectedNodes[i]);
+          }
+
+          // Build CAGRA graph for this layer
+          upperAdjacency =
+              buildCagraGraphForSubset(
+                  selectedVectors,
+                  selectedNodes,
+                  bytesPerVector,
+                  upperLayerParams,
+                  dimensions,
+                  quantization);
         }
+
+        try {
+          // Register ownership before any later operation can fail.
+          layerAdjacencies.add(upperAdjacency);
+        } catch (Throwable registrationFailure) {
+          closeAfterFailure(upperAdjacency, registrationFailure);
+          throw registrationFailure;
+        }
+        layerNodes.add(selectedNodes);
+
+        // Update for next iteration
+        currentLayerSize = nextLayerSize;
+        layerIndex++;
+
+        // Use different seed for each layer
+        random = new Random(new Random().nextLong());
       }
 
-      // Convert to sorted array
-      int[] selectedNodes =
-          selectedNodesSet.stream().mapToInt(Integer::intValue).sorted().toArray();
-
-      layerNodes.add(selectedNodes);
-
-      if (quantization == QuantizationType.NONE) {
-        // Extract vectors for selected nodes
-        float[][] selectedVectors = new float[nextLayerSize][];
-        for (int i = 0; i < nextLayerSize; i++) {
-          selectedVectors[i] = (float[]) vectors.get(selectedNodes[i]);
+      // The graph eagerly copies all adjacency rows, so generated upper matrices can now close.
+      return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies);
+    } catch (Throwable t) {
+      failure = t;
+      throw t;
+    } finally {
+      Throwable closeFailure = closeUpperLayerAdjacencies(layerAdjacencies);
+      if (closeFailure != null) {
+        if (failure == null) {
+          throw closeFailure;
         }
-
-        // Build CAGRA graph for this layer
-        layerAdjacencies.add(
-            buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, 0, params, dimensions, quantization));
-
-      } else {
-
-        // Extract vectors for selected nodes
-        int bytesPerVector = (dimensions + 7) / 8;
-        byte[][] selectedVectors = new byte[nextLayerSize][];
-        for (int i = 0; i < nextLayerSize; i++) {
-          selectedVectors[i] = (byte[]) vectors.get(selectedNodes[i]);
+        if (failure != closeFailure) {
+          failure.addSuppressed(closeFailure);
         }
-
-        // Build CAGRA graph for this layer
-        layerAdjacencies.add(
-            buildCagraGraphForSubset(
-                selectedVectors, selectedNodes, bytesPerVector, params, dimensions, quantization));
       }
-
-      // Update for next iteration
-      currentLayerSize = nextLayerSize;
-      layerIndex++;
-
-      // Use different seed for each layer
-      random = new Random(new Random().nextLong());
     }
-
-    // Create the multi-layer graph with all layers
-    return new GPUBuiltHnswGraph(size, dimensions, layerNodes, layerAdjacencies);
   }
 
   /**
-   * Builds a CAGRA graph for a subset of binary quantized vectors
+   * Creates a multi-layer HNSW graph from a native matrix without copying the complete dataset to
+   * the Java heap. The list view copies only rows selected for an upper layer.
+   *
+   * <p>The upper layers are built with graph degree at most maxConn, the most neighbors HNSW holds
+   * per node above layer 0. Rows wider than that on an upper layer are read fine, but a CPU merge
+   * copies them into arrays of maxConn + 1 slots and fails with "No growth is allowed".
+   *
+   * @param maxConn the HNSW maxConn the segment is written with
    */
+  static GPUBuiltHnswGraph createMultiLayerHnswGraph(
+      int dimensions,
+      CuVSMatrix adjacencyListMatrix,
+      CuVSMatrix vectorDataset,
+      int hnswLayers,
+      CagraIndexParams params,
+      QuantizationType quantization,
+      int maxConn)
+      throws Throwable {
+    int size = Math.toIntExact(vectorDataset.size());
+    // Matrix columns are the stored width: binary vectors are bit-packed, while scalar and float
+    // vectors store one value per dimension.
+    int columns = Math.toIntExact(vectorDataset.columns());
+    List<?> vectors =
+        new AbstractList<>() {
+          @Override
+          public Object get(int index) {
+            RowView row = vectorDataset.getRow(index);
+            if (quantization == QuantizationType.NONE) {
+              float[] vector = new float[columns];
+              row.toArray(vector);
+              return vector;
+            }
+            byte[] vector = new byte[columns];
+            row.toArray(vector);
+            return vector;
+          }
+
+          @Override
+          public int size() {
+            return size;
+          }
+        };
+    return createMultiLayerHnswGraph(
+        size, dimensions, adjacencyListMatrix, vectors, hnswLayers, params, quantization, maxConn);
+  }
+
+  private static Throwable closeUpperLayerAdjacencies(List<CuVSMatrix> layerAdjacencies) {
+    Throwable failure = null;
+    // Layer 0 is borrowed from the outer CAGRA index. Only upper layers are owned here.
+    for (int i = layerAdjacencies.size() - 1; i >= 1; i--) {
+      try {
+        layerAdjacencies.get(i).close();
+      } catch (Throwable closeFailure) {
+        if (failure == null) {
+          failure = closeFailure;
+        } else if (failure != closeFailure) {
+          failure.addSuppressed(closeFailure);
+        }
+      }
+    }
+    return failure;
+  }
+
+  private static void closeAfterFailure(AutoCloseable resource, Throwable failure) {
+    try {
+      resource.close();
+    } catch (Throwable closeFailure) {
+      if (failure != closeFailure) {
+        failure.addSuppressed(closeFailure);
+      }
+    }
+  }
+
+  /** Builds a CAGRA graph for a selected vector subset. */
   private static CuVSMatrix buildCagraGraphForSubset(
       Object vectors,
       int[] selectedNodes,
@@ -184,46 +297,48 @@ public class AcceleratedHNSWUtils {
     CuVSMatrix subsetDataset;
 
     if (quantization == QuantizationType.BINARY) {
-      subsetDataset =
-          createByteMatrixFromArray((byte[][]) vectors, bytesPerVector, getCuVSResourcesInstance());
+      subsetDataset = createHostByteMatrixFromArray((byte[][]) vectors, bytesPerVector);
     } else if (quantization == QuantizationType.SCALAR) {
-      subsetDataset =
-          createByteMatrixFromArray((byte[][]) vectors, dimensions, getCuVSResourcesInstance());
+      subsetDataset = createHostByteMatrixFromArray((byte[][]) vectors, dimensions);
     } else {
       subsetDataset = CuVSMatrix.ofArray((float[][]) vectors);
     }
 
-    // Build CAGRA index for the subset
-    CagraIndex subsetIndex =
-        CagraIndex.newBuilder(getCuVSResourcesInstance())
-            .withDataset(subsetDataset)
-            .withIndexParams(params)
-            .build();
+    return buildCagraGraphForSubset(subsetDataset, selectedNodes, params);
+  }
 
-    // Get adjacency list from subset CAGRA index
-    CuVSMatrix cagraGraph = subsetIndex.getGraph();
+  private static CuVSMatrix buildCagraGraphForSubset(
+      CuVSMatrix subsetDataset, int[] selectedNodes, CagraIndexParams params) throws Throwable {
+    int[][] remappedAdjacency;
+    try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(subsetDataset)) {
+      CagraIndex subsetIndex =
+          CagraIndex.newBuilder(getCuVSResourcesInstance())
+              .fromDataset(subsetDataset)
+              .withIndexParams(params)
+              .build();
+      ownedIndex.transferTo(subsetIndex);
 
-    long numNodes = cagraGraph.size();
-    long degree = cagraGraph.columns();
+      CuVSMatrix cagraGraph = subsetIndex.getGraph();
+      long numNodes = cagraGraph.size();
+      long degree = cagraGraph.columns();
+      remappedAdjacency = new int[(int) numNodes][(int) degree];
 
-    // Create a re-mapped adjacency list
-    int[][] remappedAdjacency = new int[(int) numNodes][(int) degree];
-
-    for (int i = 0; i < numNodes; i++) {
-      RowView rv = cagraGraph.getRow(i);
-      for (int j = 0; j < degree && j < rv.size(); j++) {
-        int subsetIndex1 = rv.getAsInt(j);
-        // Map subset index to original node ID
-        if (subsetIndex1 >= 0 && subsetIndex1 < selectedNodes.length) {
-          remappedAdjacency[i][j] = selectedNodes[subsetIndex1];
-        } else {
-          // Invalid index, use self-reference
-          remappedAdjacency[i][j] = selectedNodes[i];
+      for (int i = 0; i < numNodes; i++) {
+        RowView rv = cagraGraph.getRow(i);
+        for (int j = 0; j < degree && j < rv.size(); j++) {
+          int subsetIndex1 = rv.getAsInt(j);
+          // Map subset index to original node ID
+          if (subsetIndex1 >= 0 && subsetIndex1 < selectedNodes.length) {
+            remappedAdjacency[i][j] = selectedNodes[subsetIndex1];
+          } else {
+            // Invalid index, use self-reference
+            remappedAdjacency[i][j] = selectedNodes[i];
+          }
         }
       }
     }
 
-    subsetIndex.close();
+    // Build the returned matrix only after the subset index and its dataset have closed.
     return CuVSMatrix.ofArray(remappedAdjacency);
   }
 
@@ -288,7 +403,9 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
-   * Writes the meta information for the index.
+   * Writes the meta information for the index. Deprecated: it records an M that can be smaller
+   * than the maxConn of a CPU writer merging the segment, which makes that merge fail on Lucene
+   * 10.4 and later. Use the overload that also takes maxConn.
    *
    * @param vectorIndex instance of IndexOutput
    * @param meta instance of IndexOutput
@@ -299,7 +416,9 @@ public class AcceleratedHNSWUtils {
    * @param graph instance of HnswGraph
    * @param graphLevelNodeOffsets graph level node offsets
    * @throws IOException I/O Exceptions
+   * @deprecated use the overload that also takes maxConn
    */
+  @Deprecated
   public static void writeMeta(
       IndexOutput vectorIndex,
       IndexOutput meta,
@@ -310,6 +429,43 @@ public class AcceleratedHNSWUtils {
       HnswGraph graph,
       int[][] graphLevelNodeOffsets)
       throws IOException {
+    writeMeta(
+        vectorIndex,
+        meta,
+        field,
+        vectorIndexOffset,
+        vectorIndexLength,
+        count,
+        graph,
+        graphLevelNodeOffsets,
+        0);
+  }
+
+  /**
+   * Writes the meta information for the index.
+   *
+   * @param vectorIndex instance of IndexOutput
+   * @param meta instance of IndexOutput
+   * @param field instance of FieldInfo
+   * @param vectorIndexOffset vector index offset
+   * @param vectorIndexLength vector index length
+   * @param count the count of vectors
+   * @param graph instance of HnswGraph
+   * @param graphLevelNodeOffsets graph level node offsets
+   * @param maxConn the configured maxConn, the smallest M to record
+   * @throws IOException I/O Exceptions
+   */
+  public static void writeMeta(
+      IndexOutput vectorIndex,
+      IndexOutput meta,
+      FieldInfo field,
+      long vectorIndexOffset,
+      long vectorIndexLength,
+      int count,
+      HnswGraph graph,
+      int[][] graphLevelNodeOffsets,
+      int maxConn)
+      throws IOException {
 
     meta.writeInt(field.number);
     meta.writeInt(field.getVectorEncoding().ordinal());
@@ -318,10 +474,14 @@ public class AcceleratedHNSWUtils {
     meta.writeVLong(vectorIndexLength);
     meta.writeVInt(field.getVectorDimension());
     meta.writeInt(count);
-    // M = ceil(cagraGraphDegree / 2), derived from the graph being written rather than from a
-    // caller-supplied degree: graph.maxConn() is the widest layer-0 adjacency row, which is the
-    // degree cuVS actually built (it may truncate the requested one for small datasets).
-    meta.writeVInt(graph == null ? 0 : Math.ceilDiv(graph.maxConn(), 2));
+    // The reader sizes its arc buffer as M * 2, so M must cover ceil(cagraGraphDegree / 2), taken
+    // from the graph being written: graph.maxConn() is the widest layer-0 adjacency row, which is
+    // the degree cuVS actually built (it may truncate the requested one for small datasets).
+    // M must not fall below maxConn either: on Lucene 10.4+ a CPU merge sizes the merged graph's
+    // neighbor arrays from the M of its largest source segment but fills them up to 2 * maxConn,
+    // so a smaller M makes the merge throw. Like Lucene, record maxConn even without a graph.
+    int graphM = graph == null ? 0 : Math.ceilDiv(graph.maxConn(), 2);
+    meta.writeVInt(Math.max(maxConn, graphM));
 
     // write graph nodes on each level
     if (graph == null) {
@@ -389,13 +549,28 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
-   * Writes an empty meta information for the field.
+   * Writes an empty meta information for the field. Deprecated: it records M = 0; use the
+   * overload that also takes maxConn.
    *
    * @param fieldInfo instance of FieldInfo
    * @throws IOException I/O Exceptions
+   * @deprecated use the overload that also takes maxConn
    */
+  @Deprecated
   public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op) throws IOException {
-    writeMeta(null, op, fieldInfo, 0, 0, 0, null, null);
+    writeEmpty(fieldInfo, op, 0);
+  }
+
+  /**
+   * Writes an empty meta information for the field.
+   *
+   * @param fieldInfo instance of FieldInfo
+   * @param maxConn the configured maxConn, recorded as the field's M
+   * @throws IOException I/O Exceptions
+   */
+  public static void writeEmpty(FieldInfo fieldInfo, IndexOutput op, int maxConn)
+      throws IOException {
+    writeMeta(null, op, fieldInfo, 0, 0, 0, null, null, maxConn);
   }
 
   /**
@@ -444,7 +619,7 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
-   * Scalar quantization.
+   * Scalar quantization to unsigned 7-bit values stored in Java bytes.
    *
    * @param floatVectors A list of float vectors
    * @return A list of byte scalar representation for the input vectors
@@ -454,13 +629,14 @@ public class AcceleratedHNSWUtils {
       return new ArrayList<>();
     }
 
+    final int maximumUnsignedSevenBitValue = 127;
     int dimensions = floatVectors.get(0).length;
     int numVectors = floatVectors.size();
 
     float[] minPerDim = new float[dimensions];
     float[] maxPerDim = new float[dimensions];
-    Arrays.fill(minPerDim, Float.MAX_VALUE);
-    Arrays.fill(maxPerDim, Float.MIN_VALUE);
+    Arrays.fill(minPerDim, Float.POSITIVE_INFINITY);
+    Arrays.fill(maxPerDim, Float.NEGATIVE_INFINITY);
 
     for (float[] vector : floatVectors) {
       for (int d = 0; d < dimensions; d++) {
@@ -476,8 +652,8 @@ public class AcceleratedHNSWUtils {
         float range = maxPerDim[d] - minPerDim[d];
         if (range > 0) {
           float normalized = (vector[d] - minPerDim[d]) / range;
-          int quantizedValue = Math.round(normalized * 127.0f) - 64;
-          quantized[d] = (byte) Math.max(-64, Math.min(63, quantizedValue));
+          int quantizedValue = Math.round(normalized * maximumUnsignedSevenBitValue);
+          quantized[d] = (byte) Math.max(0, Math.min(maximumUnsignedSevenBitValue, quantizedValue));
         } else {
           quantized[d] = 0;
         }

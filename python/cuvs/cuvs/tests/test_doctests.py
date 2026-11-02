@@ -16,12 +16,12 @@ import cuvs.distance
 import cuvs.neighbors
 import cuvs.preprocessing.quantize
 
-# Code adapted from https://github.com/rapidsai/cudf/blob/branch-23.02/python/cudf/cudf/tests/test_doctests.py  # noqa
+# Code adapted from https://github.com/NVIDIA/cudf/blob/branch-23.02/python/cudf/cudf/tests/test_doctests.py  # noqa
 
 
 def _name_in_all(parent, name):
     # Skip multi-GPU (mg) modules - they require special multi-GPU setup
-    # See: https://github.com/nvidia/cuvs/issues/1647
+    # See: https://github.com/NVIDIA/cuvs/issues/1647
     if name == "mg" or name == "mg_resources" or name == "MultiGpuResources":
         return False
     return name in getattr(parent, "__all__", [])
