@@ -377,6 +377,16 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
     __syncthreads();
     _CLK_REC(clk_compute_distance);
 
+    // Radix selection reads the entire result buffer. A provider may produce fewer
+    // children than its capacity, so old candidates must not survive in the tail.
+    for (std::uint32_t i = internal_topk + computed_children_this_iteration + threadIdx.x;
+         i < result_buffer_size;
+         i += blockDim.x) {
+      result_indices_buffer[i]   = raft::upper_bound<IndexT>();
+      result_distances_buffer[i] = raft::upper_bound<DistanceT>();
+    }
+    __syncthreads();
+
     // Filtering - use extern sample_filter function
     if (threadIdx.x == 0) { *filter_flag = 0; }
     __syncthreads();
@@ -407,7 +417,7 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
   constexpr IndexT index_msb_1_mask = utils::gen_index_msb_1_mask<IndexT>::value;
   const IndexT invalid_index        = utils::get_max_value<IndexT>();
 
-  for (unsigned i = threadIdx.x; i < internal_topk + candidate_capacity; i += blockDim.x) {
+  for (unsigned i = threadIdx.x; i < result_buffer_size; i += blockDim.x) {
     const auto node_id = result_indices_buffer[i] & ~index_msb_1_mask;
     if (node_id != (invalid_index & ~index_msb_1_mask) &&
         !sample_filter<SourceIndexT>(query_id + query_id_offset,
@@ -501,7 +511,11 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
 
     auto const result_index = result_indices_buffer[ii];
     if (result_index == invalid_index) {
-      write_indices(result_indices_ptr, j, static_cast<SourceIndexT>(invalid_index));
+      // Keep the historical resident-graph sentinel without indexing a source map.
+      auto const source_index = source_indices_ptr == nullptr
+                                  ? static_cast<SourceIndexT>(invalid_index & ~index_msb_1_mask)
+                                  : raft::upper_bound<SourceIndexT>();
+      write_indices(result_indices_ptr, j, source_index);
       continue;
     }
     auto internal_index = result_index & ~index_msb_1_mask;  // clear most significant bit
