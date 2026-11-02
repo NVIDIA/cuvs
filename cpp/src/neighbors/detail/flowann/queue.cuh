@@ -218,10 +218,11 @@ RAFT_DEVICE_INLINE_FUNCTION void submit(queue_view queue,
   submit_batch(queue, reservation, &row_id, 1);
 }
 
-RAFT_DEVICE_INLINE_FUNCTION auto result_ready(queue_view const& queue, queue_reservation reservation)
-  -> bool
+RAFT_DEVICE_INLINE_FUNCTION auto result_ready(queue_view const& queue,
+                                              queue_reservation reservation) -> bool
 {
-  if (load_published_counter(&queue.result_sequence[reservation.slot]) == reservation.sequence + 1) {
+  if (load_published_counter(&queue.result_sequence[reservation.slot]) ==
+      reservation.sequence + 1) {
     return true;
   }
   if (queue.abort_flag == nullptr) { return false; }

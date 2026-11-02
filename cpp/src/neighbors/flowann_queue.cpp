@@ -149,11 +149,15 @@ class mapped_abort_flag {
       throw;
     }
   }
-  mapped_abort_flag(mapped_abort_flag const&) = delete;
+  mapped_abort_flag(mapped_abort_flag const&)                    = delete;
   auto operator=(mapped_abort_flag const&) -> mapped_abort_flag& = delete;
   ~mapped_abort_flag() { RAFT_CUDA_TRY_NO_THROW(cudaFreeHost(host_)); }
-  void abort() noexcept { std::atomic_ref<std::uint32_t>(*host_).store(1, std::memory_order_release); }
+  void abort() noexcept
+  {
+    std::atomic_ref<std::uint32_t>(*host_).store(1, std::memory_order_release);
+  }
   auto device_ptr() const noexcept -> std::uint32_t const* { return device_; }
+
  private:
   std::uint32_t* host_{};
   std::uint32_t* device_{};
@@ -333,7 +337,8 @@ class host_queue {
       auto const row_id = static_cast<std::uint32_t>(command_staging_[i]);
       auto* destination = row_staging_.data() + static_cast<std::size_t>(i) * row_length_;
       if (row_id < row_count_) {
-        std::copy_n(cross_graph_ + static_cast<std::size_t>(row_id) * row_length_, row_length_, destination);
+        std::copy_n(
+          cross_graph_ + static_cast<std::size_t>(row_id) * row_length_, row_length_, destination);
       } else {
         // Complete malformed requests with an empty row so GPU waiters can finish.
         std::fill_n(destination, row_length_, 0u);
