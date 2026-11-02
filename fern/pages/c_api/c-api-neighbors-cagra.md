@@ -425,7 +425,7 @@ Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for rem
 Allocate ACE params, and populate with default values
 
 ```c
-cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t *params);
+cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t* params);
 ```
 
 **Parameters**
@@ -776,7 +776,7 @@ typedef struct cuvsCagraIndex {
 Allocate CAGRA index
 
 ```c
-cuvsError_t cuvsCagraIndexCreate(cuvsCagraIndex_t *index);
+cuvsError_t cuvsCagraIndexCreate(cuvsCagraIndex_t* index);
 ```
 
 **Parameters**
@@ -1083,7 +1083,7 @@ cuvsResources_t res, cuvsCagraSearchParams_t params,
 uint32_t num_partitions, cuvsCagraIndex_t *indices,
 DLManagedTensor *queries, DLManagedTensor *partition_ids,
 DLManagedTensor *neighbors, DLManagedTensor *distances,
-cuvsFilter *filters);
+cuvsFilter* filters);
 ```
 
 For each query row, the function searches all partitions in parallel into an internal intermediate buffer, applies per-partition distance post-processing, runs a batched top-k merge across partitions, and writes the final outputs to the caller-supplied device tensors. All work is submitted to the CUDA stream associated with `res`; use `cuvsStreamSync` to wait for completion.
@@ -1117,7 +1117,7 @@ Save the CAGRA graph to file without its dataset.
 
 ```c
 cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
-const char *filename,
+const char* filename,
 cuvsCagraIndex_t index);
 ```
 
@@ -1170,7 +1170,7 @@ Save the CAGRA index to file in hnswlib format.
 
 ```c
 cuvsError_t cuvsCagraSerializeToHnswlib(cuvsResources_t res,
-const char *filename,
+const char* filename,
 cuvsCagraIndex_t index);
 ```
 
@@ -1197,7 +1197,7 @@ Load the CAGRA graph from file without retaining a serialized dataset.
 
 ```c
 cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res,
-const char *filename,
+const char* filename,
 cuvsCagraIndex_t index);
 ```
 
@@ -1225,7 +1225,7 @@ Load the CAGRA graph and dataset from file.
 ```c
 cuvsError_t cuvsCagraDeserializeGraphAndDataset(
 cuvsResources_t res, const char *filename, cuvsCagraIndex_t index,
-cuvsDataset_t *out_dataset);
+cuvsDataset_t* out_dataset);
 ```
 
 The returned owning dataset preserves the serialized host/device memory type and standard/padded layout. The index stores a non-owning view into it, so the caller must keep the dataset alive while the index uses it and destroy it separately with cuvsDatasetDestroy. Only a device-padded result is immediately searchable through the C API; attach a caller-owned device-padded view with cuvsCagraUpdateDataset for any other kind. The output pointer must point to a null handle on entry; deserialization acts as a factory and transfers ownership of the allocated dataset handle on success. Returns CUVS_ERROR when the file has no dataset; the index and output handle are unchanged on failure.
@@ -1255,8 +1255,8 @@ Load index from a dataset and graph
 ```c
 cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
 cuvsDistanceType metric,
-DLManagedTensor *graph,
-DLManagedTensor *dataset,
+DLManagedTensor* graph,
+DLManagedTensor* dataset,
 cuvsCagraIndex_t index);
 ```
 
@@ -1284,7 +1284,7 @@ Merge multiple CAGRA indices into a single CAGRA index.
 ```c
 cuvsError_t cuvsCagraMerge(cuvsResources_t res,
 cuvsCagraIndexParams_t params,
-cuvsCagraIndex_t *indices,
+cuvsCagraIndex_t* indices,
 size_t num_indices, cuvsFilter filter,
 cuvsDataset_t merged_dataset,
 cuvsCagraIndex_t output_index);
