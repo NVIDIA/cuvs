@@ -2078,30 +2078,31 @@ auto reorder_vpq_dataset(raft::resources const& res,
                          std::vector<graph_index_type> const& new_to_old)
   -> std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>
 {
-  auto const& source_data = source.dset();
+  auto const source_data = source;
   auto vq_code_book       = raft::make_device_matrix<half, std::uint32_t>(
-    res, source_data.vq_code_book.extent(0), source_data.vq_code_book.extent(1));
+    res, source_data.manifest_view().vq_code_book.extent(0), source_data.manifest_view().vq_code_book.extent(1));
   auto pq_code_book = raft::make_device_matrix<half, std::uint32_t>(
-    res, source_data.pq_code_book.extent(0), source_data.pq_code_book.extent(1));
+    res, source_data.manifest_view().pq_code_book.extent(0), source_data.manifest_view().pq_code_book.extent(1));
   auto encoded = raft::make_device_matrix<std::uint8_t, int64_t>(
-    res, source_data.data.extent(0), source_data.data.extent(1));
+    res, source_data.data_view().extent(0), source_data.data_view().extent(1));
   auto const stream = raft::resource::get_cuda_stream(res);
   raft::copy(vq_code_book.data_handle(),
-             source_data.vq_code_book.data_handle(),
-             source_data.vq_code_book.size(),
+             source_data.manifest_view().vq_code_book.data_handle(),
+             source_data.manifest_view().vq_code_book.size(),
              stream);
   raft::copy(pq_code_book.data_handle(),
-             source_data.pq_code_book.data_handle(),
-             source_data.pq_code_book.size(),
+             source_data.manifest_view().pq_code_book.data_handle(),
+             source_data.manifest_view().pq_code_book.size(),
              stream);
   gather_device_rows(res,
                      encoded.data_handle(),
-                     source_data.data.data_handle(),
-                     source_data.data.extent(0),
-                     static_cast<std::uint32_t>(source_data.data.extent(1)),
+                     source_data.data_view().data_handle(),
+                     source_data.data_view().extent(0),
+                     static_cast<std::uint32_t>(source_data.data_view().extent(1)),
                      new_to_old);
   return std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-    std::move(vq_code_book), std::move(pq_code_book), std::move(encoded));
+    std::move(encoded),
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)});
 }
 
 auto reorder_vpq_dataset_consuming(
@@ -2111,18 +2112,26 @@ auto reorder_vpq_dataset_consuming(
   -> std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>
 {
   RAFT_EXPECTS(source != nullptr, "FlowANN VPQ conversion requires a dataset owner");
-  auto const n_rows     = source->data.extent(0);
-  auto const row_length = source->data.extent(1);
+  auto const n_rows     = source->data_view().extent(0);
+  auto const row_length = source->data_view().extent(1);
   RAFT_EXPECTS(n_rows == static_cast<int64_t>(new_to_old.size()),
                "FlowANN VPQ dataset and graph row counts differ");
 
   auto host_source  = raft::make_host_matrix<std::uint8_t, int64_t>(n_rows, row_length);
   auto const stream = raft::resource::get_cuda_stream(res);
-  raft::copy(host_source.data_handle(), source->data.data_handle(), source->data.size(), stream);
+  raft::copy(host_source.data_handle(), source->data_view().data_handle(), source->data_view().size(), stream);
   raft::resource::sync_stream(res);
 
-  auto vq_code_book = std::move(source->vq_code_book);
-  auto pq_code_book = std::move(source->pq_code_book);
+  // The dataset API exposes codebook views rather than detachable owners. Copy only
+  // the bounded codebooks, then release the old encoded rows before allocating new rows.
+  auto manifest = source->const_manifest_view();
+  auto vq_code_book = raft::make_device_matrix<half, std::uint32_t>(
+    res, manifest.vq_code_book.extent(0), manifest.vq_code_book.extent(1));
+  auto pq_code_book = raft::make_device_matrix<half, std::uint32_t>(
+    res, manifest.pq_code_book.extent(0), manifest.pq_code_book.extent(1));
+  raft::copy(vq_code_book.data_handle(), manifest.vq_code_book.data_handle(), manifest.vq_code_book.size(), stream);
+  raft::copy(pq_code_book.data_handle(), manifest.pq_code_book.data_handle(), manifest.pq_code_book.size(), stream);
+  raft::resource::sync_stream(res);
   source.reset();
 
   auto host_reordered = raft::make_host_matrix<std::uint8_t, int64_t>(n_rows, row_length);
@@ -2142,7 +2151,8 @@ auto reorder_vpq_dataset_consuming(
   raft::copy(encoded.data_handle(), host_reordered.data_handle(), host_reordered.size(), stream);
   raft::resource::sync_stream(res);
   return std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
-    std::move(vq_code_book), std::move(pq_code_book), std::move(encoded));
+    std::move(encoded),
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)});
 }
 
 template <typename CagraIndexT>
@@ -2437,11 +2447,11 @@ auto build_vpq_integrated(raft::resources const& res,
       cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, dataset));
     auto source_indices = conversion.new_to_old;
     auto dataset_owner =
-      detail::reorder_vpq_dataset(res, unordered_dataset->as_dataset_view(), conversion.new_to_old);
+      detail::reorder_vpq_dataset(res, unordered_dataset->view(), conversion.new_to_old);
     unordered_dataset.reset();
     flowann::vpq_f16_index<T, std::uint32_t> index(res,
                                                    params.cagra_params.metric,
-                                                   dataset_owner->as_dataset_view(),
+                                                   dataset_owner->view(),
                                                    params.node_per_cacheline,
                                                    grouping.n_bits);
     std::optional<raft::host_vector_view<const std::uint32_t, int64_t>> seed_view;
@@ -2471,7 +2481,7 @@ auto build_vpq_integrated(raft::resources const& res,
     cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, dataset));
   flowann::vpq_f16_index<T, std::uint32_t> index(res,
                                                  params.cagra_params.metric,
-                                                 dataset_owner->as_dataset_view(),
+                                                 dataset_owner->view(),
                                                  params.node_per_cacheline,
                                                  conversion.layout.n_bits);
   detail::populate_uniform_index(res, index, std::move(conversion));
@@ -2544,7 +2554,7 @@ auto build_vpq_from_cagra(
   auto dataset = detail::reorder_vpq_dataset(res, cagra_index.dataset(), conversion.new_to_old);
   flowann::vpq_f16_index<T, std::uint32_t> index(res,
                                                  cagra_index.metric(),
-                                                 dataset->as_dataset_view(),
+                                                 dataset->view(),
                                                  params.node_per_cacheline,
                                                  params.n_bits);
   detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
@@ -2576,7 +2586,7 @@ auto build_vpq_from_cagra_consuming(
   auto dataset =
     detail::reorder_vpq_dataset_consuming(res, std::move(vpq_dataset), conversion.new_to_old);
   flowann::vpq_f16_index<T, std::uint32_t> index(
-    res, metric, dataset->as_dataset_view(), params.node_per_cacheline, params.n_bits);
+    res, metric, dataset->view(), params.node_per_cacheline, params.n_bits);
   detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
   return {std::move(dataset), std::move(index)};
 }
