@@ -220,7 +220,6 @@ void kmeansPlusPlus(raft::resources const& handle,
     }
   }
 
-  // Mix with stage tag
   std::mt19937_64 gen_64(mix_seed(params.rng_state.seed, RngStage::FirstCentroid));
   uint64_t gpu_seed = mix_seed(params.rng_state.seed, RngStage::CandidateSampling);
   raft::random::RngState rng(gpu_seed, params.rng_state.type);
