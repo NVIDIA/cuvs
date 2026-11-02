@@ -19,6 +19,7 @@
 #include <raft/linalg/reduce.cuh>
 #include <raft/linalg/transpose.cuh>
 #include <raft/matrix/argmin.cuh>
+#include <raft/matrix/init.cuh>
 
 namespace cuvs::cluster::soar::detail {
 
@@ -100,10 +101,7 @@ void compute_soar_labels(raft::resources const& dev_resources,
     dev_resources, residuals.extent(0), residuals.extent(1));
 
   // row_normalize skips zero-residual rows, leaving them unset (garbage); zero-fill so they stay 0.
-  RAFT_CUDA_TRY(cudaMemsetAsync(residuals_norm.data_handle(),
-                                0,
-                                residuals_norm.size() * sizeof(float),
-                                raft::resource::get_cuda_stream(dev_resources).get()));
+  raft::matrix::fill(dev_resources, residuals_norm.view(), 0.0f);
 
   raft::linalg::row_normalize(dev_resources,
                               residuals,
