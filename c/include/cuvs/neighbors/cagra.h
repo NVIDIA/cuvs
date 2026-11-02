@@ -71,7 +71,7 @@ enum cuvsCagraHnswHeuristicType {
    * low recall side (that is being slightly faster and less precise).
    *
    */
-  CUVS_CAGRA_HEURISTIC_SIMILAR_SEARCH_PERFORMANCE = 0,
+   CUVS_CAGRA_HEURISTIC_SIMILAR_SEARCH_PERFORMANCE = 0,
   /**
    * Create a graph that has the same binary size as an HNSW graph with the
    * given parameters (graph_degree = 2 * M) while trying to match the search
@@ -84,7 +84,7 @@ enum cuvsCagraHnswHeuristicType {
    * Recall-QPS curves should be similar (i.e. the points are just shifted along
    * the curve).
    */
-  CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT = 1
+   CUVS_CAGRA_HEURISTIC_SAME_GRAPH_FOOTPRINT = 1
 };
 
 /**
@@ -137,7 +137,7 @@ struct cuvsIvfPqParams {
   float refinement_rate;
 };
 
-typedef struct cuvsIvfPqParams *cuvsIvfPqParams_t;
+typedef struct cuvsIvfPqParams* cuvsIvfPqParams_t;
 
 /**
  * Parameters for ACE (Augmented Core Extraction) graph build.
@@ -184,7 +184,7 @@ struct cuvsAceParams {
    * Simultaneous builds must use different directories. On failure, ACE removes
    * only artifacts it created and never deletes unrelated directory contents.
    */
-  const char *build_dir;
+  const char* build_dir;
   /**
    * Whether to use disk-based storage for ACE build.
    *
@@ -212,7 +212,7 @@ struct cuvsAceParams {
   double max_gpu_memory_gb;
 };
 
-typedef struct cuvsAceParams *cuvsAceParams_t;
+typedef struct cuvsAceParams* cuvsAceParams_t;
 
 /** Experimental CAGRA graph storage mode. */
 enum cuvsCagraGraphStorage {
@@ -303,7 +303,7 @@ struct cuvsCagraIndexParams {
    * - ACE: cuvsAceParams_t
    * - Others: nullptr
    */
-  void *graph_build_params;
+  void* graph_build_params;
   /** Graph representation selected for construction. The default is
    * CUVS_CAGRA_GRAPH_DEVICE. */
   enum cuvsCagraGraphStorage graph_storage;
@@ -312,13 +312,13 @@ struct cuvsCagraIndexParams {
   struct cuvsCagraTieredGraphParams tiered;
 };
 
-typedef struct cuvsCagraIndexParams *cuvsCagraIndexParams_t;
+typedef struct cuvsCagraIndexParams* cuvsCagraIndexParams_t;
 
 /** Algorithm used to merge physical CAGRA indices. */
 enum cuvsCagraMergeAlgo {
-  CUVS_CAGRA_MERGE_AUTO = 0,
+  CUVS_CAGRA_MERGE_AUTO     = 0,
   CUVS_CAGRA_MERGE_FASTENER = 1,
-  CUVS_CAGRA_MERGE_REBUILD = 2
+  CUVS_CAGRA_MERGE_REBUILD  = 2
 };
 
 /** Parameters controlling how physical CAGRA indices are merged. */
@@ -333,7 +333,7 @@ struct cuvsCagraMergeParams {
   uint32_t leaf_degree;
 };
 
-typedef struct cuvsCagraMergeParams *cuvsCagraMergeParams_t;
+typedef struct cuvsCagraMergeParams* cuvsCagraMergeParams_t;
 
 /**
  * @brief Allocate CAGRA Index params, and populate with default values
@@ -391,7 +391,7 @@ cuvsCagraCompressionParamsDestroy(cuvsCagraCompressionParams_t params);
  * @param[in] params cuvsAceParams_t to allocate
  * @return cuvsError_t
  */
-CUVS_EXPORT cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t *params);
+CUVS_EXPORT cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t* params);
 
 /**
  * @brief De-allocate ACE params
@@ -419,7 +419,7 @@ CUVS_EXPORT cuvsError_t cuvsAceParamsDestroy(cuvsAceParams_t params);
 CUVS_EXPORT cuvsError_t cuvsCagraIndexParamsFromHnswParams(
     cuvsCagraIndexParams_t params, int64_t n_rows, int64_t dim, int M,
     int ef_construction, enum cuvsCagraHnswHeuristicType heuristic,
-    cuvsDistanceType metric);
+                                                cuvsDistanceType metric);
 
 /**
  * @brief Create CAGRA index parameters heuristically tuned for a dataset
@@ -463,7 +463,7 @@ struct cuvsCagraExtendParams {
   uint32_t max_chunk_size;
 };
 
-typedef struct cuvsCagraExtendParams *cuvsCagraExtendParams_t;
+typedef struct cuvsCagraExtendParams* cuvsCagraExtendParams_t;
 
 /**
  * @brief Allocate CAGRA Extend params, and populate with default values
@@ -501,9 +501,9 @@ enum cuvsCagraSearchAlgo {
   /** For large batch sizes. */
   SINGLE_CTA = 0,
   /** For small batch sizes. */
-  MULTI_CTA = 1,
+  MULTI_CTA    = 1,
   MULTI_KERNEL = 2,
-  AUTO = 100
+  AUTO         = 100
 };
 
 /**
@@ -595,7 +595,7 @@ struct cuvsCagraSearchParams {
   struct cuvsCagraTieredSearchParams tiered;
 };
 
-typedef struct cuvsCagraSearchParams *cuvsCagraSearchParams_t;
+typedef struct cuvsCagraSearchParams* cuvsCagraSearchParams_t;
 
 /**
  * @brief Allocate CAGRA search params, and populate with default values
@@ -639,7 +639,7 @@ typedef struct cuvsCagraIndex {
   DLDataType dtype;
 } cuvsCagraIndex;
 
-typedef cuvsCagraIndex *cuvsCagraIndex_t;
+typedef cuvsCagraIndex* cuvsCagraIndex_t;
 
 /**
  * @brief Allocate CAGRA index
@@ -647,7 +647,7 @@ typedef cuvsCagraIndex *cuvsCagraIndex_t;
  * @param[in] index cuvsCagraIndex_t to allocate
  * @return cagraError_t
  */
-CUVS_EXPORT cuvsError_t cuvsCagraIndexCreate(cuvsCagraIndex_t *index);
+CUVS_EXPORT cuvsError_t cuvsCagraIndexCreate(cuvsCagraIndex_t* index);
 
 /**
  * @brief De-allocate CAGRA index
@@ -900,10 +900,10 @@ CUVS_EXPORT cuvsError_t cuvsCagraBuildCompressed(cuvsResources_t res,
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsCagraExtend(cuvsResources_t res,
-                                        cuvsCagraExtendParams_t params,
-                                        cuvsDataset_t extended_dataset,
-                                        int64_t new_start_row,
-                                        cuvsCagraIndex_t index);
+                            cuvsCagraExtendParams_t params,
+                            cuvsDataset_t extended_dataset,
+                            int64_t new_start_row,
+                            cuvsCagraIndex_t index);
 
 /**
  * @}
@@ -1015,7 +1015,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(
     uint32_t num_partitions, cuvsCagraIndex_t *indices,
     DLManagedTensor *queries, DLManagedTensor *partition_ids,
     DLManagedTensor *neighbors, DLManagedTensor *distances,
-    cuvsFilter *filters);
+                                                      cuvsFilter* filters);
 
 /**
  * @}
@@ -1041,7 +1041,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraSearchMultiPartition(
  * @param[in] index CAGRA index
  */
 CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
-                                                const char *filename,
+                                                const char* filename,
                                                 cuvsCagraIndex_t index);
 
 /**
@@ -1089,8 +1089,8 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeGraphAndDataset(
  *
  */
 CUVS_EXPORT cuvsError_t cuvsCagraSerializeToHnswlib(cuvsResources_t res,
-                                                    const char *filename,
-                                                    cuvsCagraIndex_t index);
+                                        const char* filename,
+                                        cuvsCagraIndex_t index);
 
 /**
  * Load the CAGRA graph from file without retaining a serialized dataset.
@@ -1108,7 +1108,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraSerializeToHnswlib(cuvsResources_t res,
  * unchanged on failure
  */
 CUVS_EXPORT cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res,
-                                                  const char *filename,
+                                                  const char* filename,
                                                   cuvsCagraIndex_t index);
 
 /**
@@ -1141,7 +1141,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res,
  */
 CUVS_EXPORT cuvsError_t cuvsCagraDeserializeGraphAndDataset(
     cuvsResources_t res, const char *filename, cuvsCagraIndex_t index,
-    cuvsDataset_t *out_dataset);
+                                                            cuvsDataset_t* out_dataset);
 
 /**
  * Load index from a dataset and graph
@@ -1178,10 +1178,10 @@ CUVS_EXPORT cuvsError_t cuvsCagraDeserializeGraphAndDataset(
  * @endcode
  */
 CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
-                                               cuvsDistanceType metric,
-                                               DLManagedTensor *graph,
-                                               DLManagedTensor *dataset,
-                                               cuvsCagraIndex_t index);
+                                   cuvsDistanceType metric,
+                                   DLManagedTensor* graph,
+                                   DLManagedTensor* dataset,
+                                   cuvsCagraIndex_t index);
 
 /**
  * @}
@@ -1264,11 +1264,11 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
  * before use.
  */
 CUVS_EXPORT cuvsError_t cuvsCagraMerge(cuvsResources_t res,
-                                       cuvsCagraIndexParams_t params,
-                                       cuvsCagraIndex_t *indices,
+                           cuvsCagraIndexParams_t params,
+                           cuvsCagraIndex_t* indices,
                                        size_t num_indices, cuvsFilter filter,
-                                       cuvsDataset_t merged_dataset,
-                                       cuvsCagraIndex_t output_index);
+                           cuvsDataset_t merged_dataset,
+                           cuvsCagraIndex_t output_index);
 
 /**
  * @brief Merge multiple CAGRA indices with explicit merge parameters.
@@ -1295,7 +1295,7 @@ CUVS_EXPORT cuvsError_t cuvsCagraMergeWithParams(
     cuvsResources_t res, cuvsCagraIndexParams_t params,
     cuvsCagraMergeParams_t merge_params, cuvsCagraIndex_t *indices,
     size_t num_indices, cuvsFilter filter, cuvsDataset_t merged_dataset,
-    cuvsCagraIndex_t output_index);
+                                                 cuvsCagraIndex_t output_index);
 
 /**
  * @}
