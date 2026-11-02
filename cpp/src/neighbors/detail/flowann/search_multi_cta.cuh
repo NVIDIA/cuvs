@@ -89,13 +89,21 @@ struct multi_cta_plan
       sizeof(IndexT) * cuvs::neighbors::cagra::detail::hashmap::get_size(this->small_hash_bitlen) +
       sizeof(IndexT) + sizeof(int);
 
+    auto const total_smem_size = raft::round_up_safe<std::size_t>(
+                                   sizeof(graph_state<IndexT>), std::size_t{128}) +
+                                 this->smem_size;
+    auto const properties = raft::resource::get_device_properties(res);
+    RAFT_EXPECTS(total_smem_size <= properties.sharedMemPerBlockOptin,
+                 "FlowANN search needs %zu bytes of shared memory, device limit is %zu",
+                 total_smem_size, properties.sharedMemPerBlockOptin);
+
     constexpr std::uint32_t min_block_size = 64;
     constexpr std::uint32_t max_block_size = 1024;
     auto block_size                        = static_cast<std::uint32_t>(this->thread_block_size);
     if (block_size == 0) {
       block_size                                  = min_block_size;
       constexpr std::uint32_t smem_per_warp_limit = 4096;
-      while (block_size<max_block_size&& this->smem_size> smem_per_warp_limit / 32 * block_size) {
+      while (block_size < max_block_size && total_smem_size > smem_per_warp_limit / 32 * block_size) {
         block_size *= 2;
       }
       auto const properties = raft::resource::get_device_properties(res);
@@ -190,6 +198,8 @@ void search_multi_cta(raft::resources const& res,
     params.num_seeds == 0 ? nullptr : seed_lookup_values->data_handle();
   auto const seed_lookup_capacity =
     params.num_seeds == 0 ? 0u : static_cast<std::uint32_t>(seed_lookup_keys->extent(0));
+  if (queries.extent(0) == 0) { return; }
+
   auto const properties = raft::resource::get_device_properties(res);
   if (params.max_queries == 0) {
     params.max_queries = std::min<std::size_t>(queries.extent(0), properties.maxGridSize[1]);
@@ -240,7 +250,7 @@ void search_multi_cta(raft::resources const& res,
   auto const intermediate_count = plan.num_cta_per_query * plan.itopk_size;
   auto const num_queries        = static_cast<std::uint32_t>(queries.extent(0));
 
-  context_run_guard running(context);
+  context_run_guard running(context, stream);
   for (std::uint32_t offset = 0; offset < num_queries;
        offset += static_cast<std::uint32_t>(max_batch_queries)) {
     auto const count =
@@ -382,8 +392,11 @@ void search_dispatch(raft::resources const& res,
     auto const properties = raft::resource::get_device_properties(res);
     auto const effective_max_queries =
       params.max_queries == 0 ? static_cast<std::size_t>(queries.extent(0)) : params.max_queries;
+    auto const multi_cta_fits =
+      std::max<std::uint64_t>(32ull + 3ull * index.graph_degree(), params.num_seeds) <= 256;
     algo = params.itopk_size <= 512 &&
-               effective_max_queries >= static_cast<std::size_t>(properties.multiProcessorCount) * 2
+               (!multi_cta_fits || effective_max_queries >=
+                                    static_cast<std::size_t>(properties.multiProcessorCount) * 2)
              ? cuvs::neighbors::cagra::search_algo::SINGLE_CTA
              : cuvs::neighbors::cagra::search_algo::MULTI_CTA;
   }
