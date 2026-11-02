@@ -23,13 +23,10 @@ rapids_cuda_init_architectures(test_cuvs)
 project(test_cuvs LANGUAGES CXX CUDA)
 find_package(Threads)
 
-option(CUVS_ENABLE_FLOWANN_SEARCH
-       "Build the experimental FlowANN search implementation" OFF)
-option(CUVS_ENABLE_FLOWANN_BUILD
-       "Build the experimental FlowANN integrated builder" OFF)
+option(CUVS_ENABLE_FLOWANN_SEARCH "Build the experimental FlowANN search implementation" OFF)
+option(CUVS_ENABLE_FLOWANN_BUILD "Build the experimental FlowANN integrated builder" OFF)
 if(CUVS_ENABLE_FLOWANN_BUILD AND NOT CUVS_ENABLE_FLOWANN_SEARCH)
-  message(
-    FATAL_ERROR "CUVS_ENABLE_FLOWANN_BUILD requires CUVS_ENABLE_FLOWANN_SEARCH")
+  message(FATAL_ERROR "CUVS_ENABLE_FLOWANN_BUILD requires CUVS_ENABLE_FLOWANN_SEARCH")
 endif()
 
 set(CMAKE_CXX_STANDARD 20)
@@ -51,8 +48,7 @@ add_executable(BALANCED_KMEANS_EXAMPLE src/balanced_kmeans_example.cu)
 add_executable(CAGRA_EXAMPLE src/cagra_example.cu)
 add_executable(CAGRA_FILTER_UDF_EXAMPLE src/cagra_filter_udf_example.cu)
 add_executable(CAGRA_BLOOM_FILTER_EXAMPLE src/cagra_bloom_filter_example.cu)
-add_executable(CAGRA_ROARING_BITMAP_FILTER_EXAMPLE
-               src/cagra_roaring_bitmap_filter_example.cu)
+add_executable(CAGRA_ROARING_BITMAP_FILTER_EXAMPLE src/cagra_roaring_bitmap_filter_example.cu)
 add_executable(CAGRA_HNSW_ACE_BUILD_EXAMPLE src/cagra_hnsw_ace_build.cu)
 add_executable(CAGRA_HNSW_ACE_EXAMPLE src/cagra_hnsw_ace_example.cu)
 add_executable(CAGRA_PERSISTENT_EXAMPLE src/cagra_persistent_example.cu)
@@ -68,64 +64,56 @@ add_executable(SCANN_TWO_LEVEL_EXAMPLE src/scann_two_level_example.cu)
 if(CUVS_ENABLE_FLOWANN_SEARCH AND NOT TARGET FLOWANN_BENCHMARK)
   find_package(OpenMP REQUIRED COMPONENTS CXX CUDA)
   add_executable(FLOWANN_BENCHMARK src/flowann_benchmark.cu)
-  target_include_directories(FLOWANN_BENCHMARK
-                             PRIVATE "${cuvs_SOURCE_DIR}/cpp/src")
+  target_include_directories(FLOWANN_BENCHMARK PRIVATE "${cuvs_SOURCE_DIR}/cpp/src")
   target_link_libraries(
     FLOWANN_BENCHMARK
     PRIVATE cuvs::cuvs OpenMP::OpenMP_CXX OpenMP::OpenMP_CUDA
-            $<TARGET_NAME_IF_EXISTS:GDRCopy::GDRCopy>
-            $<TARGET_NAME_IF_EXISTS:conda_env>)
+            $<TARGET_NAME_IF_EXISTS:GDRCopy::GDRCopy> $<TARGET_NAME_IF_EXISTS:conda_env>
+  )
 endif()
 if(CUVS_ENABLE_FLOWANN_BUILD AND NOT TARGET FLOWANN_BUILD_BENCHMARK)
   add_executable(FLOWANN_BUILD_BENCHMARK src/flowann_build_benchmark.cu)
-  target_include_directories(FLOWANN_BUILD_BENCHMARK
-                             PRIVATE "${cuvs_SOURCE_DIR}/cpp/src")
+  target_include_directories(FLOWANN_BUILD_BENCHMARK PRIVATE "${cuvs_SOURCE_DIR}/cpp/src")
   target_link_libraries(
     FLOWANN_BUILD_BENCHMARK PRIVATE cuvs::cuvs OpenMP::OpenMP_CUDA
-                                    $<TARGET_NAME_IF_EXISTS:conda_env>)
+                                    $<TARGET_NAME_IF_EXISTS:conda_env>
+  )
 endif()
 
-# `$<TARGET_NAME_IF_EXISTS:conda_env>` is a generator expression that ensures
-# that targets are installed in a conda environment, if one exists
-target_link_libraries(BRUTE_FORCE_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(BALANCED_KMEANS_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(CAGRA_EXAMPLE PRIVATE cuvs::cuvs
-                                            $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(CAGRA_FILTER_UDF_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+# `$<TARGET_NAME_IF_EXISTS:conda_env>` is a generator expression that ensures that targets are
+# installed in a conda environment, if one exists
+target_link_libraries(BRUTE_FORCE_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(BALANCED_KMEANS_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(CAGRA_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
 target_link_libraries(
-  CAGRA_BLOOM_FILTER_EXAMPLE PRIVATE cuvs::cuvs cuco::cuco
-                                     $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(CAGRA_ROARING_BITMAP_FILTER_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(CAGRA_HNSW_ACE_BUILD_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(CAGRA_HNSW_ACE_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+  CAGRA_FILTER_UDF_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>
+)
 target_link_libraries(
-  CAGRA_PERSISTENT_EXAMPLE
-  PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env> Threads::Threads)
+  CAGRA_BLOOM_FILTER_EXAMPLE PRIVATE cuvs::cuvs cuco::cuco $<TARGET_NAME_IF_EXISTS:conda_env>
+)
 target_link_libraries(
-  DYNAMIC_BATCHING_EXAMPLE
-  PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env> Threads::Threads)
-target_link_libraries(HNSW_ACE_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(HNSW_ACE_LAYERED_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(HNSW_OPENAI_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(IVF_PQ_EXAMPLE PRIVATE cuvs::cuvs
-                                             $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(IVF_FLAT_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(VAMANA_EXAMPLE PRIVATE cuvs::cuvs
-                                             $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(SCANN_EXAMPLE PRIVATE cuvs::cuvs
-                                            $<TARGET_NAME_IF_EXISTS:conda_env>)
-target_link_libraries(SCANN_TWO_LEVEL_EXAMPLE
-                      PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+  CAGRA_ROARING_BITMAP_FILTER_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>
+)
+target_link_libraries(
+  CAGRA_HNSW_ACE_BUILD_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>
+)
+target_link_libraries(CAGRA_HNSW_ACE_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(
+  CAGRA_PERSISTENT_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env> Threads::Threads
+)
+target_link_libraries(
+  DYNAMIC_BATCHING_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env> Threads::Threads
+)
+target_link_libraries(HNSW_ACE_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(
+  HNSW_ACE_LAYERED_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>
+)
+target_link_libraries(HNSW_OPENAI_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(IVF_PQ_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(IVF_FLAT_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(VAMANA_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(SCANN_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
+target_link_libraries(SCANN_TWO_LEVEL_EXAMPLE PRIVATE cuvs::cuvs $<TARGET_NAME_IF_EXISTS:conda_env>)
 
 install(
   TARGETS BRUTE_FORCE_EXAMPLE
@@ -146,5 +134,5 @@ install(
           VAMANA_EXAMPLE
           SCANN_EXAMPLE
           SCANN_TWO_LEVEL_EXAMPLE
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}/examples/libcuvs
-          COMPONENT cuvs_examples)
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}/examples/libcuvs COMPONENT cuvs_examples
+)
