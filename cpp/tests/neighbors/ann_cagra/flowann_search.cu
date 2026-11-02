@@ -68,11 +68,12 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
                       std::uint32_t num_queues                = 2,
                       bool alternate_modes                    = false,
                       std::uint32_t packed_bits               = 2,
-                      std::uint32_t row_padding               = 0) -> search_result
+                      std::uint32_t row_padding               = 0,
+                      std::uint32_t query_dim                 = 4) -> search_result
 {
   raft::resources res;
   constexpr int64_t rows = 8;
-  constexpr int64_t dim  = 4;
+  auto const dim = static_cast<int64_t>(query_dim);
 
   auto host_dataset = raft::make_host_matrix<float, int64_t>(rows, dim);
   for (int64_t row = 0; row < rows; ++row) {
@@ -87,7 +88,8 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
              host_dataset.data_handle(),
              host_dataset.size(),
              raft::resource::get_cuda_stream(res));
-  auto dataset = cuvs::neighbors::make_device_padded_dataset_view(res, device_dataset.view());
+  auto dataset_owner = cuvs::neighbors::make_device_padded_dataset(res, device_dataset.view());
+  auto dataset = dataset_owner->as_dataset_view();
 
   flowann::device_padded_index<float> index(
     res, cuvs::distance::DistanceType::L2Expanded, dataset, 2, packed_bits);
@@ -460,4 +462,25 @@ TEST(FlowannSearch, RetriesParentsWithoutOverwritingPendingRequests)
 TEST(FlowannSearch, EmptyQueriesAreANoOp)
 {
   EXPECT_NO_THROW(run_dense_search(cuvs::neighbors::cagra::search_algo::SINGLE_CTA, {}));
+}
+
+
+TEST(FlowannSearch, PaddedQueriesMatchAcrossBatchBoundaries)
+{
+  for (auto algo : {cuvs::neighbors::cagra::search_algo::SINGLE_CTA,
+                    cuvs::neighbors::cagra::search_algo::MULTI_CTA}) {
+    for (std::uint32_t dim : {5u, 33u}) {
+      auto one = run_dense_search(algo, {0.1f, 12.2f, 1.1f, 10.3f, 2.2f},
+                                   {}, 16, false, 1, 32, 1, 2, false, 2, 0, dim);
+      auto batched = run_dense_search(algo, {0.1f, 12.2f, 1.1f, 10.3f, 2.2f},
+                                       {}, 16, false, 3, 32, 1, 2, false, 2, 0, dim);
+      for (int64_t row = 0; row < 5; ++row) {
+        for (int64_t rank = 0; rank < 2; ++rank) {
+          EXPECT_EQ(batched.neighbors(row, rank), one.neighbors(row, rank));
+          EXPECT_NEAR(batched.distances(row, rank), one.distances(row, rank), 1e-4f);
+        }
+      }
+    }
+    EXPECT_NO_THROW(run_dense_search(algo, {}));
+  }
 }
