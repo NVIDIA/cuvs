@@ -160,9 +160,12 @@ struct tiered_graph_provider {
     return seeds != nullptr && requested_seeds > 0 ? 1u : count;
   }
 
-  RAFT_DEVICE_INLINE_FUNCTION void submit_parents(
-    const IndexT* parent_indices, const IndexT* internal_topk, std::uint32_t search_width,
-    std::uint16_t sync_window, IndexT* traversed_hashmap, std::uint32_t traversed_hash_bitlen) const
+  RAFT_DEVICE_INLINE_FUNCTION void submit_parents(const IndexT* parent_indices,
+                                                  const IndexT* internal_topk,
+                                                  std::uint32_t search_width,
+                                                  std::uint16_t sync_window,
+                                                  IndexT* traversed_hashmap,
+                                                  std::uint32_t traversed_hash_bitlen) const
   {
     constexpr IndexT index_msb =
       cuvs::neighbors::cagra::detail::utils::gen_index_msb_1_mask<IndexT>::value;
@@ -321,8 +324,12 @@ struct tiered_graph_provider {
       }
 
       if (!state->use_seed_cache) {
-        submit_parents(parent_indices, internal_topk, search_width, sync_window,
-                       traversed_hashmap, traversed_hash_bitlen);
+        submit_parents(parent_indices,
+                       internal_topk,
+                       search_width,
+                       sync_window,
+                       traversed_hashmap,
+                       traversed_hash_bitlen);
       }
     }
     // The one-parent path can consume ready rows while warp 1 prepares inner
