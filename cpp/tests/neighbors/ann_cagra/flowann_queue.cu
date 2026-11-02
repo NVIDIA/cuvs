@@ -773,3 +773,46 @@ TEST(FlowannQueue, InvalidRequestsCompleteAndReportAnError)
   EXPECT_EQ(observed[1], 0);
   EXPECT_ANY_THROW(context.pause());
 }
+
+
+namespace {
+RAFT_KERNEL wait_for_host_abort(flowann::detail::queue_view queue, std::uint32_t* completed)
+{
+  if (threadIdx.x != 0) { return; }
+  flowann::detail::queue_reservation reservation{0, 0};
+  auto const start = clock64();
+  bool ready = false;
+  while (!(ready = flowann::detail::result_ready(queue, reservation)) &&
+         clock64() - start < 100000000ull) {}
+  *completed = ready;
+}
+}  // namespace
+
+TEST(FlowannQueue, HostAbortCompletesAWaitWithoutCudaCopies)
+{
+  raft::resources res;
+  auto graph = raft::make_host_matrix<std::uint32_t, int64_t>(4, 1);
+  std::fill_n(graph.data_handle(), graph.size(), 0u);
+  flowann::search_context context(raft::make_const_mdspan(graph.view()));
+  flowann::detail::queue_view queue{};
+  RAFT_CUDA_TRY(cudaMemcpy(&queue,
+    flowann::detail::search_context_access::device_queues(context),
+    sizeof(queue), cudaMemcpyDeviceToHost));
+  cudaPointerAttributes attributes{};
+  RAFT_CUDA_TRY(cudaPointerGetAttributes(&attributes, queue.abort_flag));
+  auto* host_flag = static_cast<std::uint32_t*>(attributes.hostPointer);
+  ASSERT_NE(host_flag, nullptr);
+  auto completed = raft::make_device_vector<std::uint32_t, int64_t>(res, 1);
+  wait_for_host_abort<<<1, 1, 0, raft::resource::get_cuda_stream(res)>>>(
+    queue, completed.data_handle());
+  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  std::jthread signal([host_flag] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    std::atomic_ref<std::uint32_t>(*host_flag).store(1, std::memory_order_release);
+  });
+  raft::resource::sync_stream(res);
+  std::uint32_t actual{};
+  raft::copy(&actual, completed.data_handle(), 1, raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  EXPECT_EQ(actual, 1u);
+}

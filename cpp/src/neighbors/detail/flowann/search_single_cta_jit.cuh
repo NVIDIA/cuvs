@@ -160,6 +160,47 @@ struct tiered_graph_provider {
     return seeds != nullptr && requested_seeds > 0 ? 1u : count;
   }
 
+  RAFT_DEVICE_INLINE_FUNCTION void submit_parents(
+    const IndexT* parent_indices, const IndexT* internal_topk, std::uint32_t search_width,
+    std::uint16_t sync_window, IndexT* traversed_hashmap, std::uint32_t traversed_hash_bitlen) const
+  {
+    constexpr IndexT index_msb =
+      cuvs::neighbors::cagra::detail::utils::gen_index_msb_1_mask<IndexT>::value;
+    std::uint32_t commands[max_search_width];
+    std::uint32_t command_count = 0;
+    for (std::uint32_t i = 0; i < search_width; ++i) {
+      if (!state->parent_valid[i]) { continue; }
+      commands[command_count++] = static_cast<std::uint32_t>(state->parent_ids[i]);
+    }
+
+    queue_reservation first{};
+    bool reserved = command_count == 0;
+    // One slot is reserved to distinguish a full pending ring from an empty one.
+    // Do not publish commands unless every reservation can be tracked until release.
+    if (command_count <= state->pending.available()) {
+      for (std::uint32_t attempt = 0; attempt < 200 && !reserved; ++attempt) {
+        reserved = try_reserve_deferred(queue, command_count, &first);
+      }
+    }
+    if (command_count > 0 && reserved) {
+      submit_batch(queue, first, commands, command_count);
+      for (std::uint32_t i = 0; i < command_count; ++i) {
+        state->pending.push({commands[i], reservation_at(first, i), sync_window});
+      }
+    } else if (!reserved) {
+      // Parent selection marked these nodes as traversed. Retry their cross rows
+      // after making progress on older requests rather than silently losing edges.
+      for (std::uint32_t i = 0; i < search_width; ++i) {
+        if (!state->parent_valid[i]) { continue; }
+        const_cast<IndexT*>(internal_topk)[parent_indices[i]] &= ~index_msb;
+        if (traversed_hashmap != nullptr) {
+          cuvs::neighbors::cagra::detail::hashmap::remove(
+            traversed_hashmap, traversed_hash_bitlen, state->parent_ids[i]);
+        }
+      }
+    }
+  }
+
   RAFT_DEVICE_INLINE_FUNCTION auto expand(
     IndexT* result_indices,
     DistanceT* result_distances,
@@ -280,39 +321,8 @@ struct tiered_graph_provider {
       }
 
       if (!state->use_seed_cache) {
-        std::uint32_t commands[max_search_width];
-        std::uint32_t command_count = 0;
-        for (std::uint32_t i = 0; i < search_width; ++i) {
-          if (!state->parent_valid[i]) { continue; }
-          commands[command_count++] = static_cast<std::uint32_t>(state->parent_ids[i]);
-        }
-
-        queue_reservation first{};
-        bool reserved = command_count == 0;
-        // One slot is reserved to distinguish a full pending ring from an empty one.
-        // Do not publish commands unless every reservation can be tracked until release.
-        if (command_count <= state->pending.available()) {
-          for (std::uint32_t attempt = 0; attempt < 200 && !reserved; ++attempt) {
-            reserved = try_reserve_deferred(queue, command_count, &first);
-          }
-        }
-        if (command_count > 0 && reserved) {
-          submit_batch(queue, first, commands, command_count);
-          for (std::uint32_t i = 0; i < command_count; ++i) {
-            state->pending.push({commands[i], reservation_at(first, i), sync_window});
-          }
-        } else if (!reserved) {
-          // Parent selection marked these nodes as traversed. Retry their cross rows
-          // after making progress on older requests rather than silently losing edges.
-          for (std::uint32_t i = 0; i < search_width; ++i) {
-            if (!state->parent_valid[i]) { continue; }
-            const_cast<IndexT*>(internal_topk)[parent_indices[i]] &= ~index_msb;
-            if (traversed_hashmap != nullptr) {
-              cuvs::neighbors::cagra::detail::hashmap::remove(
-                traversed_hashmap, traversed_hash_bitlen, state->parent_ids[i]);
-            }
-          }
-        }
+        submit_parents(parent_indices, internal_topk, search_width, sync_window,
+                       traversed_hashmap, traversed_hash_bitlen);
       }
     }
     // The one-parent path can consume ready rows while warp 1 prepares inner
