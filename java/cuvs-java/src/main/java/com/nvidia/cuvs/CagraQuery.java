@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -203,13 +203,15 @@ public class CagraQuery {
     }
 
     /**
-     * Sets a global prefilter for all queries in this {@link CagraQuery}.
-     * The {@code prefilter} array must contain exactly one {@link BitSet},
-     * which is applied to all queries. A bit value of {@code 1} includes the
-     * corresponding dataset vector; {@code 0} excludes it.
+     * Sets a prefilter shared by all queries in this {@link CagraQuery}. Bit {@code i} set
+     * includes dataset vector {@code i} in the results; bit {@code i} clear excludes it. A
+     * {@code BitSet} with no bits set excludes every vector, so the search returns no results,
+     * while a {@code null} prefilter applies no filtering.
      *
-     * @param prefilter an array with the global filter BitSet
-     * @param numDocs total number of vectors in the dataset (for alignment)
+     * @param prefilter the filter, or {@code null} for no filtering
+     * @param numDocs the number of vectors the filter covers. The search throws {@link
+     *     IllegalArgumentException} if it is smaller than the number of vectors in the index. Bits
+     *     at or beyond {@code numDocs} are ignored.
      * @return this {@link Builder} instance
      */
     public Builder withPrefilter(BitSet prefilter, int numDocs) {
