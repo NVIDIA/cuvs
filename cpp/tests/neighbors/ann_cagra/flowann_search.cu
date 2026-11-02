@@ -74,7 +74,7 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
 {
   raft::resources res;
   constexpr int64_t rows = 8;
-  auto const dim = static_cast<int64_t>(query_dim);
+  auto const dim         = static_cast<int64_t>(query_dim);
 
   auto host_dataset = raft::make_host_matrix<float, int64_t>(rows, dim);
   for (int64_t row = 0; row < rows; ++row) {
@@ -90,7 +90,7 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
              host_dataset.size(),
              raft::resource::get_cuda_stream(res));
   auto dataset_owner = cuvs::neighbors::make_device_padded_dataset(res, device_dataset.view());
-  auto dataset = dataset_owner->as_dataset_view();
+  auto dataset       = dataset_owner->as_dataset_view();
 
   flowann::device_padded_index<float> index(
     res, cuvs::distance::DistanceType::L2Expanded, dataset, 2, packed_bits);
@@ -108,8 +108,11 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
       cross(row, column) = row < 4 ? row + 4 : row - 4;
     }
   }
-  index.update_graph(
-    res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(cross.view()), complete_degree, 1);
+  index.update_graph(res,
+                     raft::make_const_mdspan(inner.view()),
+                     raft::make_const_mdspan(cross.view()),
+                     complete_degree,
+                     1);
 
   auto offsets      = raft::make_host_vector<std::uint32_t, int64_t>(2);
   offsets(0)        = 0;
@@ -403,19 +406,21 @@ RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
   __shared__ std::uint32_t traversed[32];
   std::uint32_t topk[8];
   std::uint32_t positions[8];
-  for (std::uint32_t i = 0; i < 32; ++i) { traversed[i] = ~std::uint32_t{0}; }
+  for (std::uint32_t i = 0; i < 32; ++i) {
+    traversed[i] = ~std::uint32_t{0};
+  }
   state.pending.initialize();
   // Mode 0 has one free pending slot; mode 1 has a full device queue;
   // mode 2 has capacity in both and must publish the complete batch.
-  state.pending.head = mode == 0 ? 510 : 0;
+  state.pending.head            = mode == 0 ? 510 : 0;
   queue.state->reservation_head = mode == 1 ? flowann::detail::queue_capacity : 0;
-  queue.state->gpu_tail = 0;
-  queue.state->capacity = flowann::detail::queue_capacity;
-  queue.released_sequence[0] = 0;
+  queue.state->gpu_tail         = 0;
+  queue.state->capacity         = flowann::detail::queue_capacity;
+  queue.released_sequence[0]    = 0;
   for (std::uint32_t i = 0; i < 8; ++i) {
-    topk[i] = (i + 1) | 0x80000000u;
-    positions[i] = i;
-    state.parent_ids[i] = i + 1;
+    topk[i]               = (i + 1) | 0x80000000u;
+    positions[i]          = i;
+    state.parent_ids[i]   = i + 1;
     state.parent_valid[i] = true;
     cuvs::neighbors::cagra::detail::hashmap::insert(traversed, 5, i + 1);
   }
@@ -429,8 +434,8 @@ RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
   output[3] = 0;
   for (std::uint32_t i = 0; i < 8; ++i) {
     output[2] += (topk[i] & 0x80000000u) != 0;
-    output[3] += cuvs::neighbors::cagra::detail::hashmap::search<std::uint32_t, 1>(
-      traversed, 5, i + 1);
+    output[3] +=
+      cuvs::neighbors::cagra::detail::hashmap::search<std::uint32_t, 1>(traversed, 5, i + 1);
   }
   output[4] = mode == 2 ? flowann::detail::command_ready(queue.command_words[7]) : 0;
 }
@@ -440,12 +445,12 @@ TEST(FlowannSearch, RetriesParentsWithoutOverwritingPendingRequests)
 {
   raft::resources res;
   auto queue_state = raft::make_device_vector<flowann::detail::queue_state, int64_t>(res, 1);
-  auto commands = raft::make_device_vector<unsigned long long, int64_t>(res, 8);
-  auto released = raft::make_device_vector<unsigned long long, int64_t>(res, 1);
-  auto output = raft::make_device_vector<std::uint32_t, int64_t>(res, 5);
+  auto commands    = raft::make_device_vector<unsigned long long, int64_t>(res, 8);
+  auto released    = raft::make_device_vector<unsigned long long, int64_t>(res, 1);
+  auto output      = raft::make_device_vector<std::uint32_t, int64_t>(res, 5);
   flowann::detail::queue_view queue{};
-  queue.state = queue_state.data_handle();
-  queue.command_words = commands.data_handle();
+  queue.state             = queue_state.data_handle();
+  queue.command_words     = commands.data_handle();
   queue.released_sequence = released.data_handle();
   for (std::uint32_t mode = 0; mode < 3; ++mode) {
     check_pending_backpressure<<<1, 1, 0, raft::resource::get_cuda_stream(res).get()>>>(
@@ -467,16 +472,15 @@ TEST(FlowannSearch, EmptyQueriesAreANoOp)
   EXPECT_NO_THROW(run_dense_search(cuvs::neighbors::cagra::search_algo::SINGLE_CTA, {}));
 }
 
-
 TEST(FlowannSearch, PaddedQueriesMatchAcrossBatchBoundaries)
 {
   for (auto algo : {cuvs::neighbors::cagra::search_algo::SINGLE_CTA,
                     cuvs::neighbors::cagra::search_algo::MULTI_CTA}) {
     for (std::uint32_t dim : {5u, 33u}) {
-      auto one = run_dense_search(algo, {0.1f, 12.2f, 1.1f, 10.3f, 2.2f},
-                                   {}, 16, false, 1, 32, 1, 2, false, 2, 0, dim);
-      auto batched = run_dense_search(algo, {0.1f, 12.2f, 1.1f, 10.3f, 2.2f},
-                                       {}, 16, false, 3, 32, 1, 2, false, 2, 0, dim);
+      auto one = run_dense_search(
+        algo, {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 1, 32, 1, 2, false, 2, 0, dim);
+      auto batched = run_dense_search(
+        algo, {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 3, 32, 1, 2, false, 2, 0, dim);
       for (int64_t row = 0; row < 5; ++row) {
         for (int64_t rank = 0; rank < 2; ++rank) {
           EXPECT_EQ(batched.neighbors(row, rank), one.neighbors(row, rank));
@@ -488,11 +492,22 @@ TEST(FlowannSearch, PaddedQueriesMatchAcrossBatchBoundaries)
   }
 }
 
-
 TEST(FlowannSearch, AutoFallsBackForGraphsTooWideForMultiCta)
 {
   auto result = run_dense_search(cuvs::neighbors::cagra::search_algo::AUTO,
-                                 {0.1f}, {}, 16, false, 1, 32, 1, 2, false, 2, 0, 4, 75);
+                                 {0.1f},
+                                 {},
+                                 16,
+                                 false,
+                                 1,
+                                 32,
+                                 1,
+                                 2,
+                                 false,
+                                 2,
+                                 0,
+                                 4,
+                                 75);
   EXPECT_EQ(result.neighbors(0, 0), 7);
   EXPECT_NEAR(result.distances(0, 0), 0.01f, 1e-4f);
 }

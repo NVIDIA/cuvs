@@ -68,14 +68,14 @@ auto f16_bits(float value) -> std::uint16_t
 
 void write_legacy_dataset_body(raft::resources const& res,
                                std::ostream& stream,
-                               bool invalid_vq_label = false,
+                               bool invalid_vq_label        = false,
                                std::uint32_t encoded_length = 6)
 {
-  constexpr int64_t rows                 = 4;
-  constexpr std::uint32_t dim            = 4;
-  constexpr std::uint32_t vq_centers     = 2;
-  constexpr std::uint32_t pq_centers     = 256;
-  constexpr std::uint32_t pq_len         = 2;
+  constexpr int64_t rows             = 4;
+  constexpr std::uint32_t dim        = 4;
+  constexpr std::uint32_t vq_centers = 2;
+  constexpr std::uint32_t pq_centers = 256;
+  constexpr std::uint32_t pq_len     = 2;
 
   raft::serialize_scalar(res, stream, flowann::detail::legacy_vpq_dataset_tag);
   raft::serialize_scalar(res, stream, CUDA_R_16F);
@@ -188,7 +188,8 @@ auto make_legacy_graph(raft::resources const& res) -> std::stringstream
   return stream;
 }
 
-auto make_legacy_combined_vpq(raft::resources const& res, std::uint32_t row_length = 6) -> std::stringstream
+auto make_legacy_combined_vpq(raft::resources const& res, std::uint32_t row_length = 6)
+  -> std::stringstream
 {
   std::stringstream stream(std::ios::in | std::ios::out | std::ios::binary);
   char const historical_dtype[4] = {'|', 'u', '1', '\0'};
@@ -606,12 +607,11 @@ TEST(FlowannSerialize, SearchesLegacyCombinedVpqWithAndWithoutFixedSeeds)
 
 }  // namespace
 
-
 TEST(FlowannSerialize, RejectsCurrentOutOfRangeSourceIds)
 {
   raft::resources res;
-  auto legacy = make_legacy_combined_vpq(res);
-  auto bundle = flowann::deserialize_vpq_f16<float>(res, legacy);
+  auto legacy         = make_legacy_combined_vpq(res);
+  auto bundle         = flowann::deserialize_vpq_f16<float>(res, legacy);
   std::uint32_t ids[] = {4, 1, 2, 3};
   bundle.index.update_source_indices(
     res, raft::make_host_vector_view<const std::uint32_t, int64_t>(ids, 4));
@@ -624,11 +624,12 @@ TEST(FlowannSerialize, RejectsCurrentOutOfRangeSourceIds)
 TEST(FlowannSerialize, RejectsCurrentOutOfRangeVqLabels)
 {
   raft::resources res;
-  auto legacy = make_legacy_combined_vpq(res);
-  auto bundle = flowann::deserialize_vpq_f16<float>(res, legacy);
+  auto legacy           = make_legacy_combined_vpq(res);
+  auto bundle           = flowann::deserialize_vpq_f16<float>(res, legacy);
   std::uint32_t invalid = bundle.dataset->vq_n_centers();
   raft::copy(bundle.dataset->data.data_handle(),
-             reinterpret_cast<std::uint8_t const*>(&invalid), sizeof(invalid),
+             reinterpret_cast<std::uint8_t const*>(&invalid),
+             sizeof(invalid),
              raft::resource::get_cuda_stream(res));
   raft::resource::sync_stream(res);
   std::stringstream current(std::ios::in | std::ios::out | std::ios::binary);

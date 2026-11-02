@@ -75,37 +75,41 @@ TEST(FlowannStorage, ComputesCosineNormsWithoutSearchImplementation)
   EXPECT_FLOAT_EQ(norms[1], 2.0f);
 }
 
-
 TEST(FlowannStorage, RejectsStoredSeedsBeforeReplacingGraph)
 {
   for (int overload = 0; overload < 4; ++overload) {
     raft::resources res;
     flowann::device_padded_index<float> index(res);
-    auto inner = raft::make_host_matrix<std::uint8_t, int64_t>(0, 0);
+    auto inner    = raft::make_host_matrix<std::uint8_t, int64_t>(0, 0);
     auto original = raft::make_host_matrix<std::uint32_t, int64_t>(4, 2);
     for (std::uint32_t row = 0; row < 4; ++row) {
       original(row, 0) = 1;
       original(row, 1) = (row + 1) % 4;
     }
-    index.update_graph(res, raft::make_const_mdspan(inner.view()),
-                       raft::make_const_mdspan(original.view()), 1, 0);
+    index.update_graph(
+      res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(original.view()), 1, 0);
     std::uint32_t seed = 3;
     index.update_seeds(res, raft::make_host_vector_view<const std::uint32_t, int64_t>(&seed, 1));
-    auto replacement = raft::make_host_matrix<std::uint32_t, int64_t>(2, 2);
+    auto replacement  = raft::make_host_matrix<std::uint32_t, int64_t>(2, 2);
     replacement(0, 0) = replacement(1, 0) = 1;
-    replacement(0, 1) = 1;
-    replacement(1, 1) = 0;
+    replacement(0, 1)                     = 1;
+    replacement(1, 1)                     = 0;
     if (overload == 0) {
-      EXPECT_ANY_THROW(index.update_graph(res, raft::make_const_mdspan(inner.view()),
-                                          raft::make_const_mdspan(replacement.view()), 1, 0));
+      EXPECT_ANY_THROW(index.update_graph(res,
+                                          raft::make_const_mdspan(inner.view()),
+                                          raft::make_const_mdspan(replacement.view()),
+                                          1,
+                                          0));
     } else if (overload == 1) {
       EXPECT_ANY_THROW(index.update_graph(res, std::move(inner), std::move(replacement), 1, 0));
     } else {
       auto device_inner = raft::make_device_matrix<std::uint8_t, int64_t>(res, 0, 0);
       if (overload == 2) {
-        EXPECT_ANY_THROW(index.update_graph(res, std::move(device_inner), std::move(replacement), true));
+        EXPECT_ANY_THROW(
+          index.update_graph(res, std::move(device_inner), std::move(replacement), true));
       } else {
-        EXPECT_ANY_THROW(index.update_graph(res, std::move(device_inner), std::move(replacement), 1, 0));
+        EXPECT_ANY_THROW(
+          index.update_graph(res, std::move(device_inner), std::move(replacement), 1, 0));
       }
     }
     ASSERT_EQ(index.size(), 4) << "overload " << overload;
@@ -125,14 +129,16 @@ TEST(FlowannStorage, RowCountChangeClearsDependentMappings)
     graph(row, 0) = 1;
     graph(row, 1) = (row + 1) % 4;
   }
-  index.update_graph(res, raft::make_const_mdspan(inner.view()),
-                     raft::make_const_mdspan(graph.view()), 1, 0);
-  std::uint32_t ids[4] = {3, 2, 1, 0};
+  index.update_graph(
+    res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(graph.view()), 1, 0);
+  std::uint32_t ids[4]    = {3, 2, 1, 0};
   std::uint32_t groups[4] = {0, 0, 0, 0};
-  std::uint32_t offset = 0;
-  std::uint32_t seed = 1;
-  index.update_source_indices(res, raft::make_host_vector_view<const std::uint32_t, int64_t>(ids, 4));
-  index.update_subgraph_layout(res,
+  std::uint32_t offset    = 0;
+  std::uint32_t seed      = 1;
+  index.update_source_indices(res,
+                              raft::make_host_vector_view<const std::uint32_t, int64_t>(ids, 4));
+  index.update_subgraph_layout(
+    res,
     raft::make_host_vector_view<const std::uint32_t, int64_t>(&offset, 1),
     raft::make_host_vector_view<const std::uint32_t, int64_t>(groups, 4));
   index.update_seeds(res, raft::make_host_vector_view<const std::uint32_t, int64_t>(&seed, 1));
@@ -141,8 +147,8 @@ TEST(FlowannStorage, RowCountChangeClearsDependentMappings)
     larger(row, 0) = 1;
     larger(row, 1) = (row + 1) % 6;
   }
-  index.update_graph(res, raft::make_const_mdspan(inner.view()),
-                     raft::make_const_mdspan(larger.view()), 1, 0);
+  index.update_graph(
+    res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(larger.view()), 1, 0);
   EXPECT_EQ(index.size(), 6);
   EXPECT_FALSE(index.source_indices().has_value());
   EXPECT_FALSE(index.subgraph_offsets().has_value());
