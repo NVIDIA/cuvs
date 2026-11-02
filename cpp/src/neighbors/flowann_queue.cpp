@@ -637,7 +637,9 @@ struct search_context::impl {
   void report_failure(std::exception_ptr error) noexcept
   {
     std::lock_guard lock(pause_mutex_);
-    for (auto const& queue : queues_) { queue->abort(); }
+    for (auto const& queue : queues_) {
+      queue->abort();
+    }
     if (poller_error_ == nullptr) { poller_error_ = error; }
     pause_cv_.notify_all();
   }
@@ -974,7 +976,8 @@ void detail::search_context_access::release_search(search_context& context)
   context.impl_->release_search();
 }
 
-void detail::search_context_access::report_failure(search_context& context, std::exception_ptr error)
+void detail::search_context_access::report_failure(search_context& context,
+                                                   std::exception_ptr error)
 {
   RAFT_EXPECTS(context.impl_ != nullptr, "Cannot fail a moved-from FlowANN search context");
   context.impl_->report_failure(std::move(error));
