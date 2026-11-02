@@ -11,19 +11,17 @@ import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT_BYTE_SIZE;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT_BYTE_SIZE;
 import static com.nvidia.cuvs.internal.common.Util.CudaMemcpyKind.DEVICE_TO_HOST;
-import static com.nvidia.cuvs.internal.common.Util.CudaMemcpyKind.HOST_TO_DEVICE;
 import static com.nvidia.cuvs.internal.common.Util.buildMemorySegment;
 import static com.nvidia.cuvs.internal.common.Util.checkCuVSError;
-import static com.nvidia.cuvs.internal.common.Util.concatenate;
 import static com.nvidia.cuvs.internal.common.Util.prepareTensor;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
 
 import com.nvidia.cuvs.*;
 import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.internal.common.CloseableHandle;
-import com.nvidia.cuvs.internal.common.CloseableRMMAllocation;
 import com.nvidia.cuvs.internal.common.CompositeCloseableHandle;
 import com.nvidia.cuvs.internal.common.OmpThreadScope;
+import com.nvidia.cuvs.internal.common.Prefilters;
 import com.nvidia.cuvs.internal.common.Util;
 import com.nvidia.cuvs.internal.panama.*;
 import java.io.FileInputStream;
@@ -468,8 +466,6 @@ public class CagraIndexImpl implements CagraIndex {
         == cagraRequiredRowWidth(logicalColumns, elementSizeBytes(dataset.dataType()));
   }
 
-  private static final BitSet[] EMPTY_PREFILTER_BITSET = new BitSet[0];
-
   /**
    * Invokes the native search_cagra_index via the Panama API for searching a
    * CAGRA index.
@@ -494,25 +490,33 @@ public class CagraIndexImpl implements CagraIndex {
 
       final long neighborsBytes = C_INT_BYTE_SIZE * numQueries * topK;
       final long distancesBytes = C_FLOAT_BYTE_SIZE * numQueries * topK;
-      final boolean hasPreFilter = query.getPrefilter() != null;
       final BitSet[] prefilters =
-          hasPreFilter ? new BitSet[] {query.getPrefilter()} : EMPTY_PREFILTER_BITSET;
-      final long prefilterDataLength = hasPreFilter ? query.getNumDocs() * prefilters.length : 0;
-      final long prefilterLen = hasPreFilter ? (prefilterDataLength + 31) / 32 : 0;
-      final long prefilterBytes = C_INT_BYTE_SIZE * prefilterLen;
+          query.getPrefilter() != null ? new BitSet[] {query.getPrefilter()} : null;
+      if (prefilters != null) {
+        // cuVS reads one bit per row of the index, so a shorter filter would leave it reading
+        // past the end of the filter.
+        long indexRows = size();
+        if (query.getNumDocs() < indexRows) {
+          throw new IllegalArgumentException(
+              "The prefilter covers "
+                  + query.getNumDocs()
+                  + " rows but the index has "
+                  + indexRows
+                  + "; numDocs must be at least the number of rows in the index");
+        }
+      }
 
       try (var resourcesAccessor = query.getResources().access()) {
         var cuvsRes = resourcesAccessor.handle();
         var cuvsStream = Util.getStream(cuvsRes);
+        MemorySegment prefilter = cuvsFilter.allocate(localArena);
 
         try (var deviceQueryVectors =
                 (CuVSMatrixInternal) queryVectors.toDevice(query.getResources());
             var neighborsDP = allocateRMMSegment(cuvsRes, neighborsBytes);
             var distancesDP = allocateRMMSegment(cuvsRes, distancesBytes);
             var prefilterDP =
-                hasPreFilter
-                    ? allocateRMMSegment(cuvsRes, prefilterBytes)
-                    : CloseableRMMAllocation.EMPTY) {
+                Prefilters.fill(cuvsRes, localArena, prefilter, prefilters, query.getNumDocs())) {
 
           var queryTensor = deviceQueryVectors.toTensor(localArena);
           long[] neighborsShape = {numQueries, topK};
@@ -523,35 +527,6 @@ public class CagraIndexImpl implements CagraIndex {
           MemorySegment distancesTensor =
               prepareTensor(
                   localArena, distancesDP.handle(), distancesShape, kDLFloat(), 32, kDLCUDA());
-
-          // prepare the prefiltering data
-          MemorySegment prefilter = cuvsFilter.allocate(localArena);
-
-          if (!hasPreFilter) {
-            cuvsFilter.type(prefilter, 0); // NO_FILTER
-            cuvsFilter.addr(prefilter, 0);
-          } else {
-            BitSet concatenatedFilters = concatenate(prefilters, query.getNumDocs());
-            long[] filters = concatenatedFilters.toLongArray();
-            var prefilterDataMemorySegment =
-                buildMemorySegment(localArena, filters, (prefilterDataLength + 63) / 64);
-
-            long[] prefilterShape = {prefilterLen};
-
-            Util.cudaMemcpyAsync(
-                prefilterDP.handle(),
-                prefilterDataMemorySegment,
-                prefilterBytes,
-                HOST_TO_DEVICE,
-                cuvsStream);
-
-            MemorySegment prefilterTensor =
-                prepareTensor(
-                    localArena, prefilterDP.handle(), prefilterShape, kDLUInt(), 32, kDLCUDA());
-
-            cuvsFilter.type(prefilter, 1);
-            cuvsFilter.addr(prefilter, prefilterTensor.address());
-          }
 
           // TODO: do we need this stream sync here?
           checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
@@ -1252,11 +1227,17 @@ public class CagraIndexImpl implements CagraIndex {
 
         // The words the merge filter points at have to outlive the merge call, so the
         // allocation is held open around it rather than inside the helper that fills
-        // the filter in.
+        // the filter in. cuVS derives the merged row count from the bits that are set, so the
+        // words cover every input row rather than stop at the last one that survives.
         MemorySegment mergeFilter = cuvsFilter.allocate(localArena);
         try (@SuppressWarnings("unused")
             var filterWords =
-                allocateRowFilter(cuvsRes, localArena, mergeFilter, rowFilter, mergedRowCount)) {
+                Prefilters.fill(
+                    cuvsRes,
+                    localArena,
+                    mergeFilter,
+                    rowFilter != null ? new BitSet[] {rowFilter} : null,
+                    mergedRowCount)) {
           MemorySegment mergedDatasetPtr = localArena.allocate(cuvsDataset_t);
           checkCuVSError(cuvsDatasetCreate(mergedDatasetPtr), "cuvsDatasetCreate");
           MemorySegment mergedDataset = mergedDatasetPtr.get(cuvsDataset_t, 0);
@@ -1298,48 +1279,6 @@ public class CagraIndexImpl implements CagraIndex {
         }
         throw t;
       }
-    }
-  }
-
-  /**
-   * Fills {@code mergeFilter} in and returns the device allocation backing it, which the caller has
-   * to keep open until the merge returns. A null {@code rowFilter} produces a NO_FILTER and an empty allocation.
-   *
-   * <p> cuvs reads the bitset as a vector of 32 bit words covering {@code mergedRowCount} rows, and derives the row
-   * count of the merged index from the number of bits that are set, so the words have to cover every row rather
-   * than stop at the last one that survives.
-   */
-  private static CloseableRMMAllocation allocateRowFilter(
-      long cuvsRes, Arena arena, MemorySegment mergeFilter, BitSet rowFilter, long mergedRowCount) {
-    if (rowFilter == null) {
-      cuvsFilter.type(mergeFilter, NO_FILTER());
-      cuvsFilter.addr(mergeFilter, 0);
-      return CloseableRMMAllocation.EMPTY;
-    }
-
-    long words = (mergedRowCount + 31) / 32;
-    long bytes = C_INT_BYTE_SIZE * words;
-    MemorySegment hostWords =
-        buildMemorySegment(arena, rowFilter.toLongArray(), (mergedRowCount + 63) / 64);
-
-    var deviceWords = allocateRMMSegment(cuvsRes, bytes);
-    try {
-      Util.cudaMemcpyAsync(
-          deviceWords.handle(), hostWords, bytes, HOST_TO_DEVICE, Util.getStream(cuvsRes));
-      checkCuVSError(cuvsStreamSync(cuvsRes), "cuvsStreamSync");
-
-      MemorySegment filterTensor =
-          prepareTensor(arena, deviceWords.handle(), new long[] {words}, kDLUInt(), 32, kDLCUDA());
-      cuvsFilter.type(mergeFilter, BITSET());
-      cuvsFilter.addr(mergeFilter, filterTensor.address());
-      return deviceWords;
-    } catch (Throwable t) {
-      try {
-        deviceWords.close();
-      } catch (Exception closeError) {
-        t.addSuppressed(closeError);
-      }
-      throw t;
     }
   }
 
