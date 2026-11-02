@@ -210,28 +210,54 @@ enum cuvsCagraGraphStorage {
 };
 /** Tiered graph settings. The GPU budget covers packed edges only. */
 struct cuvsCagraTieredGraphParams {
+  /** Maximum packed resident graph bytes, excluding datasets and queues. Zero stores all edges on
+   * host. */
   size_t device_graph_budget_bytes;
+  /** Consecutive nodes per packed row: [1, 64] with grouping, [1, 32] without grouping. */
   uint16_t node_per_cacheline;
+  /** Group and reorder nodes for locality; false retains the rank-only layout. */
   bool grouping_enabled;
+  /** Final group count, at most 65,536. Zero uses one group if IDs fit; otherwise ceil(N * (1 +
+   * balance_tolerance) / 2^b). Each k-means node has at most 16 children. */
   uint32_t n_groups;
+  /** Local-ID width. Zero selects min(24, max(4, align_up_4(ceil(log2(N))))). Explicit widths must
+   * be in [1, 32]. */
   uint16_t n_bits;
+  /** Allowed relative deviation from average group size, in the open interval (0, 1). Hard ID
+   * capacity still applies. */
   double balance_tolerance;
+  /** Maximum sample rows per k-means node. Zero shares a 160,000-row budget by subtree leaf count,
+   * bounded by 256 to 10,000 rows per child and actual node size. */
   size_t training_rows;
+  /** Rows assigned per GPU batch. Zero targets a 256 MiB vector buffer; distance/label buffers and
+   * host capacity-repair storage are additional. */
   size_t assignment_batch_rows;
+  /** Positive number of balanced k-means training iterations. */
   uint32_t kmeans_n_iters;
+  /** Verify encoded edges after rearrangement; intended for tests and small builds. */
   bool validate;
+  /** Number of medoid seeds generated at build time; zero disables seed generation. */
   uint32_t num_seeds;
+  /** Rows sampled to train seed centroids. Zero selects an automatic limit. */
   size_t seed_training_rows;
+  /** Deterministic seed for rotating the uniform k-means training sample. */
   uint64_t seed;
 };
 /** Tiered search settings; queue state is retained by the index. */
 struct cuvsCagraTieredSearchParams {
+  /** Maximum number of stored medoid seeds used per query; zero uses random initialization. */
   uint32_t num_seeds;
+  /** Scale for the adaptive deferred-cross-edge synchronization window. */
   float sync_window_scale;
+  /** Parent-position drop that forces synchronization of a submitted cross-edge request. */
   uint32_t sync_drop_threshold;
+  /** Positive number of independent GPU-to-CPU command queues. */
   uint32_t num_queues;
+  /** Number of CPU pause instructions after an empty poll; zero disables this pause. */
   uint32_t empty_pause;
+  /** Collect aggregate queue and polling counters. */
   bool collect_statistics;
+  /** Keep pollers active between calls for low latency. Consumes host CPU while idle. */
   bool keep_pollers_running;
 };
 
@@ -257,7 +283,9 @@ struct cuvsCagraIndexParams {
    * - Others: nullptr
    */
   void* graph_build_params;
+  /** Graph representation selected for construction. The default is CUVS_CAGRA_GRAPH_DEVICE. */
   enum cuvsCagraGraphStorage graph_storage;
+  /** Tiered layout settings used when graph_storage is CUVS_CAGRA_GRAPH_TIERED. */
   struct cuvsCagraTieredGraphParams tiered;
 };
 
@@ -527,6 +555,7 @@ struct cuvsCagraSearchParams {
   float persistent_device_usage;
   /** Enable the tiered settings below. Allocate this struct with cuvsCagraSearchParamsCreate(). */
   bool use_tiered_params;
+  /** Tiered queue and search settings used only when use_tiered_params is true. */
   struct cuvsCagraTieredSearchParams tiered;
 };
 
@@ -605,16 +634,24 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexGetDims(cuvsCagraIndex_t index, int64_t* d
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetSize(cuvsCagraIndex_t index, int64_t* size);
 
 /**
- * @brief Get graph degree of the CAGRA index
+ * @brief Get the graph representation of a CAGRA index.
  *
- * @param[in] index CAGRA index
- * @param[out] graph_degree return graph degree
- * @return cuvsError_t
+ * Returns the selected storage kind without exposing the device and host edge buffers.
+ * @param[in] index Initialized CAGRA index handle.
+ * @param[out] storage Receives CUVS_CAGRA_GRAPH_DEVICE or CUVS_CAGRA_GRAPH_TIERED.
+ * @return CUVS_SUCCESS on success, or CUVS_ERROR when an argument is invalid.
  */
-/** Return the graph representation without exposing tiered storage buffers. */
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraphStorage(
-    cuvsCagraIndex_t index, enum cuvsCagraGraphStorage *storage);
+  cuvsCagraIndex_t index, enum cuvsCagraGraphStorage* storage);
 
+/**
+ * @brief Get the complete graph degree of a CAGRA index.
+ *
+ * For a tiered index this includes both resident and host edges.
+ * @param[in] index Initialized CAGRA index handle.
+ * @param[out] graph_degree Receives the complete graph degree.
+ * @return CUVS_SUCCESS on success, or CUVS_ERROR when an argument is invalid.
+ */
 CUVS_EXPORT cuvsError_t cuvsCagraIndexGetGraphDegree(cuvsCagraIndex_t index, int64_t* graph_degree);
 
 /**
