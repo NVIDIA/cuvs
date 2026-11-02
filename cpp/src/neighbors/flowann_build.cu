@@ -2575,7 +2575,9 @@ auto build_vpq_from_cagra_consuming(
   RAFT_EXPECTS(vpq_dataset->n_rows() > 0, "FlowANN VPQ dataset must not be empty");
   RAFT_EXPECTS(cagra_index.dataset().n_rows() == vpq_dataset->n_rows(),
                "FlowANN CAGRA index does not view the supplied VPQ dataset");
-  RAFT_EXPECTS(&cagra_index.dataset().dset() == vpq_dataset.get(),
+  RAFT_EXPECTS(cagra_index.dataset().data_view().data_handle() == vpq_dataset->data_view().data_handle() &&
+                 cagra_index.dataset().manifest_view().vq_code_book.data_handle() == vpq_dataset->const_manifest_view().vq_code_book.data_handle() &&
+                 cagra_index.dataset().manifest_view().pq_code_book.data_handle() == vpq_dataset->const_manifest_view().pq_code_book.data_handle(),
                "FlowANN CAGRA index does not view the supplied VPQ dataset owner");
 
   auto const metric   = cagra_index.metric();
