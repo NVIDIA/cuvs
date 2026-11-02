@@ -1519,8 +1519,6 @@ extension, merge, multi-partition search, and GPU persistent search are unsuppor
 errors. Ordinary device graph storage retains the existing defaults and behavior. Rebuild consumers
 against the updated headers: the C/C++ parameter and index layouts have changed.
 
-against the updated C++ headers because the parameter and index layouts have changed.
-
 
 ## Migrating existing C++ applications
 
