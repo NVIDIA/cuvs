@@ -18,3 +18,11 @@ threading guideline during maintainer review; this rationale does not claim that
 Pollers inherit the caller's CPU affinity by default. Internal callers may opt into
 physical-core pinning with `queue_params::pin_pollers`; pinned contexts share a process-wide
 allocation counter rather than all starting at CPU zero.
+
+## C++ compatibility
+
+The tiered fields change the layouts of `cagra::index`, `cagra::index_params`, and
+`cagra::search_params`, including builds with FlowANN disabled. Rebuild consumers with
+headers from the same cuVS version as the linked library. `index::graph()` throws for
+tiered indexes because their device and host edges do not form one device adjacency matrix.
+Use `graph_storage()` to inspect the representation before requesting a device graph.
