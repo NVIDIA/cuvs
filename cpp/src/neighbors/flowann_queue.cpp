@@ -300,9 +300,9 @@ class host_queue {
 
   [[nodiscard]] auto view() const noexcept -> detail::queue_view { return view_; }
   void abort() noexcept { abort_flag_.abort(); }
-  auto invalid_requests() const noexcept -> std::uint64_t
+  auto consume_invalid_requests() noexcept -> std::uint64_t
   {
-    return invalid_requests_.load(std::memory_order_relaxed);
+    return invalid_requests_.exchange(0, std::memory_order_relaxed);
   }
 
   [[nodiscard]] auto poll_batch() -> bool
@@ -526,10 +526,11 @@ struct search_context::impl {
 
   void throw_if_invalid_requests() const
   {
+    bool invalid = false;
     for (auto const& queue : queues_) {
-      RAFT_EXPECTS(queue->invalid_requests() == 0,
-                   "FlowANN queue received an out-of-range cross-graph row");
+      invalid |= queue->consume_invalid_requests() != 0;
     }
+    RAFT_EXPECTS(!invalid, "FlowANN queue received an out-of-range cross-graph row");
   }
 
   [[nodiscard]] auto should_run() const noexcept -> bool
@@ -642,6 +643,7 @@ struct search_context::impl {
       pause_cv_.notify_all();
       update_pollers(lock);
     }
+    throw_if_failed();
     throw_if_invalid_requests();
   }
 

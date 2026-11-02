@@ -56,6 +56,7 @@ struct queue_view {
   std::uint32_t const* abort_flag;
   // Private to each device-side queue view. Avoid a PCIe read on every readiness poll.
   mutable unsigned long long next_abort_check{};
+  mutable bool aborted{};
 };
 
 struct queue_reservation {
@@ -226,6 +227,7 @@ RAFT_DEVICE_INLINE_FUNCTION auto result_ready(queue_view const& queue,
       reservation.sequence + 1) {
     return true;
   }
+  if (queue.aborted) { return true; }
   if (queue.abort_flag == nullptr) { return false; }
   auto const now = clock64();
   if (queue.next_abort_check == 0) {
@@ -238,7 +240,8 @@ RAFT_DEVICE_INLINE_FUNCTION auto result_ready(queue_view const& queue,
   queue.next_abort_check = now + (1ull << 24);
   cuda::atomic_ref<std::uint32_t, cuda::thread_scope_system> aborted(
     *const_cast<std::uint32_t*>(queue.abort_flag));
-  return aborted.load(cuda::memory_order_acquire) != 0;
+  queue.aborted = aborted.load(cuda::memory_order_acquire) != 0;
+  return queue.aborted;
 }
 
 RAFT_DEVICE_INLINE_FUNCTION auto result_row(queue_view queue, queue_reservation reservation)
