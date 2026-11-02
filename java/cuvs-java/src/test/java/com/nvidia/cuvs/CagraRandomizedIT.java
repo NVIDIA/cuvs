@@ -127,7 +127,7 @@ public class CagraRandomizedIT extends CuVSTestCase {
         }
         index =
             CagraIndex.newBuilder(resources)
-                .withDataset(datasetBuilder.build())
+                .fromDataset(datasetBuilder.build())
                 .withIndexParams(indexParams)
                 .build();
       } else if (datasetMemoryKind == TestDatasetMemoryKind.DEVICE) {
@@ -139,14 +139,14 @@ public class CagraRandomizedIT extends CuVSTestCase {
         }
         index =
             CagraIndex.newBuilder(resources)
-                .withDataset(datasetBuilder.build())
+                .fromDataset(datasetBuilder.build())
                 .withIndexParams(indexParams)
                 .build();
       } else {
         assert datasetMemoryKind == TestDatasetMemoryKind.HEAP;
         index =
             CagraIndex.newBuilder(resources)
-                .withDataset(vectors)
+                .fromDataset(vectors)
                 .withIndexParams(indexParams)
                 .build();
       }

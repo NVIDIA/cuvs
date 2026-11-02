@@ -32,6 +32,7 @@ import java.util.stream.StreamSupport;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.FieldInfo;
@@ -61,8 +62,8 @@ import org.apache.lucene.util.hnsw.IntToIntFunction;
  */
 public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
 
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 
   private final FlatVectorsReader flatVectorsReader;
   private final FieldInfos fieldInfos;
@@ -79,15 +80,6 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   private boolean closed;
   private final IndexInput cuvsIndexInput;
   private final FilterBitsetCache filterBitsetCache;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * Initializes the {@link CuVS2510GPUVectorsReader}, checks and loads the index.
@@ -342,7 +334,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
             cuvsIndexInput.slice(
                 "cagra index", fieldEntry.cagraIndexOffset(), fieldEntry.cagraIndexLength());
         var in = new IndexInputInputStream(slice)) {
-      return CagraIndex.newBuilder(getCuVSResourcesInstance()).from(in).build();
+      return CagraIndex.newBuilder(getCuVSResourcesInstance()).fromSerialized(in).build();
     } catch (Throwable t) {
       Utils.handleThrowable(t);
       throw new AssertionError("unreachable");
@@ -430,7 +422,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
         long off = fieldEntry.cagraIndexOffset();
         try (var slice = cuvsIndexInput.slice("cagra index", off, len);
             var in = new IndexInputInputStream(slice)) {
-          cagraIndex = CagraIndex.newBuilder(getCuVSResourcesInstance()).from(in).build();
+          cagraIndex = CagraIndex.newBuilder(getCuVSResourcesInstance()).fromSerialized(in).build();
         }
       }
       len = fieldEntry.bruteForceIndexLength();
