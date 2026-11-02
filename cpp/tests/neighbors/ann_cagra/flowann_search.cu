@@ -8,8 +8,8 @@
 
 #include <neighbors/detail/flowann/flowann.hpp>
 
+#include <neighbors/detail/flowann/graph_state.cuh>
 #include <neighbors/detail/flowann/queue.cuh>
-#include <neighbors/detail/flowann/search_single_cta_jit.cuh>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_setter.hpp>
@@ -424,10 +424,7 @@ RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
     state.parent_valid[i] = true;
     cuvs::neighbors::cagra::detail::hashmap::insert(traversed, 5, i + 1);
   }
-  flowann::detail::tiered_graph_provider<float, std::uint32_t, float> provider{};
-  provider.state = &state;
-  provider.queue = queue;
-  provider.submit_parents(positions, topk, 8, 1, traversed, 5);
+  flowann::detail::submit_parent_requests(queue, &state, positions, topk, 8, 1, traversed, 5);
   output[0] = state.pending.size();
   output[1] = queue.state->reservation_head;
   output[2] = 0;
