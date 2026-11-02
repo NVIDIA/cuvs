@@ -19,6 +19,7 @@
 #include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/add.cuh>
 #include <raft/matrix/gather.cuh>
+#include <raft/matrix/init.cuh>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
 #include <string>
@@ -460,6 +461,58 @@ inline auto two_level() -> test_cases_t
   return {ts};
 }
 
+// Parameter validation: build must reject invalid index parameters. These checks
+// run in the index constructor (before any training), so build throws immediately.
+inline void run_invalid_build_params()
+{
+  raft::resources handle;
+
+  constexpr int64_t rows = 256;
+  constexpr int64_t dim  = 16;
+
+  auto data = raft::make_device_matrix<float, int64_t>(handle, rows, dim);
+  raft::matrix::fill(handle, data.view(), 1.0f);
+  auto data_view =
+    raft::make_device_matrix_view<const float, int64_t>(data.data_handle(), rows, dim);
+
+  auto base_params = []() {
+    index_params p;
+    p.n_leaves            = 4;
+    p.n_coarse_clusters   = 0;
+    p.kmeans_n_rows_train = rows;
+    p.pq_n_rows_train     = rows;
+    p.pq_dim              = 2;
+    p.pq_bits             = 8;
+    return p;
+  };
+
+  // pq_bits must be 4 or 8
+  {
+    auto p    = base_params();
+    p.pq_bits = 5;
+    EXPECT_THROW(cuvs::neighbors::scann::build(handle, p, data_view), raft::exception);
+  }
+  // dataset dimension must be divisible by pq_dim
+  {
+    auto p   = base_params();
+    p.pq_dim = 3;
+    EXPECT_THROW(cuvs::neighbors::scann::build(handle, p, data_view), raft::exception);
+  }
+  // pq_dim must not exceed the dataset dimension
+  {
+    auto p   = base_params();
+    p.pq_dim = 32;
+    EXPECT_THROW(cuvs::neighbors::scann::build(handle, p, data_view), raft::exception);
+  }
+  // n_coarse_clusters must be strictly less than n_leaves
+  {
+    auto p              = base_params();
+    p.n_coarse_clusters = 8;
+    p.n_leaves          = 4;
+    EXPECT_THROW(cuvs::neighbors::scann::build(handle, p, data_view), raft::exception);
+  }
+}
+
 /* Test instantiations */
 
 #define TEST_BUILD(type)                                \
@@ -482,5 +535,11 @@ inline auto two_level() -> test_cases_t
 
 #define INSTANTIATE(type, vals) \
   INSTANTIATE_TEST_SUITE_P(ScaNN, type, ::testing::ValuesIn(vals)); /* NOLINT */
+
+#define TEST_INVALID_BUILD_PARAMS()                   \
+  TEST(AnnScaNNTest, InvalidBuildParams) /* NOLINT */ \
+  {                                                   \
+    run_invalid_build_params();                       \
+  }
 
 }  // namespace cuvs::neighbors::scann
