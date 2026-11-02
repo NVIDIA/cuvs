@@ -25,7 +25,7 @@ template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetVi
 void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::resources const& res)
 {
   if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
-    auto dataset = dataset_.view();
+    auto dataset = dataset_.data_view();
     if (!dataset_norms_.has_value() || dataset_norms_->extent(0) != dataset.extent(0)) {
       dataset_norms_.reset();
       dataset_norms_.emplace(raft::make_device_vector<float, int64_t>(res, dataset.extent(0)));
