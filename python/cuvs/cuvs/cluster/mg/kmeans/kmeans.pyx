@@ -57,8 +57,11 @@ def fit(
     Multiple host batches use one input buffer per GPU by default. Configure
     ``resources.set_stream_pool(1)`` to enable double-buffering and
     transfer/compute overlap; without it, execution is correct but serialized.
-    Pinned host memory is crucial for performance: pageable or unregistered
-    memory-mapped input degrades throughput rapidly.
+    Pageable and unregistered memory-mapped input is read through
+    one batch-sized pinned host staging buffer per device
+    buffer. The complete input is never registered or copied into pinned
+    memory. Already pinned input is transferred directly. Overlap depends
+    on the host reader supplying batches fast enough for the GPU.
 
     A per-device memory pool is optional but recommended. Configure both pools
     before calling ``fit``.

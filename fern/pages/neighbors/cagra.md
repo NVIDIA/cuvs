@@ -70,8 +70,9 @@ index = cagra.build(index_params, dataset)
 <Tab title="Java">
 
 ```java
-try (CuVSResources resources = CuVSResources.create();
-    CuVSMatrix dataset = loadDatasetMatrix()) {
+try (CuVSResources resources = CuVSResources.create()) {
+  // The index takes ownership of the dataset and closes it.
+  CuVSMatrix dataset = loadDatasetMatrix();
   CagraIndexParams indexParams =
       new CagraIndexParams.Builder()
           .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
@@ -80,7 +81,7 @@ try (CuVSResources resources = CuVSResources.create();
 
   try (CagraIndex index =
       CagraIndex.newBuilder(resources)
-          .withDataset(dataset)
+          .fromDataset(dataset)
           .withIndexParams(indexParams)
           .build()) {
     // Use index for search or serialization.
@@ -461,22 +462,23 @@ loaded_index = cagra.load("/tmp/cuvs-cagra.bin")
 <Tab title="Java">
 
 ```java
-try (CuVSResources resources = CuVSResources.create();
-    CuVSMatrix dataset = loadDatasetMatrix();
-    CagraIndex index =
-      CagraIndex.newBuilder(resources)
-          .withDataset(dataset)
-          .build()) {
-
-  try (FileOutputStream output = new FileOutputStream("/tmp/cuvs-cagra.bin")) {
+try (CuVSResources resources = CuVSResources.create()) {
+  // The index takes ownership of the dataset and closes it.
+  CuVSMatrix dataset = loadDatasetMatrix();
+  try (CagraIndex index =
+          CagraIndex.newBuilder(resources)
+              .fromDataset(dataset)
+              .build();
+      FileOutputStream output = new FileOutputStream("/tmp/cuvs-cagra.bin")) {
     index.serialize(output);
   }
 
-  try (FileInputStream input = new FileInputStream("/tmp/cuvs-cagra.bin")) {
-    CagraIndex loadedIndex =
-        CagraIndex.newBuilder(resources)
-            .from(input)
-            .build();
+  try (FileInputStream input = new FileInputStream("/tmp/cuvs-cagra.bin");
+      CagraIndex loadedIndex =
+          CagraIndex.newBuilder(resources)
+              .fromSerialized(input)
+              .build()) {
+    // Use loadedIndex for search.
   }
 }
 ```
@@ -673,8 +675,9 @@ import com.nvidia.cuvs.HnswQuery;
 import com.nvidia.cuvs.HnswSearchParams;
 import com.nvidia.cuvs.SearchResults;
 
-try (CuVSResources resources = CuVSResources.create();
-    CuVSMatrix dataset = loadDatasetMatrix()) {
+try (CuVSResources resources = CuVSResources.create()) {
+  // The index takes ownership of the dataset and closes it.
+  CuVSMatrix dataset = loadDatasetMatrix();
   int dim = (int) dataset.columns();
   int M = 32;
   int efConstruction = 200;
@@ -690,7 +693,7 @@ try (CuVSResources resources = CuVSResources.create();
 
   try (CagraIndex cagraIndex =
       CagraIndex.newBuilder(resources)
-          .withDataset(dataset)
+          .fromDataset(dataset)
           .withIndexParams(cagraParams)
           .build()) {
     HnswIndexParams hnswParams =
