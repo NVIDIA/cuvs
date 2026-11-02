@@ -589,7 +589,7 @@ TEST(FlowannSearch, AllRequestedSeedsParticipateInInitialSelection)
       groups(row) = 0;
     }
     index.update_graph(
-      res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(cross.view()), 1, 0);
+      res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(cross.view()), 16, 0);
     index.update_subgraph_layout(
       res, raft::make_const_mdspan(offsets.view()), raft::make_const_mdspan(groups.view()));
     index.update_seeds(res, raft::make_const_mdspan(ids.view()));
