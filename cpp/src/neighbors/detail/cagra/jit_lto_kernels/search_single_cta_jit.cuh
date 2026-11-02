@@ -151,7 +151,8 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
   const dataset_descriptor_base_t<DataT, IndexT, DistanceT>* dataset_desc,
   cagra_sample_filter<SourceIndexT> filter_payload,
   const IndexT graph_size          = 0,
-  const std::uint32_t query_stride = 0)  // Zero retains contiguous query addressing.
+  const std::uint32_t query_stride = 0,  // Zero retains contiguous query addressing.
+  const bool full_width_invalid    = false)
 {
   using LOAD_T = device::LOAD_128BIT_T;
 
@@ -516,8 +517,9 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
 
     auto const result_index = result_indices_buffer[ii];
     if (result_index == invalid_index) {
-      // Keep the historical resident-graph sentinel without indexing a source map.
-      if (source_indices_ptr == nullptr) {
+      // Regular CAGRA retains its historical sentinel. FlowANN requests an output-width
+      // sentinel even when no source map is installed.
+      if (source_indices_ptr == nullptr && !full_width_invalid) {
         write_indices(
           result_indices_ptr, j, static_cast<SourceIndexT>(invalid_index & ~index_msb_1_mask));
       } else if (index_element_tag == 3) {
