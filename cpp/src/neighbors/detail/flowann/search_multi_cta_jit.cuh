@@ -21,6 +21,7 @@ __device__ void search_multi_cta_kernel_jit(
   const cuvs::neighbors::cagra::detail::dataset_descriptor_base_t<DataT, IndexT, DistanceT>*
     dataset_desc,
   const DataT* queries,
+  std::uint32_t query_stride,
   const std::uint8_t* inner_graph,
   std::uint32_t inner_row_length,
   std::uint32_t node_per_cacheline,
@@ -100,7 +101,8 @@ __device__ void search_multi_cta_kernel_jit(
       num_executed_iterations,
       graph_size,
       query_id_offset,
-      filter_payload);
+      filter_payload,
+      query_stride);
 }
 
 }  // namespace cuvs::neighbors::cagra::experimental::flowann::detail

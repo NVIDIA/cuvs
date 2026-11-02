@@ -536,6 +536,7 @@ __device__ void search_kernel_jit(
   DistanceT* result_distances_ptr,
   std::uint32_t top_k,
   const DataT* queries_ptr,
+  std::uint32_t query_stride,
   const std::uint8_t* inner_graph,
   std::uint32_t inner_row_length,
   std::uint32_t node_per_cacheline,
@@ -628,7 +629,8 @@ __device__ void search_kernel_jit(
     query_id_offset,
     dataset_desc,
     filter_payload,
-    graph_size);
+    graph_size,
+    query_stride);
 }
 
 }  // namespace cuvs::neighbors::cagra::experimental::flowann::detail
