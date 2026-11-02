@@ -535,7 +535,8 @@ TEST(FlowannSearch, PaddedMultiCtaQueriesMatchAcrossBatches)
                                 false,
                                 2,
                                 0,
-                                dim);
+                                dim,
+                                true);
     auto batched = run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA,
                                     {0.1f, 12.2f, 1.1f, 10.3f, 2.2f},
                                     {},
@@ -548,8 +549,13 @@ TEST(FlowannSearch, PaddedMultiCtaQueriesMatchAcrossBatches)
                                     false,
                                     2,
                                     0,
-                                    dim);
+                                    dim,
+                                    true);
+    std::uint32_t const expected_ids[] = {7, 2, 6, 3, 6};
+    float const expected_distances[]   = {0.26f, 3.69f, 0.26f, 0.34f, 1.69f};
     for (int64_t row = 0; row < 5; ++row) {
+      EXPECT_EQ(batched.neighbors(row, 0), expected_ids[row]);
+      EXPECT_NEAR(batched.distances(row, 0), expected_distances[row], 1e-4f);
       for (int64_t rank = 0; rank < 2; ++rank) {
         EXPECT_EQ(batched.neighbors(row, rank), one.neighbors(row, rank));
         EXPECT_NEAR(batched.distances(row, rank), one.distances(row, rank), 1e-4f);
