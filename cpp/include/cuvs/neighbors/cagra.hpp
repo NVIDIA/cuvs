@@ -55,7 +55,7 @@ enum class hash_mode { HASH = 0, SMALL = 1, AUTO = 100 };
 enum class internal_dtype { F16 = 0, E5M2 = 1 };
 
 /** Graph representation used by a CAGRA index. */
-enum class graph_storage_kind { device, tiered };
+enum class graph_storage_kind { device = 0, tiered = 1 };
 
 /** Experimental GPU/CPU graph layout. The budget excludes datasets and search workspaces. */
 struct tiered_graph_params {
@@ -111,6 +111,10 @@ struct tiered_search_params {
   bool keep_pollers_running = false;
 };
 
+/** CAGRA search parameters.
+ * @note The optional tiered settings change this struct's C++ ABI, including builds with
+ * FlowANN disabled. Rebuild consumers with headers matching the linked cuVS library.
+ */
 struct search_params : cuvs::neighbors::search_params {
   /** Maximum number of queries to search at the same time (batch size). Auto select when 0.*/
   size_t max_queries = 0;
@@ -350,6 +354,10 @@ enum class hnsw_heuristic_type : uint32_t {
   SAME_GRAPH_FOOTPRINT = 1
 };
 
+/** CAGRA index construction parameters.
+ * @note The graph storage selector and optional tiered settings change this struct's C++ ABI,
+ * including builds with FlowANN disabled. Rebuild consumers against matching cuVS headers.
+ */
 struct index_params : cuvs::neighbors::index_params {
   /** Degree of input graph for pruning. */
   size_t intermediate_graph_degree = 128;
@@ -631,7 +639,10 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   /** Dataset binding; a tiered index owns its reordered dataset internally. */
   [[nodiscard]] inline auto dataset() const noexcept -> DatasetViewT const& { return dataset_; }
 
-  /** neighborhood graph [size, graph-degree] */
+  /** Device neighborhood graph with shape [size, graph_degree].
+   * @throws raft::logic_error if graph_storage() is tiered. Tiered graphs have separate device
+   * and host edge storage and cannot be represented by a single device adjacency matrix.
+   */
   [[nodiscard]] inline auto graph() const
     -> raft::device_matrix_view<const graph_index_type, int64_t, raft::row_major>
   {
@@ -1016,6 +1027,8 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     RAFT_EXPECTS(!tiered_, "This operation requires a device adjacency graph, not a tiered index");
     return metric_;
   }
+  // This member changes index's C++ layout even when FlowANN is disabled. Applications must
+  // rebuild against the same cuVS headers as the library they link.
   std::shared_ptr<detail::tiered_index_state<T, IdxT, DatasetViewT>> tiered_;
 
   [[nodiscard]] inline auto steal_dataset_fd_() noexcept
@@ -1148,20 +1161,81 @@ CUVS_DECLARE_TIERED_BUILD(std::uint8_t)
 }  // namespace detail
 
 #ifdef CUVS_ENABLE_FLOWANN_BUILD
-/** Build an owning tiered VPQ index from full-precision host vectors.
- * Graph construction and grouping use the input vectors; compression follows rearrangement.
- * Requires graph_storage=tiered. The input dataset may be released after build returns.
+/**
+ * @brief Build an owning tiered VPQ index from host vectors of type `float`.
+ *
+ * Graph construction and grouping use full-precision input before compression. Requires
+ * `params.graph_storage = graph_storage_kind::tiered` and FlowANN build support. The returned
+ * index owns the reordered VPQ dataset. The input storage may be released after this call.
+ *
+ * @param[in] res RAFT resources used for construction and compression.
+ * @param[in] params Graph construction and tiered storage parameters.
+ * @param[in] compression VPQ compression parameters with FP16 codebooks and 8-bit PQ codes.
+ * @param[in] dataset Non-owning host view of the uncompressed input vectors.
+ * @return An owning index accepting query vectors of type `float`.
  */
-#define CUVS_DECLARE_TIERED_PQ_BUILD(T)                      \
-  CUVS_EXPORT auto build(raft::resources const&,             \
-                         index_params const&,                \
-                         cuvs::neighbors::vpq_params const&, \
-                         host_standard_dataset_view<T, int64_t> const&) -> device_pq_index<T>;
-CUVS_DECLARE_TIERED_PQ_BUILD(float)
-CUVS_DECLARE_TIERED_PQ_BUILD(half)
-CUVS_DECLARE_TIERED_PQ_BUILD(std::int8_t)
-CUVS_DECLARE_TIERED_PQ_BUILD(std::uint8_t)
-#undef CUVS_DECLARE_TIERED_PQ_BUILD
+CUVS_EXPORT auto build(raft::resources const& res,
+                       index_params const& params,
+                       cuvs::neighbors::vpq_params const& compression,
+                       host_standard_dataset_view<float, int64_t> const& dataset)
+  -> device_pq_index<float>;
+
+/**
+ * @brief Build an owning tiered VPQ index from host vectors of type `half`.
+ *
+ * Graph construction and grouping use full-precision input before compression. Requires
+ * `params.graph_storage = graph_storage_kind::tiered` and FlowANN build support. The returned
+ * index owns the reordered VPQ dataset. The input storage may be released after this call.
+ *
+ * @param[in] res RAFT resources used for construction and compression.
+ * @param[in] params Graph construction and tiered storage parameters.
+ * @param[in] compression VPQ compression parameters with FP16 codebooks and 8-bit PQ codes.
+ * @param[in] dataset Non-owning host view of the uncompressed input vectors.
+ * @return An owning index accepting query vectors of type `half`.
+ */
+CUVS_EXPORT auto build(raft::resources const& res,
+                       index_params const& params,
+                       cuvs::neighbors::vpq_params const& compression,
+                       host_standard_dataset_view<half, int64_t> const& dataset)
+  -> device_pq_index<half>;
+
+/**
+ * @brief Build an owning tiered VPQ index from host vectors of type `std::int8_t`.
+ *
+ * Graph construction and grouping use full-precision input before compression. Requires
+ * `params.graph_storage = graph_storage_kind::tiered` and FlowANN build support. The returned
+ * index owns the reordered VPQ dataset. The input storage may be released after this call.
+ *
+ * @param[in] res RAFT resources used for construction and compression.
+ * @param[in] params Graph construction and tiered storage parameters.
+ * @param[in] compression VPQ compression parameters with FP16 codebooks and 8-bit PQ codes.
+ * @param[in] dataset Non-owning host view of the uncompressed input vectors.
+ * @return An owning index accepting query vectors of type `std::int8_t`.
+ */
+CUVS_EXPORT auto build(raft::resources const& res,
+                       index_params const& params,
+                       cuvs::neighbors::vpq_params const& compression,
+                       host_standard_dataset_view<std::int8_t, int64_t> const& dataset)
+  -> device_pq_index<std::int8_t>;
+
+/**
+ * @brief Build an owning tiered VPQ index from host vectors of type `std::uint8_t`.
+ *
+ * Graph construction and grouping use full-precision input before compression. Requires
+ * `params.graph_storage = graph_storage_kind::tiered` and FlowANN build support. The returned
+ * index owns the reordered VPQ dataset. The input storage may be released after this call.
+ *
+ * @param[in] res RAFT resources used for construction and compression.
+ * @param[in] params Graph construction and tiered storage parameters.
+ * @param[in] compression VPQ compression parameters with FP16 codebooks and 8-bit PQ codes.
+ * @param[in] dataset Non-owning host view of the uncompressed input vectors.
+ * @return An owning index accepting query vectors of type `std::uint8_t`.
+ */
+CUVS_EXPORT auto build(raft::resources const& res,
+                       index_params const& params,
+                       cuvs::neighbors::vpq_params const& compression,
+                       host_standard_dataset_view<std::uint8_t, int64_t> const& dataset)
+  -> device_pq_index<std::uint8_t>;
 #endif
 
 /**

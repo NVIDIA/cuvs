@@ -714,3 +714,62 @@ TEST(FlowannQueue, SearchLeasePausesAfterLastSearch)
 }
 
 }  // namespace
+
+
+TEST(FlowannQueue, SessionSurvivesContextMove)
+{
+  auto graph = raft::make_host_matrix<std::uint32_t, int64_t>(2, 2);
+  graph(0, 0) = graph(1, 0) = 1;
+  graph(0, 1) = 1;
+  graph(1, 1) = 0;
+  flowann::search_context context(raft::make_const_mdspan(graph.view()));
+  auto session = std::make_unique<flowann::search_session>(context);
+  flowann::search_context moved(std::move(context));
+  session.reset();
+  EXPECT_NO_THROW(moved.pause());
+  EXPECT_TRUE(flowann::detail::search_context_access::is_paused(moved));
+
+  flowann::search_context destination(raft::make_const_mdspan(graph.view()));
+  session = std::make_unique<flowann::search_session>(moved);
+  destination = std::move(moved);
+  session.reset();
+  EXPECT_NO_THROW(destination.pause());
+  EXPECT_TRUE(flowann::detail::search_context_access::is_paused(destination));
+}
+
+
+RAFT_KERNEL invalid_queue_request(flowann::detail::queue_view* queues, std::uint32_t* output)
+{
+  if (threadIdx.x != 0) { return; }
+  auto queue = queues[0];
+  flowann::detail::queue_reservation reservation{};
+  if (!flowann::detail::try_reserve(queue, &reservation)) { output[0] = 0; return; }
+  flowann::detail::submit(queue, reservation, 0xffffffffu);
+  auto const start = clock64();
+  while (!flowann::detail::result_ready(queue, reservation) && clock64() - start < 100000000ull) {}
+  auto const ready = flowann::detail::result_ready(queue, reservation);
+  output[0] = ready;
+  output[1] = ready ? flowann::detail::result_row(queue, reservation)[0] : 0xffffffffu;
+  if (ready) { flowann::detail::release(queue, reservation); }
+}
+
+TEST(FlowannQueue, InvalidRequestsCompleteAndReportAnError)
+{
+  raft::resources res;
+  auto graph = raft::make_host_matrix<std::uint32_t, int64_t>(2, 2);
+  graph(0, 0) = graph(1, 0) = 1;
+  graph(0, 1) = 1;
+  graph(1, 1) = 0;
+  flowann::search_context context(raft::make_const_mdspan(graph.view()));
+  auto output = raft::make_device_vector<std::uint32_t, int64_t>(res, 2);
+  context.resume();
+  invalid_queue_request<<<1, 1, 0, raft::resource::get_cuda_stream(res).get()>>>(
+    flowann::detail::search_context_access::device_queues(context), output.data_handle());
+  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  std::uint32_t observed[2]{};
+  raft::copy(observed, output.data_handle(), 2, raft::resource::get_cuda_stream(res));
+  raft::resource::sync_stream(res);
+  EXPECT_EQ(observed[0], 1);
+  EXPECT_EQ(observed[1], 0);
+  EXPECT_ANY_THROW(context.pause());
+}
