@@ -1022,17 +1022,17 @@ cuvsDataset_t dataset,
 cuvsCagraIndex_t index);
 ```
 
-Requires graph_storage=CUVS_CAGRA_GRAPH_TIERED and enabled tiered building. The caller retains the input; the resulting index owns its reordered compressed dataset.
+Requires graph_storage=CUVS_CAGRA_GRAPH_TIERED and enabled FlowANN building. The caller retains the input vectors and may release them after this call. The resulting index owns its reordered compressed dataset.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `res` |  | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) |  |
-| `params` |  | [`cuvsCagraIndexParams_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindexparams) |  |
-| `compression` |  | `cuvsPqParams_t` |  |
-| `dataset` |  | `cuvsDataset_t` |  |
-| `index` |  | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) |  |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | Resources used for construction, compression, and device transfers. |
+| `params` | in | [`cuvsCagraIndexParams_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindexparams) | CAGRA graph construction parameters selecting tiered storage. |
+| `compression` | in | `cuvsPqParams_t` | VPQ compression parameters using 8-bit PQ codes and FP16 codebooks. |
+| `dataset` | in | `cuvsDataset_t` | Host standard dataset with float32, float16, int8, or uint8 values. |
+| `index` | out | [`cuvsCagraIndex_t`](/api-reference/c-api-neighbors-cagra#cuvscagraindex) | Output handle initialized with cuvsCagraIndexCreate. |
 
 **Returns**
 

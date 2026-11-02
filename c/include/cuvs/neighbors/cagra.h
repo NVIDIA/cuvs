@@ -844,10 +844,25 @@ CUVS_EXPORT cuvsError_t cuvsCagraBuild(cuvsResources_t res,
                                        cuvsDataset_t dataset,
                                        cuvsCagraIndex_t index);
 
-/** Build an owning tiered graph and VPQ-F16 dataset from host standard vectors.
- * Requires graph_storage=CUVS_CAGRA_GRAPH_TIERED and enabled tiered building.
- * The caller retains the input; the resulting index owns its reordered
- * compressed dataset.
+/**
+ * @brief Build an owning tiered graph and VPQ-F16 dataset from host standard
+ * vectors.
+ *
+ * Requires graph_storage=CUVS_CAGRA_GRAPH_TIERED and enabled FlowANN building.
+ * The caller retains the input vectors and may release them after this call.
+ * The resulting index owns its reordered compressed dataset.
+ *
+ * @param[in] res Resources used for construction, compression, and device
+ * transfers.
+ * @param[in] params CAGRA graph construction parameters selecting tiered
+ * storage.
+ * @param[in] compression VPQ compression parameters using 8-bit PQ codes and
+ * FP16 codebooks.
+ * @param[in] dataset Host standard dataset with float32, float16, int8, or
+ * uint8 values.
+ * @param[out] index Output handle initialized with cuvsCagraIndexCreate.
+ * @return CUVS_SUCCESS on success, or CUVS_ERROR for unsupported parameters or
+ * build failure.
  */
 CUVS_EXPORT cuvsError_t cuvsCagraBuildCompressed(cuvsResources_t res,
                                                  cuvsCagraIndexParams_t params,
