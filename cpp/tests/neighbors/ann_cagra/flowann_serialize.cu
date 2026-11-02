@@ -244,7 +244,7 @@ TEST(FlowannSerialize, LoadsAndNormalizesLegacyVpq)
   EXPECT_EQ(data.subgraph_ids(3), 1);
 
   auto host_codes =
-    raft::make_host_matrix<std::uint8_t, int64_t>(4, data.dataset->encoded_row_length());
+    raft::make_host_matrix<std::uint8_t, int64_t>(4, data.dataset->data_view().extent(1));
   raft::copy(host_codes.data_handle(),
              data.dataset->data_view().data_handle(),
              host_codes.size(),
@@ -628,7 +628,7 @@ TEST(FlowannSerialize, RejectsCurrentOutOfRangeVqLabels)
   raft::resources res;
   auto legacy           = make_legacy_combined_vpq(res);
   auto bundle           = flowann::deserialize_vpq_f16<float>(res, legacy);
-  std::uint32_t invalid = bundle.dataset->vq_n_centers();
+  std::uint32_t invalid = bundle.dataset->const_manifest_view().vq_n_centers();
   raft::copy(bundle.dataset->data_view().data_handle(),
              reinterpret_cast<std::uint8_t const*>(&invalid),
              sizeof(invalid),
@@ -645,12 +645,12 @@ TEST(FlowannSerialize, NormalizesLegacyRowPaddingForCurrentRoundTrip)
   raft::resources res;
   auto legacy = make_legacy_combined_vpq(res, 12);
   auto bundle = flowann::deserialize_vpq_f16<float>(res, legacy);
-  EXPECT_EQ(bundle.dataset->encoded_row_length(), 8);
+  EXPECT_EQ(bundle.dataset->data_view().extent(1), 8);
   std::stringstream current(std::ios::in | std::ios::out | std::ios::binary);
   flowann::serialize(res, current, bundle.index);
   current.seekg(0);
   auto restored = flowann::deserialize_vpq_f16<float>(res, current);
-  EXPECT_EQ(restored.dataset->encoded_row_length(), 8);
+  EXPECT_EQ(restored.dataset->data_view().extent(1), 8);
   EXPECT_EQ(restored.index.size(), bundle.index.size());
 }
 
