@@ -6,7 +6,7 @@ slug: api-reference/c-api-neighbors-cagra
 
 _Source header: `cuvs/neighbors/cagra.h`_
 
-## C API for CUDA ANN Graph-based nearest neighbor search
+## C API for CUDA ANN Graph-based nearest
 
 <a id="cuvscagragraphbuildalgo"></a>
 ### cuvsCagraGraphBuildAlgo
@@ -301,7 +301,8 @@ struct cuvsCagraMergeParams {
 Allocate CAGRA Index params, and populate with default values
 
 ```c
-cuvsError_t cuvsCagraIndexParamsCreate(cuvsCagraIndexParams_t* params);
+cuvsError_t
+cuvsCagraIndexParamsCreate(cuvsCagraIndexParams_t *params);
 ```
 
 **Parameters**
@@ -320,7 +321,8 @@ cuvsError_t cuvsCagraIndexParamsCreate(cuvsCagraIndexParams_t* params);
 De-allocate CAGRA Index params
 
 ```c
-cuvsError_t cuvsCagraIndexParamsDestroy(cuvsCagraIndexParams_t params);
+cuvsError_t
+cuvsCagraIndexParamsDestroy(cuvsCagraIndexParams_t params);
 ```
 
 **Parameters**
@@ -339,7 +341,8 @@ cuvsError_t cuvsCagraIndexParamsDestroy(cuvsCagraIndexParams_t params);
 Allocate CAGRA merge params and populate them with AUTO defaults.
 
 ```c
-cuvsError_t cuvsCagraMergeParamsCreate(cuvsCagraMergeParams_t* params);
+cuvsError_t
+cuvsCagraMergeParamsCreate(cuvsCagraMergeParams_t *params);
 ```
 
 **Parameters**
@@ -358,7 +361,8 @@ cuvsError_t cuvsCagraMergeParamsCreate(cuvsCagraMergeParams_t* params);
 De-allocate CAGRA merge params.
 
 ```c
-cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params);
+cuvsError_t
+cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params);
 ```
 
 **Parameters**
@@ -377,7 +381,8 @@ cuvsError_t cuvsCagraMergeParamsDestroy(cuvsCagraMergeParams_t params);
 Allocate CAGRA Compression params, and populate with default values.
 
 ```c
-cuvsError_t cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t* params);
+cuvsError_t
+cuvsCagraCompressionParamsCreate(cuvsCagraCompressionParams_t *params);
 ```
 
 Deprecated: Use `cuvsPqParamsCreate`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
@@ -398,7 +403,8 @@ Deprecated: Use `cuvsPqParamsCreate`. This compatibility API is planned for remo
 De-allocate CAGRA Compression params.
 
 ```c
-cuvsError_t cuvsCagraCompressionParamsDestroy(cuvsCagraCompressionParams_t params);
+cuvsError_t
+cuvsCagraCompressionParamsDestroy(cuvsCagraCompressionParams_t params);
 ```
 
 Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for removal in the 27.02 ABI-breaking release.
@@ -419,7 +425,7 @@ Deprecated: Use `cuvsPqParamsDestroy`. This compatibility API is planned for rem
 Allocate ACE params, and populate with default values
 
 ```c
-cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t* params);
+cuvsError_t cuvsAceParamsCreate(cuvsAceParams_t *params);
 ```
 
 **Parameters**
@@ -457,12 +463,9 @@ cuvsError_t cuvsAceParamsDestroy(cuvsAceParams_t params);
 Create CAGRA index parameters similar to an HNSW index
 
 ```c
-cuvsError_t cuvsCagraIndexParamsFromHnswParams(cuvsCagraIndexParams_t params,
-int64_t n_rows,
-int64_t dim,
-int M,
-int ef_construction,
-enum cuvsCagraHnswHeuristicType heuristic,
+cuvsError_t cuvsCagraIndexParamsFromHnswParams(
+cuvsCagraIndexParams_t params, int64_t n_rows, int64_t dim, int M,
+int ef_construction, enum cuvsCagraHnswHeuristicType heuristic,
 cuvsDistanceType metric);
 ```
 
@@ -490,12 +493,9 @@ This factory function creates CAGRA parameters that yield a graph compatible wit
 Create CAGRA index parameters heuristically tuned for a dataset
 
 ```c
-cuvsError_t cuvsCagraIndexParamsFromDataset(cuvsCagraIndexParams_t params,
-int64_t n_rows,
-int64_t dim,
-size_t graph_degree,
-cuvsDistanceType metric,
-size_t build_quality);
+cuvsError_t cuvsCagraIndexParamsFromDataset(
+cuvsCagraIndexParams_t params, int64_t n_rows, int64_t dim,
+size_t graph_degree, cuvsDistanceType metric, size_t build_quality);
 ```
 
 This factory function selects the graph build algorithm and its parameters based on the shape of the dataset.
@@ -515,7 +515,7 @@ This factory function selects the graph build algorithm and its parameters based
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest neighbor search
+## C API for CUDA ANN Graph-based nearest
 
 <a id="cuvscagraextendparams"></a>
 ### cuvsCagraExtendParams
@@ -540,7 +540,8 @@ struct cuvsCagraExtendParams {
 Allocate CAGRA Extend params, and populate with default values
 
 ```c
-cuvsError_t cuvsCagraExtendParamsCreate(cuvsCagraExtendParams_t* params);
+cuvsError_t
+cuvsCagraExtendParamsCreate(cuvsCagraExtendParams_t *params);
 ```
 
 **Parameters**
@@ -559,7 +560,8 @@ cuvsError_t cuvsCagraExtendParamsCreate(cuvsCagraExtendParams_t* params);
 De-allocate CAGRA Extend params
 
 ```c
-cuvsError_t cuvsCagraExtendParamsDestroy(cuvsCagraExtendParams_t params);
+cuvsError_t
+cuvsCagraExtendParamsDestroy(cuvsCagraExtendParams_t params);
 ```
 
 **Parameters**
@@ -601,7 +603,7 @@ The caller must build `extended_dataset` as `old \|\| new` (size `n_old + n_new`
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest neighbor search
+## C API for CUDA ANN Graph-based nearest
 
 <a id="cuvscagrasearchalgo"></a>
 ### cuvsCagraSearchAlgo
@@ -711,7 +713,8 @@ struct cuvsCagraTieredSearchParams tiered;
 Allocate CAGRA search params, and populate with default values
 
 ```c
-cuvsError_t cuvsCagraSearchParamsCreate(cuvsCagraSearchParams_t* params);
+cuvsError_t
+cuvsCagraSearchParamsCreate(cuvsCagraSearchParams_t *params);
 ```
 
 **Parameters**
@@ -730,7 +733,8 @@ cuvsError_t cuvsCagraSearchParamsCreate(cuvsCagraSearchParams_t* params);
 De-allocate CAGRA search params
 
 ```c
-cuvsError_t cuvsCagraSearchParamsDestroy(cuvsCagraSearchParams_t params);
+cuvsError_t
+cuvsCagraSearchParamsDestroy(cuvsCagraSearchParams_t params);
 ```
 
 **Parameters**
@@ -743,7 +747,7 @@ cuvsError_t cuvsCagraSearchParamsDestroy(cuvsCagraSearchParams_t params);
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest neighbor search
+## C API for CUDA ANN Graph-based nearest neighbor
 
 <a id="cuvscagraindex"></a>
 ### cuvsCagraIndex
@@ -772,7 +776,7 @@ typedef struct cuvsCagraIndex {
 Allocate CAGRA index
 
 ```c
-cuvsError_t cuvsCagraIndexCreate(cuvsCagraIndex_t* index);
+cuvsError_t cuvsCagraIndexCreate(cuvsCagraIndex_t *index);
 ```
 
 **Parameters**
@@ -810,7 +814,8 @@ cuvsError_t cuvsCagraIndexDestroy(cuvsCagraIndex_t index);
 Get dimension of the CAGRA index
 
 ```c
-cuvsError_t cuvsCagraIndexGetDims(cuvsCagraIndex_t index, int64_t* dim);
+cuvsError_t cuvsCagraIndexGetDims(cuvsCagraIndex_t index,
+int64_t *dim);
 ```
 
 **Parameters**
@@ -830,7 +835,8 @@ cuvsError_t cuvsCagraIndexGetDims(cuvsCagraIndex_t index, int64_t* dim);
 Get size of the CAGRA index
 
 ```c
-cuvsError_t cuvsCagraIndexGetSize(cuvsCagraIndex_t index, int64_t* size);
+cuvsError_t cuvsCagraIndexGetSize(cuvsCagraIndex_t index,
+int64_t *size);
 ```
 
 **Parameters**
@@ -851,7 +857,7 @@ Get the graph representation of a CAGRA index.
 
 ```c
 cuvsError_t cuvsCagraIndexGetGraphStorage(
-cuvsCagraIndex_t index, enum cuvsCagraGraphStorage* storage);
+cuvsCagraIndex_t index, enum cuvsCagraGraphStorage *storage);
 ```
 
 Returns the selected storage kind without exposing the device and host edge buffers.
@@ -873,7 +879,8 @@ Returns the selected storage kind without exposing the device and host edge buff
 Get the complete graph degree of a CAGRA index.
 
 ```c
-cuvsError_t cuvsCagraIndexGetGraphDegree(cuvsCagraIndex_t index, int64_t* graph_degree);
+cuvsError_t cuvsCagraIndexGetGraphDegree(cuvsCagraIndex_t index,
+int64_t *graph_degree);
 ```
 
 For a tiered index this includes both resident and host edges.
@@ -895,7 +902,8 @@ For a tiered index this includes both resident and host edges.
 Returns a view of the CAGRA dataset
 
 ```c
-cuvsError_t cuvsCagraIndexGetDataset(cuvsCagraIndex_t index, DLManagedTensor* dataset);
+cuvsError_t cuvsCagraIndexGetDataset(cuvsCagraIndex_t index,
+DLManagedTensor *dataset);
 ```
 
 This function returns a non-owning view of the CAGRA dataset. The output will be referencing device memory that is directly used in CAGRA, without copying the dataset at all. This means that the output is only valid as long as the CAGRA index is alive, and once cuvsCagraIndexDestroy is called on the cagra index - the returned dataset view will be invalid.
@@ -919,7 +927,8 @@ Note that the DLManagedTensor dataset returned will have an associated 'deleter'
 Returns a view of the CAGRA graph
 
 ```c
-cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index, DLManagedTensor* graph);
+cuvsError_t cuvsCagraIndexGetGraph(cuvsCagraIndex_t index,
+DLManagedTensor *graph);
 ```
 
 This function returns a non-owning view of the CAGRA graph. The output will be referencing device memory that is directly used in CAGRA, without copying the graph at all. This means that the output is only valid as long as the CAGRA index is alive, and once cuvsCagraIndexDestroy is called on the cagra index - the returned graph view will be invalid.
@@ -962,7 +971,7 @@ This is the centralized dataset update operation for C callers. The index's opaq
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest neighbor search
+## C API for CUDA ANN Graph-based nearest neighbor
 
 <a id="cuvscagrabuild"></a>
 ### cuvsCagraBuild
@@ -1029,7 +1038,7 @@ Requires graph_storage=CUVS_CAGRA_GRAPH_TIERED and enabled tiered building. The 
 
 [`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
 
-## C API for CUDA ANN Graph-based nearest neighbor search
+## C API for CUDA ANN Graph-based nearest
 
 <a id="cuvscagrasearch"></a>
 ### cuvsCagraSearch
@@ -1041,13 +1050,10 @@ Search a CAGRA index with a `DLManagedTensor` which has underlying `DLDeviceType
 3. `distances`: `kDLDataType.code == kDLFloat` and `kDLDataType.bits = 32`
 
 ```c
-cuvsError_t cuvsCagraSearch(cuvsResources_t res,
-cuvsCagraSearchParams_t params,
-cuvsCagraIndex_t index,
-DLManagedTensor* queries,
-DLManagedTensor* neighbors,
-DLManagedTensor* distances,
-cuvsFilter filter);
+cuvsError_t cuvsCagraSearch(
+cuvsResources_t res, cuvsCagraSearchParams_t params, cuvsCagraIndex_t index,
+DLManagedTensor *queries, DLManagedTensor *neighbors,
+DLManagedTensor *distances, cuvsFilter filter);
 ```
 
 **Parameters**
@@ -1072,15 +1078,12 @@ cuvsFilter filter);
 Search multiple CAGRA index partitions concurrently and return the global top-k per query.
 
 ```c
-cuvsError_t cuvsCagraSearchMultiPartition(cuvsResources_t res,
-cuvsCagraSearchParams_t params,
-uint32_t num_partitions,
-cuvsCagraIndex_t* indices,
-DLManagedTensor* queries,
-DLManagedTensor* partition_ids,
-DLManagedTensor* neighbors,
-DLManagedTensor* distances,
-cuvsFilter* filters);
+cuvsError_t cuvsCagraSearchMultiPartition(
+cuvsResources_t res, cuvsCagraSearchParams_t params,
+uint32_t num_partitions, cuvsCagraIndex_t *indices,
+DLManagedTensor *queries, DLManagedTensor *partition_ids,
+DLManagedTensor *neighbors, DLManagedTensor *distances,
+cuvsFilter *filters);
 ```
 
 For each query row, the function searches all partitions in parallel into an internal intermediate buffer, applies per-partition distance post-processing, runs a batched top-k merge across partitions, and writes the final outputs to the caller-supplied device tensors. All work is submitted to the CUDA stream associated with `res`; use `cuvsStreamSync` to wait for completion.
@@ -1114,7 +1117,7 @@ Save the CAGRA graph to file without its dataset.
 
 ```c
 cuvsError_t cuvsCagraSerializeGraph(cuvsResources_t res,
-const char* filename,
+const char *filename,
 cuvsCagraIndex_t index);
 ```
 
@@ -1140,9 +1143,8 @@ Experimental, both the API and the serialization format are subject to change.
 Save the CAGRA graph and its attached dataset to file.
 
 ```c
-cuvsError_t cuvsCagraSerializeGraphAndDataset(cuvsResources_t res,
-const char* filename,
-cuvsCagraIndex_t index);
+cuvsError_t cuvsCagraSerializeGraphAndDataset(
+cuvsResources_t res, const char *filename, cuvsCagraIndex_t index);
 ```
 
 The index stores a non-owning dataset view. The caller must keep the memory of the dataset backing that view alive while this function runs. Returns CUVS_ERROR without modifying the destination file if the index has no attached dataset. PQ and BBQ datasets are not serialized by this function.
@@ -1168,7 +1170,7 @@ Save the CAGRA index to file in hnswlib format.
 
 ```c
 cuvsError_t cuvsCagraSerializeToHnswlib(cuvsResources_t res,
-const char* filename,
+const char *filename,
 cuvsCagraIndex_t index);
 ```
 
@@ -1195,7 +1197,7 @@ Load the CAGRA graph from file without retaining a serialized dataset.
 
 ```c
 cuvsError_t cuvsCagraDeserializeGraph(cuvsResources_t res,
-const char* filename,
+const char *filename,
 cuvsCagraIndex_t index);
 ```
 
@@ -1221,10 +1223,9 @@ Experimental, both the API and the serialization format are subject to change.
 Load the CAGRA graph and dataset from file.
 
 ```c
-cuvsError_t cuvsCagraDeserializeGraphAndDataset(cuvsResources_t res,
-const char* filename,
-cuvsCagraIndex_t index,
-cuvsDataset_t* out_dataset);
+cuvsError_t cuvsCagraDeserializeGraphAndDataset(
+cuvsResources_t res, const char *filename, cuvsCagraIndex_t index,
+cuvsDataset_t *out_dataset);
 ```
 
 The returned owning dataset preserves the serialized host/device memory type and standard/padded layout. The index stores a non-owning view into it, so the caller must keep the dataset alive while the index uses it and destroy it separately with cuvsDatasetDestroy. Only a device-padded result is immediately searchable through the C API; attach a caller-owned device-padded view with cuvsCagraUpdateDataset for any other kind. The output pointer must point to a null handle on entry; deserialization acts as a factory and transfers ownership of the allocated dataset handle on success. Returns CUVS_ERROR when the file has no dataset; the index and output handle are unchanged on failure.
@@ -1254,8 +1255,8 @@ Load index from a dataset and graph
 ```c
 cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
 cuvsDistanceType metric,
-DLManagedTensor* graph,
-DLManagedTensor* dataset,
+DLManagedTensor *graph,
+DLManagedTensor *dataset,
 cuvsCagraIndex_t index);
 ```
 
@@ -1283,9 +1284,8 @@ Merge multiple CAGRA indices into a single CAGRA index.
 ```c
 cuvsError_t cuvsCagraMerge(cuvsResources_t res,
 cuvsCagraIndexParams_t params,
-cuvsCagraIndex_t* indices,
-size_t num_indices,
-cuvsFilter filter,
+cuvsCagraIndex_t *indices,
+size_t num_indices, cuvsFilter filter,
 cuvsDataset_t merged_dataset,
 cuvsCagraIndex_t output_index);
 ```
@@ -1323,13 +1323,10 @@ Example:
 Merge multiple CAGRA indices with explicit merge parameters.
 
 ```c
-cuvsError_t cuvsCagraMergeWithParams(cuvsResources_t res,
-cuvsCagraIndexParams_t params,
-cuvsCagraMergeParams_t merge_params,
-cuvsCagraIndex_t* indices,
-size_t num_indices,
-cuvsFilter filter,
-cuvsDataset_t merged_dataset,
+cuvsError_t cuvsCagraMergeWithParams(
+cuvsResources_t res, cuvsCagraIndexParams_t params,
+cuvsCagraMergeParams_t merge_params, cuvsCagraIndex_t *indices,
+size_t num_indices, cuvsFilter filter, cuvsDataset_t merged_dataset,
 cuvsCagraIndex_t output_index);
 ```
 
