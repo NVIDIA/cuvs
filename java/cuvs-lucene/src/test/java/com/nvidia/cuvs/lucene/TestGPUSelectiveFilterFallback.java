@@ -82,7 +82,7 @@ public class TestGPUSelectiveFilterFallback extends LuceneTestCase {
     // Disable merges so the commits below yield one GPU segment each -> multi-partition search.
     IndexWriterConfig config =
         new IndexWriterConfig()
-            .setCodec(new CuVS2510GPUSearchCodec())
+            .setCodec(CuVSCodecs.gpuSearch())
             .setMergePolicy(NoMergePolicy.INSTANCE);
     try (IndexWriter writer = new IndexWriter(directory, config)) {
       for (int i = 0; i < DATASET_SIZE; i++) {
@@ -199,7 +199,7 @@ public class TestGPUSelectiveFilterFallback extends LuceneTestCase {
     try (Directory dir = newDirectory(new ByteBuffersDirectory())) {
       IndexWriterConfig config =
           new IndexWriterConfig()
-              .setCodec(new CuVS2510GPUSearchCodec())
+              .setCodec(CuVSCodecs.gpuSearch())
               .setMergePolicy(NoMergePolicy.INSTANCE);
       try (IndexWriter writer = new IndexWriter(dir, config)) {
         for (int i = 0; i < DOCS_PER_SEGMENT; i++) {
