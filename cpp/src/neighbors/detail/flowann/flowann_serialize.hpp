@@ -746,26 +746,32 @@ auto deserialize_device_padded(raft::resources const& res, std::istream& is)
   auto const stride = raft::deserialize_scalar<std::uint32_t>(res, is);
   RAFT_EXPECTS(stride >= graph.dim, "FlowANN dense dataset stride is smaller than its dimension");
   detail::validate_matrix_size(graph.n_rows, stride, sizeof(T), "dense dataset");
-  auto storage =
-    raft::make_device_matrix<T, int64_t>(res, static_cast<int64_t>(graph.n_rows), stride);
-  raft::deserialize_mdspan(res, is, storage.view());
-  // Serialized rows retain their physical stride; the current dataset owns a canonical
-  // padded layout with the original logical dimension.
-  auto logical_rows =
-    raft::make_device_strided_matrix_view<const T, int64_t>(storage.data_handle(),
-                                                            static_cast<int64_t>(graph.n_rows),
-                                                            static_cast<int64_t>(graph.dim),
-                                                            static_cast<int64_t>(stride));
   auto owned =
     cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
       res, graph.n_rows, graph.dim);
-  raft::copy_matrix(owned.data_handle(),
-                    owned.mapping().stride(0),
-                    logical_rows.data_handle(),
-                    stride,
-                    graph.dim,
-                    graph.n_rows,
-                    raft::resource::get_cuda_stream(res));
+  auto const owned_stride = owned.mapping().stride(0);
+  if (stride == owned_stride) {
+    // Read canonical rows directly into their owner, including initialized padding.
+    // This keeps the common load path to one device allocation and one upload.
+    auto physical_rows =
+      raft::make_device_matrix_view<T, int64_t>(owned.data_handle(), graph.n_rows, stride);
+    raft::deserialize_mdspan(res, is, physical_rows);
+  } else {
+    // Older files can use a different physical row pitch. Preserve the logical
+    // values and initialize padding before cosine reduction reads complete rows.
+    auto storage = raft::make_device_matrix<T, int64_t>(res, graph.n_rows, stride);
+    raft::deserialize_mdspan(res, is, storage.view());
+    auto stream = raft::resource::get_cuda_stream(res);
+    RAFT_CUDA_TRY(cudaMemsetAsync(
+      owned.data_handle(), 0, owned.mapping().required_span_size() * sizeof(T), stream.get()));
+    raft::copy_matrix(owned.data_handle(),
+                      owned_stride,
+                      storage.data_handle(),
+                      stride,
+                      graph.dim,
+                      graph.n_rows,
+                      stream);
+  }
   auto dataset =
     std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(std::move(owned));
   device_padded_index<T, IdxT> index(
