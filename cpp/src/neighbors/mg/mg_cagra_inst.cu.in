@@ -11,7 +11,7 @@ template <typename T, typename IdxT, typename AnnIndexT, typename RankUpdate>
 void distribute_padded_dataset(
   const raft::resources& res,
   const cuvs::neighbors::mg_index<AnnIndexT, T, IdxT>& idx,
-  cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& padded_dataset,
+  cuvs::neighbors::device_padded_dataset_view<T, int64_t> padded_dataset,
   RankUpdate&& rank_update)
 {
   auto padded_mds                 = cuvs::neighbors::dense_row_major_view(padded_dataset);
@@ -56,7 +56,7 @@ void distribute_padded_dataset(
   cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT> build(                 \
     const raft::resources& res,                                                                    \
     const mg_index_params<cagra::index_params>& index_params,                                      \
-    cuvs::neighbors::host_standard_dataset_view<T, int64_t> const& index_dataset)                  \
+    cuvs::neighbors::host_standard_dataset_view<T, int64_t> index_dataset)                         \
   {                                                                                                \
     cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT> index(               \
       res, index_params.mode);                                                                     \
@@ -71,7 +71,7 @@ void distribute_padded_dataset(
   cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT> build(                   \
     const raft::resources& res,                                                                    \
     const mg_index_params<cagra::index_params>& index_params,                                      \
-    cuvs::neighbors::host_padded_dataset_view<T, int64_t> const& index_dataset)                    \
+    cuvs::neighbors::host_padded_dataset_view<T, int64_t> index_dataset)                           \
   {                                                                                                \
     cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT> index(                 \
       res, index_params.mode);                                                                     \
@@ -86,7 +86,7 @@ void distribute_padded_dataset(
   auto update_dataset(                                                                             \
     const raft::resources& res,                                                                    \
     cuvs::neighbors::mg_index<cagra::device_standard_index<T, IdxT>, T, IdxT>&& idx,               \
-    cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& padded_dataset)                 \
+    cuvs::neighbors::device_padded_dataset_view<T, int64_t> padded_dataset)                        \
     -> cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>                     \
   {                                                                                                \
     cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT> out(res, idx.mode_);   \
@@ -107,7 +107,7 @@ void distribute_padded_dataset(
   void update_dataset(                                                                             \
     const raft::resources& res,                                                                    \
     cuvs::neighbors::mg_index<cagra::device_padded_index<T, IdxT>, T, IdxT>& idx,                  \
-    cuvs::neighbors::device_padded_dataset_view<T, int64_t> const& padded_dataset)                 \
+    cuvs::neighbors::device_padded_dataset_view<T, int64_t> padded_dataset)                        \
   {                                                                                                \
     detail::distribute_padded_dataset(                                                             \
       res, idx, padded_dataset, [&](const raft::resources& dev_res, int rank, auto dataset) {      \
