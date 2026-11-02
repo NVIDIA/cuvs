@@ -559,10 +559,11 @@ auto run_round(raft::device_resources& resources,
     raft::copy(
       candidates_host.data(), candidates_device.data_handle(), candidates_host.size(), stream);
     raft::resource::sync_stream(resources);
-    auto const row_limit = base != nullptr ? base->rows() : index.size();
+    auto const row_limit              = base != nullptr ? base->rows() : index.size();
     auto const has_invalid_candidates = std::any_of(
-      candidates_host.begin(), candidates_host.end(),
-      [row_limit](std::uint32_t candidate) { return candidate >= row_limit; });
+      candidates_host.begin(), candidates_host.end(), [row_limit](std::uint32_t candidate) {
+        return candidate >= row_limit;
+      });
     auto const after_prep = clock_type::now();
 
     if (options.rerank) {
@@ -578,15 +579,20 @@ auto run_round(raft::device_resources& resources,
       auto const distance_view = raft::make_host_matrix_view<float, int64_t, raft::row_major>(
         final_distances.data(), options.batch_size, options.top_k);
       if (!has_invalid_candidates) {
-        cuvs::neighbors::refine(resources, dataset_view, query_view, candidate_view,
-                                index_view, distance_view, index.metric());
+        cuvs::neighbors::refine(resources,
+                                dataset_view,
+                                query_view,
+                                candidate_view,
+                                index_view,
+                                distance_view,
+                                index.metric());
       } else {
         // Refine cannot dereference sentinel IDs. Compact only valid candidates for
         // each affected row and preserve missing neighbors as invalid output slots.
-        std::fill(final_indices.begin(), final_indices.end(),
-                   std::numeric_limits<std::uint32_t>::max());
-        std::fill(final_distances.begin(), final_distances.end(),
-                   std::numeric_limits<float>::infinity());
+        std::fill(
+          final_indices.begin(), final_indices.end(), std::numeric_limits<std::uint32_t>::max());
+        std::fill(
+          final_distances.begin(), final_distances.end(), std::numeric_limits<float>::infinity());
         std::vector<std::uint32_t> valid;
         valid.reserve(options.candidate_count);
         for (std::uint32_t query = 0; query < options.batch_size; ++query) {
@@ -599,11 +605,14 @@ auto run_round(raft::device_resources& resources,
           if (valid.empty()) { continue; }
           auto const k = std::min<std::size_t>(options.top_k, valid.size());
           cuvs::neighbors::refine(
-            resources, dataset_view,
+            resources,
+            dataset_view,
             raft::make_host_matrix_view<const float, int64_t>(
               queries.values.data() + query_offset + static_cast<std::size_t>(query) * queries.cols,
-              1, queries.cols),
-            raft::make_host_matrix_view<const std::uint32_t, int64_t>(valid.data(), 1, valid.size()),
+              1,
+              queries.cols),
+            raft::make_host_matrix_view<const std::uint32_t, int64_t>(
+              valid.data(), 1, valid.size()),
             raft::make_host_matrix_view<std::uint32_t, int64_t>(
               final_indices.data() + static_cast<std::size_t>(query) * options.top_k, 1, k),
             raft::make_host_matrix_view<float, int64_t>(
