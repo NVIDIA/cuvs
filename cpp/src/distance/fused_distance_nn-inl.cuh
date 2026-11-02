@@ -786,8 +786,6 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
   plan.store_indices     = store_indices;
 
   if (accurate_distances) {
-    RAFT_EXPECTS(requested_backend == detail::Top1nnBackend::Auto,
-                 "Accurate top_1_nn distances select their own backend");
     plan.refine = std::is_same_v<DataT, float> &&
                   (metric == DistanceType::L2Expanded || metric == DistanceType::L2SqrtExpanded);
     // TF32 labels are reliable from k >= 16 features; below that, TF32 mislabels near-ties.
