@@ -385,8 +385,8 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
       result_indices_buffer[i]   = raft::upper_bound<IndexT>();
       result_distances_buffer[i] = raft::upper_bound<DistanceT>();
     }
-    __syncthreads();
 
+    // The filter-flag barrier below also orders these tail writes.
     // Filtering - use extern sample_filter function
     if (threadIdx.x == 0) { *filter_flag = 0; }
     __syncthreads();
@@ -512,10 +512,14 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
     auto const result_index = result_indices_buffer[ii];
     if (result_index == invalid_index) {
       // Keep the historical resident-graph sentinel without indexing a source map.
-      auto const source_index = source_indices_ptr == nullptr
-                                  ? static_cast<SourceIndexT>(invalid_index & ~index_msb_1_mask)
-                                  : raft::upper_bound<SourceIndexT>();
-      write_indices(result_indices_ptr, j, source_index);
+      if (source_indices_ptr == nullptr) {
+        write_indices(
+          result_indices_ptr, j, static_cast<SourceIndexT>(invalid_index & ~index_msb_1_mask));
+      } else if (index_element_tag == 3) {
+        reinterpret_cast<uint64_t*>(result_indices_ptr)[j] = ~uint64_t{0};
+      } else {
+        write_indices(result_indices_ptr, j, raft::upper_bound<SourceIndexT>());
+      }
       continue;
     }
     auto internal_index = result_index & ~index_msb_1_mask;  // clear most significant bit
