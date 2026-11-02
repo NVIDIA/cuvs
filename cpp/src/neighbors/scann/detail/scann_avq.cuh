@@ -612,6 +612,10 @@ void apply_avq(raft::resources const& res,
   RAFT_LOG_DEBUG("Compute AVQ centroids\n");
 
   for (int i = 0; i < h_cluster_offsets.extent(0); i++) {
+    // cluster_vectors_raw holds the cluster's vectors in the dataset's native
+    // type T. compute_avq_centroid runs in float, so for non-float input types
+    // we first convert to float (float input is used as-is). The AVQ centroids
+    // are always float.
     auto cluster_vectors_raw = loader.load_cluster(res, i);
 
     auto avq_centroid = raft::make_device_vector_view<float, int64_t>(
