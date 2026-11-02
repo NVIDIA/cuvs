@@ -2269,7 +2269,7 @@ auto build_dense_integrated(raft::resources const& res,
     auto const seeds_end = std::chrono::steady_clock::now();
 
     auto source_indices = conversion.new_to_old;
-    auto dataset_owner  = detail::reorder_dense_dataset(res, dataset, conversion.new_to_old);
+    auto dataset_owner  = detail::reorder_dense_dataset<T>(res, dataset, conversion.new_to_old);
     flowann::device_padded_index<T, std::uint32_t> index(res,
                                                          params.cagra_params.metric,
                                                          dataset_owner->view(),
@@ -2352,7 +2352,8 @@ auto build_device_padded_from_cagra(
 {
   auto conversion     = detail::convert_cagra_graph(res, params, cagra_index, partition_labels);
   auto source_indices = detail::make_source_indices(res, cagra_index, conversion.new_to_old);
-  auto dataset = detail::reorder_dense_dataset(res, cagra_index.dataset(), conversion.new_to_old);
+  auto dataset =
+    detail::reorder_dense_dataset<T>(res, cagra_index.dataset(), conversion.new_to_old);
   flowann::device_padded_index<T, std::uint32_t> index(
     res, cagra_index.metric(), dataset->view(), params.node_per_cacheline, params.n_bits);
   detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
