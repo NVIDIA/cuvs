@@ -64,6 +64,7 @@ add_executable(SCANN_TWO_LEVEL_EXAMPLE src/scann_two_level_example.cu)
 if(CUVS_ENABLE_FLOWANN_SEARCH AND NOT TARGET FLOWANN_BENCHMARK)
   find_package(OpenMP REQUIRED COMPONENTS CXX CUDA)
   add_executable(FLOWANN_BENCHMARK src/flowann_benchmark.cu)
+  target_include_directories(FLOWANN_BENCHMARK PRIVATE "${cuvs_SOURCE_DIR}/src")
   target_link_libraries(
     FLOWANN_BENCHMARK
     PRIVATE cuvs::cuvs OpenMP::OpenMP_CXX OpenMP::OpenMP_CUDA
@@ -72,6 +73,7 @@ if(CUVS_ENABLE_FLOWANN_SEARCH AND NOT TARGET FLOWANN_BENCHMARK)
 endif()
 if(CUVS_ENABLE_FLOWANN_BUILD AND NOT TARGET FLOWANN_BUILD_BENCHMARK)
   add_executable(FLOWANN_BUILD_BENCHMARK src/flowann_build_benchmark.cu)
+  target_include_directories(FLOWANN_BUILD_BENCHMARK PRIVATE "${cuvs_SOURCE_DIR}/src")
   target_link_libraries(
     FLOWANN_BUILD_BENCHMARK PRIVATE cuvs::cuvs OpenMP::OpenMP_CUDA
                                     $<TARGET_NAME_IF_EXISTS:conda_env>
