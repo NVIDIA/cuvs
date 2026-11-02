@@ -231,13 +231,13 @@ void search_multi_cta(raft::resources const& res,
   std::uint32_t query_stride{};
   if (cuvs::neighbors::matrix_row_width_matches_cagra_required(queries)) {
     auto view    = cuvs::neighbors::make_device_padded_dataset_view(res, queries);
-    query_data   = view.view().data_handle();
-    query_stride = view.stride();
+    query_data   = view.data_view().data_handle();
+    query_stride = view.data_view().stride(0);
   } else {
     padded_queries = cuvs::neighbors::make_device_padded_dataset(res, queries);
-    auto view      = padded_queries->as_dataset_view();
-    query_data     = view.view().data_handle();
-    query_stride   = view.stride();
+    auto view      = padded_queries->view();
+    query_data     = view.data_view().data_handle();
+    query_stride   = view.data_view().stride(0);
   }
   auto const max_batch_queries = query_stride == query_dim ? plan.max_queries : std::size_t{1};
   auto const stream            = raft::resource::get_cuda_stream(res).get();
