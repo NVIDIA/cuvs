@@ -410,9 +410,9 @@ class host_queue {
 
   [[nodiscard]] auto view() const noexcept -> detail::queue_view { return view_; }
   void abort() noexcept { abort_flag_.abort(); }
-  auto invalid_requests() const noexcept -> std::uint64_t
+  auto consume_invalid_requests() noexcept -> std::uint64_t
   {
-    return invalid_requests_.load(std::memory_order_relaxed);
+    return invalid_requests_.exchange(0, std::memory_order_relaxed);
   }
 
   [[nodiscard]] auto poll_batch() -> bool
@@ -634,6 +634,14 @@ struct search_context::impl {
 
   ~impl() { stop(); }
 
+  void report_failure(std::exception_ptr error) noexcept
+  {
+    std::lock_guard lock(pause_mutex_);
+    for (auto const& queue : queues_) { queue->abort(); }
+    if (poller_error_ == nullptr) { poller_error_ = error; }
+    pause_cv_.notify_all();
+  }
+
   void throw_if_failed()
   {
     if (poller_error_ != nullptr) { std::rethrow_exception(poller_error_); }
@@ -641,10 +649,11 @@ struct search_context::impl {
 
   void throw_if_invalid_requests() const
   {
+    bool invalid = false;
     for (auto const& queue : queues_) {
-      RAFT_EXPECTS(queue->invalid_requests() == 0,
-                   "FlowANN queue received an out-of-range cross-graph row");
+      invalid |= queue->consume_invalid_requests() != 0;
     }
+    RAFT_EXPECTS(!invalid, "FlowANN queue received an out-of-range cross-graph row");
   }
 
   [[nodiscard]] auto should_run() const noexcept -> bool
@@ -757,6 +766,7 @@ struct search_context::impl {
       pause_cv_.notify_all();
       update_pollers(lock);
     }
+    throw_if_failed();
     throw_if_invalid_requests();
   }
 
@@ -818,9 +828,8 @@ struct search_context::impl {
         }
       }
     } catch (...) {
-      queue.abort();
+      report_failure(std::current_exception());
       std::lock_guard lock(pause_mutex_);
-      if (poller_error_ == nullptr) { poller_error_ = std::current_exception(); }
       ++failed_pollers_;
       pause_cv_.notify_all();
     }
@@ -963,6 +972,12 @@ void detail::search_context_access::release_search(search_context& context)
 {
   RAFT_EXPECTS(context.impl_ != nullptr, "Cannot search with a moved-from FlowANN search context");
   context.impl_->release_search();
+}
+
+void detail::search_context_access::report_failure(search_context& context, std::exception_ptr error)
+{
+  RAFT_EXPECTS(context.impl_ != nullptr, "Cannot fail a moved-from FlowANN search context");
+  context.impl_->report_failure(std::move(error));
 }
 
 auto detail::search_context_access::is_paused(search_context const& context) noexcept -> bool
