@@ -362,7 +362,12 @@ class host_queue {
     // gdrdrv rejects mappings whose device address is not aligned to its 64 KiB GPU page.
     // cudaMalloc can return a suballocation after the graph build, so align within an owning
     // allocation instead of relying on cudaMalloc's current address.
-    storage_.allocate(layout_.total_size, 64u * 1024u);
+    constexpr std::size_t gpu_page_size = 64u * 1024u;
+    RAFT_EXPECTS(layout_.total_size <= std::numeric_limits<std::size_t>::max() -
+                                       (gpu_page_size - 1),
+                 "FlowANN GDRCopy mapping size overflows");
+    mapped_size_ = align_up(layout_.total_size, gpu_page_size);
+    storage_.allocate(mapped_size_, gpu_page_size);
 #else
     storage_.allocate(layout_.total_size);
 #endif
@@ -385,7 +390,7 @@ class host_queue {
     view_.abort_flag = abort_flag_.device_ptr();
 
 #ifdef CUVS_FLOWANN_USE_GDRCOPY
-    gdrcopy_.emplace(storage_.get(), layout_.total_size);
+    gdrcopy_.emplace(storage_.get(), mapped_size_);
 #else
     copy_stream_.create();
     // Pageable copies may synchronize inside the driver and contend with lazy
@@ -560,6 +565,7 @@ class host_queue {
   std::vector<unsigned long long> result_sequence_staging_;
   std::vector<std::uint32_t> row_staging_;
 #ifdef CUVS_FLOWANN_USE_GDRCOPY
+  std::size_t mapped_size_{};
   std::optional<gdrcopy_mapping> gdrcopy_;
 #else
   cuda_stream copy_stream_;
