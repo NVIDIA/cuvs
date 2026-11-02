@@ -114,24 +114,33 @@ SPDX-License-Identifier: Apache-2.0
         <!-- clean lifecycle, see https://maven.apache.org/ref/current/maven-core/lifecycles.html#clean_Lifecycle -->
         <plugin>
           <artifactId>maven-clean-plugin</artifactId>
-          <version>3.4.0</version>
+          <version>3.5.0</version>
         </plugin>
         <!-- default lifecycle, jar packaging: see https://maven.apache.org/ref/current/maven-core/default-bindings.html#Plugin_bindings_for_jar_packaging -->
         <plugin>
           <artifactId>maven-resources-plugin</artifactId>
-          <version>3.3.1</version>
+          <version>3.5.0</version>
+        </plugin>
+        <plugin>
+          <!-- Keep at 3.5.x: 3.6.0 switches to the JUnit Platform provider, which breaks '-Dtest=Class#method' filtering with the randomizedtesting runner (surefire-junit4 is not published past 3.5.6). -->
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.5.6</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-install-plugin</artifactId>
+          <version>3.2.0</version>
         </plugin>
         <plugin>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.13.0</version>
+          <version>3.16.0</version>
         </plugin>
         <plugin>
           <artifactId>maven-jar-plugin</artifactId>
-          <version>3.4.2</version>
+          <version>3.5.1</version>
         </plugin>
         <plugin>
             <artifactId>maven-assembly-plugin</artifactId>
-            <version>3.4.2</version>
+            <version>3.8.0</version>
             <executions>
                <execution>
                   <id>make-jar-with-dependencies</id>

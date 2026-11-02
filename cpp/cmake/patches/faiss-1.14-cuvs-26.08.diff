@@ -46,7 +46,7 @@ index 4be7cebb8..42315d027 100644
                  raft_handle,
                  cuvs::distance::DistanceType::BitwiseHamming,
 -                dataset_mds,
-+                host_to_device_dataset_->as_dataset_view(),
++                std::as_const(*host_to_device_dataset_).view(),
                  raft::make_const_mdspan(knn_graph_copy.view()));
      } else {
          FAISS_THROW_MSG(
@@ -72,7 +72,7 @@ index 4be7cebb8..42315d027 100644
                  cuvs::neighbors::cagra::build(
 -                        raft_handle, index_params_, dataset));
 +                        raft_handle, index_params_,
-+                        host_to_device_dataset_->as_dataset_view()));
++                        std::as_const(*host_to_device_dataset_).view()));
      }
  }
 
@@ -99,7 +99,7 @@ index 4be7cebb8..42315d027 100644
 +            *cuvs_index = cuvs::neighbors::cagra::update_dataset(
 +                    raft_handle,
 +                    std::move(*cuvs_index),
-+                    host_to_device_dataset_->as_dataset_view());
++                    std::as_const(*host_to_device_dataset_).view());
          }
          store_dataset_ = true;
      }
@@ -189,7 +189,7 @@ index 6ff3419b7..f03a5e5f0 100644
                  raft_handle,
                  metricFaissToCuvs(metric_, false),
 -                dataset_mds,
-+                host_to_device_dataset_->as_dataset_view(),
++                std::as_const(*host_to_device_dataset_).view(),
                  raft::make_const_mdspan(knn_graph_copy.view()));
      } else {
          FAISS_THROW_MSG(
@@ -215,7 +215,7 @@ index 6ff3419b7..f03a5e5f0 100644
                  cuvs::neighbors::cagra::build(
 -                        raft_handle, index_params_, dataset));
 +                        raft_handle, index_params_,
-+                        host_to_device_dataset_->as_dataset_view()));
++                        std::as_const(*host_to_device_dataset_).view()));
      }
  }
 
@@ -241,7 +241,7 @@ index 6ff3419b7..f03a5e5f0 100644
 +            *cuvs_index = cuvs::neighbors::cagra::update_dataset(
 +                    raft_handle,
 +                    std::move(*cuvs_index),
-+                    host_to_device_dataset_->as_dataset_view());
++                    std::as_const(*host_to_device_dataset_).view());
          }
          store_dataset_ = true;
      }

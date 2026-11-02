@@ -37,7 +37,7 @@ Initializes `Lucene99AcceleratedHNSWVectorsWriter`
 | --- | --- |
 | `IOException` | IOException |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:90`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:80`_
 
 ### addField
 
@@ -47,7 +47,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 
 Add new field for indexing.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:133`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:123`_
 
 ### flush
 
@@ -57,7 +57,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 
 Build the indexes and writes it to the disk.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:234`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:224`_
 
 ### mergeOneField
 
@@ -67,7 +67,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 
 Write field for merging.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:393`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:383`_
 
 ### finish
 
@@ -77,7 +77,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 
 Called once at the end before close.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:402`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:392`_
 
 ### close
 
@@ -87,7 +87,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 
 Closes the resources.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:422`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:412`_
 
 ### ramBytesUsed
 
@@ -97,6 +97,6 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 
 Returns the memory usage of this object in bytes.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:432`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:422`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:55`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:56`_
