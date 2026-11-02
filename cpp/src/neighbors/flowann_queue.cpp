@@ -680,7 +680,7 @@ struct search_context::impl {
 search_context::search_context(
   raft::host_matrix_view<const std::uint32_t, int64_t, raft::row_major> cross_graph,
   queue_params params)
-  : impl_(std::make_unique<impl>(cross_graph, params))
+  : impl_(std::make_shared<impl>(cross_graph, params))
 {
 }
 
@@ -690,16 +690,16 @@ search_context::search_context(search_context&&) noexcept = default;
 
 auto search_context::operator=(search_context&&) noexcept -> search_context& = default;
 
-search_session::search_session(search_context& context) : context_(&context)
+search_session::search_session(search_context& context) : context_(context.impl_)
 {
   RAFT_EXPECTS(context.impl_ != nullptr, "Cannot start a session on a moved-from search context");
-  context.impl_->begin_session();
+  context_->begin_session();
 }
 
 search_session::~search_session() { reset(); }
 
 search_session::search_session(search_session&& other) noexcept
-  : context_(std::exchange(other.context_, nullptr))
+  : context_(std::move(other.context_))
 {
 }
 
@@ -707,7 +707,7 @@ auto search_session::operator=(search_session&& other) noexcept -> search_sessio
 {
   if (this != &other) {
     reset();
-    context_ = std::exchange(other.context_, nullptr);
+    context_ = std::move(other.context_);
   }
   return *this;
 }
@@ -715,9 +715,9 @@ auto search_session::operator=(search_session&& other) noexcept -> search_sessio
 void search_session::reset() noexcept
 {
   if (context_ == nullptr) { return; }
-  auto* context = std::exchange(context_, nullptr);
+  auto context = std::move(context_);
   try {
-    context->impl_->end_session();
+    context->end_session();
   } catch (...) {
   }
 }
