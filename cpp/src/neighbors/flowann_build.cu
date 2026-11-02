@@ -394,8 +394,8 @@ auto rank_graph_edge_order(raft::resources const& res,
                            DatasetViewT const& dataset)
   -> raft::host_matrix<std::uint8_t, int64_t, raft::row_major>
 {
-  using value_type =
-    std::remove_const_t<typename decltype(std::declval<DatasetViewT const&>().data_view())::value_type>;
+  using value_type = std::remove_const_t<
+    typename decltype(std::declval<DatasetViewT const&>().data_view())::value_type>;
   constexpr bool host_dataset = cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>;
 
   auto const n_rows = static_cast<std::uint64_t>(graph.extent(0));
@@ -557,8 +557,8 @@ auto convert_uniform_ranked_graph(
   raft::host_matrix_view<const graph_index_type, int64_t, raft::row_major> graph,
   DatasetViewT const& dataset) -> uniform_conversion_result
 {
-  using value_type =
-    std::remove_const_t<typename decltype(std::declval<DatasetViewT const&>().data_view())::value_type>;
+  using value_type = std::remove_const_t<
+    typename decltype(std::declval<DatasetViewT const&>().data_view())::value_type>;
   constexpr bool host_dataset = cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>;
 
   auto const n_rows = static_cast<std::uint64_t>(graph.extent(0));
@@ -778,8 +778,8 @@ auto gather_grouping_rows(raft::resources const& res,
 #endif
     for (std::size_t i = 0; i < ids.size(); ++i) {
       for (int64_t col = 0; col < dim; ++col) {
-        staging(i * dim + col) =
-          static_cast<float>(dataset.data_view().data_handle()[ids[i] * dataset.data_view().stride(0) + col]);
+        staging(i * dim + col) = static_cast<float>(
+          dataset.data_view().data_handle()[ids[i] * dataset.data_view().stride(0) + col]);
       }
     }
     raft::copy(result.data_handle(), staging.data_handle(), result.size(), stream);
@@ -949,7 +949,8 @@ auto generate_group_labels(raft::resources const& res,
             auto const source = source_id(begin + offset + row);
             for (int64_t col = 0; col < dim; ++col) {
               (*staging)(row* dim + col) = static_cast<float>(
-                dataset.data_view().data_handle()[std::uint64_t{source} * dataset.data_view().stride(0) + col]);
+                dataset.data_view()
+                  .data_handle()[std::uint64_t{source} * dataset.data_view().stride(0) + col]);
             }
           }
           raft::copy(batch.data_handle(), staging->data_handle(), size * dim, stream);
@@ -1051,8 +1052,8 @@ auto generate_medoid_seeds(raft::resources const& res,
                            DatasetViewT const& dataset)
   -> raft::host_vector<graph_index_type, int64_t>
 {
-  using source_type =
-    std::remove_const_t<typename decltype(std::declval<DatasetViewT const&>().data_view())::value_type>;
+  using source_type = std::remove_const_t<
+    typename decltype(std::declval<DatasetViewT const&>().data_view())::value_type>;
   constexpr bool host_dataset = cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>;
 
   RAFT_EXPECTS(params.num_seeds > 0 && params.num_seeds <= dataset.n_rows(),
@@ -1182,8 +1183,13 @@ auto generate_medoid_seeds(raft::resources const& res,
       constexpr auto threads = std::uint32_t{256};
       auto const blocks      = static_cast<std::uint32_t>(
         std::min<std::uint64_t>((count * dim + threads - 1) / threads, std::uint64_t{65535}));
-      gather_float_rows_kernel<<<blocks, threads, 0, raw_stream>>>(
-        batch.data_handle(), rows.data_handle(), nullptr, offset, count, dim, dataset.data_view().stride(0));
+      gather_float_rows_kernel<<<blocks, threads, 0, raw_stream>>>(batch.data_handle(),
+                                                                   rows.data_handle(),
+                                                                   nullptr,
+                                                                   offset,
+                                                                   count,
+                                                                   dim,
+                                                                   dataset.data_view().stride(0));
       RAFT_CUDA_TRY(cudaPeekAtLastError());
     }
 
@@ -2063,7 +2069,8 @@ auto reorder_dense_dataset(raft::resources const& res,
 {
   auto const source_data = source.data_view();
   auto reordered =
-    cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(res, source.n_rows(), source.dim());
+    cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
+      res, source.n_rows(), source.dim());
   gather_device_rows(res,
                      reordered.data_handle(),
                      source_data.data_handle(),
@@ -2293,13 +2300,14 @@ auto build_dense_integrated(raft::resources const& res,
 
   auto source_rows = dataset.data_view();
   auto owned_rows =
-    cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(res, dataset.n_rows(), dataset.dim());
+    cuvs::neighbors::detail::make_dense_array<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
+      res, dataset.n_rows(), dataset.dim());
   raft::copy(owned_rows.data_handle(),
              source_rows.data_handle(),
              owned_rows.mapping().required_span_size(),
              raft::resource::get_cuda_stream(res));
-  auto dataset_owner = std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(
-    std::move(owned_rows));
+  auto dataset_owner =
+    std::make_unique<cuvs::neighbors::device_padded_dataset<T, int64_t>>(std::move(owned_rows));
   flowann::device_padded_index<T, std::uint32_t> index(res,
                                                        params.cagra_params.metric,
                                                        dataset_owner->view(),
@@ -2345,11 +2353,8 @@ auto build_device_padded_from_cagra(
   auto conversion     = detail::convert_cagra_graph(res, params, cagra_index, partition_labels);
   auto source_indices = detail::make_source_indices(res, cagra_index, conversion.new_to_old);
   auto dataset = detail::reorder_dense_dataset(res, cagra_index.dataset(), conversion.new_to_old);
-  flowann::device_padded_index<T, std::uint32_t> index(res,
-                                                       cagra_index.metric(),
-                                                       dataset->view(),
-                                                       params.node_per_cacheline,
-                                                       params.n_bits);
+  flowann::device_padded_index<T, std::uint32_t> index(
+    res, cagra_index.metric(), dataset->view(), params.node_per_cacheline, params.n_bits);
   detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
   return {std::move(dataset), std::move(index)};
 }
