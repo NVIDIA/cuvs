@@ -641,11 +641,15 @@ TEST(FlowannSearch, AllRequestedSeedsParticipateInInitialSelection)
 {
   // 300 seeds exceed the inherited 256-slot small hashmap for itopk=64, degree=16.
   // Every query exactly matches a seed, including seeds outside the first 256 slots.
-  for (auto mode :
-       {cuvs::neighbors::cagra::hash_mode::AUTO, cuvs::neighbors::cagra::hash_mode::HASH}) {
+  using hash_mode = cuvs::neighbors::cagra::hash_mode;
+  // Independently exercise shared growth, global growth, AUTO fallback, and the explicit limit.
+  for (auto const [rows, mode] : {std::pair{int64_t{300}, hash_mode::AUTO},
+                                  std::pair{int64_t{300}, hash_mode::SMALL},
+                                  std::pair{int64_t{2200}, hash_mode::HASH},
+                                  std::pair{int64_t{4200}, hash_mode::AUTO},
+                                  std::pair{int64_t{4200}, hash_mode::SMALL}}) {
     raft::resources res;
-    constexpr int64_t rows = 300;
-    auto host              = raft::make_host_matrix<float, int64_t>(rows, 4);
+    auto host = raft::make_host_matrix<float, int64_t>(rows, 4);
     std::fill_n(host.data_handle(), host.size(), 0.0f);
     for (int64_t row = 0; row < rows; ++row) {
       host(row, 0) = static_cast<float>(row);
@@ -672,11 +676,19 @@ TEST(FlowannSearch, AllRequestedSeedsParticipateInInitialSelection)
     index.update_subgraph_layout(
       res, raft::make_const_mdspan(offsets.view()), raft::make_const_mdspan(groups.view()));
     index.update_seeds(res, raft::make_const_mdspan(ids.view()));
-    auto queries = raft::make_device_matrix<float, int64_t>(res, rows, 4);
-    raft::copy(
-      queries.data_handle(), host.data_handle(), host.size(), raft::resource::get_cuda_stream(res));
-    auto neighbors = raft::make_device_matrix<std::uint32_t, int64_t>(res, rows, 1);
-    auto distances = raft::make_device_matrix<float, int64_t>(res, rows, 1);
+    auto const query_count = rows == 300 ? rows : int64_t{3};
+    auto queries           = raft::make_device_matrix<float, int64_t>(res, query_count, 4);
+    auto host_queries      = raft::make_host_matrix<float, int64_t>(query_count, 4);
+    std::fill_n(host_queries.data_handle(), host_queries.size(), 0.0f);
+    for (int64_t query = 0; query < query_count; ++query) {
+      host_queries(query, 0) = static_cast<float>(rows == 300 ? query : query * (rows - 1) / 2);
+    }
+    raft::copy(queries.data_handle(),
+               host_queries.data_handle(),
+               host_queries.size(),
+               raft::resource::get_cuda_stream(res));
+    auto neighbors = raft::make_device_matrix<std::uint32_t, int64_t>(res, query_count, 1);
+    auto distances = raft::make_device_matrix<float, int64_t>(res, query_count, 1);
     flowann::search_context context(index.cross_graph());
     flowann::search_params params;
     params.algo           = cuvs::neighbors::cagra::search_algo::SINGLE_CTA;
@@ -684,6 +696,18 @@ TEST(FlowannSearch, AllRequestedSeedsParticipateInInitialSelection)
     params.max_iterations = 1;
     params.num_seeds      = rows;
     params.hashmap_mode   = mode;
+    if (mode == hash_mode::SMALL && rows > 4096) {
+      EXPECT_ANY_THROW(flowann::search(res,
+                                       params,
+                                       index,
+                                       context,
+                                       raft::make_const_mdspan(queries.view()),
+                                       neighbors.view(),
+                                       distances.view()));
+      EXPECT_TRUE(flowann::detail::search_context_access::is_paused(context));
+      raft::resource::sync_stream(res);
+      continue;
+    }
     flowann::search(res,
                     params,
                     index,
@@ -691,10 +715,12 @@ TEST(FlowannSearch, AllRequestedSeedsParticipateInInitialSelection)
                     raft::make_const_mdspan(queries.view()),
                     neighbors.view(),
                     distances.view());
-    auto actual           = raft::make_host_matrix<std::uint32_t, int64_t>(rows, 1);
-    auto actual_distances = raft::make_host_matrix<float, int64_t>(rows, 1);
-    raft::copy(
-      actual.data_handle(), neighbors.data_handle(), rows, raft::resource::get_cuda_stream(res));
+    auto actual           = raft::make_host_matrix<std::uint32_t, int64_t>(query_count, 1);
+    auto actual_distances = raft::make_host_matrix<float, int64_t>(query_count, 1);
+    raft::copy(actual.data_handle(),
+               neighbors.data_handle(),
+               query_count,
+               raft::resource::get_cuda_stream(res));
     raft::copy(actual_distances.data_handle(),
                distances.data_handle(),
                rows,
