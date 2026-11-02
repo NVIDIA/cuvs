@@ -87,6 +87,8 @@ option(CUVS_RAFT_CLONE_ON_PIN "Explicitly clone RAFT branch when pinned to non-f
 option(CUVS_ENABLE_FLOWANN_SEARCH "Enable experimental FlowANN tiered-graph search" OFF)
 option(CUVS_ENABLE_FLOWANN_BUILD "Enable the experimental integrated FlowANN graph builder" OFF)
 option(CUVS_FLOWANN_USE_GDRCOPY "Use GDRCopy for FlowANN GPU-to-CPU command queues" ON)
+set(CUVS_FLOWANN_GDRCOPY_INSTALL_RPATH "\$ORIGIN" CACHE STRING
+    "Runtime search paths for externally deployed GDRCopy; never inferred from the build host")
 
 if(CUVS_ENABLE_FLOWANN_SEARCH AND BUILD_CPU_ONLY)
   message(FATAL_ERROR "CUVS_ENABLE_FLOWANN_SEARCH requires a CUDA-enabled build")
@@ -1780,10 +1782,10 @@ if(NOT BUILD_CPU_ONLY)
       target_link_libraries(cuvs INTERFACE $<LINK_ONLY:$<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>>)
     endif()
     if(CUVS_ENABLE_FLOWANN_SEARCH AND CUVS_FLOWANN_USE_GDRCOPY)
-      # Preserve discovery of GDRCopy outside the system runtime search paths.
-      set_property(
-        TARGET cuvs APPEND PROPERTY INSTALL_RPATH "$<TARGET_FILE_DIR:GDRCopy::GDRCopy>"
-      )
+      # GDRCopy is an external runtime dependency. Default to an install-relative path;
+      # packagers may supply an explicit deployment path, independent of the build prefix.
+      set_property(TARGET cuvs APPEND PROPERTY INSTALL_RPATH
+                   "${CUVS_FLOWANN_GDRCOPY_INSTALL_RPATH}")
       # Consumers must resolve this runtime dependency even when it is installed outside the
       # linker's default search paths. Its headers remain private to the queue implementation.
       target_link_libraries(
