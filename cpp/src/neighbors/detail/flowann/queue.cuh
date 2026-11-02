@@ -53,6 +53,8 @@ struct queue_view {
   unsigned long long* result_sequence;
   unsigned long long* released_sequence;
   std::uint32_t const* abort_flag;
+  // Private to each device-side queue view. Avoid a PCIe read on every readiness poll.
+  mutable unsigned long long next_abort_check{};
 };
 
 struct queue_reservation {
@@ -216,13 +218,18 @@ RAFT_DEVICE_INLINE_FUNCTION void submit(queue_view queue,
   submit_batch(queue, reservation, &row_id, 1);
 }
 
-RAFT_DEVICE_INLINE_FUNCTION auto result_ready(queue_view queue, queue_reservation reservation)
+RAFT_DEVICE_INLINE_FUNCTION auto result_ready(queue_view const& queue, queue_reservation reservation)
   -> bool
 {
   if (load_published_counter(&queue.result_sequence[reservation.slot]) == reservation.sequence + 1) {
     return true;
   }
   if (queue.abort_flag == nullptr) { return false; }
+  auto const now = clock64();
+  if (now < queue.next_abort_check) { return false; }
+  // Read the host-written emergency signal at a bounded interval. Ordinary completion
+  // stays in device memory; continuously loading mapped host memory stalls queue traffic.
+  queue.next_abort_check = now + (1ull << 20);
   cuda::atomic_ref<std::uint32_t, cuda::thread_scope_system> aborted(
     *const_cast<std::uint32_t*>(queue.abort_flag));
   return aborted.load(cuda::memory_order_acquire) != 0;
