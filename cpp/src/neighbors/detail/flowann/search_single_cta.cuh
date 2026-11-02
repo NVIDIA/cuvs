@@ -202,7 +202,7 @@ auto make_dataset_descriptor(raft::resources const& res,
     }
     return cuvs::neighbors::cagra::detail::
       dataset_descriptor_init_with_cache<DataT, IndexT, DistanceT>(
-        res, params, index.dataset().dset(), index.metric(), nullptr);
+        res, params, index.dataset(), index.metric(), nullptr);
   } else {
     static_assert(cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>,
                   "FlowANN search supports device-padded or float16 VPQ datasets");
@@ -408,13 +408,13 @@ void search_single_cta(raft::resources const& res,
   std::uint32_t query_stride{};
   if (cuvs::neighbors::matrix_row_width_matches_cagra_required(queries)) {
     auto view    = cuvs::neighbors::make_device_padded_dataset_view(res, queries);
-    query_data   = view.view().data_handle();
-    query_stride = view.stride();
+    query_data   = view.data_view().data_handle();
+    query_stride = view.data_view().stride(0);
   } else {
     padded_queries = cuvs::neighbors::make_device_padded_dataset(res, queries);
-    auto view      = padded_queries->as_dataset_view();
-    query_data     = view.view().data_handle();
-    query_stride   = view.stride();
+    auto view      = padded_queries->view();
+    query_data     = view.data_view().data_handle();
+    query_stride   = view.data_view().stride(0);
   }
   auto const max_batch_queries = plan.max_queries;
   auto const stream            = raft::resource::get_cuda_stream(res).get();
