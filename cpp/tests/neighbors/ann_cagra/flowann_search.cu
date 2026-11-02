@@ -69,7 +69,8 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
                       bool alternate_modes                    = false,
                       std::uint32_t packed_bits               = 2,
                       std::uint32_t row_padding               = 0,
-                      std::uint32_t query_dim                 = 4) -> search_result
+                      std::uint32_t query_dim                 = 4,
+                      std::uint32_t complete_degree           = 2) -> search_result
 {
   raft::resources res;
   constexpr int64_t rows = 8;
@@ -100,13 +101,15 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
   pack_two_nodes(inner, 2, 1, 2, packed_bits);
   pack_two_nodes(inner, 3, 3, 0, packed_bits);
 
-  auto cross = raft::make_host_matrix<std::uint32_t, int64_t>(rows, 2);
+  auto cross = raft::make_host_matrix<std::uint32_t, int64_t>(rows, complete_degree);
   for (std::uint32_t row = 0; row < rows; ++row) {
-    cross(row, 0) = 1;
-    cross(row, 1) = row < 4 ? row + 4 : row - 4;
+    cross(row, 0) = complete_degree - 1;
+    for (std::uint32_t column = 1; column < complete_degree; ++column) {
+      cross(row, column) = row < 4 ? row + 4 : row - 4;
+    }
   }
   index.update_graph(
-    res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(cross.view()), 2, 1);
+    res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(cross.view()), complete_degree, 1);
 
   auto offsets      = raft::make_host_vector<std::uint32_t, int64_t>(2);
   offsets(0)        = 0;
@@ -483,4 +486,13 @@ TEST(FlowannSearch, PaddedQueriesMatchAcrossBatchBoundaries)
     }
     EXPECT_NO_THROW(run_dense_search(algo, {}));
   }
+}
+
+
+TEST(FlowannSearch, AutoFallsBackForGraphsTooWideForMultiCta)
+{
+  auto result = run_dense_search(cuvs::neighbors::cagra::search_algo::AUTO,
+                                 {0.1f}, {}, 16, false, 1, 32, 1, 2, false, 2, 0, 4, 75);
+  EXPECT_EQ(result.neighbors(0, 0), 7);
+  EXPECT_NEAR(result.distances(0, 0), 0.01f, 1e-4f);
 }
