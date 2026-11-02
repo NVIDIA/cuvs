@@ -640,11 +640,12 @@ TEST(FlowannSearch, AllRequestedSeedsParticipateInInitialSelection)
                raft::resource::get_cuda_stream(res));
     raft::copy(actual_distances.data_handle(),
                distances.data_handle(),
-               rows,
+               query_count,
                raft::resource::get_cuda_stream(res));
     raft::resource::sync_stream(res);
-    for (std::uint32_t row = 0; row < rows; ++row) {
-      EXPECT_EQ(actual(row, 0), row) << "hash mode " << static_cast<int>(mode);
+    for (std::uint32_t row = 0; row < query_count; ++row) {
+      EXPECT_EQ(actual(row, 0), static_cast<std::uint32_t>(host_queries(row, 0)))
+        << "hash mode " << static_cast<int>(mode) << ", seeds " << rows;
       EXPECT_FLOAT_EQ(actual_distances(row, 0), 0.0f);
     }
   }
