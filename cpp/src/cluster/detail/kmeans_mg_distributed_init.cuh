@@ -221,7 +221,6 @@ void initKMeansPlusPlus_distributed(
     distance_storage_size += part_rows;
   }
 
-  // Mix the seed with stage tag and rank
   const auto candidate_seed = mix_seed(
     params.rng_state.seed, RngStage::CandidateSampling, static_cast<std::uint64_t>(rank));
   raft::random::RngState rng(candidate_seed, params.rng_state.type);
@@ -239,7 +238,6 @@ void initKMeansPlusPlus_distributed(
     }
     RAFT_EXPECTS(!non_empty_ranks.empty(),
                  "all ranks have zero local rows; cannot pick a source rank for KMeans++ init");
-    // Mix with stage tag
     std::mt19937_64 gen(mix_seed(params.rng_state.seed, RngStage::SourceRank));
     std::uniform_int_distribution<std::size_t> rank_dist(std::size_t{0},
                                                          non_empty_ranks.size() - 1);
@@ -263,7 +261,6 @@ void initKMeansPlusPlus_distributed(
     RAFT_EXPECTS(n_local > 0,
                  "selected source rank %d has no local rows; cannot pick an initial centroid",
                  rp);
-    // Mix with stage tag
     std::mt19937_64 row_gen(mix_seed(params.rng_state.seed, RngStage::FirstCentroid));
     std::uniform_int_distribution<IndexT> row_dist(IndexT{0}, n_local - 1);
     chosen_local_idx             = row_dist(row_gen);
@@ -463,13 +460,10 @@ void initKMeansPlusPlus_distributed(
     auto inertia_out = raft::make_host_scalar<DataT>(0);
     auto n_iter_out  = raft::make_host_scalar<IndexT>(0);
 
-    cuvs::cluster::kmeans::params default_params;
     cuvs::cluster::kmeans::params recluster_params = params;
 
-    // rng reseeding here is completely unnecessary.
-    // The KMeans fit call with InitMethod::Array, does not generate any random numbers
-    // So remove code all together
-    recluster_params.rng_state                     = default_params.rng_state;
+    // InitMethod::Array does not produce or consume anyt random numbers,
+    // therefore, rand_state does not need to be changed
     recluster_params.init   = cuvs::cluster::kmeans::params::InitMethod::Array;
     recluster_params.n_init = 1;
 
@@ -491,7 +485,6 @@ void initKMeansPlusPlus_distributed(
       static_cast<int>(n_clusters),
       static_cast<int>(n_random));
 
-    // Update the seed with 64-bit mix
     auto random_params           = params;
     random_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::RandomFallback);
     auto random_centroids = sample_global_rows(handle,

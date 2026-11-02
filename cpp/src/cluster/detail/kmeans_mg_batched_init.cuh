@@ -165,7 +165,6 @@ std::vector<IndexT> broadcast_sampled_global_indices(raft::resources const& hand
   auto d_sample_ids = raft::make_device_vector<IndexT, IndexT>(handle, sample_size);
   std::vector<IndexT> h_sample_ids(static_cast<std::size_t>(sample_size));
   if (rank == CUVS_KMEANS_COMM_ROOT) {
-    printf("using seed @sample_unique_global_indices = %lu\n", seed);
     h_sample_ids = sample_unique_global_indices(global_n, sample_size, seed);
     raft::copy(
       handle,
@@ -265,7 +264,6 @@ void init_centroids_for_mg_batched(
   auto stream     = comms.stream();
   auto n_clusters = static_cast<IndexT>(params.n_clusters);
 
-  printf("fun: %s, rank = %d, seed = %lu\n", "init_centroid_for_mg_params", rank, params.rng_state.seed);
   if (params.init == cuvs::cluster::kmeans::params::InitMethod::Array) {
     CUVS_LOG_KMEANS(handle,
                     "KMeans.fit: initialize cluster centers from the ndarray array input "

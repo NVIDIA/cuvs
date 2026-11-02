@@ -395,12 +395,10 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
   auto n_clusters     = params.n_clusters;
   auto metric         = params.metric;
 
-  // Mix the seed with stage tag
   raft::random::RngState rng(mix_seed(params.rng_state.seed, RngStage::CandidateSampling),
                              params.rng_state.type);
 
   // <<<< Step-1 >>> : C <- sample a point uniformly at random from X
-  // mix with the stage tag
   std::mt19937_64 gen(mix_seed(params.rng_state.seed, RngStage::FirstCentroid));
   std::uniform_int_distribution<> dis(0, n_samples - 1);
 
@@ -606,7 +604,6 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
     // <<< end of Step-7 >>>
 
     // Step-8: Recluster the weighted points in C into k clusters
-    // mix the params.rng_state.seed with stage tag before passing
     auto init_params           = params;
     init_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::CandidateRecluster);
     cuvs::cluster::kmeans::detail::kmeansPlusPlus<DataT, IndexT>(
@@ -643,7 +640,6 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
       n_random_clusters);
 
     // generate `n_random_clusters` centroids
-    // change rand_params seed with mix of params seed and stage tag
     cuvs::cluster::kmeans::params rand_params;
     rand_params.rng_state = raft::random::RngState(
       mix_seed(params.rng_state.seed, RngStage::RandomFallback), params.rng_state.type);
@@ -800,7 +796,6 @@ void kmeans_fit(
       if constexpr (data_on_device) {
         run_kmeanspp(X);
       } else {
-        // mix random_state.seed with a tag
         random_state.seed = mix_seed(iter_params.rng_state.seed, RngStage::HostSubsample);
         raft::matrix::sample_rows(handle, random_state, X, init_sample->view());
         run_kmeanspp(raft::make_const_mdspan(init_sample->view()));

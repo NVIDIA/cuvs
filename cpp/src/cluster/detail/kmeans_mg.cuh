@@ -140,7 +140,6 @@ void mnmg_fit(
     num_ranks        = comm.get_size();
   }
 
-  printf("mnmg fit entry point %d \n", rank);
   const raft::resources& dev_res =
     use_nccl ? raft::resource::set_current_device_to_rank(handle, rank) : handle;
   mnmg_comms comms{dev_res, use_nccl, nccl_comm};
@@ -454,7 +453,6 @@ void mnmg_fit(
   std::mt19937_64 gen(params.rng_state.seed);
   for (int seed_iter = 0; seed_iter < n_init; ++seed_iter) {
     cuvs::cluster::kmeans::params iter_params = params;
-    // No change needed here
     iter_params.rng_state.seed                = gen();
     auto input_centroids_const = raft::make_device_matrix_view<const DataT, IndexT>(
       centroids.data_handle(), n_clusters, n_features);
