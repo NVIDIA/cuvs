@@ -718,6 +718,8 @@ auto iterative_build_graph(raft::resources const& res,
 {
   size_t intermediate_degree = params.intermediate_graph_degree;
   size_t graph_degree        = params.graph_degree;
+  // Other callers also pass the original parameters after checking local degree copies.
+  check_graph_degree<T, IdxT>(intermediate_degree, graph_degree, dataset.n_rows());
 
   const auto& iter_params =
     std::get<cagra::graph_build_params::iterative_search_params>(params.graph_build_params);
