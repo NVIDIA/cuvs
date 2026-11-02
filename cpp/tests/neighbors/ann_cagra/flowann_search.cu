@@ -21,6 +21,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -89,8 +90,14 @@ auto run_dense_search(cuvs::neighbors::cagra::search_algo algo,
              host_dataset.data_handle(),
              host_dataset.size(),
              raft::resource::get_cuda_stream(res));
-  auto dataset_owner = cuvs::neighbors::make_device_padded_dataset(res, device_dataset.view());
-  auto dataset       = dataset_owner->as_dataset_view();
+  std::unique_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>> dataset_owner;
+  auto dataset = [&]() -> cuvs::neighbors::device_padded_dataset_view<float, int64_t> {
+    if (cuvs::neighbors::matrix_row_width_matches_cagra_required(device_dataset.view())) {
+      return cuvs::neighbors::make_device_padded_dataset_view(res, device_dataset.view());
+    }
+    dataset_owner = cuvs::neighbors::make_device_padded_dataset(res, device_dataset.view());
+    return dataset_owner->as_dataset_view();
+  }();
 
   flowann::device_padded_index<float> index(
     res, cuvs::distance::DistanceType::L2Expanded, dataset, 2, packed_bits);
