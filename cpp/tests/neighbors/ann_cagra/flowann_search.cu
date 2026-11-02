@@ -398,19 +398,21 @@ RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
   __shared__ std::uint32_t traversed[32];
   std::uint32_t topk[8];
   std::uint32_t positions[8];
-  for (std::uint32_t i = 0; i < 32; ++i) { traversed[i] = ~std::uint32_t{0}; }
+  for (std::uint32_t i = 0; i < 32; ++i) {
+    traversed[i] = ~std::uint32_t{0};
+  }
   state.pending.initialize();
   // Mode 0 has one free pending slot; mode 1 has a full device queue;
   // mode 2 has capacity in both and must publish the complete batch.
-  state.pending.head = mode == 0 ? 510 : 0;
+  state.pending.head            = mode == 0 ? 510 : 0;
   queue.state->reservation_head = mode == 1 ? flowann::detail::queue_capacity : 0;
-  queue.state->gpu_tail = 0;
-  queue.state->capacity = flowann::detail::queue_capacity;
-  queue.released_sequence[0] = 0;
+  queue.state->gpu_tail         = 0;
+  queue.state->capacity         = flowann::detail::queue_capacity;
+  queue.released_sequence[0]    = 0;
   for (std::uint32_t i = 0; i < 8; ++i) {
-    topk[i] = (i + 1) | 0x80000000u;
-    positions[i] = i;
-    state.parent_ids[i] = i + 1;
+    topk[i]               = (i + 1) | 0x80000000u;
+    positions[i]          = i;
+    state.parent_ids[i]   = i + 1;
     state.parent_valid[i] = true;
     cuvs::neighbors::cagra::detail::hashmap::insert(traversed, 5, i + 1);
   }
@@ -424,8 +426,8 @@ RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
   output[3] = 0;
   for (std::uint32_t i = 0; i < 8; ++i) {
     output[2] += (topk[i] & 0x80000000u) != 0;
-    output[3] += cuvs::neighbors::cagra::detail::hashmap::search<std::uint32_t, 1>(
-      traversed, 5, i + 1);
+    output[3] +=
+      cuvs::neighbors::cagra::detail::hashmap::search<std::uint32_t, 1>(traversed, 5, i + 1);
   }
   output[4] = mode == 2 ? flowann::detail::command_ready(queue.command_words[7]) : 0;
 }
@@ -435,12 +437,12 @@ TEST(FlowannSearch, RetriesParentsWithoutOverwritingPendingRequests)
 {
   raft::resources res;
   auto queue_state = raft::make_device_vector<flowann::detail::queue_state, int64_t>(res, 1);
-  auto commands = raft::make_device_vector<unsigned long long, int64_t>(res, 8);
-  auto released = raft::make_device_vector<unsigned long long, int64_t>(res, 1);
-  auto output = raft::make_device_vector<std::uint32_t, int64_t>(res, 5);
+  auto commands    = raft::make_device_vector<unsigned long long, int64_t>(res, 8);
+  auto released    = raft::make_device_vector<unsigned long long, int64_t>(res, 1);
+  auto output      = raft::make_device_vector<std::uint32_t, int64_t>(res, 5);
   flowann::detail::queue_view queue{};
-  queue.state = queue_state.data_handle();
-  queue.command_words = commands.data_handle();
+  queue.state             = queue_state.data_handle();
+  queue.command_words     = commands.data_handle();
   queue.released_sequence = released.data_handle();
   for (std::uint32_t mode = 0; mode < 3; ++mode) {
     check_pending_backpressure<<<1, 1, 0, raft::resource::get_cuda_stream(res).get()>>>(
