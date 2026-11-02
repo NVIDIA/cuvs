@@ -39,8 +39,7 @@ struct edge_records {
   /** Number of leading entries that are real; the rest are kInvalidKey padding. */
   int64_t n_valid;
 
-  explicit edge_records(cuda::stream_ref stream)
-    : keys(0, stream), targets(0, stream), n_valid(0)
+  explicit edge_records(cuda::stream_ref stream) : keys(0, stream), targets(0, stream), n_valid(0)
   {
   }
 };
@@ -85,15 +84,15 @@ RAFT_KERNEL emit_edge_records_kernel(const id_t* __restrict__ members,
  * Computes the bi-directed 2-NN graph inside leaves `[leaf_begin, leaf_end)` using a dense GEMM.
  *
  * Each leaf is a self-join: its members are both the queries and the candidates, with the
- * diagonal masked. Leaves that were merged can list the same point twice, and masking by global
- * id rather than by position handles those duplicates for free.
+ * diagonal masked. Leaves that were merged can list the same point twice, so the mask tests the
+ * global id, not the position, which covers the duplicates as well as the diagonal.
  *
- * Restricting to a range of leaves is what bounds the build's peak memory, and since the order
- * of hashprune inputs is irrelevant, the result is the same.
+ * Restricting to a range of leaves bounds the build's peak memory. HashPrune's result does not
+ * depend on the order its inputs arrive in, so the graph is unchanged.
  *
  * The leaves' members are contiguous in `leaves.members`, so the range needs no gather. Reverse
- * records do name owners outside the range, which is why the reservoir is global and merged into
- * rather than built per range.
+ * records do name owners outside the range, so the reservoir is global and merged into, not
+ * built per range.
  */
 inline auto leaf_pick_range(raft::resources const& res,
                             raft::device_matrix_view<const half, int64_t, raft::row_major> dataset,
@@ -162,16 +161,6 @@ inline auto leaf_pick_range(raft::resources const& res,
                                           kInvalidKey);
   out.n_valid             = n_slots - n_invalid;
   return out;
-}
-
-/** Whole-partition leaf join, as the tests and the standalone diagnostics drive it. */
-inline auto leaf_pick(raft::resources const& res,
-                      raft::device_matrix_view<const half, int64_t, raft::row_major> dataset,
-                      raft::device_vector_view<const float, int64_t> norms,
-                      const runs& leaves,
-                      int64_t k) -> edge_records
-{
-  return leaf_pick_range(res, dataset, norms, leaves, k, 0, leaves.count());
 }
 
 }  // namespace cuvs::neighbors::experimental::gpipnn::detail

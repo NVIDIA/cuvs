@@ -153,15 +153,12 @@ void build_graph(raft::resources const& res,
                  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
 
 /**
- * @brief Build a GPiPNN proximity graph over a half-precision `dataset`.
+ * @copydoc build_graph(raft::resources const& res, const index_params& params,
+ * raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+ * raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph)
  *
- * Identical to the float overload, except the caller's buffer is used directly as the scoring
- * operand, avoiding the fp16 conversion copy.
- *
- * @param[in] res raft resources
- * @param[in] params build parameters
- * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
- * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
+ * A half `dataset` is used directly as the scoring operand, so this overload is the one that
+ * avoids the fp16 conversion copy.
  */
 void build_graph(raft::resources const& res,
                  const index_params& params,
@@ -169,18 +166,13 @@ void build_graph(raft::resources const& res,
                  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
 
 /**
- * @brief Build a GPiPNN proximity graph over an int8 `dataset`.
+ * @copydoc build_graph(raft::resources const& res, const index_params& params,
+ * raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+ * raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph)
  *
- * Identical to the float overload: converts to fp16 for scoring. The conversion is exact, as half
- * represents every integer up to 2048.
- *
- * Note that the scoring copy is `2 * n_rows * dim` bytes whatever the input width, so int8 reduces
+ * An int8 `dataset` converts to fp16 for scoring, exactly: half represents every integer up to
+ * 2048. The scoring copy is `2 * n_rows * dim` bytes whatever the input width, so int8 reduces
  * the footprint of the dataset, not of the build.
- *
- * @param[in] res raft resources
- * @param[in] params build parameters
- * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
- * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
  */
 void build_graph(raft::resources const& res,
                  const index_params& params,
@@ -188,14 +180,11 @@ void build_graph(raft::resources const& res,
                  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
 
 /**
- * @brief Build a GPiPNN proximity graph over a uint8 `dataset`.
+ * @copydoc build_graph(raft::resources const& res, const index_params& params,
+ * raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+ * raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph)
  *
- * Identical to the int8 overload: converts to fp16 for scoring.
- *
- * @param[in] res raft resources
- * @param[in] params build parameters
- * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
- * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
+ * A uint8 `dataset` converts to fp16 for scoring, on the same terms as the int8 overload.
  */
 void build_graph(raft::resources const& res,
                  const index_params& params,

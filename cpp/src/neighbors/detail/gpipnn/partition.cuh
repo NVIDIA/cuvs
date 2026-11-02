@@ -20,8 +20,10 @@
 
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/util_type.cuh>
+#include <thrust/binary_search.h>
 #include <thrust/count.h>
 #include <thrust/execution_policy.h>
+#include <thrust/iterator/counting_iterator.h>
 #include <thrust/sequence.h>
 
 #include <algorithm>
@@ -60,7 +62,13 @@ struct carve_stats {
   int64_t oversized_left = 0;
 };
 
-/** Replaces the host-side offsets and pushes them to the device. */
+/**
+ * Replaces the host-side offsets and pushes them to the device.
+ *
+ * The sync is what lets the next call move a fresh vector into `h_offsets`: the copy reads
+ * pageable host memory, so the old buffer has to survive until it completes. It costs one stream
+ * sync per carve round against a round that is otherwise several GEMMs long.
+ */
 inline void set_offsets(raft::resources const& res, runs& r, std::vector<int64_t>&& offsets)
 {
   auto stream = raft::resource::get_cuda_stream(res).get();
@@ -72,24 +80,37 @@ inline void set_offsets(raft::resources const& res, runs& r, std::vector<int64_t
 }
 
 /**
- * Picks `slot_count[r]` leaders out of run `r` by striding through it from a random offset.
+ * One carve round's decision for a single run: where its members sit in `runs::members`, and the
+ * range of child slots it was given.
+ *
+ * A run that passes the round through untouched still reserves one slot, so `is_split` rather
+ * than `slot_count` is what tells the two kernels which case they are in.
+ */
+struct run_plan {
+  int64_t member_begin;
+  int64_t member_count;
+  int64_t slot_begin;
+  int64_t slot_count;
+  bool is_split;
+};
+
+/**
+ * Picks `plan[r].slot_count` leaders out of run `r` by striding through it from a random offset.
  *
  * Striding rather than drawing independently is simpler and guarantees distinct picks whenever the
  * leader count does not exceed the run size.
  */
 RAFT_KERNEL sample_leaders_kernel(const id_t* __restrict__ members,
-                                  const int64_t* __restrict__ run_begin,
-                                  const int64_t* __restrict__ run_size,
-                                  const int64_t* __restrict__ slot_begin,
-                                  const int64_t* __restrict__ slot_count,
+                                  const run_plan* __restrict__ plan,
                                   int64_t n_runs,
                                   uint64_t seed,
                                   id_t* __restrict__ leaders)
 {
   const int64_t r = blockIdx.x;
   if (r >= n_runs) { return; }
-  const int64_t size  = run_size[r];
-  const int64_t count = slot_count[r];
+  const run_plan p    = plan[r];
+  const int64_t size  = p.member_count;
+  const int64_t count = p.slot_count;
   if (count <= 0 || size <= 0) { return; }
 
   // A splitmix64 finalizer; sampling only needs decorrelation across runs, not stream quality.
@@ -101,8 +122,8 @@ RAFT_KERNEL sample_leaders_kernel(const id_t* __restrict__ members,
   const int64_t stride = size / count > 0 ? size / count : 1;
 
   for (int64_t j = threadIdx.x; j < count; j += blockDim.x) {
-    const int64_t pos          = (offset + j * stride) % size;
-    leaders[slot_begin[r] + j] = members[run_begin[r] + pos];
+    const int64_t pos         = (offset + j * stride) % size;
+    leaders[p.slot_begin + j] = members[p.member_begin + pos];
   }
 }
 
@@ -120,14 +141,9 @@ RAFT_KERNEL sample_leaders_kernel(const id_t* __restrict__ members,
  * single run covering the whole dataset, which would use 1 block). `blockIdx.y`
  * slices a run's members, and the caller adds slices only when the run count cannot fill the
  * device, so later rounds keep the grid they had.
- *
-
  */
 RAFT_KERNEL emit_pairs_kernel(const id_t* __restrict__ members,
-                              const int64_t* __restrict__ run_begin,
-                              const int64_t* __restrict__ run_size,
-                              const int64_t* __restrict__ slot_begin,
-                              const uint8_t* __restrict__ is_split,
+                              const run_plan* __restrict__ plan,
                               const id_t* __restrict__ sel_slots,
                               int64_t n_runs,
                               int64_t fanout,
@@ -136,10 +152,11 @@ RAFT_KERNEL emit_pairs_kernel(const id_t* __restrict__ members,
 {
   const int64_t r = blockIdx.x;
   if (r >= n_runs) { return; }
-  const int64_t begin = run_begin[r];
-  const int64_t size  = run_size[r];
-  const bool split    = is_split[r] != 0;
-  const id_t own_slot = static_cast<id_t>(slot_begin[r]);
+  const run_plan p    = plan[r];
+  const int64_t begin = p.member_begin;
+  const int64_t size  = p.member_count;
+  const bool split    = p.is_split;
+  const id_t own_slot = static_cast<id_t>(p.slot_begin);
 
   const int64_t slice_stride = static_cast<int64_t>(blockDim.x) * gridDim.y;
   for (int64_t j = static_cast<int64_t>(blockIdx.y) * blockDim.x + threadIdx.x; j < size;
@@ -152,49 +169,6 @@ RAFT_KERNEL emit_pairs_kernel(const id_t* __restrict__ members,
       vals[out]         = point;
     }
   }
-}
-
-/**
- * Locates each slot's contiguous block in the slot-sorted assignment array.
- *
- * The same binary search `find_owner_bounds_kernel` does for record owners. Also lets slots with no
- * member find its bound and report itself as empty.
- */
-RAFT_KERNEL find_slot_bounds_kernel(const id_t* __restrict__ keys,
-                                    int64_t n_keys,
-                                    int64_t n_slots,
-                                    int64_t* __restrict__ slot_begin)
-{
-  const int64_t s = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
-  if (s > n_slots) { return; }
-  const auto target = static_cast<id_t>(s);
-  int64_t lo = 0, hi = n_keys;
-  while (lo < hi) {
-    const int64_t mid = lo + (hi - lo) / 2;
-    if (keys[mid] < target) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
-  slot_begin[s] = lo;
-}
-
-/**
- * Highest key bit that can distinguish two slot keys, given how many slots exist.
- *
- * Real slots are below `n_slots`, so every real key's bits above this point are zero, except
- * `kInvalidId`.
- *
- * Same reasoning as `sort_key_bits` in hash_prune.cuh.
- */
-inline auto slot_key_bits(int64_t n_slots) -> int
-{
-  int bits = 1;
-  while (bits < 32 && (int64_t{1} << bits) - 1 < n_slots) {
-    bits++;
-  }
-  return bits;
 }
 
 /**
@@ -219,27 +193,19 @@ inline void group_pairs_into_runs(raft::resources const& res,
     return;
   }
 
-  {
-    rmm::device_uvector<id_t> keys_alt(n_total, stream);
-    rmm::device_uvector<id_t> vals_alt(n_total, stream);
-    cub::DoubleBuffer<id_t> d_keys(keys.data(), keys_alt.data());
-    cub::DoubleBuffer<id_t> d_vals(vals.data(), vals_alt.data());
-    const int end_bit = slot_key_bits(n_slots);
-    size_t bytes      = 0;
-    RAFT_CUDA_TRY(
-      cub::DeviceRadixSort::SortPairs(nullptr, bytes, d_keys, d_vals, n_total, 0, end_bit, stream));
-    rmm::device_uvector<char> workspace(bytes, stream);
-    RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(
-      workspace.data(), bytes, d_keys, d_vals, n_total, 0, end_bit, stream));
-    if (d_keys.Current() != keys.data()) { keys = std::move(keys_alt); }
-    if (d_vals.Current() != vals.data()) { vals = std::move(vals_alt); }
-  }
+  // Real slots are below `n_slots`, so only those bits can separate two keys; `kInvalidId` keeps
+  // its all-ones value and still sorts last.
+  radix_sort_pairs_inplace(stream, keys, vals, n_total, std::max(1, key_bits(n_slots)));
 
+  // Where each slot's run starts. A binary search rather than a run-length encode because slots
+  // that received no member still need a bound, and an RLE would silently omit them.
   rmm::device_uvector<int64_t> slot_begin(n_slots + 1, stream);
-  const int64_t threads = 128;
-  find_slot_bounds_kernel<<<(n_slots + threads) / threads, threads, 0, stream>>>(
-    keys.data(), n_valid, n_slots, slot_begin.data());
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  thrust::lower_bound(raft::resource::get_thrust_policy(res),
+                      keys.data(),
+                      keys.data() + n_valid,
+                      thrust::counting_iterator<id_t>(0),
+                      thrust::counting_iterator<id_t>(static_cast<id_t>(n_slots + 1)),
+                      slot_begin.data());
 
   std::vector<int64_t> h_slot_begin(n_slots + 1);
   raft::update_host(h_slot_begin.data(), slot_begin.data(), n_slots + 1, stream);
@@ -302,54 +268,39 @@ inline void assign_then_sort_round(
   }
 
   // Reserve slots: one per pass-through run, `n_sub` per run being subdivided.
-  std::vector<int64_t> h_run_begin(n_runs), h_run_size(n_runs), h_slot_begin(n_runs),
-    h_slot_count(n_runs);
-  std::vector<uint8_t> h_is_split(n_runs);
+  std::vector<run_plan> h_plan(n_runs);
   int64_t total_slots = 0;
   for (int64_t r = 0; r < n_runs; r++) {
     const int64_t size = in.size_of(r);
-    h_run_begin[r]     = in.h_offsets[r];
-    h_run_size[r]      = size;
-    h_slot_begin[r]    = total_slots;
+    run_plan& p        = h_plan[r];
+    p.member_begin     = in.h_offsets[r];
+    p.member_count     = size;
+    p.slot_begin       = total_slots;
     // A run must offer at least `fanout` leaders, so
     // one too small to do that passes through even if it exceeds the size threshold.
     const int64_t max_sub = std::min(cfg.max_leaders, size);
     if (size <= cfg.split_above || max_sub < fanout) {
-      h_is_split[r]   = 0;
-      h_slot_count[r] = 1;
+      p.is_split   = false;
+      p.slot_count = 1;
       total_slots += 1;
       continue;
     }
     // Overlap multiplies the member count by `fanout`
-    int64_t n_sub   = (size * fanout + cfg.target_size - 1) / cfg.target_size;
-    n_sub           = std::clamp<int64_t>(n_sub, fanout, max_sub);
-    h_is_split[r]   = 1;
-    h_slot_count[r] = n_sub;
+    int64_t n_sub = (size * fanout + cfg.target_size - 1) / cfg.target_size;
+    n_sub         = std::clamp<int64_t>(n_sub, fanout, max_sub);
+    p.is_split    = true;
+    p.slot_count  = n_sub;
     total_slots += n_sub;
   }
   RAFT_EXPECTS(total_slots < static_cast<int64_t>(kInvalidId),
                "gpipnn: partition produced too many buckets to address with a 32-bit id");
 
-  rmm::device_uvector<int64_t> d_run_begin(n_runs, stream);
-  rmm::device_uvector<int64_t> d_run_size(n_runs, stream);
-  rmm::device_uvector<int64_t> d_slot_begin(n_runs, stream);
-  rmm::device_uvector<int64_t> d_slot_count(n_runs, stream);
-  rmm::device_uvector<uint8_t> d_is_split(n_runs, stream);
-  raft::update_device(d_run_begin.data(), h_run_begin.data(), n_runs, stream);
-  raft::update_device(d_run_size.data(), h_run_size.data(), n_runs, stream);
-  raft::update_device(d_slot_begin.data(), h_slot_begin.data(), n_runs, stream);
-  raft::update_device(d_slot_count.data(), h_slot_count.data(), n_runs, stream);
-  raft::update_device(d_is_split.data(), h_is_split.data(), n_runs, stream);
+  rmm::device_uvector<run_plan> d_plan(n_runs, stream);
+  raft::update_device(d_plan.data(), h_plan.data(), n_runs, stream);
 
   rmm::device_uvector<id_t> leaders(total_slots, stream);
-  sample_leaders_kernel<<<n_runs, 128, 0, stream>>>(in.members.data(),
-                                                    d_run_begin.data(),
-                                                    d_run_size.data(),
-                                                    d_slot_begin.data(),
-                                                    d_slot_count.data(),
-                                                    n_runs,
-                                                    seed,
-                                                    leaders.data());
+  sample_leaders_kernel<<<n_runs, 128, 0, stream>>>(
+    in.members.data(), d_plan.data(), n_runs, seed, leaders.data());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
   // Chunk each run's queries so no segment's working set overruns the L2 cache budget. All chunks
@@ -357,13 +308,12 @@ inline void assign_then_sort_round(
   const int64_t budget = l2_cache_bytes();
   const int64_t dim    = dataset.extent(1);
   std::vector<segment> segments;
-  for (int64_t r = 0; r < n_runs; r++) {
-    if (h_is_split[r] == 0) { continue; }
-    const int64_t cands     = h_slot_count[r];
-    const int64_t max_chunk = std::min(max_query_chunk(budget, cands, dim), h_run_size[r]);
-    for (int64_t q = 0; q < h_run_size[r]; q += max_chunk) {
+  for (const auto& p : h_plan) {
+    if (!p.is_split) { continue; }
+    const int64_t max_chunk = std::min(max_query_chunk(budget, p.slot_count, dim), p.member_count);
+    for (int64_t q = 0; q < p.member_count; q += max_chunk) {
       segments.push_back(segment{
-        h_run_begin[r] + q, std::min(max_chunk, h_run_size[r] - q), h_slot_begin[r], cands});
+        p.member_begin + q, std::min(max_chunk, p.member_count - q), p.slot_begin, p.slot_count});
     }
   }
 
@@ -396,20 +346,16 @@ inline void assign_then_sort_round(
 
     // Slices per run, so a round with too few runs to fill the device still gets a full grid. The
     // 65535 cap on `gridDim.y` is why the kernel keeps a grid-stride loop.
-    const int64_t want_blocks = sm_count() * 32;
+    int device = 0;
+    RAFT_CUDA_TRY(cudaGetDevice(&device));
+    int sms = 0;
+    RAFT_CUDA_TRY(cudaDeviceGetAttribute(&sms, cudaDevAttrMultiProcessorCount, device));
+    const int64_t want_blocks = (sms > 0 ? static_cast<int64_t>(sms) : 64) * 32;
     const int64_t slices =
       std::clamp<int64_t>(want_blocks / std::max<int64_t>(1, n_runs), 1, 65535);
     const dim3 emit_grid(static_cast<unsigned>(n_runs), static_cast<unsigned>(slices));
-    emit_pairs_kernel<<<emit_grid, 128, 0, stream>>>(in.members.data(),
-                                                     d_run_begin.data(),
-                                                     d_run_size.data(),
-                                                     d_slot_begin.data(),
-                                                     d_is_split.data(),
-                                                     sel_slots.data(),
-                                                     n_runs,
-                                                     fanout,
-                                                     keys.data(),
-                                                     vals.data());
+    emit_pairs_kernel<<<emit_grid, 128, 0, stream>>>(
+      in.members.data(), d_plan.data(), sel_slots.data(), n_runs, fanout, keys.data(), vals.data());
     RAFT_CUDA_TRY(cudaPeekAtLastError());
   }
 

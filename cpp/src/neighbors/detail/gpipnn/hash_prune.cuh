@@ -21,7 +21,10 @@
 
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/util_type.cuh>
+#include <thrust/binary_search.h>
 #include <thrust/fill.h>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/iterator/transform_iterator.h>
 
 #include <utility>
 
@@ -30,8 +33,8 @@ namespace cuvs::neighbors::experimental::gpipnn::detail {
 /**
  * The bounded per-point candidate reservoir HashPrune fills.
  *
- * Every row is ascending by distance and free of duplicate targets, which is what lets
- * DirectEdgePrune treat it as an ordered candidate list.
+ * Every row is ascending by distance and free of duplicate targets, so DirectEdgePrune can read
+ * it as an ordered candidate list.
  *
  * `hashes` carries the LSH bucket of each held entry, so a later batch can seed its bucket bitmap
  * without recomputing `h(p, t)`. `release_hashes` drops it before DirectEdgePrune runs.
@@ -73,31 +76,13 @@ inline auto make_accumulator(raft::resources const& res, int64_t n_rows, int64_t
   return acc;
 }
 
-/**
- * Locates each owner's contiguous block in the distance-sorted record array.
- *
- * A binary search rather than a run-length encode because owners that received no records still
- * need a row in the accumulator, and an RLE would silently omit them.
- */
-RAFT_KERNEL find_owner_bounds_kernel(const uint64_t* __restrict__ keys,
-                                     int64_t n_keys,
-                                     int64_t n_rows,
-                                     int64_t* __restrict__ row_begin)
-{
-  const int64_t p = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
-  if (p > n_rows) { return; }
-  const uint64_t target = static_cast<uint64_t>(p) << 32;
-  int64_t lo = 0, hi = n_keys;
-  while (lo < hi) {
-    const int64_t mid = lo + (hi - lo) / 2;
-    if (keys[mid] < target) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
+/** Smallest key `make_sort_key` can produce for `owner`, i.e. where that owner's run starts. */
+struct owner_run_start {
+  __host__ __device__ auto operator()(int64_t owner) const -> uint64_t
+  {
+    return static_cast<uint64_t>(owner) << 32;
   }
-  row_begin[p] = lo;
-}
+};
 
 /**
  * Merges one batch of an owner's distance-sorted candidate run into its bounded reservoir,
@@ -111,22 +96,25 @@ RAFT_KERNEL find_owner_bounds_kernel(const uint64_t* __restrict__ keys,
  * the first arrivals to the buckets are assigned, collisions can be skipped, and overflows are
  * simply truncated at capacity.
  *
- * The indepednence of traversal order is what enables batching. Candidates in the reservior
+ * The independence of traversal order is what enables batching. Candidates in the reservoir
  * just merge back in at the low end of the input stream.
  * Truncating to l_max each time loses nothing since dropping a candidate due to this means there
  * are better candidates present.
  *
  * Ties resolve to the held entry (`<=` in the take-held test), and held entries come from earlier
- * batches, making the result independent of batch size.i
+ * batches, making the result independent of batch size.
  *
  * There is no separate duplicate-target scan: `h` is a pure function of `(p, t)`, so a repeated
  * target already has its bucket bit set and the hash test rejects it.
  *
  * Both streams are read through a 32-wide warp window. Indexing `acc_dists[row + j]` and friends
  * directly has every lane issue the same address, fetching a 32-byte sector to deliver four or
- * eight bytes, on the loop's dependency chain. The kernel is latency bound regardless -- one
- * 32-thread block per row against a 24-block-per-SM cap -- so loading 32 consecutive entries
- * coalesced and reading entry `j` back with `__shfl_sync` buys a small win.
+ * eight bytes, on the loop's dependency chain. Loading 32 consecutive entries coalesced and
+ * reading entry `j` back with `__shfl_sync` shortens that chain, which is the only lever this
+ * kernel has: it is latency bound -- one 32-thread block per row against a 24-block-per-SM cap --
+ * and the two ways to raise occupancy instead both measured worse, several rows per block by
+ * 31-62% and a smaller bucket bitmap by at most one block in 23. The window is worth 19-23% of
+ * the kernel.
  */
 RAFT_KERNEL hash_prune_merge_kernel(const uint64_t* __restrict__ keys,
                                     const id_t* __restrict__ targets,
@@ -151,7 +139,7 @@ RAFT_KERNEL hash_prune_merge_kernel(const uint64_t* __restrict__ keys,
   const int64_t row  = p * l_max;
   const int32_t held = static_cast<int32_t>(acc_counts[p]);
 
-  // The inputs are ascending, so if the fartest existing entry is nearer than the batch's nearest
+  // The inputs are ascending, so if the farthest existing entry is nearer than the batch's nearest
   // candidate, there is no need to merge. This keeps the per-batch cost proportional to the
   // number of records received rather than to the reservoir depth and the batch count.
   if (held >= l_max && !(key_dist(keys[begin]) < acc_dists[row + l_max - 1])) { return; }
@@ -267,15 +255,6 @@ RAFT_KERNEL hash_prune_merge_kernel(const uint64_t* __restrict__ keys,
   if (lane == 0) { acc_counts[p] = static_cast<uint32_t>(count); }
 }
 
-/** Shared memory one block of `hash_prune_merge_kernel` needs. */
-inline auto hash_prune_merge_smem(int32_t hash_bits, int64_t l_max) -> size_t
-{
-  const size_t bitmap = static_cast<size_t>(((1 << hash_bits) + 31) / 32) * sizeof(uint32_t);
-  const size_t staged =
-    static_cast<size_t>(l_max) * (sizeof(id_t) + sizeof(float) + sizeof(uint16_t));
-  return bitmap + staged;
-}
-
 /**
  * Projects the dataset onto `hash_bits` random hyperplanes.
  *
@@ -330,33 +309,14 @@ inline auto compute_sketches(raft::resources const& res,
 }
 
 /**
- * Highest key bit that can distinguish two records, given the owner range.
- *
- * Owners are below `n_rows`, so every key's bits above the owner's width are zero -- except
- * `kInvalidKey`, whose owner field then reads as the all-ones value that no real owner can
- * take. Sorting only the bits below this point therefore still leaves the padding after every
- * real record, and saves a radix pass or two over an unconditional 64.
- */
-inline auto sort_key_bits(int64_t n_rows) -> int
-{
-  int owner_bits = 0;
-  while (owner_bits < 32 && (int64_t{1} << owner_bits) <= n_rows) {
-    owner_bits++;
-  }
-  return 32 + owner_bits;
-}
-
-/**
  * Sorts one batch of candidate edge records by (owner, distance) and merges each owner's run
  * into its bounded, deduplicated, distance-ordered reservoir.
  *
  * The batch may be the whole record array or any contiguous slice of it; see
  * `hash_prune_merge_kernel` for why the answer is the same either way.
  *
- * `records` is sorted in place with `cub::DoubleBuffer` rather than the plain overload, which
- * hides a third copy of the largest array the build allocates inside its temporary storage. The
- * ping-pong can finish in either buffer, so the winner is moved back into `records`, keeping the
- * routine idempotent.
+ * `records` is sorted in place: the plain overload would hide a third copy of the largest array
+ * the build allocates inside its temporary storage.
  *
  * `row_begin` is caller-owned scratch of `n_rows + 1` entries, so a batch loop allocates it once.
  */
@@ -374,27 +334,26 @@ inline void hash_prune_merge(raft::resources const& res,
   const int64_t n_total = static_cast<int64_t>(records.keys.size());
   if (n_total == 0) { return; }
 
-  rmm::device_uvector<uint64_t> keys_alt(n_total, stream);
-  rmm::device_uvector<id_t> targets_alt(n_total, stream);
-  cub::DoubleBuffer<uint64_t> d_keys(records.keys.data(), keys_alt.data());
-  cub::DoubleBuffer<id_t> d_targets(records.targets.data(), targets_alt.data());
+  // The distance occupies the low 32 bits and the owner the rest. Owners are below `n_rows`, so
+  // the bits above the owner's width are zero -- except in `kInvalidKey`, whose owner field then
+  // reads as the all-ones value no real owner can take, so padding still sorts last.
+  radix_sort_pairs_inplace(stream, records.keys, records.targets, n_total, 32 + key_bits(n_rows));
 
-  const int end_bit = sort_key_bits(n_rows);
-  size_t bytes      = 0;
-  RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(
-    nullptr, bytes, d_keys, d_targets, n_total, 0, end_bit, stream));
-  rmm::device_uvector<char> workspace(bytes, stream);
-  RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(
-    workspace.data(), bytes, d_keys, d_targets, n_total, 0, end_bit, stream));
-  if (d_keys.Current() != records.keys.data()) { records.keys = std::move(keys_alt); }
-  if (d_targets.Current() != records.targets.data()) { records.targets = std::move(targets_alt); }
+  // Where each owner's run starts. A binary search rather than a run-length encode because owners
+  // that received no records still need a row in the accumulator, and an RLE would omit them.
+  auto owner_keys =
+    thrust::make_transform_iterator(thrust::counting_iterator<int64_t>(0), owner_run_start{});
+  thrust::lower_bound(raft::resource::get_thrust_policy(res),
+                      records.keys.data(),
+                      records.keys.data() + records.n_valid,
+                      owner_keys,
+                      owner_keys + (n_rows + 1),
+                      row_begin.data());
 
-  const int64_t threads = 128;
-  find_owner_bounds_kernel<<<(n_rows + threads) / threads, threads, 0, stream>>>(
-    records.keys.data(), records.n_valid, n_rows, row_begin.data());
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
-
-  const size_t smem = hash_prune_merge_smem(hash_bits, l_max);
+  // One hash bitmap plus the staged reservoir, per block.
+  const size_t smem =
+    static_cast<size_t>(((1 << hash_bits) + 31) / 32) * sizeof(uint32_t) +
+    static_cast<size_t>(l_max) * (sizeof(id_t) + sizeof(float) + sizeof(uint16_t));
   hash_prune_merge_kernel<<<n_rows, 32, smem, stream>>>(records.keys.data(),
                                                         records.targets.data(),
                                                         row_begin.data(),
@@ -407,35 +366,6 @@ inline void hash_prune_merge(raft::resources const& res,
                                                         acc.hashes.data(),
                                                         acc.counts.data());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
-}
-
-/**
- * Whole-array HashPrune: sketch, allocate, merge once.
- *
- * `build_graph` runs the batched form instead; this is the shape the tests drive, and merging a
- * single batch is by construction the same computation.
- */
-inline auto hash_prune(raft::resources const& res,
-                       raft::device_matrix_view<const half, int64_t, raft::row_major> dataset,
-                       edge_records& records,
-                       const index_params& params) -> accumulator
-{
-  auto stream          = raft::resource::get_cuda_stream(res).get();
-  const int64_t n_rows = dataset.extent(0);
-  const auto hash_bits = static_cast<int32_t>(params.hash_bits);
-
-  auto acc      = make_accumulator(res, n_rows, params.max_candidates);
-  auto sketches = compute_sketches(res, dataset, hash_bits, params.seed + 7);
-  rmm::device_uvector<int64_t> row_begin(n_rows + 1, stream);
-  hash_prune_merge(
-    res,
-    raft::make_device_vector_view<const float, int64_t>(sketches.data(), n_rows * hash_bits),
-    records,
-    params,
-    row_begin,
-    acc);
-  acc.release_hashes(stream);
-  return acc;
 }
 
 }  // namespace cuvs::neighbors::experimental::gpipnn::detail

@@ -10,6 +10,12 @@
 #include <raft/core/detail/macros.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/linalg/norm.cuh>
+
+#include <rmm/device_uvector.hpp>
+
+#include <cub/device/device_radix_sort.cuh>
+#include <cub/util_type.cuh>
 
 #include <cstdint>
 
@@ -60,32 +66,27 @@ __host__ __device__ inline auto make_sort_key(id_t owner, float dist) -> uint64_
   return (static_cast<uint64_t>(owner) << 32) | static_cast<uint64_t>(order_preserving_u32(dist));
 }
 
-/** Get owner from key built by make_sort_key. */
-__host__ __device__ inline auto key_owner(uint64_t key) -> id_t
-{
-  return static_cast<id_t>(key >> 32);
-}
-
 /** Get the distance from a key built by make_sort_key. */
 __host__ __device__ inline auto key_dist(uint64_t key) -> float
 {
   return from_order_preserving_u32(static_cast<uint32_t>(key & 0xffffffffu));
 }
 
-/** Sentinel key that sorts after every real record; no valid owner can produce it. */
+/**
+ * Sentinel key that sorts after every real one. Marks both a record no valid owner produced and
+ * a selection slot no candidate reached; the two are the same value because both have to lose
+ * every comparison against real data.
+ */
 inline constexpr uint64_t kInvalidKey = ~uint64_t{0};
 
 /**
- * Written into padding columns and self-matches so that selection, which always takes the
- * minimum, ranks them behind every real candidate.
+ * Score and distance that lose to every real candidate.
+ *
+ * Written into padding columns, self-matches, and selection slots that found nothing, so that
+ * selection -- which always takes the minimum -- ranks all three behind real data without a
+ * separate branch.
  */
 inline constexpr float kMaskedScore = __builtin_huge_valf();
-
-/** Distance written for a selection slot that found no candidate. */
-inline constexpr float kInfDistance = __builtin_huge_valf();
-
-/** Sentinel for a selection slot that no candidate reached; sorts after every real key. */
-inline constexpr uint64_t kEmptyKey = ~uint64_t{0};
 
 /**
  * Largest `k` `segmented_topk` can select, set by the per-lane register lists in
@@ -102,13 +103,22 @@ struct segment {
   int64_t cand_count;
 };
 
-/** Device-side mirror of `segment`, plus the batch-local slab offset. */
+/** Device-side mirror of `segment`, with the counts narrowed to what a single launch can cover. */
 struct segment_dev {
   int64_t query_begin;
   int64_t cand_begin;
   int32_t query_count;
   int32_t cand_count;
 };
+
+/** Narrows a `segment` into the form the kernels read. */
+inline auto to_device(const segment& s) -> segment_dev
+{
+  return segment_dev{s.query_begin,
+                     s.cand_begin,
+                     static_cast<int32_t>(s.query_count),
+                     static_cast<int32_t>(s.cand_count)};
+}
 
 /**
  * Per-row tie-break permutation of the candidate column.
@@ -147,9 +157,9 @@ __device__ inline void emit_rank(uint64_t key,
 {
   id_t global_id = kInvalidId;
   id_t cand_slot = kInvalidId;
-  float dist     = kInfDistance;
+  float dist     = kMaskedScore;
 
-  if (key != kEmptyKey) {
+  if (key != kInvalidKey) {
     const uint32_t local_c = static_cast<uint32_t>(key & 0xffffffffu) ^ salt;
     const id_t c_id        = cand_ids[cand_begin + local_c];
     if (!(exclude_self && c_id == q_id)) {
@@ -232,37 +242,77 @@ RAFT_KERNEL normalize_rows_to_half_kernel(const T* __restrict__ src,
  * Computes fp32 squared row norms of a half matrix.
  *
  * Taken from the half data rather than the caller's fp32 original so the expanded distance stays
- * self-consistent.
+ * self-consistent. `raft::sq_op` has a `half` overload that widens before squaring, so the
+ * accumulation is fp32 throughout.
  */
-RAFT_KERNEL row_norms_kernel(const half* __restrict__ data,
-                             int64_t n_rows,
-                             int64_t dim,
-                             float* __restrict__ norms)
+inline void row_norms(const half* data, int64_t n_rows, int64_t dim, float* norms, cudaStream_t s)
 {
-  const int64_t row = blockIdx.x;
-  if (row >= n_rows) { return; }
-  const half* src = data + row * dim;
-  float acc       = 0.0f;
-  for (int64_t i = threadIdx.x; i < dim; i += blockDim.x) {
-    const float v = __half2float(src[i]);
-    acc           = fmaf(v, v, acc);
+  raft::linalg::rowNorm<raft::linalg::L2Norm, true>(norms, data, dim, n_rows, s);
+}
+
+/**
+ * Bits needed to represent every value in `[0, max_value]`, capped at 32.
+ *
+ * Used to narrow the radix-sort end bit: keys whose bits above this point are all zero need no
+ * passes over them, which saves a pass or two over an unconditional width.
+ */
+inline auto key_bits(int64_t max_value) -> int
+{
+  int bits = 0;
+  while (bits < 32 && (int64_t{1} << bits) <= max_value) {
+    bits++;
   }
-  for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
-    acc += __shfl_down_sync(0xffffffffu, acc, offset);
-  }
-  __shared__ float partial[32];
-  const int warp = static_cast<int>(threadIdx.x) / warpSize;
-  const int lane = static_cast<int>(threadIdx.x) % warpSize;
-  if (lane == 0) { partial[warp] = acc; }
-  __syncthreads();
-  if (warp == 0) {
-    const int n_warps = static_cast<int>(blockDim.x) / warpSize;
-    acc               = lane < n_warps ? partial[lane] : 0.0f;
-    for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
-      acc += __shfl_down_sync(0xffffffffu, acc, offset);
-    }
-    if (lane == 0) { norms[row] = acc; }
-  }
+  return bits;
+}
+
+/**
+ * `cub::DeviceRadixSort::SortPairs` from `keys_in`/`vals_in` into `keys_out`/`vals_out`.
+ *
+ * CUB wants the call twice, once to report the temporary size and once to sort. Wrapping it keeps
+ * that handshake and its workspace allocation out of the three places that sort.
+ */
+template <typename KeyT, typename ValueT>
+void radix_sort_pairs(cudaStream_t stream,
+                      const KeyT* keys_in,
+                      KeyT* keys_out,
+                      const ValueT* vals_in,
+                      ValueT* vals_out,
+                      int64_t n,
+                      int end_bit)
+{
+  size_t bytes = 0;
+  RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(
+    nullptr, bytes, keys_in, keys_out, vals_in, vals_out, n, 0, end_bit, stream));
+  rmm::device_uvector<char> workspace(bytes, stream);
+  RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(
+    workspace.data(), bytes, keys_in, keys_out, vals_in, vals_out, n, 0, end_bit, stream));
+}
+
+/**
+ * The same sort in place, over CUB's ping-pong buffers.
+ *
+ * CUB picks which of the two buffers holds the result, so the alternates are moved back into
+ * `keys`/`vals` whenever it finished on the far side.
+ */
+template <typename KeyT, typename ValueT>
+void radix_sort_pairs_inplace(cudaStream_t stream,
+                              rmm::device_uvector<KeyT>& keys,
+                              rmm::device_uvector<ValueT>& vals,
+                              int64_t n,
+                              int end_bit)
+{
+  rmm::device_uvector<KeyT> keys_alt(n, stream);
+  rmm::device_uvector<ValueT> vals_alt(n, stream);
+  cub::DoubleBuffer<KeyT> d_keys(keys.data(), keys_alt.data());
+  cub::DoubleBuffer<ValueT> d_vals(vals.data(), vals_alt.data());
+  size_t bytes = 0;
+  RAFT_CUDA_TRY(
+    cub::DeviceRadixSort::SortPairs(nullptr, bytes, d_keys, d_vals, n, 0, end_bit, stream));
+  rmm::device_uvector<char> workspace(bytes, stream);
+  RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(
+    workspace.data(), bytes, d_keys, d_vals, n, 0, end_bit, stream));
+  if (d_keys.Current() != keys.data()) { keys = std::move(keys_alt); }
+  if (d_vals.Current() != vals.data()) { vals = std::move(vals_alt); }
 }
 
 /** Validates user-provided parameters. */

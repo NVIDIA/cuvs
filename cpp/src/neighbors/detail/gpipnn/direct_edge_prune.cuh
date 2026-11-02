@@ -15,21 +15,15 @@
 #include <raft/core/resources.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
 
+#include <thrust/fill.h>
+#include <thrust/sequence.h>
+
 namespace cuvs::neighbors::experimental::gpipnn::detail {
 
 /**
  * Factor by which the occlusion threshold grows between rounds of the alpha ramp.
  */
 inline constexpr float kAlphaRampStep = 1.2f;
-
-/**
- * Occlusion factor of candidate `q` seen from a row owner that has just accepted `p_star`:
- * d(owner, q) / d(p_star, q).
- */
-__device__ inline auto occlude_factor(float d_owner_q, float d_star_q) -> float
-{
-  return d_star_q == 0.0f ? __builtin_huge_valf() : d_owner_q / d_star_q;
-}
 
 /**
  * Sparsifies one accumulator row into a graph row using the alpha-occlusion rule.
@@ -42,12 +36,13 @@ __device__ inline auto occlude_factor(float d_owner_q, float d_star_q) -> float
  * distances: a candidate can only be occluded by an accepted neighbour that already lists it in
  * its own reservoir. Missing witnesses do not occlude, making the graph not exactly match a true
  * RobustPrune due to being potentially denser.
-
+ *
  * Rather than rescan an accepted neighbour's row per candidate, each acceptance does one parallel
  * pass over that row and probes a shared hash table of this row's candidates, turning the cost
  * per row from cubic in the reservoir size into linear.
  *
- * That scan is where the time goes, which is why `slots` and `row_order` are parameters rather than derived here:
+ * That scan is where the time goes, which is why `slots` and `row_order` are parameters rather than
+ derived here:
  *
  *   `slots` is a power of two so the wrap is a mask rather than a division on the dependency
  *   chain between the id load and the probe. The table maps candidate id to position in the
@@ -78,7 +73,7 @@ RAFT_KERNEL direct_edge_prune_kernel(const id_t* __restrict__ acc_ids,
   const int32_t nthr = static_cast<int32_t>(blockDim.x);
 
   const int32_t c = static_cast<int32_t>(acc_counts[p]);
-  // A power of two, so `& slot_mask` is `% slots`. `direct_edge_prune_slots` guarantees it.
+  // A power of two, so `& slot_mask` is `% slots`. `direct_edge_prune` guarantees it.
   const uint32_t slot_mask = static_cast<uint32_t>(slots) - 1u;
 
   // The byte-wide array goes last so every 4-byte array stays naturally aligned.
@@ -147,7 +142,9 @@ RAFT_KERNEL direct_edge_prune_kernel(const id_t* __restrict__ acc_ids,
             // Only candidates not yet reached can still be occluded. p*'s row holds each id
             // once, so no two threads reach the same `li` and the maximum needs no atomic.
             if (li > i && occ[li] <= alpha) {
-              occ[li] = fmaxf(occ[li], occlude_factor(cand_dists[li], d_star_q));
+              // Occlusion factor of q seen from the owner: d(owner, q) / d(p*, q).
+              const float f = d_star_q == 0.0f ? kMaskedScore : cand_dists[li] / d_star_q;
+              occ[li]       = fmaxf(occ[li], f);
             }
             break;
           }
@@ -156,7 +153,7 @@ RAFT_KERNEL direct_edge_prune_kernel(const id_t* __restrict__ acc_ids,
         }
       }
       // Bars re-acceptance by a later ramp round without disturbing the witnessed factors.
-      if (tid == 0) { occ[i] = __builtin_huge_valf(); }
+      if (tid == 0) { occ[i] = kMaskedScore; }
       __syncthreads();
     }
   }
@@ -178,50 +175,6 @@ RAFT_KERNEL direct_edge_prune_kernel(const id_t* __restrict__ acc_ids,
   }
 }
 
-/** Shared memory that each block of `direct_edge_prune_kernel` needs. */
-inline auto direct_edge_prune_smem(int64_t l_max, int64_t slots) -> size_t
-{
-  const size_t per_candidate = sizeof(id_t) + 2 * sizeof(float) + sizeof(uint8_t);
-  return static_cast<size_t>(l_max) * per_candidate +
-         static_cast<size_t>(slots) * (sizeof(id_t) + sizeof(int32_t));
-}
-
-/**
- * Slot count for the candidate-position map: a power of two, and as loosely loaded as occupancy
- * allows.
- *
- * The count cannot change the answer since its size only sets the probe chain length. It must be a power of two
- * so the kernel can wrap with a mask instead of a division.
- *
- * Bigger is better until it costs occupancy. The larger table is taken only when the occupancy calculator agrees.
- */
-inline auto direct_edge_prune_slots(int64_t l_max) -> int64_t
-{
-  int64_t small = 1;
-  while (small < 2 * l_max) {
-    small <<= 1;
-  }
-  const int64_t large = 2 * small;
-  int b_small = 0, b_large = 0;
-  RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-    &b_small, direct_edge_prune_kernel, 128, direct_edge_prune_smem(l_max, small)));
-  RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
-    &b_large, direct_edge_prune_kernel, 128, direct_edge_prune_smem(l_max, large)));
-  return b_large >= b_small ? large : small;
-}
-
-/** Fills `label` with a value that sorts last and `ids` with the identity. */
-RAFT_KERNEL init_prune_order_kernel(uint32_t* __restrict__ label,
-                                    id_t* __restrict__ ids,
-                                    int64_t n_rows,
-                                    uint32_t unlabelled)
-{
-  const int64_t p = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
-  if (p >= n_rows) { return; }
-  label[p] = unlabelled;
-  ids[p]   = static_cast<id_t>(p);
-}
-
 /** Lowest-numbered leaf each point belongs to, one block per leaf. */
 RAFT_KERNEL first_leaf_kernel(const id_t* __restrict__ members,
                               const int64_t* __restrict__ offsets,
@@ -239,7 +192,7 @@ RAFT_KERNEL first_leaf_kernel(const id_t* __restrict__ members,
 /**
  * Order in which `direct_edge_prune`'s blocks should take rows, grouped by leaf.
  *
- * `direct_edge_prune` gathers `acc_ids[p_star * l_max + j]` for each accepted neighbour. 
+ * `direct_edge_prune` gathers `acc_ids[p_star * l_max + j]` for each accepted neighbour.
  * In id order the resident blocks
  * touch rows spread over the whole array and almost nothing hits L2. Points sharing a leaf are
  * near each other, and a point's accepted neighbours are near it, so under this order concurrent
@@ -263,64 +216,59 @@ inline auto build_prune_order(raft::resources const& res, const runs& leaves, in
 
   // Points with no leaf keep `n_leaves` and so sort last, which also caps the key width.
   const auto unlabelled = static_cast<uint32_t>(n_leaves);
-  int key_bits          = 0;
-  while (key_bits < 32 && (uint32_t{1} << key_bits) <= unlabelled) {
-    key_bits++;
-  }
+  const int end_bit     = key_bits(n_leaves);
 
+  auto policy = raft::resource::get_thrust_policy(res);
   rmm::device_uvector<uint32_t> label(n_rows, stream);
   rmm::device_uvector<id_t> ids(n_rows, stream);
-  const int64_t threads = 256;
-  init_prune_order_kernel<<<(n_rows + threads - 1) / threads, threads, 0, stream>>>(
-    label.data(), ids.data(), n_rows, unlabelled);
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  thrust::fill(policy, label.data(), label.data() + n_rows, unlabelled);
+  thrust::sequence(policy, ids.data(), ids.data() + n_rows, id_t{0});
   first_leaf_kernel<<<n_leaves, 256, 0, stream>>>(
     leaves.members.data(), leaves.offsets.data(), n_leaves, label.data());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
   rmm::device_uvector<uint32_t> label_out(n_rows, stream);
-  size_t bytes = 0;
-  RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(nullptr,
-                                                bytes,
-                                                label.data(),
-                                                label_out.data(),
-                                                ids.data(),
-                                                order.data(),
-                                                n_rows,
-                                                0,
-                                                key_bits,
-                                                stream));
-  rmm::device_uvector<char> workspace(bytes, stream);
-  RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(workspace.data(),
-                                                bytes,
-                                                label.data(),
-                                                label_out.data(),
-                                                ids.data(),
-                                                order.data(),
-                                                n_rows,
-                                                0,
-                                                key_bits,
-                                                stream));
+  radix_sort_pairs(
+    stream, label.data(), label_out.data(), ids.data(), order.data(), n_rows, end_bit);
   return order;
 }
 
 /**
- * Dispatches the direct_edge_prune kernel.
+ * Dispatches `direct_edge_prune_kernel`, sizing its candidate-position map on the way.
+ *
+ * The slot count affects only the probe chain length, not the result, but it must be a power of
+ * two so the kernel can wrap with a mask instead of a division. A looser-loaded map is faster
+ * until the extra shared memory costs occupancy, so the larger of the two candidate sizes is
+ * taken only when the occupancy calculator agrees.
  */
-inline void direct_edge_prune(
-  raft::resources const& res,
-  const accumulator& acc,
-  const index_params& params,
-  raft::device_matrix_view<id_t, int64_t, raft::row_major> graph,
-  const id_t* row_order = nullptr)
+inline void direct_edge_prune(raft::resources const& res,
+                              const accumulator& acc,
+                              const index_params& params,
+                              raft::device_matrix_view<id_t, int64_t, raft::row_major> graph,
+                              const id_t* row_order = nullptr)
 {
   auto stream          = raft::resource::get_cuda_stream(res).get();
   const int64_t n_rows = graph.extent(0);
   const int64_t degree = graph.extent(1);
   const int64_t l_max  = acc.l_max;
 
-  const int64_t slots = direct_edge_prune_slots(l_max);
-  const size_t smem   = direct_edge_prune_smem(l_max, slots);
+  const auto smem_for = [l_max](int64_t slots) {
+    const size_t per_candidate = sizeof(id_t) + 2 * sizeof(float) + sizeof(uint8_t);
+    return static_cast<size_t>(l_max) * per_candidate +
+           static_cast<size_t>(slots) * (sizeof(id_t) + sizeof(int32_t));
+  };
+  int64_t small = 1;
+  while (small < 2 * l_max) {
+    small <<= 1;
+  }
+  const int64_t large = 2 * small;
+  int b_small = 0, b_large = 0;
+  RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+    &b_small, direct_edge_prune_kernel, 128, smem_for(small)));
+  RAFT_CUDA_TRY(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+    &b_large, direct_edge_prune_kernel, 128, smem_for(large)));
+  const int64_t slots = b_large >= b_small ? large : small;
+  const size_t smem   = smem_for(slots);
   direct_edge_prune_kernel<<<n_rows, 128, smem, stream>>>(acc.ids.data(),
                                                           acc.dists.data(),
                                                           acc.counts.data(),

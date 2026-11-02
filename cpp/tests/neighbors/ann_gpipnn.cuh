@@ -82,7 +82,7 @@ struct scoring_operand {
     const int64_t threads = 256;
     detail::cast_to_half_kernel<<<(n * d + threads - 1) / threads, threads, 0, stream>>>(
       dataset, data.data(), n * d);
-    detail::row_norms_kernel<<<n, 256, 0, stream>>>(data.data(), n, d, norms.data());
+    detail::row_norms(data.data(), n, d, norms.data(), stream);
     raft::resource::sync_stream(res);
   }
 
@@ -96,6 +96,39 @@ struct scoring_operand {
     return raft::make_device_vector_view<const float, int64_t>(norms.data(), n_rows);
   }
 };
+
+/** Owner field of a key built by `detail::make_sort_key`. */
+inline auto key_owner(uint64_t key) -> detail::id_t { return static_cast<detail::id_t>(key >> 32); }
+
+/**
+ * Whole-array HashPrune: sketch, allocate, merge once.
+ *
+ * `build_graph` runs the batched form instead, over one leaf range at a time. Merging a single
+ * batch holding every record is by construction the same computation, and gives the tests a
+ * stage boundary they can inspect.
+ */
+inline auto hash_prune_all(raft::resources const& res,
+                           raft::device_matrix_view<const half, int64_t, raft::row_major> dataset,
+                           detail::edge_records& records,
+                           const index_params& params) -> detail::accumulator
+{
+  auto stream          = raft::resource::get_cuda_stream(res).get();
+  const int64_t n_rows = dataset.extent(0);
+  const auto hash_bits = static_cast<int32_t>(params.hash_bits);
+
+  auto acc      = detail::make_accumulator(res, n_rows, params.max_candidates);
+  auto sketches = detail::compute_sketches(res, dataset, hash_bits, params.seed + 7);
+  rmm::device_uvector<int64_t> row_begin(n_rows + 1, stream);
+  detail::hash_prune_merge(
+    res,
+    raft::make_device_vector_view<const float, int64_t>(sketches.data(), n_rows * hash_bits),
+    records,
+    params,
+    row_begin,
+    acc);
+  acc.release_hashes(stream);
+  return acc;
+}
 
 template <typename DistanceT, typename DataT, typename IdxT>
 class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
@@ -170,9 +203,10 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
     auto params = make_params();
     scoring_operand op(handle_, database.data(), ps.n_rows, ps.dim);
     detail::carve_stats stats;
-    auto leaves  = detail::ball_carve(handle_, op.view(), op.norms_view(), params, stats);
-    auto records = detail::leaf_pick(handle_, op.view(), op.norms_view(), leaves, 2);
-    auto acc     = detail::hash_prune(handle_, op.view(), records, params);
+    auto leaves = detail::ball_carve(handle_, op.view(), op.norms_view(), params, stats);
+    auto records =
+      detail::leaf_pick_range(handle_, op.view(), op.norms_view(), leaves, 2, 0, leaves.count());
+    auto acc = hash_prune_all(handle_, op.view(), records, params);
 
     const int64_t l_max = acc.l_max;
     std::vector<detail::id_t> ids(ps.n_rows * l_max);
@@ -241,7 +275,8 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
     detail::carve_stats stats;
     auto leaves = detail::ball_carve(handle_, op.view(), op.norms_view(), params, stats);
     ASSERT_EQ(leaves.count(), 1);
-    auto records = detail::leaf_pick(handle_, op.view(), op.norms_view(), leaves, 2);
+    auto records =
+      detail::leaf_pick_range(handle_, op.view(), op.norms_view(), leaves, 2, 0, leaves.count());
 
     std::vector<uint64_t> keys(records.keys.size());
     std::vector<detail::id_t> targets(records.targets.size());
@@ -265,7 +300,7 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
     std::vector<double> best(ps.n_rows, std::numeric_limits<double>::infinity());
     for (size_t i = 0; i < keys.size(); i++) {
       if (keys[i] == detail::kInvalidKey) { continue; }
-      const auto owner = detail::key_owner(keys[i]);
+      const auto owner = key_owner(keys[i]);
       best[owner]      = std::min(best[owner], sq_dist(owner, targets[i]));
     }
 

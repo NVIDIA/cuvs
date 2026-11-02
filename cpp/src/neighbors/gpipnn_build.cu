@@ -20,7 +20,7 @@
 
 namespace cuvs::neighbors::experimental::gpipnn {
 
-auto is_supported() -> bool { return detail::gpipnn_arch_supported(); }
+auto is_supported() -> bool { return detail::gpipnn_arch_problem().empty(); }
 
 void build_graph(raft::resources const& res,
                  const index_params& params,
