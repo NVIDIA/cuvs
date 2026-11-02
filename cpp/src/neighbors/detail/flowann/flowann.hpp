@@ -48,6 +48,8 @@ struct queue_params {
   std::uint32_t empty_pause = 64;
   /** Collect aggregate queue and polling statistics. */
   bool collect_statistics = false;
+  /** Opt in to pinning pollers; otherwise inherit caller CPU affinity. */
+  bool pin_pollers = false;
 };
 
 /** Aggregate counters collected by the host-serviced cross-graph queues. */
@@ -99,7 +101,7 @@ class CUVS_EXPORT search_context {
 
  private:
   struct impl;
-  std::unique_ptr<impl> impl_;
+  std::shared_ptr<impl> impl_;
 
   friend struct detail::search_context_access;
   friend class search_session;
@@ -108,8 +110,8 @@ class CUVS_EXPORT search_context {
 /**
  * Keep a search context's pollers running for the lifetime of this session.
  *
- * Use a session for repeated low-latency search calls. The search context must outlive the session
- * and must not be moved while the session is active.
+ * Use a session for repeated low-latency search calls. Moving a context preserves active
+ * sessions. The host cross graph must outlive both the context and its sessions.
  */
 class CUVS_EXPORT search_session {
  public:
@@ -124,7 +126,7 @@ class CUVS_EXPORT search_session {
  private:
   void reset() noexcept;
 
-  search_context* context_{};
+  std::shared_ptr<search_context::impl> context_;
 };
 
 /**
@@ -349,11 +351,13 @@ class index : public cuvs::neighbors::index {
                                                                        cross_graph.extent(1));
     std::copy_n(cross_graph.data_handle(), cross_graph.size(), new_cross.data_handle());
 
+    auto new_seed_cross_graph = prepare_graph_update_(
+      res, raft::make_const_mdspan(new_cross.view()));
     inner_graph_       = std::move(new_inner);
     cross_graph_       = std::move(new_cross);
     full_graph_degree_ = full_graph_degree;
     resident_degree_   = resident_degree;
-    rebuild_seed_cross_graph_(res);
+    seed_cross_graph_ = std::move(new_seed_cross_graph);
   }
 
   /** Replace the graph while taking ownership of the host cross-graph allocation. */
@@ -386,11 +390,13 @@ class index : public cuvs::neighbors::index {
                raft::resource::get_cuda_stream(res));
     raft::resource::sync_stream(res);
 
+    auto new_seed_cross_graph = prepare_graph_update_(
+      res, raft::make_const_mdspan(cross_graph.view()));
     inner_graph_       = std::move(new_inner);
     cross_graph_       = std::move(cross_graph);
     full_graph_degree_ = full_graph_degree;
     resident_degree_   = resident_degree;
-    rebuild_seed_cross_graph_(res);
+    seed_cross_graph_ = std::move(new_seed_cross_graph);
   }
 
   /** Replace a variable-residency grouped graph while retaining the packed rows on the device. */
@@ -429,11 +435,13 @@ class index : public cuvs::neighbors::index {
       }
     }
 
+    auto new_seed_cross_graph = prepare_graph_update_(
+      res, raft::make_const_mdspan(cross_graph.view()));
     inner_graph_       = std::move(inner_graph);
     cross_graph_       = std::move(cross_graph);
     full_graph_degree_ = full_degree;
     resident_degree_   = 0;
-    rebuild_seed_cross_graph_(res);
+    seed_cross_graph_ = std::move(new_seed_cross_graph);
   }
 
   /** Replace a compact graph while taking ownership of both device and host allocations. */
@@ -479,11 +487,13 @@ class index : public cuvs::neighbors::index {
       }
     }
 
+    auto new_seed_cross_graph = prepare_graph_update_(
+      res, raft::make_const_mdspan(cross_graph.view()));
     inner_graph_       = std::move(inner_graph);
     cross_graph_       = std::move(cross_graph);
     full_graph_degree_ = full_graph_degree;
     resident_degree_   = resident_degree;
-    rebuild_seed_cross_graph_(res);
+    seed_cross_graph_ = std::move(new_seed_cross_graph);
   }
 
   void update_source_indices(
@@ -671,6 +681,41 @@ class index : public cuvs::neighbors::index {
     auto const stream = raft::resource::get_cuda_stream(res);
     raft::copy(seed_lookup_keys_->data_handle(), host_keys.data(), capacity, stream);
     raft::copy(seed_lookup_values_->data_handle(), host_values.data(), capacity, stream);
+  }
+
+  // Prepare all potentially failing work before committing a graph replacement.
+  auto prepare_graph_update_(
+    raft::resources const& res,
+    raft::host_matrix_view<const graph_index_type, int64_t, raft::row_major> incoming)
+    -> std::optional<raft::device_matrix<graph_index_type, int64_t>>
+  {
+    for (std::size_t seed = 0; seed < seed_ids_host_.size(); ++seed) {
+      RAFT_EXPECTS(seed_ids_host_[seed] < incoming.extent(0),
+                   "FlowANN seed at position %zu is out of range for the new graph", seed);
+    }
+    if (incoming.extent(0) != cross_graph_.extent(0)) {
+      source_indices_.reset();
+      subgraph_offsets_.reset();
+      subgraph_ids_.reset();
+      seeds_.reset();
+      seed_ids_host_.clear();
+      seed_lookup_keys_.reset();
+      seed_lookup_values_.reset();
+      return std::nullopt;
+    }
+    if (seed_ids_host_.empty()) { return std::nullopt; }
+    auto host_cache = raft::make_host_matrix<graph_index_type, int64_t>(
+      static_cast<int64_t>(seed_ids_host_.size()), incoming.extent(1));
+    for (std::size_t seed = 0; seed < seed_ids_host_.size(); ++seed) {
+      std::copy_n(incoming.data_handle() + static_cast<std::size_t>(seed_ids_host_[seed]) * incoming.extent(1),
+                  incoming.extent(1), host_cache.data_handle() + seed * incoming.extent(1));
+    }
+    auto device_cache = raft::make_device_matrix<graph_index_type, int64_t>(
+      res, host_cache.extent(0), host_cache.extent(1));
+    raft::copy(device_cache.data_handle(), host_cache.data_handle(), host_cache.size(),
+               raft::resource::get_cuda_stream(res));
+    raft::resource::sync_stream(res);
+    return device_cache;
   }
 
   void rebuild_seed_cross_graph_(raft::resources const& res)

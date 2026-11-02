@@ -1780,6 +1780,8 @@ if(NOT BUILD_CPU_ONLY)
       target_link_libraries(cuvs INTERFACE $<LINK_ONLY:$<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>>)
     endif()
     if(CUVS_ENABLE_FLOWANN_SEARCH AND CUVS_FLOWANN_USE_GDRCOPY)
+      # Preserve discovery of a GDRCopy installation outside the system search paths.
+      set_property(TARGET cuvs APPEND PROPERTY INSTALL_RPATH "$<TARGET_FILE_DIR:GDRCopy::GDRCopy>")
       # Consumers must resolve this runtime dependency even when it is installed outside the
       # linker's default search paths. Its headers remain private to the queue implementation.
       target_link_libraries(
