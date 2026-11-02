@@ -18,10 +18,9 @@ namespace cuvs::cluster::kmeans_balanced {
 /**
  * @brief Find clusters of balanced sizes with a hierarchical k-means algorithm.
  *
- * This variant of the k-means algorithm first clusters the dataset in parent clusters, then
- * clusters the subsets associated to each parent cluster into fine clusters, and finally runs a few
- * k-means iterations over the whole dataset and with all the centroids to obtain the final
- * clusters.
+ * This variant of the k-means algorithm first clusters the dataset in mesoclusters, then clusters
+ * the subsets associated to each mesocluster into fine clusters, and finally runs a few k-means
+ * iterations over the whole dataset and with all the centroids to obtain the final clusters.
  *
  * Each k-means iteration applies expectation-maximization-balancing:
  *  - Balancing: adjust centers to reduce underfull and overfull clusters. Small clusters are moved
@@ -30,9 +29,9 @@ namespace cuvs::cluster::kmeans_balanced {
  *  - Expectation: predict the labels (i.e find closest cluster centroid to each point)
  *  - Maximization: calculate optimal centroids (i.e find the center of gravity of each cluster)
  *
- * The number of parent clusters is chosen by rounding the square root of the number of clusters.
- * E.g for 512 clusters, we would have 23 parent clusters. The number of fine clusters per parent
- * cluster is chosen proportionally to the number of points in each parent cluster.
+ * The number of mesoclusters is chosen by rounding the square root of the number of clusters. E.g
+ * for 512 clusters, we would have 23 mesoclusters. The number of fine clusters per mesocluster is
+ * chosen proportionally to the number of points in each mesocluster.
  *
  * This variant of k-means uses random initialization and a fixed number of iterations, though
  * iterations can be repeated if the balancing step moved the centroids.
@@ -190,8 +189,8 @@ namespace helpers {
  * @brief Randomly initialize centers and apply expectation-maximization-balancing iterations
  *
  * This is essentially the non-hierarchical balanced k-means algorithm which is used by the
- * hierarchical algorithm once to build the parent clusters and once per parent cluster to build the
- * fine clusters.
+ * hierarchical algorithm once to build the mesoclusters and once per mesocluster to build the fine
+ * clusters.
  *
  * @code{.cpp}
  *   #include <raft/core/handle.hpp>

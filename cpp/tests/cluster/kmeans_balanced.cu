@@ -365,8 +365,8 @@ TEST(KmeansBalancedBinary, HierarchicalCentersPreserveEveryExpandedCoordinate)
   constexpr int64_t n_rows = 4096, packed_dim = 32, dim = 256, n_clusters = 256;
   std::vector<uint8_t> packed(n_rows * packed_dim);
   for (int64_t row = 0; row < n_rows; ++row) {
-    // Initial parent cluster labels select the low four bits of the prototype ID.
-    // Within each parent cluster, fine-cluster labels select its high four bits.
+    // Initial mesocluster labels select the low four bits of the prototype ID.
+    // Within each mesocluster, fine-cluster labels select its high four bits.
     // Every true centroid therefore has an exact {-1,+1} CPU oracle, with no
     // dependence on centroid ordering or on private library symbols.
     for (int64_t byte = 0; byte < packed_dim; ++byte) {
