@@ -1080,17 +1080,21 @@ auto build_graph(raft::resources const& res,
 
   if (std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
         knn_build_params)) {
+    auto adjusted_params                       = params;
+    adjusted_params.intermediate_graph_degree = intermediate_degree;
+    adjusted_params.graph_degree              = graph_degree;
     auto device_graph = [&]() {
       if constexpr (cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>) {
         auto padded = cuvs::neighbors::make_device_padded_dataset(res, dataset.view());
-        auto graph  = iterative_build_graph<T, IdxT>(res, params, padded->as_dataset_view());
+        auto graph  = iterative_build_graph<T, IdxT>(res, adjusted_params, padded->as_dataset_view());
         raft::resource::sync_stream(res);
         return graph;
       } else {
-        return iterative_build_graph<T, IdxT>(res, params, dataset);
+        return iterative_build_graph<T, IdxT>(res, adjusted_params, dataset);
       }
     }();
-    auto host_graph = raft::make_host_matrix<IdxT, int64_t>(n_rows, graph_degree);
+    auto host_graph = raft::make_host_matrix<IdxT, int64_t>(
+      device_graph.extent(0), device_graph.extent(1));
     raft::copy(host_graph.data_handle(),
                device_graph.data_handle(),
                host_graph.size(),

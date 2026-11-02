@@ -304,6 +304,10 @@ auto deserialize_common_after_version(raft::resources const& res,
   if (source_count > 0) {
     source_indices.emplace(
       read_host_vector<std::uint32_t>(is, source_count, "source-index mapping"));
+    for (std::uint32_t i = 0; i < source_count; ++i) {
+      RAFT_EXPECTS((*source_indices)(i) < n_rows,
+                   "FlowANN source-index mapping contains an out-of-range ID at row %u", i);
+    }
   }
   auto subgraph_offsets = read_host_vector<std::uint32_t>(is, n_subgraphs, "subgraph offsets");
   auto subgraph_ids     = read_host_vector<std::uint32_t>(is, n_rows, "subgraph identifiers");
@@ -410,6 +414,11 @@ auto deserialize_legacy_graph_body(raft::resources const& res,
   auto const node_per_cacheline = raft::deserialize_scalar<std::uint16_t>(res, is);
   auto const n_bits             = raft::deserialize_scalar<std::uint16_t>(res, is);
 
+  constexpr auto dataset_kind =
+    cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT> ? serialized_dataset_kind::vpq_f16
+                                                       : serialized_dataset_kind::dense;
+  RAFT_EXPECTS(is_supported_metric<T>(dataset_kind, metric),
+               "FlowANN legacy graph uses an unsupported distance metric");
   RAFT_EXPECTS(n_rows > 0, "FlowANN legacy graph must not be empty");
   RAFT_EXPECTS(dim > 0, "FlowANN legacy graph dimension must be positive");
   RAFT_EXPECTS(graph_degree > 0, "FlowANN legacy graph degree must be positive");
@@ -520,7 +529,9 @@ auto deserialize_legacy_vpq_f16_body(raft::resources const& res, std::istream& i
                "FlowANN legacy VPQ encoded rows are too short");
   RAFT_EXPECTS(serialized_row_length <= std::numeric_limits<std::uint32_t>::max() - 3,
                "FlowANN legacy VPQ encoded row length cannot be aligned safely");
-  auto const encoded_row_length = (serialized_row_length + 3u) & ~3u;
+  // Discard legacy padding when normalizing rows for the current VPQ descriptor.
+  auto const payload_row_length = sizeof(std::uint32_t) + pq_dim;
+  auto const encoded_row_length = (payload_row_length + 3u) & ~3u;
   validate_matrix_size(static_cast<std::uint64_t>(n_rows),
                        encoded_row_length,
                        sizeof(std::uint8_t),
@@ -535,7 +546,7 @@ auto deserialize_legacy_vpq_f16_body(raft::resources const& res, std::istream& i
   for (int64_t row = 0; row < n_rows; ++row) {
     std::copy_n(
       serialized_data.data_handle() + static_cast<std::size_t>(row) * serialized_row_length,
-      serialized_row_length,
+      payload_row_length,
       host_data.data_handle() + static_cast<std::size_t>(row) * encoded_row_length);
   }
 
@@ -804,7 +815,20 @@ auto deserialize_vpq_f16(raft::resources const& res, std::istream& is)
   auto encoded = raft::make_device_matrix<std::uint8_t, int64_t>(res, graph.n_rows, row_length);
   raft::deserialize_mdspan(res, is, vq_code_book.view());
   raft::deserialize_mdspan(res, is, pq_code_book.view());
-  raft::deserialize_mdspan(res, is, encoded.view());
+  auto host_encoded = detail::read_host_matrix<std::uint8_t>(
+    is, graph.n_rows, row_length, "VPQ codes");
+  for (std::uint32_t row = 0; row < graph.n_rows; ++row) {
+    std::uint32_t vq_label;
+    std::memcpy(&vq_label,
+                host_encoded.data_handle() + static_cast<std::size_t>(row) * row_length,
+                sizeof(vq_label));
+    RAFT_EXPECTS(vq_label < vq_n_centers,
+                 "FlowANN VPQ row %u has an out-of-range VQ label", row);
+  }
+  raft::copy(encoded.data_handle(), host_encoded.data_handle(), host_encoded.size(),
+             raft::resource::get_cuda_stream(res));
+  // Host rows must outlive the asynchronous upload.
+  raft::resource::sync_stream(res);
   auto dataset = std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
     std::move(vq_code_book), std::move(pq_code_book), std::move(encoded));
   RAFT_EXPECTS(dataset->dim() == graph.dim && dataset->n_rows() == graph.n_rows,
