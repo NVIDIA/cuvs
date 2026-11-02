@@ -339,7 +339,7 @@ void quantize_bfloat16(raft::resources const& res,
           dataset.data_handle(), (int64_t)dataset.size())));
     }
   } else {
-    // Convert the batch to float (with the standard integer scaling) before quantizing.
+    // Transform the dataset into floats, then quantize as usual.
     auto dataset_f =
       raft::make_device_matrix<float, IdxT>(res, dataset.extent(0), dataset.extent(1));
     raft::linalg::map(
