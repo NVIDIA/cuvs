@@ -16,6 +16,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 
 namespace cuvs::neighbors::cagra::experimental::flowann::detail {
 
@@ -272,6 +273,8 @@ struct CUVS_EXPORT search_context_access {
   static auto row_length(search_context const& context) noexcept -> std::uint32_t;
   static void acquire_search(search_context& context);
   static void release_search(search_context& context);
+  // Internal failure injection uses the same path as an unexpected poller exception.
+  static void report_failure(search_context& context, std::exception_ptr error);
   static auto is_paused(search_context const& context) noexcept -> bool;
   static auto pending_pause_requests(search_context const& context) noexcept -> std::size_t;
 };

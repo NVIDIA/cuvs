@@ -511,6 +511,14 @@ struct search_context::impl {
 
   ~impl() { stop(); }
 
+  void report_failure(std::exception_ptr error) noexcept
+  {
+    std::lock_guard lock(pause_mutex_);
+    for (auto const& queue : queues_) { queue->abort(); }
+    if (poller_error_ == nullptr) { poller_error_ = error; }
+    pause_cv_.notify_all();
+  }
+
   void throw_if_failed()
   {
     if (poller_error_ != nullptr) { std::rethrow_exception(poller_error_); }
@@ -695,9 +703,8 @@ struct search_context::impl {
         }
       }
     } catch (...) {
-      queue.abort();
+      report_failure(std::current_exception());
       std::lock_guard lock(pause_mutex_);
-      if (poller_error_ == nullptr) { poller_error_ = std::current_exception(); }
       ++failed_pollers_;
       pause_cv_.notify_all();
     }
@@ -840,6 +847,12 @@ void detail::search_context_access::release_search(search_context& context)
 {
   RAFT_EXPECTS(context.impl_ != nullptr, "Cannot search with a moved-from FlowANN search context");
   context.impl_->release_search();
+}
+
+void detail::search_context_access::report_failure(search_context& context, std::exception_ptr error)
+{
+  RAFT_EXPECTS(context.impl_ != nullptr, "Cannot fail a moved-from FlowANN search context");
+  context.impl_->report_failure(std::move(error));
 }
 
 auto detail::search_context_access::is_paused(search_context const& context) noexcept -> bool

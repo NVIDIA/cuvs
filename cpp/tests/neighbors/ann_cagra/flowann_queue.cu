@@ -767,12 +767,31 @@ TEST(FlowannQueue, InvalidRequestsCompleteAndReportAnError)
   invalid_queue_request<<<1, 1, 0, raft::resource::get_cuda_stream(res).get()>>>(
     flowann::detail::search_context_access::device_queues(context), output.data_handle());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::resource::sync_stream(res);
   std::uint32_t observed[2]{};
   raft::copy(observed, output.data_handle(), 2, raft::resource::get_cuda_stream(res));
   raft::resource::sync_stream(res);
   EXPECT_EQ(observed[0], 1);
   EXPECT_EQ(observed[1], 0);
   EXPECT_ANY_THROW(context.pause());
+  // Reporting consumes the malformed-request count. Reuse this same queue/context.
+  EXPECT_NO_THROW(context.resume());
+  EXPECT_NO_THROW(context.pause());
+  EXPECT_NO_THROW(flowann::detail::search_context_access::acquire_search(context));
+  EXPECT_NO_THROW(flowann::detail::search_context_access::release_search(context));
+}
+
+TEST(FlowannQueue, EveryLeaseReportsPollerFailure)
+{
+  auto graph = raft::make_host_matrix<std::uint32_t, int64_t>(4, 1);
+  std::fill_n(graph.data_handle(), graph.size(), 0u);
+  flowann::search_context context(raft::make_const_mdspan(graph.view()));
+  flowann::detail::search_context_access::acquire_search(context);
+  flowann::detail::search_context_access::acquire_search(context);
+  flowann::detail::search_context_access::report_failure(
+    context, std::make_exception_ptr(std::runtime_error("injected poller failure")));
+  EXPECT_THROW(flowann::detail::search_context_access::release_search(context), std::runtime_error);
+  EXPECT_THROW(flowann::detail::search_context_access::release_search(context), std::runtime_error);
 }
 
 namespace {
@@ -784,6 +803,10 @@ RAFT_KERNEL wait_for_host_abort(flowann::detail::queue_view queue, std::uint32_t
   bool ready       = false;
   while (!(ready = flowann::detail::result_ready(queue, reservation)) &&
          clock64() - start < 100000000ull) {}
+  // One queue view must drain every outstanding reservation after the first abort read.
+  for (std::uint32_t i = 1; i < 8; ++i) {
+    ready = flowann::detail::result_ready(queue, {i, i}) && ready;
+  }
   *completed = ready;
 }
 }  // namespace
@@ -804,13 +827,10 @@ TEST(FlowannQueue, HostAbortCompletesAWaitWithoutCudaCopies)
   auto* host_flag = static_cast<std::uint32_t*>(attributes.hostPointer);
   ASSERT_NE(host_flag, nullptr);
   auto completed = raft::make_device_vector<std::uint32_t, int64_t>(res, 1);
+  std::atomic_ref<std::uint32_t>(*host_flag).store(1, std::memory_order_release);
   wait_for_host_abort<<<1, 1, 0, raft::resource::get_cuda_stream(res).get()>>>(
     queue, completed.data_handle());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
-  std::jthread signal([host_flag] {
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    std::atomic_ref<std::uint32_t>(*host_flag).store(1, std::memory_order_release);
-  });
   raft::resource::sync_stream(res);
   std::uint32_t actual{};
   raft::copy(&actual, completed.data_handle(), 1, raft::resource::get_cuda_stream(res));
