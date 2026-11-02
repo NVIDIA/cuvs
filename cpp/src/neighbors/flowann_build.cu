@@ -2086,10 +2086,14 @@ auto reorder_vpq_dataset(raft::resources const& res,
   -> std::unique_ptr<cuvs::neighbors::device_vpq_dataset<half, int64_t>>
 {
   auto const source_data = source;
-  auto vq_code_book       = raft::make_device_matrix<half, std::uint32_t>(
-    res, source_data.manifest_view().vq_code_book.extent(0), source_data.manifest_view().vq_code_book.extent(1));
+  auto vq_code_book      = raft::make_device_matrix<half, std::uint32_t>(
+    res,
+    source_data.manifest_view().vq_code_book.extent(0),
+    source_data.manifest_view().vq_code_book.extent(1));
   auto pq_code_book = raft::make_device_matrix<half, std::uint32_t>(
-    res, source_data.manifest_view().pq_code_book.extent(0), source_data.manifest_view().pq_code_book.extent(1));
+    res,
+    source_data.manifest_view().pq_code_book.extent(0),
+    source_data.manifest_view().pq_code_book.extent(1));
   auto encoded = raft::make_device_matrix<std::uint8_t, int64_t>(
     res, source_data.data_view().extent(0), source_data.data_view().extent(1));
   auto const stream = raft::resource::get_cuda_stream(res);
@@ -2109,7 +2113,8 @@ auto reorder_vpq_dataset(raft::resources const& res,
                      new_to_old);
   return std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
     std::move(encoded),
-    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)});
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book),
+                                                                      std::move(pq_code_book)});
 }
 
 auto reorder_vpq_dataset_consuming(
@@ -2126,18 +2131,27 @@ auto reorder_vpq_dataset_consuming(
 
   auto host_source  = raft::make_host_matrix<std::uint8_t, int64_t>(n_rows, row_length);
   auto const stream = raft::resource::get_cuda_stream(res);
-  raft::copy(host_source.data_handle(), source->data_view().data_handle(), source->data_view().size(), stream);
+  raft::copy(host_source.data_handle(),
+             source->data_view().data_handle(),
+             source->data_view().size(),
+             stream);
   raft::resource::sync_stream(res);
 
   // The dataset API exposes codebook views rather than detachable owners. Copy only
   // the bounded codebooks, then release the old encoded rows before allocating new rows.
-  auto manifest = source->const_manifest_view();
+  auto manifest     = source->const_manifest_view();
   auto vq_code_book = raft::make_device_matrix<half, std::uint32_t>(
     res, manifest.vq_code_book.extent(0), manifest.vq_code_book.extent(1));
   auto pq_code_book = raft::make_device_matrix<half, std::uint32_t>(
     res, manifest.pq_code_book.extent(0), manifest.pq_code_book.extent(1));
-  raft::copy(vq_code_book.data_handle(), manifest.vq_code_book.data_handle(), manifest.vq_code_book.size(), stream);
-  raft::copy(pq_code_book.data_handle(), manifest.pq_code_book.data_handle(), manifest.pq_code_book.size(), stream);
+  raft::copy(vq_code_book.data_handle(),
+             manifest.vq_code_book.data_handle(),
+             manifest.vq_code_book.size(),
+             stream);
+  raft::copy(pq_code_book.data_handle(),
+             manifest.pq_code_book.data_handle(),
+             manifest.pq_code_book.size(),
+             stream);
   raft::resource::sync_stream(res);
   source.reset();
 
@@ -2159,7 +2173,8 @@ auto reorder_vpq_dataset_consuming(
   raft::resource::sync_stream(res);
   return std::make_unique<cuvs::neighbors::device_vpq_dataset<half, int64_t>>(
     std::move(encoded),
-    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book), std::move(pq_code_book)});
+    cuvs::neighbors::device_vpq_dataset<half, int64_t>::manifest_type{std::move(vq_code_book),
+                                                                      std::move(pq_code_book)});
 }
 
 template <typename CagraIndexT>
@@ -2557,11 +2572,8 @@ auto build_vpq_from_cagra(
   auto conversion     = detail::convert_cagra_graph(res, params, cagra_index, partition_labels);
   auto source_indices = detail::make_source_indices(res, cagra_index, conversion.new_to_old);
   auto dataset = detail::reorder_vpq_dataset(res, cagra_index.dataset(), conversion.new_to_old);
-  flowann::vpq_f16_index<T, std::uint32_t> index(res,
-                                                 cagra_index.metric(),
-                                                 dataset->view(),
-                                                 params.node_per_cacheline,
-                                                 params.n_bits);
+  flowann::vpq_f16_index<T, std::uint32_t> index(
+    res, cagra_index.metric(), dataset->view(), params.node_per_cacheline, params.n_bits);
   detail::populate_index(res, index, std::move(conversion), source_indices, seeds);
   return {std::move(dataset), std::move(index)};
 }
@@ -2580,10 +2592,13 @@ auto build_vpq_from_cagra_consuming(
   RAFT_EXPECTS(vpq_dataset->n_rows() > 0, "FlowANN VPQ dataset must not be empty");
   RAFT_EXPECTS(cagra_index.dataset().n_rows() == vpq_dataset->n_rows(),
                "FlowANN CAGRA index does not view the supplied VPQ dataset");
-  RAFT_EXPECTS(cagra_index.dataset().data_view().data_handle() == vpq_dataset->data_view().data_handle() &&
-                 cagra_index.dataset().manifest_view().vq_code_book.data_handle() == vpq_dataset->const_manifest_view().vq_code_book.data_handle() &&
-                 cagra_index.dataset().manifest_view().pq_code_book.data_handle() == vpq_dataset->const_manifest_view().pq_code_book.data_handle(),
-               "FlowANN CAGRA index does not view the supplied VPQ dataset owner");
+  RAFT_EXPECTS(
+    cagra_index.dataset().data_view().data_handle() == vpq_dataset->data_view().data_handle() &&
+      cagra_index.dataset().manifest_view().vq_code_book.data_handle() ==
+        vpq_dataset->const_manifest_view().vq_code_book.data_handle() &&
+      cagra_index.dataset().manifest_view().pq_code_book.data_handle() ==
+        vpq_dataset->const_manifest_view().pq_code_book.data_handle(),
+    "FlowANN CAGRA index does not view the supplied VPQ dataset owner");
 
   auto const metric   = cagra_index.metric();
   auto conversion     = detail::convert_cagra_graph(res, params, cagra_index, partition_labels);
