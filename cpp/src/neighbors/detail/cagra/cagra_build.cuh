@@ -753,11 +753,15 @@ auto iterative_build_graph(raft::resources const& res,
     final_graph_size = static_cast<uint64_t>(dataset.n_rows());
   }
 
+  // Every initial row must have enough distinct non-self neighbors for the
+  // first search-and-optimize iteration, including very small datasets.
+  auto small_graph_degree = std::max(graph_degree / 2, std::min(graph_degree, (uint64_t)24));
   // Determine initial graph size.
   uint64_t initial_graph_size = (final_graph_size + 1) / 2;
   while (initial_graph_size > graph_degree * 64) {
     initial_graph_size = (initial_graph_size + 1) / 2;
   }
+  initial_graph_size = std::max(initial_graph_size, small_graph_degree + 1);
   RAFT_LOG_DEBUG("# initial graph size = %lu", (uint64_t)initial_graph_size);
 
   // Preallocate the kNN graph at last-iteration size (N × (intermediate_degree+1)) from the large
@@ -791,7 +795,6 @@ auto iterative_build_graph(raft::resources const& res,
 
   // Determine graph degree and number of search results while increasing
   // graph size.
-  auto small_graph_degree = std::max(graph_degree / 2, std::min(graph_degree, (uint64_t)24));
   RAFT_LOG_DEBUG("# small_graph_degree = %lu", (uint64_t)small_graph_degree);
   RAFT_LOG_DEBUG("# graph_degree = %lu", (uint64_t)graph_degree);
   RAFT_LOG_DEBUG("# topk = %lu", (uint64_t)topk);
