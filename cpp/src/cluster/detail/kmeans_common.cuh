@@ -86,9 +86,7 @@ inline constexpr std::uint64_t mix_seed(std::uint64_t seed, RngStage stage)
 }
 
 // Use for rank-local sampling. Rank 0 is distinct from omitting the rank.
-inline constexpr std::uint64_t mix_seed(std::uint64_t seed,
-                                      RngStage stage,
-                                      std::uint64_t rank)
+inline constexpr std::uint64_t mix_seed(std::uint64_t seed, RngStage stage, std::uint64_t rank)
 {
   return mix_seed(seed ^ mix_seed_bits(rank), stage);
 }

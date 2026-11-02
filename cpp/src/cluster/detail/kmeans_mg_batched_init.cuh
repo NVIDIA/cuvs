@@ -274,16 +274,16 @@ void init_centroids_for_mg_batched(
   if (params.init == cuvs::cluster::kmeans::params::InitMethod::Random) {
     auto random_params           = params;
     random_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::RandomInit);
-    auto sampled_rows = sample_global_rows<DataT, IndexT, Accessor>(handle,
-                                                                 random_params,
-                                                                 X_parts,
-                                                                 n_features,
-                                                                 n_clusters,
-                                                                 rank,
-                                                                 rank_counts,
-                                                                 global_n,
-                                                                 comms,
-                                                                 true);
+    auto sampled_rows            = sample_global_rows<DataT, IndexT, Accessor>(handle,
+                                                                    random_params,
+                                                                    X_parts,
+                                                                    n_features,
+                                                                    n_clusters,
+                                                                    rank,
+                                                                    rank_counts,
+                                                                    global_n,
+                                                                    comms,
+                                                                    true);
     raft::copy(centroids.data_handle(), sampled_rows.data_handle(), sampled_rows.size(), stream);
   } else if (params.init == cuvs::cluster::kmeans::params::InitMethod::KMeansPlusPlus) {
     using view_t =
@@ -317,23 +317,23 @@ void init_centroids_for_mg_batched(
       // Host (out-of-core) path: sample a subset to root then run single-GPU
       // KMeans++ on the sampled set and broadcast.
       IndexT init_sample_size = get_global_kmeanspp_init_sample_size(params, global_n, n_clusters);
-      auto sample_params           = params;
+      auto sample_params      = params;
       sample_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::HostSubsample);
-      auto init_sample = sample_global_rows<DataT, IndexT, Accessor>(handle,
-                                                                  sample_params,
-                                                                  X_parts,
-                                                                  n_features,
-                                                                  init_sample_size,
-                                                                  rank,
-                                                                  rank_counts,
-                                                                  global_n,
-                                                                  comms);
+      auto init_sample             = sample_global_rows<DataT, IndexT, Accessor>(handle,
+                                                                     sample_params,
+                                                                     X_parts,
+                                                                     n_features,
+                                                                     init_sample_size,
+                                                                     rank,
+                                                                     rank_counts,
+                                                                     global_n,
+                                                                     comms);
 
       if (rank == CUVS_KMEANS_COMM_ROOT) {
         // derive a new seed here
         auto init_params           = params;
         init_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::SubsampleInit);
-        auto init_view = raft::make_const_mdspan(init_sample.view());
+        auto init_view             = raft::make_const_mdspan(init_sample.view());
         if (params.oversampling_factor == 0) {
           cuvs::cluster::kmeans::detail::kmeansPlusPlus<DataT, IndexT>(
             handle, init_params, init_view, centroids, workspace);

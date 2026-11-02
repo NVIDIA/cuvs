@@ -221,8 +221,8 @@ void initKMeansPlusPlus_distributed(
     distance_storage_size += part_rows;
   }
 
-  const auto candidate_seed = mix_seed(
-    params.rng_state.seed, RngStage::CandidateSampling, static_cast<std::uint64_t>(rank));
+  const auto candidate_seed =
+    mix_seed(params.rng_state.seed, RngStage::CandidateSampling, static_cast<std::uint64_t>(rank));
   raft::random::RngState rng(candidate_seed, params.rng_state.type);
 
   auto d_rp = raft::make_device_scalar<int>(handle, 0);
@@ -487,7 +487,7 @@ void initKMeansPlusPlus_distributed(
 
     auto random_params           = params;
     random_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::RandomFallback);
-    auto random_centroids = sample_global_rows(handle,
+    auto random_centroids        = sample_global_rows(handle,
                                                random_params,
                                                X_parts,
                                                n_features,
