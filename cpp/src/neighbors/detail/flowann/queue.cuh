@@ -52,6 +52,7 @@ struct queue_view {
   unsigned long long* command_words;
   unsigned long long* result_sequence;
   unsigned long long* released_sequence;
+  std::uint32_t const* abort_flag;
 };
 
 struct queue_reservation {
@@ -218,8 +219,13 @@ RAFT_DEVICE_INLINE_FUNCTION void submit(queue_view queue,
 RAFT_DEVICE_INLINE_FUNCTION auto result_ready(queue_view queue, queue_reservation reservation)
   -> bool
 {
-  return load_published_counter(&queue.result_sequence[reservation.slot]) ==
-         reservation.sequence + 1;
+  if (load_published_counter(&queue.result_sequence[reservation.slot]) == reservation.sequence + 1) {
+    return true;
+  }
+  if (queue.abort_flag == nullptr) { return false; }
+  cuda::atomic_ref<std::uint32_t, cuda::thread_scope_system> aborted(
+    *const_cast<std::uint32_t*>(queue.abort_flag));
+  return aborted.load(cuda::memory_order_acquire) != 0;
 }
 
 RAFT_DEVICE_INLINE_FUNCTION auto result_row(queue_view queue, queue_reservation reservation)
