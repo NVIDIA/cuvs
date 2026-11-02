@@ -425,6 +425,7 @@ RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
   queue.state->capacity         = flowann::detail::queue_capacity;
   queue.released_sequence[0]    = 0;
   for (std::uint32_t i = 0; i < 8; ++i) {
+    queue.command_words[i] = flowann::detail::empty_command;
     topk[i]               = (i + 1) | 0x80000000u;
     positions[i]          = i;
     state.parent_ids[i]   = i + 1;
@@ -441,7 +442,10 @@ RAFT_KERNEL check_pending_backpressure(flowann::detail::queue_view queue,
     output[3] +=
       cuvs::neighbors::cagra::detail::hashmap::search<std::uint32_t, 1>(traversed, 5, i + 1);
   }
-  output[4] = mode == 2 ? flowann::detail::command_ready(queue.command_words[7]) : 0;
+  output[4] = 0;
+  for (std::uint32_t i = 0; i < 8; ++i) {
+    output[4] += queue.command_words[i] == flowann::detail::make_command(i + 1);
+  }
 }
 }  // namespace
 
@@ -467,7 +471,7 @@ TEST(FlowannSearch, RetriesParentsWithoutOverwritingPendingRequests)
     EXPECT_EQ(actual[1], mode == 1 ? flowann::detail::queue_capacity : mode == 2 ? 8 : 0);
     EXPECT_EQ(actual[2], mode == 2 ? 8 : 0);
     EXPECT_EQ(actual[3], mode == 2 ? 8 : 0);
-    EXPECT_EQ(actual[4], mode == 2 ? 1 : 0);
+    EXPECT_EQ(actual[4], mode == 2 ? 8 : 0);
   }
 }
 
@@ -514,4 +518,38 @@ TEST(FlowannSearch, AutoFallsBackForGraphsTooWideForMultiCta)
                                  75);
   EXPECT_EQ(result.neighbors(0, 0), 7);
   EXPECT_NEAR(result.distances(0, 0), 0.01f, 1e-4f);
+}
+
+
+TEST(FlowannSearch, PaddedSingleCtaQueriesMatchAcrossBatches)
+{
+  for (std::uint32_t dim : {5u, 33u}) {
+    auto one = run_dense_search(cuvs::neighbors::cagra::search_algo::SINGLE_CTA,
+      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 1, 32, 1, 2, false, 2, 0, dim);
+    auto batched = run_dense_search(cuvs::neighbors::cagra::search_algo::SINGLE_CTA,
+      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 3, 32, 1, 2, false, 2, 0, dim);
+    for (int64_t row = 0; row < 5; ++row) {
+      for (int64_t rank = 0; rank < 2; ++rank) {
+        EXPECT_EQ(batched.neighbors(row, rank), one.neighbors(row, rank));
+        EXPECT_NEAR(batched.distances(row, rank), one.distances(row, rank), 1e-4f);
+      }
+    }
+  }
+}
+
+
+TEST(FlowannSearch, PaddedMultiCtaQueriesMatchAcrossBatches)
+{
+  for (std::uint32_t dim : {5u, 33u}) {
+    auto one = run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA,
+      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 1, 32, 1, 2, false, 2, 0, dim);
+    auto batched = run_dense_search(cuvs::neighbors::cagra::search_algo::MULTI_CTA,
+      {0.1f, 12.2f, 1.1f, 10.3f, 2.2f}, {}, 16, false, 3, 32, 1, 2, false, 2, 0, dim);
+    for (int64_t row = 0; row < 5; ++row) {
+      for (int64_t rank = 0; rank < 2; ++rank) {
+        EXPECT_EQ(batched.neighbors(row, rank), one.neighbors(row, rank));
+        EXPECT_NEAR(batched.distances(row, rank), one.distances(row, rank), 1e-4f);
+      }
+    }
+  }
 }

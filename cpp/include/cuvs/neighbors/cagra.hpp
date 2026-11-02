@@ -195,7 +195,8 @@ struct search_params : cuvs::neighbors::search_params {
   /** Data type of the query vector and codebook table on shared memory. Currently, only VPQ
    * supports FP8. **/
   internal_dtype smem_dtype = internal_dtype::F16;
-  /** Settings for tiered indexes; ignored only when absent on an ordinary index. */
+  /** Settings for tiered indexes. Must be unset for ordinary device-graph indexes;
+   * search throws otherwise. Tiered indexes use default settings when this is unset. */
   std::optional<tiered_search_params> tiered;
 };
 
@@ -640,8 +641,9 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   [[nodiscard]] inline auto dataset() const noexcept -> DatasetViewT const& { return dataset_; }
 
   /** Device neighborhood graph with shape [size, graph_degree].
-   * @throws raft::logic_error if graph_storage() is tiered. Tiered graphs have separate device
-   * and host edge storage and cannot be represented by a single device adjacency matrix.
+   *
+   * Throws raft::logic_error when graph_storage() is tiered. Tiered graphs have separate
+   * device and host edge storage and cannot be represented by a single device adjacency matrix.
    */
   [[nodiscard]] inline auto graph() const
     -> raft::device_matrix_view<const graph_index_type, int64_t, raft::row_major>

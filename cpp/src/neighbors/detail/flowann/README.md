@@ -26,3 +26,19 @@ The tiered fields change the layouts of `cagra::index`, `cagra::index_params`, a
 headers from the same cuVS version as the linked library. `index::graph()` throws for
 tiered indexes because their device and host edges do not form one device adjacency matrix.
 Use `graph_storage()` to inspect the representation before requesting a device graph.
+
+
+## Deploying a GDRCopy-enabled library
+
+GDRCopy remains an external runtime dependency; installing cuVS does not bundle `libgdrapi`.
+The runtime environment must provide a compatible `libgdrapi` and its SONAME links. Place them
+beside the installed cuVS libraries, install them in the system loader paths, or set
+`LD_LIBRARY_PATH` to the runtime GDRCopy directory before loading cuVS. The kernel driver is
+also required for GDRCopy transfers.
+
+The installed RPATH defaults to `$ORIGIN`, so moving an installation does not retain the
+build host's GDRCopy prefix. Packagers with a fixed runtime layout may set
+`CUVS_FLOWANN_GDRCOPY_INSTALL_RPATH` to their deployment search paths. The same setting applies
+to `libcuvs_c` when `CUVSC_STATIC_CUVS_LIBRARY=ON`, since that library then carries the GDRCopy
+dependency directly. Compile-time package discovery still uses `GDRCopy_ROOT` or the usual
+CMake search paths and does not establish the runtime layout.
