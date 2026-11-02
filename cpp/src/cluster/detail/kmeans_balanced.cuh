@@ -1495,17 +1495,18 @@ inline IdxT num_mesoclusters(IdxT n_clusters)
  * @param[out] centroid_to_parent    Optional device output for original fine-to-coarse parent IDs.
  */
 template <typename T, typename MathT, typename IdxT, typename MappingOpT>
-void build_hierarchical(const raft::resources& handle,
-                        const cuvs::cluster::kmeans::balanced_params& params,
-                        IdxT dim,
-                        const T* dataset,
-                        IdxT n_rows,
-                        MathT* cluster_centers,
-                        IdxT n_clusters,
-                        MappingOpT mapping_op,
-                        MathT* inertia               = nullptr,
-                        MathT* parent_centroids      = nullptr,
-                        uint32_t* centroid_to_parent = nullptr)
+void build_hierarchical(
+  const raft::resources& handle,
+  const cuvs::cluster::kmeans::balanced_params& params,
+  IdxT dim,
+  const T* dataset,
+  IdxT n_rows,
+  MathT* cluster_centers,
+  IdxT n_clusters,
+  MappingOpT mapping_op,
+  MathT* inertia                                                             = nullptr,
+  std::optional<raft::device_matrix_view<MathT, IdxT>> parent_centroids      = std::nullopt,
+  std::optional<raft::device_vector_view<uint32_t, IdxT>> centroid_to_parent = std::nullopt)
 {
   auto stream          = raft::resource::get_cuda_stream(handle);
   using LabelT         = uint32_t;
@@ -1587,11 +1588,11 @@ void build_hierarchical(const raft::resources& handle,
                    mapping_op,
                    device_memory,
                    dataset_norm);
-    if (parent_centroids != nullptr) {
+    if (parent_centroids.has_value()) {
       raft::copy(handle,
-                 raft::make_device_vector_view(parent_centroids, n_mesoclusters * transformed_dim),
-                 raft::make_device_vector_view<const MathT>(mesocluster_centers_buf.data(),
-                                                            n_mesoclusters * transformed_dim));
+                 *parent_centroids,
+                 raft::make_device_matrix_view<const MathT, IdxT>(
+                   mesocluster_centers_buf.data(), n_mesoclusters, transformed_dim));
     }
   }
 
@@ -1605,14 +1606,15 @@ void build_hierarchical(const raft::resources& handle,
     arrange_fine_clusters(n_clusters, n_mesoclusters, n_rows, mesocluster_sizes);
 
   // Preserve construction ancestry; global refinement does not update this mapping.
-  if (centroid_to_parent != nullptr) {
+  if (centroid_to_parent.has_value()) {
     for (IdxT i = 0; i < n_mesoclusters; ++i) {
       if (fine_clusters_nums[i] == 0) { continue; }
-      raft::matrix::fill(
-        handle,
-        raft::make_device_matrix_view<uint32_t, IdxT>(
-          centroid_to_parent + fine_clusters_csum[i], fine_clusters_nums[i], IdxT{1}),
-        static_cast<uint32_t>(i));
+      raft::matrix::fill(handle,
+                         raft::make_device_matrix_view<uint32_t, IdxT>(
+                           centroid_to_parent->data_handle() + fine_clusters_csum[i],
+                           fine_clusters_nums[i],
+                           IdxT{1}),
+                         static_cast<uint32_t>(i));
     }
   }
 

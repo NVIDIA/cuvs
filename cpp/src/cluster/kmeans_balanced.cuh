@@ -102,18 +102,17 @@ void fit(
 
   MathT* inertia_ptr = inertia.has_value() ? inertia.value().data_handle() : nullptr;
 
-  cuvs::cluster::kmeans::detail::build_hierarchical(
-    handle,
-    params,
-    X.extent(1),
-    X.data_handle(),
-    X.extent(0),
-    centroids.data_handle(),
-    centroids.extent(0),
-    mapping_op,
-    inertia_ptr,
-    parent_centroids ? parent_centroids->data_handle() : nullptr,
-    centroid_to_parent ? centroid_to_parent->data_handle() : nullptr);
+  cuvs::cluster::kmeans::detail::build_hierarchical(handle,
+                                                    params,
+                                                    X.extent(1),
+                                                    X.data_handle(),
+                                                    X.extent(0),
+                                                    centroids.data_handle(),
+                                                    centroids.extent(0),
+                                                    mapping_op,
+                                                    inertia_ptr,
+                                                    parent_centroids,
+                                                    centroid_to_parent);
 }
 
 /**
