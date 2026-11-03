@@ -5,6 +5,7 @@
 package com.nvidia.cuvs.lucene;
 
 import com.nvidia.cuvs.LibraryException;
+import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import java.util.logging.Level;
@@ -33,8 +34,12 @@ import org.apache.lucene.util.Version;
  * {@link KnnVectorsFormat}.
  *
  * <p>Each cuvs-lucene codec wraps the default codec of one Lucene release, for example
- * {@code Lucene101Codec} for Lucene 10.2. Use {@link CuVSCodecs} to get the codecs for the Lucene
- * release in use.
+ * {@code Lucene101Codec} for Lucene 10.2; that codec's version number is the cuvs-lucene codec's
+ * <em>generation</em>. Once a newer Lucene release replaces that default codec, Lucene moves the
+ * old one to its backward codecs, which can read but not write. A cuvs-lucene codec of that
+ * generation is kept so that existing indexes stay readable, and like the codec it wraps it refuses
+ * to write: only the generation {@code LuceneCompat.CURRENT_CODEC_GENERATION} names writes. Use
+ * {@link CuVSCodecs} to get the codecs that can write on the Lucene release in use.
  */
 abstract class CuVSFilterCodec extends FilterCodec {
 
@@ -42,18 +47,44 @@ abstract class CuVSFilterCodec extends FilterCodec {
   // Every registered codec runs into the same problem, so it is logged only once.
   private static final AtomicBoolean unavailableLogged = new AtomicBoolean();
 
+  private final boolean readOnly;
   private KnnVectorsFormat format;
 
   /**
-   * Creates a codec.
+   * Creates one of cuvs-lucene's own codecs, which wraps the default codec of a Lucene release and
+   * can only write on the Lucene release where that codec is still the default.
    *
    * @param name the codec's name
-   * @param delegate the codec to use for everything but vectors; for the codecs of this module,
-   *     the result of {@link #delegate(String, Supplier)}
+   * @param generation the version number of the Lucene codec it wraps, such as 101 for
+   *     {@code Lucene101Codec}
+   * @param delegate creates that Lucene codec, as a lambda; see {@link #delegate(String, Supplier)}
+   * @param format creates the {@link KnnVectorsFormat} to use for vectors
+   */
+  protected CuVSFilterCodec(
+      String name, int generation, Supplier<Codec> delegate, Supplier<KnnVectorsFormat> format) {
+    this(
+        name,
+        delegate(name, delegate),
+        generation != LuceneCompat.CURRENT_CODEC_GENERATION,
+        format);
+  }
+
+  /**
+   * Creates a codec with a delegate chosen by the caller, which is never made read-only: whether
+   * the delegate can write is the caller's responsibility.
+   *
+   * @param name the codec's name
+   * @param delegate the codec to use for everything but vectors
    * @param format creates the {@link KnnVectorsFormat} to use for vectors
    */
   protected CuVSFilterCodec(String name, Codec delegate, Supplier<KnnVectorsFormat> format) {
+    this(name, delegate, false, format);
+  }
+
+  private CuVSFilterCodec(
+      String name, Codec delegate, boolean readOnly, Supplier<KnnVectorsFormat> format) {
     super(name, delegate);
+    this.readOnly = readOnly;
     try {
       setKnnVectorsFormat(format.get());
     } catch (LibraryException | LinkageError e) {
@@ -135,13 +166,31 @@ abstract class CuVSFilterCodec extends FilterCodec {
     return format;
   }
 
+  /** Whether this codec can only read on the Lucene release in use. */
+  boolean isReadOnly() {
+    return readOnly;
+  }
+
+  /** Whether {@code format} is a format that a read-only codec wrapped so that it refuses to write. */
+  static boolean isReadOnlyFormat(KnnVectorsFormat format) {
+    return format instanceof ReadOnlyFormat;
+  }
+
   /**
-   * Sets the {@link KnnVectorsFormat} this codec uses for vectors.
+   * Sets the {@link KnnVectorsFormat} this codec uses for vectors. On a codec that can only read on
+   * the Lucene release in use, the format is wrapped so that it refuses to write.
    *
    * @param format the {@link KnnVectorsFormat} to set
    */
   public void setKnnVectorsFormat(KnnVectorsFormat format) {
-    this.format = format;
+    // A format read back from the knnVectorsFormat() of a read-only codec, this one or another, is
+    // unwrapped first, so that whether it writes depends only on this codec.
+    if (format instanceof ReadOnlyFormat readOnlyFormat) {
+      format = readOnlyFormat.in;
+    }
+    // An unavailable format already refuses to write, and says why.
+    boolean wrap = readOnly && format != null && format instanceof UnavailableFormat == false;
+    this.format = wrap ? new ReadOnlyFormat(getName(), format) : format;
   }
 
   /**
@@ -253,6 +302,47 @@ abstract class CuVSFilterCodec extends FilterCodec {
     @Override
     public int getMaxDimensions(String fieldName) {
       throw unavailable();
+    }
+  }
+
+  /** Reads through the wrapped format, and refuses to write. */
+  private static final class ReadOnlyFormat extends KnnVectorsFormat {
+
+    private final String codecName;
+    private final KnnVectorsFormat in;
+
+    ReadOnlyFormat(String codecName, KnnVectorsFormat in) {
+      super(in.getName());
+      this.codecName = codecName;
+      this.in = in;
+    }
+
+    @Override
+    public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
+      // On another Lucene release than this artifact is built for, the artifact to use is the more
+      // useful message.
+      LuceneVersionGuard.ensureCompatible();
+      throw new UnsupportedOperationException(
+          "The "
+              + codecName
+              + " codec can only read indexes on Lucene "
+              + Version.LATEST
+              + ". Use the codecs from CuVSCodecs to write.");
+    }
+
+    @Override
+    public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
+      return in.fieldsReader(state);
+    }
+
+    @Override
+    public int getMaxDimensions(String fieldName) {
+      return in.getMaxDimensions(fieldName);
+    }
+
+    @Override
+    public String toString() {
+      return "ReadOnly(" + in + ")";
     }
   }
 }
