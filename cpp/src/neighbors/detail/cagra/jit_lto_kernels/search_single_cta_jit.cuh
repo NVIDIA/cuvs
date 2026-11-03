@@ -495,7 +495,11 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
       }
     }
     __syncthreads();
-    for (std::uint32_t i = internal_topk + threadIdx.x; i < result_buffer_size; i += blockDim.x) {
+    for (std::uint32_t offset = threadIdx.x; offset < result_buffer_size - internal_topk;
+         offset += blockDim.x) {
+      auto position = offset;
+      if constexpr (TOPK_BY_BITONIC_SORT) { position = device::swizzling(position); }
+      auto const i       = internal_topk + position;
       auto const node_id = result_indices_buffer[i] & ~index_msb_1_mask;
       if (node_id != (invalid_index & ~index_msb_1_mask) &&
           !hashmap::insert(local_visited_hashmap_ptr, hash_bitlen, node_id)) {
