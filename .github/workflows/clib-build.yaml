@@ -2,8 +2,7 @@ on:
   workflow_call:
     inputs:
       matrix_type:
-        default: "auto"
-        required: false
+        required: true
         type: string
       build_type:
         description: "One of: [branch, nightly, pull-request]"
