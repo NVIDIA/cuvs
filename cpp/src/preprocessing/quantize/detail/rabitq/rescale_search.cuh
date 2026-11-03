@@ -37,14 +37,13 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 /// Returns the selected rescale factor `t` (broadcast via the return value
 /// from thread 0's path; all threads read it from shared memory through the
 /// kernel's own __syncthreads pattern).
-__device__ float compute_best_rescale_parallel(
-        float* s_xp_norm,
-        int D,
-        int EX_BITS,
-        float* reuse_space,
-        int BlockSize,
-        int coarse_samples = 64,
-        int fine_samples = 64);
+__device__ float compute_best_rescale_parallel(float* s_xp_norm,
+                                               int D,
+                                               int EX_BITS,
+                                               float* reuse_space,
+                                               int BlockSize,
+                                               int coarse_samples = 64,
+                                               int fine_samples   = 64);
 
 /// Host: estimate the constant scaling factor used by the fast-quantize path.
 /// Averages `kConstNum` rescale factors computed on random Gaussian vectors.
@@ -56,11 +55,12 @@ __device__ float compute_best_rescale_parallel(
 /// Because the estimate is returned by value, the function synchronizes that
 /// stream once before returning.
 float get_const_scaling_factor(raft::resources const& res,
-                               size_t dim, size_t ex_bits,
-                               uint64_t seed = 12345ULL,
+                               size_t dim,
+                               size_t ex_bits,
+                               uint64_t seed      = 12345ULL,
                                int coarse_samples = 64,
-                               int fine_samples = 64);
+                               int fine_samples   = 64);
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
 
-#endif // RABITQ_GPU_RESCALE_SEARCH_CUH
+#endif  // RABITQ_GPU_RESCALE_SEARCH_CUH

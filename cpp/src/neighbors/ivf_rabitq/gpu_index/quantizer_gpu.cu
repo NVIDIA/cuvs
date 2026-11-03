@@ -1009,9 +1009,7 @@ __device__ float compute_best_rescale_parallel(
   // Final combine writes the winner straight into the broadcast slot; the
   // barrier below both completes the tree and publishes s_best_t, and the
   // fine phase may then overwrite the tournament scratch freely.
-  if (tid == 0) {
-    s_best_t = (s_coarse_ip[1] > s_coarse_ip[0]) ? s_coarse_t[1] : s_coarse_t[0];
-  }
+  if (tid == 0) { s_best_t = (s_coarse_ip[1] > s_coarse_ip[0]) ? s_coarse_t[1] : s_coarse_t[0]; }
   __syncthreads();
 
   //=========================================================================
@@ -1069,9 +1067,7 @@ __device__ float compute_best_rescale_parallel(
   // every thread's read of the coarse center before it. Returning the static
   // slot keeps the result immune to workspace reuse in callers (e.g.
   // s_tmp_code aliases the workspace in exrabitq_fused_kernel_batch_ori).
-  if (tid == 0) {
-    s_best_t = (s_fine_ip[1] > s_fine_ip[0]) ? s_fine_t[1] : s_fine_t[0];
-  }
+  if (tid == 0) { s_best_t = (s_fine_ip[1] > s_fine_ip[0]) ? s_fine_t[1] : s_fine_t[0]; }
   __syncthreads();
   return s_best_t;
 }

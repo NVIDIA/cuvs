@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -66,8 +66,8 @@ struct RabitqQuantizationInputs {
 std::ostream& operator<<(std::ostream& os, const RabitqQuantizationInputs& inputs)
 {
   return os << "rows:" << inputs.rows << " dim:" << inputs.dim
-            << " padded_dim:" << expected_padded_dim(inputs.dim) << " rotator:"
-            << (inputs.rotator_type == rotator_kind::matmul ? "matmul" : "fht_kac")
+            << " padded_dim:" << expected_padded_dim(inputs.dim)
+            << " rotator:" << (inputs.rotator_type == rotator_kind::matmul ? "matmul" : "fht_kac")
             << " ex_bits:" << inputs.ex_bits << " use_fast:" << inputs.use_fast;
 }
 
@@ -248,9 +248,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     }
   }
 
-  void expect_same_codes(std::vector<CodeT> const& a,
-                         std::vector<CodeT> const& b,
-                         const char* what)
+  void expect_same_codes(std::vector<CodeT> const& a, std::vector<CodeT> const& b, const char* what)
   {
     ASSERT_EQ(a.size(), b.size());
     size_t n_diff = 0;
@@ -537,22 +535,18 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
       // codes must match. (On the slow path they need not: the full-factor
       // launcher hardcodes 64/64 rescale samples instead of forwarding
       // params::coarse_samples / params::fine_samples.)
-      expect_same_codes(h_codes_ref,
-                        h_ff_codes,
-                        "the (delta, vl) and (factors) output modes emit different codes");
+      expect_same_codes(
+        h_codes_ref, h_ff_codes, "the (delta, vl) and (factors) output modes emit different codes");
     }
     verify_finite(factors.data_handle(), static_cast<size_t>(n) * 3, "residual factor");
 
     // Wrong extents must be rejected rather than silently reinterpreted.
     if (n > 1) {
       auto short_delta = raft::make_device_vector<float, int64_t>(handle_, n - 1);
-      EXPECT_THROW(transform_residuals(handle_,
-                                       pipe.encoder,
-                                       residuals_view,
-                                       codes.view(),
-                                       short_delta.view(),
-                                       vl.view()),
-                   raft::logic_error);
+      EXPECT_THROW(
+        transform_residuals(
+          handle_, pipe.encoder, residuals_view, codes.view(), short_delta.view(), vl.view()),
+        raft::logic_error);
     }
   }
 

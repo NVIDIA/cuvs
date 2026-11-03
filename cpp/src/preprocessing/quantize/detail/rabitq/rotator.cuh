@@ -65,12 +65,8 @@ void init_state_fht_kac(cudaStream_t stream, uint64_t seed, int64_t D, uint8_t* 
 
 /// out = P * in, computed with the cuBLAS handle carried by `res` (which is
 /// bound to `res`'s stream). `d_P` is D * D floats, row-major.
-void rotate_matmul(raft::resources const& res,
-                   const float* d_P,
-                   const float* in,
-                   float* out,
-                   int64_t N,
-                   int64_t D);
+void rotate_matmul(
+  raft::resources const& res, const float* d_P, const float* in, float* out, int64_t N, int64_t D);
 
 /// Fused FHT + Kac's-walk rotation. `d_flip` is `flip_bytes(D)` bytes.
 ///
@@ -78,12 +74,8 @@ void rotate_matmul(raft::resources const& res,
 /// from it (trunc_dim = 2^floor_log2(D)) — the padded width is what the flip bits
 /// and the kernels operate on. The transform therefore depends only on `D`; the
 /// original unpadded dimension is not needed here.
-void rotate_fht_kac(cudaStream_t stream,
-                    const uint8_t* d_flip,
-                    const float* in,
-                    float* out,
-                    int64_t N,
-                    int64_t D);
+void rotate_fht_kac(
+  cudaStream_t stream, const uint8_t* d_flip, const float* in, float* out, int64_t N, int64_t D);
 
 // ---------------------------------------------------------------------------
 // Non-owning shim over the two kinds, for internal callers (the pipeline)
@@ -96,7 +88,7 @@ struct rotator_ref {
   /// kinds are fully determined by this width plus the state pointers below.
   int64_t padded_dim = 0;
   /// true -> fht_kac (uses `flip_bits`), false -> matmul (uses `rotation_matrix`).
-  bool use_fht_kac = true;
+  bool use_fht_kac             = true;
   const float* rotation_matrix = nullptr;
   const uint8_t* flip_bits     = nullptr;
 };

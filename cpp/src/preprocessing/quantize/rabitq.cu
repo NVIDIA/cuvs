@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -319,8 +319,7 @@ void transform_full_impl(raft::resources const& res,
     static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
   // The full-factor formula always reads the rotated centroid; the detail layer
   // zero-fills this buffer when no centroid is given.
-  rmm::device_uvector<float> rotated_centroid(
-    static_cast<size_t>(q.padded_dim), stream, workspace);
+  rmm::device_uvector<float> rotated_centroid(static_cast<size_t>(q.padded_dim), stream, workspace);
 
   // Rows are quantized independently, so batching only bounds the scratch.
   for_each_batch(res, dataset, batch, [&](const float* rows, int64_t r0, int64_t n) {

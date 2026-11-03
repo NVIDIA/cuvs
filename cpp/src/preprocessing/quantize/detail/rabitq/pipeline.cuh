@@ -67,9 +67,9 @@ void quantize_data(raft::resources const& res,
                    float* d_delta,
                    float* d_vl,
                    float* d_residuals,
-                   int delta_mode      = 0,
-                   int coarse_samples  = 64,
-                   int fine_samples    = 64);
+                   int delta_mode     = 0,
+                   int coarse_samples = 64,
+                   int fine_samples   = 64);
 
 void quantize_data(raft::resources const& res,
                    const float* d_data,
@@ -85,9 +85,9 @@ void quantize_data(raft::resources const& res,
                    float* d_delta,
                    float* d_vl,
                    float* d_residuals,
-                   int delta_mode      = 0,
-                   int coarse_samples  = 64,
-                   int fine_samples    = 64);
+                   int delta_mode     = 0,
+                   int coarse_samples = 64,
+                   int fine_samples   = 64);
 
 /// Full-factor variant: emits the (f_add, f_rescale, f_error) triplet used
 /// for approximate-distance estimation. d_rotated_centroid (D floats) is

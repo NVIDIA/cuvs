@@ -18,10 +18,10 @@
 #include "rotator.cuh"
 
 #include <raft/core/cublas_macros.hpp>
-#include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/util/cuda_rt_essentials.hpp>
 
 #include <cublas_v2.h>
 
@@ -102,8 +102,8 @@ void init_state_fht_kac(cudaStream_t stream, uint64_t seed, int64_t D, uint8_t* 
   for (auto& b : h_flip)
     b = static_cast<uint8_t>(dist(gen));
 
-  RAFT_CUDA_TRY(cudaMemcpyAsync(
-    d_flip_out, h_flip.data(), h_flip.size(), cudaMemcpyHostToDevice, stream));
+  RAFT_CUDA_TRY(
+    cudaMemcpyAsync(d_flip_out, h_flip.data(), h_flip.size(), cudaMemcpyHostToDevice, stream));
   // h_flip is plain host memory and dies with this scope.
   RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
 }
@@ -112,12 +112,8 @@ void init_state_fht_kac(cudaStream_t stream, uint64_t seed, int64_t D, uint8_t* 
 // Launchers
 // ---------------------------------------------------------------------------
 
-void rotate_matmul(raft::resources const& res,
-                   const float* d_P,
-                   const float* in,
-                   float* out,
-                   int64_t N,
-                   int64_t D)
+void rotate_matmul(
+  raft::resources const& res, const float* d_P, const float* in, float* out, int64_t N, int64_t D)
 {
   if (N <= 0) { return; }
   const float alpha = 1.0f;
@@ -142,29 +138,17 @@ void rotate_matmul(raft::resources const& res,
                               static_cast<int>(D)));
 }
 
-void rotate_fht_kac(cudaStream_t stream,
-                    const uint8_t* d_flip,
-                    const float* in,
-                    float* out,
-                    int64_t N,
-                    int64_t D)
+void rotate_fht_kac(
+  cudaStream_t stream, const uint8_t* d_flip, const float* in, float* out, int64_t N, int64_t D)
 {
   if (N <= 0) { return; }
   const auto p = derive_fht_kac(D);
   if (p.trunc_dim == D) {
     const float total_scale = p.fac * p.fac * p.fac * p.fac;
-    fht::dispatch_fused_rotate(
-      in, out, d_flip, static_cast<int>(N), p.log_n, total_scale, stream);
+    fht::dispatch_fused_rotate(in, out, d_flip, static_cast<int>(N), p.log_n, total_scale, stream);
   } else {
-    fht::dispatch_fused_rotate_nonpow2(in,
-                                       out,
-                                       d_flip,
-                                       static_cast<int>(N),
-                                       p.log_n,
-                                       static_cast<int>(D),
-                                       p.fac,
-                                       0.25f,
-                                       stream);
+    fht::dispatch_fused_rotate_nonpow2(
+      in, out, d_flip, static_cast<int>(N), p.log_n, static_cast<int>(D), p.fac, 0.25f, stream);
   }
 }
 
@@ -172,8 +156,7 @@ void rotate(
   raft::resources const& res, rotator_ref const& rot, const float* in, float* out, int64_t N)
 {
   if (rot.use_fht_kac) {
-    rotate_fht_kac(
-      raft::resource::get_cuda_stream(res), rot.flip_bits, in, out, N, rot.padded_dim);
+    rotate_fht_kac(raft::resource::get_cuda_stream(res), rot.flip_bits, in, out, N, rot.padded_dim);
   } else {
     rotate_matmul(res, rot.rotation_matrix, in, out, N, rot.padded_dim);
   }

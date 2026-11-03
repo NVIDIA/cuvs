@@ -16,8 +16,8 @@
 
 #include <cuda_runtime.h>
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 
 namespace cuvs::preprocessing::quantize::rabitq::detail {
 
@@ -34,19 +34,33 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 /// Writes N × padded_dim codes, plus a per-vector (delta, vl) pair.
 ///
 /// delta_mode: 0 = RECONSTRUCTION, 1 = UNBIASED, 2 = PLAIN.
-void quantize_fused_on_residuals(
-    cudaStream_t stream,
-    const float* d_residuals, size_t N, size_t padded_dim,
-    size_t ex_bits, float const_scaling_factor, bool use_fast,
-    uint16_t* d_total_code, float* d_delta, float* d_vl, int delta_mode = 0,
-    int coarse_samples = 64, int fine_samples = 64);
+void quantize_fused_on_residuals(cudaStream_t stream,
+                                 const float* d_residuals,
+                                 size_t N,
+                                 size_t padded_dim,
+                                 size_t ex_bits,
+                                 float const_scaling_factor,
+                                 bool use_fast,
+                                 uint16_t* d_total_code,
+                                 float* d_delta,
+                                 float* d_vl,
+                                 int delta_mode     = 0,
+                                 int coarse_samples = 64,
+                                 int fine_samples   = 64);
 
-void quantize_fused_on_residuals(
-    cudaStream_t stream,
-    const float* d_residuals, size_t N, size_t padded_dim,
-    size_t ex_bits, float const_scaling_factor, bool use_fast,
-    uint8_t* d_total_code, float* d_delta, float* d_vl, int delta_mode = 0,
-    int coarse_samples = 64, int fine_samples = 64);
+void quantize_fused_on_residuals(cudaStream_t stream,
+                                 const float* d_residuals,
+                                 size_t N,
+                                 size_t padded_dim,
+                                 size_t ex_bits,
+                                 float const_scaling_factor,
+                                 bool use_fast,
+                                 uint8_t* d_total_code,
+                                 float* d_delta,
+                                 float* d_vl,
+                                 int delta_mode     = 0,
+                                 int coarse_samples = 64,
+                                 int fine_samples   = 64);
 
 /// Quantize pre-computed, rotated residuals and produce the full
 /// (f_add, f_rescale, f_error) factor triplet used for approximate-distance
@@ -59,20 +73,28 @@ void quantize_fused_on_residuals(
 ///               zero-filled buffer when there is no centroid.
 /// d_factors   : N × 3 floats on device — stride 3, layout
 ///               [f_add, f_rescale, f_error] per vector.
-void quantize_full_on_residuals(
-    cudaStream_t stream,
-    const float* d_residuals, const float* d_centroid,
-    size_t N, size_t padded_dim,
-    size_t ex_bits, float const_scaling_factor, bool use_fast,
-    uint16_t* d_total_code, float* d_factors);
+void quantize_full_on_residuals(cudaStream_t stream,
+                                const float* d_residuals,
+                                const float* d_centroid,
+                                size_t N,
+                                size_t padded_dim,
+                                size_t ex_bits,
+                                float const_scaling_factor,
+                                bool use_fast,
+                                uint16_t* d_total_code,
+                                float* d_factors);
 
-void quantize_full_on_residuals(
-    cudaStream_t stream,
-    const float* d_residuals, const float* d_centroid,
-    size_t N, size_t padded_dim,
-    size_t ex_bits, float const_scaling_factor, bool use_fast,
-    uint8_t* d_total_code, float* d_factors);
+void quantize_full_on_residuals(cudaStream_t stream,
+                                const float* d_residuals,
+                                const float* d_centroid,
+                                size_t N,
+                                size_t padded_dim,
+                                size_t ex_bits,
+                                float const_scaling_factor,
+                                bool use_fast,
+                                uint8_t* d_total_code,
+                                float* d_factors);
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
 
-#endif // RABITQ_GPU_QUANTIZER_STANDALONE_CUH
+#endif  // RABITQ_GPU_QUANTIZER_STANDALONE_CUH
