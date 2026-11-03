@@ -5,16 +5,13 @@
 
 #include "detail/bbq_quantizer.cuh"
 #include <cuvs/preprocessing/quantize/bbq.hpp>
-#include <optional>
+
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
 
-namespace CUVS_EXPORT cuvs {
-
-namespace preprocessing::quantize::bbq {
-
+namespace cuvs::preprocessing::quantize::bbq {
 namespace helpers {
 void resolve_dequant_factors(
   raft::resources const& res,
@@ -60,6 +57,4 @@ cuvs::neighbors::device_bbq_dataset<float, int64_t> transform(
 {
   return detail::transform(res, params, quantizer, dataset);
 }
-
-}  // namespace preprocessing::quantize::bbq
-}  // namespace CUVS_EXPORT cuvs
+}  // namespace cuvs::preprocessing::quantize::bbq 

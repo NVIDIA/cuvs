@@ -492,10 +492,13 @@ outputs:
             - mkl =2023
             - llvm-openmp
       ignore_run_exports:
+        from_package:
+          - libboost-devel
         by_name:
           - cuda-cudart
           - cuda-nvrtc
           - cuda-version
+          - libboost
           - libcublas
           - libcurand
           - libcusolver

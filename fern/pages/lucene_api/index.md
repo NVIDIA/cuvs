@@ -9,11 +9,11 @@ For an introduction to the codecs, configuration, and tuning, see the [Lucene In
 - [AcceleratedHNSWParams](/api-reference/lucene-api-com-nvidia-cuvs-lucene-acceleratedhnswparams)
 - [AcceleratedHNSWUtils](/api-reference/lucene-api-com-nvidia-cuvs-lucene-acceleratedhnswutils)
 - [CagraIndexParamsFactory](/api-reference/lucene-api-com-nvidia-cuvs-lucene-cagraindexparamsfactory)
+- [CuVSCodecs](/api-reference/lucene-api-com-nvidia-cuvs-lucene-cuvscodecs)
 - [FilterBitsetCacheConfig](/api-reference/lucene-api-com-nvidia-cuvs-lucene-filterbitsetcacheconfig)
 - [FilterCuVSServiceProvider](/api-reference/lucene-api-com-nvidia-cuvs-lucene-filtercuvsserviceprovider)
 - [GPUIndex](/api-reference/lucene-api-com-nvidia-cuvs-lucene-gpuindex)
 - [GPUSearchParams](/api-reference/lucene-api-com-nvidia-cuvs-lucene-gpusearchparams)
-- [LuceneProvider](/api-reference/lucene-api-com-nvidia-cuvs-lucene-luceneprovider)
 - [ThreadLocalCuVSResourcesProvider](/api-reference/lucene-api-com-nvidia-cuvs-lucene-threadlocalcuvsresourcesprovider)
 - [Utils](/api-reference/lucene-api-com-nvidia-cuvs-lucene-utils)
 

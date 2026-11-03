@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp"
 #include "../test_utils.cuh"
 #include <cuvs/preprocessing/quantize/bbq.hpp>
-#include <cuvs_internal/preprocessing/bbq_cpu_quantize.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>
@@ -175,13 +175,13 @@ class BbqQuantizationTest : public ::testing::TestWithParam<BbqQuantizationInput
     for (const auto layout : layouts) {
       ASSERT_TRUE(encoded.has_layout(layout));
       const auto expected =
-        cuvs_internal::bbq::quantize(host_input_.data(), rows_, cols_, params_.metric, layout);
+        detail::quantize(host_input_.data(), rows_, cols_, params_.metric, layout);
       const auto actual = encoded_view.get_storage(layout);
       checkStorage(expected, quantizer, encoded, actual);
     }
   }
 
-  void checkStorage(const cuvs_internal::bbq::host_quantizer_storage& expected,
+  void checkStorage(const detail::host_quantizer_storage& expected,
                     const quantizer<float>& quantizer,
                     const cuvs::neighbors::device_bbq_dataset<float, int64_t>& encoded,
                     const bbq_dataset_view_storage<float, int64_t>& actual)
