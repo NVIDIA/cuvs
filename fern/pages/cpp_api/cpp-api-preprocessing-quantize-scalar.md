@@ -44,7 +44,7 @@ struct params {
 | Name | Type | Description |
 | --- | --- | --- |
 | `quantile` | `float` | Specifies how many outliers at top & bottom will be ignored. Needs to be within range of (0, 1]. |
-| `range` | [`range_mode`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-range-mode) | Per-dimension training uses all device FP32 corpus rows, applying quantile independently to each dimension. Midpoint shifts share the widest half-range divided by 127. Requires nonempty finite input. Constant ranges use scale 1; positive scales are floored to the smallest normal float. Training synchronizes to return the scale. |
+| `range` | [`range_mode`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-range-mode) | Per-dimension training uses every row of a nonempty, finite device dataset. It applies the quantile independently to each dimension to select lower and upper bounds. Each dimension's shift is the midpoint of its bounds, rounded to the input type. A shared scale fits every dimension's bounds around its stored shift into the symmetric range of quantized values.<br /><br />If every interval has zero width, the scale is one. Otherwise, the scale is at least the smallest positive normal value of the scale type. Training synchronizes the stream before returning the scale to the host. |
 
 <a id="preprocessing-quantize-scalar-quantizer-const-view"></a>
 ### preprocessing::quantize::scalar::quantizer_const_view
@@ -67,7 +67,7 @@ struct quantizer_const_view {
 <a id="preprocessing-quantize-scalar-quantizer-const-view-range-type"></a>
 ### preprocessing::quantize::scalar::quantizer_const_view::range_type
 
-A global interval mapped to [-128, 127].
+A global interval mapped to the full range of the quantized type.
 
 ```cpp
 struct range_type {
@@ -86,14 +86,14 @@ struct range_type {
 <a id="preprocessing-quantize-scalar-quantizer-const-view-shifts-type"></a>
 ### preprocessing::quantize::scalar::quantizer_const_view::shifts_type
 
-Encode clamp(rintf((x - shifts[j]) / scale), -127, 127), with ties to even.
+Encode (x - shifts[j]) / scale, rounding to nearest with ties to even and
 
-Decode shifts[j] + scale * code, saturating to finite FP32 limits.
+clamping to the symmetric range of quantized values. Decode shifts[j] + scale * code, saturating to finite limits of the input type.
 
 ```cpp
 struct shifts_type {
   raft::device_vector_view<const T, int64_t> shifts;
-  T scale;
+  scale_type scale;
 };
 ```
 
@@ -102,7 +102,7 @@ struct shifts_type {
 | Name | Type | Description |
 | --- | --- | --- |
 | `shifts` | `raft::device_vector_view<const T, int64_t>` |  |
-| `scale` | `T` |  |
+| `scale` | `scale_type` |  |
 
 <a id="preprocessing-quantize-scalar-quantizer"></a>
 ### preprocessing::quantize::scalar::quantizer
@@ -132,7 +132,7 @@ Owning per-dimension parameters.
 ```cpp
 struct shifts_type {
   raft::device_vector<T, int64_t> shifts;
-  T scale;
+  scale_type scale;
 };
 ```
 
@@ -141,7 +141,7 @@ struct shifts_type {
 | Name | Type | Description |
 | --- | --- | --- |
 | `shifts` | `raft::device_vector<T, int64_t>` |  |
-| `scale` | `T` |  |
+| `scale` | `scale_type` |  |
 
 <a id="preprocessing-quantize-scalar-quantizer-quantizer"></a>
 ### preprocessing::quantize::scalar::quantizer::quantizer
@@ -177,13 +177,12 @@ quantizer(T min, T max);
 
 **Additional overload:** `preprocessing::quantize::scalar::quantizer::quantizer`
 
-Construct from nonempty device FP32 bounds of equal length, with finite min &lt;= max.
+Construct from nonempty device bounds of equal length, with finite min &lt;= max.
 
 ```cpp
 quantizer(raft::resources const& res,
 raft::device_vector_view<const T, int64_t> mins,
-raft::device_vector_view<const T, int64_t> maxs)
-requires std::is_same_v<T, float>;
+raft::device_vector_view<const T, int64_t> maxs);
 ```
 
 Derives midpoint shifts and a shared scale; synchronizes before returning.

@@ -25,11 +25,13 @@ struct sq_spec;
 <a id="preprocessing-quantize-scalar-build"></a>
 ### preprocessing::quantize::scalar::build
 
-Train and encode a device FP32 corpus with the selected range mode.
+Train and encode a device corpus with the selected range mode.
 
 ```cpp
-inline device_sq_dataset<float, int64_t, float> build(
-raft::resources const& res, params params, raft::device_matrix_view<const float, int64_t> dataset);
+template <typename T>
+inline device_sq_dataset<T, int64_t, T> build(raft::resources const& res,
+params params,
+raft::device_matrix_view<const T, int64_t> dataset);
 ```
 
 Reuse result.const_manifest_view() with transform for query batches. For separate training/encoding, use train and transform.
@@ -40,8 +42,8 @@ Reuse result.const_manifest_view() with transform for query batches. For separat
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` |  |
 | `params` |  | `params` |  |
-| `dataset` |  | `raft::device_matrix_view<const float, int64_t>` |  |
+| `dataset` |  | `raft::device_matrix_view<const T, int64_t>` |  |
 
 **Returns**
 
-`inline device_sq_dataset<float, int64_t, float>`
+`inline device_sq_dataset<T, int64_t, T>`

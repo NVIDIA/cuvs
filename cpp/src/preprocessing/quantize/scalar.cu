@@ -13,7 +13,6 @@ template <typename T>
 quantizer<T>::quantizer(raft::resources const& res,
                         raft::device_vector_view<const T, int64_t> mins,
                         raft::device_vector_view<const T, int64_t> maxs)
-  requires std::is_same_v<T, float>
 {
   RAFT_EXPECTS(mins.extent(0) > 0 && mins.extent(0) == maxs.extent(0),
                "Bounds must be nonempty and have equal lengths");
@@ -21,7 +20,7 @@ quantizer<T>::quantizer(raft::resources const& res,
   auto maxima = raft::make_device_vector<T, int64_t>(res, maxs.extent(0));
   raft::copy(res, minima.view(), mins);
   raft::copy(res, maxima.view(), maxs);
-  value = detail::make_shifts(res, std::move(minima), std::move(maxima));
+  value = detail::train(res, std::move(minima), std::move(maxima));
 }
 
 #define CUVS_INST_QUANTIZATION(T, QuantI)                                         \

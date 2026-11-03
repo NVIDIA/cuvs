@@ -40,26 +40,35 @@ struct params {
    * Needs to be within range of (0, 1].
    */
   float quantile = 0.99;
-  /** Per-dimension training uses all device FP32 corpus rows, applying quantile independently
-   * to each dimension. Midpoint shifts share the widest half-range divided by 127.
-   * Requires nonempty finite input. Constant ranges use scale 1; positive scales are floored
-   * to the smallest normal float. Training synchronizes to return the scale. */
+  /**
+   * Per-dimension training uses every row of a nonempty, finite device dataset.
+   * It applies the quantile independently to each dimension to select lower and upper bounds.
+   * Each dimension's shift is the midpoint of its bounds, rounded to the input type.
+   * A shared scale fits every dimension's bounds around its stored shift into the symmetric
+   * range of quantized values.
+   *
+   * If every interval has zero width, the scale is one. Otherwise, the scale is at least
+   * the smallest positive normal value of the scale type. Training synchronizes the stream before
+   * returning the scale to the host.
+   */
   range_mode range = range_mode::global;
 };
 
 /** Read-only scalar quantizer parameters. The owner must outlive stream work using shifts. */
 template <typename T>
 struct quantizer_const_view {
-  /** A global interval mapped to [-128, 127]. */
+  using scale_type = std::conditional_t<std::is_same_v<T, half>, float, T>;
+  /** A global interval mapped to the full range of the quantized type. */
   struct range_type {
     T min_;
     T max_;
   };
-  /** Encode clamp(rintf((x - shifts[j]) / scale), -127, 127), with ties to even.
-   * Decode shifts[j] + scale * code, saturating to finite FP32 limits. */
+  /** Encode (x - shifts[j]) / scale, rounding to nearest with ties to even and
+   * clamping to the symmetric range of quantized values.
+   * Decode shifts[j] + scale * code, saturating to finite limits of the input type. */
   struct shifts_type {
     raft::device_vector_view<const T, int64_t> shifts;
-    T scale;
+    scale_type scale;
   };
   std::variant<range_type, shifts_type> value;
 };
@@ -73,11 +82,12 @@ struct quantizer_const_view {
 template <typename T>
 struct quantizer {
   using view_type  = quantizer_const_view<T>;
+  using scale_type = typename view_type::scale_type;
   using range_type = typename view_type::range_type;
   /** Owning per-dimension parameters. */
   struct shifts_type {
     raft::device_vector<T, int64_t> shifts;
-    T scale;
+    scale_type scale;
   };
   std::variant<range_type, shifts_type> value;
 
@@ -85,12 +95,11 @@ struct quantizer {
   quantizer() : value{range_type{}} {}
   /** Construct a global interval. */
   quantizer(T min, T max) : value{range_type{min, max}} {}
-  /** Construct from nonempty device FP32 bounds of equal length, with finite min <= max.
+  /** Construct from nonempty device bounds of equal length, with finite min <= max.
    * Derives midpoint shifts and a shared scale; synchronizes before returning. */
   quantizer(raft::resources const& res,
             raft::device_vector_view<const T, int64_t> mins,
-            raft::device_vector_view<const T, int64_t> maxs)
-    requires std::is_same_v<T, float>;
+            raft::device_vector_view<const T, int64_t> maxs);
 
   /** Borrow read-only parameters; the owner must outlive stream work using shifts. */
   [[nodiscard]] auto view() const noexcept -> view_type
