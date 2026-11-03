@@ -76,9 +76,10 @@ TEST_P(cagra_F32, multi_kernel)
   check_neighbors();
 }
 
-TEST_P(cagra_U8, defaults)
+TEST_P(cagra_U8, multi_cta)
 {
   set_default_cagra_params(*this);
+  search_params_upsm.algo = cagra::search_algo::MULTI_CTA;
   build_all();
   search_all();
   check_neighbors();

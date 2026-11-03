@@ -271,8 +271,8 @@ namespace detail {
  *
  * Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same
  * pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset
- * view exposing `view`, `dim` and `stride`, in which case the logical `dim()` is quantized and the
- * row padding is skipped. The rows may be device-accessible or host-resident. Device-accessible
+ * view exposing `data_const_view`, in which case the logical `dim()` is quantized and the row
+ * padding is skipped. The rows may be device-accessible or host-resident. Device-accessible
  * rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension)
  * are passed through to training as they are; a wider row pitch triggers a contiguous dense copy
  * first. Host-resident rows are subsampled for training and encoded in bounded batches, so the
@@ -290,7 +290,7 @@ namespace detail {
  * // `padded` is a `device_padded_dataset_view<float, int64_t>` over the source rows.
  * cuvs::neighbors::vpq_params vpq_params{};
  * auto vpq = cuvs::preprocessing::quantize::pq::make_vpq_dataset(res, vpq_params, padded);
- * auto idx = cuvs::neighbors::cagra::build(res, cagra_params, vpq.as_dataset_view());
+ * auto idx = cuvs::neighbors::cagra::build(res, cagra_params, vpq.view());
  * @endcode
  */
 template <typename SrcT>
@@ -299,22 +299,9 @@ template <typename SrcT>
                                     SrcT const& src)
   -> cuvs::neighbors::device_vpq_dataset<half, int64_t>
 {
-  // A cuVS dataset keeps its logical width in `dim()` while `view()` spans the full row pitch.
-  if constexpr (requires {
-                  src.view();
-                  src.dim();
-                  src.stride();
-                }) {
-    auto const rows    = src.view();
-    using value_type   = typename decltype(rows)::value_type;
-    using extents_type = raft::matrix_extent<int64_t>;
-    return make_vpq_dataset(
-      res,
-      params,
-      raft::mdspan<const value_type, extents_type, raft::layout_stride>{
-        rows.data_handle(),
-        raft::make_strided_layout(extents_type{rows.extent(0), int64_t{src.dim()}},
-                                  cuda::std::array<int64_t, 2>{int64_t{src.stride()}, 1})});
+  // A cuVS dataset hands out its rows as an mdspan, which spans the logical width only.
+  if constexpr (requires { src.data_const_view(); }) {
+    return make_vpq_dataset(res, params, src.data_const_view());
   } else {
     using value_type = typename SrcT::value_type;
     static_assert(std::is_same_v<value_type, float> || std::is_same_v<value_type, half> ||
