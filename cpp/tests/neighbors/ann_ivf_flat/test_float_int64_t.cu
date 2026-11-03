@@ -139,6 +139,9 @@ TEST(AnnIVFFlatTest, CosineZeroNormCenters)
   raft::resource::sync_stream(handle);
   std::fill(centers_h.begin() + dim, centers_h.begin() + (n_zero_lists + 1) * dim, 0.0f);
   raft::update_device(idx.centers().data_handle(), centers_h.data(), centers_h.size(), stream);
+  // The first extend() computes the center norms, so they must still be absent here for the norms
+  // to reflect the edited centers.
+  ASSERT_FALSE(idx.center_norms().has_value());
   extend(handle, raft::make_const_mdspan(data.view()), std::nullopt, &idx);
 
   // All data rows are in the lists with a non-zero center, and all of those lists are probed.
