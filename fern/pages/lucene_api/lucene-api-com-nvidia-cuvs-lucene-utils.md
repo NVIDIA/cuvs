@@ -22,8 +22,7 @@ static RuntimeException handleThrowable(Throwable t) throws IOException
 
 A utility method that rethrows known throwable types without changing their identity.
 
-In particular, `Error` instances must not be converted to a \{@link
-RuntimeException\}; callers rely on errors retaining their original type and stack trace.
+In particular, `Error` instances must not be converted to a `RuntimeException`; callers rely on errors retaining their original type and stack trace.
 
 This method never returns normally; its return type exists solely so callers can write
 `throw handleThrowable(t);`, letting the compiler verify that the enclosing statement
@@ -46,6 +45,28 @@ never returns; always throws
 | `IOException` |  |
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:40`_
+
+### closeAll
+
+```java
+static Throwable closeAll(Throwable failure, AutoCloseable... closeables)
+```
+
+Closes every non-null closeable, even if some fail, and returns the first failure with the
+others added as suppressed.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `failure` | a failure already in flight to attach close failures to, or `null` |
+| `closeables` | what to close; `null` entries are skipped |
+
+**Returns**
+
+`failure`, or the first close failure if it is `null`; `null` if nothing failed
+
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:58`_
 
 ### createFloatMatrix
 
@@ -70,7 +91,7 @@ without creating intermediate heap arrays.
 
 an instance of CuVSMatrix
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:60`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:88`_
 
 ### createHostByteMatrixFromArray
 
@@ -80,7 +101,7 @@ static CuVSHostMatrix createHostByteMatrixFromArray(byte[][] data, int bytesPerV
 
 Builds a host-memory CuVSMatrix from a 2D byte array.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:79`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:107`_
 
 ### nanosToMillis
 
@@ -100,7 +121,7 @@ A utility method to convert nanoseconds to milliseconds.
 
 milliseconds
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:160`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:188`_
 
 ### cuVSResourcesOrNull
 
@@ -114,7 +135,7 @@ Creates an instance of CuVSResources.
 
 an instance of CuVSResources
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:169`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:197`_
 
 ### handleThrowableWithIgnore
 
@@ -137,7 +158,7 @@ A utility method that conditionally ignores certain throwable objects
 | --- | --- |
 | `IOException` |  |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:197`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:225`_
 
 ### info
 
@@ -155,6 +176,6 @@ Utility to print info/debug messages via InfoStream.
 | `component` | the name of the index writer |
 | `msg` | the log message to push via the InfoStream |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:211`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:239`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Utils.java:23`_

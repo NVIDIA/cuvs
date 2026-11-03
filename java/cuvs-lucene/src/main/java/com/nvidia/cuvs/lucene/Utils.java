@@ -48,6 +48,34 @@ public class Utils {
   }
 
   /**
+   * Closes every non-null closeable, even if some fail, and returns the first failure with the
+   * others added as suppressed.
+   *
+   * @param failure a failure already in flight to attach close failures to, or {@code null}
+   * @param closeables what to close; {@code null} entries are skipped
+   * @return {@code failure}, or the first close failure if it is {@code null}; {@code null} if
+   *     nothing failed
+   */
+  static Throwable closeAll(Throwable failure, AutoCloseable... closeables) {
+    for (AutoCloseable closeable : closeables) {
+      if (closeable == null) continue;
+      try {
+        closeable.close();
+      } catch (Throwable t) {
+        if (t instanceof InterruptedException) {
+          Thread.currentThread().interrupt();
+        }
+        if (failure == null) {
+          failure = t;
+        } else if (failure != t) {
+          failure.addSuppressed(t);
+        }
+      }
+    }
+    return failure;
+  }
+
+  /**
    * A method to build a CuVSMatrix from a list of float vectors.
    *
    * Uses CuVSMatrix.Builder to copy vectors directly to device memory

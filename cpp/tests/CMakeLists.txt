@@ -48,7 +48,6 @@ function(ConfigureTest)
     ${TEST_NAME}
     PRIVATE cuvs
             cuvs::cuvs
-            cuvs_internal
             raft::raft
             rtcx::rtcx
             GTest::gtest
@@ -138,6 +137,7 @@ ConfigureTest(
        cluster/kmeans_find_k.cu
        cluster/gmm.cu
        cluster/kmeans_predict_batching.cu
+       cluster/kmeans_batch_loader.cu
        cluster/linkage.cu
        cluster/connect_knn.cu
        cluster/spectral.cu
@@ -151,7 +151,10 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
-target_compile_definitions(CUTILE_SMOKE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
+target_compile_definitions(
+  CUTILE_SMOKE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+                            CUVS_CUTILE_SM107_ENABLED=${CUVS_CUTILE_SM107_ENABLED}
+)
 if(CUVS_CUTILE_ENABLED)
   # These are intentionally library-private implementation symbols. Build the smoke executable with
   # the generated fragment registrations and planner implementation so it can exercise them without
@@ -174,6 +177,13 @@ ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_FLAT_TEST
   PATH neighbors/ann_ivf_flat/test_float_int64_t.cu neighbors/ann_ivf_flat/test_half_int64_t.cu
        neighbors/ann_ivf_flat/test_int8_t_int64_t.cu neighbors/ann_ivf_flat/test_uint8_t_int64_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_BINARY_TEST
+  PATH neighbors/ann_ivf_binary.cu
   GPUS 1
   PERCENT 100
 )
@@ -252,6 +262,7 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HELPERS_TEST
   PATH neighbors/ann_cagra/test_optimize_uint32_t.cu neighbors/ann_cagra/test_batch_load_iterator.cu
+       neighbors/ann_cagra/test_serialize_dataset_layouts.cu
   GPUS 1
   PERCENT 100
 )
@@ -398,7 +409,7 @@ endif()
 if(BUILD_MG_ALGOS)
   ConfigureTest(
     NAME NEIGHBORS_MG_TEST
-    PATH neighbors/mg/test_float.cu
+    PATH neighbors/mg/test_float.cu neighbors/mg/test_cagra_padded_host.cu
     GPUS 1
     PERCENT 100
     ADDITIONAL_DEP NCCL::NCCL RUN_SERIAL
