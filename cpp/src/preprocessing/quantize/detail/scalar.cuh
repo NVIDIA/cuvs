@@ -133,20 +133,20 @@ std::tuple<T, T> quantile_min_max(
   return {minmax_h[0], minmax_h[1]};
 }
 
-inline quantizer<float> train_offsets(raft::resources const& res,
-                                      raft::device_matrix_view<const float, int64_t> dataset,
-                                      params params)
+inline quantizer<float> train_shifts(raft::resources const& res,
+                                     raft::device_matrix_view<const float, int64_t> dataset,
+                                     params params)
 {
   RAFT_EXPECTS(params.quantile > 0.f && params.quantile <= 1.f, "Quantile must be within (0, 1]");
   auto const dim = dataset.extent(1);
   RAFT_EXPECTS(dataset.extent(0) > 0 && dim > 0, "Training requires nonempty rows and dimensions");
-  auto offsets        = raft::make_device_vector<float, int64_t>(res, dim);
+  auto shifts         = raft::make_device_vector<float, int64_t>(res, dim);
   auto maxima         = raft::make_device_vector<float, int64_t>(res, dim);
   auto max_half_range = raft::make_device_vector<float, int64_t>(res, 1);
   if (params.quantile == 1.f) {
     raft::linalg::reduce<raft::Apply::ALONG_COLUMNS>(res,
                                                      dataset,
-                                                     offsets.view(),
+                                                     shifts.view(),
                                                      std::numeric_limits<float>::infinity(),
                                                      false,
                                                      raft::identity_op{},
@@ -181,20 +181,20 @@ inline quantizer<float> train_offsets(raft::resources const& res,
                                                      stream));
       }
       raft::copy(res,
-                 raft::make_device_scalar_view(offsets.data_handle() + j),
+                 raft::make_device_scalar_view(shifts.data_handle() + j),
                  raft::make_device_scalar_view(column.data_handle() + lower));
       raft::copy(res,
                  raft::make_device_scalar_view(maxima.data_handle() + j),
                  raft::make_device_scalar_view(column.data_handle() + upper));
     }
   }
-  auto* offset_ptr    = offsets.data_handle();
+  auto* shift_ptr     = shifts.data_handle();
   auto const* max_ptr = maxima.data_handle();
-  raft::linalg::map_offset(res, maxima.view(), [offset_ptr, max_ptr] __device__(int64_t j) {
+  raft::linalg::map_offset(res, maxima.view(), [shift_ptr, max_ptr] __device__(int64_t j) {
     // Halve before adding/subtracting to avoid overflow for large finite inputs.
-    float const lo = offset_ptr[j] * 0.5f;
+    float const lo = shift_ptr[j] * 0.5f;
     float const hi = max_ptr[j] * 0.5f;
-    offset_ptr[j]  = lo + hi;
+    shift_ptr[j]   = lo + hi;
     return hi - lo;
   });
   raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
@@ -212,51 +212,51 @@ inline quantizer<float> train_offsets(raft::resources const& res,
   raft::resource::sync_stream(res);
   float const scale =
     half_range > 0.f ? std::max(half_range / 127.f, std::numeric_limits<float>::min()) : 1.f;
-  return {std::move(offsets), scale};
+  return {std::move(shifts), scale};
 }
 
 template <typename InT, typename OutT>
-void check_per_dim_shapes(quantizer_const_view<float>::offsets_type quantizer,
+void check_per_dim_shapes(quantizer_const_view<float>::shifts_type quantizer,
                           raft::device_matrix_view<const InT, int64_t> dataset,
                           raft::device_matrix_view<OutT, int64_t> out)
 {
   RAFT_EXPECTS(
     std::isfinite(quantizer.scale) && quantizer.scale > 0.f && std::isfinite(1.f / quantizer.scale),
     "Scale and its reciprocal must be finite and positive");
-  RAFT_EXPECTS(dataset.extent(1) > 0 && dataset.extent(1) == quantizer.offsets.extent(0),
-               "Input width must match the nonempty offsets vector");
+  RAFT_EXPECTS(dataset.extent(1) > 0 && dataset.extent(1) == quantizer.shifts.extent(0),
+               "Input width must match the nonempty shifts vector");
   RAFT_EXPECTS(dataset.extent(0) == out.extent(0) && dataset.extent(1) == out.extent(1),
                "Input and output shapes must match");
 }
 
 inline void transform(raft::resources const& res,
-                      quantizer_const_view<float>::offsets_type quantizer,
+                      quantizer_const_view<float>::shifts_type quantizer,
                       raft::device_matrix_view<const float, int64_t> dataset,
                       raft::device_matrix_view<int8_t, int64_t> out)
 {
   check_per_dim_shapes(quantizer, dataset, out);
-  auto const* input   = dataset.data_handle();
-  auto const* offsets = quantizer.offsets.data_handle();
-  auto const dim      = dataset.extent(1);
-  float const inv     = 1.f / quantizer.scale;
-  raft::linalg::map_offset(res, out, [input, offsets, dim, inv] __device__(int64_t i) {
-    float const code = rintf((input[i] - offsets[i % dim]) * inv);
+  auto const* input  = dataset.data_handle();
+  auto const* shifts = quantizer.shifts.data_handle();
+  auto const dim     = dataset.extent(1);
+  float const inv    = 1.f / quantizer.scale;
+  raft::linalg::map_offset(res, out, [input, shifts, dim, inv] __device__(int64_t i) {
+    float const code = rintf((input[i] - shifts[i % dim]) * inv);
     return static_cast<int8_t>(fminf(fmaxf(code, -127.f), 127.f));
   });
 }
 
 inline void inverse_transform(raft::resources const& res,
-                              quantizer_const_view<float>::offsets_type quantizer,
+                              quantizer_const_view<float>::shifts_type quantizer,
                               raft::device_matrix_view<const int8_t, int64_t> dataset,
                               raft::device_matrix_view<float, int64_t> out)
 {
   check_per_dim_shapes(quantizer, dataset, out);
-  auto const* input   = dataset.data_handle();
-  auto const* offsets = quantizer.offsets.data_handle();
-  auto const dim      = dataset.extent(1);
-  float const scale   = quantizer.scale;
-  raft::linalg::map_offset(res, out, [input, offsets, dim, scale] __device__(int64_t i) {
-    float const value     = fmaf(scale, static_cast<float>(input[i]), offsets[i % dim]);
+  auto const* input  = dataset.data_handle();
+  auto const* shifts = quantizer.shifts.data_handle();
+  auto const dim     = dataset.extent(1);
+  float const scale  = quantizer.scale;
+  raft::linalg::map_offset(res, out, [input, shifts, dim, scale] __device__(int64_t i) {
+    float const value     = fmaf(scale, static_cast<float>(input[i]), shifts[i % dim]);
     constexpr float limit = std::numeric_limits<float>::max();
     return fminf(fmaxf(value, -limit), limit);
   });
@@ -274,7 +274,7 @@ cuvs::preprocessing::quantize::scalar::quantizer<T> train(
 
   if (params.range == range_mode::per_dimension) {
     if constexpr (std::is_same_v<T, float>) {
-      return train_offsets(res, dataset, params);
+      return train_shifts(res, dataset, params);
     } else {
       RAFT_FAIL("Per-dimension training requires device FP32 input");
     }
@@ -314,10 +314,10 @@ void transform(raft::resources const& res,
                raft::device_matrix_view<QuantI, int64_t> out)
 {
   auto view = quantizer;
-  if (auto const* offsets =
-        std::get_if<typename quantizer_const_view<T>::offsets_type>(&view.value)) {
+  if (auto const* shifts =
+        std::get_if<typename quantizer_const_view<T>::shifts_type>(&view.value)) {
     if constexpr (std::is_same_v<T, float>) {
-      detail::transform(res, *offsets, dataset, out);
+      detail::transform(res, *shifts, dataset, out);
     } else {
       RAFT_FAIL("Per-dimension quantization requires device FP32 input");
     }
@@ -357,10 +357,10 @@ void inverse_transform(raft::resources const& res,
                        raft::device_matrix_view<T, int64_t> out)
 {
   auto view = quantizer;
-  if (auto const* offsets =
-        std::get_if<typename quantizer_const_view<T>::offsets_type>(&view.value)) {
+  if (auto const* shifts =
+        std::get_if<typename quantizer_const_view<T>::shifts_type>(&view.value)) {
     if constexpr (std::is_same_v<T, float>) {
-      detail::inverse_transform(res, *offsets, dataset, out);
+      detail::inverse_transform(res, *shifts, dataset, out);
     } else {
       RAFT_FAIL("Per-dimension quantization requires device FP32 input");
     }

@@ -11,7 +11,7 @@ _Source header: `cuvs/preprocessing/quantize/scalar.hpp`_
 <a id="preprocessing-quantize-scalar-range-mode"></a>
 ### preprocessing::quantize::scalar::range_mode
 
-Select a global interval or per-dimension offsets with a shared scale.
+Select a global interval or per-dimension shifts with a shared scale.
 
 ```cpp
 enum class range_mode {
@@ -44,17 +44,17 @@ struct params {
 | Name | Type | Description |
 | --- | --- | --- |
 | `quantile` | `float` | Specifies how many outliers at top & bottom will be ignored. Needs to be within range of (0, 1]. |
-| `range` | [`range_mode`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-range-mode) | Per-dimension training uses all device FP32 corpus rows, applying quantile independently to each dimension. Midpoint offsets share the widest half-range divided by 127. Requires nonempty finite input. Constant ranges use scale 1; positive scales are floored to the smallest normal float. Training synchronizes to return the scale. |
+| `range` | [`range_mode`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-range-mode) | Per-dimension training uses all device FP32 corpus rows, applying quantile independently to each dimension. Midpoint shifts share the widest half-range divided by 127. Requires nonempty finite input. Constant ranges use scale 1; positive scales are floored to the smallest normal float. Training synchronizes to return the scale. |
 
 <a id="preprocessing-quantize-scalar-quantizer-const-view"></a>
 ### preprocessing::quantize::scalar::quantizer_const_view
 
-Read-only scalar quantizer parameters. The owner must outlive stream work using offsets.
+Read-only scalar quantizer parameters. The owner must outlive stream work using shifts.
 
 ```cpp
 template <typename T>
 struct quantizer_const_view {
-  std::variant<range_type, offsets_type> value;
+  std::variant<range_type, shifts_type> value;
 };
 ```
 
@@ -62,7 +62,7 @@ struct quantizer_const_view {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `value` | [`std::variant<range_type, offsets_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) |  |
+| `value` | [`std::variant<range_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) |  |
 
 <a id="preprocessing-quantize-scalar-quantizer-const-view-range-type"></a>
 ### preprocessing::quantize::scalar::quantizer_const_view::range_type
@@ -83,16 +83,16 @@ struct range_type {
 | `min_` | `T` |  |
 | `max_` | `T` |  |
 
-<a id="preprocessing-quantize-scalar-quantizer-const-view-offsets-type"></a>
-### preprocessing::quantize::scalar::quantizer_const_view::offsets_type
+<a id="preprocessing-quantize-scalar-quantizer-const-view-shifts-type"></a>
+### preprocessing::quantize::scalar::quantizer_const_view::shifts_type
 
-Encode clamp(rintf((x - offsets[j]) / scale), -127, 127), with ties to even.
+Encode clamp(rintf((x - shifts[j]) / scale), -127, 127), with ties to even.
 
-Decode offsets[j] + scale * code, saturating to finite FP32 limits.
+Decode shifts[j] + scale * code, saturating to finite FP32 limits.
 
 ```cpp
-struct offsets_type {
-  raft::device_vector_view<const T, int64_t> offsets;
+struct shifts_type {
+  raft::device_vector_view<const T, int64_t> shifts;
   T scale;
 };
 ```
@@ -101,20 +101,20 @@ struct offsets_type {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `offsets` | `raft::device_vector_view<const T, int64_t>` |  |
+| `shifts` | `raft::device_vector_view<const T, int64_t>` |  |
 | `scale` | `T` |  |
 
 <a id="preprocessing-quantize-scalar-quantizer"></a>
 ### preprocessing::quantize::scalar::quantizer
 
-Owns either a global interval or device offsets and a shared step size.
+Owns either a global interval or device shifts and a shared step size.
 
 Move-only; copy view() to borrow the parameters. Migration: replace q.min_ with std::get&lt;quantizer&lt;T&gt;::range_type&gt;(q.value).min_ (likewise for max_).
 
 ```cpp
 template <typename T>
 struct quantizer {
-  std::variant<range_type, offsets_type> value;
+  std::variant<range_type, shifts_type> value;
 };
 ```
 
@@ -122,16 +122,16 @@ struct quantizer {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `value` | [`std::variant<range_type, offsets_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) |  |
+| `value` | [`std::variant<range_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) |  |
 
-<a id="preprocessing-quantize-scalar-quantizer-offsets-type"></a>
-### preprocessing::quantize::scalar::quantizer::offsets_type
+<a id="preprocessing-quantize-scalar-quantizer-shifts-type"></a>
+### preprocessing::quantize::scalar::quantizer::shifts_type
 
 Owning per-dimension parameters.
 
 ```cpp
-struct offsets_type {
-  raft::device_vector<T, int64_t> offsets;
+struct shifts_type {
+  raft::device_vector<T, int64_t> shifts;
   T scale;
 };
 ```
@@ -140,7 +140,7 @@ struct offsets_type {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `offsets` | `raft::device_vector<T, int64_t>` |  |
+| `shifts` | `raft::device_vector<T, int64_t>` |  |
 | `scale` | `T` |  |
 
 <a id="preprocessing-quantize-scalar-quantizer-quantizer"></a>
@@ -177,17 +177,17 @@ quantizer(T min, T max);
 
 **Additional overload:** `preprocessing::quantize::scalar::quantizer::quantizer`
 
-Take ownership of device offsets and their shared scale.
+Take ownership of device shifts and their shared scale.
 
 ```cpp
-quantizer(raft::device_vector<T, int64_t>&& offsets, T scale);
+quantizer(raft::device_vector<T, int64_t>&& shifts, T scale);
 ```
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `offsets` |  | `raft::device_vector<T, int64_t>&&` |  |
+| `shifts` |  | `raft::device_vector<T, int64_t>&&` |  |
 | `scale` |  | `T` |  |
 
 **Returns**
@@ -197,7 +197,7 @@ quantizer(raft::device_vector<T, int64_t>&& offsets, T scale);
 <a id="preprocessing-quantize-scalar-quantizer-view"></a>
 ### preprocessing::quantize::scalar::quantizer::view
 
-Borrow read-only parameters; the owner must outlive stream work using offsets.
+Borrow read-only parameters; the owner must outlive stream work using shifts.
 
 ```cpp
 [[nodiscard]] auto view() const noexcept -> view_type;

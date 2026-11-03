@@ -34,7 +34,7 @@ struct sq_spec {
 
   using math_type = MathT;
 
-  // The manifest is either a global interval or owning per-dimension offsets and a shared scale.
+  // The manifest is either a global interval or owning per-dimension shifts and a shared scale.
   using manifest_type      = cuvs::preprocessing::quantize::scalar::quantizer<MathT>;
   using manifest_view_type = typename manifest_type::view_type;
 

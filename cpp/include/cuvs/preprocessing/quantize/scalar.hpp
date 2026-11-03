@@ -27,7 +27,7 @@ namespace scalar {
  * @{
  */
 
-/** Select a global interval or per-dimension offsets with a shared scale. */
+/** Select a global interval or per-dimension shifts with a shared scale. */
 enum class range_mode { global, per_dimension };
 
 /**
@@ -40,13 +40,13 @@ struct params {
    */
   float quantile = 0.99;
   /** Per-dimension training uses all device FP32 corpus rows, applying quantile independently
-   * to each dimension. Midpoint offsets share the widest half-range divided by 127.
+   * to each dimension. Midpoint shifts share the widest half-range divided by 127.
    * Requires nonempty finite input. Constant ranges use scale 1; positive scales are floored
    * to the smallest normal float. Training synchronizes to return the scale. */
   range_mode range = range_mode::global;
 };
 
-/** Read-only scalar quantizer parameters. The owner must outlive stream work using offsets. */
+/** Read-only scalar quantizer parameters. The owner must outlive stream work using shifts. */
 template <typename T>
 struct quantizer_const_view {
   /** A global interval mapped to [-128, 127]. */
@@ -54,17 +54,17 @@ struct quantizer_const_view {
     T min_;
     T max_;
   };
-  /** Encode clamp(rintf((x - offsets[j]) / scale), -127, 127), with ties to even.
-   * Decode offsets[j] + scale * code, saturating to finite FP32 limits. */
-  struct offsets_type {
-    raft::device_vector_view<const T, int64_t> offsets;
+  /** Encode clamp(rintf((x - shifts[j]) / scale), -127, 127), with ties to even.
+   * Decode shifts[j] + scale * code, saturating to finite FP32 limits. */
+  struct shifts_type {
+    raft::device_vector_view<const T, int64_t> shifts;
     T scale;
   };
-  std::variant<range_type, offsets_type> value;
+  std::variant<range_type, shifts_type> value;
 };
 
 /**
- * Owns either a global interval or device offsets and a shared step size.
+ * Owns either a global interval or device shifts and a shared step size.
  * Move-only; copy view() to borrow the parameters.
  * Migration: replace q.min_ with std::get<quantizer<T>::range_type>(q.value).min_
  * (likewise for max_).
@@ -74,28 +74,28 @@ struct quantizer {
   using view_type  = quantizer_const_view<T>;
   using range_type = typename view_type::range_type;
   /** Owning per-dimension parameters. */
-  struct offsets_type {
-    raft::device_vector<T, int64_t> offsets;
+  struct shifts_type {
+    raft::device_vector<T, int64_t> shifts;
     T scale;
   };
-  std::variant<range_type, offsets_type> value;
+  std::variant<range_type, shifts_type> value;
 
   /** Construct an empty global interval. */
   quantizer() : value{range_type{}} {}
   /** Construct a global interval. */
   quantizer(T min, T max) : value{range_type{min, max}} {}
-  /** Take ownership of device offsets and their shared scale. */
-  quantizer(raft::device_vector<T, int64_t>&& offsets, T scale)
-    : value{offsets_type{std::move(offsets), scale}}
+  /** Take ownership of device shifts and their shared scale. */
+  quantizer(raft::device_vector<T, int64_t>&& shifts, T scale)
+    : value{shifts_type{std::move(shifts), scale}}
   {
   }
 
-  /** Borrow read-only parameters; the owner must outlive stream work using offsets. */
+  /** Borrow read-only parameters; the owner must outlive stream work using shifts. */
   [[nodiscard]] auto view() const noexcept -> view_type
   {
     if (auto const* range = std::get_if<range_type>(&value)) { return {*range}; }
-    auto const& offsets = std::get<offsets_type>(value);
-    return {typename view_type::offsets_type{offsets.offsets.view(), offsets.scale}};
+    auto const& shifts = std::get<shifts_type>(value);
+    return {typename view_type::shifts_type{shifts.shifts.view(), shifts.scale}};
   }
   /** An owning quantizer can be passed wherever a read-only view is accepted. */
   operator view_type() const noexcept { return view(); }  // NOLINT(google-explicit-constructor)
