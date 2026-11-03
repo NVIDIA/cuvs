@@ -9,6 +9,7 @@
 
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
+#include <cuvs/preprocessing/quantize/scalar.hpp>
 #include <cuvs/selection/select_k.hpp>
 
 #include <raft/core/copy.cuh>
@@ -20,6 +21,7 @@
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/norm.cuh>
+#include <raft/linalg/reduce.cuh>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 
@@ -30,14 +32,84 @@
 #include <thrust/for_each.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <type_traits>
+#include <variant>
 
 namespace cuvs::neighbors::detail {
 
 constexpr int kInt8BlockSize = 256;
+
+template <typename T>
+struct sq_affine_parameters {
+  double scale;
+  double shift;
+  T const* shifts;
+};
+
+template <typename T>
+sq_affine_parameters<T> get_sq_affine_parameters(
+  cuvs::preprocessing::quantize::scalar::quantizer_const_view<T> quantizer, int64_t dim)
+{
+  using view_type = cuvs::preprocessing::quantize::scalar::quantizer_const_view<T>;
+  sq_affine_parameters<T> affine{};
+  if (auto const* range = std::get_if<typename view_type::range_type>(&quantizer.value)) {
+    auto const lo = static_cast<double>(range->min_);
+    auto const hi = static_cast<double>(range->max_);
+    RAFT_EXPECTS(std::isfinite(lo) && std::isfinite(hi) && hi >= lo,
+                 "SQ bounds must be finite with min <= max");
+    constexpr double code_min = std::numeric_limits<int8_t>::min();
+    constexpr double code_max = std::numeric_limits<int8_t>::max();
+    affine.scale              = hi > lo ? (hi - lo) / (code_max - code_min) : 1.0;
+    affine.shift              = lo - code_min * affine.scale;
+  } else {
+    auto const& shifts = std::get<typename view_type::shifts_type>(quantizer.value);
+    RAFT_EXPECTS(shifts.shifts.extent(0) == dim, "SQ shifts must match the dataset dimension");
+    affine.scale  = static_cast<double>(shifts.scale);
+    affine.shifts = shifts.shifts.data_handle();
+  }
+  RAFT_EXPECTS(std::isfinite(affine.scale) && affine.scale > 0.0 && std::isfinite(affine.shift),
+               "SQ scale must be positive and finite, and its shift must be finite");
+  return affine;
+}
+
+template <typename T>
+void compute_sq_statistics(raft::resources const& res,
+                           raft::device_matrix_view<const int8_t, int64_t> codes,
+                           sq_affine_parameters<T> affine,
+                           cuvs::distance::DistanceType metric,
+                           raft::device_vector_view<double, int64_t> norms,
+                           raft::device_vector_view<double, int64_t> dot_corrections)
+{
+  auto const cosine = metric == cuvs::distance::DistanceType::CosineExpanded;
+  if (cosine || metric == cuvs::distance::DistanceType::InnerProduct) {
+    // For x = scale * code + shift, dot(x, y) = scale^2 * dot(code_x, code_y) + u_x + u_y.
+    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+      res, codes, dot_corrections, 0.0, false, [affine] __device__(int8_t code, int64_t j) {
+        auto const shift = affine.shifts ? static_cast<double>(affine.shifts[j]) : affine.shift;
+        return shift * (affine.scale * code + 0.5 * shift);
+      });
+  }
+  if (cosine) {
+    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+      res,
+      codes,
+      norms,
+      0.0,
+      false,
+      [affine] __device__(int8_t code, int64_t j) {
+        auto const shift = affine.shifts ? static_cast<double>(affine.shifts[j]) : affine.shift;
+        auto const value = fma(affine.scale, static_cast<double>(code), shift);
+        return value * value;
+      },
+      raft::add_op{},
+      [] __device__(double norm) { return sqrt(norm); });
+  } else if (metric != cuvs::distance::DistanceType::InnerProduct) {
+    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(res, codes, norms);
+  }
+}
 
 inline cublasStatus_t int8_gemm(cublasHandle_t handle,
                                 std::int8_t const* dataset,
@@ -104,37 +176,45 @@ inline cublasStatus_t int8_gemm(cublasHandle_t handle,
   return status;
 }
 
-RAFT_KERNEL int8_postprocess_kernel(std::int32_t* scores,
+RAFT_KERNEL int8_postprocess_kernel(std::int32_t const* scores,
+                                    float* output,
                                     int64_t n_rows,
                                     int64_t leading_dim,
-                                    float const* query_norms,
-                                    float const* dataset_norms,
-                                    cuvs::distance::DistanceType metric,
-                                    bool select_min)
+                                    double const* query_norms,
+                                    double const* dataset_norms,
+                                    double const* query_corrections,
+                                    double const* dataset_corrections,
+                                    double scale,
+                                    cuvs::distance::DistanceType metric)
 {
-  auto const query = static_cast<int64_t>(blockIdx.y);
-  auto* row_scores = scores + query * leading_dim;
-  auto* output     = reinterpret_cast<float*>(row_scores);
-  for (int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; row < leading_dim;
+  auto const query       = static_cast<int64_t>(blockIdx.y);
+  auto const* row_scores = scores + query * leading_dim;
+  auto* row_output       = output + query * n_rows;
+  for (int64_t row = static_cast<int64_t>(blockIdx.x) * blockDim.x + threadIdx.x; row < n_rows;
        row += static_cast<int64_t>(gridDim.x) * blockDim.x) {
-    if (row >= n_rows) {
-      output[row] =
-        select_min ? std::numeric_limits<float>::infinity() : std::numeric_limits<float>::lowest();
-      continue;
-    }
-
-    auto const dot = static_cast<float>(row_scores[row]);
+    auto const integer_dot = row_scores[row];
+    auto const dot         = static_cast<double>(integer_dot);
     switch (metric) {
-      case cuvs::distance::DistanceType::InnerProduct: output[row] = dot; break;
+      case cuvs::distance::DistanceType::InnerProduct:
+        row_output[row] = static_cast<float>(scale * (scale * dot) + query_corrections[query] +
+                                             dataset_corrections[row]);
+        break;
       case cuvs::distance::DistanceType::CosineExpanded: {
         auto const denominator = query_norms[query] * dataset_norms[row];
-        output[row]            = denominator > 0.0f ? 1.0f - dot / denominator : 1.0f;
+        auto const corrected_dot =
+          scale * (scale * dot) + query_corrections[query] + dataset_corrections[row];
+        row_output[row] =
+          denominator > 0.0 ? static_cast<float>(1.0 - corrected_dot / denominator) : 1.0f;
         break;
       }
-      default:
-        // Query norms are constant within each row; finish L2 only after the final top-k.
-        output[row] = dataset_norms[row] - 2.0f * dot;
+      default: {
+        // Cancel the exact integer terms before converting the distance to float for selection.
+        auto const distance = static_cast<int64_t>(query_norms[query]) +
+                              static_cast<int64_t>(dataset_norms[row]) -
+                              2 * static_cast<int64_t>(integer_dot);
+        row_output[row] = static_cast<float>(distance);
         break;
+      }
     }
   }
 }
@@ -155,13 +235,12 @@ inline bool int8_supported_metric(cuvs::distance::DistanceType metric)
          metric == cuvs::distance::DistanceType::CosineExpanded;
 }
 
-template <typename IdxT, typename QueryLayoutT>
-void int8_brute_force_search(
-  raft::resources const& res,
-  cuvs::neighbors::brute_force::index<std::int8_t, float> const& index,
-  raft::device_matrix_view<const std::int8_t, int64_t, QueryLayoutT> queries,
-  raft::device_matrix_view<IdxT, int64_t, raft::row_major> neighbors,
-  raft::device_matrix_view<float, int64_t, raft::row_major> distances)
+template <typename T, typename IdxT>
+void int8_brute_force_search(raft::resources const& res,
+                             cuvs::neighbors::brute_force::device_sq_index<T> const& index,
+                             raft::device_matrix_view<const T, int64_t> queries,
+                             raft::device_matrix_view<IdxT, int64_t, raft::row_major> neighbors,
+                             raft::device_matrix_view<float, int64_t, raft::row_major> distances)
 {
   auto const n = static_cast<int64_t>(index.size());
   auto const m = static_cast<int64_t>(queries.extent(0));
@@ -181,35 +260,27 @@ void int8_brute_force_search(
                "INT8 brute-force search supports InnerProduct, L2, and CosineExpanded metrics");
   if (m == 0) { return; }
 
-  auto const stream = raft::resource::get_cuda_stream(res);
-  auto queries_storage =
-    std::optional<raft::device_matrix<std::int8_t, int64_t, raft::row_major>>{};
-  auto queries_ptr = queries.data_handle();
-  if constexpr (std::is_same_v<QueryLayoutT, raft::col_major>) {
-    queries_storage = raft::make_device_matrix<std::int8_t, int64_t, raft::row_major>(res, m, d);
-    raft::copy(res, queries_storage->view(), queries);
-    queries_ptr = queries_storage->data_handle();
-  }
+  auto const stream    = raft::resource::get_cuda_stream(res);
+  auto const dataset   = index.dataset();
+  auto const quantizer = dataset.const_manifest_view();
+  auto const affine    = get_sq_affine_parameters(quantizer, d);
+  auto queries_storage = raft::make_device_matrix<std::int8_t, int64_t>(res, m, d);
+  cuvs::preprocessing::quantize::scalar::transform(res, quantizer, queries, queries_storage.view());
+  auto const* queries_ptr = queries_storage.data_handle();
 
-  auto const cosine      = index.metric() == cuvs::distance::DistanceType::CosineExpanded;
-  auto const needs_norms = index.metric() != cuvs::distance::DistanceType::InnerProduct;
-  rmm::device_uvector<float> query_norms(needs_norms ? m : 0, stream);
-  rmm::device_uvector<float> dataset_norms(needs_norms && !index.has_norms() ? n : 0, stream);
-  auto const* dataset_norms_ptr =
-    index.has_norms() ? index.norms().data_handle() : dataset_norms.data();
-  if (needs_norms) {
-    auto compute_norms = [&](std::int8_t const* data, int64_t rows, float* norms) {
-      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
-        res,
-        raft::make_device_matrix_view<const std::int8_t, int64_t>(data, rows, d),
-        raft::make_device_vector_view<float, int64_t>(norms, rows),
-        [cosine] __device__(float norm) { return cosine ? sqrtf(norm) : norm; });
-    };
-    compute_norms(queries_ptr, m, query_norms.data());
-    if (!index.has_norms()) {
-      compute_norms(index.dataset().data_handle(), n, dataset_norms.data());
-    }
-  }
+  auto const cosine            = index.metric() == cuvs::distance::DistanceType::CosineExpanded;
+  auto const needs_norms       = index.metric() != cuvs::distance::DistanceType::InnerProduct;
+  auto const needs_corrections = cosine || !needs_norms;
+  rmm::device_uvector<double> query_norms(needs_norms ? m : 0, stream);
+  rmm::device_uvector<double> query_corrections(needs_corrections ? m : 0, stream);
+  compute_sq_statistics(
+    res,
+    raft::make_const_mdspan(queries_storage.view()),
+    affine,
+    index.metric(),
+    raft::make_device_vector_view<double, int64_t>(query_norms.data(), query_norms.size()),
+    raft::make_device_vector_view<double, int64_t>(query_corrections.data(),
+                                                   query_corrections.size()));
 
   size_t tile_rows{};
   size_t tile_cols{};
@@ -232,6 +303,7 @@ void int8_brute_force_search(
   }
 
   rmm::device_uvector<std::int32_t> scores(tile_rows * tile_cols, stream);
+  rmm::device_uvector<float> compact_scores(0, stream);
   rmm::device_uvector<float> candidate_distances(tile_rows * candidate_cols, stream);
   rmm::device_uvector<IdxT> candidate_indices(tile_rows * candidate_cols, stream);
   rmm::device_uvector<std::int8_t> padded_dataset(0, stream);
@@ -247,7 +319,7 @@ void int8_brute_force_search(
     for (int64_t dataset_offset = 0; dataset_offset < n; dataset_offset += tile_cols) {
       auto const current_rows = std::min<int64_t>(tile_cols, n - dataset_offset);
       auto const gemm_rows    = raft::round_up_safe(current_rows, int64_t{4});
-      auto const* dataset_ptr = index.dataset().data_handle() + dataset_offset * d;
+      auto const* dataset_ptr = dataset.data_const_view().data_handle() + dataset_offset * d;
       if (gemm_rows != current_rows) {
         padded_dataset.resize(static_cast<size_t>(gemm_rows * d), stream);
         RAFT_CUDA_TRY(cudaMemsetAsync(
@@ -272,25 +344,33 @@ void int8_brute_force_search(
         RAFT_FAIL("INT8 brute-force cublasGemmEx failed with status %d", status);
       }
 
+      auto* output_scores = reinterpret_cast<float*>(scores.data());
+      if (current_rows != static_cast<int64_t>(tile_cols)) {
+        compact_scores.resize(static_cast<size_t>(current_queries * current_rows), stream);
+        output_scores = compact_scores.data();
+      }
       auto const query_blocks = static_cast<unsigned>(current_queries);
       // Keep the block budget independent of the query tile size; each block strides within a row.
-      auto const column_blocks = std::min(int8_grid_size(tile_cols), 65535u / query_blocks);
+      auto const column_blocks = std::min(int8_grid_size(current_rows), 65535u / query_blocks);
       dim3 const grid(column_blocks, query_blocks);
       int8_postprocess_kernel<<<grid, kInt8BlockSize, 0, stream.get()>>>(
         scores.data(),
+        output_scores,
         current_rows,
         tile_cols,
         needs_norms ? query_norms.data() + query_offset : nullptr,
-        needs_norms ? dataset_norms_ptr + dataset_offset : nullptr,
-        index.metric(),
-        select_min);
+        needs_norms ? index.norms().data_handle() + dataset_offset : nullptr,
+        needs_corrections ? query_corrections.data() + query_offset : nullptr,
+        needs_corrections ? index.dot_corrections().data_handle() + dataset_offset : nullptr,
+        affine.scale,
+        index.metric());
       RAFT_CUDA_TRY(cudaPeekAtLastError());
 
       auto const current_k = std::min<int64_t>(k, current_rows);
       cuvs::selection::select_k(
         res,
         raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
-          reinterpret_cast<float const*>(scores.data()), current_queries, tile_cols),
+          output_scores, current_queries, current_rows),
         std::nullopt,
         raft::make_device_matrix_view<float, int64_t, raft::row_major>(
           distances_ptr, current_queries, current_k),
@@ -339,15 +419,15 @@ void int8_brute_force_search(
 
   if (needs_norms && !cosine) {
     auto values = raft::make_device_vector_view<float, int64_t>(distances.data_handle(), m * k);
-    auto const* norms    = query_norms.data();
+    auto const scale     = affine.scale;
     bool const take_sqrt = index.metric() == cuvs::distance::DistanceType::L2SqrtExpanded ||
                            index.metric() == cuvs::distance::DistanceType::L2SqrtUnexpanded;
-    raft::linalg::map_offset(
+    raft::linalg::map(
       res,
       values,
-      [norms, k, take_sqrt] __device__(int64_t i, float score) {
-        auto const distance = fmaxf(norms[i / k] + score, 0.0f);
-        return take_sqrt ? sqrtf(distance) : distance;
+      [take_sqrt, scale] __device__(float score) {
+        auto const distance = scale * (scale * static_cast<double>(score));
+        return static_cast<float>(take_sqrt ? sqrt(distance) : distance);
       },
       raft::make_const_mdspan(values));
   }
