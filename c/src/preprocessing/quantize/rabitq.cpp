@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -65,10 +65,10 @@ rabitq::params _convert_params(cuvsRabitqQuantizerParams_t params)
   return out;
 }
 
-rabitq::rotator* _rotator_ptr(cuvsRabitqRotator_t rotator)
+rabitq::rotator<float>* _rotator_ptr(cuvsRabitqRotator_t rotator)
 {
   if (rotator == nullptr || rotator->addr == 0) { RAFT_FAIL("rotator is not initialized"); }
-  return reinterpret_cast<rabitq::rotator*>(rotator->addr);
+  return reinterpret_cast<rabitq::rotator<float>*>(rotator->addr);
 }
 
 rabitq::encoder* _encoder_ptr(cuvsRabitqEncoder_t encoder)
@@ -278,7 +278,7 @@ extern "C" cuvsError_t cuvsRabitqRotatorDestroy(cuvsRabitqRotator_t rotator)
 {
   return cuvs::core::translate_exceptions([=] {
     if (rotator == nullptr) { return; }
-    delete reinterpret_cast<rabitq::rotator*>(rotator->addr);
+    delete reinterpret_cast<rabitq::rotator<float>*>(rotator->addr);
     delete rotator;
   });
 }
@@ -307,7 +307,7 @@ extern "C" cuvsError_t cuvsRabitqRotatorMake(cuvsResources_t res,
     auto res_ptr          = reinterpret_cast<raft::resources*>(res);
     auto quantizer_params = _convert_params(params);
     auto* ret = new rabitq::rotator(rabitq::make_rotator(*res_ptr, quantizer_params, dim));
-    delete reinterpret_cast<rabitq::rotator*>(rotator->addr);
+    delete reinterpret_cast<rabitq::rotator<float>*>(rotator->addr);
     rotator->addr = reinterpret_cast<uintptr_t>(ret);
   });
 }
@@ -321,7 +321,7 @@ extern "C" cuvsError_t cuvsRabitqRotatorMakeFromState(cuvsResources_t res,
     if (rotator == nullptr) { RAFT_FAIL("rotator is not allocated"); }
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
     auto stream  = raft::resource::get_cuda_stream(*res_ptr);
-    auto ret     = std::make_unique<rabitq::rotator>(*res_ptr);
+    auto ret     = std::make_unique<rabitq::rotator<float>>(*res_ptr);
     switch (kind) {
       case CUVS_RABITQ_ROTATOR_KIND_MATMUL: {
         auto [src, ext] = _saved_state<float, raft::matrix_extent<int64_t>>(state);
@@ -353,7 +353,7 @@ extern "C" cuvsError_t cuvsRabitqRotatorMakeFromState(cuvsResources_t res,
     }
     // `state` may be freed as soon as this returns.
     raft::resource::sync_stream(*res_ptr);
-    delete reinterpret_cast<rabitq::rotator*>(rotator->addr);
+    delete reinterpret_cast<rabitq::rotator<float>*>(rotator->addr);
     rotator->addr = reinterpret_cast<uintptr_t>(ret.release());
   });
 }
@@ -389,7 +389,7 @@ extern "C" cuvsError_t cuvsRabitqQuantizerMake(cuvsResources_t res,
     auto* new_rotator = new rabitq::rotator(std::move(built.rotator));
     auto* new_encoder = new rabitq::encoder(built.encoder);
 
-    delete reinterpret_cast<rabitq::rotator*>(rotator->addr);
+    delete reinterpret_cast<rabitq::rotator<float>*>(rotator->addr);
     delete reinterpret_cast<rabitq::encoder*>(encoder->addr);
     rotator->addr = reinterpret_cast<uintptr_t>(new_rotator);
     encoder->addr = reinterpret_cast<uintptr_t>(new_encoder);

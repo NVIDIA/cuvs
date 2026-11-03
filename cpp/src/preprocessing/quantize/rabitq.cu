@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -40,7 +40,7 @@ constexpr uint32_t kMaxExBits = 8;
 constexpr int64_t kNumFactors = 3;
 
 /** Borrow the public rotator's buffers for the detail launchers. */
-[[nodiscard]] auto as_ref(rabitq::rotator const& rot) -> detail::rotator_ref
+[[nodiscard]] auto as_ref(rabitq::rotator<float> const& rot) -> detail::rotator_ref
 {
   detail::rotator_ref ref;
   ref.padded_dim      = rot.padded_dim;
@@ -57,7 +57,7 @@ void check_params(params const& p)
                "rabitq: params.coarse_samples and params.fine_samples must be >= 1");
 }
 
-void check_rotator(rabitq::rotator const& rot)
+void check_rotator(rabitq::rotator<float> const& rot)
 {
   RAFT_EXPECTS(rot.padded_dim > 0,
                "rabitq: rotator is not initialized (padded_dim == 0); use make_rotator()");
@@ -81,7 +81,7 @@ void check_encoder(rabitq::encoder const& q)
 }
 
 /** The encoder and the rotator must agree on the padded working dimension. */
-void check_peers(rabitq::encoder const& q, rabitq::rotator const& rot)
+void check_peers(rabitq::encoder const& q, rabitq::rotator<float> const& rot)
 {
   check_encoder(q);
   check_rotator(rot);
@@ -142,7 +142,7 @@ void check_factors(int64_t n_rows,
  */
 [[nodiscard]] auto transform_batch_rows(raft::resources const& res,
                                         rabitq::encoder const& q,
-                                        rabitq::rotator const& rot,
+                                        rabitq::rotator<float> const& rot,
                                         int64_t n_rows,
                                         size_t staging_row_bytes) -> int64_t
 {
@@ -240,7 +240,7 @@ void for_each_batch(raft::resources const& res,
 template <typename CodeT, typename Accessor>
 void transform_impl(raft::resources const& res,
                     rabitq::encoder const& q,
-                    rabitq::rotator const& rot,
+                    rabitq::rotator<float> const& rot,
                     dataset_view<Accessor> dataset,
                     std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                     raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
@@ -293,7 +293,7 @@ void transform_impl(raft::resources const& res,
 template <typename CodeT, typename Accessor>
 void transform_full_impl(raft::resources const& res,
                          rabitq::encoder const& q,
-                         rabitq::rotator const& rot,
+                         rabitq::rotator<float> const& rot,
                          dataset_view<Accessor> dataset,
                          std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                          raft::device_matrix_view<CodeT, int64_t, raft::row_major> codes,
@@ -319,8 +319,7 @@ void transform_full_impl(raft::resources const& res,
     static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
   // The full-factor formula always reads the rotated centroid; the detail layer
   // zero-fills this buffer when no centroid is given.
-  rmm::device_uvector<float> rotated_centroid(
-    static_cast<size_t>(q.padded_dim), stream, workspace);
+  rmm::device_uvector<float> rotated_centroid(static_cast<size_t>(q.padded_dim), stream, workspace);
 
   // Rows are quantized independently, so batching only bounds the scratch.
   for_each_batch(res, dataset, batch, [&](const float* rows, int64_t r0, int64_t n) {
@@ -424,19 +423,20 @@ void transform_residuals_full_impl(
 
 }  // namespace
 
-rotator make_rotator(raft::resources const& res, params const& params, int64_t dim)
+template <typename T>
+auto make_rotator(raft::resources const& res, params const& params, int64_t dim) -> rotator<T>
 {
   RAFT_EXPECTS(dim > 0, "rabitq::make_rotator: dim must be positive");
   check_params(params);
 
-  rotator rot{res};
+  rotator<T> rot{res};
   rot.kind       = params.rotator;
   rot.padded_dim = detail::padded_dim(dim);
 
   auto stream = raft::resource::get_cuda_stream(res);
   if (rot.kind == rotator_kind::matmul) {
-    rot.rotation_matrix = raft::make_device_matrix<float, int64_t, raft::row_major>(
-      res, rot.padded_dim, rot.padded_dim);
+    rot.rotation_matrix =
+      raft::make_device_matrix<T, int64_t, raft::row_major>(res, rot.padded_dim, rot.padded_dim);
     detail::init_state_matmul(res, params.seed, rot.padded_dim, rot.rotation_matrix.data_handle());
   } else {
     rot.flip_bits =
@@ -445,6 +445,8 @@ rotator make_rotator(raft::resources const& res, params const& params, int64_t d
   }
   return rot;
 }
+
+template auto make_rotator<float>(raft::resources const&, params const&, int64_t) -> rotator<float>;
 
 // RaBitQ needs no training data: `res` only supplies the stream, the workspace
 // memory resource and the device properties used by the scaling-factor
@@ -472,16 +474,20 @@ encoder make_encoder(raft::resources const& res, params const& params, int64_t d
   return q;
 }
 
-quantizer make_quantizer(raft::resources const& res, params const& params, int64_t dim)
+template <typename T>
+auto make_quantizer(raft::resources const& res, params const& params, int64_t dim) -> quantizer<T>
 {
-  quantizer q{res};
-  q.rotator = make_rotator(res, params, dim);
+  quantizer<T> q{res};
+  q.rotator = make_rotator<T>(res, params, dim);
   q.encoder = make_encoder(res, params, dim);
   return q;
 }
 
+template auto make_quantizer<float>(raft::resources const&, params const&, int64_t)
+  -> quantizer<float>;
+
 void rotate(raft::resources const& res,
-            rotator const& rotator,
+            rotator<float> const& rotator,
             raft::device_matrix_view<const float, int64_t, raft::row_major> in,
             raft::device_matrix_view<float, int64_t, raft::row_major> out)
 {
@@ -501,7 +507,7 @@ void rotate(raft::resources const& res,
 
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -513,7 +519,7 @@ void transform(raft::resources const& res,
 
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
@@ -525,7 +531,7 @@ void transform(raft::resources const& res,
 
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -537,7 +543,7 @@ void transform(raft::resources const& res,
 
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
@@ -549,7 +555,7 @@ void transform(raft::resources const& res,
 
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -560,7 +566,7 @@ void transform(raft::resources const& res,
 
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
@@ -571,7 +577,7 @@ void transform(raft::resources const& res,
 
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -582,7 +588,7 @@ void transform(raft::resources const& res,
 
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
