@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -42,8 +42,9 @@ void _train(cuvsResources_t res,
     RAFT_FAIL("dataset must be accessible on host or device memory");
   }
 
-  quantizer->min_ = ret.min_;
-  quantizer->max_ = ret.max_;
+  auto const& range = std::get<typename decltype(ret)::range_type>(ret.value);
+  quantizer->min_ = range.min_;
+  quantizer->max_ = range.max_;
 }
 
 template <typename T, typename OutputT = int8_t>
@@ -54,9 +55,8 @@ void _transform(cuvsResources_t res,
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
-  cuvs::preprocessing::quantize::scalar::quantizer<T> quantizer;
-  quantizer.min_ = quantizer_->min_;
-  quantizer.max_ = quantizer_->max_;
+  cuvs::preprocessing::quantize::scalar::quantizer<T> quantizer{
+    static_cast<T>(quantizer_->min_), static_cast<T>(quantizer_->max_)};
 
   auto dataset = dataset_tensor->dl_tensor;
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
@@ -91,9 +91,8 @@ void _inverse_transform(cuvsResources_t res,
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
-  cuvs::preprocessing::quantize::scalar::quantizer<OutputT> quantizer;
-  quantizer.min_ = quantizer_->min_;
-  quantizer.max_ = quantizer_->max_;
+  cuvs::preprocessing::quantize::scalar::quantizer<OutputT> quantizer{
+    static_cast<OutputT>(quantizer_->min_), static_cast<OutputT>(quantizer_->max_)};
 
   auto dataset = dataset_tensor->dl_tensor;
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {

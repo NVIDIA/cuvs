@@ -23,28 +23,28 @@ namespace cuvs::preprocessing::quantize::scalar {
     return detail::train(res, params, dataset);                                   \
   }                                                                               \
   void transform(raft::resources const& res,                                      \
-                 const quantizer<T>& quantizer,                                   \
+                 quantizer_const_view<T> quantizer,                               \
                  raft::device_matrix_view<const T, int64_t> dataset,              \
                  raft::device_matrix_view<QuantI, int64_t> out)                   \
   {                                                                               \
     detail::transform(res, quantizer, dataset, out);                              \
   }                                                                               \
   void transform(raft::resources const& res,                                      \
-                 const quantizer<T>& quantizer,                                   \
+                 quantizer_const_view<T> quantizer,                               \
                  raft::host_matrix_view<const T, int64_t> dataset,                \
                  raft::host_matrix_view<QuantI, int64_t> out)                     \
   {                                                                               \
     detail::transform(res, quantizer, dataset, out);                              \
   }                                                                               \
   void inverse_transform(raft::resources const& res,                              \
-                         const quantizer<T>& quantizer,                           \
+                         quantizer_const_view<T> quantizer,                       \
                          raft::device_matrix_view<const QuantI, int64_t> dataset, \
                          raft::device_matrix_view<T, int64_t> out)                \
   {                                                                               \
     detail::inverse_transform(res, quantizer, dataset, out);                      \
   }                                                                               \
   void inverse_transform(raft::resources const& res,                              \
-                         const quantizer<T>& quantizer,                           \
+                         quantizer_const_view<T> quantizer,                       \
                          raft::host_matrix_view<const QuantI, int64_t> dataset,   \
                          raft::host_matrix_view<T, int64_t> out)                  \
   {                                                                               \
@@ -57,28 +57,5 @@ CUVS_INST_QUANTIZATION(float, int8_t);
 CUVS_INST_QUANTIZATION(half, int8_t);
 
 #undef CUVS_INST_QUANTIZATION
-
-per_dim_quantizer train_per_dim(raft::resources const& res,
-                                raft::device_matrix_view<const float, int64_t> dataset,
-                                params params)
-{
-  return detail::train_per_dim(res, dataset, params);
-}
-
-void transform(raft::resources const& res,
-               per_dim_quantizer_const_view quantizer,
-               raft::device_matrix_view<const float, int64_t> dataset,
-               raft::device_matrix_view<int8_t, int64_t> out)
-{
-  detail::transform(res, quantizer, dataset, out);
-}
-
-void inverse_transform(raft::resources const& res,
-                       per_dim_quantizer_const_view quantizer,
-                       raft::device_matrix_view<const int8_t, int64_t> dataset,
-                       raft::device_matrix_view<float, int64_t> out)
-{
-  detail::inverse_transform(res, quantizer, dataset, out);
-}
 
 }  // namespace cuvs::preprocessing::quantize::scalar

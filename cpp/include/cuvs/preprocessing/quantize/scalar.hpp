@@ -14,6 +14,9 @@
 #include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/core/export.hpp>
 
+#include <utility>
+#include <variant>
+
 namespace CUVS_EXPORT cuvs {
 namespace preprocessing {
 namespace quantize {
@@ -24,6 +27,9 @@ namespace scalar {
  * @{
  */
 
+/** Select a global interval or per-dimension offsets with a shared scale. */
+enum class range_mode { global, per_dimension };
+
 /**
  * @brief quantizer parameters.
  */
@@ -33,28 +39,61 @@ struct params {
    * Needs to be within range of (0, 1].
    */
   float quantile = 0.99;
+  /** Per-dimension training uses all device FP32 corpus rows, applying quantile independently
+   * to each dimension. Midpoint offsets share the widest half-range divided by 127.
+   * Requires nonempty finite input. Constant ranges use scale 1; positive scales are floored
+   * to the smallest normal float. Training synchronizes to return the scale. */
+  range_mode range = range_mode::global;
 };
 
-/**
- * @brief Defines and stores scalar for quantisation upon training
- *
- * The quantization is performed by a linear mapping of an interval in the
- * float data type to the full range of the quantized int type.
- *
- * @tparam T data element type
- *
- */
+/** Read-only scalar quantizer parameters. The owner must outlive stream work using offsets. */
+template <typename T>
+struct quantizer_const_view {
+  /** A global interval mapped to [-128, 127]. */
+  struct range_type {
+    T min_;
+    T max_;
+  };
+  /** Encode clamp(rintf((x - offsets[j]) / scale), -127, 127), with ties to even.
+   * Decode offsets[j] + scale * code, saturating to finite FP32 limits. */
+  struct offsets_type {
+    raft::device_vector_view<const T, int64_t> offsets;
+    T scale;
+  };
+  std::variant<range_type, offsets_type> value;
+};
+
+/** Owns either a global interval or device offsets and a shared step size. */
 template <typename T>
 struct quantizer {
-  using view_type = quantizer<T>;
+  using view_type  = quantizer_const_view<T>;
+  using range_type = typename view_type::range_type;
+  /** Owning per-dimension parameters. */
+  struct offsets_type {
+    raft::device_vector<T, int64_t> offsets;
+    T scale;
+  };
+  std::variant<range_type, offsets_type> value;
 
-  /** Return a value copy of this quantizer. */
-  [[nodiscard]] auto view() const noexcept -> view_type { return *this; }
+  /** Construct an empty global interval. */
+  quantizer() : value{range_type{}} {}
+  /** Construct a global interval. */
+  quantizer(T min, T max) : value{range_type{min, max}} {}
+  /** Take ownership of device offsets and their shared scale. */
+  quantizer(raft::device_vector<T, int64_t>&& offsets, T scale)
+    : value{offsets_type{std::move(offsets), scale}}
+  {
+  }
 
-  /** Minimum value of the quantization range. */
-  T min_;
-  /** Maximum value of the quantization range. */
-  T max_;
+  /** Borrow read-only parameters; the owner must outlive stream work using offsets. */
+  [[nodiscard]] auto view() const noexcept -> view_type
+  {
+    if (auto const* range = std::get_if<range_type>(&value)) { return {*range}; }
+    auto const& offsets = std::get<offsets_type>(value);
+    return {typename view_type::offsets_type{offsets.offsets.view(), offsets.scale}};
+  }
+  /** An owning quantizer can be passed wherever a read-only view is accepted. */
+  operator view_type() const noexcept { return view(); }  // NOLINT(google-explicit-constructor)
 };
 
 /**
@@ -117,7 +156,7 @@ quantizer<double> train(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<double>& quantizer,
+               quantizer_const_view<double> quantizer,
                raft::device_matrix_view<const double, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
@@ -141,7 +180,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<double>& quantizer,
+               quantizer_const_view<double> quantizer,
                raft::host_matrix_view<const double, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -168,7 +207,7 @@ void transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<double>& quantizer,
+                       quantizer_const_view<double> quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<double, int64_t> out);
 
@@ -194,7 +233,7 @@ void inverse_transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<double>& quantizer,
+                       quantizer_const_view<double> quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<double, int64_t> out);
 
@@ -258,7 +297,7 @@ quantizer<float> train(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<float>& quantizer,
+               quantizer_const_view<float> quantizer,
                raft::device_matrix_view<const float, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
@@ -282,7 +321,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<float>& quantizer,
+               quantizer_const_view<float> quantizer,
                raft::host_matrix_view<const float, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -308,7 +347,7 @@ void transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<float>& quantizer,
+                       quantizer_const_view<float> quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<float, int64_t> out);
 
@@ -334,7 +373,7 @@ void inverse_transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<float>& quantizer,
+                       quantizer_const_view<float> quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<float, int64_t> out);
 
@@ -398,7 +437,7 @@ quantizer<half> train(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<half>& quantizer,
+               quantizer_const_view<half> quantizer,
                raft::device_matrix_view<const half, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
@@ -422,7 +461,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<half>& quantizer,
+               quantizer_const_view<half> quantizer,
                raft::host_matrix_view<const half, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -448,7 +487,7 @@ void transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<half>& quantizer,
+                       quantizer_const_view<half> quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<half, int64_t> out);
 
@@ -474,54 +513,9 @@ void inverse_transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<half>& quantizer,
+                       quantizer_const_view<half> quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<half, int64_t> out);
-
-/** Read-only device offsets and a shared step size. The owner must outlive stream work. */
-struct per_dim_quantizer_const_view {
-  raft::device_vector_view<const float, int64_t> offsets;
-  float scale;
-};
-
-/** Owns corpus-trained offsets on the device; query batches reuse its view. */
-struct per_dim_quantizer {
-  using view_type = per_dim_quantizer_const_view;
-  raft::device_vector<float, int64_t> offsets;
-  float scale;
-
-  /** Borrow device offsets; this owner must outlive stream work using the view. */
-  [[nodiscard]] auto view() const noexcept -> view_type { return {offsets.view(), scale}; }
-};
-
-/**
- * Apply params.quantile independently to each dimension using all finite corpus rows.
- * The default 0.99 retains the central 99%; 1.0 uses the full min/max range.
- * offset[j] = (min[j] + max[j]) / 2; scale = max_j((max[j] - min[j]) / 2) / 127.
- * Requires nonempty input. Constant data uses scale = 1; positive scales are floored to the
- * smallest normal float. Synchronizes the resource stream to return the scale.
- */
-per_dim_quantizer train_per_dim(raft::resources const& res,
-                                raft::device_matrix_view<const float, int64_t> dataset,
-                                params params = {});
-
-/**
- * Encode finite FP32 values as clamp(rintf((x - offset[j]) * (1 / scale)), -127, 127).
- * Rounds ties to even. Use the corpus quantizer for query batches. Custom offsets and scale
- * are supported; scale and its reciprocal must be finite and positive. Input/output shapes
- * must match, with width equal to offsets.size(). Enqueued on the resource stream.
- */
-void transform(raft::resources const& res,
-               per_dim_quantizer_const_view quantizer,
-               raft::device_matrix_view<const float, int64_t> dataset,
-               raft::device_matrix_view<int8_t, int64_t> out);
-
-/** Reconstruct offsets[j] + scale * code, saturating to finite FP32 limits. Same shape/scale
- * requirements as transform. */
-void inverse_transform(raft::resources const& res,
-                       per_dim_quantizer_const_view quantizer,
-                       raft::device_matrix_view<const int8_t, int64_t> dataset,
-                       raft::device_matrix_view<float, int64_t> out);
 
 /** @} */  // end of group scalar
 

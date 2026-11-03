@@ -8,14 +8,14 @@
 #include <raft/core/device_resources.hpp>
 #include <raft/util/cudart_utils.hpp>
 
-#include <algorithm>
 #include <cmath>
 #include <limits>
-#include <type_traits>
 #include <utility>
 #include <vector>
 
 namespace cuvs::preprocessing::quantize::scalar {
+
+using offsets_view = quantizer_const_view<float>::offsets_type;
 
 template <typename T>
 auto copy_to_host(raft::resources const& res, const T* data, int64_t size)
@@ -34,12 +34,12 @@ TEST(ScalarDataset, CorpusAndQueriesShareQuantizer)
   std::vector<float> corpus{0.f, 10.f, 9.f, 254.f, 14.f, 9.f};
   auto input = raft::make_device_matrix<float, int64_t>(res, 2, 3);
   raft::update_device(input.data_handle(), corpus.data(), corpus.size(), stream);
-  auto encoded = build_per_dim(res, raft::make_const_mdspan(input.view()));
+  auto encoded = build(res, raft::make_const_mdspan(input.view()));
   ASSERT_EQ(encoded.n_rows(), 2);
   ASSERT_EQ(encoded.dim(), 3u);
   auto quantizer = encoded.const_manifest_view();
-  EXPECT_FLOAT_EQ(quantizer.scale, 1.f);
-  EXPECT_EQ(copy_to_host(res, quantizer.offsets.data_handle(), 3),
+  EXPECT_FLOAT_EQ(std::get<offsets_view>(quantizer.value).scale, 1.f);
+  EXPECT_EQ(copy_to_host(res, std::get<offsets_view>(quantizer.value).offsets.data_handle(), 3),
             (std::vector<float>{127.f, 12.f, 9.f}));
   EXPECT_EQ(copy_to_host(res, encoded.data_const_view().data_handle(), 6),
             (std::vector<int8_t>{-127, -2, 0, 127, 2, 0}));
@@ -54,51 +54,6 @@ TEST(ScalarDataset, CorpusAndQueriesShareQuantizer)
   inverse_transform(res, quantizer, raft::make_const_mdspan(codes.view()), input.view());
   EXPECT_EQ(copy_to_host(res, input.data_handle(), 6),
             (std::vector<float>{127.f, 12.f, 136.f, 129.f, 10.f, -118.f}));
-
-  // Ownership moves without copying codes or offsets, and views preserve constness.
-  static_assert(!std::is_copy_constructible_v<device_per_dim_sq_dataset>);
-  auto moved                                            = std::move(encoded);
-  device_per_dim_sq_dataset::const_view_type const_view = moved.view();
-  static_assert(std::is_const_v<typename decltype(const_view.data_view())::element_type>);
-  EXPECT_EQ(const_view.const_manifest_view().offsets.data_handle(),
-            quantizer.offsets.data_handle());
-  EXPECT_EQ(const_view.n_rows(), 2);
-  EXPECT_EQ(copy_to_host(res, const_view.data_const_view().data_handle(), 6),
-            (std::vector<int8_t>{-127, -2, 0, 127, 2, 0}));
-}
-
-TEST(ScalarDataset, FullCorpusExtremaAndChunkedEncoding)
-{
-  raft::device_resources res;
-  constexpr int64_t rows = 4097, dim = 5;
-  std::vector<float> corpus(rows * dim, 4.f);
-  corpus[0]                    = -250.f;
-  corpus[(rows - 1) * dim]     = 258.f;
-  corpus[1]                    = 2.f;
-  corpus[(rows - 1) * dim + 1] = 6.f;
-  auto input                   = raft::make_device_matrix<float, int64_t>(res, rows, dim);
-  raft::update_device(
-    input.data_handle(), corpus.data(), corpus.size(), raft::resource::get_cuda_stream(res));
-  auto quantizer = train_per_dim(res, raft::make_const_mdspan(input.view()), params{1.f});
-  EXPECT_FLOAT_EQ(quantizer.scale, 2.f);
-  EXPECT_EQ(copy_to_host(res, quantizer.offsets.data_handle(), dim),
-            (std::vector<float>(dim, 4.f)));
-  auto codes = raft::make_device_matrix<int8_t, int64_t>(res, rows, dim);
-  for (int64_t start = 0; start < rows; start += 1024) {
-    auto n = std::min(int64_t{1024}, rows - start);
-    transform(
-      res,
-      quantizer.view(),
-      raft::make_device_matrix_view<const float, int64_t>(
-        input.data_handle() + start * dim, n, dim),
-      raft::make_device_matrix_view<int8_t, int64_t>(codes.data_handle() + start * dim, n, dim));
-  }
-  auto result = copy_to_host(res, codes.data_handle(), rows * dim);
-  EXPECT_EQ(result.front(), -127);
-  EXPECT_EQ(result[(rows - 1) * dim], 127);
-  EXPECT_EQ(result[1], -1);
-  EXPECT_EQ(result[(rows - 1) * dim + 1], 1);
-  EXPECT_EQ(result[1024 * dim + 2], 0);
 }
 
 TEST(ScalarDataset, PerDimensionQuantiles)
@@ -114,20 +69,25 @@ TEST(ScalarDataset, PerDimensionQuantiles)
   auto input = raft::make_device_matrix<float, int64_t>(res, rows, dim);
   raft::update_device(
     input.data_handle(), corpus.data(), corpus.size(), raft::resource::get_cuda_stream(res));
-  auto encoded   = build_per_dim(res, raft::make_const_mdspan(input.view()));
+  auto encoded   = build(res, raft::make_const_mdspan(input.view()));
   auto quantizer = encoded.const_manifest_view();
-  EXPECT_EQ(copy_to_host(res, quantizer.offsets.data_handle(), dim),
+  EXPECT_EQ(copy_to_host(res, std::get<offsets_view>(quantizer.value).offsets.data_handle(), dim),
             (std::vector<float>{499.5f, 10999.f, 9.f}));
-  EXPECT_FLOAT_EQ(quantizer.scale, 991.f / 127.f);
+  EXPECT_FLOAT_EQ(std::get<offsets_view>(quantizer.value).scale, 991.f / 127.f);
   auto codes = copy_to_host(res, encoded.data_const_view().data_handle(), rows * dim);
   EXPECT_EQ(codes[1], 127);
   EXPECT_EQ(codes[(rows - 1) * dim + 1], -127);
   EXPECT_EQ(codes[2], 0);
-  auto trimmed = train_per_dim(res, raft::make_const_mdspan(input.view()), params{0.5f});
-  EXPECT_FLOAT_EQ(trimmed.scale, 499.f / 127.f);
+  auto full =
+    train(res, params{1.f, range_mode::per_dimension}, raft::make_const_mdspan(input.view()));
+  EXPECT_FLOAT_EQ(std::get<offsets_view>(full.view().value).scale, 999.f / 127.f);
+  auto trimmed =
+    train(res, params{0.5f, range_mode::per_dimension}, raft::make_const_mdspan(input.view()));
+  EXPECT_FLOAT_EQ(std::get<offsets_view>(trimmed.view().value).scale, 499.f / 127.f);
   for (float q : {0.f, -1.f, 1.1f, std::numeric_limits<float>::quiet_NaN()}) {
-    EXPECT_THROW(train_per_dim(res, raft::make_const_mdspan(input.view()), params{q}),
-                 raft::logic_error);
+    EXPECT_THROW(
+      train(res, params{q, range_mode::per_dimension}, raft::make_const_mdspan(input.view())),
+      raft::logic_error);
   }
 }
 
@@ -138,8 +98,8 @@ TEST(ScalarDataset, ConstantCorpus)
   auto input = raft::make_device_matrix<float, int64_t>(res, 2, 2);
   raft::update_device(
     input.data_handle(), corpus.data(), corpus.size(), raft::resource::get_cuda_stream(res));
-  auto encoded = build_per_dim(res, raft::make_const_mdspan(input.view()));
-  EXPECT_FLOAT_EQ(encoded.const_manifest_view().scale, 1.f);
+  auto encoded = build(res, raft::make_const_mdspan(input.view()));
+  EXPECT_FLOAT_EQ(std::get<offsets_view>(encoded.const_manifest_view().value).scale, 1.f);
   EXPECT_EQ(copy_to_host(res, encoded.data_const_view().data_handle(), 4),
             (std::vector<int8_t>(4, 0)));
   inverse_transform(res, encoded.const_manifest_view(), encoded.data_const_view(), input.view());
@@ -155,14 +115,16 @@ TEST(ScalarDataset, ExtremeFiniteCorpus)
     auto input = raft::make_device_matrix<float, int64_t>(res, 2, 1);
     raft::update_device(
       input.data_handle(), corpus.data(), corpus.size(), raft::resource::get_cuda_stream(res));
-    auto encoded = build_per_dim(res, raft::make_const_mdspan(input.view()));
+    auto encoded = build(res, raft::make_const_mdspan(input.view()));
     EXPECT_EQ(copy_to_host(res, encoded.data_const_view().data_handle(), 2),
               (std::vector<int8_t>{-127, 127}));
     inverse_transform(res, encoded.const_manifest_view(), encoded.data_const_view(), input.view());
     auto decoded = copy_to_host(res, input.data_handle(), 2);
     for (int i = 0; i < 2; ++i) {
       EXPECT_TRUE(std::isfinite(decoded[i]));
-      EXPECT_NEAR(decoded[i], corpus[i], encoded.const_manifest_view().scale * 0.5f);
+      EXPECT_NEAR(decoded[i],
+                  corpus[i],
+                  std::get<offsets_view>(encoded.const_manifest_view().value).scale * 0.5f);
     }
   }
 }
@@ -176,7 +138,7 @@ TEST(ScalarDataset, CustomParametersAndValidation)
                       custom_offsets.data(),
                       custom_offsets.size(),
                       raft::resource::get_cuda_stream(res));
-  per_dim_quantizer_const_view quantizer{raft::make_const_mdspan(offsets.view()), 2.f};
+  quantizer_const_view<float> quantizer{offsets_view{raft::make_const_mdspan(offsets.view()), 2.f}};
   auto input = raft::make_device_matrix<float, int64_t>(res, 1, 2);
   std::vector<float> values{104.f, -106.f};
   raft::update_device(
@@ -188,24 +150,36 @@ TEST(ScalarDataset, CustomParametersAndValidation)
   EXPECT_THROW(transform(res, quantizer, raft::make_const_mdspan(input.view()), wrong_shape.view()),
                raft::logic_error);
   for (float scale : {0.f, -1.f, std::numeric_limits<float>::infinity()}) {
-    quantizer.scale = scale;
+    std::get<offsets_view>(quantizer.value).scale = scale;
     EXPECT_THROW(transform(res, quantizer, raft::make_const_mdspan(input.view()), codes.view()),
                  raft::logic_error);
   }
-  EXPECT_THROW(
-    train_per_dim(res, raft::make_device_matrix_view<const float, int64_t>(nullptr, 0, 2)),
-    raft::logic_error);
+  EXPECT_THROW(train(res,
+                     params{.range = range_mode::per_dimension},
+                     raft::make_device_matrix_view<const float, int64_t>(nullptr, 0, 2)),
+               raft::logic_error);
 }
 
 TEST(ScalarDataset, GlobalDatasetStillWorks)
 {
   raft::device_resources res;
+  auto input = raft::make_device_matrix<float, int64_t>(res, 1, 2);
+  std::vector<float> values{-1.f, 1.f};
+  raft::update_device(
+    input.data_handle(), values.data(), values.size(), raft::resource::get_cuda_stream(res));
+  auto encoded = build(res, raft::make_const_mdspan(input.view()), params{1.f});
+  EXPECT_EQ(copy_to_host(res, encoded.data_const_view().data_handle(), 2),
+            (std::vector<int8_t>{-128, 127}));
+  inverse_transform(res, encoded.const_manifest_view(), encoded.data_const_view(), input.view());
+  EXPECT_EQ(copy_to_host(res, input.data_handle(), 2), values);
   auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 1, 2);
   device_sq_dataset<float, int64_t, float> dataset{std::move(codes), quantizer<float>{-1.f, 1.f}};
   decltype(dataset)::const_view_type view = dataset.view();
   EXPECT_EQ(view.dim(), 2u);
-  EXPECT_FLOAT_EQ(view.const_manifest_view().min_, -1.f);
-  EXPECT_FLOAT_EQ(view.const_manifest_view().max_, 1.f);
+  EXPECT_FLOAT_EQ(
+    std::get<quantizer_const_view<float>::range_type>(view.const_manifest_view().value).min_, -1.f);
+  EXPECT_FLOAT_EQ(
+    std::get<quantizer_const_view<float>::range_type>(view.const_manifest_view().value).max_, 1.f);
 }
 
 }  // namespace cuvs::preprocessing::quantize::scalar

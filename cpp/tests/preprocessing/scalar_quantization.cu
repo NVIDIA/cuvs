@@ -115,8 +115,12 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
       },
       cuvs::alloc_behavior::DATA_DRIVEN,
       min_train_alloc);
-    std::cerr << "Q1: min = " << (double)quantizer_1.min_ << ", max = " << (double)quantizer_1.max_
-              << std::endl;
+    std::cerr
+      << "Q1: min = "
+      << (double)std::get<typename decltype(quantizer_1)::range_type>(quantizer_1.value).min_
+      << ", max = "
+      << (double)std::get<typename decltype(quantizer_1)::range_type>(quantizer_1.value).max_
+      << std::endl;
 
     {
       auto quantized_input_h = raft::make_host_matrix<QuantI, int64_t>(rows_, cols_);
@@ -203,13 +207,21 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
       },
       cuvs::alloc_behavior::DATA_DRIVEN,
       min_train_alloc);
-    std::cerr << "Q2: min = " << (double)quantizer_2.min_ << ", max = " << (double)quantizer_2.max_
-              << std::endl;
+    std::cerr
+      << "Q2: min = "
+      << (double)std::get<typename decltype(quantizer_2)::range_type>(quantizer_2.value).min_
+      << ", max = "
+      << (double)std::get<typename decltype(quantizer_2)::range_type>(quantizer_2.value).max_
+      << std::endl;
 
     // check both quantizers are the same (valid if sampling is identical)
     if (input_.size() <= 1000000) {
-      ASSERT_TRUE((double)quantizer_1.min_ == (double)quantizer_2.min_);
-      ASSERT_TRUE((double)quantizer_1.max_ == (double)quantizer_2.max_);
+      ASSERT_TRUE(
+        (double)std::get<typename decltype(quantizer_1)::range_type>(quantizer_1.value).min_ ==
+        (double)std::get<typename decltype(quantizer_2)::range_type>(quantizer_2.value).min_);
+      ASSERT_TRUE(
+        (double)std::get<typename decltype(quantizer_1)::range_type>(quantizer_1.value).max_ ==
+        (double)std::get<typename decltype(quantizer_2)::range_type>(quantizer_2.value).max_);
     }
 
     {

@@ -133,103 +133,9 @@ std::tuple<T, T> quantile_min_max(
   return {minmax_h[0], minmax_h[1]};
 }
 
-template <typename T>
-cuvs::preprocessing::quantize::scalar::quantizer<T> train(
-  raft::resources const& res,
-  const cuvs::preprocessing::quantize::scalar::params params,
-  raft::device_matrix_view<const T, int64_t> dataset)
-{
-  RAFT_EXPECTS(params.quantile > 0.0 && params.quantile <= 1.0,
-               "quantile for scalar quantization needs to be within (0, 1] but is %f",
-               params.quantile);
-
-  auto [min, max] = detail::quantile_min_max(res, dataset, params.quantile);
-
-  RAFT_LOG_DEBUG("quantizer train min=%lf max=%lf.", double(min), double(max));
-
-  return cuvs::preprocessing::quantize::scalar::quantizer<T>{min, max};
-}
-
-template <typename T>
-cuvs::preprocessing::quantize::scalar::quantizer<T> train(
-  raft::resources const& res,
-  const cuvs::preprocessing::quantize::scalar::params params,
-  raft::host_matrix_view<const T, int64_t> dataset)
-{
-  RAFT_EXPECTS(params.quantile > 0.0 && params.quantile <= 1.0,
-               "quantile for scalar quantization needs to be within (0, 1] but is %f",
-               params.quantile);
-
-  auto [min, max] = detail::quantile_min_max(res, dataset, params.quantile);
-
-  RAFT_LOG_DEBUG("quantizer train min=%lf max=%lf.", double(min), double(max));
-
-  return cuvs::preprocessing::quantize::scalar::quantizer<T>{min, max};
-}
-
-template <typename T, typename QuantI = int8_t>
-void transform(raft::resources const& res,
-               const cuvs::preprocessing::quantize::scalar::quantizer<T>& quantizer,
-               raft::device_matrix_view<const T, int64_t> dataset,
-               raft::device_matrix_view<QuantI, int64_t> out)
-{
-  raft::linalg::map(res,
-                    out,
-                    quantize_op<T, QuantI>(quantizer.min_, quantizer.max_),
-                    raft::make_const_mdspan(dataset));
-}
-
-template <typename T, typename QuantI = int8_t>
-void transform(raft::resources const& res,
-               const cuvs::preprocessing::quantize::scalar::quantizer<T>& quantizer,
-               raft::host_matrix_view<const T, int64_t> dataset,
-               raft::host_matrix_view<QuantI, int64_t> out)
-{
-  auto main_op      = quantize_op<T, QuantI>(quantizer.min_, quantizer.max_);
-  size_t n_elements = dataset.extent(0) * dataset.extent(1);
-
-  // In dry-run mode the views may be unbacked or alias the shared probe buffer.
-  if (raft::resource::get_dry_run_flag(res)) { return; }
-
-#pragma omp parallel for
-  for (size_t i = 0; i < n_elements; ++i) {
-    out.data_handle()[i] = main_op(dataset.data_handle()[i]);
-  }
-}
-
-template <typename T, typename QuantI = int8_t>
-void inverse_transform(raft::resources const& res,
-                       const cuvs::preprocessing::quantize::scalar::quantizer<T>& quantizer,
-                       raft::device_matrix_view<const QuantI, int64_t> dataset,
-                       raft::device_matrix_view<T, int64_t> out)
-{
-  raft::linalg::map(res,
-                    out,
-                    quantize_op<T, QuantI>(quantizer.min_, quantizer.max_),
-                    raft::make_const_mdspan(dataset));
-}
-
-template <typename T, typename QuantI = int8_t>
-void inverse_transform(raft::resources const& res,
-                       const cuvs::preprocessing::quantize::scalar::quantizer<T>& quantizer,
-                       raft::host_matrix_view<const QuantI, int64_t> dataset,
-                       raft::host_matrix_view<T, int64_t> out)
-{
-  auto main_op      = quantize_op<T, QuantI>(quantizer.min_, quantizer.max_);
-  size_t n_elements = dataset.extent(0) * dataset.extent(1);
-
-  // In dry-run mode the views may be unbacked or alias the shared probe buffer.
-  if (raft::resource::get_dry_run_flag(res)) { return; }
-
-#pragma omp parallel for
-  for (size_t i = 0; i < n_elements; ++i) {
-    out.data_handle()[i] = main_op(dataset.data_handle()[i]);
-  }
-}
-
-inline per_dim_quantizer train_per_dim(raft::resources const& res,
-                                       raft::device_matrix_view<const float, int64_t> dataset,
-                                       params params)
+inline quantizer<float> train_offsets(raft::resources const& res,
+                                      raft::device_matrix_view<const float, int64_t> dataset,
+                                      params params)
 {
   RAFT_EXPECTS(params.quantile > 0.f && params.quantile <= 1.f, "Quantile must be within (0, 1]");
   auto const dim = dataset.extent(1);
@@ -310,7 +216,7 @@ inline per_dim_quantizer train_per_dim(raft::resources const& res,
 }
 
 template <typename InT, typename OutT>
-void check_per_dim_shapes(per_dim_quantizer_const_view quantizer,
+void check_per_dim_shapes(quantizer_const_view<float>::offsets_type quantizer,
                           raft::device_matrix_view<const InT, int64_t> dataset,
                           raft::device_matrix_view<OutT, int64_t> out)
 {
@@ -324,7 +230,7 @@ void check_per_dim_shapes(per_dim_quantizer_const_view quantizer,
 }
 
 inline void transform(raft::resources const& res,
-                      per_dim_quantizer_const_view quantizer,
+                      quantizer_const_view<float>::offsets_type quantizer,
                       raft::device_matrix_view<const float, int64_t> dataset,
                       raft::device_matrix_view<int8_t, int64_t> out)
 {
@@ -340,7 +246,7 @@ inline void transform(raft::resources const& res,
 }
 
 inline void inverse_transform(raft::resources const& res,
-                              per_dim_quantizer_const_view quantizer,
+                              quantizer_const_view<float>::offsets_type quantizer,
                               raft::device_matrix_view<const int8_t, int64_t> dataset,
                               raft::device_matrix_view<float, int64_t> out)
 {
@@ -354,6 +260,137 @@ inline void inverse_transform(raft::resources const& res,
     constexpr float limit = std::numeric_limits<float>::max();
     return fminf(fmaxf(value, -limit), limit);
   });
+}
+
+template <typename T>
+cuvs::preprocessing::quantize::scalar::quantizer<T> train(
+  raft::resources const& res,
+  const cuvs::preprocessing::quantize::scalar::params params,
+  raft::device_matrix_view<const T, int64_t> dataset)
+{
+  RAFT_EXPECTS(params.quantile > 0.0 && params.quantile <= 1.0,
+               "quantile for scalar quantization needs to be within (0, 1] but is %f",
+               params.quantile);
+
+  if (params.range == range_mode::per_dimension) {
+    if constexpr (std::is_same_v<T, float>) {
+      return train_offsets(res, dataset, params);
+    } else {
+      RAFT_FAIL("Per-dimension training requires device FP32 input");
+    }
+  }
+
+  auto [min, max] = detail::quantile_min_max(res, dataset, params.quantile);
+
+  RAFT_LOG_DEBUG("quantizer train min=%lf max=%lf.", double(min), double(max));
+
+  return cuvs::preprocessing::quantize::scalar::quantizer<T>{min, max};
+}
+
+template <typename T>
+cuvs::preprocessing::quantize::scalar::quantizer<T> train(
+  raft::resources const& res,
+  const cuvs::preprocessing::quantize::scalar::params params,
+  raft::host_matrix_view<const T, int64_t> dataset)
+{
+  RAFT_EXPECTS(params.quantile > 0.0 && params.quantile <= 1.0,
+               "quantile for scalar quantization needs to be within (0, 1] but is %f",
+               params.quantile);
+
+  RAFT_EXPECTS(params.range == range_mode::global,
+               "Per-dimension training requires device FP32 input");
+
+  auto [min, max] = detail::quantile_min_max(res, dataset, params.quantile);
+
+  RAFT_LOG_DEBUG("quantizer train min=%lf max=%lf.", double(min), double(max));
+
+  return cuvs::preprocessing::quantize::scalar::quantizer<T>{min, max};
+}
+
+template <typename T, typename QuantI = int8_t>
+void transform(raft::resources const& res,
+               quantizer_const_view<T> quantizer,
+               raft::device_matrix_view<const T, int64_t> dataset,
+               raft::device_matrix_view<QuantI, int64_t> out)
+{
+  auto view = quantizer;
+  if (auto const* offsets =
+        std::get_if<typename quantizer_const_view<T>::offsets_type>(&view.value)) {
+    if constexpr (std::is_same_v<T, float>) {
+      detail::transform(res, *offsets, dataset, out);
+    } else {
+      RAFT_FAIL("Per-dimension quantization requires device FP32 input");
+    }
+    return;
+  }
+  auto const& range = std::get<typename quantizer_const_view<T>::range_type>(view.value);
+  raft::linalg::map(
+    res, out, quantize_op<T, QuantI>(range.min_, range.max_), raft::make_const_mdspan(dataset));
+}
+
+template <typename T, typename QuantI = int8_t>
+void transform(raft::resources const& res,
+               quantizer_const_view<T> quantizer,
+               raft::host_matrix_view<const T, int64_t> dataset,
+               raft::host_matrix_view<QuantI, int64_t> out)
+{
+  RAFT_EXPECTS(
+    std::holds_alternative<typename quantizer_const_view<T>::range_type>(quantizer.value),
+    "Host quantization requires a global interval");
+  auto const& range = std::get<typename quantizer_const_view<T>::range_type>(quantizer.value);
+  auto main_op      = quantize_op<T, QuantI>(range.min_, range.max_);
+  size_t n_elements = dataset.extent(0) * dataset.extent(1);
+
+  // In dry-run mode the views may be unbacked or alias the shared probe buffer.
+  if (raft::resource::get_dry_run_flag(res)) { return; }
+
+#pragma omp parallel for
+  for (size_t i = 0; i < n_elements; ++i) {
+    out.data_handle()[i] = main_op(dataset.data_handle()[i]);
+  }
+}
+
+template <typename T, typename QuantI = int8_t>
+void inverse_transform(raft::resources const& res,
+                       quantizer_const_view<T> quantizer,
+                       raft::device_matrix_view<const QuantI, int64_t> dataset,
+                       raft::device_matrix_view<T, int64_t> out)
+{
+  auto view = quantizer;
+  if (auto const* offsets =
+        std::get_if<typename quantizer_const_view<T>::offsets_type>(&view.value)) {
+    if constexpr (std::is_same_v<T, float>) {
+      detail::inverse_transform(res, *offsets, dataset, out);
+    } else {
+      RAFT_FAIL("Per-dimension quantization requires device FP32 input");
+    }
+    return;
+  }
+  auto const& range = std::get<typename quantizer_const_view<T>::range_type>(view.value);
+  raft::linalg::map(
+    res, out, quantize_op<T, QuantI>(range.min_, range.max_), raft::make_const_mdspan(dataset));
+}
+
+template <typename T, typename QuantI = int8_t>
+void inverse_transform(raft::resources const& res,
+                       quantizer_const_view<T> quantizer,
+                       raft::host_matrix_view<const QuantI, int64_t> dataset,
+                       raft::host_matrix_view<T, int64_t> out)
+{
+  RAFT_EXPECTS(
+    std::holds_alternative<typename quantizer_const_view<T>::range_type>(quantizer.value),
+    "Host quantization requires a global interval");
+  auto const& range = std::get<typename quantizer_const_view<T>::range_type>(quantizer.value);
+  auto main_op      = quantize_op<T, QuantI>(range.min_, range.max_);
+  size_t n_elements = dataset.extent(0) * dataset.extent(1);
+
+  // In dry-run mode the views may be unbacked or alias the shared probe buffer.
+  if (raft::resource::get_dry_run_flag(res)) { return; }
+
+#pragma omp parallel for
+  for (size_t i = 0; i < n_elements; ++i) {
+    out.data_handle()[i] = main_op(dataset.data_handle()[i]);
+  }
 }
 
 }  // namespace cuvs::preprocessing::quantize::scalar::detail
