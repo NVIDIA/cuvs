@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/ivf_sq.hpp>
 #include <raft/core/copy.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -139,6 +140,24 @@ void check_stable(raft::resources const& res, const tied_data& data, SearchFn se
   }
 }
 
+void check_ivf_pq(const tied_data& data)
+{
+  raft::resources res;
+  auto d_base = upload_base(res, data);
+  ivf_pq::index_params index_params;
+  index_params.n_lists = kLists;
+  index_params.pq_dim  = 8;
+  index_params.pq_bits = 8;
+  auto index           = ivf_pq::build(res, index_params, raft::make_const_mdspan(d_base.view()));
+
+  check_stable(res, data, [&](bool stable, auto queries, auto neighbors, auto distances) {
+    ivf_pq::search_params params;
+    params.n_probes = 16;
+    params.stable   = stable;
+    ivf_pq::search(res, params, index, queries, neighbors, distances);
+  });
+}
+
 void check_ivf_sq(const tied_data& data)
 {
   raft::resources res;
@@ -156,6 +175,11 @@ void check_ivf_sq(const tied_data& data)
 }
 
 }  // namespace
+
+TEST(AnnIvfStable, IvfPqSameResultForEveryQueryBatch) { check_ivf_pq(make_tied_data(2000, 8)); }
+
+// Fewer unique vectors than lists: the lists share centres, so the coarse search also has ties.
+TEST(AnnIvfStable, IvfPqFewerUniqueVectorsThanLists) { check_ivf_pq(make_tied_data(8, 2000)); }
 
 TEST(AnnIvfStable, IvfSqSameResultForEveryQueryBatch) { check_ivf_sq(make_tied_data(2000, 8)); }
 
