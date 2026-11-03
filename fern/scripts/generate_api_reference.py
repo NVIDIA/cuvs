@@ -3620,6 +3620,11 @@ def split_description_breaks(line: str) -> list[str]:
 
 def parse_doxygen_kind(declaration: str) -> str:
     untemplated = strip_leading_cpp_templates(declaration)
+    if re.fullmatch(
+        r"\s*(?:struct|class)\s+[\w:]+(?:\s+|\s*[*&]+\s*)[A-Za-z_]\w*\s*;?\s*",
+        untemplated,
+    ):
+        return "member"
     if re.search(r"^\s*(?:typedef\s+)?(?:struct|class)\b", untemplated) and (
         "{" in declaration or not untemplated.lstrip().startswith("typedef")
     ):
@@ -4063,12 +4068,13 @@ def parse_plain_struct_members(
             continue
         if declaration.startswith((",", ":")):
             continue
+        if parse_doxygen_kind(declaration) == "struct":
+            continue
         if not declaration or declaration.startswith(
             (
                 "enum ",
                 "friend ",
                 "static_assert",
-                "struct ",
                 "template ",
                 "typedef ",
                 "using ",

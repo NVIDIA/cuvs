@@ -31,6 +31,150 @@ enum class search_algo {
 | `MULTI_KERNEL` | `2` |
 | `AUTO` | `100` |
 
+<a id="neighbors-cagra-graph-storage-kind"></a>
+### neighbors::cagra::graph_storage_kind
+
+Graph representation used by a CAGRA index.
+
+```cpp
+enum class graph_storage_kind {
+  device = 0,
+  tiered = 1
+};
+```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `device` | `0` |
+| `tiered` | `1` |
+
+<a id="neighbors-cagra-tiered-graph-params"></a>
+### neighbors::cagra::tiered_graph_params
+
+Experimental GPU/CPU graph layout. The budget excludes datasets and search workspaces.
+
+```cpp
+struct tiered_graph_params {
+  std::size_t device_graph_budget_bytes;
+  std::uint16_t node_per_cacheline;
+  bool grouping_enabled;
+  std::uint32_t n_groups;
+  std::uint16_t n_bits;
+  double balance_tolerance;
+  std::size_t training_rows;
+  std::size_t assignment_batch_rows;
+  std::uint32_t kmeans_n_iters;
+  bool validate;
+  std::uint32_t num_seeds;
+  std::size_t seed_training_rows;
+  std::uint64_t seed;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `device_graph_budget_bytes` | `std::size_t` | Maximum packed resident graph bytes, excluding datasets and queues. Zero stores all edges on host. |
+| `node_per_cacheline` | `std::uint16_t` | Consecutive nodes per packed row: [1, 64] with grouping, [1, 32] without grouping. |
+| `grouping_enabled` | `bool` | Group and reorder nodes for locality; false retains the rank-only layout. |
+| `n_groups` | `std::uint32_t` | Final group count, at most 65,536. Zero uses one group if IDs fit; otherwise ceil(N * (1 + balance_tolerance) / 2^b). Each k-means node has at most 16 children. |
+| `n_bits` | `std::uint16_t` | Local-ID width. Zero selects min(24, max(4, align_up_4(ceil(log2(N))))). Explicit widths must be in [1, 32]. |
+| `balance_tolerance` | `double` | Allowed relative deviation from average group size, in the open interval (0, 1). Hard ID capacity still applies. |
+| `training_rows` | `std::size_t` | Maximum sample rows per k-means node. Zero shares a 160,000-row budget by subtree leaf count, bounded by 256 to 10,000 rows per child and actual node size. |
+| `assignment_batch_rows` | `std::size_t` | Rows assigned per GPU batch. Zero targets a 256 MiB vector buffer; distance/label buffers and host capacity-repair storage are additional. |
+| `kmeans_n_iters` | `std::uint32_t` | Positive number of balanced k-means training iterations. |
+| `validate` | `bool` | Verify encoded edges after rearrangement; intended for tests and small builds. |
+| `num_seeds` | `std::uint32_t` | Number of medoid seeds generated at build time; zero disables seed generation. |
+| `seed_training_rows` | `std::size_t` | Rows sampled to train seed centroids. Zero selects an automatic limit. |
+| `seed` | `std::uint64_t` | Deterministic seed for rotating the uniform k-means training sample. |
+
+<a id="neighbors-cagra-tiered-search-params"></a>
+### neighbors::cagra::tiered_search_params
+
+Experimental tiered search and reusable host queue settings.
+
+```cpp
+struct tiered_search_params {
+  std::uint32_t num_seeds;
+  float sync_window_scale;
+  std::uint32_t sync_drop_threshold;
+  std::uint32_t num_queues;
+  std::uint32_t empty_pause;
+  bool collect_statistics;
+  bool keep_pollers_running;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `num_seeds` | `std::uint32_t` | Maximum number of stored medoid seeds used per query; zero uses random initialization. |
+| `sync_window_scale` | `float` | Scale for the adaptive deferred-cross-edge synchronization window. |
+| `sync_drop_threshold` | `std::uint32_t` | Parent-position drop that forces synchronization of a submitted cross-edge request. |
+| `num_queues` | `std::uint32_t` | Positive number of independent GPU-to-CPU command queues. |
+| `empty_pause` | `std::uint32_t` | Number of CPU pause instructions after an empty poll; zero disables this pause. |
+| `collect_statistics` | `bool` | Collect aggregate queue and polling counters. |
+| `keep_pollers_running` | `bool` | Keep pollers active between calls for low latency. Consumes host CPU while idle. |
+
+<a id="neighbors-cagra-search-params"></a>
+### neighbors::cagra::search_params
+
+CAGRA search parameters.
+
+**Note:** The optional tiered settings change this struct's C++ ABI, including builds with<br />FlowANN disabled. Rebuild consumers with headers matching the linked cuVS library.
+
+```cpp
+struct search_params : cuvs::neighbors::search_params {
+  size_t max_queries;
+  size_t itopk_size;
+  size_t max_iterations;
+  search_algo algo;
+  size_t team_size;
+  size_t search_width;
+  size_t min_iterations;
+  size_t thread_block_size;
+  hash_mode hashmap_mode;
+  size_t hashmap_min_bitlen;
+  float hashmap_max_fill_rate;
+  uint32_t num_random_samplings;
+  uint64_t rand_xor_mask;
+  bool persistent;
+  float persistent_lifetime;
+  float persistent_device_usage;
+  float filtering_rate;
+  internal_dtype smem_dtype;
+  std::optional<tiered_search_params> tiered;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `max_queries` | `size_t` | Maximum number of queries to search at the same time (batch size). Auto select when 0. |
+| `itopk_size` | `size_t` | Number of intermediate search results retained during the search.<br /><br />This is the main knob to adjust trade off between accuracy and search speed. Higher values improve the search accuracy. |
+| `max_iterations` | `size_t` | Upper limit of search iterations. Auto select when 0. |
+| `algo` | [`search_algo`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-search-algo) | Which search implementation to use. |
+| `team_size` | `size_t` | Number of threads used to calculate a single distance. 4, 8, 16, or 32. |
+| `search_width` | `size_t` | Number of graph nodes to select as the starting point for the search in each iteration. aka search width? |
+| `min_iterations` | `size_t` | Lower limit of search iterations. |
+| `thread_block_size` | `size_t` | Thread block size. 0, 64, 128, 256, 512, 1024. Auto selection when 0. |
+| `hashmap_mode` | `hash_mode` | Hashmap type. Auto selection when AUTO. |
+| `hashmap_min_bitlen` | `size_t` | Lower limit of hashmap bit length. More than 8. |
+| `hashmap_max_fill_rate` | `float` | Upper limit of hashmap fill rate. More than 0.1, less than 0.9. |
+| `num_random_samplings` | `uint32_t` | Number of iterations of initial random seed node selection. 1 or more. |
+| `rand_xor_mask` | `uint64_t` | Bit mask used for initial random seed node selection. |
+| `persistent` | `bool` | Whether to use the persistent version of the kernel (only SINGLE_CTA is supported a.t.m.) |
+| `persistent_lifetime` | `float` | Persistent kernel: time in seconds before the kernel stops if no requests received. |
+| `persistent_device_usage` | `float` | Set the fraction of maximum grid size used by persistent kernel. Value 1.0 means the kernel grid size is maximum possible for the selected device. The value must be greater than 0.0 and not greater than 1.0.<br /><br />One may need to run other kernels alongside this persistent kernel. This parameter can be used to reduce the grid size of the persistent kernel to leave a few SMs idle.<br />Note: running any other work on GPU alongside with the persistent kernel makes the setup fragile.<br />- Running another kernel in another thread usually works, but no progress guaranteed<br />- Any CUDA allocations block the context (this issue may be obscured by using pools)<br />- Memory copies to not-pinned host memory may block the context<br /><br />Even when we know there are no other kernels working at the same time, setting kDeviceUsage to 1.0 surprisingly sometimes hurts performance. Proceed with care. If you suspect this is an issue, you can reduce this number to ~0.9 without a significant impact on the throughput. |
+| `filtering_rate` | `float` | A parameter indicating the rate of nodes to be filtered-out, when filtering is used. The value must be equal to or greater than 0.0 and less than 1.0. Default value is negative, in which case the filtering rate is automatically calculated when possible. For `filtering::udf_filter`, CAGRA uses `udf_filter::filtering_rate` when this value is negative. If both values are negative, CAGRA assumes 0.0 because a UDF's selectivity cannot be inferred from the source string. |
+| `smem_dtype` | `internal_dtype` | Data type of the query vector and codebook table on shared memory. Currently, only VPQ supports FP8. * |
+| `tiered` | [`std::optional<tiered_search_params>`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-tiered-search-params) | Settings for tiered indexes. Must be unset for ordinary device-graph indexes; search throws otherwise. Tiered indexes use default settings when this is unset. |
+
 ## CAGRA index build parameters
 
 <a id="neighbors-vpq-params"></a>
@@ -100,6 +244,37 @@ enum class hnsw_heuristic_type : uint32_t {
 | `SIMILAR_SEARCH_PERFORMANCE` | `0` |
 | `SAME_GRAPH_FOOTPRINT` | `1` |
 
+<a id="neighbors-cagra-index-params"></a>
+### neighbors::cagra::index_params
+
+CAGRA index construction parameters.
+
+**Note:** The graph storage selector and optional tiered settings change this struct's C++ ABI,<br />including builds with FlowANN disabled. Rebuild consumers against matching cuVS headers.
+
+```cpp
+struct index_params : cuvs::neighbors::index_params {
+  size_t intermediate_graph_degree;
+  size_t graph_degree;
+  graph_build_params_t graph_build_params;
+  bool guarantee_connectivity;
+  bool attach_dataset_on_build;
+  graph_storage_kind graph_storage;
+  std::optional<tiered_graph_params> tiered;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `intermediate_graph_degree` | `size_t` | Degree of input graph for pruning. |
+| `graph_degree` | `size_t` | Degree of output graph. |
+| `graph_build_params` | [`graph_build_params_t`](/api-reference/cpp-api-neighbors-cagra#graph-build-params-t) | Parameters for graph building.<br /><br />Set ivf_pq_params, nn_descent_params, ace_params, or iterative_search_params to select the graph build algorithm and control their parameters. The default (std::monostate) is to use a heuristic to decide the algorithm and its parameters. |
+| `guarantee_connectivity` | `bool` | Whether to use MST optimization to guarantee graph connectivity. |
+| `attach_dataset_on_build` | `bool` | Whether to attach the dataset to the index after graph construction, i.e.:<br /><br />- `true` (default) means `build` attaches the input dataset as a **non-owning view** to the index. The caller is responsible for keeping the underlying dataset storage alive for as long as the index is used. A device-backed index is ready to search immediately; a host-backed index retains the dataset for operations such as serialization but is not searchable.<br />- `false` means `build` only builds the graph and the caller is expected to attach a dataset separately via `cuvs::neighbors::cagra::update_dataset` before searching.<br /><br />Unlike the legacy behavior, no copy of the dataset is made: the index always stores a view. Setting `attach_dataset_on_build = false` is useful when the caller needs to apply specific memory placement or transformation (e.g. moving to managed memory) before attaching.<br /><br />Host indexes are not directly searchable. Call the type-changing `update_dataset` with a user-provided device-padded dataset view to obtain a search-ready `device_padded_index`. Disk-based ACE builds manage file-backed dataset state separately and ignore this flag. |
+| `graph_storage` | [`graph_storage_kind`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-graph-storage-kind) | Ordinary device graph by default; tiered storage is experimental and opt-in. |
+| `tiered` | [`std::optional<tiered_graph_params>`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-tiered-graph-params) | A zero tiered graph budget stores all graph edges on the host. |
+
 <a id="neighbors-cagra-index-params-graph-build-heuristic"></a>
 ### neighbors::cagra::index_params::graph_build_heuristic
 
@@ -156,7 +331,7 @@ Usage example:
 
 **Returns**
 
-`static cagra::index_params`
+[`static cagra::index_params`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params)
 
 <a id="neighbors-cagra-index-params-from-hnsw-params"></a>
 ### neighbors::cagra::index_params::from_hnsw_params
@@ -190,7 +365,7 @@ Usage example:
 
 **Returns**
 
-`static cagra::index_params`
+[`static cagra::index_params`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params)
 
 ## Types
 
@@ -332,10 +507,23 @@ Number of rows represented by the graph.
 
 `IdxT`
 
+<a id="neighbors-cagra-index-graph-storage"></a>
+### neighbors::cagra::index::graph_storage
+
+Return the actual graph representation.
+
+```cpp
+[[nodiscard]] auto graph_storage() const noexcept -> graph_storage_kind;
+```
+
+**Returns**
+
+[`graph_storage_kind`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-graph-storage-kind)
+
 <a id="neighbors-cagra-index-dataset"></a>
 ### neighbors::cagra::index::dataset
 
-Non-owning dataset binding stored by the index.
+Dataset binding; a tiered index owns its reordered dataset internally.
 
 ```cpp
 [[nodiscard]] inline auto dataset() const noexcept -> DatasetViewT const&;
@@ -348,12 +536,14 @@ Non-owning dataset binding stored by the index.
 <a id="neighbors-cagra-index-graph"></a>
 ### neighbors::cagra::index::graph
 
-neighborhood graph [size, graph-degree]
+Device neighborhood graph with shape [size, graph_degree].
 
 ```cpp
-[[nodiscard]] inline auto graph() const noexcept
+[[nodiscard]] inline auto graph() const
 -> raft::device_matrix_view<const graph_index_type, int64_t, raft::row_major>;
 ```
+
+Throws raft::logic_error when graph_storage() is tiered. Tiered graphs have separate device and host edge storage and cannot be represented by a single device adjacency matrix.
 
 **Returns**
 
@@ -699,7 +889,7 @@ The returned index accepts float queries and stores a non-owning copy of `datase
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_vpq_dataset_view<half, int64_t>` | device VPQ dataset view |
 
 **Returns**
@@ -724,7 +914,7 @@ cuvs::neighbors::device_padded_dataset_view<float, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<float, int64_t>` | device padded dataset view [n_rows, dim] |
 
 **Returns**
@@ -749,7 +939,7 @@ cuvs::neighbors::device_standard_dataset_view<float, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<float, int64_t>` | device standard dataset view [n_rows, dim] |
 
 **Returns**
@@ -774,7 +964,7 @@ cuvs::neighbors::host_padded_dataset_view<float, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<float, int64_t>` | host padded dataset view [n_rows, dim] |
 
 **Returns**
@@ -799,7 +989,7 @@ cuvs::neighbors::host_standard_dataset_view<float, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<float, int64_t>` | host standard dataset view [n_rows, dim] |
 
 **Returns**
@@ -824,7 +1014,7 @@ cuvs::neighbors::device_padded_dataset_view<half, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<half, int64_t>` | device padded dataset view [n_rows, dim] |
 
 **Returns**
@@ -849,7 +1039,7 @@ cuvs::neighbors::device_standard_dataset_view<half, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<half, int64_t>` | device standard dataset view [n_rows, dim] |
 
 **Returns**
@@ -874,7 +1064,7 @@ cuvs::neighbors::host_padded_dataset_view<half, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<half, int64_t>` | host padded dataset view [n_rows, dim] |
 
 **Returns**
@@ -899,7 +1089,7 @@ cuvs::neighbors::host_standard_dataset_view<half, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<half, int64_t>` | host standard dataset view [n_rows, dim] |
 
 **Returns**
@@ -924,7 +1114,7 @@ cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<int8_t, int64_t>` | device padded dataset view [n_rows, dim] |
 
 **Returns**
@@ -949,7 +1139,7 @@ cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<int8_t, int64_t>` | device standard dataset view [n_rows, dim] |
 
 **Returns**
@@ -974,7 +1164,7 @@ cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<int8_t, int64_t>` | host padded dataset view [n_rows, dim] |
 
 **Returns**
@@ -999,7 +1189,7 @@ cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<int8_t, int64_t>` | host standard dataset view [n_rows, dim] |
 
 **Returns**
@@ -1024,7 +1214,7 @@ cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t>` | device padded dataset view [n_rows, dim] |
 
 **Returns**
@@ -1049,7 +1239,7 @@ cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t>` | device standard dataset view [n_rows, dim] |
 
 **Returns**
@@ -1074,7 +1264,7 @@ cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::host_padded_dataset_view<uint8_t, int64_t>` | host padded dataset view [n_rows, dim] |
 
 **Returns**
@@ -1099,7 +1289,7 @@ cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::host_standard_dataset_view<uint8_t, int64_t>` | host standard dataset view [n_rows, dim] |
 
 **Returns**
@@ -1128,7 +1318,7 @@ The returned index cannot be searched: CAGRA has no BBQ search kernels. Call the
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
-| `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters |
 | `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<float, int64_t>` | device BBQ dataset view [n_rows, dim] |
 
 **Returns**
@@ -1139,7 +1329,7 @@ built `device_bbq_index<float, uint32_t>`
 
 **Additional overload:** `neighbors::cagra::build`
 
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
+Build from a device BBQ-quantized dataset view of type `half`.
 
 ```cpp
 auto build(raft::resources const& res,
@@ -1148,21 +1338,25 @@ cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
 ```
 
+Construction uses quantized codes and requires nn-descent. The metric must match the quantizer corrections and be L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct. The returned index has no BBQ search support; use the type-changing `update_dataset` with an uncompressed device-padded dataset before searching the resulting graph.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `res` |  | `raft::resources const&` |  |
-| `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
-| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<half, int64_t>` |  |
+| `res` | in | `raft::resources const&` | RAFT resources used for graph construction. |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters. |
+| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<half, int64_t>` | Device BBQ dataset view with shape [n_rows, dim]. |
 
 **Returns**
 
 `cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>`
 
+Built `device_bbq_index<half, uint32_t>`.
+
 **Additional overload:** `neighbors::cagra::build`
 
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
+Build from a device BBQ-quantized dataset view of type `int8_t`.
 
 ```cpp
 auto build(raft::resources const& res,
@@ -1171,21 +1365,25 @@ cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
 ```
 
+Construction uses quantized codes and requires nn-descent. The metric must match the quantizer corrections and be L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct. The returned index has no BBQ search support; use the type-changing `update_dataset` with an uncompressed device-padded dataset before searching the resulting graph.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `res` |  | `raft::resources const&` |  |
-| `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
-| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t>` |  |
+| `res` | in | `raft::resources const&` | RAFT resources used for graph construction. |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters. |
+| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t>` | Device BBQ dataset view with shape [n_rows, dim]. |
 
 **Returns**
 
 `cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>`
 
+Built `device_bbq_index<int8_t, uint32_t>`.
+
 **Additional overload:** `neighbors::cagra::build`
 
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
+Build from a device BBQ-quantized dataset view of type `uint8_t`.
 
 ```cpp
 auto build(raft::resources const& res,
@@ -1194,17 +1392,21 @@ cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset)
 -> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
 ```
 
+Construction uses quantized codes and requires nn-descent. The metric must match the quantizer corrections and be L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct. The returned index has no BBQ search support; use the type-changing `update_dataset` with an uncompressed device-padded dataset before searching the resulting graph.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `res` |  | `raft::resources const&` |  |
-| `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
-| `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t>` |  |
+| `res` | in | `raft::resources const&` | RAFT resources used for graph construction. |
+| `params` | in | [`const cuvs::neighbors::cagra::index_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index-params) | CAGRA index build parameters. |
+| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t>` | Device BBQ dataset view with shape [n_rows, dim]. |
 
 **Returns**
 
 `cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>`
+
+Built `device_bbq_index<uint8_t, uint32_t>`.
 
 ## CAGRA extend functions
 
