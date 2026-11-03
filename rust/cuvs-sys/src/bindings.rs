@@ -1118,6 +1118,46 @@ const _: () = {
         [::std::mem::offset_of!(cuvsAceParams, max_gpu_memory_gb) - 40usize];
 };
 pub type cuvsAceParams_t = *mut cuvsAceParams;
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsCagraGraphStorage {
+    CUVS_CAGRA_GRAPH_DEVICE = 0,
+    CUVS_CAGRA_GRAPH_TIERED = 1,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsCagraTieredGraphParams {
+    pub device_graph_budget_bytes: usize,
+    pub node_per_cacheline: u16,
+    pub grouping_enabled: bool,
+    pub n_groups: u32,
+    pub n_bits: u16,
+    pub balance_tolerance: f64,
+    pub training_rows: usize,
+    pub assignment_batch_rows: usize,
+    pub kmeans_n_iters: u32,
+    pub validate: bool,
+    pub num_seeds: u32,
+    pub seed_training_rows: usize,
+    pub seed: u64,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct cuvsCagraTieredSearchParams {
+    pub num_seeds: u32,
+    pub sync_window_scale: f32,
+    pub sync_drop_threshold: u32,
+    pub num_queues: u32,
+    pub empty_pause: u32,
+    pub collect_statistics: bool,
+    pub keep_pollers_running: bool,
+}
+const _: () = {
+    assert!(::std::mem::size_of::<cuvsCagraTieredGraphParams>() == 80);
+    assert!(::std::mem::align_of::<cuvsCagraTieredGraphParams>() == 8);
+    assert!(::std::mem::size_of::<cuvsCagraTieredSearchParams>() == 24);
+    assert!(::std::mem::align_of::<cuvsCagraTieredSearchParams>() == 4);
+};
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsCagraIndexParams {
@@ -1127,10 +1167,12 @@ pub struct cuvsCagraIndexParams {
     pub build_algo: cuvsCagraGraphBuildAlgo,
     pub nn_descent_niter: usize,
     pub graph_build_params: *mut ::std::os::raw::c_void,
+    pub graph_storage: cuvsCagraGraphStorage,
+    pub tiered: cuvsCagraTieredGraphParams,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsCagraIndexParams"][::std::mem::size_of::<cuvsCagraIndexParams>() - 48usize];
+    ["Size of cuvsCagraIndexParams"][::std::mem::size_of::<cuvsCagraIndexParams>() - 136usize];
     ["Alignment of cuvsCagraIndexParams"][::std::mem::align_of::<cuvsCagraIndexParams>() - 8usize];
     ["Offset of field: cuvsCagraIndexParams::metric"]
         [::std::mem::offset_of!(cuvsCagraIndexParams, metric) - 0usize];
@@ -1251,10 +1293,12 @@ pub struct cuvsCagraSearchParams {
     pub persistent: bool,
     pub persistent_lifetime: f32,
     pub persistent_device_usage: f32,
+    pub use_tiered_params: bool,
+    pub tiered: cuvsCagraTieredSearchParams,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsCagraSearchParams"][::std::mem::size_of::<cuvsCagraSearchParams>() - 112usize];
+    ["Size of cuvsCagraSearchParams"][::std::mem::size_of::<cuvsCagraSearchParams>() - 136usize];
     ["Alignment of cuvsCagraSearchParams"]
         [::std::mem::align_of::<cuvsCagraSearchParams>() - 8usize];
     ["Offset of field: cuvsCagraSearchParams::max_queries"]
@@ -3080,5 +3124,27 @@ unsafe extern "C" {
         in_val: *mut DLManagedTensor,
         out_val: *mut DLManagedTensor,
         out_idx: *mut DLManagedTensor,
+    ) -> cuvsError_t;
+}
+
+const _: () = {
+    assert!(::std::mem::offset_of!(cuvsCagraIndexParams, graph_storage) == 48);
+    assert!(::std::mem::offset_of!(cuvsCagraIndexParams, tiered) == 56);
+    assert!(::std::mem::offset_of!(cuvsCagraSearchParams, use_tiered_params) == 108);
+    assert!(::std::mem::offset_of!(cuvsCagraSearchParams, tiered) == 112);
+};
+unsafe extern "C" {
+    #[must_use]
+    pub fn cuvsCagraIndexGetGraphStorage(
+        index: cuvsCagraIndex_t,
+        storage: *mut cuvsCagraGraphStorage,
+    ) -> cuvsError_t;
+    #[must_use]
+    pub fn cuvsCagraBuildCompressed(
+        res: cuvsResources_t,
+        params: cuvsCagraIndexParams_t,
+        compression: cuvsCagraCompressionParams_t,
+        dataset: cuvsDataset_t,
+        index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }
