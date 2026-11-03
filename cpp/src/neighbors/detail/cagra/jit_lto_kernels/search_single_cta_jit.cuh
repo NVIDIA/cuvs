@@ -517,8 +517,9 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
 
     auto const result_index = result_indices_buffer[ii];
     if (result_index == invalid_index) {
-      // Regular CAGRA retains its historical sentinel. FlowANN requests an output-width
-      // sentinel even when no source map is installed.
+      // Without a source map, regular CAGRA keeps its historical masked sentinel.
+      // Mapped searches use an output-width sentinel without indexing the source map.
+      // FlowANN also requests this sentinel through full_width_invalid.
       if (source_indices_ptr == nullptr && !full_width_invalid) {
         write_indices(
           result_indices_ptr, j, static_cast<SourceIndexT>(invalid_index & ~index_msb_1_mask));
