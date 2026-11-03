@@ -7,7 +7,7 @@ Produce all 8 cluster-assignment (brute force vs CAGRA) analysis panels in one f
   1. Ratio-controlled sweep: N = 5 * K
   2. Fixed-N sweep: N = 2,000,000, K varies
   3. Fixed-K sweep: K = 65,536, N varies
-  4. (N, K) speedup heatmap (BruteForce / CAGRA time, log color scale centered on 1x)
+  4. Speedup vs K with one line per N (BruteForce / CAGRA time; above 1x CAGRA is faster)
   5. Speedup ratio (BruteForce / CAGRA) vs K, for sweeps 1 and 2, with break-even points
   6. CAGRA build-vs-search breakdown vs K (at N = 2,000,000)
   7. Fit quality (mean squared distance from each point to its assigned centroid, ANN fit divided
@@ -138,6 +138,9 @@ def parse_tuning_records(payload: dict) -> list[dict]:
                 "centroid_mean_l2_drift": entry.get("centroid_mean_l2_drift"),
                 "speedup_vs_brute": entry.get("speedup_vs_brute"),
                 "inertia_ratio_vs_brute": entry.get("inertia_ratio_vs_brute"),
+                "agreement_itopk32": entry.get(
+                    "ann_1nn_agreement_pct_itopk32"
+                ),
                 "agreement_itopk64": entry.get(
                     "ann_1nn_agreement_pct_itopk64"
                 ),
@@ -355,32 +358,48 @@ def panel3_fixed_k(ax, records, k_fixed=65536, dim=128):
     return crossover
 
 
-def panel4_heatmap(ax, records, dim=128):
-    import numpy as np
+def panel4_speedup_by_n(ax, records, dim=128):
+    """Speedup (brute-force time / CAGRA time) vs K, one line per dataset size N.
 
-    grid: dict = {}
+    Uses the N values that were measured at two or more K, so each line is a real sweep. If the
+    lines for different N lie on top of each other, K alone decides the speedup and N does not.
+    """
+    from matplotlib.ticker import FuncFormatter
+
+    by_n: dict = {}
     for method, n, k, d, ms in records:
         if d != dim or method not in ("BruteForce", "CAGRA"):
             continue
-        grid.setdefault((n, k), {})[method] = ms
+        by_n.setdefault(n, {}).setdefault(k, {})[method] = ms
 
-    points = [
-        (n, k)
-        for (n, k), v in grid.items()
-        if "BruteForce" in v and "CAGRA" in v
-    ]
-    if not points:
+    series = {}
+    for n, by_k in by_n.items():
+        pts = sorted(
+            (k, v["BruteForce"] / v["CAGRA"])
+            for k, v in by_k.items()
+            if "BruteForce" in v and "CAGRA" in v
+        )
+        if len(pts) >= 2:
+            series[n] = pts
+    # The N = 5xK sweep has a different N at every K, so it never forms a line here (panel 5 shows
+    # it). Show at most four N, the ones measured at the most K values.
+    kept = sorted(series, key=lambda n: -len(series[n]))[:4]
+    kept = sorted(kept)
+
+    title = "4. Speedup vs K, one line per N"
+    if not kept:
         ax.text(
             0.5,
             0.5,
-            "no grid data",
+            "no constant-N sweep with 2+ K values",
             ha="center",
             va="center",
             transform=ax.transAxes,
             color=TEXT_SECONDARY,
+            fontsize=8,
         )
         ax.set_title(
-            "4. (N, K) speedup heatmap",
+            title,
             color=TEXT_PRIMARY,
             fontsize=10,
             loc="left",
@@ -388,73 +407,75 @@ def panel4_heatmap(ax, records, dim=128):
         )
         return
 
-    ns = sorted({n for n, _ in points})
-    ks = sorted({k for _, k in points})
-    ratio_matrix = np.full((len(ks), len(ns)), float("nan"))
-    for (n, k), v in grid.items():
-        if "BruteForce" in v and "CAGRA" in v and n in ns and k in ks:
-            ratio_matrix[ks.index(k), ns.index(n)] = (
-                v["BruteForce"] / v["CAGRA"]
-            )
-
-    import matplotlib.colors as mcolors
-
-    # Diverging: blue (brute force wins, ratio<1) -> gray midpoint (1) -> orange (CAGRA wins, ratio>1)
-    cmap = mcolors.LinearSegmentedColormap.from_list(
-        "bf_cagra_diverging", [COLOR_BRUTE_FORCE, "#e8e7e2", COLOR_CAGRA]
+    styles = [
+        (COLOR_SERIES_A, "o"),
+        (COLOR_SERIES_B, "s"),
+        ("#2a9d8f", "^"),
+        ("#b8860b", "D"),
+    ]
+    all_y = []
+    for n, (color, marker) in zip(kept, styles):
+        ks = [k for k, _ in series[n]]
+        ys = [r for _, r in series[n]]
+        all_y.extend(ys)
+        ax.plot(
+            ks,
+            ys,
+            color=color,
+            linewidth=1.8,
+            marker=marker,
+            markersize=5.5,
+            markerfacecolor=color,
+            markeredgecolor=SURFACE,
+            markeredgewidth=1,
+            label=f"N = {n:,}",
+            zorder=3,
+        )
+    ax.axhline(
+        1.0, color=TEXT_SECONDARY, linewidth=1, linestyle="--", zorder=2
     )
-    # Color in log2(ratio) so 2x faster and 2x slower are equally far from the midpoint. Colors
-    # saturate at 16x either way; the cell labels still print the exact ratio.
-    bound = 4.0
-    norm = mcolors.TwoSlopeNorm(vmin=-bound, vcenter=0.0, vmax=bound)
-    im = ax.imshow(
-        np.clip(np.log2(ratio_matrix), -bound, bound),
-        cmap=cmap,
-        norm=norm,
-        aspect="auto",
-        origin="lower",
-    )
-    for i in range(len(ks)):
-        for j in range(len(ns)):
-            v = ratio_matrix[i, j]
-            if not np.isnan(v):
-                ax.text(
-                    j,
-                    i,
-                    f"{v:.2f}x",
-                    ha="center",
-                    va="center",
-                    fontsize=7,
-                    color=TEXT_PRIMARY,
-                )
-
-    ax.set_xticks(range(len(ns)))
-    ax.set_xticklabels(
-        [f"{n:,}" for n in ns], rotation=35, ha="right", fontsize=7
-    )
-    ax.set_yticks(range(len(ks)))
-    ax.set_yticklabels([f"{k:,}" for k in ks], fontsize=7)
-    ax.set_xlabel("N", color=TEXT_SECONDARY, fontsize=8.5)
-    ax.set_ylabel("K", color=TEXT_SECONDARY, fontsize=8.5)
-    ax.set_title(
-        "4. (N, K) speedup heatmap",
-        color=TEXT_PRIMARY,
-        fontsize=10,
-        loc="left",
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    lo, hi = min(all_y + [1.0]), max(all_y + [1.0])
+    ax.set_ylim(lo / 1.6, hi * 1.6)
+    ax.axhspan(1.0, hi * 1.6, color=COLOR_CAGRA, alpha=0.06, zorder=0)
+    ax.axhspan(lo / 1.6, 1.0, color=COLOR_BRUTE_FORCE, alpha=0.06, zorder=0)
+    ax.text(
+        0.98,
+        0.97,
+        "CAGRA faster",
+        transform=ax.transAxes,
+        ha="right",
+        va="top",
+        color=COLOR_CAGRA,
+        fontsize=8,
         fontweight="bold",
     )
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    fig = ax.get_figure()
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_ticks([-4, -2, 0, 2, 4])
-    cbar.set_ticklabels(["1/16x", "1/4x", "1x", "4x", "16x"])
-    cbar.set_label(
-        "BF time / CAGRA time  (>1x: CAGRA faster)",
-        color=TEXT_SECONDARY,
+    ax.text(
+        0.98,
+        0.03,
+        "brute force faster",
+        transform=ax.transAxes,
+        ha="right",
+        va="bottom",
+        color=COLOR_BRUTE_FORCE,
         fontsize=8,
+        fontweight="bold",
     )
-    cbar.ax.tick_params(colors=TEXT_SECONDARY, labelsize=7)
+    ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}x"))
+    ax.yaxis.set_minor_formatter(FuncFormatter(lambda v, _: ""))
+    style_axes(
+        ax,
+        "K  (log scale)",
+        "Speedup = brute-force time / CAGRA time",
+        title,
+    )
+    ax.legend(
+        loc="upper left",
+        frameon=False,
+        fontsize=7.5,
+        labelcolor=TEXT_PRIMARY,
+    )
 
 
 def panel5_speedup_ratio(ax, ratio_data, fixed_n_data):
@@ -719,18 +740,6 @@ def panel7_accuracy(ax, tuning_records):
     ax.axhline(
         1.0, color=TEXT_SECONDARY, linewidth=1, linestyle="--", zorder=2
     )
-    # The dashed line belongs to the left (distance ratio) axis only; say so, since the speedup
-    # line on the right axis crosses it at an unrelated value.
-    ax.text(
-        0.99,
-        1.0,
-        "left axis: 1.0 = same as brute force",
-        transform=ax.get_yaxis_transform(),
-        ha="right",
-        va="top",
-        color=TEXT_SECONDARY,
-        fontsize=7,
-    )
     ax.plot(
         intervals,
         inertia,
@@ -785,11 +794,32 @@ def panel7_accuracy(ax, tuning_records):
     ax2.spines["top"].set_visible(False)
     ax2.tick_params(axis="y", colors=COLOR_SERIES_B, labelsize=7.5)
 
-    # Leave an empty band above the data for the legend so it never sits on a line.
-    for axis, values in ((ax, inertia + [1.0]), (ax2, speedup)):
-        lo, hi = min(values), max(values)
-        pad = max(hi - lo, 1e-3) * 0.08
-        axis.set_ylim(lo - pad, hi + pad + 0.45 * (hi - lo + 2 * pad))
+    # Both axes contain their reference value (1.0) and are scaled so 1.0 sits at the same height
+    # on each, so the single dashed line reads as "same as brute force" for quality (left axis) and
+    # speed (right axis) alike. The distance-ratio axis spans at least +/-5% so run-to-run noise of
+    # a fraction of a percent is not stretched to fill the plot. A large empty band is left above
+    # the data for the legend and the agreement box.
+    ranges = []
+    for values in (inertia + [0.95, 1.05], speedup + [1.0]):
+        ranges.append((min(values), max(values)))
+    frac = max((1.0 - lo) / (hi - lo) for lo, hi in ranges)
+    frac = min(max(frac, 0.15), 0.85)
+    for axis, (lo, hi) in zip((ax, ax2), ranges):
+        span = max((1.0 - lo) / frac, (hi - 1.0) / (1.0 - frac)) * 1.08
+        axis.set_ylim(
+            1.0 - frac * span, 1.0 + (1.0 - frac) * span + 0.9 * span
+        )
+    ax.text(
+        0.99,
+        1.0,
+        "1.0 = same as brute force  (left axis: cluster quality, right axis: fit speed;\n"
+        "speed above the line = ANN faster, below = ANN slower)",
+        transform=ax.get_yaxis_transform(),
+        ha="right",
+        va="bottom",
+        color=TEXT_SECONDARY,
+        fontsize=7,
+    )
 
     lines1, labels1 = ax.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
@@ -806,13 +836,18 @@ def panel7_accuracy(ax, tuning_records):
     if sample.get("agreement_itopk64") is not None:
         ax.text(
             0.98,
-            0.04,
+            0.80,
             "CAGRA 1-NN == exact, fixed centroids:\n"
-            f"  itopk_size 64 (default): {sample['agreement_itopk64']:.1f}%\n"
+            + (
+                f"  itopk_size 32 (CAGRA minimum): {sample['agreement_itopk32']:.1f}%\n"
+                if sample.get("agreement_itopk32") is not None
+                else ""
+            )
+            + f"  itopk_size 64 (default): {sample['agreement_itopk64']:.1f}%\n"
             f"  itopk_size 256: {sample['agreement_itopk256']:.1f}%",
             transform=ax.transAxes,
             ha="right",
-            va="bottom",
+            va="top",
             color=TEXT_PRIMARY,
             fontsize=7.5,
             bbox=dict(
@@ -828,6 +863,25 @@ def panel8_dim_sensitivity(ax, records, n_fixed=2000000, k_fixed=131072):
             data[method][d] = ms
     dims_bf, dims_c = sorted(data["BruteForce"]), sorted(data["CAGRA"])
     all_dims = sorted(set(dims_bf) | set(dims_c))
+    if len(all_dims) < 2:
+        ax.text(
+            0.5,
+            0.5,
+            "no dimension sweep:\nthe dataset has a single dim",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            color=TEXT_SECONDARY,
+            fontsize=9,
+        )
+        ax.set_title(
+            "8. Dimension sensitivity",
+            color=TEXT_PRIMARY,
+            fontsize=10,
+            loc="left",
+            fontweight="bold",
+        )
+        return
     panel_line_pair(
         ax,
         dims_bf,
@@ -853,6 +907,12 @@ def main() -> None:
         "--amortized-json",
         help="Optional separate JSON with the "
         "AmortizedInterval sweep, if not already included in --cluster-json",
+    )
+    parser.add_argument(
+        "--dim",
+        type=int,
+        default=128,
+        help="vector dim of the benchmark data (768 for wiki_all)",
     )
     parser.add_argument("--tuning-json")
     parser.add_argument("--tuning-binary")
@@ -902,17 +962,19 @@ def main() -> None:
     fig, axes = plt.subplots(2, 4, figsize=(24, 11), dpi=150)
     fig.patch.set_facecolor(SURFACE)
 
-    panel1_ratio(axes[0][0], records)
-    fixed_n_data, _ = panel2_fixed_n(axes[0][1], records)
-    panel3_fixed_k(axes[0][2], records)
-    panel4_heatmap(axes[0][3], records)
+    panel1_ratio(axes[0][0], records, dim=args.dim)
+    fixed_n_data, _ = panel2_fixed_n(axes[0][1], records, dim=args.dim)
+    panel3_fixed_k(axes[0][2], records, dim=args.dim)
+    panel4_speedup_by_n(axes[0][3], records, dim=args.dim)
 
     ratio_data = {"BruteForce": {}, "CAGRA": {}}
     for method, n, k, d, ms in records:
-        if method in ratio_data and n == 5 * k and d == 128:
+        if method in ratio_data and n == 5 * k and d == args.dim:
             ratio_data[method][k] = ms
     panel5_speedup_ratio(axes[1][0], ratio_data, fixed_n_data)
-    panel6_build_vs_search(axes[1][1], records, amortized_records)
+    panel6_build_vs_search(
+        axes[1][1], records, amortized_records, dim=args.dim
+    )
     panel7_accuracy(axes[1][2], tuning_records)
     panel8_dim_sensitivity(axes[1][3], records)
 

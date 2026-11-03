@@ -21,11 +21,13 @@
  * equally good. Two additional, permutation-invariant quality counters are reported:
  *  - inertia_ratio_vs_brute: mean squared distance of each point to its assigned final centroid for
  *    the ANN fit divided by the same quantity for the brute fit (1.0 = same quality, > 1 = worse)
- *  - ann_1nn_agreement_pct_itopk{64,256}: % of points for which CAGRA 1-NN over the brute fit's
+ *  - ann_1nn_agreement_pct_itopk{32,64,256}: % of points for which CAGRA 1-NN over the brute fit's
  *    final centroids (fixed, so no staleness) returns the exact nearest centroid, at the given
  *    itopk_size. Independent of ann_rebuild_interval.
  */
 #include <benchmark/benchmark.h>
+
+#include "bench_dataset.hpp"
 
 #include <cluster/detail/kmeans_predict_cagra.cuh>
 #include <cuvs/cluster/kmeans.hpp>
@@ -33,8 +35,6 @@
 #include <raft/core/device_resources.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/matrix/copy.cuh>
-#include <raft/random/rng.cuh>
-#include <raft/random/rng_state.hpp>
 #include <raft/util/cudart_utils.hpp>
 
 #include <rmm/device_uvector.hpp>
@@ -42,6 +42,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 namespace {
@@ -62,13 +63,6 @@ BenchRanges read_ranges(benchmark::State const& state)
   return BenchRanges{static_cast<int64_t>(state.range(0)),
                      static_cast<int64_t>(state.range(1)),
                      static_cast<int64_t>(state.range(2))};
-}
-
-void init_random_dataset(raft::resources const& handle, float* data, int64_t n_rows, int64_t dim)
-{
-  raft::random::RngState rng(12345ULL);
-  raft::random::uniform(handle, rng, data, n_rows * dim, float(-1), float(1));
-  raft::resource::sync_stream(handle);
 }
 
 cuvs::cluster::kmeans::balanced_params make_fit_params(bool use_ann, uint32_t ann_rebuild_interval)
@@ -190,7 +184,7 @@ struct FitFixture {
                 raft::resource::get_cuda_stream(handle)),
       labels(static_cast<size_t>(ranges.n_rows), raft::resource::get_cuda_stream(handle))
   {
-    init_random_dataset(handle, dataset.data(), ranges.n_rows, ranges.dim);
+    bench_dataset::load_data(handle, dataset.data(), ranges.n_rows, ranges.dim);
     dataset_view = raft::make_device_matrix_view<const float, int64_t>(
       dataset.data(), ranges.n_rows, ranges.dim);
     centroids_view = raft::make_device_matrix_view<float, int64_t>(
@@ -299,6 +293,7 @@ static void BM_FitAnnTuning_CAGRA(benchmark::State& state)
   double last_centroid_drift   = 0.0;
   double last_speedup_vs_brute = 0.0;
   double last_inertia_ratio    = 0.0;
+  double last_agreement_32     = 0.0;
   double last_agreement_64     = 0.0;
   double last_agreement_256    = 0.0;
 
@@ -339,6 +334,7 @@ static void BM_FitAnnTuning_CAGRA(benchmark::State& state)
       mean_sq_dist_to_assigned(brute_ref.dataset_host, ann_centroids, ann_labels, ranges.dim) /
       brute_ref.mean_sq_dist;
     // Overwrites fixture.labels, so it must come after ann_labels was copied to the host above.
+    last_agreement_32  = ann_1nn_agreement_pct(fixture, ranges, brute_ref, 32);
     last_agreement_64  = ann_1nn_agreement_pct(fixture, ranges, brute_ref, 64);
     last_agreement_256 = ann_1nn_agreement_pct(fixture, ranges, brute_ref, 256);
     state.ResumeTiming();
@@ -349,99 +345,65 @@ static void BM_FitAnnTuning_CAGRA(benchmark::State& state)
   state.counters["centroid_mean_l2_drift"]         = last_centroid_drift;
   state.counters["speedup_vs_brute"]               = last_speedup_vs_brute;
   state.counters["inertia_ratio_vs_brute"]         = last_inertia_ratio;
+  state.counters["ann_1nn_agreement_pct_itopk32"]  = last_agreement_32;
   state.counters["ann_1nn_agreement_pct_itopk64"]  = last_agreement_64;
   state.counters["ann_1nn_agreement_pct_itopk256"] = last_agreement_256;
 }
 
-constexpr int64_t kDim = 128;
+// (n_vectors, n_lists) pairs, all at 5 points per list.
+constexpr int64_t kSizes[][2] = {{327680, 65536},
+                                 {1000000, 200000},
+                                 {1500000, 300000},
+                                 {1750000, 350000},
+                                 {2000000, 400000},
+                                 {3000000, 600000},
+                                 {4000000, 800000},
+                                 {5000000, 1000000}};
 
-#define FIT_ANN_TUNING_BENCH_ARGS(BM)            \
-  BENCHMARK(BM)                                  \
-    ->Args({327680, 65536, kDim})                \
-    ->Unit(benchmark::kMillisecond)              \
-    ->UseRealTime()                              \
-    ->ArgNames({"n_vectors", "n_lists", "dim"}); \
-  BENCHMARK(BM)                                  \
-    ->Args({1000000, 200000, kDim})              \
-    ->Unit(benchmark::kMillisecond)              \
-    ->UseRealTime()                              \
-    ->ArgNames({"n_vectors", "n_lists", "dim"}); \
-  BENCHMARK(BM)                                  \
-    ->Args({1500000, 300000, kDim})              \
-    ->Unit(benchmark::kMillisecond)              \
-    ->UseRealTime()                              \
-    ->ArgNames({"n_vectors", "n_lists", "dim"}); \
-  BENCHMARK(BM)                                  \
-    ->Args({1750000, 350000, kDim})              \
-    ->Unit(benchmark::kMillisecond)              \
-    ->UseRealTime()                              \
-    ->ArgNames({"n_vectors", "n_lists", "dim"}); \
-  BENCHMARK(BM)                                  \
-    ->Args({2000000, 400000, kDim})              \
-    ->Unit(benchmark::kMillisecond)              \
-    ->UseRealTime()                              \
-    ->ArgNames({"n_vectors", "n_lists", "dim"}); \
-  BENCHMARK(BM)                                  \
-    ->Args({3000000, 600000, kDim})              \
-    ->Unit(benchmark::kMillisecond)              \
-    ->UseRealTime()                              \
-    ->ArgNames({"n_vectors", "n_lists", "dim"}); \
-  BENCHMARK(BM)                                  \
-    ->Args({4000000, 800000, kDim})              \
-    ->Unit(benchmark::kMillisecond)              \
-    ->UseRealTime()                              \
-    ->ArgNames({"n_vectors", "n_lists", "dim"}); \
-  BENCHMARK(BM)                                  \
-    ->Args({5000000, 1000000, kDim})             \
-    ->Unit(benchmark::kMillisecond)              \
-    ->UseRealTime()                              \
-    ->ArgNames({"n_vectors", "n_lists", "dim"});
+constexpr int64_t kIntervals[] = {1, 2, 3, 5, 10};
 
-#define FIT_ANN_TUNING_CAGRA_ARGS(BM)                                    \
-  BENCHMARK(BM)                                                          \
-    ->ArgsProduct({{327680}, {65536}, {kDim}, {1, 2, 3, 5, 10}})         \
-    ->Unit(benchmark::kMillisecond)                                      \
-    ->UseRealTime()                                                      \
-    ->ArgNames({"n_vectors", "n_lists", "dim", "ann_rebuild_interval"}); \
-  BENCHMARK(BM)                                                          \
-    ->ArgsProduct({{1000000}, {200000}, {kDim}, {1, 2, 3, 5, 10}})       \
-    ->Unit(benchmark::kMillisecond)                                      \
-    ->UseRealTime()                                                      \
-    ->ArgNames({"n_vectors", "n_lists", "dim", "ann_rebuild_interval"}); \
-  BENCHMARK(BM)                                                          \
-    ->ArgsProduct({{1500000}, {300000}, {kDim}, {1, 2, 3, 5, 10}})       \
-    ->Unit(benchmark::kMillisecond)                                      \
-    ->UseRealTime()                                                      \
-    ->ArgNames({"n_vectors", "n_lists", "dim", "ann_rebuild_interval"}); \
-  BENCHMARK(BM)                                                          \
-    ->ArgsProduct({{1750000}, {350000}, {kDim}, {1, 2, 3, 5, 10}})       \
-    ->Unit(benchmark::kMillisecond)                                      \
-    ->UseRealTime()                                                      \
-    ->ArgNames({"n_vectors", "n_lists", "dim", "ann_rebuild_interval"}); \
-  BENCHMARK(BM)                                                          \
-    ->ArgsProduct({{2000000}, {400000}, {kDim}, {1, 2, 3, 5, 10}})       \
-    ->Unit(benchmark::kMillisecond)                                      \
-    ->UseRealTime()                                                      \
-    ->ArgNames({"n_vectors", "n_lists", "dim", "ann_rebuild_interval"}); \
-  BENCHMARK(BM)                                                          \
-    ->ArgsProduct({{3000000}, {600000}, {kDim}, {1, 2, 3, 5, 10}})       \
-    ->Unit(benchmark::kMillisecond)                                      \
-    ->UseRealTime()                                                      \
-    ->ArgNames({"n_vectors", "n_lists", "dim", "ann_rebuild_interval"}); \
-  BENCHMARK(BM)                                                          \
-    ->ArgsProduct({{4000000}, {800000}, {kDim}, {1, 2, 3, 5, 10}})       \
-    ->Unit(benchmark::kMillisecond)                                      \
-    ->UseRealTime()                                                      \
-    ->ArgNames({"n_vectors", "n_lists", "dim", "ann_rebuild_interval"}); \
-  BENCHMARK(BM)                                                          \
-    ->ArgsProduct({{5000000}, {1000000}, {kDim}, {1, 2, 3, 5, 10}})      \
-    ->Unit(benchmark::kMillisecond)                                      \
-    ->UseRealTime()                                                      \
-    ->ArgNames({"n_vectors", "n_lists", "dim", "ann_rebuild_interval"});
-
-FIT_ANN_TUNING_BENCH_ARGS(BM_FitAnnTuning_Brute);
-FIT_ANN_TUNING_CAGRA_ARGS(BM_FitAnnTuning_CAGRA);
+// Registers the cases whose size CUVS_BENCH_DATA_FBIN can serve (and that fit on the GPU next to
+// the host-side reference copy of the data). Returns false (after printing why) if it is not set.
+bool register_all()
+{
+  if (bench_dataset::data_path() == nullptr) {
+    std::fprintf(stderr,
+                 "Set CUVS_BENCH_DATA_FBIN. Make a synthetic dataset with "
+                 "scripts/generate_clustered_dataset.py.\n");
+    return false;
+  }
+  const auto hdr              = bench_dataset::read_header(bench_dataset::data_path());
+  const int64_t dim           = hdr.dim;
+  const int64_t max_file_rows = hdr.n_rows;
+  const int64_t max_data      = 8'000'000'000LL;
+  for (auto const& size : kSizes) {
+    const int64_t n = size[0];
+    const int64_t k = size[1];
+    if (n > max_file_rows || n * dim * 4 > max_data) { continue; }
+    benchmark::RegisterBenchmark("BM_FitAnnTuning_Brute", BM_FitAnnTuning_Brute)
+      ->Args({n, k, dim})
+      ->Unit(benchmark::kMillisecond)
+      ->UseRealTime()
+      ->ArgNames({"n_vectors", "n_lists", "dim"});
+    for (int64_t interval : kIntervals) {
+      benchmark::RegisterBenchmark("BM_FitAnnTuning_CAGRA", BM_FitAnnTuning_CAGRA)
+        ->Args({n, k, dim, interval})
+        ->Unit(benchmark::kMillisecond)
+        ->UseRealTime()
+        ->ArgNames({"n_vectors", "n_lists", "dim", "ann_rebuild_interval"});
+    }
+  }
+  return true;
+}
 
 }  // namespace
 
-BENCHMARK_MAIN();
+int main(int argc, char** argv)
+{
+  if (!register_all()) { return 1; }
+  benchmark::Initialize(&argc, argv);
+  if (benchmark::ReportUnrecognizedArguments(argc, argv)) { return 1; }
+  benchmark::RunSpecifiedBenchmarks();
+  benchmark::Shutdown();
+  return 0;
+}
