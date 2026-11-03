@@ -86,9 +86,16 @@ namespace preprocessing::quantize::scalar {
 /**
  * @defgroup scalar_dataset Scalar-quantized dataset construction
  * @{
- * Train and encode a device corpus with the selected range mode.
+ */
+/**
+ * @brief Train and encode a device corpus with the selected range mode.
  * Reuse result.const_manifest_view() with transform
  * for query batches. For separate training/encoding, use train and transform.
+ *
+ * @param[in] res Resources used for training and allocation.
+ * @param[in] params Scalar quantizer parameters.
+ * @param[in] dataset Device corpus to train on and encode.
+ * @return Device dataset owning the quantized codes and quantizer.
  */
 template <typename T>
 inline device_sq_dataset<T, int64_t, T> build(raft::resources const& res,

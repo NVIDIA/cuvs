@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cuvs/core/cuda_fp16.hpp>
+
 #include "./detail/scalar.cuh"
 
 #include <cuvs/preprocessing/quantize/scalar.hpp>
