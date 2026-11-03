@@ -55,6 +55,31 @@ RAPIDS_DATASET_ROOT_DIR=${RAPIDS_TESTS_DIR}/dataset
 export RAPIDS_DATASET_ROOT_DIR
 ./ci/get_test_data.sh --NEIGHBORS_ANN_VAMANA_TEST
 
+uname -a
+rapids-mamba-retry install --yes -n test -c conda-forge gdb
+cd "$CONDA_PREFIX"/bin/gtests/libcuvs
+set +e
+if [[ "${SHARD}" == "2" ]]; then
+  rapids-logger "DIAG: IVF_PQ build_host_input_search/20 alone"
+  gdb -q -batch -ex run -ex bt -ex "info sharedlibrary" --args ./NEIGHBORS_ANN_IVF_PQ_TEST --gtest_filter='IvfPq/f32_f32_i64.build_host_input_search/20'
+  rapids-logger "DIAG: IVF_PQ f32 build_host_input_search/* under gdb"
+  gdb -q -batch -ex run -ex bt -ex "thread apply all bt 8" --args ./NEIGHBORS_ANN_IVF_PQ_TEST --gtest_filter='IvfPq/f32_f32_i64.build_host_input_search/*'
+  rapids-logger "DIAG: IVF_PQ build_host_input_search/1[0-9] then 20 (big dims first)"
+  gdb -q -batch -ex run -ex bt --args ./NEIGHBORS_ANN_IVF_PQ_TEST --gtest_filter='IvfPq/f32_f32_i64.build_host_input_search/19:IvfPq/f32_f32_i64.build_host_input_search/20:IvfPq/f32_f32_i64.build_host_input_search/21'
+fi
+if [[ "${SHARD}" == "4" ]]; then
+  F='KmeansSNMGTests/KmeansSNMGTestF.Result/0'
+  rapids-logger "DIAG: KMEANS_MG NCCL_DEBUG=INFO"
+  NCCL_DEBUG=INFO NCCL_DEBUG_SUBSYS=INIT,ALLOC,ENV,P2P,SHM,NET ./CLUSTER_KMEANS_MG_TEST --gtest_filter="$F"
+  rapids-logger "DIAG: KMEANS_MG NCCL_CUMEM_ENABLE=0"
+  NCCL_DEBUG=INFO NCCL_CUMEM_ENABLE=0 ./CLUSTER_KMEANS_MG_TEST --gtest_filter="$F"
+  rapids-logger "DIAG: KMEANS_MG NCCL_NVLS_ENABLE=0 NCCL_P2P_DISABLE=1 NCCL_SHM_DISABLE=1"
+  NCCL_DEBUG=INFO NCCL_NVLS_ENABLE=0 NCCL_P2P_DISABLE=1 NCCL_SHM_DISABLE=1 ./CLUSTER_KMEANS_MG_TEST --gtest_filter="$F"
+  rapids-logger "DIAG: KMEANS_MNMG NCCL_DEBUG=INFO"
+  NCCL_DEBUG=INFO ./CLUSTER_KMEANS_MNMG_TEST --gtest_filter='KmeansMGOversamplingTestF.ZeroEquivalentToOne'
+fi
+exit 1
+
 EXITCODE=0
 trap "EXITCODE=1" ERR
 set +e
