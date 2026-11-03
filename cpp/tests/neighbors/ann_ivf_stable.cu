@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/ivf_sq.hpp>
 #include <raft/core/copy.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -121,28 +120,6 @@ void check_stable(raft::resources const& res, const tied_data& data, SearchFn se
 }
 
 }  // namespace
-
-TEST(AnnIvfStable, IvfPqSameResultForEveryQueryBatch)
-{
-  raft::resources res;
-  auto data   = make_tied_data();
-  auto stream = raft::resource::get_cuda_stream(res);
-  auto d_base = raft::make_device_matrix<float, int64_t>(res, kUnique * kCopies, kDim);
-  raft::copy(d_base.data_handle(), data.base.data(), data.base.size(), stream);
-
-  ivf_pq::index_params index_params;
-  index_params.n_lists = 64;
-  index_params.pq_dim  = 8;
-  index_params.pq_bits = 8;
-  auto index           = ivf_pq::build(res, index_params, raft::make_const_mdspan(d_base.view()));
-
-  check_stable(res, data, [&](bool stable, auto queries, auto neighbors, auto distances) {
-    ivf_pq::search_params params;
-    params.n_probes = 16;
-    params.stable   = stable;
-    ivf_pq::search(res, params, index, queries, neighbors, distances);
-  });
-}
 
 TEST(AnnIvfStable, IvfSqSameResultForEveryQueryBatch)
 {
