@@ -84,20 +84,22 @@ using host_sq_dataset =
 namespace preprocessing::quantize::scalar {
 
 /**
- * Train and encode a device FP32 corpus, using per-dimension ranges by default.
+ * @defgroup scalar_dataset Scalar-quantized dataset construction
+ * @{
+ * Train and encode a device FP32 corpus with the selected range mode.
  * Reuse result.const_manifest_view() with transform
  * for query batches. For separate training/encoding, use train and transform.
  */
 inline device_sq_dataset<float, int64_t, float> build(
-  raft::resources const& res,
-  raft::device_matrix_view<const float, int64_t> dataset,
-  params params = {.range = range_mode::per_dimension})
+  raft::resources const& res, params params, raft::device_matrix_view<const float, int64_t> dataset)
 {
   auto quantizer = train(res, params, dataset);
   auto codes = raft::make_device_matrix<int8_t, int64_t>(res, dataset.extent(0), dataset.extent(1));
   transform(res, quantizer.view(), dataset, codes.view());
   return device_sq_dataset<float, int64_t, float>{std::move(codes), std::move(quantizer)};
 }
+
+/** @} */
 
 }  // namespace preprocessing::quantize::scalar
 

@@ -34,7 +34,8 @@ TEST(ScalarDataset, CorpusAndQueriesShareQuantizer)
   std::vector<float> corpus{0.f, 10.f, 9.f, 254.f, 14.f, 9.f};
   auto input = raft::make_device_matrix<float, int64_t>(res, 2, 3);
   raft::update_device(input.data_handle(), corpus.data(), corpus.size(), stream);
-  auto encoded = build(res, raft::make_const_mdspan(input.view()));
+  auto encoded =
+    build(res, params{.range = range_mode::per_dimension}, raft::make_const_mdspan(input.view()));
   ASSERT_EQ(encoded.n_rows(), 2);
   ASSERT_EQ(encoded.dim(), 3u);
   auto quantizer = encoded.const_manifest_view();
@@ -69,7 +70,8 @@ TEST(ScalarDataset, PerDimensionQuantiles)
   auto input = raft::make_device_matrix<float, int64_t>(res, rows, dim);
   raft::update_device(
     input.data_handle(), corpus.data(), corpus.size(), raft::resource::get_cuda_stream(res));
-  auto encoded   = build(res, raft::make_const_mdspan(input.view()));
+  auto encoded =
+    build(res, params{.range = range_mode::per_dimension}, raft::make_const_mdspan(input.view()));
   auto quantizer = encoded.const_manifest_view();
   EXPECT_EQ(copy_to_host(res, std::get<offsets_view>(quantizer.value).offsets.data_handle(), dim),
             (std::vector<float>{499.5f, 10999.f, 9.f}));
@@ -98,7 +100,8 @@ TEST(ScalarDataset, ConstantCorpus)
   auto input = raft::make_device_matrix<float, int64_t>(res, 2, 2);
   raft::update_device(
     input.data_handle(), corpus.data(), corpus.size(), raft::resource::get_cuda_stream(res));
-  auto encoded = build(res, raft::make_const_mdspan(input.view()));
+  auto encoded =
+    build(res, params{.range = range_mode::per_dimension}, raft::make_const_mdspan(input.view()));
   EXPECT_FLOAT_EQ(std::get<offsets_view>(encoded.const_manifest_view().value).scale, 1.f);
   EXPECT_EQ(copy_to_host(res, encoded.data_const_view().data_handle(), 4),
             (std::vector<int8_t>(4, 0)));
@@ -115,7 +118,8 @@ TEST(ScalarDataset, ExtremeFiniteCorpus)
     auto input = raft::make_device_matrix<float, int64_t>(res, 2, 1);
     raft::update_device(
       input.data_handle(), corpus.data(), corpus.size(), raft::resource::get_cuda_stream(res));
-    auto encoded = build(res, raft::make_const_mdspan(input.view()));
+    auto encoded =
+      build(res, params{.range = range_mode::per_dimension}, raft::make_const_mdspan(input.view()));
     EXPECT_EQ(copy_to_host(res, encoded.data_const_view().data_handle(), 2),
               (std::vector<int8_t>{-127, 127}));
     inverse_transform(res, encoded.const_manifest_view(), encoded.data_const_view(), input.view());
@@ -167,7 +171,7 @@ TEST(ScalarDataset, GlobalDatasetStillWorks)
   std::vector<float> values{-1.f, 1.f};
   raft::update_device(
     input.data_handle(), values.data(), values.size(), raft::resource::get_cuda_stream(res));
-  auto encoded = build(res, raft::make_const_mdspan(input.view()), params{1.f});
+  auto encoded = build(res, params{1.f}, raft::make_const_mdspan(input.view()));
   EXPECT_EQ(copy_to_host(res, encoded.data_const_view().data_handle(), 2),
             (std::vector<int8_t>{-128, 127}));
   inverse_transform(res, encoded.const_manifest_view(), encoded.data_const_view(), input.view());
