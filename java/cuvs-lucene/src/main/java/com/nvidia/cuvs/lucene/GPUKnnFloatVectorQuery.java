@@ -69,12 +69,17 @@ import org.apache.lucene.util.FixedBitSet;
  *
  * <p>It also falls back whenever an explicit {@code filter} is selective enough that Lucene would
  * answer the query exactly. {@link org.apache.lucene.search.KnnFloatVectorQuery} guarantees that a
- * filter leaving no more than {@code k} candidates in a segment is served by an exact scan rather
- * than by the approximate index, and that a segment yielding fewer than {@code k} approximate hits
- * while holding more than {@code k} candidates is re-run exactly. An approximate CAGRA search can
- * miss such candidates, so both cases are routed back to Lucene's per-leaf path, which applies
- * those rules per segment and still runs this query's GPU {@link #approximateSearch} wherever an
- * approximate search is allowed.
+ * filter leaving no more than {@code perLeafTopK} candidates in a segment is served by an exact
+ * scan rather than by the approximate index, and that a segment yielding fewer than {@code
+ * perLeafTopK} approximate hits while holding more candidates is re-run exactly. {@code
+ * perLeafTopK} is {@code k} on Lucene 10.2; since 10.3 it is the segment's expected share of the
+ * top {@code k} plus a margin, often more than {@code k} but less for large {@code k} and many
+ * segments. The query falls back to Lucene's per-leaf path, which applies both rules and still
+ * runs this query's GPU {@link #approximateSearch} wherever an approximate search is allowed,
+ * whenever a segment has at least one but no more than {@code k} or {@code perLeafTopK}
+ * candidates, whichever is larger, or the merged result has fewer than {@code k} hits although
+ * enough candidates pass the filter. The multi-partition search returns only the merged top {@code
+ * k}, so for the other segments it checks only that count, not Lucene's second rule per segment.
  *
  * @since 25.10
  */
@@ -275,18 +280,25 @@ public class GPUKnnFloatVectorQuery extends CompatKnnFloatVectorQuery {
         filterBitsets = buildPerSegmentFilterBitsets(indexSearcher, leaves, gpuReaders);
       }
 
-      // Lucene answers a query exactly when the filter leaves no more than k candidates in a
-      // segment (AbstractKnnVectorQuery.getLeafResults), which an approximate CAGRA search cannot
-      // guarantee. Hand the whole query back to Lucene's per-leaf path in that case: it runs exact
-      // search on the selective segments and this query's GPU approximateSearch on the others.
-      // A segment whose filter accepts nothing contributes no results on either path, so it does
-      // not force the fallback.
+      // Lucene answers a segment exactly when the filter leaves no more than perLeafTopK
+      // candidates in it (AbstractKnnVectorQuery.getLeafResults; k on Lucene 10.2, the segment's
+      // share of k plus a margin since 10.3), which an approximate CAGRA search cannot guarantee.
+      // It also re-runs a segment exactly when its approximate search returns fewer than
+      // perLeafTopK hits, which cannot be checked on the merged result below. Hand the whole query
+      // back to Lucene's per-leaf path if a segment has no more than max(k, perLeafTopK)
+      // candidates: it applies both rules, and runs this query's GPU approximateSearch on the
+      // other segments. The k matters where perLeafTopK is less (large k, many segments): it
+      // leaves only segments with more than k candidates on the GPU path, which the result-count
+      // check below relies on. A segment whose filter accepts nothing contributes no results on
+      // either path, so it does not force the fallback.
       long totalCardinality = 0;
       if (hasExplicitFilter) {
-        for (CachedFilterBitset cached : filterBitsets) {
+        for (int i = 0; i < leaves.size(); i++) {
+          CachedFilterBitset cached = filterBitsets.get(i);
           if (cached == null) continue;
           totalCardinality += cached.cardinality();
-          if (cached.cardinality() > 0 && cached.cardinality() <= k) {
+          if (cached.cardinality() > 0
+              && cached.cardinality() <= Math.max(k, perLeafTopK(leaves.get(i)))) {
             return super.rewrite(indexSearcher);
           }
         }
@@ -332,10 +344,9 @@ public class GPUKnnFloatVectorQuery extends CompatKnnFloatVectorQuery {
         MultiPartitionSearchResults results =
             MultiPartitionCagraSearch.search(resources, cagraIndices, cagraQuery, k, filterHandles);
 
-        // Lucene also re-runs a leaf exactly when the approximate search returns fewer than k hits
-        // while more than k candidates pass the filter. Every segment reaching this point holds
-        // either no candidates or more than k of them, so k hits must exist once the filtered
-        // corpus holds at least k; a short result means the approximate search missed them.
+        // Every segment reaching this point holds either no candidates or more than k of them (the
+        // k in max(k, perLeafTopK) above), so k hits must exist once the filtered corpus holds at
+        // least k; a short result means the approximate search missed them.
         if (hasExplicitFilter && totalCardinality >= k && results.count() < k) {
           return super.rewrite(indexSearcher);
         }

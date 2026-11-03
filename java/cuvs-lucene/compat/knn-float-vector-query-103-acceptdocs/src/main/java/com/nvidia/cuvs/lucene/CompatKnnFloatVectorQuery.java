@@ -24,7 +24,8 @@ import org.apache.lucene.search.knn.KnnCollectorManager;
  * collector from {@code newPerLeafCollector}, so the shared query only provides that collector.
  *
  * <p>Each variant also tells the shared query how many hits Lucene expects from a segment search,
- * {@link #perLeafTopK}: Lucene 10.2 expects {@code k}, Lucene 10.3 more.
+ * {@link #perLeafTopK}: Lucene 10.2 expects {@code k}, Lucene 10.3 the segment's share of {@code
+ * k} plus a margin, often more than {@code k} but less for a large {@code k} over many segments.
  *
  * <p>This variant also makes the collector manager non-optimistic, so that Lucene does not repeat
  * a segment's search; see {@link #getKnnCollectorManager}.
