@@ -19,17 +19,17 @@
 namespace cuvs::preprocessing::quantize::rabitq::detail {
 
 static __device__ __constant__ float d_kTightStart_opt[9] = {
-    0.0f,
-    0.15f,
-    0.20f,
-    0.52f,
-    0.59f,
-    0.71f,
-    0.75f,
-    0.77f,
-    0.81f,
+  0.0f,
+  0.15f,
+  0.20f,
+  0.52f,
+  0.59f,
+  0.71f,
+  0.75f,
+  0.77f,
+  0.81f,
 };
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
 
-#endif // RABITQ_GPU_TIGHT_START_CONSTANTS_CUH
+#endif  // RABITQ_GPU_TIGHT_START_CONSTANTS_CUH
