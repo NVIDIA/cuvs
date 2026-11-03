@@ -438,19 +438,24 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
     std::uint32_t num_found_valid = 0;
     for (std::uint32_t buffer_offset = 0; buffer_offset < internal_topk;
          buffer_offset += warp_size) {
-      const auto src_position = buffer_offset + threadIdx.x;
+      auto src_position = buffer_offset + threadIdx.x;
+      if constexpr (TOPK_BY_BITONIC_SORT) { src_position = device::swizzling(src_position); }
+      // Read the complete warp before compacting in place: an earlier lane can
+      // overwrite a later lane's source slot, especially with the bitonic layout.
+      auto const result_index    = result_indices_buffer[src_position];
+      auto const result_distance = result_distances_buffer[src_position];
       const std::uint32_t is_valid_index =
-        (result_indices_buffer[src_position] & ~index_msb_1_mask) ==
-            (invalid_index & ~index_msb_1_mask)
-          ? 0
-          : 1;
+        (result_index & ~index_msb_1_mask) == (invalid_index & ~index_msb_1_mask) ? 0 : 1;
+      __syncwarp();
       std::uint32_t new_position;
       scan_op_t(temp_storage).InclusiveSum(is_valid_index, new_position);
       if (is_valid_index) {
-        const auto dst_position               = num_found_valid + (new_position - 1);
-        result_indices_buffer[dst_position]   = result_indices_buffer[src_position];
-        result_distances_buffer[dst_position] = result_distances_buffer[src_position];
+        auto dst_position = num_found_valid + (new_position - 1);
+        if constexpr (TOPK_BY_BITONIC_SORT) { dst_position = device::swizzling(dst_position); }
+        result_indices_buffer[dst_position]   = result_index;
+        result_distances_buffer[dst_position] = result_distance;
       }
+      __syncwarp();
 
       num_found_valid += new_position;
       for (std::uint32_t offset = (warp_size >> 1); offset > 0; offset >>= 1) {
@@ -463,15 +468,22 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
 
     if (num_found_valid < top_k) {
       for (std::uint32_t i = num_found_valid + threadIdx.x; i < internal_topk; i += warp_size) {
-        result_indices_buffer[i]   = invalid_index;
-        result_distances_buffer[i] = utils::get_max_value<DistanceT>();
+        auto position = i;
+        if constexpr (TOPK_BY_BITONIC_SORT) { position = device::swizzling(position); }
+        result_indices_buffer[position]   = invalid_index;
+        result_distances_buffer[position] = utils::get_max_value<DistanceT>();
       }
     }
   }
 
+  // All threads must observe the first warp's compaction before deciding whether
+  // to enter the block-wide fallback merge.
+  __syncthreads();
   // If the sufficient number of valid indexes are not in the internal topk, pick up from the
   // candidate list.
-  if (top_k > internal_topk || result_indices_buffer[top_k - 1] == invalid_index) {
+  auto last_result = top_k - 1;
+  if constexpr (TOPK_BY_BITONIC_SORT) { last_result = device::swizzling(last_result); }
+  if (top_k > internal_topk || result_indices_buffer[last_result] == invalid_index) {
     __syncthreads();
     topk_by_bitonic_sort_and_merge<BITONIC_SORT_AND_MERGE_MULTI_WARPS>(
       result_distances_buffer,
