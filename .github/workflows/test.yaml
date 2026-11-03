@@ -92,7 +92,7 @@ jobs:
       cache-read-only: ${{ inputs.branch != 'main' }}
       cache-environment: |
         CUDA_CACHE_PATH=.cache/cuda-jit
-      matrix_type: nightly
+      matrix_type: nightly,wsl-nightly
   conda-python-tests:
     permissions:
       actions: read
@@ -154,4 +154,4 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: ci/test_wheel_cuvs.sh
-      matrix_type: nightly
+      matrix_type: nightly,wsl-nightly
