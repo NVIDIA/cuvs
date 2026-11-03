@@ -19,6 +19,8 @@
 #include <raft/util/reduction.cuh>
 #include <raft/util/vectorized.cuh>
 
+#include <cub/warp/warp_reduce_batched.cuh>
+
 #include <cmath>
 #include <cstdint>
 #include <type_traits>
@@ -50,28 +52,6 @@ __host__ __device__ inline float adsampling_ratio(uint32_t i, uint32_t dim, floa
 {
   const float f = 1.0f + eps0 / sqrtf(static_cast<float>(i));
   return static_cast<float>(i) / static_cast<float>(dim) * f * f;
-}
-
-/**
- * Sums N independent per-lane values across the warp (xor shuffles: every lane ends with the N
- * sums), the N shuffles of each step issued together so they overlap.
- */
-template <uint32_t N, typename T>
-__device__ __forceinline__ void warp_reduce_sum_n(T* values)
-{
-  T shifted[N];
-#pragma unroll
-  for (int offset = kWarpSize / 2; offset > 0; offset >>= 1) {
-#pragma unroll
-    for (uint32_t i = 0; i < N; i++) {
-      shifted[i] = __shfl_xor_sync(kFullMask, values[i], offset);
-    }
-    asm volatile("" ::: "memory");
-#pragma unroll
-    for (uint32_t i = 0; i < N; i++) {
-      values[i] += shifted[i];
-    }
-  }
 }
 
 /**
@@ -204,11 +184,11 @@ __device__ __forceinline__ void add_tile_distances(const float (&row_tile)[Dims 
       partial[i]       = fmaf(diff, diff, partial[i]);
     }
   }
-  warp_reduce_sum_n<N>(partial);
-#pragma unroll
-  for (uint32_t i = 0; i < N; i++) {
-    if (lane == first + i) { distance += partial[i]; }
-  }
+  // Lane i ends with survivor first + i's sum; move it to that survivor's lane
+  using batched_reduce = cub::WarpReduceBatched<float, N>;
+  typename batched_reduce::TempStorage temp_storage;
+  const float sum = __shfl_sync(kFullMask, batched_reduce{temp_storage}.Sum(partial), lane - first);
+  if (lane >= first && lane < first + N) { distance += sum; }
 }
 
 /** Calls f(integral_constant<N>), then with N / 2, ..., 1. */
