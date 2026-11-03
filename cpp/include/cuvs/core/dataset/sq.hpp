@@ -16,12 +16,13 @@
 
 #include <cstdint>
 #include <type_traits>
+#include <utility>
 
 namespace CUVS_EXPORT cuvs {
 
 /**
  * Scalar-quantized dataset specification: every component of a vector becomes one code, so the
- * manifest is only the range the codes are mapped back onto and the dimension is still a property
+ * manifest holds the quantizer and the dimension is still a property
  * of the data.
  */
 template <typename MathT, typename CodePolicy>
@@ -33,10 +34,9 @@ struct sq_spec {
 
   using math_type = MathT;
 
-  // Nothing to allocate: the whole manifest is the interval the codes are dequantized into,
-  // which is exactly what the scalar quantizer holds.
-  using manifest_type      = cuvs::preprocessing::quantize::scalar::quantizer<math_type>;
-  using manifest_view_type = manifest_type;
+  // The manifest is either a global interval or owning per-dimension shifts and a shared scale.
+  using manifest_type      = cuvs::preprocessing::quantize::scalar::quantizer<MathT>;
+  using manifest_view_type = typename manifest_type::view_type;
 
   template <typename T, typename IdxT>
   struct apply : storage_spec<IdxT> {
@@ -51,14 +51,20 @@ struct sq_spec {
 
     // NOTE: every accessor is inherited; the dimension is still one code per component, so even
     // `get_dim` is the dense one.
+    /** Borrow read-only quantizer parameters from the owning manifest. */
     [[nodiscard]] static auto get_manifest_view(const manifest_type& manifest) noexcept
       -> manifest_view_type
     {
-      return manifest;
+      return manifest.view();
     }
-    // NOTE: the manifest is its own view here, read-only or not, so one overload serves both the
-    // owning dataset and the view.
+    /** Borrow read-only quantizer parameters; the manifest must outlive use of the view. */
     [[nodiscard]] static auto get_manifest_const_view(const manifest_type& manifest) noexcept
+      -> manifest_view_type
+    {
+      return manifest.view();
+    }
+    /** Return the read-only view; its owner must outlive stream work using it. */
+    [[nodiscard]] static auto get_manifest_const_view(manifest_view_type manifest) noexcept
       -> manifest_view_type
     {
       return manifest;
@@ -74,5 +80,29 @@ using device_sq_dataset =
 template <typename T, typename IdxT, typename MathT>
 using host_sq_dataset =
   sq_dataset<T, IdxT, MathT, raft::host_accessor<raft::host_container_policy<int8_t>>>;
+
+namespace preprocessing::quantize::scalar {
+
+/**
+ * @defgroup scalar_dataset Scalar-quantized dataset construction
+ * @{
+ * Train and encode a device corpus with the selected range mode.
+ * Reuse result.const_manifest_view() with transform
+ * for query batches. For separate training/encoding, use train and transform.
+ */
+template <typename T>
+inline device_sq_dataset<T, int64_t, T> build(raft::resources const& res,
+                                              params params,
+                                              raft::device_matrix_view<const T, int64_t> dataset)
+{
+  auto quantizer = train(res, params, dataset);
+  auto codes = raft::make_device_matrix<int8_t, int64_t>(res, dataset.extent(0), dataset.extent(1));
+  transform(res, quantizer.view(), dataset, codes.view());
+  return device_sq_dataset<T, int64_t, T>{std::move(codes), std::move(quantizer)};
+}
+
+/** @} */
+
+}  // namespace preprocessing::quantize::scalar
 
 }  // namespace CUVS_EXPORT cuvs
