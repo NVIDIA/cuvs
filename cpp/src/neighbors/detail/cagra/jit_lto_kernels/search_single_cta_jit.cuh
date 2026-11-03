@@ -446,7 +446,10 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
          buffer_offset += warp_size) {
       const auto src_position = buffer_offset + threadIdx.x;
       const std::uint32_t is_valid_index =
-        (result_indices_buffer[src_position] & (~index_msb_1_mask)) == invalid_index ? 0 : 1;
+        (result_indices_buffer[src_position] & ~index_msb_1_mask) ==
+            (invalid_index & ~index_msb_1_mask)
+          ? 0
+          : 1;
       std::uint32_t new_position;
       scan_op_t(temp_storage).InclusiveSum(is_valid_index, new_position);
       if (is_valid_index) {
@@ -517,8 +520,9 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
 
     auto const result_index = result_indices_buffer[ii];
     if (result_index == invalid_index) {
-      // Regular CAGRA retains its historical sentinel. FlowANN requests an output-width
-      // sentinel even when no source map is installed.
+      // Without a source map, regular CAGRA keeps its historical masked sentinel.
+      // Mapped searches use an output-width sentinel without indexing the source map.
+      // FlowANN also requests this sentinel through full_width_invalid.
       if (source_indices_ptr == nullptr && !full_width_invalid) {
         write_indices(
           result_indices_ptr, j, static_cast<SourceIndexT>(invalid_index & ~index_msb_1_mask));
