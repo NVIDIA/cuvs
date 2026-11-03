@@ -180,10 +180,11 @@ void check_host_input(raft::device_resources const& handle,
   auto factors_t = make_row_major_tensor(factors.data(), n_rows, 3);
   // Outputs are poisoned before each call, so an element left unwritten cannot match.
   auto poison = [&]() {
-    RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), 0xff, codes.size(), stream));
-    RAFT_CUDA_TRY(cudaMemsetAsync(delta.data(), 0xff, delta.size() * sizeof(float), stream));
-    RAFT_CUDA_TRY(cudaMemsetAsync(vl.data(), 0xff, vl.size() * sizeof(float), stream));
-    RAFT_CUDA_TRY(cudaMemsetAsync(factors.data(), 0xff, factors.size() * sizeof(float), stream));
+    RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), 0xff, codes.size(), stream.get()));
+    RAFT_CUDA_TRY(cudaMemsetAsync(delta.data(), 0xff, delta.size() * sizeof(float), stream.get()));
+    RAFT_CUDA_TRY(cudaMemsetAsync(vl.data(), 0xff, vl.size() * sizeof(float), stream.get()));
+    RAFT_CUDA_TRY(
+      cudaMemsetAsync(factors.data(), 0xff, factors.size() * sizeof(float), stream.get()));
     handle.sync_stream();
   };
 
@@ -312,7 +313,7 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
   rmm::device_uvector<uint8_t> codes(n_rows * padded_dim, stream);
   rmm::device_uvector<float> delta(n_rows, stream);
   rmm::device_uvector<float> vl(n_rows, stream);
-  RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), unwritten_sentinel, codes.size(), stream));
+  RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), unwritten_sentinel, codes.size(), stream.get()));
   handle.sync_stream();
 
   auto dataset_t  = make_row_major_tensor(dataset.data(), n_rows, dim);
@@ -355,7 +356,7 @@ void run_rabitq_c_smoke(enum cuvsRabitqRotatorKind kind)
 
   // A non-NULL centroid takes the residual path and must produce different codes.
   auto h_codes_uncentered = to_host(handle, codes.data(), codes.size());
-  RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), unwritten_sentinel, codes.size(), stream));
+  RAFT_CUDA_TRY(cudaMemsetAsync(codes.data(), unwritten_sentinel, codes.size(), stream.get()));
   handle.sync_stream();
   ASSERT_EQ(
     cuvsRabitqTransform(res, encoder, rotator, &dataset_t, &centroid_t, &codes_t, &delta_t, &vl_t),

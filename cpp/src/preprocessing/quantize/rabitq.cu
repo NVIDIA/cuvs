@@ -357,7 +357,7 @@ void transform_residuals_impl(
   check_delta_vl(n_rows, delta, vl);
   if (n_rows == 0) { return; }
 
-  detail::quantize_fused_on_residuals(raft::resource::get_cuda_stream(res),
+  detail::quantize_fused_on_residuals(raft::resource::get_cuda_stream(res).get(),
                                       residuals.data_handle(),
                                       static_cast<size_t>(n_rows),
                                       static_cast<size_t>(q.padded_dim),
@@ -405,11 +405,11 @@ void transform_residuals_full_impl(
     d_centroid = rotated_centroid->data_handle();
   } else {
     RAFT_CUDA_TRY(cudaMemsetAsync(
-      zero_centroid.data(), 0, static_cast<size_t>(q.padded_dim) * sizeof(float), stream));
+      zero_centroid.data(), 0, static_cast<size_t>(q.padded_dim) * sizeof(float), stream.get()));
     d_centroid = zero_centroid.data();
   }
 
-  detail::quantize_full_on_residuals(stream,
+  detail::quantize_full_on_residuals(stream.get(),
                                      residuals.data_handle(),
                                      d_centroid,
                                      static_cast<size_t>(n_rows),
@@ -441,7 +441,8 @@ auto make_rotator(raft::resources const& res, params const& params, int64_t dim)
   } else {
     rot.flip_bits =
       raft::make_device_vector<uint8_t, int64_t>(res, detail::flip_bytes(rot.padded_dim));
-    detail::init_state_fht_kac(stream, params.seed, rot.padded_dim, rot.flip_bits.data_handle());
+    detail::init_state_fht_kac(
+      stream.get(), params.seed, rot.padded_dim, rot.flip_bits.data_handle());
   }
   return rot;
 }

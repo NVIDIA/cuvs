@@ -97,7 +97,7 @@ void prepare_residuals(raft::resources const& res,
       raft::sub_op{},
       raft::make_device_vector_view<const float, int64_t>(d_rotated_centroid, D));
   } else if (require_rotated_c) {
-    RAFT_CUDA_TRY(cudaMemsetAsync(d_rotated_centroid, 0, D * sizeof(float), stream));
+    RAFT_CUDA_TRY(cudaMemsetAsync(d_rotated_centroid, 0, D * sizeof(float), stream.get()));
   }
 }
 
@@ -129,7 +129,7 @@ void quantize_data_impl(raft::resources const& res,
                     d_rotated_centroid,
                     d_residuals,
                     /*require_rotated_c=*/false);
-  quantize_fused_on_residuals(raft::resource::get_cuda_stream(res),
+  quantize_fused_on_residuals(raft::resource::get_cuda_stream(res).get(),
                               d_residuals,
                               N,
                               static_cast<size_t>(rotator.padded_dim),
@@ -168,7 +168,7 @@ void quantize_data_full_impl(raft::resources const& res,
                     d_rotated_centroid,
                     d_residuals,
                     /*require_rotated_c=*/true);
-  quantize_full_on_residuals(raft::resource::get_cuda_stream(res),
+  quantize_full_on_residuals(raft::resource::get_cuda_stream(res).get(),
                              d_residuals,
                              d_rotated_centroid,
                              N,

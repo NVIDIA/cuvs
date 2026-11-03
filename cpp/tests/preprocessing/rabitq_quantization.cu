@@ -78,7 +78,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
  public:
   RabitqQuantizationTest()
     : ps_(::testing::TestWithParam<RabitqQuantizationInputs>::GetParam()),
-      stream_(raft::resource::get_cuda_stream(handle_)),
+      stream_(raft::resource::get_cuda_stream(handle_).get()),
       dataset_(raft::make_device_matrix<float, int64_t>(handle_, ps_.rows, ps_.dim)),
       centroid_(raft::make_device_vector<float, int64_t>(handle_, ps_.dim))
   {
@@ -820,11 +820,13 @@ TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
         const std::string what = std::string(input) + ", dim " + std::to_string(dim) +
                                  (with_c ? ", with centroid" : ", no centroid");
         auto call = [&](auto&& quantize) {
-          RAFT_CUDA_TRY(cudaMemsetAsync(codes.data_handle(), 0xff, n_codes, stream));
-          RAFT_CUDA_TRY(cudaMemsetAsync(delta.data_handle(), 0xff, kRows * sizeof(float), stream));
-          RAFT_CUDA_TRY(cudaMemsetAsync(vl.data_handle(), 0xff, kRows * sizeof(float), stream));
+          RAFT_CUDA_TRY(cudaMemsetAsync(codes.data_handle(), 0xff, n_codes, stream.get()));
           RAFT_CUDA_TRY(
-            cudaMemsetAsync(factors.data_handle(), 0xff, n_factors * sizeof(float), stream));
+            cudaMemsetAsync(delta.data_handle(), 0xff, kRows * sizeof(float), stream.get()));
+          RAFT_CUDA_TRY(
+            cudaMemsetAsync(vl.data_handle(), 0xff, kRows * sizeof(float), stream.get()));
+          RAFT_CUDA_TRY(
+            cudaMemsetAsync(factors.data_handle(), 0xff, n_factors * sizeof(float), stream.get()));
           if (host_rows != nullptr) { std::copy(h_rows.begin(), h_rows.end(), host_rows); }
           quantize();
           if (host_rows != nullptr) {

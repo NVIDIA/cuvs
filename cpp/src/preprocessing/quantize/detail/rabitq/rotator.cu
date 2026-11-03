@@ -119,7 +119,7 @@ void rotate_matmul(
   const float alpha = 1.0f;
   const float beta  = 0.0f;
   auto cublas_h     = raft::resource::get_cublas_handle(res);
-  RAFT_CUBLAS_TRY(cublasSetStream(cublas_h, raft::resource::get_cuda_stream(res)));
+  RAFT_CUBLAS_TRY(cublasSetStream(cublas_h, raft::resource::get_cuda_stream(res).get()));
   // Row-major row-of-A (size D) is reinterpreted as column-of-A in column-major,
   // and row-major P reads as P^T; compute C = P · A by transposing it back.
   RAFT_CUBLAS_TRY(cublasSgemm(cublas_h,
@@ -156,7 +156,8 @@ void rotate(
   raft::resources const& res, rotator_ref const& rot, const float* in, float* out, int64_t N)
 {
   if (rot.use_fht_kac) {
-    rotate_fht_kac(raft::resource::get_cuda_stream(res), rot.flip_bits, in, out, N, rot.padded_dim);
+    rotate_fht_kac(
+      raft::resource::get_cuda_stream(res).get(), rot.flip_bits, in, out, N, rot.padded_dim);
   } else {
     rotate_matmul(res, rot.rotation_matrix, in, out, N, rot.padded_dim);
   }
