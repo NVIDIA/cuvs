@@ -20,35 +20,47 @@ namespace cuvs::neighbors {
 
 namespace {
 
-constexpr int64_t kUnique  = 2000;
-constexpr int64_t kCopies  = 8;
 constexpr int64_t kDim     = 32;
 constexpr int64_t kQueries = 500;
+constexpr uint32_t kLists  = 64;
 
-// Every vector appears kCopies times, so equal distances are common and the selector must break
-// many ties. The queries are the first kQueries distinct vectors.
+// Each of `n_unique` vectors appears `copies` times, so equal distances are common and the selector
+// must break many ties. Query `i` is unique vector `i % n_unique`.
 struct tied_data {
+  int64_t n_unique;
+  int64_t n_rows;
   std::vector<float> base;
   std::vector<float> queries;
 };
 
-auto make_tied_data() -> tied_data
+auto make_tied_data(int64_t n_unique, int64_t copies) -> tied_data
 {
   std::mt19937 rng(1234);
   std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-  std::vector<float> unique(kUnique * kDim);
+  std::vector<float> unique(n_unique * kDim);
   for (auto& v : unique) {
     v = dist(rng);
   }
-  tied_data out;
-  out.base.reserve(kUnique * kCopies * kDim);
-  for (int64_t i = 0; i < kUnique; i++) {
-    for (int64_t c = 0; c < kCopies; c++) {
+  tied_data out{n_unique, n_unique * copies, {}, {}};
+  out.base.reserve(out.n_rows * kDim);
+  for (int64_t i = 0; i < n_unique; i++) {
+    for (int64_t c = 0; c < copies; c++) {
       out.base.insert(out.base.end(), unique.begin() + i * kDim, unique.begin() + (i + 1) * kDim);
     }
   }
-  out.queries.assign(unique.begin(), unique.begin() + kQueries * kDim);
+  for (int64_t i = 0; i < kQueries; i++) {
+    auto row = unique.begin() + (i % n_unique) * kDim;
+    out.queries.insert(out.queries.end(), row, row + kDim);
+  }
   return out;
+}
+
+auto upload_base(raft::resources const& res, const tied_data& data)
+{
+  auto d_base = raft::make_device_matrix<float, int64_t>(res, data.n_rows, kDim);
+  raft::copy(
+    d_base.data_handle(), data.base.data(), data.base.size(), raft::resource::get_cuda_stream(res));
+  return d_base;
 }
 
 struct result {
@@ -113,24 +125,26 @@ void check_stable(raft::resources const& res, const tied_data& data, SearchFn se
         << "k=" << k << " row=" << r << " has a repeated id";
     }
 
+    // A query that appears more than once in a batch must get the same neighbours each time.
+    for (int64_t r = data.n_unique; r < kQueries; r++) {
+      EXPECT_TRUE(std::equal(first.ids.begin() + r * k,
+                             first.ids.begin() + (r + 1) * k,
+                             first.ids.begin() + (r % data.n_unique) * k))
+        << "k=" << k << " row=" << r << " differs from row " << r % data.n_unique;
+    }
+
     // The stable selector changes which tied candidate wins, not which distances are selected.
     auto plain = search_in_batches(res, data.queries, k, kQueries, with(false));
     EXPECT_EQ(sorted_rows(first.dists, k), sorted_rows(plain.dists, k)) << "k=" << k;
   }
 }
 
-}  // namespace
-
-TEST(AnnIvfStable, IvfSqSameResultForEveryQueryBatch)
+void check_ivf_sq(const tied_data& data)
 {
   raft::resources res;
-  auto data   = make_tied_data();
-  auto stream = raft::resource::get_cuda_stream(res);
-  auto d_base = raft::make_device_matrix<float, int64_t>(res, kUnique * kCopies, kDim);
-  raft::copy(d_base.data_handle(), data.base.data(), data.base.size(), stream);
-
+  auto d_base = upload_base(res, data);
   ivf_sq::index_params index_params;
-  index_params.n_lists = 64;
+  index_params.n_lists = kLists;
   auto index           = ivf_sq::build(res, index_params, raft::make_const_mdspan(d_base.view()));
 
   check_stable(res, data, [&](bool stable, auto queries, auto neighbors, auto distances) {
@@ -140,5 +154,12 @@ TEST(AnnIvfStable, IvfSqSameResultForEveryQueryBatch)
     ivf_sq::search(res, params, index, queries, neighbors, distances);
   });
 }
+
+}  // namespace
+
+TEST(AnnIvfStable, IvfSqSameResultForEveryQueryBatch) { check_ivf_sq(make_tied_data(2000, 8)); }
+
+// Fewer unique vectors than lists: the lists share centres, so the coarse search also has ties.
+TEST(AnnIvfStable, IvfSqFewerUniqueVectorsThanLists) { check_ivf_sq(make_tied_data(8, 2000)); }
 
 }  // namespace cuvs::neighbors
