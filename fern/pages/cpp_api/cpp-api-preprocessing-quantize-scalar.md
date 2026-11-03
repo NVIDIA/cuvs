@@ -177,18 +177,24 @@ quantizer(T min, T max);
 
 **Additional overload:** `preprocessing::quantize::scalar::quantizer::quantizer`
 
-Take ownership of device shifts and their shared scale.
+Construct from nonempty device FP32 bounds of equal length, with finite min &lt;= max.
 
 ```cpp
-quantizer(raft::device_vector<T, int64_t>&& shifts, T scale);
+quantizer(raft::resources const& res,
+raft::device_vector_view<const T, int64_t> mins,
+raft::device_vector_view<const T, int64_t> maxs)
+requires std::is_same_v<T, float>;
 ```
+
+Derives midpoint shifts and a shared scale; synchronizes before returning.
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `shifts` |  | `raft::device_vector<T, int64_t>&&` |  |
-| `scale` |  | `T` |  |
+| `res` |  | `raft::resources const&` |  |
+| `mins` |  | `raft::device_vector_view<const T, int64_t>` |  |
+| `maxs` |  | `raft::device_vector_view<const T, int64_t>` |  |
 
 **Returns**
 

@@ -14,6 +14,7 @@
 #include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/core/export.hpp>
 
+#include <type_traits>
 #include <utility>
 #include <variant>
 
@@ -84,11 +85,12 @@ struct quantizer {
   quantizer() : value{range_type{}} {}
   /** Construct a global interval. */
   quantizer(T min, T max) : value{range_type{min, max}} {}
-  /** Take ownership of device shifts and their shared scale. */
-  quantizer(raft::device_vector<T, int64_t>&& shifts, T scale)
-    : value{shifts_type{std::move(shifts), scale}}
-  {
-  }
+  /** Construct from nonempty device FP32 bounds of equal length, with finite min <= max.
+   * Derives midpoint shifts and a shared scale; synchronizes before returning. */
+  quantizer(raft::resources const& res,
+            raft::device_vector_view<const T, int64_t> mins,
+            raft::device_vector_view<const T, int64_t> maxs)
+    requires std::is_same_v<T, float>;
 
   /** Borrow read-only parameters; the owner must outlive stream work using shifts. */
   [[nodiscard]] auto view() const noexcept -> view_type
