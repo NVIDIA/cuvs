@@ -15,7 +15,7 @@
 #include "rescale_search.cuh"
 #include "tight_start_constants.cuh"
 
-#include <cub/cub.cuh>
+#include <cub/device/device_reduce.cuh>
 #include <cuda_runtime.h>
 #include <curand_kernel.h>
 
@@ -277,7 +277,7 @@ float get_const_scaling_factor(raft::resources const& res,
     shared_mem_size = (dim + 3 * block_size) * sizeof(float);
   }
 
-  rabitq_rescale_sample_kernel<<<kConstNum, block_size, shared_mem_size, stream>>>(
+  rabitq_rescale_sample_kernel<<<kConstNum, block_size, shared_mem_size, stream.get()>>>(
     d_factors.data(),
     kConstNum,
     static_cast<int>(dim),
@@ -289,14 +289,19 @@ float get_const_scaling_factor(raft::resources const& res,
 
   size_t temp_storage_bytes = 0;
   RAFT_CUDA_TRY(cub::DeviceReduce::Sum(
-    nullptr, temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum, stream));
+    nullptr, temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum, stream.get()));
 
   rmm::device_uvector<char> d_temp_storage(temp_storage_bytes, stream, workspace);
-  RAFT_CUDA_TRY(cub::DeviceReduce::Sum(
-    d_temp_storage.data(), temp_storage_bytes, d_factors.data(), d_sum.data(), kConstNum, stream));
+  RAFT_CUDA_TRY(cub::DeviceReduce::Sum(d_temp_storage.data(),
+                                       temp_storage_bytes,
+                                       d_factors.data(),
+                                       d_sum.data(),
+                                       kConstNum,
+                                       stream.get()));
 
   float sum;
-  RAFT_CUDA_TRY(cudaMemcpyAsync(&sum, d_sum.data(), sizeof(float), cudaMemcpyDeviceToHost, stream));
+  RAFT_CUDA_TRY(
+    cudaMemcpyAsync(&sum, d_sum.data(), sizeof(float), cudaMemcpyDeviceToHost, stream.get()));
   raft::resource::sync_stream(res);
 
   return sum / kConstNum;
