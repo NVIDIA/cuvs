@@ -516,7 +516,8 @@ void transform(raft::resources const& res,
                raft::device_matrix_view<const float, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
-/** Reconstruct offsets[j] + scale * code; same shape/scale requirements as transform. */
+/** Reconstruct offsets[j] + scale * code, saturating to finite FP32 limits. Same shape/scale
+ * requirements as transform. */
 void inverse_transform(raft::resources const& res,
                        per_dim_quantizer_const_view quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,

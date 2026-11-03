@@ -304,12 +304,8 @@ inline per_dim_quantizer train_per_dim(raft::resources const& res,
              raft::make_host_scalar_view(&half_range),
              raft::make_device_scalar_view(max_half_range.data_handle()));
   raft::resource::sync_stream(res);
-  float scale =
+  float const scale =
     half_range > 0.f ? std::max(half_range / 127.f, std::numeric_limits<float>::min()) : 1.f;
-  // Avoid upward division rounding overflowing the largest reconstructed magnitude.
-  if (static_cast<double>(scale) * 127.0 > std::numeric_limits<float>::max()) {
-    scale = std::nextafter(scale, 0.f);
-  }
   return {std::move(offsets), scale};
 }
 
@@ -354,7 +350,9 @@ inline void inverse_transform(raft::resources const& res,
   auto const dim      = dataset.extent(1);
   float const scale   = quantizer.scale;
   raft::linalg::map_offset(res, out, [input, offsets, dim, scale] __device__(int64_t i) {
-    return fmaf(scale, static_cast<float>(input[i]), offsets[i % dim]);
+    float const value     = fmaf(scale, static_cast<float>(input[i]), offsets[i % dim]);
+    constexpr float limit = std::numeric_limits<float>::max();
+    return fminf(fmaxf(value, -limit), limit);
   });
 }
 

@@ -610,7 +610,7 @@ Rounds ties to even. Use the corpus quantizer for query batches. Custom offsets 
 
 **Additional overload:** `preprocessing::quantize::scalar::inverse_transform`
 
-Reconstruct offsets[j] + scale * code; same shape/scale requirements as transform.
+Reconstruct offsets[j] + scale * code, saturating to finite FP32 limits. Same shape/scale
 
 ```cpp
 void inverse_transform(raft::resources const& res,
@@ -618,6 +618,8 @@ per_dim_quantizer_const_view quantizer,
 raft::device_matrix_view<const int8_t, int64_t> dataset,
 raft::device_matrix_view<float, int64_t> out);
 ```
+
+requirements as transform.
 
 **Parameters**
 

@@ -150,18 +150,20 @@ TEST(ScalarDataset, ExtremeFiniteCorpus)
 {
   raft::device_resources res;
   float const max = std::numeric_limits<float>::max();
-  std::vector<float> corpus{-max, max};
-  auto input = raft::make_device_matrix<float, int64_t>(res, 2, 1);
-  raft::update_device(
-    input.data_handle(), corpus.data(), corpus.size(), raft::resource::get_cuda_stream(res));
-  auto encoded = build_per_dim(res, raft::make_const_mdspan(input.view()));
-  EXPECT_EQ(copy_to_host(res, encoded.data_const_view().data_handle(), 2),
-            (std::vector<int8_t>{-127, 127}));
-  inverse_transform(res, encoded.const_manifest_view(), encoded.data_const_view(), input.view());
-  auto decoded = copy_to_host(res, input.data_handle(), 2);
-  for (int i = 0; i < 2; ++i) {
-    EXPECT_TRUE(std::isfinite(decoded[i]));
-    EXPECT_FLOAT_EQ(decoded[i], corpus[i]);
+  for (float lo : {-max, -std::ldexp(124.f, 104)}) {
+    std::vector<float> corpus{lo, max};
+    auto input = raft::make_device_matrix<float, int64_t>(res, 2, 1);
+    raft::update_device(
+      input.data_handle(), corpus.data(), corpus.size(), raft::resource::get_cuda_stream(res));
+    auto encoded = build_per_dim(res, raft::make_const_mdspan(input.view()));
+    EXPECT_EQ(copy_to_host(res, encoded.data_const_view().data_handle(), 2),
+              (std::vector<int8_t>{-127, 127}));
+    inverse_transform(res, encoded.const_manifest_view(), encoded.data_const_view(), input.view());
+    auto decoded = copy_to_host(res, input.data_handle(), 2);
+    for (int i = 0; i < 2; ++i) {
+      EXPECT_TRUE(std::isfinite(decoded[i]));
+      EXPECT_NEAR(decoded[i], corpus[i], encoded.const_manifest_view().scale * 0.5f);
+    }
   }
 }
 
