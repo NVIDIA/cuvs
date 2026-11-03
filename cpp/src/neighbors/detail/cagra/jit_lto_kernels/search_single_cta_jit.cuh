@@ -446,7 +446,10 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
          buffer_offset += warp_size) {
       const auto src_position = buffer_offset + threadIdx.x;
       const std::uint32_t is_valid_index =
-        (result_indices_buffer[src_position] & (~index_msb_1_mask)) == invalid_index ? 0 : 1;
+        (result_indices_buffer[src_position] & ~index_msb_1_mask) ==
+            (invalid_index & ~index_msb_1_mask)
+          ? 0
+          : 1;
       std::uint32_t new_position;
       scan_op_t(temp_storage).InclusiveSum(is_valid_index, new_position);
       if (is_valid_index) {
