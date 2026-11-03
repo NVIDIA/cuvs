@@ -334,7 +334,8 @@ extern "C" cuvsError_t cuvsBbqQuantizerBuild(cuvsResources_t res,
   return cuvs::core::translate_exceptions([=] {
     using quantizer_t = cuvs::preprocessing::quantize::bbq::quantizer<float>;
     RAFT_EXPECTS(quantizer != nullptr, "cuvsBbqQuantizerBuild: null output");
-    *quantizer    = nullptr;
+    *quantizer = nullptr;
+    RAFT_EXPECTS(res != 0, "cuvsBbqQuantizerBuild: null resources handle");
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
     auto built    = std::make_unique<quantizer_t>(cuvs::preprocessing::quantize::bbq::build(
       *res_ptr, float_dataset_from_dlpack(dataset, "cuvsBbqQuantizerBuild")));
@@ -359,6 +360,7 @@ extern "C" cuvsError_t cuvsBbqQuantizerTransform(cuvsResources_t res,
     RAFT_EXPECTS(bbq_dataset != nullptr, "cuvsBbqQuantizerTransform: null output");
     *bbq_dataset = nullptr;
     RAFT_EXPECTS(params != nullptr, "cuvsBbqQuantizerTransform: null params");
+    RAFT_EXPECTS(res != 0, "cuvsBbqQuantizerTransform: null resources handle");
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
     auto encoded =
       std::make_unique<dataset_t>(cuvs::preprocessing::quantize::bbq::transform(

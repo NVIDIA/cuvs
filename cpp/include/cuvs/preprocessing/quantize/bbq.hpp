@@ -345,7 +345,7 @@ struct dataset<bbq_dataset_container, DataT, IdxT, Accessor> {
   {
     add_storage(std::move(storage));
   }
-  [[nodiscard]] auto view() noexcept
+  [[nodiscard]] auto view()
     -> dataset_view<bbq_dataset_container,
                     DataT,
                     IdxT,
@@ -384,7 +384,7 @@ struct dataset_view<bbq_dataset_container, DataT, IdxT, Accessor> {
 
   dataset_view() noexcept = default;
 
-  dataset_view(std::vector<owning_storage_type>& storages_) noexcept
+  dataset_view(std::vector<owning_storage_type>& storages_)
   {
     for (auto& storage : storages_) {
       add_storage(storage);
