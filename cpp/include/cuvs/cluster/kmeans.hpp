@@ -652,10 +652,13 @@ void fit(raft::resources const& handle,
  *                              kmeans algorithm are stored at the address
  *                              pointed by 'centroids'.
  *                              [dim = n_clusters x n_features]
- * @param[out]    inertia       Sum of squared distances of samples to their
+ * @param[out]    inertia       Optional sum of squared distances of samples to their
  *                              closest cluster center.
- * @param[out] parent_centroids Optional coarse training centroids [M, F].
- * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
+ * @param[out] parent_centroids Optional coarse centroids from training hierarchy.
+ *                             [dim = round(sqrt(n_clusters)) x n_features]
+ * @param[out] centroid_to_parent Optional mapping from centroids to parent cluster IDs.
+ *                               The returned hierarchy is constructed before refinement.
+ *                               [len = n_clusters]
  */
 void fit(
   const raft::resources& handle,
@@ -694,10 +697,13 @@ void fit(
  *                              kmeans algorithm are stored at the address
  *                              pointed by 'centroids'.
  *                              [dim = n_clusters x n_features]
- * @param[out]    inertia       Sum of squared distances of samples to their
+ * @param[out]    inertia       Optional sum of squared distances of samples to their
  *                              closest cluster center.
- * @param[out] parent_centroids Optional coarse training centroids [M, F].
- * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
+ * @param[out] parent_centroids Optional coarse centroids from training hierarchy.
+ *                             [dim = round(sqrt(n_clusters)) x n_features]
+ * @param[out] centroid_to_parent Optional mapping from centroids to parent cluster IDs.
+ *                               The returned hierarchy is constructed before refinement.
+ *                               [len = n_clusters]
  */
 void fit(
   const raft::resources& handle,
@@ -736,10 +742,13 @@ void fit(
  *                              kmeans algorithm are stored at the address
  *                              pointed by 'centroids'.
  *                              [dim = n_clusters x n_features]
- * @param[out]    inertia       Sum of squared distances of samples to their
+ * @param[out]    inertia       Optional sum of squared distances of samples to their
  *                              closest cluster center.
- * @param[out] parent_centroids Optional coarse training centroids [M, F].
- * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
+ * @param[out] parent_centroids Optional coarse centroids from training hierarchy.
+ *                             [dim = round(sqrt(n_clusters)) x n_features]
+ * @param[out] centroid_to_parent Optional mapping from centroids to parent cluster IDs.
+ *                               The returned hierarchy is constructed before refinement.
+ *                               [len = n_clusters]
  */
 void fit(
   const raft::resources& handle,
@@ -784,10 +793,13 @@ void fit(
  *                              kmeans algorithm are stored at the address
  *                              pointed by 'centroids'.
  *                              [dim = n_clusters x n_features]
- * @param[out]    inertia       Sum of squared distances of samples to their
+ * @param[out]    inertia       Optional sum of squared distances of samples to their
  *                              closest cluster center.
- * @param[out] parent_centroids Optional coarse training centroids [M, F].
- * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
+ * @param[out] parent_centroids Optional coarse centroids from training hierarchy.
+ *                             [dim = round(sqrt(n_clusters)) x n_features]
+ * @param[out] centroid_to_parent Optional mapping from centroids to parent cluster IDs.
+ *                               The returned hierarchy is constructed before refinement.
+ *                               [len = n_clusters]
  */
 void fit(
   const raft::resources& handle,
@@ -1567,8 +1579,11 @@ void fit_predict(raft::resources const& handle,
  *                              to.
  *                              [len = n_samples]
  * @param[out] inertia Optional sum of squared distances (float input only).
- * @param[out] parent_centroids Optional coarse training centroids [M, F].
- * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
+ * @param[out] parent_centroids Optional coarse centroids from training hierarchy.
+ *                             [dim = round(sqrt(n_clusters)) x n_features]
+ * @param[out] centroid_to_parent Optional mapping from centroids to parent cluster IDs.
+ *                               The returned hierarchy is constructed before refinement.
+ *                               [len = n_clusters]
  */
 void fit_predict(
   const raft::resources& handle,
@@ -1618,8 +1633,11 @@ void fit_predict(
  *                              to.
  *                              [len = n_samples]
  * @param[out] inertia Optional sum of squared distances (float input only).
- * @param[out] parent_centroids Optional coarse training centroids [M, F].
- * @param[out] centroid_to_parent Optional original parent cluster IDs [K].
+ * @param[out] parent_centroids Optional coarse centroids from training hierarchy.
+ *                             [dim = round(sqrt(n_clusters)) x n_features]
+ * @param[out] centroid_to_parent Optional mapping from centroids to parent cluster IDs.
+ *                               The returned hierarchy is constructed before refinement.
+ *                               [len = n_clusters]
  */
 void fit_predict(
   const raft::resources& handle,
