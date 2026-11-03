@@ -846,3 +846,79 @@ TEST(FlowannSearch, FilteredInitialResultsAreCompactedBeforeOutput)
     }
   }
 }
+
+TEST(FlowannSearch, FilteredResultsRemainOrderedAcrossWarps)
+{
+  for (bool mapped : {false, true}) {
+    SCOPED_TRACE(::testing::Message() << "mapped=" << mapped);
+    raft::resources res;
+    constexpr int64_t rows = 96;
+    constexpr int64_t topk = 64;
+    auto host              = raft::make_host_matrix<float, int64_t>(rows, 4);
+    std::fill_n(host.data_handle(), host.size(), 0.0f);
+    for (int64_t row = 0; row < rows; ++row) {
+      host(row, 0) = static_cast<float>(row);
+    }
+    auto dataset = cuvs::neighbors::make_device_padded_dataset(res, host.view());
+    flowann::device_padded_index<float> index(
+      res, cuvs::distance::DistanceType::L2Expanded, dataset->view());
+    auto inner   = raft::make_host_matrix<std::uint8_t, int64_t>(0, 0);
+    auto cross   = raft::make_host_matrix<std::uint32_t, int64_t>(rows, 2);
+    auto seeds   = raft::make_host_vector<std::uint32_t, int64_t>(rows);
+    auto ids     = raft::make_host_vector<std::uint32_t, int64_t>(rows);
+    auto groups  = raft::make_host_vector<std::uint32_t, int64_t>(rows);
+    auto offsets = raft::make_host_vector<std::uint32_t, int64_t>(1);
+    offsets(0)   = 0;
+    for (std::uint32_t row = 0; row < rows; ++row) {
+      cross(row, 0) = 1;
+      cross(row, 1) = (row + 1) % rows;
+      seeds(row)    = row;
+      ids(row)      = rows - 1 - row;
+      groups(row)   = 0;
+    }
+    index.update_graph(
+      res, raft::make_const_mdspan(inner.view()), raft::make_const_mdspan(cross.view()), 1, 0);
+    index.update_subgraph_layout(
+      res, raft::make_const_mdspan(offsets.view()), raft::make_const_mdspan(groups.view()));
+    index.update_seeds(res, raft::make_const_mdspan(seeds.view()));
+    if (mapped) { index.update_source_indices(res, raft::make_const_mdspan(ids.view())); }
+    auto queries      = raft::make_device_matrix<float, int64_t>(res, 1, 4);
+    auto neighbors    = raft::make_device_matrix<int64_t, int64_t>(res, 1, topk);
+    auto distances    = raft::make_device_matrix<float, int64_t>(res, 1, topk);
+    auto bits         = raft::make_device_vector<std::uint32_t, int64_t>(res, 3);
+    auto const stream = raft::resource::get_cuda_stream(res);
+    RAFT_CUDA_TRY(cudaMemsetAsync(queries.data_handle(), 0, 4 * sizeof(float), stream.get()));
+    // Reject only the closest row. The last requested slot is still valid before
+    // compaction, so checking just that slot cannot detect the hole at the front.
+    std::uint32_t allowed[3] = {~0u, ~0u, ~0u};
+    auto rejected = mapped ? 95u : 0u;
+    allowed[rejected / 32] &= ~(1u << (rejected % 32));
+    raft::copy(bits.data_handle(), allowed, 3, stream);
+    cuvs::neighbors::filtering::bitset_filter filter(
+      cuvs::core::bitset_view<std::uint32_t, int64_t>(bits.data_handle(), rows));
+    flowann::search_context context(index.cross_graph());
+    flowann::search_params params;
+    params.algo           = cuvs::neighbors::cagra::search_algo::SINGLE_CTA;
+    params.itopk_size     = 64;
+    params.max_iterations = 1;
+    params.num_seeds      = rows;
+    flowann::search(res,
+                    params,
+                    index,
+                    context,
+                    raft::make_const_mdspan(queries.view()),
+                    neighbors.view(),
+                    distances.view(),
+                    filter);
+    int64_t actual[topk];
+    float actual_distances[topk];
+    raft::copy(actual, neighbors.data_handle(), topk, stream);
+    raft::copy(actual_distances, distances.data_handle(), topk, stream);
+    raft::resource::sync_stream(res);
+    for (int64_t i = 0; i < topk; ++i) {
+      auto const expected_row = i + 1;
+      EXPECT_EQ(actual[i], mapped ? ids(expected_row) : expected_row) << "rank " << i;
+      EXPECT_FLOAT_EQ(actual_distances[i], static_cast<float>(expected_row * expected_row));
+    }
+  }
+}
