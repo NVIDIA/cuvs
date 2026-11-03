@@ -490,18 +490,55 @@ RAFT_DEVICE_INLINE_FUNCTION void search_core(
   auto last_result = top_k - 1;
   if constexpr (TOPK_BY_BITONIC_SORT) { last_result = device::swizzling(last_result); }
   if (top_k > internal_topk || result_indices_buffer[last_result] == invalid_index) {
+    // Selection can leave retained IDs in the candidate tail. Keep those IDs in
+    // the compacted prefix and remove duplicate candidates before merging again.
+    hashmap::init(local_visited_hashmap_ptr, hash_bitlen);
     __syncthreads();
-    topk_by_bitonic_sort_and_merge<BITONIC_SORT_AND_MERGE_MULTI_WARPS>(
-      result_distances_buffer,
-      result_indices_buffer,
-      max_itopk,
-      internal_topk,
-      result_distances_buffer + internal_topk,
-      result_indices_buffer + internal_topk,
-      max_candidates,
-      computed_children_this_iteration,
-      topk_ws,
-      (iter == 0));
+    for (std::uint32_t i = threadIdx.x; i < internal_topk; i += blockDim.x) {
+      auto const node_id = result_indices_buffer[i] & ~index_msb_1_mask;
+      if (node_id != (invalid_index & ~index_msb_1_mask)) {
+        hashmap::insert(local_visited_hashmap_ptr, hash_bitlen, node_id);
+      }
+    }
+    __syncthreads();
+    for (std::uint32_t i = internal_topk + threadIdx.x; i < result_buffer_size; i += blockDim.x) {
+      auto const node_id = result_indices_buffer[i] & ~index_msb_1_mask;
+      if (node_id != (invalid_index & ~index_msb_1_mask) &&
+          !hashmap::insert(local_visited_hashmap_ptr, hash_bitlen, node_id)) {
+        result_indices_buffer[i]   = invalid_index;
+        result_distances_buffer[i] = utils::get_max_value<DistanceT>();
+      }
+    }
+    __syncthreads();
+    if constexpr (TOPK_BY_BITONIC_SORT) {
+      topk_by_bitonic_sort_and_merge<BITONIC_SORT_AND_MERGE_MULTI_WARPS>(
+        result_distances_buffer,
+        result_indices_buffer,
+        max_itopk,
+        internal_topk,
+        result_distances_buffer + internal_topk,
+        result_indices_buffer + internal_topk,
+        max_candidates,
+        computed_children_this_iteration,
+        topk_ws,
+        (iter == 0));
+    } else {
+      // The radix path has a linear layout and may have more than 256 candidates.
+      // Filtering can increase the selection threshold, so discard the old hint.
+      if (threadIdx.x == 0) { topk_ws[0] = ~0u; }
+      __syncthreads();
+      topk_by_radix_sort<IndexT>{}(max_itopk,
+                                   internal_topk,
+                                   result_buffer_size,
+                                   reinterpret_cast<std::uint32_t*>(result_distances_buffer),
+                                   result_indices_buffer,
+                                   reinterpret_cast<std::uint32_t*>(result_distances_buffer),
+                                   result_indices_buffer,
+                                   nullptr,
+                                   topk_ws,
+                                   true,
+                                   smem_work_ptr);
+    }
   }
   __syncthreads();
 
