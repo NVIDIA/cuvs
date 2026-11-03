@@ -172,7 +172,6 @@ static void merge_indices_for_layout(
   raft::resources* res_ptr,
   cuvs::neighbors::cagra::index_params const& params_cpp,
   std::vector<cuvs::neighbors::cagra::index<T, uint32_t, DatasetViewT>*>& index_ptrs,
-  cuvsFilter filter,
   cuvs::neighbors::cagra::merge_params const& merge_params,
   cuvsDataset_t merged_dataset,
   std::vector<int64_t> const& offsets,
@@ -191,21 +190,14 @@ static void merge_indices_for_layout(
                "cuvsCagraMerge: merged_dataset must be a device dataset matching the input "
                "indices' layout");
 
-  int64_t merged_row_count = 0;
-  for (auto* idx_ptr : index_ptrs) {
-    merged_row_count += static_cast<int64_t>(idx_ptr->size());
-  }
-
   using owner_t = cuvs::neighbors::owning_dataset_for_view_t<DatasetViewT>;
   with_dataset_view<owner_t, DatasetViewT>(merged_dataset, [&](auto const& view) {
-    with_row_filter(filter, merged_row_count, [&](auto const& row_filter) {
-      auto merged_idx = cuvs::neighbors::cagra::merge(
-        *res_ptr, params_cpp, index_ptrs, view, offsets, merge_params, row_filter);
-      auto* holder =
-        new cuvs_cagra_c_api_index_lifetime_holder<T, DatasetViewT>{std::move(merged_idx)};
-      bind_index_lifetime_holder_to_C_index<T, DatasetViewT>(
-        output_index, output_index->dtype, holder);
-    });
+    auto merged_idx =
+      cuvs::neighbors::cagra::merge(*res_ptr, params_cpp, index_ptrs, view, offsets, merge_params);
+    auto* holder =
+      new cuvs_cagra_c_api_index_lifetime_holder<T, DatasetViewT>{std::move(merged_idx)};
+    bind_index_lifetime_holder_to_C_index<T, DatasetViewT>(
+      output_index, output_index->dtype, holder);
   });
 }
 
@@ -1316,13 +1308,13 @@ void _merge(cuvsResources_t res,
       convert_opaque_indices_to_concrete_types<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
         indices, num_indices);
     merge_indices_for_layout<T, cuvs::neighbors::device_padded_dataset_view<T, int64_t>>(
-      res_ptr, params_cpp, index_ptrs, filter, merge_params, merged_dataset, offsets, output_index);
+      res_ptr, params_cpp, index_ptrs, merge_params, merged_dataset, offsets, output_index);
   } else {
     auto index_ptrs =
       convert_opaque_indices_to_concrete_types<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
         indices, num_indices);
     merge_indices_for_layout<T, cuvs::neighbors::device_standard_dataset_view<T, int64_t>>(
-      res_ptr, params_cpp, index_ptrs, filter, merge_params, merged_dataset, offsets, output_index);
+      res_ptr, params_cpp, index_ptrs, merge_params, merged_dataset, offsets, output_index);
   }
 }
 
@@ -1371,19 +1363,21 @@ void _merged_dataset_offsets(cuvsResources_t res,
   };
 
   if (layout == CUVS_DATASET_LAYOUT_PADDED) {
-    using ViewT = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
+    using OwnerT = cuvs::neighbors::device_padded_dataset<T, int64_t>;
+    using ViewT  = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
     std::vector<ViewT> views;
     views.reserve(num_datasets);
     for (size_t i = 0; i < num_datasets; ++i) {
-      views.push_back(*reinterpret_cast<ViewT*>(datasets[i]->addr));
+      with_dataset_view<OwnerT, ViewT>(datasets[i], [&](auto const& v) { views.push_back(v); });
     }
     compute(views);
   } else {
-    using ViewT = cuvs::neighbors::device_standard_dataset_view<T, int64_t>;
+    using OwnerT = cuvs::neighbors::device_standard_dataset<T, int64_t>;
+    using ViewT  = cuvs::neighbors::device_standard_dataset_view<T, int64_t>;
     std::vector<ViewT> views;
     views.reserve(num_datasets);
     for (size_t i = 0; i < num_datasets; ++i) {
-      views.push_back(*reinterpret_cast<ViewT*>(datasets[i]->addr));
+      with_dataset_view<OwnerT, ViewT>(datasets[i], [&](auto const& v) { views.push_back(v); });
     }
     compute(views);
   }
@@ -1427,7 +1421,7 @@ void _concatenate_datasets(cuvsResources_t res,
     using OutputDatasetT = std::remove_pointer_t<decltype(output_type_tag)>;
     if (filter.type == NO_FILTER) {
       bind_concatenated_dataset(
-        cuvs::neighbors::cagra::concatenate_datasets<T, OutputDatasetT>(*res_ptr, dataset_views),
+        cuvs::neighbors::concatenate_datasets<T, OutputDatasetT>(*res_ptr, dataset_views),
         dtype,
         layout_enum,
         merged_dataset);
@@ -1440,7 +1434,7 @@ void _concatenate_datasets(cuvsResources_t res,
       cuvs::core::bitset_view<std::uint32_t, int64_t> bitset_view_obj(removed_indices, total_rows);
       cuvs::neighbors::filtering::bitset_filter<uint32_t, int64_t> row_filter(bitset_view_obj);
       bind_concatenated_dataset(
-        cuvs::neighbors::cagra::concatenate_datasets<T, OutputDatasetT>(
+        cuvs::neighbors::concatenate_datasets<T, OutputDatasetT>(
           *res_ptr, dataset_views, row_filter),
         dtype,
         layout_enum,
@@ -1449,21 +1443,23 @@ void _concatenate_datasets(cuvsResources_t res,
   };
 
   if (layout == CUVS_DATASET_LAYOUT_PADDED) {
+    using OwnerT  = cuvs::neighbors::device_padded_dataset<T, int64_t>;
     using ViewT   = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
-    using OutputT = cuvs::neighbors::device_padded_dataset<T, int64_t>;
+    using OutputT = OwnerT;
     std::vector<ViewT> views;
     views.reserve(num_datasets);
     for (size_t i = 0; i < num_datasets; ++i) {
-      views.push_back(*reinterpret_cast<ViewT*>(datasets[i]->addr));
+      with_dataset_view<OwnerT, ViewT>(datasets[i], [&](auto const& v) { views.push_back(v); });
     }
     compute(views, CUVS_DATASET_LAYOUT_PADDED, (OutputT*)nullptr);
   } else {
+    using OwnerT  = cuvs::neighbors::device_standard_dataset<T, int64_t>;
     using ViewT   = cuvs::neighbors::device_standard_dataset_view<T, int64_t>;
-    using OutputT = cuvs::neighbors::device_standard_dataset<T, int64_t>;
+    using OutputT = OwnerT;
     std::vector<ViewT> views;
     views.reserve(num_datasets);
     for (size_t i = 0; i < num_datasets; ++i) {
-      views.push_back(*reinterpret_cast<ViewT*>(datasets[i]->addr));
+      with_dataset_view<OwnerT, ViewT>(datasets[i], [&](auto const& v) { views.push_back(v); });
     }
     compute(views, CUVS_DATASET_LAYOUT_STANDARD, (OutputT*)nullptr);
   }

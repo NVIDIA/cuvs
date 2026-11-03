@@ -302,20 +302,12 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
   const cagra::index_params& params,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
   DatasetViewT merged_dataset,
-  std::vector<int64_t> const& offsets,
-  const cuvs::neighbors::filtering::base_filter& row_filter)
+  std::vector<int64_t> const& offsets)
 {
   using cagra_index_t = cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
 
   uint32_t dim   = 0;
   int64_t stride = -1;
-
-  RAFT_EXPECTS(row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Bitmap,
-               "Bitmap filter isn't supported inside cagra::merge");
-  RAFT_EXPECTS(row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Bloom,
-               "Bloom filter isn't supported inside cagra::merge");
-  RAFT_EXPECTS(row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::Roaring,
-               "Roaring filter isn't supported inside cagra::merge");
 
   for (cagra_index_t* index : indices) {
     RAFT_EXPECTS(index != nullptr,
@@ -374,8 +366,7 @@ auto preflight_fastener(
   cagra::index_params const& params,
   cagra::merge_params const& merge_params,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
-  std::vector<int64_t> const& offsets,
-  cuvs::neighbors::filtering::base_filter const& row_filter) -> fastener_preflight_result
+  std::vector<int64_t> const& offsets) -> fastener_preflight_result
 {
   fastener_preflight_result result;
   auto reject = [&](std::string reason) {
@@ -394,9 +385,6 @@ auto preflight_fastener(
     return reject("only dense row-major device datasets are supported");
   }
   if (indices.size() < 2) { return reject("at least two input indices are required"); }
-  if (row_filter.get_filter_type() != cuvs::neighbors::filtering::FilterType::None) {
-    return reject("row filters are not supported");
-  }
   if (params.metric != cuvs::distance::DistanceType::L2Expanded) {
     return reject("only L2Expanded is supported");
   }
@@ -618,8 +606,7 @@ auto merge(raft::resources const& handle,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
            DatasetViewT merged_dataset,
            std::vector<int64_t> const& offsets,
-           cagra::merge_params const& merge_params,
-           cuvs::neighbors::filtering::base_filter const& row_filter)
+           cagra::merge_params const& merge_params)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> merge_scope(
@@ -630,16 +617,14 @@ auto merge(raft::resources const& handle,
                  merge_params.algo == cagra::merge_algo::REBUILD,
                "Unknown cagra::merge algorithm");
   if (merge_params.algo == cagra::merge_algo::REBUILD) {
-    return merge_rebuild<T, IdxT, DatasetViewT>(
-      handle, params, indices, merged_dataset, offsets, row_filter);
+    return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset, offsets);
   }
 
-  auto preflight = preflight_fastener<T, IdxT, DatasetViewT>(
-    handle, params, merge_params, indices, offsets, row_filter);
+  auto preflight =
+    preflight_fastener<T, IdxT, DatasetViewT>(handle, params, merge_params, indices, offsets);
   if (!preflight.eligible) {
     if (merge_params.algo == cagra::merge_algo::AUTO) {
-      return merge_rebuild<T, IdxT, DatasetViewT>(
-        handle, params, indices, merged_dataset, offsets, row_filter);
+      return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset, offsets);
     }
     RAFT_FAIL("FASTENER cagra::merge is unsupported: %s", preflight.reason.c_str());
   }
@@ -656,8 +641,7 @@ auto merge(raft::resources const& handle,
     } catch (std::bad_alloc const& failure) {
       RAFT_LOG_WARN("Fastener cagra::merge could not allocate (%s); falling back to rebuild",
                     failure.what());
-      return merge_rebuild<T, IdxT, DatasetViewT>(
-        handle, params, indices, merged_dataset, offsets, row_filter);
+      return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset, offsets);
     }
   }
 
@@ -671,14 +655,13 @@ auto merge(raft::resources const& handle,
            cagra::index_params const& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
            DatasetViewT merged_dataset,
-           std::vector<int64_t> const& offsets,
-           cuvs::neighbors::filtering::base_filter const& row_filter)
+           std::vector<int64_t> const& offsets)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
   // Fully qualified: an unqualified call also finds cuvs::neighbors::cagra::merge via ADL on the
   // index arguments, which is ambiguous with this overload.
   return cuvs::neighbors::cagra::detail::merge<T, IdxT, DatasetViewT>(
-    handle, params, indices, merged_dataset, offsets, cagra::merge_params{}, row_filter);
+    handle, params, indices, merged_dataset, offsets, cagra::merge_params{});
 }
 
 }  // namespace cuvs::neighbors::cagra::detail
