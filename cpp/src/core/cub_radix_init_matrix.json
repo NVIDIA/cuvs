@@ -1,0 +1,50 @@
+[
+  {
+    "inst_abbrev": "f32_keys_u64_ascending_lookback",
+    "pointer_type": "cuvs::detail::radix_launch::f32_keys_u64_ascending_RadixSortInitLookbackKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::f32_keys_u64_ascending",
+    "method": "RadixSortInitLookbackKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<float, cub::NullType, unsigned long long>, int, int"
+  },
+  {
+    "inst_abbrev": "f32_keys_u64_ascending_bins",
+    "pointer_type": "cuvs::detail::radix_launch::f32_keys_u64_ascending_RadixSortInitBinsAndCountersKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::f32_keys_u64_ascending",
+    "method": "RadixSortInitBinsAndCountersKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<float, cub::NullType, unsigned long long>, int, unsigned long long"
+  },
+  {
+    "inst_abbrev": "i32_keys_u64_ascending_lookback",
+    "pointer_type": "cuvs::detail::radix_launch::i32_keys_u64_ascending_RadixSortInitLookbackKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::i32_keys_u64_ascending",
+    "method": "RadixSortInitLookbackKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<int, cub::NullType, unsigned long long>, int, int"
+  },
+  {
+    "inst_abbrev": "i32_keys_u64_ascending_bins",
+    "pointer_type": "cuvs::detail::radix_launch::i32_keys_u64_ascending_RadixSortInitBinsAndCountersKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::i32_keys_u64_ascending",
+    "method": "RadixSortInitBinsAndCountersKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort::policy_selector_from_types<int, cub::NullType, unsigned long long>, int, unsigned long long"
+  },
+  {
+    "inst_abbrev": "u32_keys_u64_ascending_lookback",
+    "pointer_type": "cuvs::detail::radix_launch::u32_keys_u64_ascending_RadixSortInitLookbackKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::u32_keys_u64_ascending",
+    "method": "RadixSortInitLookbackKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort:: policy_selector_from_types<unsigned int, cub::NullType, unsigned long long>, int, int"
+  },
+  {
+    "inst_abbrev": "u32_keys_u64_ascending_bins",
+    "pointer_type": "cuvs::detail::radix_launch::u32_keys_u64_ascending_RadixSortInitBinsAndCountersKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::u32_keys_u64_ascending",
+    "method": "RadixSortInitBinsAndCountersKernel",
+    "kernel_function": "cub::detail::radix_sort::DeviceRadixSortInitKernel",
+    "kernel_arguments": "cub::detail::radix_sort:: policy_selector_from_types<unsigned int, cub::NullType, unsigned long long>, int, unsigned long long"
+  }
+]

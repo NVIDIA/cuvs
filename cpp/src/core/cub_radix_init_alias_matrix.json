@@ -1,0 +1,44 @@
+[
+  {
+    "inst_abbrev": "f32_keys_u64_descending_lookback",
+    "pointer_type": "cuvs::detail::radix_launch::f32_keys_u64_descending_RadixSortInitLookbackKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::f32_keys_u64_descending",
+    "method": "RadixSortInitLookbackKernel",
+    "canonical_provider": "cuvs::detail::radix_launch::f32_keys_u64_ascending"
+  },
+  {
+    "inst_abbrev": "f32_keys_u64_descending_bins",
+    "pointer_type": "cuvs::detail::radix_launch::f32_keys_u64_descending_RadixSortInitBinsAndCountersKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::f32_keys_u64_descending",
+    "method": "RadixSortInitBinsAndCountersKernel",
+    "canonical_provider": "cuvs::detail::radix_launch::f32_keys_u64_ascending"
+  },
+  {
+    "inst_abbrev": "i32_keys_u64_descending_lookback",
+    "pointer_type": "cuvs::detail::radix_launch::i32_keys_u64_descending_RadixSortInitLookbackKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::i32_keys_u64_descending",
+    "method": "RadixSortInitLookbackKernel",
+    "canonical_provider": "cuvs::detail::radix_launch::i32_keys_u64_ascending"
+  },
+  {
+    "inst_abbrev": "i32_keys_u64_descending_bins",
+    "pointer_type": "cuvs::detail::radix_launch::i32_keys_u64_descending_RadixSortInitBinsAndCountersKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::i32_keys_u64_descending",
+    "method": "RadixSortInitBinsAndCountersKernel",
+    "canonical_provider": "cuvs::detail::radix_launch::i32_keys_u64_ascending"
+  },
+  {
+    "inst_abbrev": "u32_keys_u64_descending_lookback",
+    "pointer_type": "cuvs::detail::radix_launch::u32_keys_u64_descending_RadixSortInitLookbackKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::u32_keys_u64_descending",
+    "method": "RadixSortInitLookbackKernel",
+    "canonical_provider": "cuvs::detail::radix_launch::u32_keys_u64_ascending"
+  },
+  {
+    "inst_abbrev": "u32_keys_u64_descending_bins",
+    "pointer_type": "cuvs::detail::radix_launch::u32_keys_u64_descending_RadixSortInitBinsAndCountersKernel_pointer",
+    "provider": "cuvs::detail::radix_launch::u32_keys_u64_descending",
+    "method": "RadixSortInitBinsAndCountersKernel",
+    "canonical_provider": "cuvs::detail::radix_launch::u32_keys_u64_ascending"
+  }
+]

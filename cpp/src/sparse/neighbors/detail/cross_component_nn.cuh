@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../../core/radix_sorting_launchers.hpp"
 #include "../../../distance/masked_nn.cuh"
 #include <cuvs/distance/distance.hpp>
 
@@ -185,28 +186,6 @@ struct MutualReachabilityFixConnectivitiesRedOp {
   }
 };
 
-/**
- * Assumes 3-iterator tuple containing COO rows, cols, and
- * a cub keyvalue pair object. Sorts the 3 arrays in
- * ascending order: row->col->keyvaluepair
- */
-struct TupleComp {
-  template <typename one, typename two>
-  __host__ __device__ bool operator()(const one& t1, const two& t2)
-  {
-    // sort first by each sample's color,
-    if (cuda::std::get<0>(t1) < cuda::std::get<0>(t2)) return true;
-    if (cuda::std::get<0>(t1) > cuda::std::get<0>(t2)) return false;
-
-    // then by the color of each sample's closest neighbor,
-    if (cuda::std::get<1>(t1) < cuda::std::get<1>(t2)) return true;
-    if (cuda::std::get<1>(t1) > cuda::std::get<1>(t2)) return false;
-
-    // then sort by value in descending order
-    return cuda::std::get<2>(t1).value < cuda::std::get<2>(t2).value;
-  }
-};
-
 template <typename LabelT, typename DataT>
 struct CubKVPMinReduce {
   typedef raft::KeyValuePair<LabelT, DataT> KVP;
@@ -299,7 +278,7 @@ void perform_1nn(raft::resources const& handle,
   auto sort_plan = raft::make_device_vector<value_idx>(handle, (value_idx)n_rows);
   raft::linalg::map_offset(handle, sort_plan.view(), [] __device__(value_idx idx) { return idx; });
 
-  thrust::sort_by_key(
+  cuvs::detail::thrust_sort_by_key(
     raft::resource::get_thrust_policy(handle), colors, colors + n_rows, sort_plan.data_handle());
 
   // Modify the reduction operation based on the sort plan.
@@ -450,7 +429,7 @@ void sort_by_color(raft::resources const& handle,
     cuda::std::make_tuple(colors, nn_colors, (raft::KeyValuePair<value_idx, value_t>*)kvp));
   auto vals = thrust::make_zip_iterator(cuda::std::make_tuple(src_indices));
   // get all the colors in contiguous locations so we can map them to warps.
-  thrust::sort_by_key(exec_policy, keys, keys + n_rows, vals, TupleComp());
+  cuvs::detail::thrust_sort_by_key(exec_policy, keys, keys + n_rows, vals, TupleComp());
 }
 
 template <typename value_idx, typename value_t>

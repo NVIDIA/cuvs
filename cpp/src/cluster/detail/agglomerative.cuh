@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/radix_sorting_launchers.hpp"
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
@@ -296,10 +297,10 @@ void extract_flattened_clusters(raft::resources const& handle,
     value_idx children_cpy_start = n_edges - child_size;
     raft::copy_async(label_roots.data(), children + children_cpy_start, child_size, stream);
 
-    thrust::sort(thrust_policy,
-                 label_roots.data(),
-                 label_roots.data() + (child_size),
-                 cuda::std::greater<value_idx>());
+    cuvs::detail::thrust_sort(thrust_policy,
+                              label_roots.data(),
+                              label_roots.data() + (child_size),
+                              cuda::std::greater<value_idx>());
 
     rmm::device_uvector<value_idx> tmp_labels(n_vertices, stream);
 

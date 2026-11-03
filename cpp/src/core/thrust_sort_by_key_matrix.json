@@ -1,0 +1,38 @@
+[
+  {
+    "return_type": "CUVS_EXPORT void",
+    "qualified_function": "cuvs::detail::thrust_sort_by_key",
+    "template_arguments": "",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "parameter_types": "rmm::exec_policy_nosync const&, thrust::zip_iterator<cuda::std::tuple<long*, float*>>, thrust::zip_iterator<cuda::std::tuple<long*, float*>>, long*, cuvs::neighbors::ball_cover::detail::NNComp",
+        "instantiation_name": "exec_policy_nosync_c_ref_zip_iterator_tuple_long_ptr_f32_ptr_zip_iterator_tuple_long_ptr_f32_ptr_long_ptr_nncomp"
+      },
+      {
+        "parameter_types": "rmm::exec_policy_nosync const&, int*, int*, int*",
+        "instantiation_name": "exec_policy_nosync_c_ref_int_ptr_int_ptr_int_ptr"
+      },
+      {
+        "parameter_types": "rmm::exec_policy_nosync const&, long*, long*, long*",
+        "instantiation_name": "exec_policy_nosync_c_ref_long_ptr_long_ptr_long_ptr"
+      },
+      {
+        "parameter_types": "rmm::exec_policy_nosync const&, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*>>, thrust::zip_iterator<cuda::std::tuple<int*, int*, raft::KeyValuePair<int, float>*>>, thrust::zip_iterator<cuda::std::tuple<int*>>, cuvs::sparse::neighbors::detail::TupleComp",
+        "instantiation_name": "mst_coo_i32_tuplecomp"
+      },
+      {
+        "parameter_types": "rmm::exec_policy_nosync const&, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*>>, thrust::zip_iterator<cuda::std::tuple<long*, long*, raft::KeyValuePair<long, float>*>>, thrust::zip_iterator<cuda::std::tuple<long*>>, cuvs::sparse::neighbors::detail::TupleComp",
+        "instantiation_name": "mst_coo_i64_tuplecomp"
+      },
+      {
+        "parameter_types": "thrust::device_ptr<int>, thrust::device_ptr<int>, thrust::zip_iterator<cuda::std::tuple<thrust::device_ptr<int>, thrust::device_ptr<float>>>",
+        "instantiation_name": "device_ptr_int_device_ptr_int_zip_iterator_tuple_device_ptr_int_device_ptr_f32"
+      },
+      {
+        "parameter_types": "thrust::device_ptr<long>, thrust::device_ptr<long>, thrust::zip_iterator<cuda::std::tuple<thrust::device_ptr<long>, thrust::device_ptr<float>>>",
+        "instantiation_name": "device_ptr_long_device_ptr_long_zip_iterator_tuple_device_ptr_long_device_ptr_f32"
+      }
+    ]
+  }
+]

@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/radix_sorting_launchers.hpp"
 #include "common.cuh"
 #include "registers.hpp"
 #include <cuvs/neighbors/ball_cover.hpp>
@@ -120,11 +121,11 @@ void construct_landmark_1nn(raft::resources const& handle,
     cuda::std::make_tuple(R_1nn_inds.data_handle(), index.get_R_1nn_dists().data_handle()));
 
   // group neighborhoods for each reference landmark and sort each group by distance
-  thrust::sort_by_key(raft::resource::get_thrust_policy(handle),
-                      keys,
-                      keys + index.m,
-                      index.get_R_1nn_cols().data_handle(),
-                      NNComp());
+  cuvs::detail::thrust_sort_by_key(raft::resource::get_thrust_policy(handle),
+                                   keys,
+                                   keys + index.m,
+                                   index.get_R_1nn_cols().data_handle(),
+                                   NNComp());
 
   // convert to CSR for fast lookup
   raft::sparse::convert::sorted_coo_to_csr(R_1nn_inds.data_handle(),

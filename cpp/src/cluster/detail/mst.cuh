@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/radix_sorting_launchers.hpp"
 #include "../../sparse/neighbors/cross_component_nn.cuh"
 #include "raft/core/device_mdspan.hpp"
 #include "raft/core/operators.hpp"
@@ -72,7 +73,8 @@ void sort_mst_edges(
   raft::resources const& handle, value_idx* src, value_idx* dst, value_t* weights, size_t n_edges)
 {
   auto first = thrust::make_zip_iterator(cuda::std::make_tuple(src, dst, weights));
-  thrust::sort(raft::resource::get_thrust_policy(handle), first, first + n_edges, mst_edge_less{});
+  cuvs::detail::thrust_sort(
+    raft::resource::get_thrust_policy(handle), first, first + n_edges, mst_edge_less{});
 }
 
 template <typename value_idx, typename value_t>
@@ -308,7 +310,7 @@ void connect_knn_graph(
   auto dist_begin = thrust::device_pointer_cast(sym_vals.data());
 
   auto zipped_begin = thrust::make_zip_iterator(cuda::std::make_tuple(cols_begin, dist_begin));
-  thrust::sort_by_key(rows_begin, rows_begin + sym_nnz, zipped_begin);
+  cuvs::detail::thrust_sort_by_key(rows_begin, rows_begin + sym_nnz, zipped_begin);
 
   rmm::device_uvector<value_idx> indptr2(m + 1, stream);
   raft::sparse::convert::sorted_coo_to_csr(

@@ -1,0 +1,34 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/cub_radix_launchers.hpp>
+
+#include <core/cub_ptx_query.hpp>
+
+#include <cluster/detail/mst.cuh>
+#include <core/radix_sorting_launchers.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <rmm/exec_policy.hpp>
+#include <thrust/sort.h>
+
+namespace cuvs::detail {
+
+template <typename Policy, typename Iterator>
+void thrust_sort(Policy const& policy, Iterator first, Iterator last)
+{
+  return thrust::sort(policy, first, last);
+}
+
+template <typename Policy, typename Iterator, typename Compare>
+void thrust_sort(Policy const& policy, Iterator first, Iterator last, Compare compare)
+{
+  return thrust::sort(policy, first, last, compare);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
