@@ -63,7 +63,12 @@ struct quantizer_const_view {
   std::variant<range_type, offsets_type> value;
 };
 
-/** Owns either a global interval or device offsets and a shared step size. */
+/**
+ * Owns either a global interval or device offsets and a shared step size.
+ * Move-only; copy view() to borrow the parameters.
+ * Migration: replace q.min_ with std::get<quantizer<T>::range_type>(q.value).min_
+ * (likewise for max_).
+ */
 template <typename T>
 struct quantizer {
   using view_type  = quantizer_const_view<T>;

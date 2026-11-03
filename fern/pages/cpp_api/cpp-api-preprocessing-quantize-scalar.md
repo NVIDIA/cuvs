@@ -109,6 +109,8 @@ struct offsets_type {
 
 Owns either a global interval or device offsets and a shared step size.
 
+Move-only; copy view() to borrow the parameters. Migration: replace q.min_ with std::get&lt;quantizer&lt;T&gt;::range_type&gt;(q.value).min_ (likewise for max_).
+
 ```cpp
 template <typename T>
 struct quantizer {
