@@ -5,29 +5,28 @@
 
 #pragma once
 
-#include "./faiss_distance_utils.h"
-
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/preprocessing/quantize/scalar.hpp>
 #include <cuvs/selection/select_k.hpp>
 
 #include <raft/core/copy.cuh>
+#include <raft/core/cublas_macros.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
-#include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/gemm.cuh>
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/reduce.cuh>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 
+#include <rmm/cuda_device.hpp>
 #include <rmm/device_uvector.hpp>
 
-#include <cublas_v2.h>
 #include <cuda/iterator>
 #include <thrust/for_each.h>
 
@@ -36,7 +35,10 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
+#include <string_view>
 #include <variant>
+
+#include "./faiss_distance_utils.h"
 
 namespace cuvs::neighbors::detail {
 
@@ -111,69 +113,66 @@ void compute_sq_statistics(raft::resources const& res,
   }
 }
 
-inline cublasStatus_t int8_gemm(cublasHandle_t handle,
-                                std::int8_t const* dataset,
-                                std::int8_t const* queries,
-                                std::int32_t* scores,
-                                int64_t n_rows,
-                                int64_t n_queries,
-                                int64_t dim,
-                                int64_t leading_dim)
+inline void int8_gemm(raft::resources const& res,
+                      std::int8_t const* dataset,
+                      std::int8_t const* queries,
+                      std::int32_t* scores,
+                      int64_t n_rows,
+                      int64_t n_queries,
+                      int64_t dim,
+                      int64_t leading_dim)
 {
   std::int32_t const alpha = 1;
   std::int32_t const beta  = 0;
-  auto const status        = cublasGemmEx(handle,
-                                   CUBLAS_OP_T,
-                                   CUBLAS_OP_N,
-                                   static_cast<int>(n_rows),
-                                   static_cast<int>(n_queries),
-                                   static_cast<int>(dim),
-                                   &alpha,
-                                   dataset,
-                                   CUDA_R_8I,
-                                   static_cast<int>(dim),
-                                   queries,
-                                   CUDA_R_8I,
-                                   static_cast<int>(dim),
-                                   &beta,
-                                   scores,
-                                   CUDA_R_32I,
-                                   static_cast<int>(leading_dim),
-                                   CUBLAS_COMPUTE_32I,
-                                   CUBLAS_GEMM_DEFAULT);
-
-  // Some cuBLAS versions do not provide an INT8 kernel for otherwise valid, irregular shapes.
-  // Splitting only the rejected product keeps the common case to one GEMM.
-  if (status != CUBLAS_STATUS_NOT_SUPPORTED) { return status; }
-  if (n_queries > 16) {
-    for (int64_t query = 0; query < n_queries; query += 16) {
-      auto const result = int8_gemm(handle,
-                                    dataset,
-                                    queries + query * dim,
-                                    scores + query * leading_dim,
-                                    n_rows,
-                                    std::min<int64_t>(16, n_queries - query),
-                                    dim,
-                                    leading_dim);
-      if (result != CUBLAS_STATUS_SUCCESS) { return result; }
+  try {
+    raft::linalg::gemm(res,
+                       true,
+                       false,
+                       static_cast<int>(n_rows),
+                       static_cast<int>(n_queries),
+                       static_cast<int>(dim),
+                       &alpha,
+                       dataset,
+                       static_cast<int>(dim),
+                       queries,
+                       static_cast<int>(dim),
+                       &beta,
+                       scores,
+                       static_cast<int>(leading_dim),
+                       raft::resource::get_cuda_stream(res).get());
+  } catch (raft::cublas_error const& error) {
+    // Some cuBLASLt versions reject otherwise valid, irregular INT8 shapes. RAFT exposes
+    // the cuBLAS status in the exception message; retry only unsupported products.
+    if (std::string_view{error.what()}.find("CUBLAS_STATUS_NOT_SUPPORTED") ==
+        std::string_view::npos) {
+      throw;
     }
-    return CUBLAS_STATUS_SUCCESS;
+    if (n_queries > 16) {
+      for (int64_t query = 0; query < n_queries; query += 16) {
+        int8_gemm(res,
+                  dataset,
+                  queries + query * dim,
+                  scores + query * leading_dim,
+                  n_rows,
+                  std::min<int64_t>(16, n_queries - query),
+                  dim,
+                  leading_dim);
+      }
+    } else if (n_rows >= 8) {
+      auto const first_rows = n_rows / 8 * 4;
+      int8_gemm(res, dataset, queries, scores, first_rows, n_queries, dim, leading_dim);
+      int8_gemm(res,
+                dataset + first_rows * dim,
+                queries,
+                scores + first_rows,
+                n_rows - first_rows,
+                n_queries,
+                dim,
+                leading_dim);
+    } else {
+      throw;
+    }
   }
-  if (n_rows >= 8) {
-    auto const first_rows = n_rows / 8 * 4;
-    auto const result =
-      int8_gemm(handle, dataset, queries, scores, first_rows, n_queries, dim, leading_dim);
-    if (result != CUBLAS_STATUS_SUCCESS) { return result; }
-    return int8_gemm(handle,
-                     dataset + first_rows * dim,
-                     queries,
-                     scores + first_rows,
-                     n_rows - first_rows,
-                     n_queries,
-                     dim,
-                     leading_dim);
-  }
-  return status;
 }
 
 RAFT_KERNEL int8_postprocess_kernel(std::int32_t const* scores,
@@ -308,7 +307,6 @@ void int8_brute_force_search(raft::resources const& res,
   rmm::device_uvector<IdxT> candidate_indices(tile_rows * candidate_cols, stream);
   rmm::device_uvector<std::int8_t> padded_dataset(0, stream);
 
-  auto handle           = raft::resource::get_cublas_handle(res);
   auto const select_min = cuvs::distance::is_min_close(index.metric());
 
   for (int64_t query_offset = 0; query_offset < m; query_offset += tile_rows) {
@@ -332,17 +330,14 @@ void int8_brute_force_search(raft::resources const& res,
         dataset_ptr = padded_dataset.data();
       }
 
-      auto const status = int8_gemm(handle,
-                                    dataset_ptr,
-                                    queries_ptr + query_offset * d,
-                                    scores.data(),
-                                    gemm_rows,
-                                    current_queries,
-                                    d,
-                                    tile_cols);
-      if (status != CUBLAS_STATUS_SUCCESS) {
-        RAFT_FAIL("INT8 brute-force cublasGemmEx failed with status %d", status);
-      }
+      int8_gemm(res,
+                dataset_ptr,
+                queries_ptr + query_offset * d,
+                scores.data(),
+                gemm_rows,
+                current_queries,
+                d,
+                tile_cols);
 
       auto* output_scores = reinterpret_cast<float*>(scores.data());
       if (current_rows != static_cast<int64_t>(tile_cols)) {
