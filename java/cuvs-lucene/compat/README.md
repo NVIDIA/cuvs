@@ -24,6 +24,10 @@ on. Directories are named `<class>-<release>-<change>`:
 | `cuvs.lucene.compat.leafReader` (tests only) | `leaf-reader-102-bits` | 10.2 | `searchNearestVectors` takes `Bits` |
 | | `leaf-reader-103-acceptdocs` | 10.3 | `searchNearestVectors` takes `AcceptDocs` |
 
+A variant may also have a `src/test/java` for the test calls to its class that differ between releases,
+such as `TestQueryCompat` in the `knn-float-vector-query-*` variants; the parent `pom.xml` adds it to the
+module's test sources.
+
 Code that differs in (almost) every release, such as which Lucene classes moved to `backward_codecs`,
 stays in each module's own `LuceneCompat`.
 
