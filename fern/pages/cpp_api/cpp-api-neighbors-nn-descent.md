@@ -234,7 +234,7 @@ The following distance metrics are supported:
 - L2Expanded
 - L2SqrtExpanded
 - CosineExpanded
-- JaccardExpanded
+- JaccardExpanded (binary 0/1 vectors)
 - InnerProduct
 - L1
 
@@ -270,7 +270,7 @@ The following distance metrics are supported:
 - L2Expanded
 - L2SqrtExpanded
 - CosineExpanded
-- JaccardExpanded
+- JaccardExpanded (binary 0/1 vectors)
 - InnerProduct
 - L1
 
@@ -313,7 +313,7 @@ The following distance metrics are supported:
 - L2Expanded
 - L2SqrtExpanded
 - CosineExpanded
-- JaccardExpanded
+- JaccardExpanded (binary 0/1 vectors)
 - InnerProduct
 - L1
 
@@ -349,7 +349,7 @@ The following distance metrics are supported:
 - L2Expanded
 - L2SqrtExpanded
 - CosineExpanded
-- JaccardExpanded
+- JaccardExpanded (binary 0/1 vectors)
 - InnerProduct
 - L1
 
@@ -392,7 +392,7 @@ The following distance metrics are supported:
 - L2Expanded
 - L2SqrtExpanded
 - CosineExpanded
-- JaccardExpanded
+- JaccardExpanded (binary 0/1 vectors)
 - InnerProduct
 - L1
 - BitwiseHamming
@@ -429,7 +429,7 @@ The following distance metrics are supported:
 - L2Expanded
 - L2SqrtExpanded
 - CosineExpanded
-- JaccardExpanded
+- JaccardExpanded (binary 0/1 vectors)
 - InnerProduct
 - L1
 - BitwiseHamming
@@ -473,7 +473,7 @@ The following distance metrics are supported:
 - L2Expanded
 - L2SqrtExpanded
 - CosineExpanded
-- JaccardExpanded
+- JaccardExpanded (binary 0/1 vectors)
 - InnerProduct
 - L1
 - BitwiseHamming
@@ -510,7 +510,7 @@ The following distance metrics are supported:
 - L2Expanded
 - L2SqrtExpanded
 - CosineExpanded
-- JaccardExpanded
+- JaccardExpanded (binary 0/1 vectors)
 - InnerProduct
 - L1
 - BitwiseHamming

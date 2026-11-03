@@ -193,8 +193,10 @@ cdef class IndexParams:
 
             - jaccard distance for binary (0/1) vectors is
               distance(a, b) = 1 - intersection(a, b) / union(a, b). Two empty sets have
-              distance zero. Requires build_algo="nn_descent" or
-              build_algo="iterative_cagra_search".
+              distance zero. Use build_algo="nn_descent" or
+              build_algo="iterative_cagra_search". With build_algo="ace", all
+              partitions must use NN-descent; partitions for which ACE selects
+              IVF-PQ are rejected.
 
     intermediate_graph_degree : int, default = 128
     graph_degree : int, default = 64
@@ -248,12 +250,11 @@ cdef class IndexParams:
         cdef cuvsIvfPqParams_t ivf_pq_params_ptr
         cdef cuvsAceParams_t new_ace_params
 
-        if metric == "jaccard" and build_algo not in (
-            "nn_descent", "iterative_cagra_search"
-        ):
+        if metric == "jaccard" and build_algo == "ivf_pq":
             raise ValueError(
-                'Jaccard distance requires build_algo="nn_descent" or '
-                'build_algo="iterative_cagra_search".'
+                'IVF-PQ graph construction does not support Jaccard distance. '
+                'Use build_algo="nn_descent", build_algo="iterative_cagra_search", '
+                'or build_algo="ace" with NN-descent sub-builds.'
             )
 
         self.params.metric = <cuvsDistanceType>DISTANCE_TYPES[metric]

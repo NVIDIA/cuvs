@@ -226,7 +226,7 @@ struct index : cuvs::neighbors::index {
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  *
@@ -264,7 +264,7 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  *
@@ -304,7 +304,7 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  *
@@ -342,7 +342,7 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  *
@@ -382,7 +382,7 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  * - BitwiseHamming
@@ -421,7 +421,7 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  * - BitwiseHamming
@@ -462,7 +462,7 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  * - BitwiseHamming
@@ -501,7 +501,7 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded
+ * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  * - BitwiseHamming
