@@ -1,6 +1,13 @@
 /*
+ * SPDX-FileCopyrightText: Copyright (c) 2025 Leonardo Xavier Kuffo Rivero
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
+ */
+/*
+ * Copyright (c) 2025 Leonardo Xavier Kuffo Rivero
+ *
+ * This source code is licensed under the MIT license found in the
+ * LICENSE file thirdparty/LICENSES/LICENSE.superkmeans
  */
 #pragma once
 
