@@ -112,8 +112,8 @@ struct single_cta_plan
   {
     // Seed initialization inserts every requested seed before selecting the internal top-k.
     // The inherited CAGRA plan only budgets for the retained top-k and graph expansion.
+    namespace hashmap = cuvs::neighbors::cagra::detail::hashmap;
     if (num_seeds > this->itopk_size) {
-      namespace hashmap = cuvs::neighbors::cagra::detail::hashmap;
       if (this->small_hash_bitlen != 0) {
         auto bits = this->small_hash_bitlen;
         while (bits <= 13 && num_seeds > hashmap::get_size(bits) * this->hashmap_max_fill_rate) {
