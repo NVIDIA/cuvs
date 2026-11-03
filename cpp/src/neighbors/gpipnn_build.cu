@@ -10,12 +10,9 @@
 
 /*
  * Every supported input type is instantiated in this one translation unit, rather than one file
- * each as most of cuVS does.
- *
- * CAGRA splits per type because its distance operators are templated on the data type, so each one
- * really does produce different kernels. None of GPiPNN's do: `detail::build_graph` converts the
- * caller's dataset to `half` before anything is launched, so the binary size and build time do not
- * increase with each additional type.
+ * each as most of cuVS does. This is not needed for GPiPNN because the dataset is converted to
+ * fp16 for scoring on all input datatypes. The binary size and build time do not increase
+ * with each additional type.
  */
 
 namespace cuvs::neighbors::experimental::gpipnn {

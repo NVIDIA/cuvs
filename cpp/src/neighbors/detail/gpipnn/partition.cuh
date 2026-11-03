@@ -134,13 +134,10 @@ RAFT_KERNEL sample_leaders_kernel(const id_t* __restrict__ members,
  *
  * Each thread owns a member and writes that member's whole `fanout`-wide group, so a warp's store
  * covers `32 * fanout` elements to land 32 of them.
- * Which block emits a pair cannot change the output, since every write lands at a position fixed
- * by the member's own index.
  *
- * The grid is two-dimensional because runs alone do not supply enough blocks (round 0 carves a
- * single run covering the whole dataset, which would use 1 block). `blockIdx.y`
- * slices a run's members, and the caller adds slices only when the run count cannot fill the
- * device, so later rounds keep the grid they had.
+ * The grid is two-dimensional because runs alone do not supply enough blocks: round 0 carves a
+ * single run covering the whole dataset, which would use one block. `blockIdx.y` slices a run's
+ * members, and the caller adds slices only when the run count cannot fill the device.
  */
 RAFT_KERNEL emit_pairs_kernel(const id_t* __restrict__ members,
                               const run_plan* __restrict__ plan,
@@ -387,11 +384,6 @@ inline void chop_oversized(raft::resources const& res, runs& r, int64_t max_size
 
 /**
  * Merges consecutive runs below `min_size` into their neighbours, up to `max_size`.
- *
- * Because slot ids were allocated in parent-run order, consecutive runs descend from the same
- * parent and are therefore geometrically close. This stands in for the paper's random merge and
- * should be no worse: merging exists only so each leaf offers enough candidates for the prune
- * step, and pairs drawn from a distant leaf would lose top-2 selection anyway.
  */
 inline void merge_undersized(
   raft::resources const& res, runs& r, int64_t min_size, int64_t max_size, int64_t& merged)

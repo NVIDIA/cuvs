@@ -466,8 +466,8 @@ inline auto fused_leaf_tile_m(int64_t dim) -> int
  * device alone passes a library built only for older architectures, and the failure that follows is
  * an empty graph rather than an error.
  *
- * Returns why, rather than throwing, so a caller with a fallback can ask without having to catch.
- * Empty means the fused leaf join can run. Called once per build, not once per launch.
+ * Returns why rather than throwing, so a caller with a fallback can ask without catching. Empty
+ * means the fused leaf join can run.
  */
 inline auto gpipnn_arch_problem() -> std::string
 {
@@ -493,21 +493,16 @@ inline auto gpipnn_arch_problem() -> std::string
 /**
  * Divides a call's segments between the fused leaf kernel and the batched path.
  *
- * The fused kernel's preconditions are narrow. Anything outside them stays on the batched path,
- * which handles every shape this one does and more.
- *
- * Call-wide, all four must hold:
+ * Anything outside the fused kernel's preconditions stays on the batched path, which handles
+ * every shape this one does and more. Call-wide, all four must hold:
  *  - a self-join, since the kernel reads one id array as both operands;
  *  - `k == kFusedK`, the only instantiation;
  *  - `dim` a multiple of 16, since the mainloop steps the mma k-dimension by 16 and the chunk
  *    copy moves 8 halves at a time;
- *  - `dim` small enough that a Q tile stays resident. Past that the design's premise fails
- *    outright, so those calls are excluded.
+ *  - `dim` small enough that a Q tile stays resident.
  *
  * Then per segment: a non-empty candidate range that exactly coincides with the query range.
- *
- * There is no width floor. A segment narrower than a tile wastes most of it, but routing those
- * to the batched path measured slower, and both paths produce the same bits.
+ * There is no width floor; a segment narrower than a tile wastes most of it but still runs here.
  *
  * The shared-memory query that picks `block_m` runs once here, not once per segment and not again
  * at launch.

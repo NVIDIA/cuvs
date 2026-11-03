@@ -40,7 +40,7 @@ namespace gpipnn {
  *
  * Metrics supported:
  * - L2Expanded
- * - CosineExpanded (note: the defaults are tuned for L2Expanded and may not be optimal here)
+ * - CosineExpanded (note: the parameter defaults are tuned for L2Expanded and may not be optimal here)
  *
  * Requires a GPU of compute capability 8.0 (Ampere) or newer.
  */
@@ -60,14 +60,14 @@ struct index_params : cuvs::neighbors::index_params {
    * This is what bounds the candidate supply, and therefore whether the reservoir has more
    * members than the output has slots. Peak memory during the leaf phase is linear in it.
    *
-   * The paper uses 2, but 4 was better across the sweeps and benchmarks we tested.
+   * The paper uses 2; 4 gives a better recall-for-build-time trade.
    */
   uint32_t leaf_degree = 4;
   /**
    * Number of LSH hyperplanes used for HashPrune residual hashing. At most 16.
    *
-   * More bits mean finer direction buckets and therefore less pruning. The paper uses 12, but we
-   * see recall still rising at 14 for a minimal build-time cost.
+   * More bits mean finer direction buckets and therefore less pruning. The paper uses 12; recall
+   * is still rising at 14 for a minimal build-time cost.
    */
   uint32_t hash_bits = 14;
   /** Target maximum leaf size. Leaves are guaranteed not to exceed this. */
@@ -82,30 +82,18 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t fanout_level0 = 8;
   /** Number of nearest sub-leaders each point is assigned to at the second level. At most 32. */
   uint32_t fanout_level1 = 4;
-  /**
-   * Maximum number of levels of the partition tree (assign-then-sort rounds). The first two
-   * create overlap from the fanout values; further rounds subdivide still-oversized buckets
-   * with fanout 1.
-   */
+  /** Maximum number of levels of the partition tree (assign-then-sort rounds). */
   uint32_t max_rounds = 4;
   /** Alpha parameter of the DirectEdgePrune occlusion rule. Larger retains more edges. */
   float alpha = 1.2f;
   /**
-   * Device memory, in MiB, the transient candidate edge-record buffer may occupy. 0 selects a
-   * size proportional to the dataset.
-   *
-   * This dictates how many leaves are processed per batch. Affects only peak memory and build
-   * time: a smaller window costs more passes over the reservoirs, a larger one reserves more
-   * memory. The graph is the same either way.
+   * Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves 
+   * are processed per batch. Affects only peak memory and build time, not graph quality.
    */
   uint32_t leaf_batch_mib = 0;
   /** Seed for leader sampling and LSH hyperplane generation. */
   uint64_t seed = 137ULL;
 };
-
-/**
- * @}
- */
 
 static_assert(std::is_aggregate_v<index_params>);
 
@@ -171,8 +159,7 @@ void build_graph(raft::resources const& res,
  * raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph)
  *
  * An int8 `dataset` converts to fp16 for scoring, exactly: half represents every integer up to
- * 2048. The scoring copy is `2 * n_rows * dim` bytes whatever the input width, so int8 reduces
- * the footprint of the dataset, not of the build.
+ * 2048.
  */
 void build_graph(raft::resources const& res,
                  const index_params& params,
@@ -184,7 +171,7 @@ void build_graph(raft::resources const& res,
  * raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
  * raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph)
  *
- * A uint8 `dataset` converts to fp16 for scoring, on the same terms as the int8 overload.
+ * A uint8 `dataset` converts to fp16 for scoring, exactly, same as the int8 overload.
  */
 void build_graph(raft::resources const& res,
                  const index_params& params,

@@ -63,13 +63,8 @@ RAFT_KERNEL gather_padded_kernel(const half* __restrict__ dataset,
 /**
  * The same gather, moving 16 bytes per thread instead of 2.
  *
- * The scalar kernel gives each slab row one thread per `half`, which is coalesced but latency
- * bound: a warp has only 64 bytes in flight, and at low `dim` there is no second loop iteration
- * to hide the round trip with. Indexing flat over 16-byte vectors instead decouples the block
- * shape from `dim`, so a warp moves 512 contiguous bytes at any dimension. The two divisions per
- * element are by runtime values, but this is bandwidth bound, not issue bound.
- *
- * Byte-for-byte identical to the scalar kernel; `__float2half(0.0f)` is a zero bit pattern.
+ * Indexing flat over 16-byte vectors decouples the block shape from `dim`, so a warp moves 512
+ * contiguous bytes at any dimension rather than the scalar kernel's 64.
  *
  * Only launched when `dim` is a multiple of `kHalfPerVec` and both buffers are 16-byte aligned,
  * which is what keeps every vector aligned.
@@ -151,26 +146,17 @@ inline void launch_gather_padded(const half* dataset,
 /**
  * Batched extents are rounded up to a multiple of this, to 16-byte-align the score matrix's
  * leading dimension and batch stride.
- *
- * The added rows and columns are inert: the gather zero-fills every slab row past its segment's
- * count, and selection visits only the columns its own segment has.
  */
 inline constexpr int64_t kPadMultiple = 8;
 
 /**
  * Reduces one row of the dot-product matrix straight to its `k` nearest candidates.
  *
- * Scores are never materialized: only `leaf_degree` of as many as `max_leaf_size` values per row
- * survive. Ordering uses one unsigned 64-bit key per candidate -- order-preserving score in the
- * high half, the candidate's column in the low half -- so an unsigned minimum is exactly "smallest
- * score, then smallest index" and ties resolve identically on every run and launch shape.
+ * Scores are never materialized. Ordering uses one unsigned 64-bit key per candidate:
+ * order-preserving score in the high half, the candidate's column in the low half.
  *
  * One warp per query row. Each lane sweeps a strided slice, so reads coalesce, and keeps its own
- * `K` best in registers. The lists reduced to the global best 'k' by a butterfly minimum.
- *
- * The stored distance is the expanded score `q_norm + c_norm - 2*dot` rather than an unexpanded
- * difference, so it is fine where norms are comparable to neighbour distances and loses precision
- * for data far from the origin.
+ * `K` best in registers; a butterfly minimum reduces the lists to the global best `k`.
  *
  * @tparam K per-lane list length; must be at least `k`.
  */
@@ -216,9 +202,7 @@ RAFT_KERNEL fused_topk_kernel(const float* __restrict__ dots,
     best[i] = kInvalidKey;
   }
 
-  // Columns past the segment's candidate count are batch padding and are not visited. A masked
-  // self-match keeps its +inf score: it can still be picked when a segment has no more candidates
-  // than ranks, and `emit_rank` discards it there.
+  // Columns past the segment's candidate count are batch padding and are not visited. 
   for (int64_t c = lane; c < n_cand; c += warpSize) {
     const id_t c_id   = cand_ids[s.cand_begin + c];
     const bool masked = exclude_self && c_id == q_id;
@@ -257,9 +241,8 @@ RAFT_KERNEL fused_topk_kernel(const float* __restrict__ dots,
 /**
  * Divisor applied to L2 before it becomes the working-set budget.
  *
- * Operands and scores count against the same budget, so at 1 the GEMM streams its slabs through
- * the very cache the score matrix needs to survive in and selection finds the early rows evicted.
- * Dividing leaves the scores room between the two launches, paid for in more and smaller batches.
+ * Operands and scores count against the same budget, so at 1 the GEMM slabs and score matrix
+ * contend for the same cache.
  */
 inline constexpr int64_t kL2BudgetDiv = 2;
 
@@ -267,9 +250,7 @@ inline constexpr int64_t kL2BudgetDiv = 2;
  * Marks a buffer as persisting in L2 for as long as the guard lives.
  *
  * `dots` is the one buffer worth holding: the GEMM writes it and selection reads it straight back,
- * while the operand slabs are streamed once each. Complementary to `kL2BudgetDiv`, which buys the
- * same residency by shrinking batches -- this one pays where the score term dominates the working
- * set (low dimension).
+ * while the operand slabs are streamed once each.
  *
  * Destruction undoes only the stream attribute. The carve-out limit is left set and
  * `cudaCtxResetPersistingL2Cache` is not called, because `segmented_topk` is asynchronous and the
@@ -434,9 +415,8 @@ inline auto plan_batches(const std::vector<segment>& segments,
  * For every query row in every segment, finds the `k` nearest candidates within that row's own
  * segment.
  *
- * Results are written at the row's position in the global query ordering, so the caller sees
- * outputs in the same order as `query_ids` regardless of the order segments were processed in.
- * Rows with fewer than `k` usable candidates get `kInvalidId` in the surplus slots.
+ * Output order follows `query_ids`, not the order segments happened to be processed in. Rows with
+ * fewer than `k` usable candidates get `kInvalidId` in the surplus slots.
  *
  * @param[in] dataset half-precision scoring operand [n_rows, dim]
  * @param[in] norms fp32 squared row norms of `dataset` [n_rows]
@@ -447,8 +427,7 @@ inline auto plan_batches(const std::vector<segment>& segments,
  * @param[in] exclude_self drop candidates whose id equals the query's own id
  * @param[out] out_ids [total_queries, k] global candidate ids
  * @param[out] out_dists optional [total_queries, k] fp32 squared L2 distances, in the expanded
- *             form described on `fused_topk_kernel`. Left out by callers that only need the ids,
- *             in which case none are computed.
+ *             form described on `fused_topk_kernel`. Not computed when omitted.
  * @param[out] out_cand_slots optional [total_queries, k] position of the selected candidate
  *             within `cand_ids`. Two segments can name the same point as a candidate, so this
  *             is what distinguishes "leader X of bucket A" from "leader X of bucket B".

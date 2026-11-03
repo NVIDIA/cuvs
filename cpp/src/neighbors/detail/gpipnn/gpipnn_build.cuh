@@ -109,11 +109,10 @@ void build_graph(raft::resources const& res,
 
   auto stream = raft::resource::get_cuda_stream(res).get();
 
-  // All scoring runs on half operands with fp32 accumulation, mirroring the paper's FP16 mode. A
-  // half caller already holds the right buffer, so that path allocates nothing; every other type
-  // is converted here and only here, which is why the type disappears from the rest of this
-  // function. The copy is `2 * n_rows * dim` bytes whatever the input width, so int8 reduces the
-  // caller's footprint, not the build's.
+  // All scoring runs on half operands with fp32 accumulation, mirroring the paper's FP16 mode.
+  // Every other type is converted here and only here, which is why the type disappears from the
+  // rest of this function. The copy is `2 * n_rows * dim` bytes whatever the input width, so a
+  // narrower input reduces the caller's footprint, not the build's.
   //
   // Cosine is also handled entirely here, by scaling each row to unit norm as it is converted (see
   // `normalize_rows_to_half_kernel`). That costs a half caller the zero-copy path, since its view
@@ -195,8 +194,8 @@ void build_graph(raft::resources const& res,
                  max_members);
 
   // The prune's row order is the last thing the partition is needed for: it is the leaf grouping
-  // reduced to `n_rows` ids, which is 45 MB at 11.16M against the 1.4 GiB the memberships hold.
-  // See `build_prune_order` for what it buys and why it cannot change the graph.
+  // reduced to one id per row, which is far smaller than the memberships it replaces. See
+  // `build_prune_order` for what it buys and why it cannot change the graph.
   auto prune_order = build_prune_order(res, leaves, n_rows);
 
   // Nothing below reads the partition, the sketches, the owner bounds or the per-entry hashes.

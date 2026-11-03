@@ -72,20 +72,10 @@ __host__ __device__ inline auto key_dist(uint64_t key) -> float
   return from_order_preserving_u32(static_cast<uint32_t>(key & 0xffffffffu));
 }
 
-/**
- * Sentinel key that sorts after every real one. Marks both a record no valid owner produced and
- * a selection slot no candidate reached; the two are the same value because both have to lose
- * every comparison against real data.
- */
+/** Sentinel value to mark an empty slot. Sorts after every real value. */
 inline constexpr uint64_t kInvalidKey = ~uint64_t{0};
 
-/**
- * Score and distance that lose to every real candidate.
- *
- * Written into padding columns, self-matches, and selection slots that found nothing, so that
- * selection -- which always takes the minimum -- ranks all three behind real data without a
- * separate branch.
- */
+/** Distance score to mark an empty slot. Sorts after every real value. */
 inline constexpr float kMaskedScore = __builtin_huge_valf();
 
 /**
@@ -121,20 +111,15 @@ inline auto to_device(const segment& s) -> segment_dev
 }
 
 /**
- * Per-row tie-break permutation of the candidate column.
+ * Per-row tie-break permutation of the candidate column, used by topk selection to avoid
+ * duplicate candidates from the same leaf.
  *
- * Exact score ties are common here: fp16 operands collapse distinct points onto identical
- * vectors, and merged leaves can list one point twice. Breaking ties by the raw column resolves
- * every row the same way, which starves the later members of a duplicate group of in-edges, so
- * the column is XOR-ed with this per-row value instead.
- *
- * Must stay a bijection on the column: the selection paths rely on each column occupying exactly
- * one lane, which hashing the (query, candidate) pair would break. Depends only on the query id,
- * so results stay bit-reproducible.
+ * Uses a hash function using the golden-ratio constant and finalizers to produce a unique 
+ * value for each query. The result is XOR-ed with the candidate column to break ties.
  */
 __host__ __device__ inline auto row_salt(id_t q_id) -> uint32_t
 {
-  uint32_t salt = q_id * 0x9e3779b9u + 0x85ebca6bu;
+  uint32_t salt = q_id * 0x9e3779b9u + 0x85ebca6bu; // golden-ratio constant
   salt ^= salt >> 16;
   salt *= 0x7feb352du;
   salt ^= salt >> 15;
@@ -189,10 +174,7 @@ RAFT_KERNEL cast_to_half_kernel(const T* __restrict__ src, half* __restrict__ ds
 
 /**
  * Casts a buffer of `T` to half with each row scaled to unit L2 norm.
- *
- * This is the whole of cosine support: on unit vectors the expanded squared L2 the scoring path
- * computes is `2 - 2 cos`, strictly decreasing in the cosine, so every ordering decision in the
- * build is the one cosine distance gives.
+ * This normalization enables cosine support and can use the remaining code from the L2 path.
  *
  * One block per row, so `dim` does not bound the block size.
  */
@@ -268,8 +250,7 @@ inline auto key_bits(int64_t max_value) -> int
 /**
  * `cub::DeviceRadixSort::SortPairs` from `keys_in`/`vals_in` into `keys_out`/`vals_out`.
  *
- * CUB wants the call twice, once to report the temporary size and once to sort. Wrapping it keeps
- * that handshake and its workspace allocation out of the three places that sort.
+ * Wraps the two CUB calls, once to compute temporary size and once to sort.
  */
 template <typename KeyT, typename ValueT>
 void radix_sort_pairs(cudaStream_t stream,

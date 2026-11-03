@@ -96,13 +96,10 @@ struct owner_run_start {
  * the first arrivals to the buckets are assigned, collisions can be skipped, and overflows are
  * simply truncated at capacity.
  *
- * The independence of traversal order is what enables batching. Candidates in the reservoir
- * just merge back in at the low end of the input stream.
- * Truncating to l_max each time loses nothing since dropping a candidate due to this means there
- * are better candidates present.
- *
- * Ties resolve to the held entry (`<=` in the take-held test), and held entries come from earlier
- * batches, making the result independent of batch size.
+ * That order-independence is what enables batching: held entries merge back in at the low end of
+ * the input stream, and truncating to l_max each time loses nothing, since a candidate is only
+ * dropped when better ones are present. Ties resolve to the held entry (`<=` in the take-held
+ * test) and held entries come from earlier batches, so the result is independent of batch size.
  *
  * There is no separate duplicate-target scan: `h` is a pure function of `(p, t)`, so a repeated
  * target already has its bucket bit set and the hash test rejects it.
@@ -111,10 +108,7 @@ struct owner_run_start {
  * directly has every lane issue the same address, fetching a 32-byte sector to deliver four or
  * eight bytes, on the loop's dependency chain. Loading 32 consecutive entries coalesced and
  * reading entry `j` back with `__shfl_sync` shortens that chain, which is the only lever this
- * kernel has: it is latency bound -- one 32-thread block per row against a 24-block-per-SM cap --
- * and the two ways to raise occupancy instead both measured worse, several rows per block by
- * 31-62% and a smaller bucket bitmap by at most one block in 23. The window is worth 19-23% of
- * the kernel.
+ * kernel has: it is latency bound, one 32-thread block per row against a 24-block-per-SM cap.
  */
 RAFT_KERNEL hash_prune_merge_kernel(const uint64_t* __restrict__ keys,
                                     const id_t* __restrict__ targets,

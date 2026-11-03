@@ -34,26 +34,23 @@ inline constexpr float kAlphaRampStep = 1.2f;
  *
  * The distinguishing property of DirectEdgePrune (GPiPNN Sec 5.4) is that it recomputes no
  * distances: a candidate can only be occluded by an accepted neighbour that already lists it in
- * its own reservoir. Missing witnesses do not occlude, making the graph not exactly match a true
- * RobustPrune due to being potentially denser.
+ * its own reservoir. Missing witnesses do not occlude, so the graph is potentially denser than a
+ * true RobustPrune would give.
  *
  * Rather than rescan an accepted neighbour's row per candidate, each acceptance does one parallel
  * pass over that row and probes a shared hash table of this row's candidates, turning the cost
- * per row from cubic in the reservoir size into linear.
+ * per row from cubic in the reservoir size into linear. Both knobs on that scan are parameters
+ * rather than derived here:
  *
- * That scan is where the time goes, which is why `slots` and `row_order` are parameters rather than
- derived here:
+ *   `slots` must be a power of two so the wrap is a mask rather than a division on the dependency
+ *   chain between the id load and the probe. Ids are unique, so the slot count changes only the
+ *   probe chain length, never what a lookup returns; that is what lets the host size it for
+ *   occupancy.
  *
- *   `slots` is a power of two so the wrap is a mask rather than a division on the dependency
- *   chain between the id load and the probe. The table maps candidate id to position in the
- *   owner's row and ids are unique, so the slot count cannot change what a lookup returns, only
- *   how long the probe chain is. That is what lets the host size it for occupancy.
- *
- *   `row_order`, when given, is the order blocks take rows in. A row's accepted neighbours are
- *   its own near neighbours, so taking rows in leaf order rather than id order shrinks the set of
- *   accumulator rows the resident blocks touch to something L2 holds. Every row is still handled
- *   by exactly one block writing only its own graph row, so the permutation cannot change the
- *   graph.
+ *   `row_order`, when given, is the order blocks take rows in. Taking rows in leaf order rather
+ *   than id order shrinks the set of accumulator rows the resident blocks touch, since a row's
+ *   accepted neighbours are its own near neighbours. Every row is still handled by exactly one
+ *   block writing only its own graph row, so the permutation cannot change the graph.
  */
 RAFT_KERNEL direct_edge_prune_kernel(const id_t* __restrict__ acc_ids,
                                      const float* __restrict__ acc_dists,
@@ -192,11 +189,10 @@ RAFT_KERNEL first_leaf_kernel(const id_t* __restrict__ members,
 /**
  * Order in which `direct_edge_prune`'s blocks should take rows, grouped by leaf.
  *
- * `direct_edge_prune` gathers `acc_ids[p_star * l_max + j]` for each accepted neighbour.
- * In id order the resident blocks
- * touch rows spread over the whole array and almost nothing hits L2. Points sharing a leaf are
- * near each other, and a point's accepted neighbours are near it, so under this order concurrent
- * blocks gather from overlapping rows.
+ * `direct_edge_prune` gathers `acc_ids[p_star * l_max + j]` for each accepted neighbour. In id
+ * order the resident blocks touch rows spread over the whole array and almost nothing hits L2.
+ * Points sharing a leaf are near each other, and a point's accepted neighbours are near it, so
+ * under this order concurrent blocks gather from overlapping rows.
  *
  * A point belongs to `fanout_level0 * fanout_level1` leaves; the lowest-numbered one groups it
  * with its neighbours and needs no tie-breaking.
