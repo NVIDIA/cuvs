@@ -129,18 +129,20 @@ struct single_cta_plan
           this->hash_bitlen               = 11;
         }
       }
-      if (this->small_hash_bitlen == 0) {
-        auto const max_visited =
-          static_cast<std::uint64_t>(num_seeds) +
-          (static_cast<std::uint64_t>(this->search_width) + additional_buffer_width) *
-            this->graph_degree * this->max_iterations;
-        while (this->hash_bitlen <= 20 &&
-               max_visited > hashmap::get_size(this->hash_bitlen) * this->hashmap_max_fill_rate) {
-          ++this->hash_bitlen;
-        }
-        RAFT_EXPECTS(this->hash_bitlen <= 20,
-                     "FlowANN seeds and traversal exceed the visited hashmap capacity");
+    }
+    // Global HASH keeps every visited node until search ends. The final iteration
+    // limit can exceed the inherited plan's limit even when there are no explicit seeds.
+    if (this->small_hash_bitlen == 0) {
+      auto const max_visited =
+        std::max<std::uint64_t>(this->itopk_size, num_seeds) +
+        (static_cast<std::uint64_t>(this->search_width) + additional_buffer_width) *
+          this->graph_degree * this->max_iterations;
+      while (this->hash_bitlen <= 20 &&
+             max_visited > hashmap::get_size(this->hash_bitlen) * this->hashmap_max_fill_rate) {
+        ++this->hash_bitlen;
       }
+      RAFT_EXPECTS(this->hash_bitlen <= 20,
+                   "FlowANN seeds and traversal exceed the visited hashmap capacity");
     }
     auto const expansion_candidates =
       (static_cast<std::uint32_t>(this->search_width) + additional_buffer_width) *

@@ -282,11 +282,13 @@ if(CUVS_ENABLE_FLOWANN_SEARCH)
   ConfigureTest(
     NAME NEIGHBORS_FLOWANN_TEST
     PATH ${CUVS_FLOWANN_TEST_SOURCES}
+    ADDITIONAL_DEP cuco::cuco
     GPUS 1
     PERCENT 100
   )
   target_include_directories(
     NEIGHBORS_FLOWANN_TEST PRIVATE "$<BUILD_INTERFACE:${CUVS_SOURCE_DIR}/src>"
+                                 "$<BUILD_INTERFACE:${CUVS_BINARY_DIR}/src>"
   )
   # Isolate this case so earlier tests cannot preload the kernel module.
   rapids_test_add(
