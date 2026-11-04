@@ -64,18 +64,139 @@ struct quantize_op {
   {
   }
 
-  constexpr RAFT_INLINE_FUNCTION QuantI operator()(const T& x) const
+  constexpr RAFT_INLINE_FUNCTION QuantI operator()(const T& x, int64_t = 0) const
   {
     if (!fp_lt(min_, x)) return q_type_min_;
     if (!fp_lt(x, max_)) return q_type_max_;
     return static_cast<QuantI>(lroundf(scalar_ * static_cast<TempT>(x) + offset_));
   }
 
-  constexpr RAFT_INLINE_FUNCTION T operator()(const QuantI& x) const
+  constexpr RAFT_INLINE_FUNCTION T operator()(const QuantI& x, int64_t = 0) const
   {
     return static_cast<T>((static_cast<TempT>(x) - offset_) / scalar_);
   }
 };
+
+// Share the exact encode/decode arithmetic with the reconstruction-error pass.
+template <typename T>
+struct per_dim_quantize_op {
+  using compute_t = typename quantizer_const_view<T>::scale_type;
+  T const* shifts;
+  compute_t scale;
+  compute_t inv;
+
+  explicit per_dim_quantize_op(typename quantizer_const_view<T>::shifts_type quantizer)
+    : shifts{quantizer.shifts.data_handle()}, scale{quantizer.scale}, inv{compute_t{1} / scale}
+  {
+  }
+
+  RAFT_INLINE_FUNCTION int8_t operator()(T x, int64_t j) const
+  {
+    compute_t const code =
+      rint((static_cast<compute_t>(x) - static_cast<compute_t>(shifts[j])) * inv);
+    return static_cast<int8_t>(fmin(fmax(code, compute_t{-127}), compute_t{127}));
+  }
+
+  RAFT_INLINE_FUNCTION T operator()(int8_t code, int64_t j) const
+  {
+    compute_t const value =
+      fma(scale, static_cast<compute_t>(code), static_cast<compute_t>(shifts[j]));
+    compute_t const limit = static_cast<compute_t>(cuda::std::numeric_limits<T>::max());
+    return static_cast<T>(fmin(fmax(value, -limit), limit));
+  }
+};
+
+template <typename T, typename Op>
+RAFT_INLINE_FUNCTION double reconstruction_error(T x, int64_t j, Op op)
+{
+  double const value   = static_cast<double>(x);
+  double const decoded = static_cast<double>(op(op(x, j), j));
+  return isfinite(value) && isfinite(decoded) ? fabs(value - decoded)
+                                              : std::numeric_limits<double>::infinity();
+}
+
+// One warp per row; each warp keeps its maximum over a grid-stride sequence of rows.
+// hypot avoids overflow/underflow of squared residuals for large/tiny finite inputs.
+template <typename T, typename Op>
+__global__ void reconstruction_error_kernel(raft::device_matrix_view<const T, int64_t> dataset,
+                                            Op op,
+                                            double* errors)
+{
+  auto const warp   = static_cast<int64_t>(blockIdx.x) * (blockDim.x / 32) + threadIdx.x / 32;
+  auto const lane   = threadIdx.x % 32;
+  auto const stride = static_cast<int64_t>(gridDim.x) * (blockDim.x / 32);
+  double max_error  = 0;
+  for (int64_t row = warp; row < dataset.extent(0); row += stride) {
+    double error = 0;
+    for (int64_t j = lane; j < dataset.extent(1); j += 32) {
+      error = hypot(error, reconstruction_error(dataset(row, j), j, op));
+    }
+    for (int offset = 16; offset > 0; offset /= 2) {
+      error = hypot(error, __shfl_down_sync(0xffffffffu, error, offset));
+    }
+    max_error = fmax(max_error, error);
+  }
+  if (lane == 0) { errors[warp] = max_error; }
+}
+
+template <typename T>
+auto round_error_up(double error) -> typename quantizer<T>::scale_type
+{
+  using bound_t = typename quantizer<T>::scale_type;
+  // Match Sirius's conservative margin, then round upwards in the public result type.
+  auto const bound = static_cast<bound_t>(error * (1.0 + 1e-6));
+  return error > 0 ? std::nextafter(bound, std::numeric_limits<bound_t>::infinity()) : bound;
+}
+
+template <typename T, typename Op>
+auto max_reconstruction_error(raft::resources const& res,
+                              raft::device_matrix_view<const T, int64_t> dataset,
+                              Op op) -> typename quantizer<T>::scale_type
+{
+  constexpr int threads = 256;
+  auto const blocks     = static_cast<int>(std::min<int64_t>((dataset.extent(0) + 7) / 8, 65535));
+  auto errors           = raft::make_device_vector<double, int64_t>(res, blocks * 8);
+  auto maximum          = raft::make_device_vector<double, int64_t>(res, 1);
+  if (!raft::resource::get_dry_run_flag(res)) {
+    reconstruction_error_kernel<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
+      dataset, op, errors.data_handle());
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
+  }
+  raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
+    res,
+    raft::make_device_matrix_view<const double, int64_t>(errors.data_handle(), 1, errors.size()),
+    maximum.view(),
+    0.0,
+    false,
+    raft::identity_op{},
+    raft::max_op{});
+  double result = std::numeric_limits<double>::infinity();
+  raft::copy(res,
+             raft::make_host_scalar_view(&result),
+             raft::make_device_scalar_view(maximum.data_handle()));
+  raft::resource::sync_stream(res);
+  return round_error_up<T>(result);
+}
+
+template <typename T, typename Op>
+auto max_reconstruction_error(raft::resources const& res,
+                              raft::host_matrix_view<const T, int64_t> dataset,
+                              Op op) -> typename quantizer<T>::scale_type
+{
+  if (raft::resource::get_dry_run_flag(res)) {
+    return std::numeric_limits<typename quantizer<T>::scale_type>::infinity();
+  }
+  double maximum = 0;
+#pragma omp parallel for reduction(max : maximum)
+  for (int64_t row = 0; row < dataset.extent(0); ++row) {
+    double error = 0;
+    for (int64_t j = 0; j < dataset.extent(1); ++j) {
+      error = std::hypot(error, reconstruction_error(dataset(row, j), j, op));
+    }
+    maximum = std::max(maximum, error);
+  }
+  return round_error_up<T>(maximum);
+}
 
 template <typename T, typename IdxT = int64_t, typename accessor>
 std::tuple<T, T> quantile_min_max(
@@ -236,7 +357,12 @@ quantizer<T> train(raft::resources const& res,
     }
   }
   quantizer<T> result;
-  result.value = train(res, std::move(shifts), std::move(maxima));
+  result.value     = train(res, std::move(shifts), std::move(maxima));
+  result.max_error = max_reconstruction_error(
+    res,
+    dataset,
+    per_dim_quantize_op<T>{
+      std::get<typename quantizer_const_view<T>::shifts_type>(result.view().value)});
   return result;
 }
 
@@ -260,17 +386,12 @@ void transform(raft::resources const& res,
                raft::device_matrix_view<const T, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out)
 {
-  using compute_t = typename quantizer_const_view<T>::scale_type;
   check_per_dim_shapes<T>(quantizer, dataset, out);
-  auto const* input   = dataset.data_handle();
-  auto const* shifts  = quantizer.shifts.data_handle();
-  auto const dim      = dataset.extent(1);
-  compute_t const inv = compute_t{1} / quantizer.scale;
-  raft::linalg::map_offset(res, out, [input, shifts, dim, inv] __device__(int64_t i) {
-    compute_t const code =
-      rint((static_cast<compute_t>(input[i]) - static_cast<compute_t>(shifts[i % dim])) * inv);
-    return static_cast<int8_t>(fmin(fmax(code, compute_t{-127}), compute_t{127}));
-  });
+  auto const* input = dataset.data_handle();
+  auto const dim    = dataset.extent(1);
+  auto const op     = per_dim_quantize_op<T>{quantizer};
+  raft::linalg::map_offset(
+    res, out, [input, dim, op] __device__(int64_t i) { return op(input[i], i % dim); });
 }
 
 template <typename T>
@@ -279,18 +400,12 @@ void inverse_transform(raft::resources const& res,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<T, int64_t> out)
 {
-  using compute_t = typename quantizer_const_view<T>::scale_type;
   check_per_dim_shapes<T>(quantizer, dataset, out);
-  auto const* input     = dataset.data_handle();
-  auto const* shifts    = quantizer.shifts.data_handle();
-  auto const dim        = dataset.extent(1);
-  compute_t const scale = quantizer.scale;
-  raft::linalg::map_offset(res, out, [input, shifts, dim, scale] __device__(int64_t i) {
-    compute_t const value =
-      fma(scale, static_cast<compute_t>(input[i]), static_cast<compute_t>(shifts[i % dim]));
-    compute_t const limit = static_cast<compute_t>(cuda::std::numeric_limits<T>::max());
-    return static_cast<T>(fmin(fmax(value, -limit), limit));
-  });
+  auto const* input = dataset.data_handle();
+  auto const dim    = dataset.extent(1);
+  auto const op     = per_dim_quantize_op<T>{quantizer};
+  raft::linalg::map_offset(
+    res, out, [input, dim, op] __device__(int64_t i) { return op(input[i], i % dim); });
 }
 
 template <typename T>
@@ -309,7 +424,9 @@ cuvs::preprocessing::quantize::scalar::quantizer<T> train(
 
   RAFT_LOG_DEBUG("quantizer train min=%lf max=%lf.", double(min), double(max));
 
-  return cuvs::preprocessing::quantize::scalar::quantizer<T>{min, max};
+  quantizer<T> result{min, max};
+  result.max_error = max_reconstruction_error(res, dataset, quantize_op<T, int8_t>{min, max});
+  return result;
 }
 
 template <typename T>
@@ -328,7 +445,9 @@ cuvs::preprocessing::quantize::scalar::quantizer<T> train(
 
   RAFT_LOG_DEBUG("quantizer train min=%lf max=%lf.", double(min), double(max));
 
-  return cuvs::preprocessing::quantize::scalar::quantizer<T>{min, max};
+  quantizer<T> result{min, max};
+  result.max_error = max_reconstruction_error(res, dataset, quantize_op<T, int8_t>{min, max});
+  return result;
 }
 
 template <typename T, typename QuantI = int8_t>

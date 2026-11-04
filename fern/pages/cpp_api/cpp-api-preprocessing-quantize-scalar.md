@@ -55,6 +55,7 @@ Read-only scalar quantizer parameters. The owner must outlive stream work using 
 template <typename T>
 struct quantizer_const_view {
   std::variant<range_type, shifts_type> value;
+  scale_type max_error;
 };
 ```
 
@@ -62,7 +63,8 @@ struct quantizer_const_view {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `value` | [`std::variant<range_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) |  |
+| `value` | [`std::variant<range_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) | Global interval or borrowed per-dimension shifts and scale. |
+| `max_error` | `scale_type` | Maximum training-row L2 reconstruction error; see quantizer::max_error. |
 
 <a id="preprocessing-quantize-scalar-quantizer-const-view-range-type"></a>
 ### preprocessing::quantize::scalar::quantizer_const_view::range_type
@@ -115,6 +117,7 @@ Move-only; copy view() to borrow the parameters. Migration: replace q.min_ with 
 template <typename T>
 struct quantizer {
   std::variant<range_type, shifts_type> value;
+  scale_type max_error;
 };
 ```
 
@@ -122,7 +125,8 @@ struct quantizer {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `value` | [`std::variant<range_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) |  |
+| `value` | [`std::variant<range_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) | Global interval or owning per-dimension shifts and scale. |
+| `max_error` | `scale_type` | Upper bound on the L2 error between a training row and its int8 encode/decode result. train measures every input row, including clipped outliers, and rounds the maximum up with a relative 1e-6 margin. This bound applies only to the training data, not later queries. It is infinity when constructed from parameters alone or when the error is not finite. Device training synchronizes before returning this host value. |
 
 <a id="preprocessing-quantize-scalar-quantizer-shifts-type"></a>
 ### preprocessing::quantize::scalar::quantizer::shifts_type

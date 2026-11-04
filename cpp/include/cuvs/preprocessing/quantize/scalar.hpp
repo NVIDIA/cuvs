@@ -14,6 +14,7 @@
 #include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/core/export.hpp>
 
+#include <cmath>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -70,7 +71,10 @@ struct quantizer_const_view {
     raft::device_vector_view<const T, int64_t> shifts;
     scale_type scale;
   };
+  /** Global interval or borrowed per-dimension shifts and scale. */
   std::variant<range_type, shifts_type> value;
+  /** Maximum training-row L2 reconstruction error; see quantizer::max_error. */
+  scale_type max_error = INFINITY;
 };
 
 /**
@@ -89,7 +93,16 @@ struct quantizer {
     raft::device_vector<T, int64_t> shifts;
     scale_type scale;
   };
+  /** Global interval or owning per-dimension shifts and scale. */
   std::variant<range_type, shifts_type> value;
+  /**
+   * Upper bound on the L2 error between a training row and its int8 encode/decode result.
+   * train measures every input row, including clipped outliers, and rounds the maximum up
+   * with a relative 1e-6 margin. This bound applies only to the training data, not later queries.
+   * It is infinity when constructed from parameters alone or when the error is not finite.
+   * Device training synchronizes before returning this host value.
+   */
+  scale_type max_error = INFINITY;
 
   /** Construct an empty global interval. */
   quantizer() : value{range_type{}} {}
@@ -104,9 +117,9 @@ struct quantizer {
   /** Borrow read-only parameters; the owner must outlive stream work using shifts. */
   [[nodiscard]] auto view() const noexcept -> view_type
   {
-    if (auto const* range = std::get_if<range_type>(&value)) { return {*range}; }
+    if (auto const* range = std::get_if<range_type>(&value)) { return {*range, max_error}; }
     auto const& shifts = std::get<shifts_type>(value);
-    return {typename view_type::shifts_type{shifts.shifts.view(), shifts.scale}};
+    return {typename view_type::shifts_type{shifts.shifts.view(), shifts.scale}, max_error};
   }
   /** An owning quantizer can be passed wherever a read-only view is accepted. */
   operator view_type() const noexcept { return view(); }  // NOLINT(google-explicit-constructor)
