@@ -7,6 +7,13 @@ groups:
       niter: [20, 25]
     search:
       nprobe: [1, 5, 10, 50, 100, 200, 500, 1000, 2000]
+  nightly:
+    build:
+      nlist: [1024, 8192]
+      ratio: [1]
+      niter: [20]
+    search:
+      nprobe: [1, 10, 50, 100, 200, 500]
   test:
     build:
       nlist: [1024]

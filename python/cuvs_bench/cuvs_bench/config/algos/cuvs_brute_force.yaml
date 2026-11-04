@@ -3,3 +3,6 @@ groups:
   base:
     build:
     search:
+  nightly:
+    build:
+    search:
