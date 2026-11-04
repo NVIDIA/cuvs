@@ -293,21 +293,21 @@ auto concatenate_datasets(raft::resources const& handle,
   return std::make_unique<OutputDatasetT>(std::move(out_array));
 }
 
-/** Build a fresh CAGRA graph over a caller-populated, already-concatenated (and, if applicable,
- *  already-filtered) merged dataset. The caller owns `merged_dataset`; this only merges the graph
- *  and rebinds a view of it, mirroring the `extend()` contract. */
+/** Build a fresh CAGRA graph over a caller-populated, already-concatenated merged dataset. The
+ *  caller owns `merged_dataset`; this only merges the graph and rebinds a view of it, mirroring
+ *  the `extend()` contract. */
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
   raft::resources const& handle,
   const cagra::index_params& params,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
-  DatasetViewT merged_dataset,
-  std::vector<int64_t> const& offsets)
+  DatasetViewT merged_dataset)
 {
   using cagra_index_t = cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
 
-  uint32_t dim   = 0;
-  int64_t stride = -1;
+  uint32_t dim       = 0;
+  int64_t stride     = -1;
+  int64_t total_rows = 0;
 
   for (cagra_index_t* index : indices) {
     RAFT_EXPECTS(index != nullptr,
@@ -331,9 +331,13 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
     } else {
       RAFT_FAIL("cagra::merge only supports an uncompressed dense device dataset index");
     }
+    total_rows += static_cast<int64_t>(index->size());
   }
 
-  validate_merge_offsets(offsets, indices.size(), static_cast<int64_t>(merged_dataset.n_rows()));
+  RAFT_EXPECTS(merged_dataset.n_rows() == total_rows,
+               "merged_dataset row count (%ld) must equal the sum of input index sizes (%ld)",
+               long(merged_dataset.n_rows()),
+               long(total_rows));
   RAFT_EXPECTS(merged_dataset.dim() == dim,
                "merged_dataset dimension (%u) must equal the input dimension (%u)",
                unsigned(merged_dataset.dim()),
@@ -365,8 +369,8 @@ auto preflight_fastener(
   raft::resources const& handle,
   cagra::index_params const& params,
   cagra::merge_params const& merge_params,
-  std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices,
-  std::vector<int64_t> const& offsets) -> fastener_preflight_result
+  std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*> const& indices)
+  -> fastener_preflight_result
 {
   fastener_preflight_result result;
   auto reject = [&](std::string reason) {
@@ -468,14 +472,6 @@ auto preflight_fastener(
     rows += input_rows;
     max_input_degree = std::max<uint64_t>(max_input_degree, static_cast<uint64_t>(graph.extent(1)));
     result.offsets.push_back(static_cast<int64_t>(rows));
-  }
-
-  // Fastener never applies a row filter (rejected above), so the caller-supplied offsets must be
-  // exactly the unfiltered per-index cumulative sizes computed above -- merge_dataset_offsets()
-  // returns this same vector for an unfiltered merge, so a caller who used it will always match.
-  if (offsets != result.offsets) {
-    return reject(
-      "offsets must equal the cumulative unfiltered row counts of each input index for Fastener");
   }
 
   if (result.dim <= 0 || result.dim > std::numeric_limits<int>::max()) {
@@ -605,7 +601,6 @@ auto merge(raft::resources const& handle,
            cagra::index_params const& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
            DatasetViewT merged_dataset,
-           std::vector<int64_t> const& offsets,
            cagra::merge_params const& merge_params)
   -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
@@ -617,14 +612,13 @@ auto merge(raft::resources const& handle,
                  merge_params.algo == cagra::merge_algo::REBUILD,
                "Unknown cagra::merge algorithm");
   if (merge_params.algo == cagra::merge_algo::REBUILD) {
-    return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset, offsets);
+    return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset);
   }
 
-  auto preflight =
-    preflight_fastener<T, IdxT, DatasetViewT>(handle, params, merge_params, indices, offsets);
+  auto preflight = preflight_fastener<T, IdxT, DatasetViewT>(handle, params, merge_params, indices);
   if (!preflight.eligible) {
     if (merge_params.algo == cagra::merge_algo::AUTO) {
-      return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset, offsets);
+      return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset);
     }
     RAFT_FAIL("FASTENER cagra::merge is unsupported: %s", preflight.reason.c_str());
   }
@@ -641,7 +635,7 @@ auto merge(raft::resources const& handle,
     } catch (std::bad_alloc const& failure) {
       RAFT_LOG_WARN("Fastener cagra::merge could not allocate (%s); falling back to rebuild",
                     failure.what());
-      return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset, offsets);
+      return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset);
     }
   }
 
@@ -654,14 +648,12 @@ template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& handle,
            cagra::index_params const& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
-           DatasetViewT merged_dataset,
-           std::vector<int64_t> const& offsets)
-  -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
+           DatasetViewT merged_dataset) -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>
 {
   // Fully qualified: an unqualified call also finds cuvs::neighbors::cagra::merge via ADL on the
   // index arguments, which is ambiguous with this overload.
   return cuvs::neighbors::cagra::detail::merge<T, IdxT, DatasetViewT>(
-    handle, params, indices, merged_dataset, offsets, cagra::merge_params{});
+    handle, params, indices, merged_dataset, cagra::merge_params{});
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

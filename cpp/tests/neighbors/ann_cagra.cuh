@@ -1337,17 +1337,12 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
           dataset_views.push_back(idx->dataset());
         }
 
-        auto offsets =
-          cuvs::neighbors::cagra::merged_dataset_offsets(handle_, dataset_views, bitset_filter_obj);
-
         // Exercise the real concatenate_datasets() helper with a filter -- it gathers directly from
-        // index0's/index1's own device dataset storage (not from `database`), so this also
-        // validates the helper against the `merged_dataset_offsets()` boundaries computed above.
+        // index0's/index1's own device dataset storage (not from `database`).
         auto merged_dataset =
           cuvs::neighbors::concatenate_datasets<DataT>(handle_, dataset_views, bitset_filter_obj);
         auto merged_view = std::as_const(*merged_dataset).view();
-        auto merge_idx =
-          cuvs::neighbors::cagra::merge(handle_, index_params, indices, merged_view, offsets);
+        auto merge_idx = cuvs::neighbors::cagra::merge(handle_, index_params, indices, merged_view);
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
           search_queries.data(), ps.n_queries, ps.dim);
@@ -1586,10 +1581,6 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
         if (ps.merge_strategy == cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL) {
           // The merged index holds only a view, so merged_dataset must outlive it.
-          std::vector<int64_t> offsets{
-            0,
-            static_cast<int64_t>(index0.size()),
-            static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size())};
           // Exercise the real concatenate_datasets() helper -- it gathers directly from index0's
           // and index1's own device dataset storage, in indices_to_merge order.
           std::vector<cuvs::neighbors::device_padded_dataset_view<DataT, int64_t>> ds_views;
@@ -1600,13 +1591,9 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
           auto merged_view    = std::as_const(*merged_dataset).view();
           auto merged_idx =
             ps.physical_merge_params.has_value()
-              ? cagra::merge(handle_,
-                             index_params,
-                             indices_to_merge,
-                             merged_view,
-                             offsets,
-                             *ps.physical_merge_params)
-              : cagra::merge(handle_, index_params, indices_to_merge, merged_view, offsets);
+              ? cagra::merge(
+                  handle_, index_params, indices_to_merge, merged_view, *ps.physical_merge_params)
+              : cagra::merge(handle_, index_params, indices_to_merge, merged_view);
           cagra::search(handle_,
                         search_params,
                         merged_idx,

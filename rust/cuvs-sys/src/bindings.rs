@@ -1835,7 +1835,6 @@ unsafe extern "C" {
         num_indices: usize,
         filter: cuvsFilter,
         merged_dataset: cuvsDataset_t,
-        offsets: *const i64,
         output_index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }
@@ -1850,7 +1849,6 @@ unsafe extern "C" {
         num_indices: usize,
         filter: cuvsFilter,
         merged_dataset: cuvsDataset_t,
-        offsets: *const i64,
         output_index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
 }

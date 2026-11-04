@@ -1289,19 +1289,18 @@ cdef cuvsCagraIndex_t* _index_array(indices) except NULL:
 @auto_sync_resources
 def merged_dataset_offsets(indices, filter=None, resources=None):
     """
-    Compute the per-index starting row offsets required by ``merge``.
+    Compute per-index starting row offsets for use with ``concatenate_datasets``.
 
-    Only needed when merging with a bitset ``filter``. For an unfiltered
-    merge, the offsets are simply the cumulative row counts of ``indices``
-    and this function is not required.
+    Only needed when calling ``concatenate_datasets`` with a bitset ``filter``
+    to build the merged dataset, so the filtered row counts are accounted for
+    correctly.
 
     Parameters
     ----------
     indices : list[Index]
-        Input CAGRA indices that will be passed to ``merge``.
+        Input CAGRA indices.
     filter : Optional cuvs.neighbors.filters.Prefilter
-        Filter that will be passed to ``merge``. Only bitset filters (or no
-        filter) are supported. (default None)
+        Bitset filter applied during dataset concatenation. (default None)
     {resources_docstring}
 
     Returns
@@ -1346,23 +1345,16 @@ def merged_dataset_offsets(indices, filter=None, resources=None):
 
 
 @auto_sync_resources
-def merge(IndexParams params, indices, merged_dataset, offsets,
-          merge_params=None, filter=None, resources=None):
+def merge(IndexParams params, indices, merged_dataset,
+          merge_params=None, resources=None):
     """
     Merge multiple CAGRA indices into a single CAGRA index.
 
     The caller owns dataset concatenation. Build a single padded
     ``merged_dataset`` containing the concatenation, in ``indices`` order,
-    of every input index's dataset (with ``filter`` already applied, if
-    any). ``offsets`` gives the row at which each input index's (post
-    filter) rows begin in ``merged_dataset``; see
-    ``merged_dataset_offsets`` for the bitset-filtered case. For an
-    unfiltered merge, ``offsets`` is just the cumulative row counts of
-    ``indices``.
-
-    This function only merges the graph and rebinds the output index to
-    ``merged_dataset``; keep that dataset alive for the resulting index's
-    lifetime.
+    of every input index's dataset. This function merges the graph and
+    rebinds the output index to ``merged_dataset``; keep that dataset alive
+    for the resulting index's lifetime.
 
     Parameters
     ----------
@@ -1371,16 +1363,10 @@ def merge(IndexParams params, indices, merged_dataset, offsets,
     indices : list[Index]
         Input CAGRA indices to merge.
     merged_dataset : Dataset or array
-        Padded dataset already containing the concatenated (and, if
-        ``filter`` is set, already-filtered) rows of every input index.
-    offsets : array-like of int64, shape (len(indices) + 1,)
-        Per-index starting row within ``merged_dataset``. The last entry
-        must equal ``merged_dataset``'s row count.
+        Padded dataset already containing the concatenated rows of every
+        input index, in the same order as ``indices``.
     merge_params : MergeParams, optional
         Parameters controlling the merge algorithm. Defaults to AUTO.
-    filter : Optional cuvs.neighbors.filters.Prefilter
-        Filter already applied by the caller while building
-        ``merged_dataset``. (default None)
     {resources_docstring}
 
     Returns
@@ -1399,22 +1385,15 @@ def merge(IndexParams params, indices, merged_dataset, offsets,
     if dataset_obj.layout != "padded":
         raise TypeError("merged_dataset must have padded layout")
 
-    if filter is None:
-        filter = no_filter()
-
     cdef size_t num_indices = len(indices)
-    offsets_arr = np.ascontiguousarray(offsets, dtype=np.int64)
-    if offsets_arr.shape[0] != num_indices + 1:
-        raise ValueError(
-            "offsets must have len(indices) + 1 entries")
-    cdef int64_t[::1] offsets_view = offsets_arr
-
     cdef cuvsCagraIndex_t* c_indices = _index_array(indices)
     cdef Index out_idx = Index()
     cdef cuvsResources_t res = <cuvsResources_t>resources.get_c_obj()
     cdef cuvsCagraMergeParams_t merge_params_ptr = NULL
     if merge_params is not None:
         merge_params_ptr = (<MergeParams>merge_params).params
+
+    cdef cuvsFilter no_filter_c = no_filter().prefilter
 
     try:
         with cuda_interruptible():
@@ -1424,9 +1403,8 @@ def merge(IndexParams params, indices, merged_dataset, offsets,
                 merge_params_ptr,
                 c_indices,
                 num_indices,
-                filter.prefilter,
+                no_filter_c,
                 merged_handle,
-                &offsets_view[0],
                 out_idx.index))
     finally:
         free(c_indices)

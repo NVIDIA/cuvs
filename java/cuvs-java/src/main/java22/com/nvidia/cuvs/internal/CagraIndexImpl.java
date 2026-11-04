@@ -1203,18 +1203,12 @@ public class CagraIndexImpl implements CagraIndex {
    * @param mergedDatasetHandleAddress native handle address of the caller-owned padded dataset (or
    *                                   padded dataset view) holding the concatenation of every
    *                                   input index's rows, in {@code indexes} order
-   * @param offsets Per-index starting row within the merged dataset. Array of {@code
-   *                indexes.length + 1} entries; the last entry must equal the merged dataset's row
-   *                count
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
    * @return A new merged CAGRA index
    */
   public static CagraIndex merge(
-      CagraIndex[] indexes,
-      long mergedDatasetHandleAddress,
-      long[] offsets,
-      CagraIndexParams mergeParams) {
-    return merge(indexes, mergedDatasetHandleAddress, offsets, null, mergeParams);
+      CagraIndex[] indexes, long mergedDatasetHandleAddress, CagraIndexParams mergeParams) {
+    return merge(indexes, mergedDatasetHandleAddress, null, mergeParams);
   }
 
   /**
@@ -1231,9 +1225,6 @@ public class CagraIndexImpl implements CagraIndex {
    * @param mergedDatasetHandleAddress native handle address of the caller-owned padded dataset (or
    *                                   padded dataset view) holding the concatenation of every
    *                                   input index's surviving rows, in {@code indexes} order
-   * @param offsets Per-index starting row within the merged dataset. Array of {@code
-   *                indexes.length + 1} entries; the last entry must equal the merged dataset's row
-   *                count
    * @param filter Bitset selecting which rows (over the concatenation of every index's rows, in
    *               {@code indexes} order) survive into the merged dataset; a set bit keeps the row.
    *               Must be the same filter used to build the dataset at {@code
@@ -1244,7 +1235,6 @@ public class CagraIndexImpl implements CagraIndex {
   public static CagraIndex merge(
       CagraIndex[] indexes,
       long mergedDatasetHandleAddress,
-      long[] offsets,
       BitSet filter,
       CagraIndexParams mergeParams) {
     CuVSResources resources = requireSameResources(indexes);
@@ -1261,7 +1251,6 @@ public class CagraIndexImpl implements CagraIndex {
         var cuvsRes = resourcesAccessor.handle();
 
         MemorySegment mergedDataset = MemorySegment.ofAddress(mergedDatasetHandleAddress);
-        MemorySegment offsetsSegment = buildMemorySegment(localArena, offsets);
 
         if (filter == null) {
           MemorySegment mergeFilter = cuvsFilter.allocate(localArena);
@@ -1276,7 +1265,6 @@ public class CagraIndexImpl implements CagraIndex {
                   indexes.length,
                   mergeFilter,
                   mergedDataset,
-                  offsetsSegment,
                   mergedIndex),
               "cuvsCagraMerge_v2");
         } else {
@@ -1290,7 +1278,6 @@ public class CagraIndexImpl implements CagraIndex {
                     indexes.length,
                     nativeFilter.segment,
                     mergedDataset,
-                    offsetsSegment,
                     mergedIndex),
                 "cuvsCagraMerge_v2");
           }

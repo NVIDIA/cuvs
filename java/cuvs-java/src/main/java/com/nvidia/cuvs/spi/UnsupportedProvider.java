@@ -88,20 +88,7 @@ final class UnsupportedProvider implements CuVSProvider {
 
   @Override
   public CagraIndex mergeCagraIndexes(
-      CagraIndex[] indexes,
-      long mergedDatasetHandleAddress,
-      long[] offsets,
-      CagraIndexParams mergeParams) {
-    throw new UnsupportedOperationException(reasons);
-  }
-
-  @Override
-  public CagraIndex mergeCagraIndexes(
-      CagraIndex[] indexes,
-      long mergedDatasetHandleAddress,
-      long[] offsets,
-      BitSet filter,
-      CagraIndexParams mergeParams) {
+      CagraIndex[] indexes, long mergedDatasetHandleAddress, CagraIndexParams mergeParams) {
     throw new UnsupportedOperationException(reasons);
   }
 

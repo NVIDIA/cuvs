@@ -368,13 +368,6 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
         indices.push_back(ptr.get());
       }
 
-      std::vector<int64_t> offsets;
-      offsets.reserve(indices.size() + 1);
-      offsets.push_back(0);
-      for (auto* index : indices) {
-        offsets.push_back(offsets.back() + static_cast<int64_t>(index->size()));
-      }
-
       // Each sub_index was built from a contiguous row-range slice of the single, original
       // `dataset` buffer (see the split loop above), so the concatenation of the splits in
       // `indices` order is exactly the original, unsplit `dataset`. Reuse the same padded-view
@@ -385,7 +378,7 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
         dataset_is_on_host ? detail::make_padded_view<T>(handle_, dataset_view_host, *dataset_)
                            : detail::make_padded_view<T>(handle_, dataset_view_device, *dataset_);
       index_ = std::make_shared<index_type>(cuvs::neighbors::cagra::merge(
-        handle_, params, indices, merged_dataset_view, offsets, index_params_.merge_params));
+        handle_, params, indices, merged_dataset_view, index_params_.merge_params));
       // The merged index holds all the rows now; drop the splits rather than keep a second copy
       // of the dataset on the device for the rest of the run.
       sub_indices_.clear();

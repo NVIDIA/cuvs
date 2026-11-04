@@ -631,23 +631,16 @@ version of cuvs is not guaranteed to work.
 `@auto_sync_resources`
 
 ```python
-def merge(IndexParams params, indices, merged_dataset, offsets, merge_params=None, filter=None, resources=None)
+def merge(IndexParams params, indices, merged_dataset, merge_params=None, resources=None)
 ```
 
 Merge multiple CAGRA indices into a single CAGRA index.
 
 The caller owns dataset concatenation. Build a single padded
 ``merged_dataset`` containing the concatenation, in ``indices`` order,
-of every input index's dataset (with ``filter`` already applied, if
-any). ``offsets`` gives the row at which each input index's (post
-filter) rows begin in ``merged_dataset``; see
-``merged_dataset_offsets`` for the bitset-filtered case. For an
-unfiltered merge, ``offsets`` is just the cumulative row counts of
-``indices``.
-
-This function only merges the graph and rebinds the output index to
-``merged_dataset``; keep that dataset alive for the resulting index's
-lifetime.
+of every input index's dataset. This function merges the graph and
+rebinds the output index to ``merged_dataset``; keep that dataset alive
+for the resulting index's lifetime.
 
 **Parameters**
 
@@ -655,10 +648,8 @@ lifetime.
 | --- | --- | --- |
 | `params` | `IndexParams object` | Parameters for the output (merged) index. |
 | `indices` | `list[Index]` | Input CAGRA indices to merge. |
-| `merged_dataset` | `Dataset or array` | Padded dataset already containing the concatenated (and, if ``filter`` is set, already-filtered) rows of every input index. |
-| `offsets` | `array-like of int64, shape (len(indices) + 1,)` | Per-index starting row within ``merged_dataset``. The last entry must equal ``merged_dataset``'s row count. |
+| `merged_dataset` | `Dataset or array` | Padded dataset already containing the concatenated rows of every input index, in the same order as ``indices``. |
 | `merge_params` | `MergeParams, optional` | Parameters controlling the merge algorithm.<br />Defaults to AUTO. |
-| `filter` | `Optional cuvs.neighbors.filters.Prefilter` | Filter already applied by the caller while building ``merged_dataset``. (default None) |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**
@@ -675,18 +666,18 @@ lifetime.
 def merged_dataset_offsets(indices, filter=None, resources=None)
 ```
 
-Compute the per-index starting row offsets required by ``merge``.
+Compute per-index starting row offsets for use with ``concatenate_datasets``.
 
-Only needed when merging with a bitset ``filter``. For an unfiltered
-merge, the offsets are simply the cumulative row counts of ``indices``
-and this function is not required.
+Only needed when calling ``concatenate_datasets`` with a bitset ``filter``
+to build the merged dataset, so the filtered row counts are accounted for
+correctly.
 
 **Parameters**
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `indices` | `list[Index]` | Input CAGRA indices that will be passed to ``merge``. |
-| `filter` | `Optional cuvs.neighbors.filters.Prefilter` | Filter that will be passed to ``merge``. Only bitset filters (or no filter) are supported. (default None) |
+| `indices` | `list[Index]` | Input CAGRA indices. |
+| `filter` | `Optional cuvs.neighbors.filters.Prefilter` | Bitset filter applied during dataset concatenation. (default None) |
 | `resources` | `cuvs.common.Resources, optional` |  |
 
 **Returns**

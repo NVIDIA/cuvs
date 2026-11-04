@@ -242,12 +242,6 @@ def test_cagra_merge(n_rows, n_cols):
     index_1 = cagra.build(build_params, device_ndarray(dataset_1))
     index_2 = cagra.build(build_params, device_ndarray(dataset_2))
 
-    # unfiltered merge: offsets are simply the cumulative row counts
-    offsets = np.array(
-        [0, dataset_1.shape[0], dataset_1.shape[0] + dataset_2.shape[0]],
-        dtype=np.int64,
-    )
-
     merged_dataset = make_device_padded_dataset(
         device_ndarray(np.concatenate((dataset_1, dataset_2), axis=0))
     )
@@ -257,7 +251,6 @@ def test_cagra_merge(n_rows, n_cols):
         merge_params,
         [index_1, index_2],
         merged_dataset,
-        offsets,
     )
 
     assert merged_index.trained
@@ -280,17 +273,11 @@ def test_cagra_merge(n_rows, n_cols):
     recall = calc_recall(idx_device.copy_to_host(), skl_idx)
     assert recall > 0.7
 
-    # also exercise merged_dataset_offsets() for the unfiltered case; it
-    # should reproduce the same cumulative offsets computed above.
-    computed_offsets = cagra.merged_dataset_offsets([index_1, index_2])
-    assert np.array_equal(computed_offsets, offsets)
-
     # merging with explicit MergeParams (rebuild algo) should also work
     merged_index_rebuild = cagra.merge(
         merge_params,
         [index_1, index_2],
         merged_dataset,
-        offsets,
         merge_params=cagra.MergeParams(algo="rebuild"),
     )
     assert merged_index_rebuild.trained

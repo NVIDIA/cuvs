@@ -608,21 +608,17 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
           CagraIndexParamsFactory.create(
               gpuSearchParams, inputs.mergedVectorCount(), fieldInfo.getVectorDimension());
       // The merge API no longer concatenates or filters: gather the surviving rows here, in
-      // inputs.readers() order, and tell it where each index's rows start in that buffer.
+      // inputs.readers() order.
       List<float[]> rows = new ArrayList<>(inputs.mergedVectorCount());
-      long[] offsets = new long[indexes.size() + 1];
       int concatRow = 0;
-      int reader = 0;
       for (CuVS2510GPUVectorsReader r : inputs.readers()) {
         FloatVectorValues values = r.getFloatVectorValues(fieldInfo.name);
         for (int ord = 0; ord < values.size(); ord++) {
-          // rowFilter bits address the unfiltered concatenation, offsets the gathered one.
           if (inputs.rowFilter() == null || inputs.rowFilter().get(concatRow + ord)) {
             rows.add(values.vectorValue(ord).clone());
           }
         }
         concatRow += values.size();
-        offsets[++reader] = rows.size();
       }
       CuVSMatrix mergedMatrix =
           Utils.createFloatMatrix(rows, fieldInfo.getVectorDimension(), getCuVSResourcesInstance());
@@ -633,14 +629,12 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
         // The merged data set stays ours, so it has to outlive the index that views it.
         if (CagraIndex.isPaddedDataset(deviceVectors)) {
           try (var mergedDataset = indexes.get(0).makePaddedDatasetView(deviceVectors);
-              CagraIndex mergedIndex =
-                  CagraIndex.merge(indexesArray, mergedDataset, offsets, mergeParams)) {
+              CagraIndex mergedIndex = CagraIndex.merge(indexesArray, mergedDataset, mergeParams)) {
             writeIndexBytes(mergedIndex);
           }
         } else {
           try (var mergedDataset = indexes.get(0).makePaddedDataset(deviceVectors);
-              CagraIndex mergedIndex =
-                  CagraIndex.merge(indexesArray, mergedDataset, offsets, mergeParams)) {
+              CagraIndex mergedIndex = CagraIndex.merge(indexesArray, mergedDataset, mergeParams)) {
             writeIndexBytes(mergedIndex);
           }
         }

@@ -88,30 +88,24 @@ class FilterCuVSProvider implements CuVSProvider {
     return delegate.newHnswIndexBuilder(cuVSResources);
   }
 
+  @Override
+  public CagraIndex mergeCagraIndexes(
+      CagraIndex[] indexes, long mergedDatasetHandleAddress, CagraIndexParams mergeParams)
+      throws Throwable {
+    return delegate.mergeCagraIndexes(indexes, mergedDatasetHandleAddress, mergeParams);
+  }
+
   /**
-   * Delegates rather than inheriting the default, which refuses what it cannot honour. The two
-   * narrower overloads route here, so this is the only one that has to be forwarded.
+   * Delegates rather than inheriting the default, which refuses what it cannot honour.
    */
   @Override
   public CagraIndex mergeCagraIndexes(
       CagraIndex[] indexes,
       long mergedDatasetHandleAddress,
-      long[] offsets,
-      CagraIndexParams mergeParams)
-      throws Throwable {
-    return delegate.mergeCagraIndexes(indexes, mergedDatasetHandleAddress, offsets, mergeParams);
-  }
-
-  @Override
-  public CagraIndex mergeCagraIndexes(
-      CagraIndex[] indexes,
-      long mergedDatasetHandleAddress,
-      long[] offsets,
       BitSet filter,
       CagraIndexParams mergeParams)
       throws Throwable {
-    return delegate.mergeCagraIndexes(
-        indexes, mergedDatasetHandleAddress, offsets, filter, mergeParams);
+    return delegate.mergeCagraIndexes(indexes, mergedDatasetHandleAddress, filter, mergeParams);
   }
 
   @Override

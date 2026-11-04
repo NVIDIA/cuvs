@@ -1044,11 +1044,10 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
 /**
  * @brief Merge multiple CAGRA indices into a single CAGRA index.
  *
- * The caller is responsible for concatenating every input index's dataset (applying `filter` if
- * any) into a single `merged_dataset` buffer before calling this, and for computing `offsets`
- * (see `cuvsMergedDatasetOffsets`). This function only builds/merges the graph and rebinds
- * the output index to `merged_dataset` -- it never allocates or copies dataset rows itself. This
- * mirrors the `cuvsCagraExtend` contract.
+ * The caller is responsible for concatenating every input index's dataset into a single
+ * `merged_dataset` buffer before calling this (see `cuvsConcatenateDatasets`). This function only
+ * builds/merges the graph and rebinds the output index to `merged_dataset` -- it never allocates
+ * or copies dataset rows itself. This mirrors the `cuvsCagraExtend` contract.
  *
  * All input indices must have been built with the same data type (`index.dtype`) and
  * have the same dimensionality (`index.dims`). The merged index uses the output
@@ -1083,13 +1082,12 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
  * cuvsError_t params_create_status = cuvsCagraIndexParamsCreate(&merge_params);
  *
  * // Build `merged_dataset` as the caller-owned concatenation of index1 || index2 (e.g. via
- * // cuvsDatasetMakePadded over a device buffer you populated yourself).
+ * // cuvsConcatenateDatasets).
  * cuvsDataset_t merged_dataset = ...;
- * int64_t offsets[3] = {0, index1_size, index1_size + index2_size};
  * cuvsFilter filter = {.type = NO_FILTER, .addr = 0};
  *
  * cuvsError_t merge_status = cuvsCagraMerge_v2(res, merge_params, (cuvsCagraIndex_t[]){index1,
- * index2}, 2, filter, merged_dataset, offsets, merged_index);
+ * index2}, 2, filter, merged_dataset, merged_index);
  *
  * // Use merged_index for search operations
  *
@@ -1103,15 +1101,11 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
  * @param[in] params cuvsCagraIndexParams_t parameters for the output index
  * @param[in] indices Array of input cuvsCagraIndex_t handles to merge
  * @param[in] num_indices Number of input indices
- * @param[in] filter Filter, already applied by the caller while building `merged_dataset`
- * @param[in] merged_dataset Caller-owned dataset handle already containing the concatenated (and,
- *                           if `filter` is set, already-filtered) dataset, with the same layout as
- *                           the input indices. Keep this dataset alive while using
- *                           \p output_index. A host-backed dataset must be updated with
- *                           `cuvsCagraUpdateDataset` before device search.
- * @param[in] offsets Per-index starting row within `merged_dataset`, as returned by
- *                    `cuvsMergedDatasetOffsets`. Array of `num_indices + 1` int64_t; the last
- *                    entry must equal `merged_dataset`'s row count.
+ * @param[in] filter Filter (unused, reserved for future use; pass `{.type = NO_FILTER, .addr = 0}`)
+ * @param[in] merged_dataset Caller-owned dataset handle already containing the concatenated
+ *                           dataset, with the same layout as the input indices. Keep this dataset
+ *                           alive while using \p output_index. A host-backed dataset must be
+ *                           updated with `cuvsCagraUpdateDataset` before device search.
  * @param[out] output_index Output handle that will store the merged index.
  *                          Must be initialized using `cuvsCagraIndexCreate` before use.
  */
@@ -1121,13 +1115,12 @@ CUVS_EXPORT cuvsError_t cuvsCagraMerge_v2(cuvsResources_t res,
                               size_t num_indices,
                               cuvsFilter filter,
                               cuvsDataset_t merged_dataset,
-                              const int64_t* offsets,
                               cuvsCagraIndex_t output_index);
 
 /**
  * @brief Merge multiple CAGRA indices with explicit merge parameters.
  *
- * See `cuvsCagraMerge_v2` for the full `merged_dataset`/`offsets` contract.
+ * See `cuvsCagraMerge_v2` for the full `merged_dataset` contract.
  *
  * @param[in] res cuvsResources_t opaque C handle
  * @param[in] params cuvsCagraIndexParams_t parameters for the output index
@@ -1135,13 +1128,11 @@ CUVS_EXPORT cuvsError_t cuvsCagraMerge_v2(cuvsResources_t res,
  *                         NULL to use AUTO defaults
  * @param[in] indices Array of input cuvsCagraIndex_t handles to merge
  * @param[in] num_indices Number of input indices
- * @param[in] filter Filter, already applied by the caller while building `merged_dataset`
- * @param[in] merged_dataset Caller-owned dataset handle already containing the concatenated (and,
- *                           if `filter` is set, already-filtered) dataset. Keep this dataset alive
- *                           while using `output_index`. A host-backed dataset must be updated with
- *                           `cuvsCagraUpdateDataset` before device search.
- * @param[in] offsets Per-index starting row within `merged_dataset`, as returned by
- *                    `cuvsMergedDatasetOffsets`. Array of `num_indices + 1` int64_t.
+ * @param[in] filter Filter (unused, reserved for future use; pass `{.type = NO_FILTER, .addr = 0}`)
+ * @param[in] merged_dataset Caller-owned dataset handle already containing the concatenated
+ *                           dataset. Keep this dataset alive while using `output_index`. A
+ *                           host-backed dataset must be updated with `cuvsCagraUpdateDataset`
+ *                           before device search.
  * @param[out] output_index Output handle initialized with `cuvsCagraIndexCreate`
  */
 CUVS_EXPORT cuvsError_t cuvsCagraMergeWithParams_v2(cuvsResources_t res,
@@ -1151,7 +1142,6 @@ CUVS_EXPORT cuvsError_t cuvsCagraMergeWithParams_v2(cuvsResources_t res,
                                                     size_t num_indices,
                                                     cuvsFilter filter,
                                                     cuvsDataset_t merged_dataset,
-                                                    const int64_t* offsets,
                                                     cuvsCagraIndex_t output_index);
 
 /**

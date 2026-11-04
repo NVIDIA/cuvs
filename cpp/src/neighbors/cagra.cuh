@@ -554,11 +554,9 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
   raft::resources const& handle,
   const cagra::index_params& params,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
-  DatasetViewT merged_dataset,
-  std::vector<int64_t> const& offsets)
+  DatasetViewT merged_dataset)
 {
-  return cagra::detail::merge<T, IdxT, DatasetViewT>(
-    handle, params, indices, merged_dataset, offsets);
+  return cagra::detail::merge<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset);
 }
 
 template <class T, class IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
@@ -567,17 +565,15 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge(
   const cagra::index_params& params,
   std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
   DatasetViewT merged_dataset,
-  std::vector<int64_t> const& offsets,
   const cagra::merge_params& merge_params)
 {
   return cagra::detail::merge<T, IdxT, DatasetViewT>(
-    handle, params, indices, merged_dataset, offsets, merge_params);
+    handle, params, indices, merged_dataset, merge_params);
 }
 
-/** @brief Compute per-dataset write offsets for a merged dataset buffer, needed to lay out a
- * caller-populated `merged_dataset` for `merge()`. Only required for a bitset `row_filter`: for an
- * unfiltered merge, offsets are just the cumulative n_rows() of `datasets` and can be computed
- * directly without calling this. See `merge()` for the full contract. */
+/** @brief Compute per-dataset write offsets for a filtered merged dataset buffer.
+ * Only required for `concatenate_datasets()` with a bitset `row_filter`; for an unfiltered
+ * concatenation the offsets are just the cumulative n_rows() of `datasets`. */
 template <cuvs::neighbors::ann_dataset_view DatasetViewT>
 std::vector<int64_t> merged_dataset_offsets(
   raft::resources const& handle,
@@ -719,13 +715,11 @@ auto concatenate_datasets(raft::resources const& handle,
     raft::resources const& handle,                                               \
     const cuvs::neighbors::cagra::index_params& params,                          \
     std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices, \
-    DatasetViewT merged_dataset,                                                 \
-    std::vector<int64_t> const& offsets);                                        \
+    DatasetViewT merged_dataset);                                                \
   template CUVS_EXPORT cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>      \
   cuvs::neighbors::cagra::merge<T, IdxT, DatasetViewT>(                          \
     raft::resources const& handle,                                               \
     const cuvs::neighbors::cagra::index_params& params,                          \
     std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices, \
     DatasetViewT merged_dataset,                                                 \
-    std::vector<int64_t> const& offsets,                                         \
     const cuvs::neighbors::cagra::merge_params& merge_params);\

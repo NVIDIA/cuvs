@@ -174,27 +174,20 @@ public interface CuVSProvider {
    * Merges multiple CAGRA indexes into a single index, using a caller-owned pre-concatenated
    * padded dataset.
    *
-   * <p>See {@link CagraIndex#merge(CagraIndex[], CagraIndex.PaddedDataset, long[])} for the full
-   * {@code mergedDatasetHandleAddress}/{@code offsets} contract; this SPI method takes the raw
-   * native handle address so implementations don't need to depend on the concrete dataset
-   * wrapper type.
+   * <p>See {@link CagraIndex#merge(CagraIndex[], CagraIndex.PaddedDataset)} for the full contract;
+   * this SPI method takes the raw native handle address so implementations don't need to depend
+   * on the concrete dataset wrapper type.
    *
    * @param indexes Array of CAGRA indexes to merge
    * @param mergedDatasetHandleAddress native handle address of the caller-owned padded dataset
    *                                   (or padded dataset view) holding the concatenation of every
    *                                   input index's rows, in {@code indexes} order
-   * @param offsets Per-index starting row within the merged dataset. Array of {@code
-   *                indexes.length + 1} entries; the last entry must equal the merged dataset's
-   *                row count
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
    * @return A new merged CAGRA index
    * @throws Throwable if an error occurs during the merge operation
    */
   CagraIndex mergeCagraIndexes(
-      CagraIndex[] indexes,
-      long mergedDatasetHandleAddress,
-      long[] offsets,
-      CagraIndexParams mergeParams)
+      CagraIndex[] indexes, long mergedDatasetHandleAddress, CagraIndexParams mergeParams)
       throws Throwable;
 
   /**
@@ -204,7 +197,7 @@ public interface CuVSProvider {
    *
    * <p>This is declared as a {@code default} method so that adding it does not break binary
    * compatibility with providers compiled against an earlier version of this interface; the
-   * default implementation falls back to {@link #mergeCagraIndexes(CagraIndex[], long, long[],
+   * default implementation falls back to {@link #mergeCagraIndexes(CagraIndex[], long,
    * CagraIndexParams)} when {@code filter} is null, and otherwise throws {@link
    * UnsupportedOperationException}.
    *
@@ -212,9 +205,6 @@ public interface CuVSProvider {
    * @param mergedDatasetHandleAddress native handle address of the caller-owned padded dataset
    *                                   (or padded dataset view) holding the concatenation of every
    *                                   input index's surviving rows, in {@code indexes} order
-   * @param offsets Per-index starting row within the merged dataset. Array of {@code
-   *                indexes.length + 1} entries; the last entry must equal the merged dataset's
-   *                row count
    * @param filter Bitset selecting which rows (over the concatenation of every index's rows, in
    *               {@code indexes} order) survive into the merged dataset; a set bit keeps the row.
    *               Pass null for an unfiltered merge
@@ -225,12 +215,11 @@ public interface CuVSProvider {
   default CagraIndex mergeCagraIndexes(
       CagraIndex[] indexes,
       long mergedDatasetHandleAddress,
-      long[] offsets,
       BitSet filter,
       CagraIndexParams mergeParams)
       throws Throwable {
     if (filter == null) {
-      return mergeCagraIndexes(indexes, mergedDatasetHandleAddress, offsets, mergeParams);
+      return mergeCagraIndexes(indexes, mergedDatasetHandleAddress, mergeParams);
     }
     throw new UnsupportedOperationException(
         "Bitset-filtered CAGRA merge is not supported by " + getClass().getName());
@@ -241,7 +230,7 @@ public interface CuVSProvider {
    *
    * <p>See {@link CagraIndex#mergedDatasetOffsets(CagraIndex[], BitSet)} for the full contract.
    * This is declared as a {@code default} method for the same binary-compatibility reason as
-   * {@link #mergeCagraIndexes(CagraIndex[], long, long[], BitSet, CagraIndexParams)}; the default
+   * {@link #mergeCagraIndexes(CagraIndex[], long, BitSet, CagraIndexParams)}; the default
    * implementation throws {@link UnsupportedOperationException}.
    *
    * @param indexes Array of CAGRA indexes that will be merged
@@ -262,7 +251,7 @@ public interface CuVSProvider {
    *
    * <p>See {@link CagraIndex#concatenateDatasets(CagraIndex[])} for the full contract. This is
    * declared as a {@code default} method for the same binary-compatibility reason as {@link
-   * #mergeCagraIndexes(CagraIndex[], long, long[], BitSet, CagraIndexParams)}; the default
+   * #mergeCagraIndexes(CagraIndex[], long, BitSet, CagraIndexParams)}; the default
    * implementation throws {@link UnsupportedOperationException}.
    *
    * @param indexes Array of CAGRA indexes to concatenate
@@ -281,7 +270,7 @@ public interface CuVSProvider {
    *
    * <p>See {@link CagraIndex#concatenateAndFilterDatasets(CagraIndex[], BitSet)} for the full
    * contract. This is declared as a {@code default} method for the same binary-compatibility
-   * reason as {@link #mergeCagraIndexes(CagraIndex[], long, long[], BitSet, CagraIndexParams)};
+   * reason as {@link #mergeCagraIndexes(CagraIndex[], long, BitSet, CagraIndexParams)};
    * the default implementation throws {@link UnsupportedOperationException}.
    *
    * @param indexes Array of CAGRA indexes to concatenate

@@ -127,11 +127,7 @@ impl<'d> Index<'d> {
     /// Merges multiple CAGRA indices into a new index backed by `merged_dataset`.
     ///
     /// The caller must have already concatenated every input index's dataset (in
-    /// `indices` order) into `merged_dataset`, and computed `offsets` as the
-    /// cumulative row counts of each input index: `offsets[i]` is the row at
-    /// which `indices[i]`'s rows start in `merged_dataset`, and
-    /// `offsets[indices.len()]` must equal `merged_dataset`'s total row count.
-    /// See [`merged_dataset_offsets`] for the bitset-filtered case.
+    /// `indices` order) into `merged_dataset`.
     ///
     /// The returned [`Index`] borrows `merged_dataset` for `'a` and cannot
     /// outlive it, mirroring [`Index::update_dataset`].
@@ -140,12 +136,11 @@ impl<'d> Index<'d> {
         params: &IndexParams,
         indices: &[&Index<'_>],
         merged_dataset: &'a D,
-        offsets: &[i64],
     ) -> Result<Index<'a>>
     where
         D: CuvsDataset + ?Sized,
     {
-        Self::merge_impl(res, params, None, indices, None, merged_dataset, offsets)
+        Self::merge_impl(res, params, None, indices, None, merged_dataset)
     }
 
     /// Merges multiple CAGRA indices, applying a row-level bitset `filter`.
@@ -159,37 +154,29 @@ impl<'d> Index<'d> {
         indices: &[&Index<'_>],
         filter: &Filter<'_, Bitset>,
         merged_dataset: &'a D,
-        offsets: &[i64],
     ) -> Result<Index<'a>>
     where
         D: CuvsDataset + ?Sized,
     {
-        Self::merge_impl(res, params, None, indices, Some(filter), merged_dataset, offsets)
+        Self::merge_impl(res, params, None, indices, Some(filter), merged_dataset)
     }
 
     /// Merges multiple CAGRA indices using explicit [`MergeParams`].
-    ///
-    /// See [`Index::merge`] for the `merged_dataset`/`offsets` contract.
     pub fn merge_with_params<'a, D>(
         res: &Resources,
         params: &IndexParams,
         merge_params: &MergeParams,
         indices: &[&Index<'_>],
         merged_dataset: &'a D,
-        offsets: &[i64],
     ) -> Result<Index<'a>>
     where
         D: CuvsDataset + ?Sized,
     {
-        Self::merge_impl(res, params, Some(merge_params), indices, None, merged_dataset, offsets)
+        Self::merge_impl(res, params, Some(merge_params), indices, None, merged_dataset)
     }
 
     /// Merges multiple CAGRA indices using explicit [`MergeParams`] and a
     /// row-level bitset `filter`.
-    ///
-    /// See [`Index::merge`] and [`Index::merge_filtered`] for the
-    /// `merged_dataset`/`offsets` contract.
-    #[allow(clippy::too_many_arguments)]
     pub fn merge_filtered_with_params<'a, D>(
         res: &Resources,
         params: &IndexParams,
@@ -197,23 +184,13 @@ impl<'d> Index<'d> {
         indices: &[&Index<'_>],
         filter: &Filter<'_, Bitset>,
         merged_dataset: &'a D,
-        offsets: &[i64],
     ) -> Result<Index<'a>>
     where
         D: CuvsDataset + ?Sized,
     {
-        Self::merge_impl(
-            res,
-            params,
-            Some(merge_params),
-            indices,
-            Some(filter),
-            merged_dataset,
-            offsets,
-        )
+        Self::merge_impl(res, params, Some(merge_params), indices, Some(filter), merged_dataset)
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn merge_impl<'a, D>(
         res: &Resources,
         params: &IndexParams,
@@ -221,19 +198,10 @@ impl<'d> Index<'d> {
         indices: &[&Index<'_>],
         filter: Option<&Filter<'_, Bitset>>,
         merged_dataset: &'a D,
-        offsets: &[i64],
     ) -> Result<Index<'a>>
     where
         D: CuvsDataset + ?Sized,
     {
-        if offsets.len() != indices.len() + 1 {
-            return Err(CagraError::Validation(format!(
-                "offsets must have indices.len() + 1 ({}) entries, got {}",
-                indices.len() + 1,
-                offsets.len()
-            )));
-        }
-
         let mut raw_indices: Vec<ffi::cuvsCagraIndex_t> =
             indices.iter().map(|index| index.handle.raw()).collect();
         let merged_dataset = merged_dataset.raw_dataset_handle();
@@ -250,7 +218,6 @@ impl<'d> Index<'d> {
                         raw_indices.len(),
                         c_filter,
                         merged_dataset,
-                        offsets.as_ptr(),
                         handle.raw(),
                     ),
                     None => ffi::cuvsCagraMerge_v2(
@@ -260,7 +227,6 @@ impl<'d> Index<'d> {
                         raw_indices.len(),
                         c_filter,
                         merged_dataset,
-                        offsets.as_ptr(),
                         handle.raw(),
                     ),
                 }
@@ -1021,11 +987,8 @@ mod tests {
         let merged_device = DeviceTensor::from_host(&res, &merged_host).unwrap();
         let merged_view = DatasetView::new(&res, &merged_device).unwrap();
 
-        let offsets: Vec<i64> = vec![0, n1 as i64, (n1 + n2) as i64];
-
-        let merged_index =
-            Index::merge(&res, &build_params, &[&index_a, &index_b], &merged_view, &offsets)
-                .expect("merge failed");
+        let merged_index = Index::merge(&res, &build_params, &[&index_a, &index_b], &merged_view)
+            .expect("merge failed");
 
         search_and_verify_self_neighbors(&res, &merged_index, &merged_host, 4, 10);
     }
@@ -1058,37 +1021,16 @@ mod tests {
         let merged_device = DeviceTensor::from_host(&res, &merged_host).unwrap();
         let merged_view = DatasetView::new(&res, &merged_device).unwrap();
 
-        let offsets: Vec<i64> = vec![0, n1 as i64, (n1 + n2) as i64];
-
         let merged_index = Index::merge_with_params(
             &res,
             &build_params,
             &merge_params,
             &[&index_a, &index_b],
             &merged_view,
-            &offsets,
         )
         .expect("merge_with_params failed");
 
         search_and_verify_self_neighbors(&res, &merged_index, &merged_host, 4, 10);
-    }
-
-    #[test]
-    fn merge_rejects_mismatched_offsets_length() {
-        let res = Resources::new().unwrap();
-        let build_params = IndexParams::builder().build().unwrap();
-        let dataset = ndarray::Array::<f32, _>::random(
-            (N_DATAPOINTS, N_FEATURES),
-            Uniform::new(0., 1.0).unwrap(),
-        );
-        let device = DeviceTensor::from_host(&res, &dataset).unwrap();
-        let index = Index::build(&res, &build_params, &device).unwrap();
-        let view = DatasetView::new(&res, &device).unwrap();
-
-        // Only one index but two offsets entries provided instead of the required two.
-        let err = Index::merge(&res, &build_params, &[&index], &view, &[0])
-            .expect_err("offsets.len() must equal indices.len() + 1");
-        assert!(matches!(err, CagraError::Validation(_)), "unexpected error: {err:?}");
     }
 
     #[test]

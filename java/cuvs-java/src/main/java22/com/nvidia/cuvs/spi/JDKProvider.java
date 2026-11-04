@@ -309,27 +309,23 @@ final class JDKProvider implements CuVSProvider {
 
   @Override
   public CagraIndex mergeCagraIndexes(
-      CagraIndex[] indexes,
-      long mergedDatasetHandleAddress,
-      long[] offsets,
-      CagraIndexParams mergeParams) {
+      CagraIndex[] indexes, long mergedDatasetHandleAddress, CagraIndexParams mergeParams) {
     if (indexes == null || indexes.length == 0) {
       throw new IllegalArgumentException("At least one index must be provided for merging");
     }
-    return CagraIndexImpl.merge(indexes, mergedDatasetHandleAddress, offsets, mergeParams);
+    return CagraIndexImpl.merge(indexes, mergedDatasetHandleAddress, mergeParams);
   }
 
   @Override
   public CagraIndex mergeCagraIndexes(
       CagraIndex[] indexes,
       long mergedDatasetHandleAddress,
-      long[] offsets,
       BitSet filter,
       CagraIndexParams mergeParams) {
     if (indexes == null || indexes.length == 0) {
       throw new IllegalArgumentException("At least one index must be provided for merging");
     }
-    return CagraIndexImpl.merge(indexes, mergedDatasetHandleAddress, offsets, filter, mergeParams);
+    return CagraIndexImpl.merge(indexes, mergedDatasetHandleAddress, filter, mergeParams);
   }
 
   @Override
