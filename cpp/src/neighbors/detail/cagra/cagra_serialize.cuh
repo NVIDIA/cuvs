@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstring>
+
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/util/file_io.hpp>
 #include <raft/core/copy.cuh>
@@ -114,6 +116,9 @@ void serialize(raft::resources const& res,
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("cagra::serialize");
 
+  if (auto* tiered = tiered_index_access::get(index_)) {
+    return tiered->serialize(res, os, include_dataset);
+  }
   RAFT_EXPECTS(!index_.dataset_fd().has_value(),
                "Cannot serialize a disk-backed CAGRA index. Convert it with "
                "cuvs::neighbors::hnsw::from_cagra() and load it into memory via "
@@ -552,6 +557,11 @@ void deserialize_impl(
 
   char dtype_string[4];
   RAFT_EXPECTS(is.read(dtype_string, 4), "cagra::deserialize: failed to read dtype prefix");
+  if (std::memcmp(dtype_string, "CTIR", 4) == 0) {
+    deserialize_tiered(res, is, index_);
+    if (out_dataset != nullptr) { out_dataset->reset(); }
+    return;
+  }
   RAFT_EXPECTS(cuvs::util::validate_serialized_dtype<T>(dtype_string, sizeof(dtype_string)),
                "cagra::deserialize: serialized dtype prefix does not match requested type");
 

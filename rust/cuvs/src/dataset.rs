@@ -118,6 +118,24 @@ pub struct DatasetView<'a> {
 }
 
 impl<'a> DatasetView<'a> {
+    /// Borrow a tensor as a standard row-major view, including aligned rows.
+    ///
+    /// This explicit layout is required by tiered CAGRA VPQ construction from
+    /// host vectors. The view borrows its tensor and never copies its data.
+    pub fn standard<T>(res: &Resources, dataset: &'a T) -> Result<Self>
+    where
+        T: AsDlTensor + ?Sized,
+    {
+        let tensor = dataset.as_dl_tensor()?;
+        let mut tensor_c = tensor.to_c();
+        let handle = unsafe {
+            init_handle(|out| {
+                ffi::cuvsDatasetMakeStandardView(res.handle(), tensor_c.as_mut_ptr(), out)
+            })?
+        };
+        Ok(Self { handle, _dataset: PhantomData })
+    }
+
     /// Borrow a tensor as the host/device and padded/standard view matching its
     /// DLPack shape/strides (CAGRA row-width rule).
     pub fn new<T>(res: &Resources, dataset: &'a T) -> Result<Self>

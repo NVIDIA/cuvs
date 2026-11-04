@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 """
@@ -25,11 +25,13 @@ from .registry import (
 )
 
 from .cpp_gbench import CppGoogleBenchmarkBackend
+from .flowann import FlowannBackend
 from .opensearch import OpenSearchBackend
 
 # Auto-register built-in backends
 _registry = get_registry()
 _registry.register("cpp_gbench", CppGoogleBenchmarkBackend)
+_registry.register("flowann", FlowannBackend)
 _registry.register("opensearch", OpenSearchBackend)
 
 __all__ = [
@@ -45,5 +47,6 @@ __all__ = [
     "get_backend",
     # Built-in backends
     "CppGoogleBenchmarkBackend",
+    "FlowannBackend",
     "OpenSearchBackend",
 ]

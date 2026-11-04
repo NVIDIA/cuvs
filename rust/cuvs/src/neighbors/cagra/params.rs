@@ -20,7 +20,10 @@ use bon::bon;
 use crate::distance::DistanceType;
 use crate::error::check_cuvs;
 
-use super::{CagraError, GraphBuildAlgo, HashMode, SearchAlgo};
+use super::{
+    CagraError, GraphBuildAlgo, GraphStorage, HashMode, SearchAlgo, TieredGraphParams,
+    TieredSearchParams,
+};
 
 #[derive(Debug)]
 enum RequestedGraphBuild {
@@ -60,6 +63,8 @@ impl IndexParams {
         metric: Option<DistanceType>,
         intermediate_graph_degree: Option<usize>,
         graph_degree: Option<usize>,
+        graph_storage: Option<GraphStorage>,
+        tiered: Option<TieredGraphParams>,
         #[builder(setters(vis = "", some_fn = graph_build_internal))] graph_build: Option<
             RequestedGraphBuild,
         >,
@@ -96,6 +101,27 @@ impl IndexParams {
             }
         }
 
+        let storage = graph_storage.unwrap_or(GraphStorage::Device);
+        if tiered.is_some() && storage != GraphStorage::Tiered {
+            return Err(CagraError::Validation(
+                "tiered options require GraphStorage::Tiered".into(),
+            ));
+        }
+        if storage == GraphStorage::Tiered && matches!(graph_build, Some(RequestedGraphBuild::Ace))
+        {
+            return Err(CagraError::Validation(
+                "tiered storage does not support ACE builds".into(),
+            ));
+        }
+        if let Some(options) = tiered {
+            options.validate()?;
+            unsafe {
+                (*params.handle).tiered = options.into();
+            }
+        }
+        unsafe {
+            (*params.handle).graph_storage = storage.into();
+        }
         params.apply_graph_build(graph_build);
         Ok(params)
     }
@@ -247,8 +273,16 @@ impl SearchParams {
         persistent: Option<bool>,
         persistent_lifetime: Option<f32>,
         persistent_device_usage: Option<f32>,
+        tiered: Option<TieredSearchParams>,
     ) -> Result<Self, CagraError> {
         let params = Self::create_handle()?;
+        if let Some(options) = tiered {
+            options.validate()?;
+            unsafe {
+                (*params.handle).use_tiered_params = true;
+                (*params.handle).tiered = options.into();
+            }
+        }
 
         let effective_algo = algo.unwrap_or_else(|| unsafe { (*params.handle).algo.into() });
         let effective_hashmap_mode =
