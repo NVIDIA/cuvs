@@ -56,7 +56,7 @@ Optional components have additional requirements:
 The recommended way to construct an environment with the dependencies required to build NVIDIA cuVS is to use conda with the repository environment YAML file:
 
 ```bash
-conda env create --name cuvs -f conda/environments/all_cuda-133_arch-$(uname -m).yaml
+conda env create --name cuvs -f conda/environments/all_cuda-134_arch-$(uname -m).yaml
 conda activate cuvs
 ```
 
@@ -94,7 +94,7 @@ The helper accepts the following environment variables:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `CUVS_TARBALL_CUDA_VERSION` | `13.3.0` | CUDA version for the `rapidsai/ci-wheel` base image. |
+| `CUVS_TARBALL_CUDA_VERSION` | `13.4.3` | CUDA version for the `rapidsai/ci-wheel` base image. |
 | `CUVS_TARBALL_PYTHON_VERSION` | `3.14` | Python version for the `rapidsai/ci-wheel` base image. |
 | `CUVS_TARBALL_BUILD_OUTPUT_DIR` | `./build` | Host directory where the tarball is written. |
 
@@ -104,7 +104,7 @@ See https://hub.docker.com/r/rapidsai/ci-wheel/tags
 For example:
 
 ```bash
-CUVS_TARBALL_CUDA_VERSION=13.3.0 \
+CUVS_TARBALL_CUDA_VERSION=13.4.3 \
 CUVS_TARBALL_PYTHON_VERSION=3.14 \
   ./build.sh tarball
 ```
@@ -135,7 +135,7 @@ If you do not want to use the helper script, build the image directly from the r
 ```bash
 docker build \
   -f Dockerfile.standalone \
-  --build-arg CUDA_VERSION="13.3.0" \
+  --build-arg CUDA_VERSION="13.4.3" \
   --build-arg PYTHON_VERSION="3.14" \
   --build-arg RAPIDS_VERSION="$(head -1 ./VERSION | cut -d. -f1,2 )" \
   -t cuvs-standalone-c:local \
