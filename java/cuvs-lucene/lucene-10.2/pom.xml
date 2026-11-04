@@ -22,6 +22,10 @@ SPDX-License-Identifier: Apache-2.0
 
   <properties>
     <lucene.version>10.2.0</lucene.version>
+    <!-- The compat/ variant of each Lucene class cuvs-lucene adapts that Lucene 10.2 needs. -->
+    <cuvs.lucene.compat.knnVectorsReader>knn-vectors-reader-102-bits</cuvs.lucene.compat.knnVectorsReader>
+    <cuvs.lucene.compat.knnFloatVectorQuery>knn-float-vector-query-102-bits</cuvs.lucene.compat.knnFloatVectorQuery>
+    <cuvs.lucene.compat.leafReader>leaf-reader-102-bits</cuvs.lucene.compat.leafReader>
   </properties>
 
   <build>
