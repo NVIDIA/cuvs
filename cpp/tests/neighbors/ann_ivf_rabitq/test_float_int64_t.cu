@@ -18,4 +18,9 @@ INSTANTIATE(f32_f32_i64,
             defaults() + small_dims() + big_dims() + var_n_probes() + var_k() + var_bits_per_dim() +
               var_search_mode() + var_search_mode_1_bit());
 
+TEST_P(ivf_rabitq_empty_lists_test, build_search) { this->run(); }  // NOLINT
+INSTANTIATE_TEST_SUITE_P(IvfRabitq,
+                         ivf_rabitq_empty_lists_test,
+                         ::testing::ValuesIn(empty_lists_inputs()));  // NOLINT
+
 }  // namespace cuvs::neighbors::ivf_rabitq

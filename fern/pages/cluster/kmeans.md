@@ -366,7 +366,7 @@ Balanced K-Means encourages more even cluster sizes. It is useful when clusters 
 | `batch_samples` | `32768` | Number of samples per tile for the nearest-centroid computation. Lower values reduce temporary memory. |
 | `batch_centroids` | `0` | Number of centroids per tile. `0` means all centroids. Lower values reduce temporary memory. |
 | `init_size` | `0` | Number of rows sampled for k-means++ initialization on host-data paths. `0` uses the default heuristic. |
-| `device_buffer_samples` | `0` | Number of host rows streamed to the GPU per batch. `0` processes all host rows at once. |
+| `device_buffer_samples` | `0` | Number of host rows streamed to the GPU per batch. For a single host matrix, the default `0` processes all rows at once using one full-dataset GPU input buffer. Set a positive value smaller than the row count to stream smaller batches. |
 | `hierarchical` | `false` | Enables hierarchical, balanced K-Means in C and Python. |
 | `hierarchical_n_iters` | implementation default | Number of training iterations for hierarchical K-Means. |
 | `balance_lower_tolerance` | `0.333` | C++ balanced K-Means lower tolerance for rebalancing clusters during hierarchical training and final global fine-tuning iterations. Small clusters are adjusted when their size is smaller than `average_cluster_size * balance_lower_tolerance`. The default targets clusters smaller than roughly one third of the average size. |
@@ -384,6 +384,8 @@ Tune `max_iter` and `tol` together. If `n_iter` often reaches `max_iter`, increa
 Use `batch_samples` and `batch_centroids` to control device memory for device-resident data. Smaller tiles reduce temporary memory but add more tiled work.
 
 Use `device_buffer_samples` when fitting host-resident datasets that do not fit on the GPU. Smaller batches reduce GPU memory pressure, while larger batches reduce transfer and launch overhead.
+
+Resources have no auxiliary stream pool by default, so host batches use one input buffer and transfers and compute are serialized. In Python, call `resources.set_stream_pool(1)` before fitting to enable two input buffers and transfer/compute overlap when there are multiple batches. Calling `set_stream_pool()` without arguments also creates one auxiliary stream. A single batch uses one input buffer even with a stream pool.
 
 Use balanced K-Means when cluster size matters. This is often useful when clusters are later used as work partitions, batches, or coarse groups for another algorithm.
 
@@ -489,17 +491,21 @@ $$
 
 For host-resident data, NVIDIA cuVS can stream rows to the GPU in batches. If `device_buffer_samples = 0`, then `S = N`; otherwise `S = device_buffer_samples`.
 
+Let `Q` be the number of input buffers: one by default, or two when there are multiple batches and an auxiliary stream pool is configured. For a single host matrix, the default `device_buffer_samples = 0` therefore requires a full-dataset GPU input buffer.
+
 $$
 \begin{aligned}
 \text{streaming\_batch\_size}
   &= S \cdot D \cdot B_x \\
 \text{fit\_peak}
-  \approx&\ \text{streaming\_batch\_size}
+  \approx&\ Q \cdot \text{streaming\_batch\_size}
    + \text{centroids\_size} \\
   &+ \min(S, T_s) \cdot \min(K, T_c) \cdot B_c
    + \text{scratch}
 \end{aligned}
 $$
+
+Pageable host input also requires one batch-sized pinned host staging buffer per GPU input buffer, approximately `Q * S * D * B_x` bytes of pinned host memory. Already pinned input is transferred directly.
 
 Use a smaller `device_buffer_samples` when the host-data fit path runs out of GPU memory. Use a larger value when GPU memory is available and transfer overhead dominates.
 
