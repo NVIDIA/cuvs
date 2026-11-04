@@ -10,8 +10,8 @@ import org.apache.lucene.codecs.Codec;
  * CuVS based codec for GPU based vector search
  *
  * <p>This codec, named {@code Lucene101AcceleratedHNSWBinaryQuantizedCodec}, wraps {@code
- * Lucene101Codec}, the default codec of Lucene 10.2. {@link CuVSCodecs#acceleratedHNSWBinaryQuantized} returns the codec of
- * this family for the Lucene release in use.
+ * Lucene101Codec}, the default codec of Lucene 10.2. On later Lucene releases it can only read
+ * existing indexes; use {@link CuVSCodecs#acceleratedHNSWBinaryQuantized} to write.
  *
  * @since 26.02
  */
@@ -35,7 +35,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedCodec extends CuVSFilterCodec {
   public LuceneAcceleratedHNSWBinaryQuantizedCodec(AcceleratedHNSWParams acceleratedHNSWParams) {
     super(
         NAME,
-        delegate(NAME, () -> LuceneCompat.lucene101Codec()),
+        101,
+        () -> LuceneCompat.lucene101Codec(),
         () -> new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(acceleratedHNSWParams));
   }
 }
