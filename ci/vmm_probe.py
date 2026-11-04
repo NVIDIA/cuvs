@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 import ctypes
 import sys
 
@@ -68,22 +71,50 @@ def trial(handle_type, rdma):
     p.requestedHandleTypes = handle_type
     p.allocFlags.gpuDirectRDMACapable = rdma
     g = ctypes.c_size_t()
-    if chk("cuMemGetAllocationGranularity", ctypes.byref(g), ctypes.byref(p), 0):
+    if chk(
+        "cuMemGetAllocationGranularity", ctypes.byref(g), ctypes.byref(p), 0
+    ):
         return "granularity failed"
     size = g.value
     h = ctypes.c_ulonglong()
-    if chk("cuMemCreate", ctypes.byref(h), ctypes.c_size_t(size), ctypes.byref(p), ctypes.c_ulonglong(0)):
+    if chk(
+        "cuMemCreate",
+        ctypes.byref(h),
+        ctypes.c_size_t(size),
+        ctypes.byref(p),
+        ctypes.c_ulonglong(0),
+    ):
         return "create failed"
     ptr = ctypes.c_ulonglong()
-    if chk("cuMemAddressReserve", ctypes.byref(ptr), ctypes.c_size_t(size), ctypes.c_size_t(g.value), ctypes.c_ulonglong(0), ctypes.c_ulonglong(0)):
+    if chk(
+        "cuMemAddressReserve",
+        ctypes.byref(ptr),
+        ctypes.c_size_t(size),
+        ctypes.c_size_t(g.value),
+        ctypes.c_ulonglong(0),
+        ctypes.c_ulonglong(0),
+    ):
         return "reserve failed"
-    if chk("cuMemMap", ptr, ctypes.c_size_t(size), ctypes.c_size_t(0), h, ctypes.c_ulonglong(0)):
+    if chk(
+        "cuMemMap",
+        ptr,
+        ctypes.c_size_t(size),
+        ctypes.c_size_t(0),
+        h,
+        ctypes.c_ulonglong(0),
+    ):
         return "map failed"
     d = AccessDesc()
     d.location.type = 1
     d.location.id = 0
     d.flags = 3
-    if chk("cuMemSetAccess", ptr, ctypes.c_size_t(size), ctypes.byref(d), ctypes.c_size_t(1)):
+    if chk(
+        "cuMemSetAccess",
+        ptr,
+        ctypes.c_size_t(size),
+        ctypes.byref(d),
+        ctypes.c_size_t(1),
+    ):
         return "setaccess failed"
     chk("cuMemUnmap", ptr, ctypes.c_size_t(size))
     chk("cuMemAddressFree", ptr, ctypes.c_size_t(size))
@@ -94,5 +125,7 @@ def trial(handle_type, rdma):
 # CU_MEM_HANDLE_TYPE_NONE=0, POSIX_FD=1; NCCL uses POSIX_FD by default.
 for ht in (0, 1):
     for rdma in (0, 1):
-        print(f"handle_type={ht} gpuDirectRDMACapable={rdma}:", trial(ht, rdma))
+        print(
+            f"handle_type={ht} gpuDirectRDMACapable={rdma}:", trial(ht, rdma)
+        )
         sys.stdout.flush()
