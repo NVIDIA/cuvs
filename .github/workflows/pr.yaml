@@ -77,3 +77,4 @@ jobs:
       cache-environment: |
         CUDA_CACHE_PATH=.cache/cuda-jit
       matrix_type: wsl-pr
+      container-options: "--shm-size=1g"
