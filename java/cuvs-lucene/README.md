@@ -13,7 +13,7 @@ This is a project for using [cuVS](https://github.com/NVIDIA/cuvs), NVIDIA's GPU
 
 ## What is cuvs-lucene?
 
-`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, existing Lucene applications can take advantage of GPU acceleration with minimal code changes. It supports Lucene 10.2.
+`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, existing Lucene applications can take advantage of GPU acceleration with minimal code changes. It supports Lucene 10.2 and 10.3.
 
 Four codecs are currently provided, created through `CuVSCodecs`:
 
@@ -22,9 +22,11 @@ Four codecs are currently provided, created through `CuVSCodecs`:
   - `CuVSCodecs.acceleratedHNSWBinaryQuantized()` — graph built over binary-quantized vectors.
 - `CuVSCodecs.gpuSearch()` — GPU-accelerated build and GPU search. Requires a GPU.
 
-Each codec wraps the default codec of one Lucene release, for example `Lucene101AcceleratedHNSWCodec` wraps
-`Lucene101Codec`, the default codec of Lucene 10.2. Creating the codecs through `CuVSCodecs` rather than by class
-name keeps application code unchanged when the codec to use changes with a later Lucene release.
+Each codec wraps the default codec of one Lucene release, so the codec that writes changes with Lucene: for
+example `Lucene101AcceleratedHNSWCodec` on Lucene 10.2 and `Lucene103AcceleratedHNSWCodec` on 10.3. Codecs of
+earlier releases stay available so that existing indexes can still be read after an upgrade, but they refuse to
+write. Creating the codecs through `CuVSCodecs` rather than by class name keeps application code unchanged when
+the codec to use changes with a later Lucene release.
 
 For guidance on choosing between them, configuring builds, and tuning GPU resources, see the
 [Lucene Integration](https://docs.nvidia.com/cuvs/user-guide/lucene) guide.
@@ -43,13 +45,13 @@ For guidance on choosing between them, configuring builds, and tuning GPU resour
 ### Maven
 
 Lucene changes its codec APIs between minor releases, so `cuvs-lucene` is published once per supported Lucene
-minor release, as `cuvs-lucene-10.X`. Pick the one matching the Lucene version your application uses. For
-Lucene 10.2, add the following dependency to your `pom.xml`:
+minor release, as `cuvs-lucene-10.2` and `cuvs-lucene-10.3`. Pick the one matching the Lucene version your
+application uses. For Lucene 10.3, add the following dependency to your `pom.xml`:
 
 ```xml
 <dependency>
   <groupId>com.nvidia.cuvs.lucene</groupId>
-  <artifactId>cuvs-lucene-10.2</artifactId>
+  <artifactId>cuvs-lucene-10.3</artifactId>
   <version>26.12.0</version>
 </dependency>
 ```
@@ -170,23 +172,40 @@ java/cuvs-lucene/
   src/main/java           shared code: everything that compiles against every supported Lucene release
   src/test/java           shared tests
   src/test/resources/backcompat   indexes written by each release, see below
+  compat/<variant>/src    the adapter for one Lucene class as it looks from one release on, shared by
+                          the releases that have it, such as knn-vectors-reader-102-bits and
+                          knn-vectors-reader-103-acceptdocs; see compat/README.md
   lucene-10.X/
-    pom.xml               the Lucene 10.X dependencies
+    pom.xml               the Lucene 10.X dependencies, and which compat/ variant of each API it uses
     src/main/java         LuceneCompat: the calls that differ on Lucene 10.X
     src/main/resources    the META-INF/services files: the codecs and formats Lucene 10.X can load
+    src/since/java        code first needed on Lucene 10.X, such as the codecs wrapping its default
+                          codec; compiled by this module and every later one
   relocation/pom.xml      relocates the pre-26.12 cuvs-lucene coordinates to cuvs-lucene-10.2
 ```
 
 Each module compiles the shared sources against its own Lucene release, so the compiler checks every release.
-The shared code never refers to a Lucene API that differs between releases. Instead it goes through
-`LuceneCompat`, for calls whose signature or class location differs, such as the codec each release writes with.
+The shared code never refers to a Lucene API that differs between releases. Instead it goes through:
+
+- `LuceneCompat`, for calls whose signature or class location differs, such as the codecs of earlier releases,
+  which move to Lucene's backward codecs.
+- `CompatKnnVectorsReader` and `CompatKnnFloatVectorQuery`, which override the Lucene methods whose signatures
+  changed and forward to a method with the same signature on every release. They live in `compat/`, one
+  directory per variant, and each module picks its variants in its `pom.xml`.
 
 Do not look up Lucene classes or constants by reflection. It hides API changes from the compiler, and constants
 such as `Lucene99HnswVectorsFormat.VERSION_CURRENT` change meaning between releases.
 
 `TestBackCompatIndices` reads indexes written by released cuvs-lucene versions, stored as zips in
-`src/test/resources/backcompat`, and checks that every module can still read, search and upgrade them. `TestBackCompat` checks that the codecs from
-`CuVSCodecs` are registered.
+`src/test/resources/backcompat`, and checks that every module can still read, search and upgrade them. It also
+writes indexes with each module into `target/backcompat`, and checks that every later module tested in the same
+build can read, search and upgrade those. `TestBackCompat` checks that the codecs from `CuVSCodecs` are
+registered, and that only they write.
+
+### Adding a Lucene release
+
+[MAINTAINING.md](MAINTAINING.md) lists exactly what to change when Lucene publishes a new patch or minor
+release, and how to drop support for one.
 
 ## References
 
