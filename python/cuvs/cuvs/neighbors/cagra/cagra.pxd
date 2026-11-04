@@ -79,6 +79,7 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
         cuvsCagraGraphBuildAlgo build_algo
         size_t nn_descent_niter
         void* graph_build_params
+        double variable_graph_degree_fraction
 
     ctypedef cuvsCagraIndexParams* cuvsCagraIndexParams_t
 

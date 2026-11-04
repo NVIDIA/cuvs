@@ -16,7 +16,10 @@
 #include <raft/core/resources.hpp>
 #include <raft/linalg/contractions.cuh>
 #include <raft/linalg/map.cuh>
+#include <raft/util/cuda_dev_essentials.cuh>
 #include <raft/util/cuda_utils.cuh>
+#include <raft/util/kernel_launch.hpp>
+#include <raft/util/reduction.cuh>
 
 #include <cub/util_type.cuh>
 
@@ -69,7 +72,8 @@ namespace distance {
  * @param[in]  initOutBuffer whether to initialize the output buffer before the
  *                           main kernel launch
  * @param[in]  isRowMajor    whether the input/output is row or column major.
- * @param[in]  metric        Distance metric to be used (supports L2, cosine)
+ * @param[in]  metric        Distance metric to be used (supports L2, cosine, and packed uint8_t
+ * Hamming)
  * @param[in]  metric_arg    power argument for distances like Minkowski (not supported for now)
  * @param[in]  handle        RAFT resources containing the caller-provided CUDA stream
  */
@@ -92,110 +96,123 @@ void fusedDistanceNN(raft::resources const& handle,
                      cuvs::distance::DistanceType metric,
                      float metric_arg)
 {
-  ASSERT(isRowMajor, "fusedDistanceNN only supports row major inputs");
+  RAFT_EXPECTS(isRowMajor, "fusedDistanceNN only supports row major inputs");
+  RAFT_EXPECTS(m >= 0 && n >= 0 && k >= 0, "Distance dimensions must be non-negative");
+  if constexpr (std::is_same_v<DataT, uint8_t>) {
+    RAFT_EXPECTS(metric == cuvs::distance::DistanceType::BitwiseHamming,
+                 "uint8_t fused distance only supports BitwiseHamming");
+    RAFT_EXPECTS(static_cast<uint64_t>(k) <= std::numeric_limits<uint32_t>::max() / 8,
+                 "BitwiseHamming distance exceeds the uint32_t accumulator range");
+  } else {
+    RAFT_EXPECTS(metric == cuvs::distance::DistanceType::CosineExpanded ||
+                   metric == cuvs::distance::DistanceType::L2Expanded ||
+                   metric == cuvs::distance::DistanceType::L2SqrtExpanded,
+                 "Floating-point fused distance only supports cosine and L2 metrics");
+  }
+  if (m == 0) { return; }
+
   // When k is smaller than 32, the Policy4x4 results in redundant calculations
   // as it uses tiles that have k=32. Therefore, use a "skinny" policy instead
   // that uses tiles with a smaller value of k.
   bool is_skinny = k < 32;
+  // Packed bytes use at most four elements per vectorized load.
+  constexpr int veclen16 = std::is_same_v<DataT, uint8_t> ? 4 : 16 / sizeof(DataT);
+  constexpr int veclen8  = std::is_same_v<DataT, uint8_t> ? 4 : 8 / sizeof(DataT);
 
   size_t bytes = sizeof(DataT) * k;
   auto px      = reinterpret_cast<uintptr_t>(x);
   auto py      = reinterpret_cast<uintptr_t>(y);
   if (16 % sizeof(DataT) == 0 && bytes % 16 == 0 && px % 16 == 0 && py % 16 == 0) {
     if (is_skinny) {
-      detail::fusedDistanceNNImpl<
-        DataT,
-        OutT,
-        IdxT,
-        typename raft::linalg::Policy4x4Skinny<DataT, 16 / sizeof(DataT)>::Policy,
-        ReduceOpT>(handle,
-                   min,
-                   x,
-                   y,
-                   xn,
-                   yn,
-                   m,
-                   n,
-                   k,
-                   (int*)workspace,
-                   redOp,
-                   pairRedOp,
-                   sqrt,
-                   initOutBuffer,
-                   isRowMajor,
-                   metric,
-                   metric_arg);
+      detail::fusedDistanceNNImpl<DataT,
+                                  OutT,
+                                  IdxT,
+                                  typename raft::linalg::Policy4x4Skinny<DataT, veclen16>::Policy,
+                                  ReduceOpT>(handle,
+                                             min,
+                                             x,
+                                             y,
+                                             xn,
+                                             yn,
+                                             m,
+                                             n,
+                                             k,
+                                             (int*)workspace,
+                                             redOp,
+                                             pairRedOp,
+                                             sqrt,
+                                             initOutBuffer,
+                                             isRowMajor,
+                                             metric,
+                                             metric_arg);
     } else {
-      detail::fusedDistanceNNImpl<
-        DataT,
-        OutT,
-        IdxT,
-        typename raft::linalg::Policy4x4<DataT, 16 / sizeof(DataT)>::Policy,
-        ReduceOpT>(handle,
-                   min,
-                   x,
-                   y,
-                   xn,
-                   yn,
-                   m,
-                   n,
-                   k,
-                   (int*)workspace,
-                   redOp,
-                   pairRedOp,
-                   sqrt,
-                   initOutBuffer,
-                   isRowMajor,
-                   metric,
-                   metric_arg);
+      detail::fusedDistanceNNImpl<DataT,
+                                  OutT,
+                                  IdxT,
+                                  typename raft::linalg::Policy4x4<DataT, veclen16>::Policy,
+                                  ReduceOpT>(handle,
+                                             min,
+                                             x,
+                                             y,
+                                             xn,
+                                             yn,
+                                             m,
+                                             n,
+                                             k,
+                                             (int*)workspace,
+                                             redOp,
+                                             pairRedOp,
+                                             sqrt,
+                                             initOutBuffer,
+                                             isRowMajor,
+                                             metric,
+                                             metric_arg);
     }
   } else if (8 % sizeof(DataT) == 0 && bytes % 8 == 0 && px % 8 == 0 && py % 8 == 0) {
     if (is_skinny) {
-      detail::fusedDistanceNNImpl<
-        DataT,
-        OutT,
-        IdxT,
-        typename raft::linalg::Policy4x4Skinny<DataT, 8 / sizeof(DataT)>::Policy,
-        ReduceOpT>(handle,
-                   min,
-                   x,
-                   y,
-                   xn,
-                   yn,
-                   m,
-                   n,
-                   k,
-                   (int*)workspace,
-                   redOp,
-                   pairRedOp,
-                   sqrt,
-                   initOutBuffer,
-                   isRowMajor,
-                   metric,
-                   metric_arg);
+      detail::fusedDistanceNNImpl<DataT,
+                                  OutT,
+                                  IdxT,
+                                  typename raft::linalg::Policy4x4Skinny<DataT, veclen8>::Policy,
+                                  ReduceOpT>(handle,
+                                             min,
+                                             x,
+                                             y,
+                                             xn,
+                                             yn,
+                                             m,
+                                             n,
+                                             k,
+                                             (int*)workspace,
+                                             redOp,
+                                             pairRedOp,
+                                             sqrt,
+                                             initOutBuffer,
+                                             isRowMajor,
+                                             metric,
+                                             metric_arg);
     } else {
-      detail::fusedDistanceNNImpl<
-        DataT,
-        OutT,
-        IdxT,
-        typename raft::linalg::Policy4x4<DataT, 8 / sizeof(DataT)>::Policy,
-        ReduceOpT>(handle,
-                   min,
-                   x,
-                   y,
-                   xn,
-                   yn,
-                   m,
-                   n,
-                   k,
-                   (int*)workspace,
-                   redOp,
-                   pairRedOp,
-                   sqrt,
-                   initOutBuffer,
-                   isRowMajor,
-                   metric,
-                   metric_arg);
+      detail::fusedDistanceNNImpl<DataT,
+                                  OutT,
+                                  IdxT,
+                                  typename raft::linalg::Policy4x4<DataT, veclen8>::Policy,
+                                  ReduceOpT>(handle,
+                                             min,
+                                             x,
+                                             y,
+                                             xn,
+                                             yn,
+                                             m,
+                                             n,
+                                             k,
+                                             (int*)workspace,
+                                             redOp,
+                                             pairRedOp,
+                                             sqrt,
+                                             initOutBuffer,
+                                             isRowMajor,
+                                             metric,
+                                             metric_arg);
     }
   } else {
     if (is_skinny) {
@@ -273,7 +290,8 @@ void fusedDistanceNN(raft::resources const& handle,
  * @param[in]  initOutBuffer whether to initialize the output buffer before the
  *                           main kernel launch
  * @param[in]  isRowMajor    whether the input/output is row or column major.
- * @param[in]  metric        Distance metric to be used (supports L2, cosine)
+ * @param[in]  metric        Distance metric to be used (supports L2, cosine, and packed uint8_t
+ * Hamming)
  * @param[in]  metric_arg    power argument for distances like Minkowski (not supported for now)
  * @param[in]  handle        RAFT resources containing the caller-provided CUDA stream
  */
@@ -294,30 +312,56 @@ void fusedDistanceNNMinReduce(raft::resources const& handle,
                               cuvs::distance::DistanceType metric,
                               float metric_arg)
 {
-  static_assert(
-    std::is_same_v<OutT, raft::KeyValuePair<IdxT, DataT>> || std::is_same_v<OutT, DataT>,
-    "fusedDistanceNNMinReduce supports KVP or scalar distance output");
-  detail::Top1nnTuning tuning{};
-  const auto workspace_bytes =
-    top_1_nn_workspace_size<DataT, IdxT>(m, n, k, tuning, detail::Top1nnBackend::Cutlass);
-  top_1_nn<DataT, IdxT>(handle,
-                        min,
-                        x,
-                        y,
-                        xn,
-                        yn,
-                        m,
-                        n,
-                        k,
-                        tuning,
-                        workspace,
-                        workspace_bytes,
-                        sqrt,
-                        initOutBuffer,
-                        isRowMajor,
-                        metric,
-                        metric_arg,
-                        detail::Top1nnBackend::Cutlass);
+  if constexpr (std::is_same_v<DataT, uint8_t>) {
+    using AccT = uint32_t;
+    static_assert(
+      std::is_same_v<OutT, raft::KeyValuePair<IdxT, AccT>> || std::is_same_v<OutT, AccT>,
+      "BitwiseHamming supports uint32_t KVP or scalar distance output");
+    MinAndDistanceReduceOp<IdxT, AccT> red_op;
+    KVPMinReduce<IdxT, AccT> pair_red_op;
+    fusedDistanceNN(handle,
+                    min,
+                    x,
+                    y,
+                    xn,
+                    yn,
+                    m,
+                    n,
+                    k,
+                    workspace,
+                    red_op,
+                    pair_red_op,
+                    sqrt,
+                    initOutBuffer,
+                    isRowMajor,
+                    metric,
+                    metric_arg);
+  } else {
+    static_assert(
+      std::is_same_v<OutT, raft::KeyValuePair<IdxT, DataT>> || std::is_same_v<OutT, DataT>,
+      "fusedDistanceNNMinReduce supports KVP or scalar distance output");
+    detail::Top1nnTuning tuning{};
+    const auto workspace_bytes =
+      top_1_nn_workspace_size<DataT, IdxT>(m, n, k, tuning, detail::Top1nnBackend::Cutlass);
+    top_1_nn<DataT, IdxT>(handle,
+                          min,
+                          x,
+                          y,
+                          xn,
+                          yn,
+                          m,
+                          n,
+                          k,
+                          tuning,
+                          workspace,
+                          workspace_bytes,
+                          sqrt,
+                          initOutBuffer,
+                          isRowMajor,
+                          metric,
+                          metric_arg,
+                          detail::Top1nnBackend::Cutlass);
+  }
 }
 
 namespace detail {
@@ -584,6 +628,98 @@ void top_1_nn_unfused(raft::resources const& handle,
   }
 }
 
+template <typename IdxT>
+__device__ inline IdxT nearest_index(IdxT v)
+{
+  return v;
+}
+template <typename IdxT, typename DistT>
+__device__ inline IdxT nearest_index(const raft::KeyValuePair<IdxT, DistT>& v)
+{
+  return v.key;
+}
+
+template <typename DistT>
+__device__ inline void store_distance(DistT& out, DistT d)
+{
+  out = d;
+}
+template <typename IdxT, typename DistT>
+__device__ inline void store_distance(raft::KeyValuePair<IdxT, DistT>& out, DistT d)
+{
+  out.value = d;
+}
+
+/**
+ * Compute L2-distance between each row of x and its nearest neighbor in y in fp32
+ */
+template <typename IdxT, typename NearestT, typename OutT>
+RAFT_KERNEL refine_distance_kernel(const float* x,
+                                   const float* y,
+                                   const NearestT* nearest,
+                                   OutT* distance,
+                                   IdxT m,
+                                   IdxT k,
+                                   bool sqrt)
+{
+  const auto row =
+    static_cast<int64_t>(blockIdx.x) * (blockDim.x / raft::WarpSize) + threadIdx.x / raft::WarpSize;
+  if (row >= static_cast<int64_t>(m)) { return; }
+  const int lane  = raft::laneId();
+  const float* xr = x + row * k;
+  const float* yr = y + static_cast<int64_t>(nearest_index(nearest[row])) * k;
+  float acc       = 0;
+  for (int64_t j = lane; j < k; j += raft::WarpSize) {
+    const float diff = xr[j] - yr[j];
+    acc              = fmaf(diff, diff, acc);
+  }
+  acc = raft::warpReduce(acc);
+  if (lane == 0) { store_distance(distance[row], sqrt ? sqrtf(acc) : acc); }
+}
+
+template <typename IdxT, typename NearestT, typename OutT>
+void refine_distance(raft::resources const& handle,
+                     const float* x,
+                     const float* y,
+                     const NearestT* nearest,
+                     OutT* distance,
+                     IdxT m,
+                     IdxT k,
+                     bool sqrt)
+{
+  constexpr int kRowsPerBlock = 8;  // one warp per row
+  const auto blocks           = static_cast<unsigned>(raft::ceildiv<int64_t>(m, kRowsPerBlock));
+  raft::launch_kernel(handle,
+                      blocks,
+                      raft::WarpSize * kRowsPerBlock,
+                      refine_distance_kernel<IdxT, NearestT, OutT>,
+                      x,
+                      y,
+                      nearest,
+                      distance,
+                      m,
+                      k,
+                      sqrt);
+}
+
+/**
+ * Workspace bytes in front of the backend workspace that hold the nearest candidates of a refined
+ * plan whose caller does not store indices: indices for cuTile, key-value pairs otherwise. Padded
+ * to 16 bytes, the largest alignment of the following backend workspace (and the vectorized
+ * key-value pair access of the unfused multi-tile merge).
+ */
+template <typename DataT, typename IdxT>
+std::size_t refine_label_bytes(const Top1nnPlan<IdxT>& plan)
+{
+  if (!plan.refine || plan.store_indices) { return 0; }
+  constexpr std::size_t alignment = 16;
+  const std::size_t label_size =
+    plan.backend == Top1nnBackend::Cutile ? sizeof(IdxT) : sizeof(raft::KeyValuePair<IdxT, DataT>);
+  const auto bytes =
+    checked_top_1_nn_workspace_multiply(checked_top_1_nn_extent(plan.m), label_size);
+  return checked_top_1_nn_workspace_add(bytes, alignment - 1) / alignment * alignment;
+}
+
 }  // namespace detail
 
 template <typename DataT, typename IdxT>
@@ -599,7 +735,6 @@ std::size_t top_1_nn_workspace_size(IdxT m,
   [[maybe_unused]] const auto features   = detail::checked_top_1_nn_extent(k);
   switch (backend) {
     case detail::Top1nnBackend::Auto:
-    case detail::Top1nnBackend::Stable:
       RAFT_FAIL("Automatic top_1_nn workspace selection requires probe_top_1_nn");
     case detail::Top1nnBackend::Cutile:
 #if CUVS_CUTILE_ENABLED
@@ -632,7 +767,8 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
                                         const detail::Top1nnTuning& tuning,
                                         DistanceType metric,
                                         detail::Top1nnBackend requested_backend,
-                                        bool store_indices)
+                                        bool store_indices,
+                                        bool accurate_distances)
 {
   detail::checked_top_1_nn_extent(m);
   detail::checked_top_1_nn_extent(n);
@@ -649,17 +785,24 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
   plan.tuning            = tuning;
   plan.store_indices     = store_indices;
 
+  if (accurate_distances) {
+    plan.refine = std::is_same_v<DataT, float> &&
+                  (metric == DistanceType::L2Expanded || metric == DistanceType::L2SqrtExpanded);
+    // TF32 labels are reliable from k >= 16 features; below that, TF32 mislabels near-ties.
+    constexpr IdxT kMinTf32Features = 16;
+    plan.tf32_assignment            = plan.refine && k >= kMinTf32Features;
+  }
+
   auto resolved = requested_backend;
-  if (requested_backend == detail::Top1nnBackend::Auto ||
-      requested_backend == detail::Top1nnBackend::Stable) {
+  if (requested_backend == detail::Top1nnBackend::Auto) {
+    bool use_cutile = false;
 #if CUDART_VERSION >= 13000
-    if (requested_backend == detail::Top1nnBackend::Auto &&
-        detail::is_top_1_nn_backend_available(
-          detail::Top1nnBackend::Cutile, x, y, m, n, k, metric)) {
-      resolved = detail::Top1nnBackend::Cutile;
-    } else
+    use_cutile = plan.tf32_assignment && detail::is_top_1_nn_backend_available(
+                                           detail::Top1nnBackend::Cutile, x, y, m, n, k, metric);
 #endif
-    {
+    if (use_cutile) {
+      resolved = detail::Top1nnBackend::Cutile;
+    } else {
       const auto prop = raft::resource::get_device_properties(handle);
       resolved        = detail::legacy_top_1_nn_backend(prop.major, m, n, metric);
     }
@@ -672,13 +815,18 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
   plan.available = true;
   plan.backend   = resolved;
   plan.workspace_bytes =
-    top_1_nn_workspace_size<DataT, IdxT>(m, n, k, tuning, resolved, store_indices);
+    top_1_nn_workspace_size<DataT, IdxT>(m, n, k, tuning, resolved, store_indices || plan.refine);
   plan.workspace_alignment =
     resolved == detail::Top1nnBackend::Cutile
       ? std::size_t{16}
       : (resolved == detail::Top1nnBackend::Unfused
            ? std::max(alignof(DataT), alignof(raft::KeyValuePair<IdxT, DataT>))
            : alignof(int));
+  if (const auto label_bytes = detail::refine_label_bytes<DataT>(plan); label_bytes > 0) {
+    plan.workspace_bytes =
+      detail::checked_top_1_nn_workspace_add(label_bytes, plan.workspace_bytes);
+    plan.workspace_alignment = std::max<std::size_t>(16, plan.workspace_alignment);
+  }
   if (resolved == detail::Top1nnBackend::Cutile) {
     using DistanceT                 = detail::top_1_nn_distance_t<DataT>;
     constexpr std::size_t alignment = 16;
@@ -754,9 +902,64 @@ void top_1_nn(raft::resources const& handle,
                "top_1_nn requires a workspace buffer for the selected backend");
   RAFT_EXPECTS(workspace_bytes >= plan.workspace_bytes,
                "top_1_nn workspace is too small for the selected backend");
+  RAFT_EXPECTS((!plan.refine || std::is_same_v<DataT, float>),
+               "Accurate top_1_nn distances are currently refined only for float data");
+  if constexpr (std::is_same_v<DataT, float>) {
+    if (plan.refine) {
+      // The refinement overwrites every distance, so it cannot merge with an existing output.
+      RAFT_EXPECTS(init_out_buffer,
+                   "Accurate top_1_nn distances cannot accumulate into an initialized output");
+      using KeyValueT          = raft::KeyValuePair<IdxT, DataT>;
+      const auto label_bytes   = detail::refine_label_bytes<DataT>(plan);
+      auto label_plan          = plan;
+      label_plan.refine        = false;
+      label_plan.store_indices = true;
+      label_plan.workspace_bytes -= label_bytes;
+      auto* labels = workspace;
+      auto* label_workspace =
+        workspace == nullptr ? nullptr : static_cast<char*>(workspace) + label_bytes;
+      // The label pass: the plain 1-NN with indices, into label_output.
+      auto find_nearest = [&](auto label_output) {
+        top_1_nn(handle,
+                 label_output,
+                 x,
+                 y,
+                 xn,
+                 yn,
+                 m,
+                 n,
+                 k,
+                 tuning,
+                 label_workspace,
+                 workspace_bytes - label_bytes,
+                 sqrt,
+                 true,
+                 is_row_major,
+                 metric,
+                 metric_arg,
+                 label_plan);
+      };
+      if constexpr (is_separate_output) {
+        // Separate (cuTile): indices in the caller's array or the workspace; the TF32 distances in
+        // nearest_dist are overwritten by the refinement.
+        auto* indices = plan.store_indices ? output.nearest_idx : static_cast<IdxT*>(labels);
+        find_nearest(Top1nnOutput<IdxT, DataT>{indices, output.nearest_dist});
+        detail::refine_distance(handle, x, y, indices, output.nearest_dist, m, k, sqrt);
+      } else if constexpr (is_kvp_output) {
+        // Key-value pairs: the refinement reads each key and overwrites its value in place.
+        find_nearest(output);
+        detail::refine_distance(handle, x, y, output, output, m, k, sqrt);
+      } else {
+        // Scalar distances: the backend finds the candidates as key-value pairs in the workspace.
+        auto* pairs = static_cast<KeyValueT*>(labels);
+        find_nearest(pairs);
+        detail::refine_distance(handle, x, y, pairs, output, m, k, sqrt);
+      }
+      return;
+    }
+  }
   switch (plan.backend) {
     case detail::Top1nnBackend::Auto:
-    case detail::Top1nnBackend::Stable:
       RAFT_FAIL("top_1_nn plan did not resolve its automatic backend policy");
     case detail::Top1nnBackend::Cutile:
 #if CUVS_CUTILE_ENABLED
@@ -801,7 +1004,7 @@ void top_1_nn(raft::resources const& handle,
                                is_row_major,
                                metric,
                                metric_arg,
-                               plan.requested_backend == detail::Top1nnBackend::Stable);
+                               !plan.tf32_assignment);
       return;
   }
   RAFT_FAIL("Unknown top_1_nn backend");

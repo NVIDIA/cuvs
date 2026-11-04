@@ -5,7 +5,6 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.TestUtils.assertVectorsKeepTheirDocuments;
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.COSINE;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
@@ -26,17 +25,14 @@ import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.VectorEncoding;
+import org.apache.lucene.index.LogDocMergePolicy;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
-import org.junit.BeforeClass;
-import org.junit.Ignore;
 
 @SuppressSysoutChecks(bugUrl = "")
-public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
+public class TestQuantizedVectorsFormats extends BaseCuVSKnnVectorsFormatTestCase {
 
   private static final Logger log = Logger.getLogger(TestQuantizedVectorsFormats.class.getName());
 
@@ -50,14 +46,9 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
   public static List<Object[]> parameters() {
     return Arrays.asList(
         new Object[][] {
-          {new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat()},
-          {new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat()}
+          {CuVSCodecs.acceleratedHNSWBinaryQuantizedFormat()},
+          {CuVSCodecs.acceleratedHNSWScalarQuantizedFormat()}
         });
-  }
-
-  @BeforeClass
-  public static void beforeClass() {
-    assumeTrue("cuVS is not supported so skipping these tests", isSupported());
   }
 
   @Override
@@ -75,7 +66,9 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
     }
 
     try (Directory dir = newDirectory(new ByteBuffersDirectory());
-        IndexWriter w = new IndexWriter(dir, newIndexWriterConfig())) {
+        // A random merge policy could merge the two segments before they are checked.
+        IndexWriter w =
+            new IndexWriter(dir, newIndexWriterConfig().setMergePolicy(new LogDocMergePolicy()))) {
       for (int i = 0; i < R; i++) {
         Document doc = new Document();
         doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
@@ -159,39 +152,10 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
         assertEquals(R, values.size());
 
         float[] queryVector = randomVector(D);
-        var topDocs = r.searchNearestVectors(F, queryVector, 2, null, 10);
+        var topDocs = TestLuceneCompat.searchNearestVectors(r, F, queryVector, 2, null, 10);
         assertTrue("Should return at least one result", topDocs.scoreDocs.length > 0);
         assertTrue("Scores should be non-negative", topDocs.scoreDocs[0].score >= 0);
       }
     }
   }
-
-  @Override
-  protected VectorEncoding randomVectorEncoding() {
-    return VectorEncoding.FLOAT32;
-  }
-
-  @Ignore
-  @Override
-  public void testByteVectorScorerIteration() {}
-
-  @Ignore
-  @Override
-  public void testEmptyByteVectorData() {}
-
-  @Ignore
-  @Override
-  public void testMergingWithDifferentByteKnnFields() {}
-
-  @Ignore
-  @Override
-  public void testMismatchedFields() {}
-
-  @Ignore
-  @Override
-  public void testRandomBytes() {}
-
-  @Ignore
-  @Override
-  public void testSortedIndexBytes() {}
 }

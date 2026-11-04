@@ -18,6 +18,7 @@
 #include <cuda_fp16.h>
 
 #include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace cuvs::neighbors::brute_force {
@@ -194,6 +195,83 @@ TEST_P(KNNTest_half_int64_t, BruteForce) { this->testBruteForce(); }
 
 INSTANTIATE_TEST_CASE_P(KNNTest, KNNTest_float_int64_t, ::testing::ValuesIn(inputs<float>));
 INSTANTIATE_TEST_CASE_P(KNNTest, KNNTest_half_int64_t, ::testing::ValuesIn(inputs<half>));
+
+TEST(BruteForceEqualNorms, PreservesNeighborOrdering)
+{
+  raft::resources handle;
+  auto stream                  = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_database = 128;
+  constexpr int64_t n_queries  = 1;
+  constexpr int64_t dim        = 2;
+  constexpr double angle_step  = 2e-3;
+
+  std::vector<float> h_database(n_database * dim);
+  for (int64_t i = 0; i < n_database; ++i) {
+    auto rank               = (i * 73) % n_database;
+    double angle            = static_cast<double>(rank) * angle_step;
+    h_database[i * dim]     = static_cast<float>(std::cos(angle));
+    h_database[i * dim + 1] = static_cast<float>(std::sin(angle));
+  }
+  std::vector<float> h_queries{1.0f, 0.0f};
+
+  struct reference_neighbor {
+    double squared_distance;
+    int64_t index;
+  };
+  std::vector<reference_neighbor> reference(n_database);
+  for (int64_t i = 0; i < n_database; ++i) {
+    double dx    = static_cast<double>(h_queries[0]) - static_cast<double>(h_database[i * dim]);
+    double dy    = static_cast<double>(h_queries[1]) - static_cast<double>(h_database[i * dim + 1]);
+    reference[i] = {.squared_distance = dx * dx + dy * dy, .index = i};
+  }
+  std::ranges::sort(
+    reference, [](const reference_neighbor& lhs, const reference_neighbor& rhs) -> bool {
+      return lhs.squared_distance < rhs.squared_distance ||
+             (lhs.squared_distance == rhs.squared_distance && lhs.index < rhs.index);
+    });
+
+  auto database = raft::make_device_matrix<float, int64_t>(handle, n_database, dim);
+  auto queries  = raft::make_device_matrix<float, int64_t>(handle, n_queries, dim);
+  raft::update_device(database.data_handle(), h_database.data(), h_database.size(), stream);
+  raft::update_device(queries.data_handle(), h_queries.data(), h_queries.size(), stream);
+
+  for (auto metric :
+       {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::L2SqrtExpanded}) {
+    index_params index_params;
+    index_params.metric = metric;
+    auto index          = build(handle, index_params, raft::make_const_mdspan(database.view()));
+
+    for (int64_t k : {int64_t{15}, int64_t{65}}) {
+      auto neighbors = raft::make_device_matrix<int64_t, int64_t>(handle, n_queries, k);
+      auto distances = raft::make_device_matrix<float, int64_t>(handle, n_queries, k);
+      search(handle,
+             search_params{},
+             index,
+             raft::make_const_mdspan(queries.view()),
+             neighbors.view(),
+             distances.view(),
+             filtering::none_sample_filter{});
+
+      std::vector<int64_t> h_neighbors(k);
+      std::vector<float> h_distances(k);
+      raft::update_host(h_neighbors.data(), neighbors.data_handle(), k, stream);
+      raft::update_host(h_distances.data(), distances.data_handle(), k, stream);
+      raft::resource::sync_stream(handle, stream);
+
+      for (int64_t i = 0; i < k; ++i) {
+        auto expected_distance = metric == cuvs::distance::DistanceType::L2Expanded
+                                   ? reference[i].squared_distance
+                                   : std::sqrt(reference[i].squared_distance);
+        EXPECT_EQ(h_neighbors[i], reference[i].index)
+          << "metric=" << static_cast<int>(metric) << " k=" << k << " rank=" << i;
+        EXPECT_NEAR(h_distances[i],
+                    expected_distance,
+                    metric == cuvs::distance::DistanceType::L2Expanded ? 5e-7 : 5e-5)
+          << "metric=" << static_cast<int>(metric) << " k=" << k << " rank=" << i;
+      }
+    }
+  }
+}
 
 // Also test with larger random inputs, including col-major inputs
 struct RandomKNNInputs {

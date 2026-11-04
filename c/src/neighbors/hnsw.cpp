@@ -66,8 +66,6 @@ void _from_cagra(cuvsResources_t res,
                  std::optional<DLManagedTensor*> dataset_tensor)
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  auto index   = reinterpret_cast<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>*>(
-    cuvs::neighbors::cagra::cagra_c_api_index_ptr(cagra_index));
   auto cpp_params            = cuvs::neighbors::hnsw::index_params();
   cpp_params.hierarchy       = static_cast<cuvs::neighbors::hnsw::HnswHierarchy>(params->hierarchy);
   cpp_params.ef_construction = params->ef_construction;
@@ -80,8 +78,32 @@ void _from_cagra(cuvsResources_t res,
     dataset = std::nullopt;
   }
 
-  auto hnsw_index_unique_ptr =
-    cuvs::neighbors::hnsw::from_cagra(*res_ptr, cpp_params, *index, dataset);
+  using layout_t = cuvs::neighbors::cagra::c_api_dataset_layout;
+  auto* index_ptr = cuvs::neighbors::cagra::cagra_c_api_index_ptr(cagra_index);
+  auto convert    = [&](auto* typed_index) {
+    return cuvs::neighbors::hnsw::from_cagra(*res_ptr, cpp_params, *typed_index, dataset);
+  };
+
+  std::unique_ptr<cuvs::neighbors::hnsw::index<T>> hnsw_index_unique_ptr;
+  switch (cuvs::neighbors::cagra::cagra_c_api_index_layout(cagra_index)) {
+    case layout_t::device_padded:
+      hnsw_index_unique_ptr = convert(
+        reinterpret_cast<cuvs::neighbors::cagra::device_padded_index<T, uint32_t>*>(index_ptr));
+      break;
+    case layout_t::device_standard:
+      hnsw_index_unique_ptr = convert(
+        reinterpret_cast<cuvs::neighbors::cagra::device_standard_index<T, uint32_t>*>(index_ptr));
+      break;
+    case layout_t::host_padded:
+      hnsw_index_unique_ptr = convert(
+        reinterpret_cast<cuvs::neighbors::cagra::host_padded_index<T, uint32_t>*>(index_ptr));
+      break;
+    case layout_t::host_standard:
+      hnsw_index_unique_ptr = convert(
+        reinterpret_cast<cuvs::neighbors::cagra::host_standard_index<T, uint32_t>*>(index_ptr));
+      break;
+    default: RAFT_FAIL("Converting a quantized CAGRA index to HNSW is not supported");
+  }
   auto hnsw_index_ptr = hnsw_index_unique_ptr.release();
   hnsw_index->addr    = reinterpret_cast<uintptr_t>(hnsw_index_ptr);
 }
