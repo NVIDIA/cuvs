@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/bitset_count_launchers.hpp"
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
@@ -782,12 +783,12 @@ void brute_force_search_filtered(
     auto actual_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bitmap_filter<BitsT, int64_t>*>(filter);
     filter_view.emplace(actual_filter->view());
-    nnz_h = actual_filter->view().count(res);
+    nnz_h = cuvs::detail::count_bits(res, actual_filter->view());
   } else if (filter_type == cuvs::neighbors::filtering::FilterType::Bitset) {
     auto actual_filter =
       dynamic_cast<const cuvs::neighbors::filtering::bitset_filter<BitsT, int64_t>*>(filter);
     filter_view.emplace(actual_filter->view());
-    n_pass = actual_filter->view().count(res);
+    n_pass = cuvs::detail::count_bits(res, actual_filter->view());
     nnz_h  = n_queries * (*n_pass);
   } else {
     RAFT_FAIL("Unsupported sample filter type");
