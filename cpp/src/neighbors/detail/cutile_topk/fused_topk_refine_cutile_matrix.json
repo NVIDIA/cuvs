@@ -13,14 +13,25 @@
   "matrix_layout": "strict",
   "abi_abbrev": "strict",
   "abi_tag": "cutile_abi_strict",
-  "tile_m": 32,
   "tile_n": 128,
   "tile_k": 32,
   "occupancy": 2,
   "_variants": [
-    {"data_type": "float", "data_abbrev": "f", "physical_k": 2},
-    {"data_type": "float", "data_abbrev": "f", "physical_k": 4},
-    {"data_type": "half", "data_abbrev": "h", "physical_k": 2},
-    {"data_type": "half", "data_abbrev": "h", "physical_k": 4}
+    {
+      "data_type": "float",
+      "data_abbrev": "f",
+      "physical_k": 8,
+      "tile_m": 4
+    },
+    {
+      "data_type": "half",
+      "data_abbrev": "h",
+      "physical_k": 8,
+      "tile_m": 4
+    },
+    {"data_type": "float", "data_abbrev": "f", "physical_k": 2, "tile_m": 32},
+    {"data_type": "float", "data_abbrev": "f", "physical_k": 4, "tile_m": 32},
+    {"data_type": "half", "data_abbrev": "h", "physical_k": 2, "tile_m": 32},
+    {"data_type": "half", "data_abbrev": "h", "physical_k": 4, "tile_m": 32}
   ]
 }

@@ -17,11 +17,12 @@ namespace cuvs::neighbors::detail {
 /** Each stage has an independent symbol, fragment type and device-aware cache. */
 template <int PhysicalK, typename DataT, fused_topk_stage Stage>
 struct FusedTopkStagePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
-  static_assert(PhysicalK == 2 || PhysicalK == 4);
+  static_assert(PhysicalK == 2 || PhysicalK == 4 || PhysicalK == 8);
   static_assert(std::is_same_v<DataT, float> || std::is_same_v<DataT, half>);
   static_assert(Stage != fused_topk_stage::witness ||
                 (PhysicalK == 4 && std::is_same_v<DataT, half>));
-  static constexpr int tile_m = Stage == fused_topk_stage::refine ? 32 : 64;
+  static constexpr int tile_m = PhysicalK == 8 ? (Stage == fused_topk_stage::refine ? 4 : 32)
+                                               : (Stage == fused_topk_stage::refine ? 32 : 64);
   static constexpr int tile_n = 128;
   static constexpr int tile_k = 32;
   using TileTag               = cutile_tile_config<tile_m, tile_n, tile_k>;

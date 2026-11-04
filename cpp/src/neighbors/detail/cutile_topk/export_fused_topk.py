@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import sys
 from pathlib import Path
 
@@ -99,12 +100,38 @@ def _kernel_signature(
         require_tma_friendly_pitch=matrix_layout == "strict",
         data_type=data_type,
     )
+    indices = _output_matrix_constraint(_idx_dtype(index_type))
+    distances = _output_matrix_constraint(ct.float32)
+    if (
+        stage == "refine"
+        and physical_k == 8
+        and gpu_code == "sm_120"
+        and matrix_layout == "strict"
+        and index_type == "int32"
+    ):
+        # Native separate refinement always uses [Q, splits * physical_k]
+        # scratch, unlike fused single-split logical-prefix stores. The strict
+        # contiguous input pitch also guarantees feature-width divisibility.
+        # Neither promise constrains Q/N or disallows graph input aliasing.
+        matrix = replace(
+            matrix, shape_divisible_by=(1, 8 if data_type == "half" else 4)
+        )
+        indices = replace(
+            indices,
+            shape_divisible_by=(1, physical_k),
+            stride_divisible_by=(physical_k, 1),
+        )
+        distances = replace(
+            distances,
+            shape_divisible_by=(1, physical_k),
+            stride_divisible_by=(physical_k, 1),
+        )
     return KernelSignature(
         parameters=[
             matrix,
             matrix,
-            _output_matrix_constraint(_idx_dtype(index_type)),
-            _output_matrix_constraint(ct.float32),
+            indices,
+            distances,
             ScalarConstraint(ct.int32),
             ScalarConstraint(ct.int32),
             ScalarConstraint(ct.int32),
@@ -117,7 +144,9 @@ def _kernel_signature(
         ],
         calling_convention=CallingConvention.cutile_python_v1(),
     ).with_symbol(
-        kernel_symbol(physical_k, matrix_layout, data_type, index_type, whole_tile_guard)
+        kernel_symbol(
+            physical_k, matrix_layout, data_type, index_type, whole_tile_guard
+        )
         + ("" if stage == "fused" else f"_{stage}")
     )
 
@@ -183,7 +212,9 @@ def export_binary(
     return signature.symbol
 
 
-def main(default_stage: str = "fused", *, whole_tile_guard: bool = False) -> int:
+def main(
+    default_stage: str = "fused", *, whole_tile_guard: bool = False
+) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output_file", type=Path)
     parser.add_argument("--format", choices=("cubin",), default="cubin")

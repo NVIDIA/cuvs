@@ -194,6 +194,17 @@ constexpr bool fused_topk_pk8_use_longscan(
   return tiles / splits >= 2 * tile_m * 8;
 }
 
+// Separate wide-D refinement reduces gather-live state while retaining all
+// eight candidates. Keep single-split typed output and longscan guarding intact.
+// Dimensions are the actual, possibly zero-padded input width.
+constexpr bool fused_topk_pk8_staged_refinement_eligible(int dimensions,
+                                                         int splits,
+                                                         int corpus_rows)
+{
+  return dimensions >= 512 && splits > 1 && corpus_rows > 0 &&
+         !fused_topk_pk8_use_longscan(corpus_rows, splits, 32, 128, 32);
+}
+
 // Overflow-safe ceil division for the 256-thread merge, with a bounded grid.
 // The kernel uses a 64-bit grid-stride loop independently of public index width.
 constexpr int fused_topk_merge_block_count(int query_rows)

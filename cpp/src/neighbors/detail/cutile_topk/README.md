@@ -138,7 +138,27 @@ The long-scan variant skips a corpus tile only if no valid query row can admit
 a candidate; equality always enters selection. Its capacity-based guard uses
 at least 512 corpus tiles per split with TM32/TN128/TK32, not exact shapes.
 
+For split SM120 calls with padded feature width at least 512, PK8 separates
+TM32 selection from TM4 refinement. The long-scan guard above takes precedence;
+single-split calls retain fused refinement and direct logical-prefix output.
+Both stage handles are resolved before either launch. This is a broad resource
+policy, not an exact-shape benchmark lookup. Every physical candidate is still
+refined before the logical prefix is selected.
+
+The separate strict refinement ABI states the actual padded feature width and
+physical scratch width to the compiler: D is divisible by 4 for float or 8 for
+half, and scratch has width `splits * 8`. It does not promise aligned row counts
+or distinct query/corpus pointers. These promises do not apply to the fused
+logical-prefix output. Compiler reassociation may change low FP32 bits or
+near-tie ordering; this is not an additional numerical-accuracy guarantee.
+
+PK8 nonaligned input preparation copies stored coordinates and zeroes padding
+in one pass; it performs no coordinate arithmetic. Allocation is still fresh
+per public call. Packing tests verify stored bits, signed zeros, subnormals,
+padding, redzones, input preservation and nondefault-stream execution.
+
 The same approximate membership contract and four metrics apply. PK8 adds no
 strict/certified promise, architecture qualification or universal speed claim.
-PK2/4 staging and public defaults remain unchanged. Historical PK8 timing
-must be distinguished from validation on this clean combined branch.
+PK2/4 staging, packing and public defaults remain unchanged. Performance must
+be reported separately for small search, large search and all-neighbors graphs,
+with same-input-dtype baselines and explicit query/corpus layouts.

@@ -233,8 +233,12 @@ def make_kernel(
         raise ValueError("Direct int64 storage is qualified only for SM120 PK8")
     if whole_tile_guard and (physical_k != 8 or gpu_code != "sm_120" or stage != "fused"):
         raise ValueError("Whole-tile guard is qualified only for fused SM120 PK8")
-    if physical_k == 8 and (stage != "fused" or witness):
-        raise ValueError("PK8 exports currently support the fused stage only")
+    if physical_k == 8 and witness:
+        raise ValueError("PK8 does not support the sorted-list witness stage")
+    if physical_k == 8 and stage != "fused" and (
+        gpu_code != "sm_120" or matrix_layout != "strict" or index_type != "int32"
+    ):
+        raise ValueError("PK8 stages require strict SM120 int32 candidates")
     # Candidate arithmetic remains int32; final stores may widen to int64.
     idx_dtype = _idx_dtype("int32")
     mma_dtype = ct.float16 if data_type == "half" else ct.tfloat32

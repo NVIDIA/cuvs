@@ -82,10 +82,18 @@ bool launch_fused_topk(OutputIdxT* neighbors,
   std::shared_ptr<rtcx::algorithm_launcher> launcher;
   std::shared_ptr<rtcx::algorithm_launcher> refine_launcher;
   cuvs::detail::jit_lto::CutileTileConfig tile_cfg{};
-  if constexpr (PhysicalK <= 4 && std::is_same_v<AbiTag, cuvs::distance::detail::cutile_abi_strict>) {
+  if constexpr (PhysicalK <= 8 && std::is_same_v<OutputIdxT, int> &&
+                std::is_same_v<AbiTag, cuvs::distance::detail::cutile_abi_strict>) {
     // Preserve corpus splits and other architecture/ABI paths. Half PK2 uses
     // one broad low-D fused region, never a per-shape benchmark lookup table.
-    if (fused_topk_separate_refinement_eligible<PhysicalK, DataT>(dimensions, num_splits)) {
+    const bool staged_eligible = [&] {
+      if constexpr (PhysicalK == 8) {
+        return fused_topk_pk8_staged_refinement_eligible(dimensions, num_splits, corpus_rows);
+      } else {
+        return fused_topk_separate_refinement_eligible<PhysicalK, DataT>(dimensions, num_splits);
+      }
+    }();
+    if (staged_eligible) {
       cuvs::detail::jit_lto::CutileRuntimeCapabilities capabilities{};
       if (cuvs::detail::jit_lto::query_current_cutile_runtime_capabilities(capabilities) &&
           capabilities.cc_major == 12 && capabilities.cc_minor == 0) {
@@ -126,7 +134,8 @@ bool launch_fused_topk(OutputIdxT* neighbors,
   const int num_corpus_tiles = fused_topk_pk2_ceil_div(corpus_rows, tile_cfg.tile_n);
   if (num_splits <= 0 || num_splits > num_corpus_tiles) { return false; }
   if constexpr (PhysicalK == 8) {
-    if (fused_topk_pk8_use_longscan(
+    if (!refine_launcher &&
+        fused_topk_pk8_use_longscan(
           corpus_rows, num_splits, tile_cfg.tile_m, tile_cfg.tile_n, tile_cfg.tile_k)) {
       FusedTopkPk8LongscanPlanner<DataT, AbiTag, OutputIdxT> guarded;
       guarded.add_entrypoint();
@@ -228,13 +237,13 @@ bool launch_fused_topk(OutputIdxT* neighbors,
     RAFT_CUDA_TRY(cudaGetLastError());
   };
   dispatch(launcher, tile_cfg.tile_m);
-  if constexpr (PhysicalK <= 4) {
-  if (refine_launcher) {
-    // A separate query grid is essential when selection uses TM64 and
-    // refinement uses TM32; the partial-list stride remains num_splits*PK.
-    dispatch(refine_launcher,
-             FusedTopkStagePlanner<PhysicalK, DataT, fused_topk_stage::refine>::tile_m);
-  }
+  if constexpr (PhysicalK <= 8) {
+    if (refine_launcher) {
+      // Each stage has its own query grid. The full physical-list stride
+      // remains num_splits*PK, including PK8 TM32 selection/TM4 refinement.
+      dispatch(refine_launcher,
+               FusedTopkStagePlanner<PhysicalK, DataT, fused_topk_stage::refine>::tile_m);
+    }
   }
   return true;
 }

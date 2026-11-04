@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/neighbors/detail/cutile_topk/fused_topk_pack.cuh"
 #include "../../src/neighbors/detail/cutile_topk/fused_topk_tile.hpp"
 #include "fused_topk_merge_test.cuh"
 
@@ -3008,6 +3009,29 @@ TEST(FusedTopkPk8PolicyTest, CapabilityNotBenchmarkShapeTable)
   EXPECT_EQ(fused_topk_pk8_workspace_bytes<int64_t>(7, 1, 8), 224);
   EXPECT_EQ(fused_topk_pk8_workspace_bytes<int>(7, 1, 5), 448);
 }
+
+TEST(FusedTopkPk8StagePolicyTest, WideSplitOnlyPreservesLongscanAndDirectOutput)
+{
+  EXPECT_FALSE(fused_topk_pk8_staged_refinement_eligible(511, 32, 16384));
+  EXPECT_TRUE(fused_topk_pk8_staged_refinement_eligible(512, 32, 16384));
+  EXPECT_TRUE(fused_topk_pk8_staged_refinement_eligible(2048, 32, 16384));
+  EXPECT_FALSE(fused_topk_pk8_staged_refinement_eligible(512, 1, 100000));
+  EXPECT_FALSE(fused_topk_pk8_staged_refinement_eligible(512, 0, 100000));
+  EXPECT_FALSE(fused_topk_pk8_staged_refinement_eligible(512, 2, 0));
+  EXPECT_FALSE(fused_topk_pk8_staged_refinement_eligible(512, 2, 131072));
+  EXPECT_TRUE(fused_topk_pk8_staged_refinement_eligible(512, 2, 130944));
+  EXPECT_TRUE(
+    fused_topk_pk8_staged_refinement_eligible(fused_topk_padded_dimensions<float>(509), 32, 16384));
+  EXPECT_FALSE(
+    fused_topk_pk8_staged_refinement_eligible(fused_topk_padded_dimensions<float>(508), 32, 16384));
+  EXPECT_TRUE(
+    fused_topk_pk8_staged_refinement_eligible(fused_topk_padded_dimensions<half>(505), 32, 16384));
+  EXPECT_FALSE(
+    fused_topk_pk8_staged_refinement_eligible(fused_topk_padded_dimensions<half>(504), 32, 16384));
+}
+
+#include "fused_topk_pack_test.cuh"
+#include "fused_topk_wide_stage.cuh"
 
 }  // namespace
 }  // namespace cuvs::neighbors::detail

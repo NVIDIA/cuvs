@@ -1326,7 +1326,7 @@ if(NOT BUILD_CPU_ONLY)
       PROPERTY INCLUDE_DIRECTORIES "${cutile_fused_topk_pk4_generated_dir}"
     )
   endif()
-  # PK24 staged exports: distinct registrations and symbols, shared maintained factory.
+  # PK2/4/8 staged exports: distinct registrations and symbols, shared maintained factory.
   if(CUVS_CUTILE_ENABLED)
     foreach(topk_stage select refine witness)
       generate_cutile_kernels(
@@ -1360,7 +1360,7 @@ if(NOT BUILD_CPU_ONLY)
       endif()
     endforeach()
   endif()
-  # End PK24 staged exports.
+  # End PK2/4/8 staged exports.
   set(cutile_fused_topk_pk8_generated_dir
       "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/neighbors/fused_topk/pk8"
   )

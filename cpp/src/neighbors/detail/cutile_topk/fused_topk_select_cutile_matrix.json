@@ -20,6 +20,18 @@
     {
       "data_type": "float",
       "data_abbrev": "f",
+      "physical_k": 8,
+      "tile_m": 32
+    },
+    {
+      "data_type": "half",
+      "data_abbrev": "h",
+      "physical_k": 8,
+      "tile_m": 32
+    },
+    {
+      "data_type": "float",
+      "data_abbrev": "f",
       "physical_k": 2,
       "tile_m": 64
     },
