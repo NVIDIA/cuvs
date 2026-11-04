@@ -447,7 +447,8 @@ auto make_rotator(raft::resources const& res, params const& params, int64_t dim)
   return rot;
 }
 
-template auto make_rotator<float>(raft::resources const&, params const&, int64_t) -> rotator<float>;
+template CUVS_EXPORT auto make_rotator<float>(raft::resources const&, params const&, int64_t)
+  -> rotator<float>;
 
 // RaBitQ needs no training data: `res` only supplies the stream, the workspace
 // memory resource and the device properties used by the scaling-factor
@@ -484,7 +485,7 @@ auto make_quantizer(raft::resources const& res, params const& params, int64_t di
   return q;
 }
 
-template auto make_quantizer<float>(raft::resources const&, params const&, int64_t)
+template CUVS_EXPORT auto make_quantizer<float>(raft::resources const&, params const&, int64_t)
   -> quantizer<float>;
 
 void rotate(raft::resources const& res,
