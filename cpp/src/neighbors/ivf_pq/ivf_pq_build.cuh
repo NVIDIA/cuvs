@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/normalize.hpp"
 #include "../../core/nvtx.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
@@ -163,7 +164,7 @@ void flat_compute_residuals(
       raft::cast_op<float>{},
       raft::make_const_mdspan(raft::make_device_vector_view<const T, IdxT>(dataset, n_rows * dim)));
     auto tmp_matrix_view = raft::make_device_matrix_view<float, size_t>(tmp.data(), n_rows, dim);
-    raft::linalg::row_normalize<raft::linalg::L2Norm>(
+    cuvs::detail::row_normalize<raft::linalg::L2Norm>(
       handle, raft::make_const_mdspan(tmp_matrix_view), tmp_matrix_view);
   } else {
     raft::linalg::map_offset(
@@ -1350,7 +1351,7 @@ auto build(raft::resources const& handle,
     kmeans_params.metric  = coarse_clustering_metric(impl->metric());
     // Use the default SizeSorted donor selection to prioritize balanced coarse partitions.
     if (impl->metric() == distance::DistanceType::CosineExpanded) {
-      raft::linalg::row_normalize<raft::linalg::L2Norm>(
+      cuvs::detail::row_normalize<raft::linalg::L2Norm>(
         handle, trainset_const_view, trainset.view());
     }
     cuvs::cluster::kmeans::fit(handle, kmeans_params, trainset_const_view, centers_view);
@@ -1360,7 +1361,7 @@ auto build(raft::resources const& handle,
     auto centers_const_view = raft::make_device_matrix_view<const float, internal_extents_t>(
       cluster_centers, impl->n_lists(), impl->dim());
     if (impl->metric() == distance::DistanceType::CosineExpanded) {
-      raft::linalg::row_normalize<raft::linalg::L2Norm>(handle, centers_const_view, centers_view);
+      cuvs::detail::row_normalize<raft::linalg::L2Norm>(handle, centers_const_view, centers_view);
     }
     auto labels_view =
       raft::make_device_vector_view<uint32_t, internal_extents_t>(labels.data(), n_rows_train);

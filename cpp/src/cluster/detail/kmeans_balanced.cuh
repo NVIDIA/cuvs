@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/normalize.hpp"
 #include "kmeans_common.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -1182,7 +1183,7 @@ void balancing_em_iters(const raft::resources& handle,
           cluster_centers, n_clusters, transformed_dim);
         auto clusters_out_view = raft::make_device_matrix_view<MathT, IdxT, raft::row_major>(
           cluster_centers, n_clusters, transformed_dim);
-        raft::linalg::row_normalize<raft::linalg::L2Norm>(
+        cuvs::detail::row_normalize<raft::linalg::L2Norm>(
           handle, clusters_in_view, clusters_out_view);
         break;
       }
