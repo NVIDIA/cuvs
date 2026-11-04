@@ -1,0 +1,104 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cluster/detail/kmeans_balanced.cuh>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <neighbors/detail/ann_utils.cuh>
+
+namespace cuvs::cluster::kmeans::detail {
+
+template <uint32_t BlockDimY,
+          typename DatasetIterator,
+          typename MathT,
+          typename IdxT,
+          typename LabelT,
+          typename MappingOpT>
+__launch_bounds__((raft::WarpSize * BlockDimY)) RAFT_KERNEL
+  adjust_centers_kernel(MathT* centers,  // [n_clusters, dim]
+                        IdxT n_pairs,
+                        IdxT dim,
+                        DatasetIterator dataset,  // random-access iterator to [n_rows, dim]
+                        IdxT n_rows,
+                        const LabelT* labels,  // [n_rows]
+                        const IdxT* receiver_clusters,
+                        const IdxT* donor_clusters,
+                        MathT centroid_offset,
+                        IdxT seed,
+                        IdxT* update_count,
+                        MappingOpT mapping_op)
+{
+  IdxT pair_id = threadIdx.y + BlockDimY * static_cast<IdxT>(blockIdx.x);
+  if (pair_id >= n_pairs) return;
+
+  auto receiver_cluster = receiver_clusters[pair_id];
+  auto donor_cluster    = donor_clusters[pair_id];
+  IdxT i                = n_rows;
+  IdxT j                = raft::laneId();
+  for (IdxT attempt = 0; attempt < n_rows; attempt += raft::WarpSize) {
+    auto candidate =
+      static_cast<IdxT>((static_cast<int64_t>(seed) * static_cast<int64_t>(attempt + j + 1) +
+                         static_cast<int64_t>(pair_id)) %
+                        static_cast<int64_t>(n_rows));
+    auto found = static_cast<IdxT>(labels[candidate]) == donor_cluster;
+    auto mask  = __ballot_sync(raft::warp_full_mask(), found);
+    if (mask != 0) {
+      auto source_lane = __ffs(mask) - 1;
+      i                = raft::shfl(found ? candidate : n_rows, source_lane);
+      if (j == source_lane) { atomicAdd(update_count, IdxT{1}); }
+      break;
+    }
+  }
+  if (i >= n_rows) return;
+
+  // Reinitialize the small cluster close to the large cluster centroid, with a small offset towards
+  // a random donor point so it can split the large partition in the next prediction step.
+  for (; j < dim; j += raft::WarpSize) {
+    auto donor_center = centers[j + dim * donor_cluster];
+    auto donor_point  = mapping_op(dataset[j + dim * i]);
+    auto val          = donor_center + centroid_offset * (donor_point - donor_center);
+    centers[j + dim * receiver_cluster] = val;
+  }
+}
+
+template <typename DatasetIterator,
+          typename MathT,
+          typename IdxT,
+          typename LabelT,
+          typename MappingOpT>
+void launch_adjust_centers(dim3 grid,
+                           dim3 block,
+                           cudaStream_t stream,
+                           MathT* centers,
+                           IdxT n_pairs,
+                           IdxT dim,
+                           DatasetIterator dataset,
+                           IdxT n_rows,
+                           const LabelT* labels,
+                           const IdxT* receiver_clusters,
+                           const IdxT* donor_clusters,
+                           MathT centroid_offset,
+                           IdxT seed,
+                           IdxT* update_count,
+                           MappingOpT mapping_op)
+{
+  adjust_centers_kernel<4u><<<grid, block, 0, stream>>>(centers,
+                                                        n_pairs,
+                                                        dim,
+                                                        dataset,
+                                                        n_rows,
+                                                        labels,
+                                                        receiver_clusters,
+                                                        donor_clusters,
+                                                        centroid_offset,
+                                                        seed,
+                                                        update_count,
+                                                        mapping_op);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::cluster::kmeans::detail
