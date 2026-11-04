@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/mapped_sum_launchers.hpp"
 #include "../../distance/distance.cuh"
 #include "../../distance/top_1_nn.cuh"
 #include <cstdint>
@@ -193,7 +194,7 @@ void weightSum(
   DataT wt_sum_h = DataT{0};
 
   if constexpr (raft::is_device_mdspan_v<decltype(weight)>) {
-    raft::linalg::mapThenSumReduce(
+    cuvs::detail::mapThenSumReduce(
       d_wt_sum.data_handle(), n_samples, raft::identity_op{}, stream.get(), weight.data_handle());
     if (check_positive) {
       raft::copy(&wt_sum_h, d_wt_sum.data_handle(), 1, stream);
@@ -715,7 +716,7 @@ void compute_centroid_shift(raft::resources const& handle,
                             raft::device_scalar_view<DataT> sqrd_norm_out)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
-  raft::linalg::mapThenSumReduce(sqrd_norm_out.data_handle(),
+  cuvs::detail::mapThenSumReduce(sqrd_norm_out.data_handle(),
                                  old_centroids.size(),
                                  raft::sqdiff_op{},
                                  stream,
