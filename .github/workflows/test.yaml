@@ -92,7 +92,7 @@ jobs:
       cache-read-only: ${{ inputs.branch != 'main' }}
       cache-environment: |
         CUDA_CACHE_PATH=.cache/cuda-jit
-      matrix_type: cuda-13-4-nightly,nightly
+      matrix_type: nightly
   conda-python-tests:
     permissions:
       actions: read
@@ -108,7 +108,7 @@ jobs:
       date: ${{ inputs.date }}
       script: ci/test_python.sh
       sha: ${{ inputs.sha }}
-      matrix_type: cuda-13-4-nightly,nightly
+      matrix_type: nightly
   conda-java-tests:
     permissions:
       actions: read
@@ -123,7 +123,7 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: "ci/test_java.sh"
-      matrix_type: cuda-13-4-nightly
+      matrix_type: nightly
   conda-lucene-tests:
     permissions:
       actions: read
@@ -138,7 +138,7 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: "ci/test_lucene.sh"
-      matrix_type: cuda-13-4-nightly
+      matrix_type: nightly
   wheel-tests-cuvs:
     permissions:
       actions: read
@@ -154,4 +154,4 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: ci/test_wheel_cuvs.sh
-      matrix_type: cuda-13-4-nightly,nightly
+      matrix_type: nightly
