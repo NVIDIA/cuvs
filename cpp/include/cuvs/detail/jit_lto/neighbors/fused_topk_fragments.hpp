@@ -34,5 +34,14 @@ template <typename DataTag,
           fused_topk_stage Stage>
 struct fragment_tag_fused_topk_stage_cubin
   : fragment_tag_fused_topk_cubin<DataTag, IndexTag, PhysicalK, TileTag, AbiTag, ArchTag> {};
+// Distinct registration type: never alias the ordinary PK8 image or launcher cache.
+template <typename DataTag, typename IndexTag, typename AbiTag, typename ArchTag>
+struct fragment_tag_fused_topk_pk8_longscan_cubin
+  : fragment_tag_fused_topk_cubin<DataTag,
+                                  IndexTag,
+                                  8,
+                                  cutile_tile_config<32, 128, 32>,
+                                  AbiTag,
+                                  ArchTag> {};
 
 }  // namespace cuvs::neighbors::detail

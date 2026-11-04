@@ -461,12 +461,15 @@ void brute_force_knn_impl(
       if (allow_approximate && input.size() == 1 && rowMajorIndex && rowMajorQuery &&
           is_fused_topk_pk2_auto_dispatch_available() &&
           (is_fused_topk_pk2_candidate<value_t>(n, sizes[i], D, k, metric, all_neighbors) ||
-           is_fused_topk_pk4_candidate<value_t>(n, sizes[i], D, k, metric, all_neighbors)) &&
+           is_fused_topk_pk4_candidate<value_t>(n, sizes[i], D, k, metric, all_neighbors) ||
+           is_fused_topk_pk8_candidate<value_t>(n, sizes[i], D, k, metric, all_neighbors)) &&
           fused_topk_public_buffers_supported(
             out_i_ptr, out_d_ptr, search_items, input[i], n, sizes[i], D, k)) {
         const auto& properties = raft::resource::get_device_properties(handle);
-        const int num_splits =
-          fused_topk_public_num_splits(n, sizes[i], properties.multiProcessorCount);
+        // SM120 geometry: PK2/4 retain 64 query rows; PK8 uses 32 to bound
+        // live candidate/resource pressure. This is not a workload allowlist.
+        const int num_splits = fused_topk_public_num_splits(
+          n, sizes[i], properties.multiProcessorCount, k <= 4 ? 64 : 32);
         int active_dimensions         = static_cast<int>(D);
         const value_t* active_queries = search_items;
         const value_t* active_corpus  = input[i];
@@ -505,36 +508,68 @@ void brute_force_knn_impl(
           }
           active_dimensions = padded;
         }
-        const size_t bytes = k == 2 ? fused_topk_pk2_workspace_bytes<IdxType>(n, num_splits)
-                                    : fused_topk_pk4_workspace_bytes<IdxType>(n, num_splits, k);
-        rmm::device_uvector<uint8_t> workspace(bytes, stream);
-        if (k == 2) {
+        if (k >= 5 && k <= 8 && num_splits == 1) {
           used_fused_topk =
-            try_fused_topk_pk2_tile<IdxType>(out_i_ptr,
-                                             out_d_ptr,
-                                             active_queries,
-                                             active_corpus,
-                                             static_cast<IdxType>(n),
-                                             static_cast<IdxType>(sizes[i]),
-                                             static_cast<IdxType>(active_dimensions),
-                                             num_splits,
-                                             metric,
-                                             stream.get(),
-                                             workspace.data());
-        } else {
-          used_fused_topk =
-            try_fused_topk_pk4_tile<IdxType>(out_i_ptr,
-                                             out_d_ptr,
-                                             active_queries,
-                                             active_corpus,
-                                             static_cast<IdxType>(n),
-                                             static_cast<IdxType>(sizes[i]),
-                                             static_cast<IdxType>(active_dimensions),
-                                             static_cast<IdxType>(k),
-                                             num_splits,
-                                             metric,
-                                             stream.get(),
-                                             workspace.data());
+            try_fused_topk_pk8_single_tile<IdxType>(out_i_ptr,
+                                                    out_d_ptr,
+                                                    active_queries,
+                                                    active_corpus,
+                                                    static_cast<IdxType>(n),
+                                                    static_cast<IdxType>(sizes[i]),
+                                                    static_cast<IdxType>(active_dimensions),
+                                                    static_cast<IdxType>(k),
+                                                    metric,
+                                                    stream.get());
+        }
+        // The legacy workspace contract remains available for corpus splits,
+        // lower families, or a declined direct-output capability.
+        if (!used_fused_topk) {
+          const size_t bytes = k == 2   ? fused_topk_pk2_workspace_bytes<IdxType>(n, num_splits)
+                               : k <= 4 ? fused_topk_pk4_workspace_bytes<IdxType>(n, num_splits, k)
+                                        : fused_topk_pk8_workspace_bytes<IdxType>(n, num_splits, k);
+          rmm::device_uvector<uint8_t> workspace(bytes, stream);
+          if (k == 2) {
+            used_fused_topk =
+              try_fused_topk_pk2_tile<IdxType>(out_i_ptr,
+                                               out_d_ptr,
+                                               active_queries,
+                                               active_corpus,
+                                               static_cast<IdxType>(n),
+                                               static_cast<IdxType>(sizes[i]),
+                                               static_cast<IdxType>(active_dimensions),
+                                               num_splits,
+                                               metric,
+                                               stream.get(),
+                                               workspace.data());
+          } else if (k <= 4) {
+            used_fused_topk =
+              try_fused_topk_pk4_tile<IdxType>(out_i_ptr,
+                                               out_d_ptr,
+                                               active_queries,
+                                               active_corpus,
+                                               static_cast<IdxType>(n),
+                                               static_cast<IdxType>(sizes[i]),
+                                               static_cast<IdxType>(active_dimensions),
+                                               static_cast<IdxType>(k),
+                                               num_splits,
+                                               metric,
+                                               stream.get(),
+                                               workspace.data());
+          } else {
+            used_fused_topk =
+              try_fused_topk_pk8_tile<IdxType>(out_i_ptr,
+                                               out_d_ptr,
+                                               active_queries,
+                                               active_corpus,
+                                               static_cast<IdxType>(n),
+                                               static_cast<IdxType>(sizes[i]),
+                                               static_cast<IdxType>(active_dimensions),
+                                               static_cast<IdxType>(k),
+                                               num_splits,
+                                               metric,
+                                               stream.get(),
+                                               workspace.data());
+          }
         }
       }
     }

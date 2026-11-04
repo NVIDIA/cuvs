@@ -87,6 +87,9 @@ def _kernel_signature(
     gpu_code: str,
     matrix_layout: str,
     data_type: str = "float",
+    index_type: str = "int32",
+    whole_tile_guard: bool = False,
+    *,
     stage: str = "fused",
 ) -> KernelSignature:
     if stage not in ("fused", "select", "refine", "witness"):
@@ -100,7 +103,7 @@ def _kernel_signature(
         parameters=[
             matrix,
             matrix,
-            _output_matrix_constraint(_idx_dtype("int32")),
+            _output_matrix_constraint(_idx_dtype(index_type)),
             _output_matrix_constraint(ct.float32),
             ScalarConstraint(ct.int32),
             ScalarConstraint(ct.int32),
@@ -114,7 +117,7 @@ def _kernel_signature(
         ],
         calling_convention=CallingConvention.cutile_python_v1(),
     ).with_symbol(
-        kernel_symbol(physical_k, matrix_layout, data_type)
+        kernel_symbol(physical_k, matrix_layout, data_type, index_type, whole_tile_guard)
         + ("" if stage == "fused" else f"_{stage}")
     )
 
@@ -133,6 +136,7 @@ def export_binary(
     matrix_layout: str = "strict",
     occupancy: int | None = None,
     stage: str = "fused",
+    whole_tile_guard: bool = False,
 ) -> str:
     if stage != "fused" and (
         gpu_code != "sm_120" or matrix_layout != "strict"
@@ -155,6 +159,7 @@ def export_binary(
         occupancy=occupancy,
         stage="select" if stage == "witness" else stage,
         witness=stage == "witness",
+        whole_tile_guard=whole_tile_guard,
     )
     signature = _kernel_signature(
         physical_k,
@@ -164,7 +169,9 @@ def export_binary(
         gpu_code,
         matrix_layout,
         data_type,
-        stage,
+        index_type,
+        whole_tile_guard,
+        stage=stage,
     )
     export_kernel(
         kernel=kernel,
@@ -176,7 +183,7 @@ def export_binary(
     return signature.symbol
 
 
-def main(default_stage: str = "fused") -> int:
+def main(default_stage: str = "fused", *, whole_tile_guard: bool = False) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output_file", type=Path)
     parser.add_argument("--format", choices=("cubin",), default="cubin")
@@ -216,6 +223,7 @@ def main(default_stage: str = "fused") -> int:
         matrix_layout=args.matrix_layout,
         occupancy=args.occupancy,
         stage=args.stage,
+        whole_tile_guard=whole_tile_guard,
     )
     return 0
 

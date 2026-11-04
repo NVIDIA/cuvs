@@ -9,8 +9,8 @@ import cuda.tile as ct
 ConstInt = ct.Constant[int]
 
 METRICS = ("runtime",)
-INDEX_TYPES = ("int32",)
-PHYSICAL_KS = (2, 4)
+INDEX_TYPES = ("int32", "int64")
+PHYSICAL_KS = (2, 4, 8)
 
 METRIC_L2_EXPANDED = 0
 METRIC_L2_SQRT_EXPANDED = 1
@@ -108,9 +108,94 @@ def _insert4(
     )
 
 
+@ct.function
+def _pack8(value0, value1, value2, value3, value4, value5, value6, value7):
+    return ct.cat(
+        (
+            _pack4(value0, value1, value2, value3),
+            _pack4(value4, value5, value6, value7),
+        ),
+        axis=1,
+    )
+
+
+@ct.function
+def _take_worse(left_score, left_idx, right_score, right_idx):
+    return (left_score > right_score) | (
+        (left_score == right_score) & (left_idx > right_idx)
+    )
+
+
+@ct.function
+def _insert_slot(slot_score, slot_idx, candidate_score, candidate_idx):
+    take = _take_left(candidate_score, candidate_idx, slot_score, slot_idx)
+    return (
+        ct.where(take, candidate_score, slot_score),
+        ct.where(take, candidate_idx, slot_idx),
+        ct.where(take, slot_score, candidate_score),
+        ct.where(take, slot_idx, candidate_idx),
+    )
+
+
+@ct.function
+def _insert8(
+    scores, indices, candidate_score, candidate_idx, tile_m: ConstInt
+):
+    score0, index0 = _column(scores, 0, tile_m), _column(indices, 0, tile_m)
+    score1, index1 = _column(scores, 1, tile_m), _column(indices, 1, tile_m)
+    score2, index2 = _column(scores, 2, tile_m), _column(indices, 2, tile_m)
+    score3, index3 = _column(scores, 3, tile_m), _column(indices, 3, tile_m)
+    score4, index4 = _column(scores, 4, tile_m), _column(indices, 4, tile_m)
+    score5, index5 = _column(scores, 5, tile_m), _column(indices, 5, tile_m)
+    score6, index6 = _column(scores, 6, tile_m), _column(indices, 6, tile_m)
+    score7, index7 = _column(scores, 7, tile_m), _column(indices, 7, tile_m)
+
+    score0, index0, candidate_score, candidate_idx = _insert_slot(
+        score0, index0, candidate_score, candidate_idx
+    )
+    score1, index1, candidate_score, candidate_idx = _insert_slot(
+        score1, index1, candidate_score, candidate_idx
+    )
+    score2, index2, candidate_score, candidate_idx = _insert_slot(
+        score2, index2, candidate_score, candidate_idx
+    )
+    score3, index3, candidate_score, candidate_idx = _insert_slot(
+        score3, index3, candidate_score, candidate_idx
+    )
+    score4, index4, candidate_score, candidate_idx = _insert_slot(
+        score4, index4, candidate_score, candidate_idx
+    )
+    score5, index5, candidate_score, candidate_idx = _insert_slot(
+        score5, index5, candidate_score, candidate_idx
+    )
+    score6, index6, candidate_score, candidate_idx = _insert_slot(
+        score6, index6, candidate_score, candidate_idx
+    )
+    score7, index7, candidate_score, candidate_idx = _insert_slot(
+        score7, index7, candidate_score, candidate_idx
+    )
+    return (
+        _pack8(score0, score1, score2, score3, score4, score5, score6, score7),
+        _pack8(index0, index1, index2, index3, index4, index5, index6, index7),
+    )
+
+
+@ct.function
+def _pk8_tile_needs_selection(scores, retained, valid_rows):
+    # Equality executes the original path, preserving index tie-breaking.
+    row_best = ct.min(scores, axis=1)
+    row_worst = ct.max(retained, axis=1)
+    return (
+        ct.max(((row_best <= row_worst) & valid_rows).astype(ct.int32), axis=0)
+        > 0
+    )
+
+
 def _idx_dtype(index_type: str):
     if index_type == "int32":
         return ct.int32
+    if index_type == "int64":
+        return ct.int64
     raise ValueError(f"Unsupported index_type {index_type!r}")
 
 
@@ -128,6 +213,7 @@ def make_kernel(
     occupancy: int | None = None,
     stage: str = "fused",
     witness: bool = False,
+    whole_tile_guard: bool = False,
 ):
     """Build native-half or TF32 selection with FP32 accumulation/refinement."""
     if stage not in ("fused", "select", "refine"):
@@ -143,12 +229,19 @@ def make_kernel(
     if matrix_layout not in ("strict", "relaxed"):
         raise ValueError(f"Unsupported matrix_layout {matrix_layout!r}")
 
-    idx_dtype = _idx_dtype(index_type)
+    if index_type == "int64" and (physical_k != 8 or gpu_code != "sm_120"):
+        raise ValueError("Direct int64 storage is qualified only for SM120 PK8")
+    if whole_tile_guard and (physical_k != 8 or gpu_code != "sm_120" or stage != "fused"):
+        raise ValueError("Whole-tile guard is qualified only for fused SM120 PK8")
+    if physical_k == 8 and (stage != "fused" or witness):
+        raise ValueError("PK8 exports currently support the fused stage only")
+    # Candidate arithmetic remains int32; final stores may widen to int64.
+    idx_dtype = _idx_dtype("int32")
     mma_dtype = ct.float16 if data_type == "half" else ct.tfloat32
     kernel_options = {}
     if occupancy is not None:
         kernel_options["occupancy"] = ct.ByTarget(**{gpu_code: occupancy})
-    insert_candidate = _insert2 if physical_k == 2 else _insert4
+    insert_candidate = _insert2 if physical_k == 2 else _insert4 if physical_k == 4 else _insert8
 
     @ct.kernel(**kernel_options)
     def fused_topk_kernel(
@@ -203,6 +296,41 @@ def make_kernel(
                     (_INF, _INVALID_INDEX),
                     keepdims=False,
                 )
+
+            def update_max_tree(scores, indices, candidate_score, candidate_idx):
+                slots = ct.arange(physical_k, dtype=idx_dtype)
+                positions = ct.broadcast_to(slots[None, :], (tm, physical_k))
+
+                def reduce_worst(a_score, a_idx, a_pos, b_score, b_idx, b_pos):
+                    take_a = _take_worse(a_score, a_idx, b_score, b_idx) | (
+                        (a_score == b_score) & (a_idx == b_idx) & (a_pos > b_pos)
+                    )
+                    return (
+                        ct.where(take_a, a_score, b_score),
+                        ct.where(take_a, a_idx, b_idx),
+                        ct.where(take_a, a_pos, b_pos),
+                    )
+
+                worst_score, worst_idx, worst_pos = ct.reduce(
+                    (scores, indices, positions),
+                    1,
+                    reduce_worst,
+                    (-_INF, -1, -1),
+                    keepdims=False,
+                )
+                take = _take_left(
+                    candidate_score, candidate_idx, worst_score, worst_idx
+                )
+                replace = positions == worst_pos[:, None]
+                return (
+                    ct.where(
+                        take[:, None] & replace, candidate_score[:, None], scores
+                    ),
+                    ct.where(
+                        take[:, None] & replace, candidate_idx[:, None], indices
+                    ),
+                )
+
 
             for tile_n_index in range(split_begin, split_end):
                 accumulator = ct.zeros((tm, tn), ct.float32)
@@ -317,30 +445,40 @@ def make_kernel(
                                 remaining,
                             )
                 else:
-                    for _ in range(physical_k):
-                        candidate_score, candidate_idx = reduce_best(
-                            remaining, tiled_indices
-                        )
-                        # A physical slot with no remaining corpus candidate reduces
-                        # to the score identity. Do not let the reduction's tie-broken
-                        # column index turn that identity into a duplicate neighbor.
-                        candidate_idx = ct.where(
-                            candidate_score < _INF,
-                            candidate_idx,
-                            _INVALID_INDEX,
-                        )
-                        best_scores, best_indices = insert_candidate(
-                            best_scores,
-                            best_indices,
-                            candidate_score,
-                            candidate_idx,
-                            tm,
-                        )
-                        remaining = ct.where(
-                            tiled_indices == candidate_idx[:, None],
-                            _INF,
-                            remaining,
-                        )
+                    select_tile = True
+                    if whole_tile_guard:
+                        valid_query_rows = bid_m * tm + ct.arange(tm, dtype=idx_dtype) < query_rows
+                        select_tile = _pk8_tile_needs_selection(scores, best_scores, valid_query_rows)
+                    if select_tile:
+                        for _ in range(physical_k):
+                            candidate_score, candidate_idx = reduce_best(
+                                remaining, tiled_indices
+                            )
+                            # A physical slot with no remaining corpus candidate reduces
+                            # to the score identity. Do not let the reduction's tie-broken
+                            # column index turn that identity into a duplicate neighbor.
+                            candidate_idx = ct.where(
+                                candidate_score < _INF,
+                                candidate_idx,
+                                _INVALID_INDEX,
+                            )
+                            if physical_k == 8:
+                                best_scores, best_indices = update_max_tree(
+                                    best_scores, best_indices, candidate_score, candidate_idx
+                                )
+                            else:
+                                best_scores, best_indices = insert_candidate(
+                                    best_scores,
+                                    best_indices,
+                                    candidate_score,
+                                    candidate_idx,
+                                    tm,
+                                )
+                            remaining = ct.where(
+                                tiled_indices == candidate_idx[:, None],
+                                _INF,
+                                remaining,
+                            )
 
         else:
             num_tiles_k = ct.num_tiles(queries, axis=1, shape=(tm, tk))
@@ -454,12 +592,22 @@ def make_kernel(
 
 
 def kernel_symbol(
-    physical_k: int, matrix_layout: str = "strict", data_type: str = "float"
+    physical_k: int,
+    matrix_layout: str = "strict",
+    data_type: str = "float",
+    index_type: str = "int32",
+    whole_tile_guard: bool = False,
 ) -> str:
     if data_type not in ("float", "half"):
         raise ValueError(f"Unsupported data_type {data_type!r}")
     abbrev = "h" if data_type == "half" else "f"
-    base = f"fused_topk_pk{physical_k}_{abbrev}_i32"
+    if index_type not in INDEX_TYPES:
+        raise ValueError(f"Unsupported index_type {index_type!r}")
+    base = f"fused_topk_pk{physical_k}_{abbrev}_{'i64' if index_type == 'int64' else 'i32'}"
+    if whole_tile_guard:
+        if physical_k != 8:
+            raise ValueError("Whole-tile guard symbols require PK8")
+        base += "_longscan"
     if matrix_layout == "strict":
         return base
     if matrix_layout == "relaxed":

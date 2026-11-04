@@ -127,3 +127,18 @@ a kernel. They skip when the optional cuTile Python dependency is unavailable.
 pytest cpp/tests/python
 cpp/build/gtests/NEIGHBORS_TEST --gtest_filter='*FusedTopk*'
 ```
+
+## Physical K8 extension
+
+PK8 serves logical K5 through K8 using a worst-retained-candidate reduction.
+All eight candidates are refined and sorted before returning a logical prefix.
+Single-split calls write the requested prefix directly, with int32 or int64
+indices. Two through 128 splits use a warp merge of sorted retained lists.
+The long-scan variant skips a corpus tile only if no valid query row can admit
+a candidate; equality always enters selection. Its capacity-based guard uses
+at least 512 corpus tiles per split with TM32/TN128/TK32, not exact shapes.
+
+The same approximate membership contract and four metrics apply. PK8 adds no
+strict/certified promise, architecture qualification or universal speed claim.
+PK2/4 staging and public defaults remain unchanged. Historical PK8 timing
+must be distinguished from validation on this clean combined branch.

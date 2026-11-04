@@ -196,7 +196,7 @@ def test_export_forwards_typed_signature_without_execution(
         stage=stage,
     )
     expected = exporter._kernel_signature(
-        physical_k, 64, 128, 32, "sm_120", "strict", data_type, stage
+        physical_k, 64, 128, 32, "sm_120", "strict", data_type, stage=stage
     )
     assert captured["kernel"] is sentinel
     assert captured["signatures"] == [expected]
@@ -218,6 +218,7 @@ def test_export_forwards_typed_signature_without_execution(
         "occupancy": 2,
         "stage": "select" if stage == "witness" else stage,
         "witness": stage == "witness",
+        "whole_tile_guard": False,
     }
     assert symbol == expected.symbol
     assert not output.exists()

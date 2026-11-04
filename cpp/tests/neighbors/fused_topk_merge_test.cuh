@@ -98,7 +98,10 @@ void check_topk_merge(int logical_k, int splits, int rows, bool inner_product)
                                 stream.value()));
   auto* out_ids    = output_ids.data() + guard;
   auto* out_values = output_values.data() + guard;
-  if (splits == 2) {
+  if constexpr (PhysicalK == 8) {
+    merge_fused_topk_sorted_splits<8><<<3, 32, 0, stream.value()>>>(
+      out_ids, out_values, ids.data(), values.data(), rows, logical_k, splits, inner_product);
+  } else if (splits == 2) {
     merge_fused_topk_register_heads<PhysicalK, 2><<<3, 256, 0, stream.value()>>>(
       out_ids, out_values, ids.data(), values.data(), rows, logical_k, splits, inner_product);
   } else if (splits <= 4) {
@@ -169,10 +172,28 @@ TEST_P(FusedTopkPk24MergeTest, SortedListsPreserveBitsAtCapacityBoundaries)
   }
 }
 
-std::vector<MergeCase> topk_merge_cases()
+class FusedTopkPk8MergeTest : public ::testing::TestWithParam<MergeCase> {};
+
+TEST_P(FusedTopkPk8MergeTest, SortedListsPreserveBitsAtCapacityBoundaries)
+{
+  const auto [k, splits, wide] = GetParam();
+  for (int rows : {7, 777}) {
+    for (bool inner : {false, true}) {
+      SCOPED_TRACE(::testing::Message() << "K=" << k << " splits=" << splits << " rows=" << rows
+                                        << " inner=" << inner << " wide=" << wide);
+      if (wide) {
+        check_topk_merge<8, int64_t>(k, splits, rows, inner);
+      } else {
+        check_topk_merge<8, int>(k, splits, rows, inner);
+      }
+    }
+  }
+}
+
+std::vector<MergeCase> topk_merge_cases(int first_k, int last_k)
 {
   std::vector<MergeCase> result;
-  for (int k : {2, 3, 4}) {
+  for (int k = first_k; k <= last_k; ++k) {
     for (int splits :
          {2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 63, 64, 65, 95, 96, 97, 127, 128}) {
       for (bool wide : {false, true}) {
@@ -185,7 +206,11 @@ std::vector<MergeCase> topk_merge_cases()
 
 INSTANTIATE_TEST_SUITE_P(CapacityBoundaries,
                          FusedTopkPk24MergeTest,
-                         ::testing::ValuesIn(topk_merge_cases()));
+                         ::testing::ValuesIn(topk_merge_cases(2, 4)));
+
+INSTANTIATE_TEST_SUITE_P(CapacityBoundaries,
+                         FusedTopkPk8MergeTest,
+                         ::testing::ValuesIn(topk_merge_cases(5, 8)));
 
 }  // namespace
 }  // namespace cuvs::neighbors::detail
