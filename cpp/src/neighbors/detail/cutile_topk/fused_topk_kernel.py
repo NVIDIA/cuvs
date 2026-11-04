@@ -199,6 +199,10 @@ def _idx_dtype(index_type: str):
     raise ValueError(f"Unsupported index_type {index_type!r}")
 
 
+def _pk8_inner_checkpoints_enabled(index_type, matrix_layout, whole_tile_guard):
+    return whole_tile_guard and index_type == "int64" and matrix_layout == "strict"
+
+
 def make_kernel(
     data_type: str,
     metric: str,
@@ -257,6 +261,11 @@ def make_kernel(
         )
     ):
         raise ValueError("PK8 stages require strict SM120 int32 candidates")
+    # Static groups preserve register allocation; dynamic loops spill the live list.
+    # Only the qualified strict int64 longscan image uses inner checkpoints.
+    inner_checkpoints = _pk8_inner_checkpoints_enabled(
+        index_type, matrix_layout, whole_tile_guard
+    )
     # Candidate arithmetic remains int32; final stores may widen to int64.
     idx_dtype = _idx_dtype("int32")
     mma_dtype = ct.float16 if data_type == "half" else ct.tfloat32
@@ -491,38 +500,177 @@ def make_kernel(
                             scores, best_scores, valid_query_rows
                         )
                     if select_tile:
-                        for _ in range(physical_k):
-                            candidate_score, candidate_idx = reduce_best(
-                                remaining, tiled_indices
-                            )
-                            # A physical slot with no remaining corpus candidate reduces
-                            # to the score identity. Do not let the reduction's tie-broken
-                            # column index turn that identity into a duplicate neighbor.
-                            candidate_idx = ct.where(
-                                candidate_score < _INF,
-                                candidate_idx,
-                                _INVALID_INDEX,
-                            )
-                            if physical_k == 8:
-                                best_scores, best_indices = update_max_tree(
-                                    best_scores,
-                                    best_indices,
-                                    candidate_score,
-                                    candidate_idx,
+                        if inner_checkpoints:
+                            for _ in range(2):
+                                candidate_score, candidate_idx = reduce_best(
+                                    remaining, tiled_indices
                                 )
-                            else:
-                                best_scores, best_indices = insert_candidate(
-                                    best_scores,
-                                    best_indices,
-                                    candidate_score,
+                                # A physical slot with no remaining corpus candidate reduces
+                                # to the score identity. Do not let the reduction's tie-broken
+                                # column index turn that identity into a duplicate neighbor.
+                                candidate_idx = ct.where(
+                                    candidate_score < _INF,
                                     candidate_idx,
-                                    tm,
+                                    _INVALID_INDEX,
                                 )
-                            remaining = ct.where(
-                                tiled_indices == candidate_idx[:, None],
-                                _INF,
-                                remaining,
-                            )
+                                if physical_k == 8:
+                                    best_scores, best_indices = update_max_tree(
+                                        best_scores,
+                                        best_indices,
+                                        candidate_score,
+                                        candidate_idx,
+                                    )
+                                else:
+                                    best_scores, best_indices = insert_candidate(
+                                        best_scores,
+                                        best_indices,
+                                        candidate_score,
+                                        candidate_idx,
+                                        tm,
+                                    )
+                                remaining = ct.where(
+                                    tiled_indices == candidate_idx[:, None],
+                                    _INF,
+                                    remaining,
+                                )
+                            if _pk8_tile_needs_selection(
+                                remaining, best_scores, valid_query_rows
+                            ):
+                                for _ in range(2):
+                                    candidate_score, candidate_idx = reduce_best(
+                                        remaining, tiled_indices
+                                    )
+                                    # A physical slot with no remaining corpus candidate reduces
+                                    # to the score identity. Do not let the reduction's tie-broken
+                                    # column index turn that identity into a duplicate neighbor.
+                                    candidate_idx = ct.where(
+                                        candidate_score < _INF,
+                                        candidate_idx,
+                                        _INVALID_INDEX,
+                                    )
+                                    if physical_k == 8:
+                                        best_scores, best_indices = update_max_tree(
+                                            best_scores,
+                                            best_indices,
+                                            candidate_score,
+                                            candidate_idx,
+                                        )
+                                    else:
+                                        best_scores, best_indices = insert_candidate(
+                                            best_scores,
+                                            best_indices,
+                                            candidate_score,
+                                            candidate_idx,
+                                            tm,
+                                        )
+                                    remaining = ct.where(
+                                        tiled_indices == candidate_idx[:, None],
+                                        _INF,
+                                        remaining,
+                                    )
+                                if _pk8_tile_needs_selection(
+                                    remaining, best_scores, valid_query_rows
+                                ):
+                                    for _ in range(2):
+                                        candidate_score, candidate_idx = reduce_best(
+                                            remaining, tiled_indices
+                                        )
+                                        # A physical slot with no remaining corpus candidate reduces
+                                        # to the score identity. Do not let the reduction's tie-broken
+                                        # column index turn that identity into a duplicate neighbor.
+                                        candidate_idx = ct.where(
+                                            candidate_score < _INF,
+                                            candidate_idx,
+                                            _INVALID_INDEX,
+                                        )
+                                        if physical_k == 8:
+                                            best_scores, best_indices = update_max_tree(
+                                                best_scores,
+                                                best_indices,
+                                                candidate_score,
+                                                candidate_idx,
+                                            )
+                                        else:
+                                            best_scores, best_indices = insert_candidate(
+                                                best_scores,
+                                                best_indices,
+                                                candidate_score,
+                                                candidate_idx,
+                                                tm,
+                                            )
+                                        remaining = ct.where(
+                                            tiled_indices == candidate_idx[:, None],
+                                            _INF,
+                                            remaining,
+                                        )
+                                    if _pk8_tile_needs_selection(
+                                        remaining, best_scores, valid_query_rows
+                                    ):
+                                        for _ in range(2):
+                                            candidate_score, candidate_idx = reduce_best(
+                                                remaining, tiled_indices
+                                            )
+                                            # A physical slot with no remaining corpus candidate reduces
+                                            # to the score identity. Do not let the reduction's tie-broken
+                                            # column index turn that identity into a duplicate neighbor.
+                                            candidate_idx = ct.where(
+                                                candidate_score < _INF,
+                                                candidate_idx,
+                                                _INVALID_INDEX,
+                                            )
+                                            if physical_k == 8:
+                                                best_scores, best_indices = update_max_tree(
+                                                    best_scores,
+                                                    best_indices,
+                                                    candidate_score,
+                                                    candidate_idx,
+                                                )
+                                            else:
+                                                best_scores, best_indices = insert_candidate(
+                                                    best_scores,
+                                                    best_indices,
+                                                    candidate_score,
+                                                    candidate_idx,
+                                                    tm,
+                                                )
+                                            remaining = ct.where(
+                                                tiled_indices == candidate_idx[:, None],
+                                                _INF,
+                                                remaining,
+                                            )
+                        else:
+                            for _ in range(physical_k):
+                                candidate_score, candidate_idx = reduce_best(
+                                    remaining, tiled_indices
+                                )
+                                # A physical slot with no remaining corpus candidate reduces
+                                # to the score identity. Do not let the reduction's tie-broken
+                                # column index turn that identity into a duplicate neighbor.
+                                candidate_idx = ct.where(
+                                    candidate_score < _INF,
+                                    candidate_idx,
+                                    _INVALID_INDEX,
+                                )
+                                if physical_k == 8:
+                                    best_scores, best_indices = update_max_tree(
+                                        best_scores,
+                                        best_indices,
+                                        candidate_score,
+                                        candidate_idx,
+                                    )
+                                else:
+                                    best_scores, best_indices = insert_candidate(
+                                        best_scores,
+                                        best_indices,
+                                        candidate_score,
+                                        candidate_idx,
+                                        tm,
+                                    )
+                                remaining = ct.where(
+                                    tiled_indices == candidate_idx[:, None],
+                                    _INF,
+                                    remaining,
+                                )
 
         else:
             num_tiles_k = ct.num_tiles(queries, axis=1, shape=(tm, tk))
