@@ -48,6 +48,9 @@ __global__ void exrabitq_quantize_query(
   int8_t* d_long_code,
   float* d_delta)
 {
+  using FactorReduce = cub::BlockReduce<FloatSumN<2>, BlockSize>;
+  __shared__ typename FactorReduce::TempStorage factor_temp;
+
   //=========================================================================
   // Setup: One block per row
   //=========================================================================
@@ -108,11 +111,10 @@ __global__ void exrabitq_quantize_query(
     out_ptr[j] = static_cast<int8_t>(code_val);
   }
 
-  // only thread 0 needs the results; fuse both reductions into one race-free pass
-  float reduce_buf[2] = {ip_resi_xucb, xu_sq};
-  blockReduceSumN<2>(reduce_buf);
-  ip_resi_xucb = reduce_buf[0];
-  xu_sq        = reduce_buf[1];
+  // only thread 0 needs the results, which is where cub's block reduction leaves them
+  const FloatSumN<2> sums = FactorReduce(factor_temp).Sum(FloatSumN<2>{{ip_resi_xucb, xu_sq}});
+  ip_resi_xucb            = sums.v[0];
+  xu_sq                   = sums.v[1];
 
   // Thread 0 computes and writes the final factors
   if (tid == 0) {
