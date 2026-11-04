@@ -4,6 +4,7 @@
  */
 #pragma once
 
+#include "../../core/keyed_row_reduction_launchers.hpp"
 #include "../../distance/distance.cuh"
 #include "../../distance/top_1_nn.cuh"
 #include <cstdint>
@@ -636,7 +637,7 @@ void compute_centroid_adjustments(
 
   workspace.resize(n_samples, stream);
 
-  raft::linalg::reduce_rows_by_key(X.data_handle(),
+  cuvs::detail::reduce_rows_by_key(X.data_handle(),
                                    X.extent(1),
                                    cluster_labels,
                                    sample_weights.data_handle(),

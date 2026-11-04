@@ -1,0 +1,24 @@
+[
+  {
+    "return_type": "void",
+    "qualified_function": "raft::linalg::detail::reduce_rows_by_key",
+    "function_qualifiers": "",
+    "_variants": [
+      {
+        "template_arguments": "< thrust::transform_iterator<cuvs::spatial::knn::detail::utils::mapping<float>, __half const*, thrust::use_default, thrust::use_default>, unsigned int const*, float, float, long>",
+        "parameter_types": "thrust::transform_iterator<cuvs::spatial::knn::detail::utils::mapping<float>, __half const*, thrust::use_default, thrust::use_default>, long, unsigned int const*, float const*, char*, long, long, long, float*, CUstream_st*, bool",
+        "instantiation_name": "raft_linalg_detail_reduce_rows_by_key_raw_transform_mapping_f32_f16_c_ptr_use_default_use_default_u32_c_ptr_f32_f32_long"
+      },
+      {
+        "template_arguments": "< thrust::transform_iterator<cuvs::spatial::knn::detail::utils::mapping<float>, signed char const*, thrust::use_default, thrust::use_default>, unsigned int const*, float, float, long>",
+        "parameter_types": "thrust::transform_iterator<cuvs::spatial::knn::detail::utils::mapping<float>, signed char const*, thrust::use_default, thrust::use_default>, long, unsigned int const*, float const*, char*, long, long, long, float*, CUstream_st*, bool",
+        "instantiation_name": "raft_linalg_detail_reduce_rows_by_key_raw_transform_mapping_f32_i8_c_ptr_use_default_use_default_u32_c_ptr_f32_f32_long"
+      },
+      {
+        "template_arguments": "< thrust::transform_iterator<cuvs::spatial::knn::detail::utils::mapping<float>, unsigned char const*, thrust::use_default, thrust::use_default>, unsigned int const*, float, float, long>",
+        "parameter_types": "thrust::transform_iterator<cuvs::spatial::knn::detail::utils::mapping<float>, unsigned char const*, thrust::use_default, thrust::use_default>, long, unsigned int const*, float const*, char*, long, long, long, float*, CUstream_st*, bool",
+        "instantiation_name": "raft_linalg_detail_reduce_rows_by_key_raw_transform_mapping_f32_u8_c_ptr_use_default_use_default_u32_c_ptr_f32_f32_long"
+      }
+    ]
+  }
+]

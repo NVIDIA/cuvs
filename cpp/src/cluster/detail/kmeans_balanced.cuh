@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/keyed_row_reduction_launchers.hpp"
 #include "kmeans_common.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -415,7 +416,7 @@ void calc_centers_and_sizes(const raft::resources& handle,
   if (is_packed_binary) {
     if constexpr (std::is_same_v<T, uint8_t>) {
       auto decoded_dataset_iter = make_bitwise_expanded_iterator<MathT, IdxT>(dataset);
-      raft::linalg::reduce_rows_by_key(decoded_dataset_iter,
+      cuvs::detail::reduce_rows_by_key(decoded_dataset_iter,
                                        centers_dim,
                                        labels,
                                        nullptr,
@@ -431,7 +432,7 @@ void calc_centers_and_sizes(const raft::resources& handle,
   }
   // Apply mapping only when the data and math types are different.
   else if constexpr (std::is_same_v<T, MathT>) {
-    raft::linalg::reduce_rows_by_key(dataset,
+    cuvs::detail::reduce_rows_by_key(dataset,
                                      dim,
                                      labels,
                                      nullptr,
@@ -444,7 +445,7 @@ void calc_centers_and_sizes(const raft::resources& handle,
   } else {
     // todo(lsugy): use iterator from KV output of fusedL2NN
     thrust::transform_iterator<MappingOpT, const T*> mapping_itr(dataset, mapping_op);
-    raft::linalg::reduce_rows_by_key(mapping_itr,
+    cuvs::detail::reduce_rows_by_key(mapping_itr,
                                      dim,
                                      labels,
                                      nullptr,

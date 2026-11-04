@@ -1,0 +1,81 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <distance/top_1_nn.cuh>
+#include <neighbors/detail/ann_utils.cuh>
+
+#include <core/keyed_row_reduction_launchers.hpp>
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/reduce_rows_by_key.cuh>
+#include <thrust/iterator/counting_iterator.h>
+#include <thrust/iterator/transform_iterator.h>
+
+namespace cuvs::detail {
+
+template <typename DataIteratorT,
+          typename KeysIteratorT,
+          typename WeightT,
+          typename SumsT,
+          typename IdxT>
+void reduce_rows_by_key(const DataIteratorT d_A,
+                        IdxT lda,
+                        const KeysIteratorT d_keys,
+                        const WeightT* d_weights,
+                        char* d_keys_char,
+                        IdxT nrows,
+                        IdxT ncols,
+                        IdxT nkeys,
+                        SumsT* d_sums,
+                        cudaStream_t stream,
+                        bool reset_sums)
+
+{
+  return raft::linalg::reduce_rows_by_key(
+    d_A, lda, d_keys, d_weights, d_keys_char, nrows, ncols, nkeys, d_sums, stream, reset_sums);
+}
+
+template <typename DataIteratorT, typename KeysIteratorT, typename SumsT, typename IdxT>
+void reduce_rows_by_key(const DataIteratorT d_A,
+                        IdxT lda,
+                        const KeysIteratorT d_keys,
+                        char* d_keys_char,
+                        IdxT nrows,
+                        IdxT ncols,
+                        IdxT nkeys,
+                        SumsT* d_sums,
+                        cudaStream_t stream,
+                        bool reset_sums)
+
+{
+  return raft::linalg::reduce_rows_by_key(
+    d_A, lda, d_keys, d_keys_char, nrows, ncols, nkeys, d_sums, stream, reset_sums);
+}
+
+template <typename ElementType, typename KeyType, typename WeightType, typename IndexType>
+void reduce_rows_by_key(
+  raft::resources const& handle,
+  raft::device_matrix_view<const ElementType, IndexType, raft::row_major> d_A,
+  raft::device_vector_view<const KeyType, IndexType> d_keys,
+  raft::device_matrix_view<ElementType, IndexType, raft::row_major> d_sums,
+  IndexType n_unique_keys,
+  raft::device_vector_view<char, IndexType> d_keys_char,
+  std::optional<raft::device_vector_view<const WeightType, IndexType>> d_weights,
+  bool reset_sums)
+
+{
+  return raft::linalg::reduce_rows_by_key(
+    handle, d_A, d_keys, d_sums, n_unique_keys, d_keys_char, d_weights, reset_sums);
+}
+
+}  // namespace cuvs::detail
+
+// clang-format off
+@reduce_rows_by_key_helpers_extern_instantiations@
+
+@reduce_rows_by_key_detail_extern_instantiations@
+
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
