@@ -45,7 +45,7 @@ struct params {
 | Name | Type | Description |
 | --- | --- | --- |
 | `quantile` | `float` | Specifies how many outliers at top & bottom will be ignored. Needs to be within range of (0, 1]. |
-| `range` | [`range_mode`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-range-mode) | Per-dimension training uses every row of a nonempty, finite dataset. It applies the quantile independently to each dimension to select lower and upper bounds. Each dimension's shift is the midpoint of its bounds, rounded to the input type. A shared scale fits every dimension's bounds around its stored shift into the symmetric range of quantized values.<br /><br />If every interval has zero width, the scale is one. Otherwise, the scale is at least the smallest positive normal value of the scale type. Training synchronizes the stream before returning the scale to the host. |
+| `range` | [`range_mode`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-range-mode) | Per-dimension training uses every row of a nonempty, finite dataset. It applies the quantile independently to each dimension to select lower and upper bounds. Each dimension's shift is the midpoint of its bounds, rounded to the input type. A shared scale fits every dimension's bounds around its stored shift into the symmetric range of quantized values.<br /><br />If every interval has zero width, the scale is one. Otherwise, the scale is at least the smallest positive normal value of the scale type. |
 | `device_buffer_samples` | `int64_t` | Maximum rows staged on device for host per-dimension training and host dataset build.<br />Default: 65536. Zero processes the entire host input in one batch. Ignored for device input. Multiple batches use two input buffers when res has an auxiliary stream pool, and one otherwise. Pageable input uses batch-sized pinned staging buffers, without registering the full input. Each input buffer uses at most device_buffer_samples * dim * sizeof(T) bytes, in addition to reduction and encoding workspace. Substitute n_rows when it is zero.<br /><br />Per-dimension host training with quantile &lt; 1 selects exact quantiles using one column of host scratch (n_rows * sizeof(T) bytes). Global training retains its sampled quantiles. |
 
 <a id="preprocessing-quantize-scalar-quantizer-const-view"></a>
@@ -191,7 +191,7 @@ raft::device_vector_view<const T, int64_t> mins,
 raft::device_vector_view<const T, int64_t> maxs);
 ```
 
-Derives midpoint shifts and a shared scale; synchronizes before returning.
+Derives midpoint shifts and a shared scale.
 
 **Parameters**
 

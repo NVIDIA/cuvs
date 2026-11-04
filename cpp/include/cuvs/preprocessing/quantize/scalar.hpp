@@ -49,8 +49,7 @@ struct params {
    * range of quantized values.
    *
    * If every interval has zero width, the scale is one. Otherwise, the scale is at least
-   * the smallest positive normal value of the scale type. Training synchronizes the stream before
-   * returning the scale to the host.
+   * the smallest positive normal value of the scale type.
    */
   range_mode range = range_mode::global;
   /**
@@ -120,7 +119,7 @@ struct quantizer {
   /** Construct a global interval. */
   quantizer(T min, T max) : value{range_type{min, max}} {}
   /** Construct from nonempty device bounds of equal length, with finite min <= max.
-   * Derives midpoint shifts and a shared scale; synchronizes before returning. */
+   * Derives midpoint shifts and a shared scale. */
   quantizer(raft::resources const& res,
             raft::device_vector_view<const T, int64_t> mins,
             raft::device_vector_view<const T, int64_t> maxs);
