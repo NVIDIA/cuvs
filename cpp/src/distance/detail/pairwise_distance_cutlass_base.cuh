@@ -20,6 +20,7 @@
 
 #include "../../util/cutlass_utils.hpp"
 #include "distance_ops/cutlass.cuh"
+#include "pairwise_cutlass_launch.hpp"
 
 #include <rmm/device_uvector.hpp>
 
@@ -150,20 +151,40 @@ std::enable_if_t<ops::has_cutlass_op<OpT>::value> cutlassDistanceKernel(const Da
       ldd          // stride Output matrix
     };
 
-    // Using the arguments, query for extra workspace required for matrix multiplication computation
-    size_t workspace_size = cutlassDist::get_workspace_size(arguments);
-    // Allocate workspace memory
-    rmm::device_uvector<uint8_t> workspace(workspace_size, stream);
-    // Instantiate CUTLASS kernel depending on templates
-    cutlassDist cutlassDist_op;
-    // Check the problem size is supported or not
-    CUVS_CUTLASS_TRY(cutlassDist_op.can_implement(arguments));
+    if constexpr (std::is_same_v<DataT, AccT> && std::is_same_v<DataT, OutT> &&
+                  (std::is_same_v<DataT, float> || std::is_same_v<DataT, double>) &&
+                  std::is_same_v<FinalLambda, raft::identity_op> &&
+                  std::is_same_v<DistanceFn, ops::l2_exp_cutlass_op<DataT, AccT>>) {
+      launch_pairwise_cutlass_l2<DataT, VecLen, isRowMajor>(problem_size.m(),
+                                                            problem_size.n(),
+                                                            problem_size.k(),
+                                                            a,
+                                                            b,
+                                                            xn,
+                                                            (OutT*)yn + offsetN,
+                                                            dOutput + offsetN,
+                                                            gemm_lda,
+                                                            gemm_ldb,
+                                                            ldd,
+                                                            dist_op.sqrt,
+                                                            stream);
+    } else {
+      // Using the arguments, query for extra workspace required for matrix multiplication
+      // computation
+      size_t workspace_size = cutlassDist::get_workspace_size(arguments);
+      // Allocate workspace memory
+      rmm::device_uvector<uint8_t> workspace(workspace_size, stream);
+      // Instantiate CUTLASS kernel depending on templates
+      cutlassDist cutlassDist_op;
+      // Check the problem size is supported or not
+      CUVS_CUTLASS_TRY(cutlassDist_op.can_implement(arguments));
 
-    // Initialize CUTLASS kernel with arguments and workspace pointer
-    CUVS_CUTLASS_TRY(cutlassDist_op.initialize(arguments, workspace.data(), stream));
+      // Initialize CUTLASS kernel with arguments and workspace pointer
+      CUVS_CUTLASS_TRY(cutlassDist_op.initialize(arguments, workspace.data(), stream));
 
-    // Launch initialized CUTLASS kernel
-    CUVS_CUTLASS_TRY(cutlassDist_op(stream));
+      // Launch initialized CUTLASS kernel
+      CUVS_CUTLASS_TRY(cutlassDist_op(stream));
+    }
   }
 }
 
