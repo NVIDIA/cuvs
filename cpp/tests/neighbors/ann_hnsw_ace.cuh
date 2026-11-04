@@ -973,7 +973,7 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_inputs()
     {5000},         // n_rows
     {64, 128},      // dim
     {10},           // k
-    {2, 4},         // npartitions (explicit)
+    {0, 4},         // npartitions (auto and explicit)
     {100},          // ef_construction
     {false, true},  // use_disk (test both modes)
     {cuvs::distance::DistanceType::L2Expanded,
@@ -982,11 +982,11 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_inputs()
     {0.0},                                         // max_host_memory_gb (0 = use default)
     {0.0}                                          // max_gpu_memory_gb (0 = use default)
   );
-  // ACE resolves npartitions 0 (auto) and 1 (adjusted) to 2 before any other partitioning logic
-  // (ace_resolve_partition_count), so crossing them with every other axis would only repeat the
-  // npartitions = 2 builds. One case each keeps the resolution path covered.
+  // ACE currently resolves npartitions 0 (auto) and 1 (adjusted) to 2 before any other
+  // partitioning logic (ace_resolve_partition_count), so crossing 1 and 2 with every other axis
+  // would only repeat the npartitions = 0 builds. One case each keeps those paths covered.
   inputs.push_back(
-    {10, 5000, 64, 10, 0, 100, false, cuvs::distance::DistanceType::L2Expanded, 0.9, 0.0, 0.0});
+    {10, 5000, 64, 10, 2, 100, false, cuvs::distance::DistanceType::L2Expanded, 0.9, 0.0, 0.0});
   inputs.push_back(
     {10, 5000, 64, 10, 1, 100, true, cuvs::distance::DistanceType::InnerProduct, 0.9, 0.0, 0.0});
   return inputs;
