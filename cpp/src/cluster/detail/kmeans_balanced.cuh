@@ -835,7 +835,13 @@ __launch_bounds__((raft::WarpSize * BlockDimY)) RAFT_KERNEL
                      static_cast<int64_t>(receiver_cluster);
       auto candidate = static_cast<IdxT>((static_cast<int64_t>(seed) * (counter + 1)) %
                                          static_cast<int64_t>(n_rows));
-      if (static_cast<IdxT>(cluster_sizes[labels[candidate]]) >= average) { i = candidate; }
+      // `average` is rounded down, so a cluster can reach it and still be below `lower_threshold`.
+      // Such a cluster is a receiver whose center another warp is overwriting; never read it.
+      auto donor_size = cluster_sizes[labels[candidate]];
+      if (static_cast<IdxT>(donor_size) >= average &&
+          static_cast<MathT>(donor_size) >= lower_threshold) {
+        i = candidate;
+      }
       ++attempt;
     } while (i >= n_rows && attempt < n_rows);
   }

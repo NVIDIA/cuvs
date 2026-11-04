@@ -25,6 +25,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -390,6 +391,84 @@ TEST(KmeansBalancedAdjustCenters, ReproducibleSizeSorted)
 TEST(KmeansBalancedAdjustCenters, ReproducibleRandomDonor)
 {
   check_adjust_centers_reproducible(cuvs::cluster::kmeans::balanced_donor_selection::Random);
+}
+
+/*
+ * With 109 rows in 10 clusters the rounded-down average size is 10, but the receiver threshold is
+ * 10.9 * 0.99. Clusters 0-8 (10 rows each) are receivers and must not be used as donors, because
+ * other warps overwrite their centers. Only cluster 9 (19 rows) may donate, so every receiver
+ * center must be computed from the original center of cluster 9 and one of its rows.
+ */
+TEST(KmeansBalancedAdjustCenters, RandomDonorExcludesReceivers)
+{
+  raft::resources handle;
+  auto stream              = raft::resource::get_cuda_stream(handle);
+  const int64_t n_rows     = 109;
+  const int64_t dim        = 4;
+  const int64_t n_clusters = 10;
+  const float offset       = 0.5f;
+  std::vector<float> h_data(n_rows * dim);
+  for (size_t i = 0; i < h_data.size(); i++) {
+    h_data[i] = 1000.0f + static_cast<float>(i);
+  }
+  std::vector<float> h_centers(n_clusters * dim);
+  for (size_t i = 0; i < h_centers.size(); i++) {
+    h_centers[i] = static_cast<float>(100 * (i / dim) + i % dim);
+  }
+  std::vector<uint32_t> h_labels(n_rows);
+  std::vector<uint32_t> h_sizes(n_clusters, 0);
+  for (int64_t i = 0; i < n_rows; i++) {
+    h_labels[i] = i < 90 ? i / 10 : 9;
+    h_sizes[h_labels[i]]++;
+  }
+  auto dataset = raft::make_device_matrix<float, int64_t>(handle, n_rows, dim);
+  auto centers = raft::make_device_matrix<float, int64_t>(handle, n_clusters, dim);
+  auto labels  = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+  auto sizes   = raft::make_device_vector<uint32_t, int64_t>(handle, n_clusters);
+  raft::update_device(dataset.data_handle(), h_data.data(), h_data.size(), stream);
+  raft::update_device(centers.data_handle(), h_centers.data(), h_centers.size(), stream);
+  raft::update_device(labels.data_handle(), h_labels.data(), n_rows, stream);
+  raft::update_device(sizes.data_handle(), h_sizes.data(), n_clusters, stream);
+
+  for (uint32_t step = 0; step < 4; step++) {
+    SCOPED_TRACE(step);
+    raft::update_device(centers.data_handle(), h_centers.data(), h_centers.size(), stream);
+    ASSERT_TRUE(cuvs::cluster::kmeans::detail::adjust_centers(
+      handle,
+      centers.data_handle(),
+      n_clusters,
+      dim,
+      dataset.data_handle(),
+      n_rows,
+      labels.data_handle(),
+      sizes.data_handle(),
+      0.99f,
+      4.0f,
+      offset,
+      cuvs::cluster::kmeans::balanced_donor_selection::Random,
+      step,
+      raft::identity_op{},
+      rmm::mr::get_current_device_resource_ref()));
+    std::vector<float> h(centers.size());
+    raft::update_host(h.data(), centers.data_handle(), h.size(), stream);
+    raft::resource::sync_stream(handle);
+    for (int64_t d = 0; d < dim; d++) {
+      ASSERT_EQ(h[9 * dim + d], h_centers[9 * dim + d]) << "the donor center changed";
+    }
+    for (int64_t receiver = 0; receiver < 9; receiver++) {
+      bool from_donor = false;
+      for (int64_t row = 90; row < n_rows && !from_donor; row++) {
+        from_donor = true;
+        for (int64_t d = 0; d < dim; d++) {
+          auto c = h_centers[9 * dim + d];
+          from_donor &=
+            std::abs(h[receiver * dim + d] - (c + offset * (h_data[row * dim + d] - c))) < 1e-3f;
+        }
+      }
+      EXPECT_TRUE(from_donor) << "receiver " << receiver
+                              << " did not take its donor from cluster 9";
+    }
+  }
 }
 
 TEST(KmeansBalancedBinary, PredictMatchesExpandedInput)
