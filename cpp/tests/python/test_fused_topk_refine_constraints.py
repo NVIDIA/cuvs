@@ -14,7 +14,7 @@ KERNEL = (
 
 
 def exporter(pk):
-    name = "export_fused_topk"
+    name = "export_fused_topk" if pk == 8 else "export_fused_topk_pk16_stages"
     spec = importlib.util.spec_from_file_location(
         name, KERNEL / (name + ".py")
     )
@@ -23,7 +23,7 @@ def exporter(pk):
     return module
 
 
-@pytest.mark.parametrize("pk", [8])
+@pytest.mark.parametrize("pk", [8, 16])
 @pytest.mark.parametrize("dtype,pitch", [("float", 4), ("half", 8)])
 def test_native_refinement_promises_physical_width_not_rows(pk, dtype, pitch):
     sig = exporter(pk)._kernel_signature(
@@ -42,7 +42,7 @@ def test_native_refinement_promises_physical_width_not_rows(pk, dtype, pitch):
             assert q % sig.parameters[2].shape_divisible_by[0] == 0
 
 
-@pytest.mark.parametrize("pk", [8])
+@pytest.mark.parametrize("pk", [8, 16])
 @pytest.mark.parametrize("dtype", ["float", "half"])
 @pytest.mark.parametrize(
     "stage,arch,layout,index",

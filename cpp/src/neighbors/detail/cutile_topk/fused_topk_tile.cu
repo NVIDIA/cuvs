@@ -8,6 +8,8 @@
 #include "fused_topk_subgroup_merge.cuh"
 #include "fused_topk_tile.hpp"
 
+#include "fused_topk_pk16_planner.hpp"
+#include "fused_topk_pk16_stages_planner.hpp"
 #include "fused_topk_pk4_planner.hpp"
 #include "fused_topk_pk8_longscan_planner.hpp"
 #include "fused_topk_pk8_planner.hpp"
@@ -105,18 +107,20 @@ bool launch_fused_topk(OutputIdxT* neighbors,
                        cudaStream_t stream,
                        int packed_output_width = 0)
 {
-  static_assert(PhysicalK == 2 || PhysicalK == 4 || PhysicalK == 8);
+  static_assert(PhysicalK == 2 || PhysicalK == 4 || PhysicalK == 8 || PhysicalK == 16);
   static_assert(PhysicalK == 8 || std::is_same_v<OutputIdxT, int>);
   if (packed_output_width != 0 &&
       (PhysicalK != 8 || num_splits != 1 || packed_output_width < 5 || packed_output_width > 8)) {
     return false;
   }
-  using Planner =
-    std::conditional_t<PhysicalK == 2,
-                       FusedTopkPk2Planner<DataT, AbiTag>,
-                       std::conditional_t<PhysicalK == 4,
-                                          FusedTopkPk4Planner<DataT, AbiTag>,
-                                          FusedTopkPk8Planner<DataT, AbiTag, OutputIdxT>>>;
+  using Planner = std::conditional_t<
+    PhysicalK == 2,
+    FusedTopkPk2Planner<DataT, AbiTag>,
+    std::conditional_t<PhysicalK == 4,
+                       FusedTopkPk4Planner<DataT, AbiTag>,
+                       std::conditional_t<PhysicalK == 8,
+                                          FusedTopkPk8Planner<DataT, AbiTag, OutputIdxT>,
+                                          FusedTopkPk16Planner<DataT, AbiTag>>>>;
   std::shared_ptr<rtcx::algorithm_launcher> launcher;
   std::shared_ptr<rtcx::algorithm_launcher> refine_launcher;
   cuvs::detail::jit_lto::CutileTileConfig tile_cfg{};
@@ -189,6 +193,51 @@ bool launch_fused_topk(OutputIdxT* neighbors,
     launcher = planner.try_get_launcher();
     if (!launcher) { return false; }
     tile_cfg = planner.tile_config();
+  }
+  int refine_tile_m = 0;
+  std::shared_ptr<rtcx::algorithm_launcher> refiner;
+  if constexpr (PhysicalK == 16) {
+    cuvs::detail::jit_lto::CutileRuntimeCapabilities capabilities{};
+    if (cuvs::detail::jit_lto::query_current_cutile_runtime_capabilities(capabilities) &&
+        capabilities.cc_major == 12 && capabilities.cc_minor == 0) {
+      FusedTopkPk16StagePlanner<DataT, AbiTag, 0> select_planner;
+      FusedTopkPk16StagePlanner<DataT, AbiTag, 1> refine_planner;
+      select_planner.add_entrypoint();
+      refine_planner.add_entrypoint();
+      auto selector = select_planner.try_get_launcher();
+      refiner       = refine_planner.try_get_launcher();
+      // Resolve BOTH stages before any enqueue: fallback must never run after
+      // a partial selection launch. Other architectures keep the fused path.
+      if (selector == nullptr || refiner == nullptr) { return false; }
+      tile_cfg              = select_planner.tile_config();
+      const auto refine_cfg = refine_planner.tile_config();
+      // Both stages share corpus partitions, but their feature-reduction tiles
+      // are independent: refinement reads the original vectors, not GEMM tiles.
+      if (tile_cfg.tile_m <= 0 || refine_cfg.tile_m <= 0 || tile_cfg.tile_n <= 0 ||
+          tile_cfg.tile_n != refine_cfg.tile_n || tile_cfg.tile_k <= 0 || refine_cfg.tile_k <= 0) {
+        return false;
+      }
+      if constexpr ((std::is_same_v<DataT, half> || std::is_same_v<DataT, float>) &&
+                    std::is_same_v<AbiTag, cuvs::distance::detail::cutile_abi_strict>) {
+        if (fused_topk_pk16_use_witness<DataT>(corpus_rows, num_splits, tile_cfg.tile_n, true)) {
+          FusedTopkPk16StagePlanner<DataT, AbiTag, 2> witness_planner;
+          witness_planner.add_entrypoint();
+          auto witness = witness_planner.try_get_launcher();
+          if (witness != nullptr) {
+            const auto witness_cfg = witness_planner.tile_config();
+            if (witness_cfg.tile_m != tile_cfg.tile_m || witness_cfg.tile_n != tile_cfg.tile_n ||
+                witness_cfg.tile_k != tile_cfg.tile_k) {
+              return false;
+            }
+            selector = std::move(witness);
+          }
+          // Unavailable optional image retains the ordinary selector. All image
+          // resolution precedes enqueue; fallback cannot duplicate partial work.
+        }
+      }
+      refine_tile_m = refine_cfg.tile_m;
+      launcher      = std::move(selector);
+    }
   }
   const int num_corpus_tiles = fused_topk_pk2_ceil_div(corpus_rows, tile_cfg.tile_n);
   if (num_splits <= 0 || num_splits > num_corpus_tiles) { return false; }
@@ -296,6 +345,7 @@ bool launch_fused_topk(OutputIdxT* neighbors,
     RAFT_CUDA_TRY(cudaGetLastError());
   };
   dispatch(launcher, tile_cfg.tile_m);
+  if (refiner != nullptr) { dispatch(refiner, refine_tile_m); }
   if constexpr (PhysicalK <= 8) {
     if (refine_launcher) {
       // Each stage has its own query grid. The full physical-list stride
@@ -527,6 +577,24 @@ bool launch_and_convert(IdxT* neighbors,
       return true;
     }
   }
+  if constexpr (PhysicalK == 16) {
+    // Capacity-based sorted-list merge, not a benchmark shape allowlist.
+    // Single-split and more than 128 splits retain the legacy path.
+    if (num_splits >= 2 && num_splits <= 128) {
+      const int blocks = std::min(query_rows, 65535);
+      merge_fused_topk_sorted_splits<PhysicalK>
+        <<<blocks, 32, 0, stream>>>(neighbors,
+                                    distances,
+                                    partial.indices,
+                                    partial.distances,
+                                    query_rows,
+                                    logical_k,
+                                    num_splits,
+                                    metric == cuvs::distance::DistanceType::InnerProduct);
+      RAFT_CUDA_TRY(cudaGetLastError());
+      return true;
+    }
+  }
   constexpr int threads = 256;
   const int blocks      = fused_topk_merge_block_count(query_rows);
   merge_fused_topk_splits<PhysicalK><<<blocks, threads, 0, stream>>>(neighbors,
@@ -605,6 +673,11 @@ bool is_fused_topk_pk4_auto_dispatch_available()
 }
 
 bool is_fused_topk_pk8_auto_dispatch_available()
+{
+  return is_fused_topk_pk2_auto_dispatch_available();
+}
+
+bool is_fused_topk_pk16_auto_dispatch_available()
 {
   return is_fused_topk_pk2_auto_dispatch_available();
 }
@@ -763,6 +836,58 @@ bool try_fused_topk_pk8_tile(IdxT* neighbors,
     neighbors, distances, queries, corpus, m, n, d, k, num_splits, metric, stream, workspace);
 }
 
+template <typename IdxT, typename DataT>
+bool try_fused_topk_pk16_tile(IdxT* neighbors,
+                              float* distances,
+                              const DataT* queries,
+                              const DataT* corpus,
+                              IdxT query_rows,
+                              IdxT corpus_rows,
+                              IdxT dimensions,
+                              IdxT logical_k,
+                              int num_splits,
+                              cuvs::distance::DistanceType metric,
+                              cudaStream_t stream,
+                              void* workspace)
+{
+  static_assert(std::is_same_v<IdxT, int> || std::is_same_v<IdxT, int64_t>);
+  static_assert(std::is_same_v<DataT, float> || std::is_same_v<DataT, half>);
+  if constexpr (std::is_same_v<DataT, half>) {
+    if (!is_fused_topk_pk2_auto_dispatch_available()) { return false; }
+  }
+  if (!cuvs::detail::jit_lto::cutile_launch_available_on_current_device()) { return false; }
+  if (!is_fused_topk_metric(metric) || logical_k < 9 || logical_k > 16) { return false; }
+  constexpr int64_t max_i32 = std::numeric_limits<int>::max();
+  if (query_rows <= 0 || corpus_rows <= 0 || dimensions <= 0 || num_splits <= 0 ||
+      num_splits > 65535 || query_rows > max_i32 || corpus_rows > max_i32 || dimensions > max_i32) {
+    return false;
+  }
+  const int k = static_cast<int>(logical_k);
+  if (!valid_fused_topk_buffers<16>(neighbors,
+                                    distances,
+                                    queries,
+                                    corpus,
+                                    query_rows,
+                                    corpus_rows,
+                                    dimensions,
+                                    k,
+                                    num_splits,
+                                    workspace)) {
+    return false;
+  }
+
+  const int m       = static_cast<int>(query_rows);
+  const int n       = static_cast<int>(corpus_rows);
+  const int d       = static_cast<int>(dimensions);
+  const bool strict = d % (16 / sizeof(DataT)) == 0;
+  if (strict) {
+    return launch_and_convert<16, IdxT, DataT, cuvs::distance::detail::cutile_abi_strict>(
+      neighbors, distances, queries, corpus, m, n, d, k, num_splits, metric, stream, workspace);
+  }
+  return launch_and_convert<16, IdxT, DataT, cuvs::distance::detail::cutile_abi_relaxed>(
+    neighbors, distances, queries, corpus, m, n, d, k, num_splits, metric, stream, workspace);
+}
+
 #define CUVS_INST_TRY_FUSED_TOPK_PK2(IdxT, DataT)                                              \
   template CUVS_EXPORT bool try_fused_topk_pk2_tile<IdxT, DataT>(IdxT*,                        \
                                                                  float*,                       \
@@ -818,6 +943,25 @@ CUVS_INST_TRY_FUSED_TOPK_PK8(int, float);
 CUVS_INST_TRY_FUSED_TOPK_PK8(int64_t, float);
 CUVS_INST_TRY_FUSED_TOPK_PK8(int, half);
 CUVS_INST_TRY_FUSED_TOPK_PK8(int64_t, half);
+
+#define CUVS_INST_TRY_FUSED_TOPK_PK16(IdxT, DataT)                                              \
+  template CUVS_EXPORT bool try_fused_topk_pk16_tile<IdxT, DataT>(IdxT*,                        \
+                                                                  float*,                       \
+                                                                  const DataT*,                 \
+                                                                  const DataT*,                 \
+                                                                  IdxT,                         \
+                                                                  IdxT,                         \
+                                                                  IdxT,                         \
+                                                                  IdxT,                         \
+                                                                  int,                          \
+                                                                  cuvs::distance::DistanceType, \
+                                                                  cudaStream_t,                 \
+                                                                  void*)
+
+CUVS_INST_TRY_FUSED_TOPK_PK16(int, float);
+CUVS_INST_TRY_FUSED_TOPK_PK16(int64_t, float);
+CUVS_INST_TRY_FUSED_TOPK_PK16(int, half);
+CUVS_INST_TRY_FUSED_TOPK_PK16(int64_t, half);
 
 template <typename IdxT, typename DataT>
 bool try_fused_topk_pk8_single_tile(IdxT* neighbors,

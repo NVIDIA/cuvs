@@ -183,3 +183,24 @@ strict/certified promise, architecture qualification or universal speed claim.
 PK2/4 staging, packing and public defaults remain unchanged. Performance must
 be reported separately for small search, large search and all-neighbors graphs,
 with same-input-dtype baselines and explicit query/corpus layouts.
+
+## Physical K16 extension
+
+PK16 serves logical K9 through K16. On SM120, selection uses a sorted retained
+list and bitonic merges, with a separate TM4 direct-FP32 refiner. All 16 retained
+candidates are refined and sorted before a logical prefix is returned. The
+ordinary selector uses FP32 TM32/TN128/TK32 or native-half TM64/TN128/TK64.
+Long strict-layout partitions (at least 512 corpus tiles per split) use
+conservative witness checkpoints: 1/2/4/8/12/16 for FP32, 1/4/8/12/16 for half.
+Equality still enters selection. Two through 128 splits use a warp list merge.
+
+PK16 stage registrations are distinct from the PK2/4 stage registrations.
+Both stage handles are resolved before enqueue. The API defaults, numerical
+contract and metric/index ordering remain the same as the lower families.
+These are capability/partition rules, not per-shape benchmark dispatch.
+Historical timings are not fresh certification of this combined branch.
+
+The strict SM120 int32 refinement ABI describes padded D (divisible by 4 for
+float or 8 for half) and physical scratch width `splits * 16`. Query and corpus
+row counts remain unconstrained, and same-pointer self-search remains legal.
+These promises do not turn approximate membership into a strict certificate.

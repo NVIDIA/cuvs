@@ -51,4 +51,13 @@ struct fragment_tag_fused_topk_pk8_longscan_cubin
                                   AbiTag,
                                   ArchTag> {};
 
+template <typename DataTag,
+          typename IndexTag,
+          int Stage,
+          typename TileTag,
+          typename AbiTag,
+          typename ArchTag>
+struct fragment_tag_fused_topk_pk16_stage_cubin
+  : fragment_tag_fused_topk_cubin<DataTag, IndexTag, 16, TileTag, AbiTag, ArchTag> {};
+
 }  // namespace cuvs::neighbors::detail

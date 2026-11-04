@@ -10,7 +10,7 @@ ConstInt = ct.Constant[int]
 
 METRICS = ("runtime",)
 INDEX_TYPES = ("int32", "int64")
-PHYSICAL_KS = (2, 4, 8)
+PHYSICAL_KS = (2, 4, 8, 16)
 
 METRIC_L2_EXPANDED = 0
 METRIC_L2_SQRT_EXPANDED = 1
@@ -191,6 +191,172 @@ def _pk8_tile_needs_selection(scores, retained, valid_rows):
     )
 
 
+@ct.function
+def _pack16(
+    value0,
+    value1,
+    value2,
+    value3,
+    value4,
+    value5,
+    value6,
+    value7,
+    value8,
+    value9,
+    value10,
+    value11,
+    value12,
+    value13,
+    value14,
+    value15,
+):
+    return ct.cat(
+        (
+            _pack8(
+                value0, value1, value2, value3, value4, value5, value6, value7
+            ),
+            _pack8(
+                value8,
+                value9,
+                value10,
+                value11,
+                value12,
+                value13,
+                value14,
+                value15,
+            ),
+        ),
+        axis=1,
+    )
+
+
+@ct.function
+def _insert16(
+    scores, indices, candidate_score, candidate_idx, tile_m: ConstInt
+):
+    score0, index0 = _column(scores, 0, tile_m), _column(indices, 0, tile_m)
+    score1, index1 = _column(scores, 1, tile_m), _column(indices, 1, tile_m)
+    score2, index2 = _column(scores, 2, tile_m), _column(indices, 2, tile_m)
+    score3, index3 = _column(scores, 3, tile_m), _column(indices, 3, tile_m)
+    score4, index4 = _column(scores, 4, tile_m), _column(indices, 4, tile_m)
+    score5, index5 = _column(scores, 5, tile_m), _column(indices, 5, tile_m)
+    score6, index6 = _column(scores, 6, tile_m), _column(indices, 6, tile_m)
+    score7, index7 = _column(scores, 7, tile_m), _column(indices, 7, tile_m)
+    score8, index8 = _column(scores, 8, tile_m), _column(indices, 8, tile_m)
+    score9, index9 = _column(scores, 9, tile_m), _column(indices, 9, tile_m)
+    score10, index10 = (
+        _column(scores, 10, tile_m),
+        _column(indices, 10, tile_m),
+    )
+    score11, index11 = (
+        _column(scores, 11, tile_m),
+        _column(indices, 11, tile_m),
+    )
+    score12, index12 = (
+        _column(scores, 12, tile_m),
+        _column(indices, 12, tile_m),
+    )
+    score13, index13 = (
+        _column(scores, 13, tile_m),
+        _column(indices, 13, tile_m),
+    )
+    score14, index14 = (
+        _column(scores, 14, tile_m),
+        _column(indices, 14, tile_m),
+    )
+    score15, index15 = (
+        _column(scores, 15, tile_m),
+        _column(indices, 15, tile_m),
+    )
+
+    score0, index0, candidate_score, candidate_idx = _insert_slot(
+        score0, index0, candidate_score, candidate_idx
+    )
+    score1, index1, candidate_score, candidate_idx = _insert_slot(
+        score1, index1, candidate_score, candidate_idx
+    )
+    score2, index2, candidate_score, candidate_idx = _insert_slot(
+        score2, index2, candidate_score, candidate_idx
+    )
+    score3, index3, candidate_score, candidate_idx = _insert_slot(
+        score3, index3, candidate_score, candidate_idx
+    )
+    score4, index4, candidate_score, candidate_idx = _insert_slot(
+        score4, index4, candidate_score, candidate_idx
+    )
+    score5, index5, candidate_score, candidate_idx = _insert_slot(
+        score5, index5, candidate_score, candidate_idx
+    )
+    score6, index6, candidate_score, candidate_idx = _insert_slot(
+        score6, index6, candidate_score, candidate_idx
+    )
+    score7, index7, candidate_score, candidate_idx = _insert_slot(
+        score7, index7, candidate_score, candidate_idx
+    )
+    score8, index8, candidate_score, candidate_idx = _insert_slot(
+        score8, index8, candidate_score, candidate_idx
+    )
+    score9, index9, candidate_score, candidate_idx = _insert_slot(
+        score9, index9, candidate_score, candidate_idx
+    )
+    score10, index10, candidate_score, candidate_idx = _insert_slot(
+        score10, index10, candidate_score, candidate_idx
+    )
+    score11, index11, candidate_score, candidate_idx = _insert_slot(
+        score11, index11, candidate_score, candidate_idx
+    )
+    score12, index12, candidate_score, candidate_idx = _insert_slot(
+        score12, index12, candidate_score, candidate_idx
+    )
+    score13, index13, candidate_score, candidate_idx = _insert_slot(
+        score13, index13, candidate_score, candidate_idx
+    )
+    score14, index14, candidate_score, candidate_idx = _insert_slot(
+        score14, index14, candidate_score, candidate_idx
+    )
+    score15, index15, candidate_score, candidate_idx = _insert_slot(
+        score15, index15, candidate_score, candidate_idx
+    )
+    return (
+        _pack16(
+            score0,
+            score1,
+            score2,
+            score3,
+            score4,
+            score5,
+            score6,
+            score7,
+            score8,
+            score9,
+            score10,
+            score11,
+            score12,
+            score13,
+            score14,
+            score15,
+        ),
+        _pack16(
+            index0,
+            index1,
+            index2,
+            index3,
+            index4,
+            index5,
+            index6,
+            index7,
+            index8,
+            index9,
+            index10,
+            index11,
+            index12,
+            index13,
+            index14,
+            index15,
+        ),
+    )
+
+
 def _idx_dtype(index_type: str):
     if index_type == "int32":
         return ct.int32
@@ -292,6 +458,8 @@ def make_kernel(
         else _insert4
         if physical_k == 4
         else _insert8
+        if physical_k == 8
+        else _insert16
     )
 
     @ct.kernel(**kernel_options)
@@ -690,7 +858,7 @@ def make_kernel(
                                     candidate_idx,
                                     _INVALID_INDEX,
                                 )
-                                if physical_k == 8:
+                                if physical_k >= 8:
                                     best_scores, best_indices = (
                                         update_max_tree(
                                             best_scores,

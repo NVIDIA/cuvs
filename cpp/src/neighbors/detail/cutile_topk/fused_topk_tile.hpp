@@ -24,6 +24,18 @@
 
 namespace cuvs::neighbors::detail {
 
+// Separate image only when every partition amortizes its resource footprint.
+template <typename DataT>
+inline bool fused_topk_pk16_use_witness(int corpus_rows, int splits, int tile_n, bool strict)
+{
+  if (!(std::is_same_v<DataT, half> || std::is_same_v<DataT, float>) || !strict ||
+      corpus_rows <= 0 || splits <= 0 || tile_n != 128) {
+    return false;
+  }
+  const int64_t tiles = (static_cast<int64_t>(corpus_rows) + tile_n - 1) / tile_n;
+  return tiles / splits >= 512;
+}
+
 inline bool is_fused_topk_metric(cuvs::distance::DistanceType metric)
 {
   return metric == cuvs::distance::DistanceType::InnerProduct ||
@@ -86,6 +98,19 @@ inline bool is_fused_topk_pk8_candidate(int64_t query_rows,
 {
   static_assert(std::is_same_v<DataT, float> || std::is_same_v<DataT, half>);
   return (logical_k >= 5 && logical_k <= 8) &&
+         is_fused_topk_shape_supported(query_rows, corpus_rows, dimensions, metric);
+}
+
+template <typename DataT = float>
+inline bool is_fused_topk_pk16_candidate(int64_t query_rows,
+                                         int64_t corpus_rows,
+                                         int64_t dimensions,
+                                         int64_t logical_k,
+                                         cuvs::distance::DistanceType metric,
+                                         bool /* all_neighbors */)
+{
+  static_assert(std::is_same_v<DataT, float> || std::is_same_v<DataT, half>);
+  return (logical_k >= 9 && logical_k <= 16) &&
          is_fused_topk_shape_supported(query_rows, corpus_rows, dimensions, metric);
 }
 
@@ -288,11 +313,18 @@ constexpr size_t fused_topk_pk8_workspace_bytes(IdxT query_rows, int num_splits,
   return fused_topk_workspace_bytes<8>(query_rows, num_splits, logical_k);
 }
 
+template <typename IdxT>
+constexpr size_t fused_topk_pk16_workspace_bytes(IdxT query_rows, int num_splits, int logical_k)
+{
+  return fused_topk_workspace_bytes<16>(query_rows, num_splits, logical_k);
+}
+
 #if CUVS_CUTILE_ENABLED
 /** Compilation support is broader; automatic brute-force promotion is initially SM120-only. */
 CUVS_EXPORT bool is_fused_topk_pk2_auto_dispatch_available();
 CUVS_EXPORT bool is_fused_topk_pk4_auto_dispatch_available();
 CUVS_EXPORT bool is_fused_topk_pk8_auto_dispatch_available();
+CUVS_EXPORT bool is_fused_topk_pk16_auto_dispatch_available();
 
 template <typename IdxT, typename DataT = float>
 bool try_fused_topk_pk2_tile(IdxT* neighbors,
@@ -333,6 +365,20 @@ bool try_fused_topk_pk8_tile(IdxT* neighbors,
                              cuvs::distance::DistanceType metric,
                              cudaStream_t stream,
                              void* workspace);
+
+template <typename IdxT, typename DataT = float>
+bool try_fused_topk_pk16_tile(IdxT* neighbors,
+                              float* distances,
+                              const DataT* queries,
+                              const DataT* corpus,
+                              IdxT query_rows,
+                              IdxT corpus_rows,
+                              IdxT dimensions,
+                              IdxT logical_k,
+                              int num_splits,
+                              cuvs::distance::DistanceType metric,
+                              cudaStream_t stream,
+                              void* workspace);
 /** SM120 single-split PK8 output, no TopK scratch; all eight candidates are refined. */
 template <typename IdxT, typename DataT = float>
 bool try_fused_topk_pk8_single_tile(IdxT* neighbors,
@@ -349,6 +395,7 @@ bool try_fused_topk_pk8_single_tile(IdxT* neighbors,
 inline bool is_fused_topk_pk2_auto_dispatch_available() { return false; }
 inline bool is_fused_topk_pk4_auto_dispatch_available() { return false; }
 inline bool is_fused_topk_pk8_auto_dispatch_available() { return false; }
+inline bool is_fused_topk_pk16_auto_dispatch_available() { return false; }
 
 template <typename IdxT, typename DataT = float>
 bool try_fused_topk_pk2_tile(IdxT*,
@@ -395,6 +442,23 @@ bool try_fused_topk_pk8_tile(IdxT*,
                              cuvs::distance::DistanceType,
                              cudaStream_t,
                              void*)
+{
+  return false;
+}
+
+template <typename IdxT, typename DataT = float>
+bool try_fused_topk_pk16_tile(IdxT*,
+                              float*,
+                              const DataT*,
+                              const DataT*,
+                              IdxT,
+                              IdxT,
+                              IdxT,
+                              IdxT,
+                              int,
+                              cuvs::distance::DistanceType,
+                              cudaStream_t,
+                              void*)
 {
   return false;
 }

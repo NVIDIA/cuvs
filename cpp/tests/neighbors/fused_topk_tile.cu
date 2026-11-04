@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/neighbors/detail/cutile_topk/fused_topk_merge.cuh"
 #include "../../src/neighbors/detail/cutile_topk/fused_topk_pack.cuh"
 #include "../../src/neighbors/detail/cutile_topk/fused_topk_tile.hpp"
 #include "fused_topk_merge_test.cuh"
@@ -34,6 +35,182 @@
 
 namespace cuvs::neighbors::detail {
 namespace {
+
+template <int PK, typename IdxT>
+void check_sorted_split_merge()
+{
+  constexpr int rows  = 7;
+  constexpr float inf = std::numeric_limits<float>::infinity();
+  raft::resources resources;
+  const auto stream = raft::resource::get_cuda_stream(resources);
+  // Unique IDs across all splits are guaranteed by the actual producer.
+  for (int splits : {2, 3, 31, 32, 33, 63, 64, 65, 95, 96, 97, 127, 128}) {
+    for (bool inner : {false, true}) {
+      for (int k = PK == 2 ? 2 : PK / 2 + 1; k <= PK; ++k) {
+        SCOPED_TRACE(::testing::Message()
+                     << "PK=" << PK << " K=" << k << " splits=" << splits << " inner=" << inner);
+        const int width = splits * PK;
+        std::vector<int> ids(rows * width, -1);
+        std::vector<float> values(rows * width, inf);
+        std::vector<IdxT> expected_ids(rows * k, -1);
+        std::vector<float> expected_values(rows * k, inf);
+        auto less = [inner](const auto& a, const auto& b) {
+          const float x = inner ? -a.second : a.second;
+          const float y = inner ? -b.second : b.second;
+          return x < y || (x == y && a.first < b.first);
+        };
+        for (int row = 0; row < rows; ++row) {
+          std::vector<std::pair<int, float>> all;
+          for (int split = 0; split < splits; ++split) {
+            std::vector<std::pair<int, float>> list;
+            for (int slot = 0; slot < PK; ++slot) {
+              const int id = split * PK + slot;
+              // All-invalid row, exhausted prefixes, equal scores, signed zeros,
+              // valid infinities, and winners in all four lane-owned split lists.
+              if (row == 0 || (row == 1 && slot > 0) || (row == 2 && split % 3 != 0)) continue;
+              float value = static_cast<float>((id * 17 + row * 3) % 23 - 11);
+              if (row == 3) value = id % 2 ? -0.0f : 0.0f;
+              if (row == 4) value = inner ? -inf : inf;
+              if (row == 5) value = static_cast<float>(-split * PK - slot);
+              list.emplace_back(id, value);
+            }
+            std::sort(list.begin(), list.end(), less);
+            for (size_t p = 0; p < list.size(); ++p) {
+              ids[row * width + split * PK + p]    = list[p].first;
+              values[row * width + split * PK + p] = list[p].second;
+            }
+            all.insert(all.end(), list.begin(), list.end());
+          }
+          std::sort(all.begin(), all.end(), less);
+          for (int out = 0; out < k && out < static_cast<int>(all.size()); ++out) {
+            expected_ids[row * k + out]    = all[out].first;
+            expected_values[row * k + out] = all[out].second;
+          }
+        }
+        rmm::device_uvector<int> ids_d(ids.size(), stream);
+        rmm::device_uvector<float> values_d(values.size(), stream);
+        rmm::device_uvector<IdxT> out_d(rows * k, stream);
+        rmm::device_uvector<float> distances_d(rows * k, stream);
+        raft::copy(ids_d.data(), ids.data(), ids.size(), stream);
+        raft::copy(values_d.data(), values.data(), values.size(), stream);
+        // Three blocks for seven rows deliberately exercise the grid-stride loop.
+        merge_fused_topk_sorted_splits<PK><<<3, 32, 0, stream.get()>>>(
+          out_d.data(), distances_d.data(), ids_d.data(), values_d.data(), rows, k, splits, inner);
+        RAFT_CUDA_TRY(cudaGetLastError());
+        std::vector<IdxT> actual_ids(rows * k);
+        std::vector<float> actual_values(rows * k);
+        raft::copy(actual_ids.data(), out_d.data(), actual_ids.size(), stream);
+        raft::copy(actual_values.data(), distances_d.data(), actual_values.size(), stream);
+        raft::resource::sync_stream(resources);
+        EXPECT_EQ(actual_ids, expected_ids);
+        EXPECT_EQ(
+          std::memcmp(
+            actual_values.data(), expected_values.data(), actual_values.size() * sizeof(float)),
+          0);
+      }
+    }
+  }
+}
+
+TEST(FusedTopkPk16WarpMergeTest, BothIndexWidthsPreserveBits)
+{
+  check_sorted_split_merge<16, int>();
+  check_sorted_split_merge<16, int64_t>();
+}
+
+template <int PK, typename IdxT, typename DataT>
+void check_split_fallbacks()
+{
+  constexpr int q = 3, n = 16512, d = 8;
+  raft::resources resources;
+  const auto stream = raft::resource::get_cuda_stream(resources);
+  std::vector<DataT> host(n * d, DataT(1.0f));
+  rmm::device_uvector<DataT> data(host.size(), stream);
+  raft::copy(data.data(), host.data(), host.size(), stream);
+  for (int splits : {1, 129}) {
+    for (int k : {PK == 2 ? 2 : PK - 1, PK}) {
+      rmm::device_uvector<IdxT> ids(q * k, stream);
+      rmm::device_uvector<float> values(q * k, stream);
+      rmm::device_uvector<uint8_t> scratch(fused_topk_workspace_bytes<PK, IdxT>(q, splits, k),
+                                           stream);
+      const auto metric = cuvs::distance::DistanceType::L2Expanded;
+      bool launched;
+      if constexpr (PK == 2) {
+        launched = try_fused_topk_pk2_tile<IdxT, DataT>(ids.data(),
+                                                        values.data(),
+                                                        data.data(),
+                                                        data.data(),
+                                                        q,
+                                                        n,
+                                                        d,
+                                                        splits,
+                                                        metric,
+                                                        stream.get(),
+                                                        scratch.data());
+      } else if constexpr (PK == 4) {
+        launched = try_fused_topk_pk4_tile<IdxT, DataT>(ids.data(),
+                                                        values.data(),
+                                                        data.data(),
+                                                        data.data(),
+                                                        q,
+                                                        n,
+                                                        d,
+                                                        k,
+                                                        splits,
+                                                        metric,
+                                                        stream.get(),
+                                                        scratch.data());
+      } else if constexpr (PK == 8) {
+        launched = try_fused_topk_pk8_tile<IdxT, DataT>(ids.data(),
+                                                        values.data(),
+                                                        data.data(),
+                                                        data.data(),
+                                                        q,
+                                                        n,
+                                                        d,
+                                                        k,
+                                                        splits,
+                                                        metric,
+                                                        stream.get(),
+                                                        scratch.data());
+      } else {
+        launched = try_fused_topk_pk16_tile<IdxT, DataT>(ids.data(),
+                                                         values.data(),
+                                                         data.data(),
+                                                         data.data(),
+                                                         q,
+                                                         n,
+                                                         d,
+                                                         k,
+                                                         splits,
+                                                         metric,
+                                                         stream.get(),
+                                                         scratch.data());
+      }
+      ASSERT_TRUE(launched);
+      std::vector<IdxT> output(q * k);
+      std::vector<float> distances(q * k);
+      raft::copy(output.data(), ids.data(), output.size(), stream);
+      raft::copy(distances.data(), values.data(), distances.size(), stream);
+      raft::resource::sync_stream(resources);
+      for (int row = 0; row < q; ++row) {
+        for (int col = 0; col < k; ++col) {
+          EXPECT_EQ(output[row * k + col], col);
+          EXPECT_EQ(distances[row * k + col], 0.0f);
+        }
+      }
+    }
+  }
+}
+
+TEST(FusedTopkPk16WarpMergeTest, ActualProducerSplitOneAnd129Fallbacks)
+{
+  if (!is_fused_topk_pk16_auto_dispatch_available()) {
+    GTEST_SKIP() << "typed PK16 exports require an enabled SM120 cuTile backend";
+  }
+  check_split_fallbacks<16, int, half>();
+  check_split_fallbacks<16, int64_t, float>();
+}
 
 bool fp32_topk_test_available()
 {
@@ -1283,7 +1460,7 @@ TopkOutput check_typed_topk(const std::vector<float>& query_values,
                                            metric,
                                            stream.get(),
                                            wd.data() + 16);
-    } else {
+    } else if constexpr (PhysicalK == 8) {
       return try_fused_topk_pk8_tile<IdxT>(idd.data() + index_guard,
                                            vd.data() + value_guard,
                                            qd.data() + input_guard,
@@ -1296,6 +1473,19 @@ TopkOutput check_typed_topk(const std::vector<float>& query_values,
                                            metric,
                                            stream.get(),
                                            wd.data() + 16);
+    } else {
+      return try_fused_topk_pk16_tile<IdxT>(idd.data() + index_guard,
+                                            vd.data() + value_guard,
+                                            qd.data() + input_guard,
+                                            xd.data() + input_guard,
+                                            static_cast<IdxT>(rows),
+                                            static_cast<IdxT>(count),
+                                            static_cast<IdxT>(dimensions),
+                                            static_cast<IdxT>(logical_k),
+                                            splits,
+                                            metric,
+                                            stream.get(),
+                                            wd.data() + 16);
     }
   };
   EXPECT_TRUE(launch());  // Required on the managed SM120 gate, never silently skipped.
@@ -1527,6 +1717,41 @@ void check_pk8_largebatch_prefixes()
   }
 }
 
+template <typename DataT>
+void check_witness_late_winners(int n, int d, int splits, int metric_code)
+{
+  constexpr int rows = 35;
+  const auto metric  = static_cast<cuvs::distance::DistanceType>(metric_code);
+  std::vector<float> q(rows * d, 0.0f), x(static_cast<size_t>(n) * d, 0.0f);
+  for (int row = 0; row < rows; ++row) {
+    if (metric_code == 2 || metric_code == 6) { q[row * d] = 1.0f; }
+  }
+  for (int row = 0; row < n; ++row) {
+    x[static_cast<size_t>(row) * d] = metric_code == 2 || metric_code == 6 ? -1.0f : 100.0f;
+  }
+  for (int row = 0; row < 16; ++row) {
+    x[row * d] = metric_code == 2 || metric_code == 6 ? 1.0f : 0.5f;
+    if (metric_code == 2) { x[row * d + 1] = 1.0f; }
+    x[static_cast<size_t>(n - 16 + row) * d] = metric_code == 6   ? 2.0f
+                                               : metric_code == 2 ? 1.0f
+                                                                  : 0.125f;
+  }
+  const auto full = check_typed_topk<16, DataT, int64_t>(q, x, d, metric, splits, 16, true);
+  for (int k : {9, 10, 11, 12, 13, 14, 15, 16}) {
+    const auto wide   = check_typed_topk<16, DataT, int64_t>(q, x, d, metric, splits, k, true);
+    const auto narrow = check_typed_topk<16, DataT, int>(q, x, d, metric, splits, k, true);
+    EXPECT_EQ(wide.indices, narrow.indices);
+    EXPECT_EQ(wide.distances, narrow.distances);
+    for (int row = 0; row < rows; ++row) {
+      for (int col = 0; col < k; ++col) {
+        EXPECT_EQ(wide.indices[row * k + col], n - 16 + col);
+        EXPECT_EQ(wide.indices[row * k + col], full.indices[row * 16 + col]);
+        EXPECT_EQ(wide.distances[row * k + col], full.distances[row * 16 + col]);
+      }
+    }
+  }
+}
+
 TEST(FusedTopkPk8LargebatchTest, FloatPrefixesBothTilesGuardsAndIndexWidths)
 {
   if (!is_fused_topk_pk8_auto_dispatch_available()) { GTEST_SKIP() << "Requires SM120"; }
@@ -1537,6 +1762,72 @@ TEST(FusedTopkPk8LargebatchTest, HalfPrefixesBothTilesGuardsAndIndexWidths)
 {
   if (!is_fused_topk_pk8_auto_dispatch_available()) { GTEST_SKIP() << "Requires SM120"; }
   check_pk8_largebatch_prefixes<half>();
+}
+
+class FusedTopkPk16WitnessTest
+  : public ::testing::TestWithParam<std::tuple<int, bool, bool, bool>> {};
+
+TEST_P(FusedTopkPk16WitnessTest, LateWinnersAllMetricsPrefixesAndIndexWidths)
+{
+  if (!is_fused_topk_pk16_auto_dispatch_available()) { GTEST_SKIP() << "Requires SM120"; }
+  const auto [metric, use_half, odd, split] = GetParam();
+  const int n                               = split ? 131073 : 65537;
+  if (use_half) {
+    check_witness_late_winners<half>(n, odd ? 33 : 32, split ? 2 : 1, metric);
+  } else {
+    check_witness_late_winners<float>(n, odd ? 33 : 32, split ? 2 : 1, metric);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Longscan,
+                         FusedTopkPk16WitnessTest,
+                         ::testing::Combine(::testing::Values(0, 1, 2, 6),
+                                            ::testing::Bool(),
+                                            ::testing::Bool(),
+                                            ::testing::Bool()));
+
+class FusedTopkPk16WitnessBoundaryTest
+  : public ::testing::TestWithParam<std::tuple<int, bool, bool>> {};
+
+TEST_P(FusedTopkPk16WitnessBoundaryTest, BothSidesOfImageTransition)
+{
+  if (!is_fused_topk_pk16_auto_dispatch_available()) { GTEST_SKIP() << "Requires SM120"; }
+  const auto [n, use_half, odd] = GetParam();
+  if (use_half) {
+    check_witness_late_winners<half>(n, odd ? 33 : 32, 1, 0);
+  } else {
+    check_witness_late_winners<float>(n, odd ? 33 : 32, 1, 0);
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(Longscan,
+                         FusedTopkPk16WitnessBoundaryTest,
+                         ::testing::Combine(::testing::Values(65408, 65409, 65536, 65537),
+                                            ::testing::Bool(),
+                                            ::testing::Bool()));
+
+TEST(FusedTopkPk16PolicyTest, WitnessUsesMinimumPartitionAndPreservesOtherRoutes)
+{
+  EXPECT_FALSE(fused_topk_pk16_use_witness<double>(100000, 1, 128, true));
+  EXPECT_FALSE(fused_topk_pk16_use_witness<half>(100000, 1, 128, false));
+  EXPECT_FALSE(fused_topk_pk16_use_witness<float>(100000, 1, 128, false));
+  for (int splits : {1, 2, 3, 7, 32, 128}) {
+    const int boundary = (512 * splits - 1) * 128;
+    EXPECT_FALSE(fused_topk_pk16_use_witness<half>(boundary, splits, 128, true));
+    EXPECT_FALSE(fused_topk_pk16_use_witness<float>(boundary, splits, 128, true));
+    EXPECT_TRUE(fused_topk_pk16_use_witness<half>(boundary + 1, splits, 128, true));
+    EXPECT_TRUE(fused_topk_pk16_use_witness<float>(boundary + 1, splits, 128, true));
+  }
+  EXPECT_FALSE(fused_topk_pk16_use_witness<half>(100000, 32, 128, true));
+  EXPECT_FALSE(fused_topk_pk16_use_witness<float>(100000, 32, 128, true));
+  EXPECT_TRUE(fused_topk_pk16_use_witness<half>(100000, 1, 128, true));
+  EXPECT_TRUE(fused_topk_pk16_use_witness<float>(100000, 1, 128, true));
+  EXPECT_FALSE(fused_topk_pk16_use_witness<half>(100000, 1, 256, true));
+  EXPECT_FALSE(fused_topk_pk16_use_witness<float>(100000, 1, 256, true));
+  EXPECT_FALSE(fused_topk_pk16_use_witness<half>(100000, 0, 128, true));
+  EXPECT_FALSE(fused_topk_pk16_use_witness<float>(100000, 0, 128, true));
+  EXPECT_TRUE(fused_topk_pk16_use_witness<half>(std::numeric_limits<int>::max(), 1, 128, true));
+  EXPECT_TRUE(fused_topk_pk16_use_witness<float>(std::numeric_limits<int>::max(), 1, 128, true));
 }
 
 template <typename DataT, typename IdxT>
@@ -1633,19 +1924,23 @@ void check_public_typed_batch(int k,
   EXPECT_EQ(defaults.distances, disabled.distances);
   params.allow_approximate = true;
   const auto permitted     = run();
-  const bool available     = PhysicalK == 2   ? is_fused_topk_pk2_auto_dispatch_available()
-                             : PhysicalK == 4 ? is_fused_topk_pk4_auto_dispatch_available()
-                                              : is_fused_topk_pk8_auto_dispatch_available();
+  const bool available     = PhysicalK == 2 ? is_fused_topk_pk2_auto_dispatch_available()
+                             : PhysicalK == 4
+                               ? is_fused_topk_pk4_auto_dispatch_available()
+                               : (PhysicalK == 8 ? is_fused_topk_pk8_auto_dispatch_available()
+                                                 : is_fused_topk_pk16_auto_dispatch_available());
   const bool eligible =
-    PhysicalK == 2   ? is_fused_topk_pk2_candidate<DataT>(rows, n, d, k, metric, !independent)
-    : PhysicalK == 4 ? is_fused_topk_pk4_candidate<DataT>(rows, n, d, k, metric, !independent)
-                     : is_fused_topk_pk8_candidate<DataT>(rows, n, d, k, metric, !independent);
+    PhysicalK == 2 ? is_fused_topk_pk2_candidate<DataT>(rows, n, d, k, metric, !independent)
+    : PhysicalK == 4
+      ? is_fused_topk_pk4_candidate<DataT>(rows, n, d, k, metric, !independent)
+      : (PhysicalK == 8 ? is_fused_topk_pk8_candidate<DataT>(rows, n, d, k, metric, !independent)
+                        : is_fused_topk_pk16_candidate<DataT>(rows, n, d, k, metric, !independent));
   if (available && eligible) {
     int splits = fused_topk_public_num_splits(
       rows,
       n,
       raft::resource::get_device_properties(resources).multiProcessorCount,
-      PhysicalK <= 4 ? 64 : 32);
+      PhysicalK == 8 ? 32 : 64);
     const int padded = fused_topk_padded_dimensions<DataT>(d);
     if constexpr (PhysicalK == 8) {
       splits = fused_topk_pk8_public_num_splits<DataT>(
@@ -1687,25 +1982,32 @@ TEST_P(FusedTopkPk24PublicTest, PermissionTypedLargeBatchAndGraphContracts)
     } else {
       check_public_typed_batch<4, float>(k, metric, independent);
     }
-  } else {
+  } else if (k <= 8) {
     if (use_half) {
       check_public_typed_batch<8, half>(k, metric, independent);
     } else {
       check_public_typed_batch<8, float>(k, metric, independent);
     }
+  } else {
+    if (use_half) {
+      check_public_typed_batch<16, half>(k, metric, independent);
+    } else {
+      check_public_typed_batch<16, float>(k, metric, independent);
+    }
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(PublicQualified,
-                         FusedTopkPk24PublicTest,
-                         ::testing::Combine(::testing::Values(2, 3, 4, 5, 6, 7, 8),
-                                            ::testing::Values(0, 1, 2, 6),
-                                            ::testing::Bool(),
-                                            ::testing::Bool()));
+INSTANTIATE_TEST_SUITE_P(
+  PublicQualified,
+  FusedTopkPk24PublicTest,
+  ::testing::Combine(::testing::Values(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+                     ::testing::Values(0, 1, 2, 6),
+                     ::testing::Bool(),
+                     ::testing::Bool()));
 
 TEST(FusedTopkPk24PublicTest, UnequalRowsAndUnlistedFeatureWidths)
 {
-  for (int k : {2, 3, 4, 5, 6, 7, 8}) {
+  for (int k : {2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}) {
     for (int metric : {0, 1, 2, 6}) {
       for (int d : {16, 33, 129}) {
         if (k == 2) {
@@ -1714,9 +2016,12 @@ TEST(FusedTopkPk24PublicTest, UnequalRowsAndUnlistedFeatureWidths)
         } else if (k <= 4) {
           check_public_typed_batch<4, float>(k, metric, true, d, 129, 263);
           check_public_typed_batch<4, half>(k, metric, true, d, 129, 263);
-        } else {
+        } else if (k <= 8) {
           check_public_typed_batch<8, float>(k, metric, true, d, 129, 263);
           check_public_typed_batch<8, half>(k, metric, true, d, 129, 263);
+        } else {
+          check_public_typed_batch<16, float>(k, metric, true, d, 129, 263);
+          check_public_typed_batch<16, half>(k, metric, true, d, 129, 263);
         }
       }
     }
@@ -1883,21 +2188,28 @@ TEST_P(FusedTopkPk24IndependentTest, NondefaultStreamTypedSplitAndTailContracts)
     } else {
       check_independent_batch<4, float>(k, dimensions, metric);
     }
-  } else {
+  } else if (k <= 8) {
     if (use_half) {
       check_independent_batch<8, half>(k, dimensions, metric);
     } else {
       check_independent_batch<8, float>(k, dimensions, metric);
     }
+  } else {
+    if (use_half) {
+      check_independent_batch<16, half>(k, dimensions, metric);
+    } else {
+      check_independent_batch<16, float>(k, dimensions, metric);
+    }
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(IndependentQueries,
-                         FusedTopkPk24IndependentTest,
-                         ::testing::Combine(::testing::Values(2, 3, 4, 5, 6, 7, 8),
-                                            ::testing::Values(32, 33),
-                                            ::testing::Values(0, 1, 2, 6),
-                                            ::testing::Bool()));
+INSTANTIATE_TEST_SUITE_P(
+  IndependentQueries,
+  FusedTopkPk24IndependentTest,
+  ::testing::Combine(::testing::Values(2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16),
+                     ::testing::Values(32, 33),
+                     ::testing::Values(0, 1, 2, 6),
+                     ::testing::Bool()));
 
 TEST_P(FusedTopkPk2HalfTest, StoredHalfRefinementGuardsAndBothIndexWidths)
 {
@@ -3133,6 +3445,737 @@ TEST(FusedTopkPk8StagePolicyTest, WideSplitOnlyPreservesLongscanAndDirectOutput)
 
 #include "fused_topk_pack_test.cuh"
 #include "fused_topk_wide_stage.cuh"
+
+using Pk16Case = Pk4Case;
+
+class FusedTopkPk16Test : public ::testing::TestWithParam<Pk16Case> {
+ protected:
+  void SetUp() override
+  {
+    if (!fp32_topk_test_available()) { GTEST_SKIP() << "enabled FP32 cuTile backend required"; }
+  }
+};
+
+TEST_P(FusedTopkPk16Test, RefinesAndCompactsAcrossTileAndSplitBoundaries)
+{
+  constexpr int query_rows                               = 129;
+  constexpr int corpus_rows                              = 259;
+  const auto [logical_k, dimensions, metric, num_splits] = GetParam();
+
+  std::vector<float> queries(static_cast<size_t>(query_rows) * dimensions);
+  std::vector<float> corpus(static_cast<size_t>(corpus_rows) * dimensions);
+  for (int row = 0; row < query_rows; ++row) {
+    for (int col = 0; col < dimensions; ++col) {
+      queries[static_cast<size_t>(row) * dimensions + col] =
+        std::sin(0.071f * static_cast<float>((row + 2) * (col + 3))) + 0.013f * row;
+    }
+  }
+  for (int row = 0; row < corpus_rows; ++row) {
+    for (int col = 0; col < dimensions; ++col) {
+      corpus[static_cast<size_t>(row) * dimensions + col] =
+        std::cos(0.053f * static_cast<float>((row + 1) * (col + 5))) + 0.009f * row;
+    }
+  }
+
+  raft::resources resources;
+  const auto stream = raft::resource::get_cuda_stream(resources);
+  rmm::device_uvector<float> queries_d(queries.size(), stream);
+  rmm::device_uvector<float> corpus_d(corpus.size(), stream);
+  constexpr size_t padding  = 4;
+  const size_t output_count = static_cast<size_t>(query_rows) * logical_k;
+  rmm::device_uvector<int64_t> indices_d(output_count + 2 * padding, stream);
+  rmm::device_uvector<float> distances_d(output_count + 2 * padding, stream);
+  rmm::device_uvector<uint8_t> workspace_d(
+    fused_topk_pk16_workspace_bytes<int64_t>(query_rows, num_splits, logical_k), stream);
+  raft::copy(queries_d.data(), queries.data(), queries.size(), stream);
+  raft::copy(corpus_d.data(), corpus.data(), corpus.size(), stream);
+  RAFT_CUDA_TRY(
+    cudaMemsetAsync(indices_d.data(), 0x5a, indices_d.size() * sizeof(int64_t), stream.get()));
+  RAFT_CUDA_TRY(
+    cudaMemsetAsync(distances_d.data(), 0x5a, distances_d.size() * sizeof(float), stream.get()));
+
+  const bool launched = try_fused_topk_pk16_tile<int64_t>(indices_d.data() + padding,
+                                                          distances_d.data() + padding,
+                                                          queries_d.data(),
+                                                          corpus_d.data(),
+                                                          int64_t{query_rows},
+                                                          int64_t{corpus_rows},
+                                                          static_cast<int64_t>(dimensions),
+                                                          static_cast<int64_t>(logical_k),
+                                                          num_splits,
+                                                          metric,
+                                                          stream.get(),
+                                                          workspace_d.data());
+  ASSERT_TRUE(launched);
+
+  std::vector<int64_t> actual_indices(output_count + 2 * padding);
+  std::vector<float> actual_distances(output_count + 2 * padding);
+  raft::copy(actual_indices.data(), indices_d.data(), actual_indices.size(), stream);
+  raft::copy(actual_distances.data(), distances_d.data(), actual_distances.size(), stream);
+  raft::resource::sync_stream(resources);
+
+  constexpr int64_t index_guard = 0x5a5a5a5a5a5a5a5aLL;
+  uint32_t distance_guard_bits  = 0x5a5a5a5a;
+  float distance_guard;
+  std::memcpy(&distance_guard, &distance_guard_bits, sizeof(float));
+  for (size_t guard = 0; guard < padding; ++guard) {
+    EXPECT_EQ(actual_indices[guard], index_guard);
+    EXPECT_EQ(actual_indices[padding + output_count + guard], index_guard);
+    EXPECT_FLOAT_EQ(actual_distances[guard], distance_guard);
+    EXPECT_FLOAT_EQ(actual_distances[padding + output_count + guard], distance_guard);
+  }
+  for (int query = 0; query < query_rows; ++query) {
+    const size_t row_offset = padding + static_cast<size_t>(query) * logical_k;
+    for (int col = 0; col < logical_k; ++col) {
+      const auto corpus_row = actual_indices[row_offset + col];
+      ASSERT_GE(corpus_row, 0);
+      ASSERT_LT(corpus_row, corpus_rows);
+      const float expected =
+        reference_value(queries.data() + static_cast<size_t>(query) * dimensions,
+                        corpus.data() + static_cast<size_t>(corpus_row) * dimensions,
+                        dimensions,
+                        metric);
+      EXPECT_NEAR(actual_distances[row_offset + col], expected, 2.0e-3f)
+        << "query " << query << ", column " << col;
+      if (col > 0) {
+        for (int previous = 0; previous < col; ++previous) {
+          EXPECT_NE(actual_indices[row_offset + previous], corpus_row);
+        }
+        const auto left  = std::pair{rank_value(actual_distances[row_offset + col - 1], metric),
+                                    actual_indices[row_offset + col - 1]};
+        const auto right = std::pair{rank_value(actual_distances[row_offset + col], metric),
+                                     actual_indices[row_offset + col]};
+        EXPECT_LE(left, right) << "query " << query << ", column " << col;
+      }
+    }
+  }
+}
+
+template <typename IdxT>
+void check_pk16_fixture(const std::vector<float>& queries,
+                        const std::vector<float>& corpus,
+                        int dimensions,
+                        int logical_k,
+                        int splits,
+                        cuvs::distance::DistanceType metric,
+                        const std::vector<int64_t>& expected_indices,
+                        const std::vector<float>& expected_distances)
+{
+  const IdxT query_rows          = queries.size() / dimensions;
+  const IdxT corpus_rows         = corpus.size() / dimensions;
+  constexpr size_t padding       = 4;
+  constexpr IdxT index_guard     = -12345;
+  constexpr float distance_guard = -12345.0f;
+  const size_t count             = static_cast<size_t>(query_rows) * logical_k;
+  raft::resources resources;
+  const auto stream = raft::resource::get_cuda_stream(resources);
+  rmm::device_uvector<float> q(queries.size(), stream), x(corpus.size(), stream);
+  rmm::device_uvector<IdxT> i(count + 2 * padding, stream);
+  rmm::device_uvector<float> d(count + 2 * padding, stream);
+  rmm::device_uvector<uint8_t> workspace(
+    fused_topk_pk16_workspace_bytes<IdxT>(query_rows, splits, logical_k), stream);
+  std::vector<IdxT> indices(i.size(), index_guard);
+  std::vector<float> distances(d.size(), distance_guard);
+  raft::copy(q.data(), queries.data(), queries.size(), stream);
+  raft::copy(x.data(), corpus.data(), corpus.size(), stream);
+  raft::copy(i.data(), indices.data(), indices.size(), stream);
+  raft::copy(d.data(), distances.data(), distances.size(), stream);
+  ASSERT_TRUE(try_fused_topk_pk16_tile<IdxT>(i.data() + padding,
+                                             d.data() + padding,
+                                             q.data(),
+                                             x.data(),
+                                             query_rows,
+                                             corpus_rows,
+                                             static_cast<IdxT>(dimensions),
+                                             static_cast<IdxT>(logical_k),
+                                             splits,
+                                             metric,
+                                             stream.get(),
+                                             workspace.data()));
+  raft::copy(indices.data(), i.data(), indices.size(), stream);
+  raft::copy(distances.data(), d.data(), distances.size(), stream);
+  raft::resource::sync_stream(resources);
+  for (size_t guard = 0; guard < padding; ++guard) {
+    EXPECT_EQ(indices[guard], index_guard);
+    EXPECT_EQ(indices[padding + count + guard], index_guard);
+    EXPECT_FLOAT_EQ(distances[guard], distance_guard);
+    EXPECT_FLOAT_EQ(distances[padding + count + guard], distance_guard);
+  }
+  for (IdxT row = 0; row < query_rows; ++row) {
+    for (int col = 0; col < logical_k; ++col) {
+      const auto offset = padding + static_cast<size_t>(row) * logical_k + col;
+      EXPECT_EQ(indices[offset], expected_indices[col]);
+      if (std::isinf(expected_distances[col])) {
+        EXPECT_TRUE(std::isinf(distances[offset]) && distances[offset] > 0.0f);
+      } else {
+        EXPECT_FLOAT_EQ(distances[offset], expected_distances[col]);
+      }
+    }
+  }
+}
+
+void check_pk16_widths(const std::vector<float>& queries,
+                       const std::vector<float>& corpus,
+                       int dimensions,
+                       int splits,
+                       cuvs::distance::DistanceType metric,
+                       const std::vector<int64_t>& expected,
+                       const std::vector<float>& values)
+{
+  for (int k : {9, 10, 11, 12, 13, 14, 15, 16}) {
+    SCOPED_TRACE(::testing::Message() << "K=" << k << ", splits=" << splits);
+    check_pk16_fixture<int>(queries, corpus, dimensions, k, splits, metric, expected, values);
+    check_pk16_fixture<int64_t>(queries, corpus, dimensions, k, splits, metric, expected, values);
+  }
+}
+
+TEST_F(FusedTopkPk16Test, UsesIndexTieBreakAtSixteenthSeventeenthSplitBoundary)
+{
+  constexpr int dimensions = 7;
+  std::vector<float> queries(3 * dimensions, 0.0f), corpus(275 * dimensions, 4.0f);
+  std::vector<int64_t> expected;
+  for (int row = 0; row < 8; ++row) {
+    std::fill_n(corpus.begin() + row * dimensions, dimensions, 1.0f);
+    expected.push_back(row);
+  }
+  // Last nine ties are in the second runtime split (tiles 2+1).
+  for (int row = 256; row <= 264; ++row) {
+    std::fill_n(corpus.begin() + row * dimensions, dimensions, 1.0f);
+    if (row < 264) { expected.push_back(row); }
+  }
+  for (int splits : {1, 2}) {
+    check_pk16_widths(queries,
+                      corpus,
+                      dimensions,
+                      splits,
+                      cuvs::distance::DistanceType::L2Expanded,
+                      expected,
+                      std::vector<float>(16, 7.0f));
+  }
+}
+
+TEST_F(FusedTopkPk16Test, MaxTreeEvictsWorstAcrossTilesAndSplits)
+{
+  constexpr int dimensions = 7;
+  std::vector<float> queries(3 * dimensions, -0.0f), corpus(259 * dimensions, -0.0f);
+  for (int row = 0; row < 3; ++row) {
+    queries[row * dimensions] = 1.0f;
+  }
+  for (int row = 0; row < 259; ++row) {
+    corpus[row * dimensions] = -16.0f;
+  }
+  for (int row = 0; row < 16; ++row) {
+    corpus[row * dimensions] = -8.0f;
+  }
+  corpus[128 * dimensions] = -2.0f;
+  corpus[256 * dimensions] = -1.0f;
+  corpus[257 * dimensions] = -8.0f;
+  std::vector<int64_t> expected{256, 128};
+  for (int row = 0; row < 14; ++row) {
+    expected.push_back(row);
+  }
+  std::vector<float> values(16, -8.0f);
+  values[0] = -1.0f;
+  values[1] = -2.0f;
+  for (int splits : {1, 2}) {
+    check_pk16_widths(queries,
+                      corpus,
+                      dimensions,
+                      splits,
+                      cuvs::distance::DistanceType::InnerProduct,
+                      expected,
+                      values);
+  }
+}
+
+TEST_F(FusedTopkPk16Test, RefinesAllSixteenBeforeLogicalCompaction)
+{
+  constexpr int dimensions = 7;
+  std::vector<float> queries(dimensions, 0.0f), corpus(16 * dimensions, 0.0f);
+  for (int row = 0; row < 16; ++row) {
+    corpus[row * dimensions] = 1.0f + (15 - row) * 0.00002f;
+  }
+  std::vector<int64_t> expected;
+  std::vector<float> values;
+  for (int row = 15; row >= 0; --row) {
+    expected.push_back(row);
+    values.push_back(corpus[row * dimensions] * corpus[row * dimensions]);
+  }
+  check_pk16_widths(
+    queries, corpus, dimensions, 1, cuvs::distance::DistanceType::L2Expanded, expected, values);
+}
+
+TEST_F(FusedTopkPk16Test, EuclideanFinalValueTiesAtLogicalCutoff)
+{
+  constexpr int dimensions = 2;
+  std::vector<float> queries(dimensions, 0.0f), corpus(259 * dimensions, 16.0f);
+  std::vector<int64_t> expected;
+  std::vector<float> values;
+  for (int row = 0; row < 8; ++row) {
+    corpus[row * dimensions]     = (row + 1) / 16.0f;
+    corpus[row * dimensions + 1] = 0.0f;
+    expected.push_back(row);
+    values.push_back(corpus[row * dimensions]);
+  }
+  corpus[8 * dimensions]       = 1.0f;
+  corpus[8 * dimensions + 1]   = std::sqrt(std::ldexp(1.0f, -23));
+  corpus[256 * dimensions]     = 1.0f;
+  corpus[256 * dimensions + 1] = 0.0f;
+  expected.insert(expected.end(), {8, 256});
+  values.insert(values.end(), {1.0f, 1.0f});
+  for (int row = 9; row <= 14; ++row) {
+    corpus[row * dimensions]     = row - 7;
+    corpus[row * dimensions + 1] = 0.0f;
+    expected.push_back(row);
+    values.push_back(corpus[row * dimensions]);
+  }
+  ASSERT_EQ(std::sqrt(1.0f + corpus[17] * corpus[17]), 1.0f);
+  for (int splits : {1, 2}) {
+    check_pk16_widths(queries,
+                      corpus,
+                      dimensions,
+                      splits,
+                      cuvs::distance::DistanceType::L2SqrtExpanded,
+                      expected,
+                      values);
+  }
+}
+
+TEST_F(FusedTopkPk16Test, EmitsInvalidSlotsWhenCorpusIsSmallerThanLogicalK)
+{
+  constexpr int dimensions = 7;
+  std::vector<float> queries(dimensions, 0.0f), corpus(2 * dimensions, 1.0f);
+  std::fill_n(corpus.begin(), dimensions, 0.0f);
+  std::vector<int64_t> expected(16, -1);
+  std::vector<float> values(16, std::numeric_limits<float>::infinity());
+  expected[0] = 0;
+  expected[1] = 1;
+  values[0]   = 0.0f;
+  values[1]   = 7.0f;
+  check_pk16_widths(
+    queries, corpus, dimensions, 1, cuvs::distance::DistanceType::L2Expanded, expected, values);
+}
+
+TEST_F(FusedTopkPk16Test, RetainsFiniteScoresAboveFormerSentinel)
+{
+  constexpr int dimensions = 7;
+  std::vector<float> queries(dimensions, 0.0f), corpus(3 * dimensions, 0.0f);
+  queries[0]         = std::ldexp(1.0f, 64);
+  corpus[0]          = -std::ldexp(2047.0f, 53);
+  corpus[dimensions] = -std::ldexp(2047.0f, 52);
+  const float worst  = queries[0] * corpus[0];
+  ASSERT_TRUE(std::isfinite(worst));
+  ASSERT_GT(-worst, 3.4e38f);
+  std::vector<int64_t> expected(16, -1);
+  std::vector<float> values(16, std::numeric_limits<float>::infinity());
+  expected[0] = 2;
+  expected[1] = 1;
+  expected[2] = 0;
+  values[0]   = 0.0f;
+  values[1]   = queries[0] * corpus[dimensions];
+  values[2]   = worst;
+  check_pk16_widths(
+    queries, corpus, dimensions, 1, cuvs::distance::DistanceType::InnerProduct, expected, values);
+}
+
+std::vector<float> pk16_near_tie_data(int64_t rows, int64_t dimensions)
+{
+  std::vector<float> host(rows * dimensions, 0.0f);
+  for (int64_t row = 1; row < rows; ++row) {
+    host[row * dimensions] = row <= 16 ? 1.0f + (16 - row) * 0.00002f : 4.0f;
+  }
+  return host;
+}
+
+TEST(FusedTopkPk16PublicTest, EveryLogicalWidthRequireExplicitApproximatePermission)
+{
+  constexpr int64_t rows = 8192, dimensions = 512;
+  raft::resources resources;
+  const auto stream = raft::resource::get_cuda_stream(resources);
+  const auto host   = pk16_near_tie_data(rows, dimensions);
+  auto data         = raft::make_device_matrix<float, int64_t>(resources, rows, dimensions);
+  raft::copy(data.data_handle(), host.data(), host.size(), stream);
+  auto view =
+    raft::make_device_matrix_view<const float, int64_t>(data.data_handle(), rows, dimensions);
+  cuvs::neighbors::brute_force::index_params build_params;
+  build_params.metric = cuvs::distance::DistanceType::L2Expanded;
+  auto index          = cuvs::neighbors::brute_force::build(resources, build_params, view);
+  for (int64_t k : {9, 10, 11, 12, 13, 14, 15, 16}) {
+    auto indices   = raft::make_device_matrix<int64_t, int64_t>(resources, rows, k);
+    auto distances = raft::make_device_matrix<float, int64_t>(resources, rows, k);
+    cuvs::neighbors::brute_force::search_params params;
+    ASSERT_FALSE(params.allow_approximate);
+    auto run = [&] {
+      cuvs::neighbors::brute_force::search(
+        resources, params, index, view, indices.view(), distances.view());
+      return copy_output(resources, indices.data_handle(), distances.data_handle(), rows * k);
+    };
+    const auto defaults      = run();
+    params.allow_approximate = false;
+    const auto disabled      = run();
+    EXPECT_EQ(defaults.indices, disabled.indices);
+    EXPECT_EQ(defaults.distances, disabled.distances);
+    cuvs::neighbors::brute_force::search(resources, index, view, indices.view(), distances.view());
+    const auto legacy =
+      copy_output(resources, indices.data_handle(), distances.data_handle(), rows * k);
+    EXPECT_EQ(defaults.indices, legacy.indices);
+    EXPECT_EQ(defaults.distances, legacy.distances);
+    for (int row = 0; row < 1; ++row) {
+      for (int col = 0; col < k; ++col) {
+        EXPECT_EQ(defaults.indices[row * k + col], (col == 0 ? 0 : 17 - col));
+      }
+    }
+    if (!is_fused_topk_pk16_auto_dispatch_available()) { continue; }
+    params.allow_approximate = true;
+    const auto approximate   = run();
+    for (int row = 0; row < 1; ++row) {
+      for (int col = 0; col < k; ++col) {
+        EXPECT_EQ(approximate.indices[row * k + col], (col == 0 ? 0 : 16 - col));
+        EXPECT_FLOAT_EQ(approximate.distances[row * k + col],
+                        host[(col == 0 ? 0 : 16 - col) * dimensions] *
+                          host[(col == 0 ? 0 : 16 - col) * dimensions]);
+      }
+    }
+    // Permission does not force routing. Confirm direct agreement on this
+    // untimed eligible anchor for both compaction and physical-width output.
+    rmm::device_uvector<uint8_t> workspace(fused_topk_pk16_workspace_bytes<int64_t>(rows, 1, k),
+                                           stream);
+    ASSERT_TRUE(try_fused_topk_pk16_tile<int64_t>(indices.data_handle(),
+                                                  distances.data_handle(),
+                                                  data.data_handle(),
+                                                  data.data_handle(),
+                                                  rows,
+                                                  rows,
+                                                  dimensions,
+                                                  k,
+                                                  1,
+                                                  build_params.metric,
+                                                  stream.get(),
+                                                  workspace.data()));
+    const auto direct =
+      copy_output(resources, indices.data_handle(), distances.data_handle(), rows * k);
+    EXPECT_EQ(approximate.indices, direct.indices);
+    EXPECT_EQ(approximate.distances, direct.distances);
+  }
+}
+
+TEST(FusedTopkPk16PublicTest, EveryLogicalWidthForwardAllNeighborsPermission)
+{
+  constexpr int64_t rows = 8192, dimensions = 512;
+  raft::resources resources;
+  const auto stream = raft::resource::get_cuda_stream(resources);
+  const auto host   = pk16_near_tie_data(rows, dimensions);
+  auto data         = raft::make_device_matrix<float, int64_t>(resources, rows, dimensions);
+  raft::copy(data.data_handle(), host.data(), host.size(), stream);
+  auto view =
+    raft::make_device_matrix_view<const float, int64_t>(data.data_handle(), rows, dimensions);
+  cuvs::neighbors::all_neighbors::all_neighbors_params params;
+  params.n_clusters = 1;
+  params.metric     = cuvs::distance::DistanceType::L2Expanded;
+  cuvs::neighbors::graph_build_params::brute_force_params brute_params;
+  brute_params.build_params.metric = params.metric;
+  for (int64_t k : {9, 10, 11, 12, 13, 14, 15, 16}) {
+    auto indices   = raft::make_device_matrix<int64_t, int64_t>(resources, rows, k);
+    auto distances = raft::make_device_matrix<float, int64_t>(resources, rows, k);
+    for (bool allow : {false, true}) {
+      brute_params.search_params.allow_approximate = allow;
+      params.graph_build_params                    = brute_params;
+      cuvs::neighbors::all_neighbors::build(
+        resources, params, view, indices.view(), distances.view());
+      const auto actual =
+        copy_output(resources, indices.data_handle(), distances.data_handle(), rows * k);
+      const bool fused = allow && is_fused_topk_pk16_auto_dispatch_available();
+      for (int row = 0; row < 1; ++row) {
+        for (int col = 0; col < k; ++col) {
+          const int expected = col == 0 ? 0 : (fused ? 16 : 17) - col;
+          EXPECT_EQ(actual.indices[row * k + col], expected);
+          EXPECT_FLOAT_EQ(actual.distances[row * k + col],
+                          host[expected * dimensions] * host[expected * dimensions]);
+        }
+      }
+    }
+  }
+}
+
+template <typename DataT, typename IdxT>
+TopkOutput check_typed_pk16(const std::vector<float>& q,
+                            const std::vector<float>& x,
+                            int d,
+                            cuvs::distance::DistanceType metric,
+                            int splits,
+                            int k)
+{
+  return check_typed_topk<16, DataT, IdxT>(q, x, d, metric, splits, k);
+}
+
+class FusedTopkPk16HalfTest : public ::testing::TestWithParam<TopkCase> {
+ protected:
+  void SetUp() override
+  {
+    if (!is_fused_topk_pk16_auto_dispatch_available()) {
+      GTEST_SKIP() << "typed FP16 exports require an enabled SM120 cuTile backend";
+    }
+  }
+};
+
+TEST_P(FusedTopkPk16HalfTest, StoredHalfRefinementGuardsAndBothIndexWidths)
+{
+  const auto [d, metric, unused] = GetParam();
+  std::vector<float> q(129 * d), x(259 * d);
+  for (size_t i = 0; i < q.size(); ++i) {
+    q[i] = std::sin(i * .071f) * 2;
+  }
+  for (size_t i = 0; i < x.size(); ++i) {
+    x[i] = std::cos(i * .053f) * 2;
+  }
+  for (int k : {9, 10, 11, 12, 13, 14, 15, 16}) {
+    for (int splits : {1, 2}) {
+      const auto a = check_typed_pk16<half, int>(q, x, d, metric, splits, k);
+      const auto b = check_typed_pk16<half, int64_t>(q, x, d, metric, splits, k);
+      EXPECT_EQ(a.indices, b.indices);
+      EXPECT_EQ(a.distances, b.distances);
+    }
+  }
+}
+
+TEST_F(FusedTopkPk16HalfTest, RefinesAllSixteenBeforeEveryLogicalPrefix)
+{
+  for (int d : {32, 33}) {
+    std::vector<float> q(3 * d, 0), x(259 * d, 0);
+    for (int row = 0; row < 3; ++row)
+      q[row * d] = 1024;
+    for (int row = 0; row < 16; ++row) {
+      x[row * d]     = 1024;
+      x[row * d + 1] = float(16 - row) / 64;
+    }
+    for (auto metric :
+         {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::L2SqrtExpanded})
+      for (int k : {9, 10, 11, 12, 13, 14, 15, 16})
+        for (int splits : {1, 2}) {
+          const auto a = check_typed_pk16<half, int>(q, x, d, metric, splits, k);
+          const auto b = check_typed_pk16<half, int64_t>(q, x, d, metric, splits, k);
+          EXPECT_EQ(a.indices, b.indices);
+          EXPECT_EQ(a.distances, b.distances);
+          for (int row = 0; row < 3; ++row)
+            for (int slot = 0; slot < k; ++slot) {
+              const float j = slot + 1;
+              EXPECT_EQ(a.indices[row * k + slot], 15 - slot);
+              EXPECT_EQ(a.distances[row * k + slot],
+                        metric == cuvs::distance::DistanceType::L2Expanded ? j * j / 4096 : j / 64);
+            }
+        }
+  }
+}
+
+TEST_F(FusedTopkPk16HalfTest, SixteenthSeventeenthTieAcrossSplits)
+{
+  for (int d : {32, 33}) {
+    std::vector<float> q(3 * d, 0), x(275 * d, 4);
+    std::vector<int64_t> ids;
+    for (int row = 0; row < 8; ++row) {
+      std::fill_n(x.begin() + row * d, d, 1);
+      ids.push_back(row);
+    }
+    for (int row = 256; row <= 264; ++row) {
+      std::fill_n(x.begin() + row * d, d, 1);
+      if (row < 264) ids.push_back(row);
+    }
+    for (int k : {9, 10, 11, 12, 13, 14, 15, 16})
+      for (int splits : {1, 2}) {
+        const auto a =
+          check_typed_pk16<half, int>(q, x, d, cuvs::distance::DistanceType::L2Expanded, splits, k);
+        const auto b = check_typed_pk16<half, int64_t>(
+          q, x, d, cuvs::distance::DistanceType::L2Expanded, splits, k);
+        EXPECT_EQ(a.indices, b.indices);
+        EXPECT_EQ(a.distances, b.distances);
+        for (int row = 0; row < 3; ++row)
+          for (int slot = 0; slot < k; ++slot) {
+            EXPECT_EQ(a.indices[row * k + slot], ids[slot]);
+            EXPECT_EQ(a.distances[row * k + slot], float(d));
+          }
+      }
+  }
+}
+
+TEST_F(FusedTopkPk16HalfTest, MaxTreeEvictsWorstAcrossTilesAndSplits)
+{
+  for (int d : {32, 33}) {
+    std::vector<float> q(3 * d, -0.0f), x(259 * d, -0.0f);
+    for (int row = 0; row < 3; ++row)
+      q[row * d] = 1;
+    for (int row = 0; row < 259; ++row)
+      x[row * d] = -16;
+    for (int row = 0; row < 16; ++row)
+      x[row * d] = -8;
+    x[128 * d] = -2;
+    x[256 * d] = -1;
+    x[257 * d] = -8;
+    std::vector<int64_t> ids{256, 128};
+    for (int row = 0; row < 14; ++row)
+      ids.push_back(row);
+    std::vector<float> values(16, -8);
+    values[0] = -1;
+    values[1] = -2;
+    for (int k : {9, 10, 11, 12, 13, 14, 15, 16})
+      for (int splits : {1, 2}) {
+        const auto a = check_typed_pk16<half, int>(
+          q, x, d, cuvs::distance::DistanceType::InnerProduct, splits, k);
+        const auto b = check_typed_pk16<half, int64_t>(
+          q, x, d, cuvs::distance::DistanceType::InnerProduct, splits, k);
+        EXPECT_EQ(a.indices, b.indices);
+        EXPECT_EQ(a.distances, b.distances);
+        for (int row = 0; row < 3; ++row)
+          for (int slot = 0; slot < k; ++slot) {
+            EXPECT_EQ(a.indices[row * k + slot], ids[slot]);
+            EXPECT_EQ(a.distances[row * k + slot], values[slot]);
+          }
+      }
+  }
+}
+
+TEST_F(FusedTopkPk16HalfTest, SqrtCutoffTieUsesFinalValueThenIndex)
+{
+  for (int d : {32, 33}) {
+    std::vector<float> q(d, 0), x(267 * d, 0);
+    for (int row = 0; row < 267; ++row) {
+      x[row * d]     = 16;
+      x[row * d + 1] = 16;
+    }
+    std::vector<int64_t> ids;
+    std::vector<float> values;
+    for (int row = 0; row < 8; ++row) {
+      x[row * d]     = float(row + 1) / 16;
+      x[row * d + 1] = 0;
+      ids.push_back(row);
+      values.push_back(float(row + 1) / 16);
+    }
+    x[8 * d]       = 1;
+    x[8 * d + 1]   = 3.0f / 8192;
+    x[256 * d]     = 1;
+    x[256 * d + 1] = 0;
+    ids.push_back(8);
+    ids.push_back(256);
+    values.push_back(1);
+    values.push_back(1);
+    for (int row = 257; row <= 262; ++row) {
+      x[row * d]     = float(row - 255);
+      x[row * d + 1] = 0;
+      ids.push_back(row);
+      values.push_back(float(row - 255));
+    }
+    for (int k : {9, 10, 11, 12, 13, 14, 15, 16})
+      for (int splits : {1, 2}) {
+        const auto a = check_typed_pk16<half, int>(
+          q, x, d, cuvs::distance::DistanceType::L2SqrtExpanded, splits, k);
+        const auto b = check_typed_pk16<half, int64_t>(
+          q, x, d, cuvs::distance::DistanceType::L2SqrtExpanded, splits, k);
+        EXPECT_EQ(a.indices, b.indices);
+        EXPECT_EQ(a.distances, b.distances);
+        for (int slot = 0; slot < k; ++slot) {
+          EXPECT_EQ(a.indices[slot], ids[slot]);
+          EXPECT_EQ(a.distances[slot], values[slot]);
+        }
+      }
+  }
+}
+
+TEST_F(FusedTopkPk16HalfTest, DtypeAndLayoutCacheTransitions)
+{
+  for (int d : {32, 33, 32})
+    for (int k : {9, 16, 11, 12, 13, 14, 10, 15, 9}) {
+      std::vector<float> q(3 * d, .5f), x(259 * d, .25f);
+      const auto a =
+        check_typed_pk16<float, int64_t>(q, x, d, cuvs::distance::DistanceType::InnerProduct, 2, k);
+      const auto b =
+        check_typed_pk16<half, int64_t>(q, x, d, cuvs::distance::DistanceType::InnerProduct, 2, k);
+      const auto c =
+        check_typed_pk16<float, int64_t>(q, x, d, cuvs::distance::DistanceType::InnerProduct, 2, k);
+      EXPECT_EQ(a.indices, b.indices);
+      EXPECT_EQ(a.distances, b.distances);
+      EXPECT_EQ(a.indices, c.indices);
+      EXPECT_EQ(a.distances, c.distances);
+    }
+}
+
+TEST_F(FusedTopkPk16HalfTest, WideSubnormalZeroAndShortCorpus)
+{
+  for (int d : {32, 33})
+    for (int k : {9, 10, 11, 12, 13, 14, 15, 16}) {
+      for (float magnitude : {1024.0f, std::ldexp(1.0f, -24), 0.0f}) {
+        std::vector<float> q(2 * d, 0), x(16 * d, 0);
+        q[0] = magnitude;
+        q[d] = -magnitude;
+        for (int row = 0; row < 16; ++row)
+          x[row * d] = (row % 2 ? -magnitude : magnitude);
+        for (auto metric : {cuvs::distance::DistanceType::L2Expanded,
+                            cuvs::distance::DistanceType::L2SqrtExpanded,
+                            cuvs::distance::DistanceType::CosineExpanded,
+                            cuvs::distance::DistanceType::InnerProduct}) {
+          const auto a = check_typed_pk16<half, int>(q, x, d, metric, 1, k);
+          const auto b = check_typed_pk16<half, int64_t>(q, x, d, metric, 1, k);
+          EXPECT_EQ(a.indices, b.indices);
+          EXPECT_EQ(a.distances, b.distances);
+        }
+      }
+      check_typed_pk16<half, int>(std::vector<float>(d, 1),
+                                  std::vector<float>(d, 1),
+                                  d,
+                                  cuvs::distance::DistanceType::L2Expanded,
+                                  1,
+                                  k);
+      check_typed_pk16<half, int64_t>(std::vector<float>(d, 1),
+                                      std::vector<float>(d, 1),
+                                      d,
+                                      cuvs::distance::DistanceType::L2Expanded,
+                                      1,
+                                      k);
+    }
+}
+
+INSTANTIATE_TEST_SUITE_P(
+  StoredHalf,
+  FusedTopkPk16HalfTest,
+  ::testing::Values(TopkCase{32, cuvs::distance::DistanceType::L2Expanded, 1},
+                    TopkCase{33, cuvs::distance::DistanceType::L2Expanded, 1},
+                    TopkCase{32, cuvs::distance::DistanceType::L2SqrtExpanded, 1},
+                    TopkCase{33, cuvs::distance::DistanceType::L2SqrtExpanded, 1},
+                    TopkCase{32, cuvs::distance::DistanceType::CosineExpanded, 1},
+                    TopkCase{33, cuvs::distance::DistanceType::CosineExpanded, 1},
+                    TopkCase{32, cuvs::distance::DistanceType::InnerProduct, 1},
+                    TopkCase{33, cuvs::distance::DistanceType::InnerProduct, 1}));
+
+INSTANTIATE_TEST_SUITE_P(
+  AlignedAndRelaxed,
+  FusedTopkPk16Test,
+  ::testing::Values(Pk16Case{9, 31, cuvs::distance::DistanceType::L2Expanded, 2},
+                    Pk16Case{10, 32, cuvs::distance::DistanceType::InnerProduct, 1},
+                    Pk16Case{11, 31, cuvs::distance::DistanceType::L2Expanded, 2},
+                    Pk16Case{12, 32, cuvs::distance::DistanceType::InnerProduct, 1},
+                    Pk16Case{13, 31, cuvs::distance::DistanceType::CosineExpanded, 2},
+                    Pk16Case{14, 32, cuvs::distance::DistanceType::L2SqrtExpanded, 1},
+                    Pk16Case{15, 31, cuvs::distance::DistanceType::CosineExpanded, 2},
+                    Pk16Case{16, 32, cuvs::distance::DistanceType::L2SqrtExpanded, 1}));
+
+TEST(FusedTopkPk16PolicyTest, CapabilityNotBenchmarkShapeTable)
+{
+  using DT = cuvs::distance::DistanceType;
+  for (int q : {1, 129, 8192})
+    for (int n : {1, 263, 16384})
+      for (int d : {7, 33, 513})
+        for (int k : {9, 10, 11, 12, 13, 14, 15, 16})
+          for (auto metric :
+               {DT::L2Expanded, DT::L2SqrtExpanded, DT::CosineExpanded, DT::InnerProduct}) {
+            EXPECT_TRUE(is_fused_topk_pk16_candidate<float>(q, n, d, k, metric, false));
+            EXPECT_TRUE(is_fused_topk_pk16_candidate<half>(q, n, d, k, metric, true));
+          }
+  for (int k : {8, 17})
+    EXPECT_FALSE(is_fused_topk_pk16_candidate(129, 263, 33, k, DT::L2Expanded, false));
+  EXPECT_FALSE(is_fused_topk_pk16_candidate(0, 263, 33, 9, DT::L2Expanded, false));
+  EXPECT_FALSE(is_fused_topk_pk16_candidate(129, 263, 33, 9, DT::L1, false));
+  EXPECT_EQ(fused_topk_pk16_workspace_bytes<int>(7, 1, 16), 0);
+  EXPECT_EQ(fused_topk_pk16_workspace_bytes<int64_t>(7, 1, 16), 448);
+  EXPECT_EQ(fused_topk_pk16_workspace_bytes<int>(7, 1, 9), 896);
+}
 
 }  // namespace
 }  // namespace cuvs::neighbors::detail
