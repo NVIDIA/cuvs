@@ -42,7 +42,7 @@ struct params {
    */
   float quantile = 0.99;
   /**
-   * Per-dimension training uses every row of a nonempty, finite device dataset.
+   * Per-dimension training uses every row of a nonempty, finite dataset.
    * It applies the quantile independently to each dimension to select lower and upper bounds.
    * Each dimension's shift is the midpoint of its bounds, rounded to the input type.
    * A shared scale fits every dimension's bounds around its stored shift into the symmetric
@@ -53,6 +53,18 @@ struct params {
    * returning the scale to the host.
    */
   range_mode range = range_mode::global;
+  /**
+   * Maximum rows staged on device for host per-dimension training and host dataset build.
+   * Default: 65536. Zero processes the entire host input in one batch. Ignored for device input.
+   * Multiple batches use two input buffers when res has an auxiliary stream pool, and one
+   * otherwise. Pageable input uses batch-sized pinned staging buffers, without registering
+   * the full input. Each input buffer uses at most device_buffer_samples * dim * sizeof(T)
+   * bytes, in addition to reduction and encoding workspace. Substitute n_rows when it is zero.
+   *
+   * Per-dimension host training with quantile < 1 selects exact quantiles using one column of
+   * host scratch (n_rows * sizeof(T) bytes). Global training retains its sampled quantiles.
+   */
+  int64_t device_buffer_samples = 1 << 16;
 };
 
 /** Read-only scalar quantizer parameters. The owner must outlive stream work using shifts. */
@@ -100,7 +112,6 @@ struct quantizer {
    * train measures every input row, including clipped outliers, and rounds the maximum up
    * with a relative 1e-6 margin. This bound applies only to the training data, not later queries.
    * It is infinity when constructed from parameters alone or when the error is not finite.
-   * Device training synchronizes before returning this host value.
    */
   scale_type max_error = INFINITY;
 

@@ -6,7 +6,9 @@
 #include "../test_utils.cuh"
 #include <cuvs/core/dataset/sq.hpp>
 #include <cuvs/preprocessing/quantize/scalar.hpp>
+#include <raft/core/pinned_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/transpose.cuh>
 #include <raft/matrix/init.cuh>
 #include <raft/stats/stddev.cuh>
@@ -699,6 +701,107 @@ TEST(QuantizationDatasetTest, PerDimensionDataset)
                           stream.get()));
 }
 
+TYPED_TEST(PerDimensionQuantizationTest, BatchedHostDataset)
+{
+  using T                = TypeParam;
+  constexpr int64_t rows = 37, dim = 35;
+  std::vector<T> values(rows * dim);
+  for (int64_t i = 0; i < rows; ++i) {
+    for (int64_t j = 0; j < dim; ++j) {
+      values[i * dim + j] = T((i - 18) * .17 + (j % 5) * 20.0);
+    }
+  }
+  // Put the largest clipping error before the final batch to exercise the running maximum.
+  values.front() = T{-1200.f};
+  values.back()  = T{500.f};
+  for (bool prefetch : {false, true}) {
+    raft::resources res;
+    if (prefetch) {
+      raft::resource::set_cuda_stream_pool(res, std::make_shared<rmm::cuda_stream_pool>(1));
+    }
+    auto stream = raft::resource::get_cuda_stream(res);
+    auto input  = raft::make_device_matrix<T, int64_t>(res, rows, dim);
+    raft::update_device(input.data_handle(), values.data(), values.size(), stream);
+    auto pinned = raft::make_pinned_matrix<T, int64_t>(res, rows, dim);
+    std::copy(values.begin(), values.end(), pinned.data_handle());
+    for (auto mode : {range_mode::global, range_mode::per_dimension}) {
+      for (float quantile : {1.f, .5f, .99f}) {
+        auto expected = build(res, params{quantile, mode}, raft::make_const_mdspan(input.view()));
+        for (int64_t batch_rows : {int64_t{1}, int64_t{7}, rows, int64_t{0}}) {
+          for (bool use_pinned : {false, true}) {
+            SCOPED_TRACE(::testing::Message()
+                         << "range=" << static_cast<int>(mode) << " quantile=" << quantile
+                         << " batch=" << batch_rows << " prefetch=" << prefetch
+                         << " pinned=" << use_pinned);
+            auto host_input = raft::make_host_matrix_view<const T, int64_t>(
+              use_pinned ? pinned.data_handle() : values.data(), rows, dim);
+            auto actual = build(res, params{quantile, mode, batch_rows}, host_input);
+            EXPECT_EQ(actual.n_rows(), rows);
+            EXPECT_EQ(actual.dim(), dim);
+            EXPECT_TRUE(devArrMatch(expected.data_const_view().data_handle(),
+                                    actual.data_const_view().data_handle(),
+                                    values.size(),
+                                    cuvs::Compare<int8_t>(),
+                                    stream.get()));
+            auto a = actual.const_manifest_view();
+            auto e = expected.const_manifest_view();
+            EXPECT_NEAR(double(a.max_error), double(e.max_error), double(e.max_error) * 1e-6);
+            if (mode == range_mode::per_dimension) {
+              auto actual_shifts = std::get<typename quantizer_const_view<T>::shifts_type>(a.value);
+              auto expected_shifts =
+                std::get<typename quantizer_const_view<T>::shifts_type>(e.value);
+              EXPECT_EQ(actual_shifts.scale, expected_shifts.scale);
+              EXPECT_TRUE(devArrMatch(actual_shifts.shifts.data_handle(),
+                                      expected_shifts.shifts.data_handle(),
+                                      dim,
+                                      cuvs::Compare<T>(),
+                                      stream.get()));
+            }
+            // Standalone training must give the same manifest without allocating corpus codes.
+            if (batch_rows == 7 && !use_pinned) {
+              auto trained = train(res, params{quantile, mode, batch_rows}, host_input);
+              EXPECT_NEAR(
+                double(trained.max_error), double(a.max_error), double(a.max_error) * 1e-6);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST(QuantizationDatasetTest, HostBuildBatchWorkspace)
+{
+  constexpr int64_t rows = 4097, dim = 35, batch_rows = 128;
+  std::vector<float> values(rows * dim, 1.f);
+  auto input = raft::make_host_matrix_view<const float, int64_t>(values.data(), rows, dim);
+  for (bool prefetch : {false, true}) {
+    raft::resources res;
+    if (prefetch) {
+      raft::resource::set_cuda_stream_pool(res, std::make_shared<rmm::cuda_stream_pool>(1));
+    }
+    for (float quantile : {1.f, .5f}) {
+      params p{quantile, range_mode::per_dimension, batch_rows};
+      auto action = [&](raft::resources const& h) {
+        auto encoded = build(h, p, input);
+        if (!raft::resource::get_dry_run_flag(h)) {
+          EXPECT_EQ(encoded.const_manifest_view().max_error, 0.f);
+        }
+      };
+      execute_with_dry_run_check(res, action, alloc_behavior::ARGUMENT_DRIVEN);
+      raft::memory_stats_resources stats(res);
+      action(stats);
+      auto peak         = stats.get_bytes_peak();
+      auto device_bytes = peak.device_workspace + peak.device_large_workspace + peak.device_global +
+                          peak.device_managed;
+      // Includes all int8 codes; excludes enough memory for even one full FP32 corpus copy.
+      EXPECT_LT(device_bytes, values.size() * sizeof(float));
+    }
+  }
+  EXPECT_THROW(build(raft::resources{}, params{1.f, range_mode::per_dimension, -1}, input),
+               raft::logic_error);
+}
+
 TEST_P(PerDimensionRangeTest, Result) { this->testPerDimensionQuantization(); }
 
 typedef QuantizationTest<float, int8_t> QuantizationTest_float_int8t;
@@ -726,6 +829,12 @@ const std::vector<QuantizationInputs<T>> inputs = {
 
 const std::vector<PerDimensionInputs> dataset_inputs = {
   {2, 2, {10.f, -7.f, 10.f, -7.f}, {0, 0, 0, 0}, 0.f},
+  // Equal subnormal bounds must retain their value and reconstruct exactly.
+  {1,
+   2,
+   {std::numeric_limits<float>::denorm_min(), -std::numeric_limits<float>::denorm_min()},
+   {0, 0},
+   0.f},
   {2,
    1,
    {-std::numeric_limits<float>::max(), std::numeric_limits<float>::max()},
