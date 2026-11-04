@@ -453,9 +453,15 @@ void train_per_cluster(raft::resources const& handle,
   rmm::device_uvector<float> rot_vectors(
     size_t(max_cluster_size) * size_t(impl->rot_dim()), stream, device_memory);
 
+  // Managed memory can't be read on the host while kernels run on devices without
+  // concurrentManagedAccess (e.g. WSL), so use host copies inside the loop below.
+  std::vector<uint32_t> h_cluster_sizes(impl->n_lists());
+  std::vector<IdxT> h_cluster_offsets(impl->n_lists());
+  raft::update_host(h_cluster_sizes.data(), cluster_sizes.data(), impl->n_lists(), stream);
+  raft::update_host(h_cluster_offsets.data(), cluster_offsets, impl->n_lists(), stream);
   raft::resource::sync_stream(handle);  // make sure cluster offsets are up-to-date
   for (uint32_t l = 0; l < impl->n_lists(); l++) {
-    auto cluster_size = cluster_sizes.data()[l];
+    auto cluster_size = h_cluster_sizes[l];
     if (cluster_size == 0) continue;
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> pq_per_cluster_scope(
       "ivf_pq::build::per_cluster[%u](size = %u)", l, cluster_size);
@@ -468,7 +474,7 @@ void train_per_cluster(raft::resources const& handle,
                      impl->rotation_matrix().data_handle(),
                      impl->centers().data_handle() + size_t(l) * size_t(impl->dim_ext()),
                      trainset,
-                     indices + cluster_offsets[l],
+                     indices + h_cluster_offsets[l],
                      device_memory);
 
     // limit the cluster size to bound the training time based on max_train_points_per_pq_code
