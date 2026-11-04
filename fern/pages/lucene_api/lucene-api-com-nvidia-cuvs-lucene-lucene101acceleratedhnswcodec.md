@@ -14,8 +14,8 @@ A codec that enables GPU-based accelerated HNSW capability and can be used
 to accelerated indexing using GPUs and search using CPUs. Fallbacks to CPU
 based indexing when used on a machine without a GPU and/or cuVS.
 
-This codec wraps `Lucene101Codec`, the default codec of Lucene 10.2. `CuVSCodecs#acceleratedHNSW`
-returns the codec of this family for the Lucene release in use.
+This codec wraps `Lucene101Codec`, the default codec of Lucene 10.2. On later Lucene
+releases it can only read existing indexes; use `CuVSCodecs#acceleratedHNSW` to write.
 
 ## Public Members
 
