@@ -3,56 +3,21 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <chrono>
 #include <cmath>
+
 #include <cuvs/neighbors/common.hpp>
+
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/transpose.cuh>
 #include <raft/matrix/gather.cuh>
 #include <raft/matrix/init.cuh>
 
-#include "scann_common.cuh"
-using namespace cuvs::neighbors;
+#include "../../../cluster/detail/soar.cuh"
 
 namespace cuvs::neighbors::experimental::scann::detail {
 
 /** Fix the internal indexing type to avoid integer underflows/overflows */
 using ix_t = int64_t;
-
-/**
- * @brief Subtract cluster center coordinates from each dataset vector.
- *
- * residual[i, k] = dataset[i ,k] - centers[l, k],
- * where l = labels[i], the cluster label corresponding to vector i.
- *
- * @tparam T
- * @tparam LabelT
- * @param res raft resources
- * @param dataset dataset vectors, size [n_rows, dim]
- * @param centers cluster center coordinates, size [n_clusters, dim]
- * @param labels cluster labels, size [n_rows]
- * @return device matrix with the residuals, size [n_rows, dim]
- */
-template <typename T, typename LabelT>
-auto compute_residuals(raft::resources const& res,
-                       raft::device_matrix_view<const T, int64_t> dataset,
-                       raft::device_matrix_view<const T, int64_t> centers,
-                       raft::device_vector_view<const LabelT, int64_t> labels)
-  -> raft::device_matrix<T, int64_t, raft::row_major>
-{
-  auto dim       = dataset.extent(1);
-  auto residuals = raft::make_device_matrix<T, int64_t>(res, labels.extent(0), dim);
-
-  // compute residuals for AVQ assignments
-  raft::linalg::map_offset(
-    res, residuals.view(), [dataset, centers, labels, dim] __device__(size_t i) {
-      int row_idx = i / dim;
-      int el_idx  = i % dim;
-      return dataset(row_idx, el_idx) - centers(labels(row_idx), el_idx);
-    });
-
-  return residuals;
-}
 
 /**
  * @brief Unpack VPQ codes into 1-byte per code
@@ -385,7 +350,7 @@ auto sample_training_residuals(
   raft::matrix::gather(
     res, labels_view, raft::make_const_mdspan(train_indices.view()), trainset_labels.view());
 
-  return compute_residuals<T, LabelT>(
+  return cuvs::cluster::soar::detail::compute_residuals<T, LabelT>(
     res,
     raft::make_const_mdspan(trainset.view()),
     centroids,

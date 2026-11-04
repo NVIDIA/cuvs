@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cuvs/cluster/soar.hpp>
+
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/error.hpp>
@@ -29,8 +31,7 @@ namespace cuvs::cluster::soar::detail {
  * residual[i, k] = dataset[i ,k] - centers[l, k],
  * where l = labels[i], the cluster label corresponding to vector i.
  *
- * An identical copy lives in `neighbors/scann/detail/scann_quantize.cuh`, where it is also used
- * outside the SOAR path to build the PQ trainset residuals.
+ * Shared with ScaNN for SOAR assignments and PQ training and encoding.
  *
  * @tparam T
  * @tparam LabelT
@@ -144,12 +145,7 @@ void compute_soar_labels(raft::resources const& dev_resources,
   raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
     dev_resources, centers, centers_norm.view(), 0.0f, false, raft::sq_op(), raft::add_op());
 
-  // raft::linalg::transpose requires input and output views of the same type; it does not
-  // write to the input.
-  auto nc_centers = raft::make_device_matrix_view<T, int64_t>(
-    const_cast<T*>(centers.data_handle()), centers.extent(0), centers.extent(1));
-
-  raft::linalg::transpose(dev_resources, nc_centers, centers_transpose.view());
+  raft::linalg::transpose(dev_resources, centers, centers_transpose.view());
 
   raft::linalg::gemm(
     dev_resources, residuals_norm.view(), centers_transpose.view(), soar_scores.view());
@@ -196,6 +192,51 @@ void compute_soar_labels(raft::resources const& dev_resources,
     raft::add_op());
 
   raft::matrix::argmin(dev_resources, raft::make_const_mdspan(soar_scores.view()), soar_labels);
+}
+
+/**
+ * @brief Compute primary residuals and assign SOAR labels.
+ *
+ * Callers that already have residuals can use compute_soar_labels directly to reuse them.
+ */
+template <typename T, typename LabelT>
+void predict(raft::resources const& handle,
+             const soar::params& params,
+             raft::device_matrix_view<const T, int64_t> dataset,
+             raft::device_matrix_view<const T, int64_t> centroids,
+             raft::device_vector_view<const LabelT, int64_t> labels,
+             raft::device_vector_view<LabelT, int64_t> soar_labels)
+{
+  int64_t n_rows     = dataset.extent(0);
+  int64_t dim        = dataset.extent(1);
+  int64_t n_clusters = centroids.extent(0);
+
+  RAFT_EXPECTS(centroids.extent(1) == dim,
+               "Number of features in the dataset (%zd) and in the centroids (%zd) must match.",
+               dim,
+               centroids.extent(1));
+  RAFT_EXPECTS(n_rows > 0, "The number of rows must be positive.");
+  RAFT_EXPECTS(n_clusters > 0, "The number of centroids must be positive.");
+  RAFT_EXPECTS(dim > 0, "The number of features must be positive.");
+  RAFT_EXPECTS(labels.extent(0) == n_rows,
+               "The number of labels (%zd) must match the number of rows in the dataset (%zd).",
+               labels.extent(0),
+               n_rows);
+  RAFT_EXPECTS(
+    soar_labels.extent(0) == n_rows,
+    "The number of soar labels (%zd) must match the number of rows in the dataset (%zd).",
+    soar_labels.extent(0),
+    n_rows);
+
+  auto residuals = compute_residuals<T, LabelT>(handle, dataset, centroids, labels);
+
+  compute_soar_labels<T, LabelT>(handle,
+                                 dataset,
+                                 raft::make_const_mdspan(residuals.view()),
+                                 centroids,
+                                 labels,
+                                 soar_labels,
+                                 params.lambda);
 }
 
 }  // namespace cuvs::cluster::soar::detail
