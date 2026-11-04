@@ -722,4 +722,4 @@ auto concatenate_datasets(raft::resources const& handle,
     const cuvs::neighbors::cagra::index_params& params,                          \
     std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices, \
     DatasetViewT merged_dataset,                                                 \
-    const cuvs::neighbors::cagra::merge_params& merge_params);\
+    const cuvs::neighbors::cagra::merge_params& merge_params);

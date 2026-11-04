@@ -487,14 +487,12 @@ TEST(CagraC, DatasetContractFailures)
   ASSERT_EQ(cuvsDatasetMakeStandardView(res, &host_merge_dummy_tensor, &merged_dataset),
             CUVS_SUCCESS);
   cuvsCagraIndex_t host_indices[2] = {host_index, host_index_2};
-  int64_t host_merge_offsets[3]    = {0, 4, 8};
   EXPECT_EQ(cuvsCagraMerge_v2(res,
                               build_params,
                               host_indices,
                               2,
                               filter,
                               merged_dataset,
-                              host_merge_offsets,
                               merge_out),
             CUVS_ERROR);
 
@@ -1089,7 +1087,6 @@ TEST(CagraC, BuildMergeSearch)
   cuvsDataset_t merged_dataset;
   ASSERT_EQ(cuvsDatasetMakeStandardView(res, &merged_dataset_tensor, &merged_dataset),
             CUVS_SUCCESS);
-  int64_t merge_offsets[3] = {0, 4, 7};
   cuvsCagraMergeParams_t merge_params;
   ASSERT_EQ(cuvsCagraMergeParamsCreate(&merge_params), CUVS_SUCCESS);
   EXPECT_EQ(merge_params->algo, CUVS_CAGRA_MERGE_AUTO);
@@ -1101,7 +1098,6 @@ TEST(CagraC, BuildMergeSearch)
                                         2,
                                         filter,
                                         merged_dataset,
-                                        merge_offsets,
                                         index_merged),
             CUVS_SUCCESS);
   {
@@ -1304,14 +1300,12 @@ TEST(CagraC, ConcatenateDatasetsMergeSearch)
 
   cuvsCagraIndex_t index_merged;
   cuvsCagraIndexCreate(&index_merged);
-  int64_t merge_offsets[3] = {0, 4, 7};
   ASSERT_EQ(cuvsCagraMerge_v2(res,
                               build_params,
                               index_array,
                               2,
                               no_filter,
                               concatenated_dataset,
-                              merge_offsets,
                               index_merged),
             CUVS_SUCCESS);
 
@@ -1381,7 +1375,6 @@ TEST(CagraC, ConcatenateDatasetsMergeSearch)
                               2,
                               bitset_filter,
                               filtered_dataset,
-                              filtered_offsets,
                               index_filtered_merged),
             CUVS_SUCCESS);
 
