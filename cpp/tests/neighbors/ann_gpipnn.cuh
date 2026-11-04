@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -82,6 +82,7 @@ struct scoring_operand {
     const int64_t threads = 256;
     detail::cast_to_half_kernel<<<(n * d + threads - 1) / threads, threads, 0, stream>>>(
       dataset, data.data(), n * d);
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
     detail::row_norms(data.data(), n, d, norms.data(), stream);
     raft::resource::sync_stream(res);
   }
@@ -327,6 +328,7 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
     const int64_t n       = static_cast<int64_t>(ps.n_rows) * ps.dim;
     detail::cast_to_half_kernel<<<(n + threads - 1) / threads, threads, 0, stream_.get()>>>(
       database.data(), half_data.data(), n);
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
 
     auto graph = raft::make_device_matrix<IdxT, int64_t>(handle_, ps.n_rows, ps.graph_degree);
     build_graph(
@@ -743,6 +745,10 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
 
   void SetUp() override
   {
+    // On a device GPiPNN cannot run on, `build_graph` throws for that reason alone, which would
+    // let `testUnsupportedMetricRejected` and `testSelectKBoundEnforced` pass without reaching the
+    // validation they name. Skipping here keeps an architecture check from standing in for them.
+    if (!is_supported()) { GTEST_SKIP(); }
     database.resize(static_cast<size_t>(ps.n_rows) * ps.dim, stream_);
     search_queries.resize(static_cast<size_t>(ps.n_queries) * ps.dim, stream_);
     raft::random::RngState r(1234ULL);

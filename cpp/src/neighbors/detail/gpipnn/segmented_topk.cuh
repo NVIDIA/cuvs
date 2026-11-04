@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -203,7 +203,7 @@ RAFT_KERNEL fused_topk_kernel(const float* __restrict__ dots,
     best[i] = kInvalidKey;
   }
 
-  // Columns past the segment's candidate count are batch padding and are not visited. 
+  // Columns past the segment's candidate count are batch padding and are not visited.
   for (int64_t c = lane; c < n_cand; c += warpSize) {
     const id_t c_id   = cand_ids[s.cand_begin + c];
     const bool masked = exclude_self && c_id == q_id;
@@ -478,10 +478,15 @@ inline void segmented_topk(
                static_cast<size_t>(kMaxSelectK),
                static_cast<size_t>(k));
 
-  // A call whose every segment scores one id range against itself gathers a single slab and hands
-  // it to the GEMM as both operands -- `leaf_pick_range` is exactly that. Detected here rather than
-  // asserted by the caller, so the equality stays a checked fact.
-  bool self_join = query_ids.data_handle() == cand_ids.data_handle();
+  // Both paths need the two id arrays to be one array, which is what `leaf_pick_range` passes.
+  // Detected here rather than asserted by the caller, so the equality stays a checked fact.
+  const bool same_ids = query_ids.data_handle() == cand_ids.data_handle();
+
+  // The batched path additionally needs *every* segment to score one range against itself, since
+  // it gathers a single slab and hands it to the GEMM as both operands. The fused path does not:
+  // it takes segments one at a time, so it tests the same ranges per segment and a leaf that had
+  // to be chunked costs only itself.
+  bool self_join = same_ids;
   for (const auto& s : segments) {
     self_join = self_join && s.query_begin == s.cand_begin && s.query_count == s.cand_count;
   }
@@ -489,7 +494,7 @@ inline void segmented_topk(
   // Segments the fused leaf kernel can take leave the batched path entirely: it works from the
   // dataset itself and shares none of the buffers the batch planner budgets. Partitioning up
   // front keeps the two paths from having to agree about anything.
-  auto fused  = plan_fused_segments(dataset.data_handle(), dim, k, self_join, segments);
+  auto fused  = plan_fused_segments(dataset.data_handle(), dim, k, same_ids, segments);
   auto& order = fused.batched;
   if (!fused.fused.empty()) {
     launch_fused_leaf_topk(fused.block_m,

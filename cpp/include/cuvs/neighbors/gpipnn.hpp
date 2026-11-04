@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -26,6 +26,14 @@ namespace gpipnn {
  */
 
 /**
+ * @brief Largest `index_params::max_candidates` the builder accepts.
+ *
+ * DirectEdgePrune and HashPrune stage a full reservoir row in shared memory at the default
+ * 48 KiB dynamic limit, which is what sets the ceiling.
+ */
+inline constexpr uint32_t kMaxCandidates = 1024;
+
+/**
  * @brief Parameters for the GPiPNN proximity graph builder.
  *
  * GPiPNN builds a navigable proximity graph without performing any graph search during
@@ -40,7 +48,8 @@ namespace gpipnn {
  *
  * Metrics supported:
  * - L2Expanded
- * - CosineExpanded (note: the parameter defaults are tuned for L2Expanded and may not be optimal here)
+ * - CosineExpanded (note: the parameter defaults are tuned for L2Expanded and may not be optimal
+ * here)
  *
  * Requires a GPU of compute capability 8.0 (Ampere) or newer.
  */
@@ -48,7 +57,7 @@ struct index_params : cuvs::neighbors::index_params {
   /** Degree of the output graph. */
   uint32_t graph_degree = 64;
   /**
-   * Capacity of the per-point HashPrune reservoir. Must be >= graph_degree.
+   * Capacity of the per-point HashPrune reservoir. Must be in [graph_degree, kMaxCandidates].
    *
    * Setting this equal to `graph_degree` disables DirectEdgePrune. The default of
    * 2 * graph_degree is what the paper uses and is empirically good.
@@ -87,7 +96,7 @@ struct index_params : cuvs::neighbors::index_params {
   /** Alpha parameter of the DirectEdgePrune occlusion rule. Larger retains more edges. */
   float alpha = 1.2f;
   /**
-   * Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves 
+   * Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves
    * are processed per batch. Affects only peak memory and build time, not graph quality.
    */
   uint32_t leaf_batch_mib = 0;

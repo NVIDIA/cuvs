@@ -1035,12 +1035,16 @@ auto gpipnn_build_graph(raft::resources const& res,
     gpipnn_params.graph_degree = graph_degree;
   }
   if (gpipnn_params.max_candidates < gpipnn_params.graph_degree) {
+    // 2 * graph_degree is the recommended reservoir, but it has to stay inside the capacity
+    // gpipnn can stage in shared memory, so a large CAGRA degree gets the ceiling instead.
+    const uint32_t raised = std::min(2 * gpipnn_params.graph_degree,
+                                     cuvs::neighbors::experimental::gpipnn::kMaxCandidates);
     RAFT_LOG_WARN(
       "max_candidates (%u) for gpipnn must be at least graph_degree (%u), raising it to %u.",
       gpipnn_params.max_candidates,
       gpipnn_params.graph_degree,
-      2 * gpipnn_params.graph_degree);
-    gpipnn_params.max_candidates = 2 * gpipnn_params.graph_degree;
+      raised);
+    gpipnn_params.max_candidates = raised;
   }
   if (params.guarantee_connectivity) {
     RAFT_LOG_WARN(

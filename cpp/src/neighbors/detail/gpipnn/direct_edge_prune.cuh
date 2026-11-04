@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -162,13 +162,35 @@ RAFT_KERNEL direct_edge_prune_kernel(const id_t* __restrict__ acc_ids,
       graph[p * degree + n_accepted] = cand_ids[i];
       n_accepted++;
     }
-  }
-  __syncthreads();
 
-  // CAGRA requires every slot to hold a valid id, so whatever is still empty gets a
-  // deterministic ring entry.
-  for (int32_t i = n_accepted + tid; i < degree; i += nthr) {
-    graph[p * degree + i] = static_cast<id_t>((p + i + 1) % n_rows);
+    auto row_holds = [&](id_t key) {
+      int32_t slot   = static_cast<int32_t>((key * 2654435761u) & slot_mask);
+      int32_t probes = 0;
+      while (probes < slots && table_id[slot] != kInvalidId) {
+        if (table_id[slot] == key) { return true; }
+        slot = static_cast<int32_t>(static_cast<uint32_t>(slot + 1) & slot_mask);
+        probes++;
+      }
+      return false;
+    };
+
+    // CAGRA requires every slot to hold a valid id, so whatever is still empty gets a
+    // deterministic ring entry. The loop above exhausts the reservoir, so reaching here means
+    // the row held fewer than `degree` candidates and the ids to avoid are exactly those
+    // candidates plus `p` itself. Walking the ring past them keeps each filler distinct from
+    // the edges already written, and from the earlier fillers because the offset only grows.
+    int64_t offset = 1;
+    for (int32_t i = n_accepted; i < degree; i++) {
+      while (offset < n_rows && row_holds(static_cast<id_t>((p + offset) % n_rows))) {
+        offset++;
+      }
+      // `n_rows > degree` leaves more free ids than slots to fill, so the ring cannot run out.
+      // The clamp only keeps a wrap onto `p` from turning a future invariant change into a
+      // self-loop.
+      if (offset >= n_rows) { offset = n_rows - 1; }
+      graph[p * degree + i] = static_cast<id_t>((p + offset) % n_rows);
+      offset++;
+    }
   }
 }
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -27,31 +27,19 @@
 
 namespace cuvs::neighbors::experimental::gpipnn::detail {
 
-/**
- * Record-buffer budget per row when `index_params::leaf_batch_mib` is left on auto.
- *
- * Scaling the budget with `n_rows` rather than fixing it keeps peak memory linear in the
- * dataset size.
- */
+/** Candidate buffer budget per row when `index_params::leaf_batch_mib` is left on auto. */
 inline constexpr int64_t kAutoLeafBatchBytesPerRow = 256;
 
-/**
- * Floor and ceiling on the auto budget: one batch for small builds, bounded reservation.
- *
- * The floor binds only below 2M rows and can cost at most itself in extra peak. Neither affects
- * the graph; see `hash_prune_merge_kernel` for why the batch division does not enter the answer.
- */
+/** Floor and ceiling on the auto budget: one batch for small builds, bounded reservation. */
 inline constexpr int64_t kMinLeafBatchBytes = int64_t{512} << 20;
 inline constexpr int64_t kMaxLeafBatchBytes = int64_t{6} << 30;
 
 /**
- * Leaf members one range may carry, so the transient edge-record buffer stays inside its budget.
+ * Leaf members one range may carry so the candidate buffer stays inside its budget.
  *
  * A member emits `leaf_degree` selected neighbours, each becoming a forward and a reverse record
  * of `sizeof(key) + sizeof(target)` bytes, and the radix sort needs a second buffer of the same
- * size. `leaf_pick_range`'s own selection outputs are smaller than the sort buffer they are freed
- * before, so they never set the peak. Never returns less than 1, so a single oversized leaf still
- * makes progress.
+ * size. Never returns less than 1, so a single oversized leaf still makes progress.
  */
 inline auto leaf_batch_max_members(const index_params& params, int64_t n_rows, int64_t leaf_degree)
   -> int64_t
@@ -69,11 +57,10 @@ inline auto leaf_batch_max_members(const index_params& params, int64_t n_rows, i
  * Builds a GPiPNN proximity graph.
  *
  * The four phases are strictly sequential, but the third does not wait for the second to finish:
- * the candidate edge records are transient -- HashPrune folds them into a fixed-size reservoir and
- * nothing downstream reads them again -- so the leaf join runs a range of leaves at a time and
- * each range's records are merged and released before the next is built. Peak memory is then the
- * long-lived arrays plus a budget independent of how many leaves each point belongs to. Cutting
- * the work into ranges does not change the answer; see `hash_prune_merge_kernel`.
+ * the candidates are transient and HashPrune folds them into a fixed-size reservoir and
+ * nothing downstream reads them again. So, the leaf join runs a range of leaves at a time and
+ * each range's records are merged and released before the next is built. Peak memory is the
+ * HashPrune reservoirs plus the batch budget, and batches has no impact on the resulting graph.
  *
  * See cuvs::neighbors::experimental::gpipnn::build_graph.
  */
@@ -87,9 +74,6 @@ void build_graph(raft::resources const& res,
                   std::is_same_v<DataT, int8_t> || std::is_same_v<DataT, uint8_t>,
                 "gpipnn: only float, half, int8 and uint8 datasets are supported");
 
-  // Before anything is validated or uploaded: on a device this cannot run on, the leaf join is a
-  // stub that would return an empty graph rather than fail. Callers with a fallback should ask
-  // `gpipnn_arch_problem()` instead of relying on this.
   const auto arch_problem = gpipnn_arch_problem();
   RAFT_EXPECTS(arch_problem.empty(), "%s", arch_problem.c_str());
 
@@ -109,14 +93,11 @@ void build_graph(raft::resources const& res,
 
   auto stream = raft::resource::get_cuda_stream(res).get();
 
-  // All scoring runs on half operands with fp32 accumulation, mirroring the paper's FP16 mode.
-  // Every other type is converted here and only here, which is why the type disappears from the
-  // rest of this function. The copy is `2 * n_rows * dim` bytes whatever the input width, so a
-  // narrower input reduces the caller's footprint, not the build's.
+  // All scoring runs on half operands with fp32 accumulation and every other type is converted
+  // here.
   //
-  // Cosine is also handled entirely here, by scaling each row to unit norm as it is converted (see
-  // `normalize_rows_to_half_kernel`). That costs a half caller the zero-copy path, since its view
-  // is const and cannot be normalized in place.
+  // Cosine is also handled entirely here by scaling each row to unit norm as it is converted (see
+  // `normalize_rows_to_half_kernel`).
   const bool normalize = params.metric == cuvs::distance::DistanceType::CosineExpanded;
   rmm::device_uvector<half> half_storage(0, stream);
   const half* scoring_data = nullptr;
@@ -156,9 +137,7 @@ void build_graph(raft::resources const& res,
     stats.merged_runs,
     stats.oversized_left);
 
-  // The paper picks top-2, the smallest choice that still yields a connected candidate set once
-  // every edge is bi-directed. That is also too few to fill a degree-64 reservoir on real data
-  // once duplicate targets and the LSH dedup have taken their share, which starves the prune.
+  // The paper picks top-2 while we use default of 4 which we found to be better empirically.
   const auto leaf_degree = static_cast<int64_t>(params.leaf_degree);
   const auto hash_bits   = static_cast<int32_t>(params.hash_bits);
 
@@ -193,9 +172,8 @@ void build_graph(raft::resources const& res,
                  n_batches,
                  max_members);
 
-  // The prune's row order is the last thing the partition is needed for: it is the leaf grouping
-  // reduced to one id per row, which is far smaller than the memberships it replaces. See
-  // `build_prune_order` for what it buys and why it cannot change the graph.
+  // The prune's row order is the last thing the partition is needed for. See `build_prune_order`
+  // for details.
   auto prune_order = build_prune_order(res, leaves, n_rows);
 
   // Nothing below reads the partition, the sketches, the owner bounds or the per-entry hashes.

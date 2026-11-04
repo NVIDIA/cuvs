@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -496,7 +496,9 @@ inline auto gpipnn_arch_problem() -> std::string
  *
  * Anything outside the fused kernel's preconditions stays on the batched path, which handles
  * every shape this one does and more. Call-wide, all five must hold:
- *  - a self-join, since the kernel reads one id array as both operands;
+ *  - `same_ids`, since the kernel reads one id array as both operands. Only the pointers have to
+ *    match call-wide; whether a given segment scores one range against itself is a per-segment
+ *    question, asked below, so one chunked leaf does not cost its neighbours the fused path;
  *  - `k == kFusedK`, the only instantiation;
  *  - `dim` a multiple of 16, since the mainloop steps the mma k-dimension by 16 and the chunk
  *    copy moves 8 halves at a time;
@@ -523,7 +525,7 @@ struct fused_plan {
 inline auto plan_fused_segments(const half* dataset,
                                 int64_t dim,
                                 int64_t k,
-                                bool self_join,
+                                bool same_ids,
                                 const std::vector<segment>& segments) -> fused_plan
 {
   fused_plan plan;
@@ -532,8 +534,8 @@ inline auto plan_fused_segments(const half* dataset,
   // The chunk copy reaches the dataset through `cp.async` at a 16-byte width, which the base
   // pointer has to be aligned for.
   constexpr auto kAlign = static_cast<uintptr_t>(sizeof(uint4));
-  const bool usable     = self_join && k == kFusedK && dim % 16 == 0 &&
-                      reinterpret_cast<uintptr_t>(dataset) % kAlign == 0;
+  const bool usable =
+    same_ids && k == kFusedK && dim % 16 == 0 && reinterpret_cast<uintptr_t>(dataset) % kAlign == 0;
   plan.block_m = usable ? fused_leaf_tile_m(dim) : 0;
 
   for (size_t i = 0; i < segments.size(); i++) {

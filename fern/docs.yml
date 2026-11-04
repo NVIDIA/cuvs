@@ -394,6 +394,8 @@ navigation:
             path: "./pages/cpp_api/cpp-api-neighbors-dynamic-batching.md"
           - page: "Neighbors Epsilon Neighborhood"
             path: "./pages/cpp_api/cpp-api-neighbors-epsilon-neighborhood.md"
+          - page: "Neighbors Gpipnn"
+            path: "./pages/cpp_api/cpp-api-neighbors-gpipnn.md"
           - page: "Neighbors HNSW"
             path: "./pages/cpp_api/cpp-api-neighbors-hnsw.md"
           - page: "Neighbors Composite Index"

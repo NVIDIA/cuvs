@@ -388,6 +388,7 @@ struct gpipnn_fixture {
 // from `dim` and from the same rows pre-widened to `dim + 1` must agree exactly.
 TEST(AnnCagraGpipnn, OddDimPaddingLeavesGraphUnchanged)
 {
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
   gpipnn_fixture f(/*dim=*/7);
   const auto from_odd =
     gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.narrow_matrix()));
@@ -400,6 +401,7 @@ TEST(AnnCagraGpipnn, OddDimPaddingLeavesGraphUnchanged)
 // to strip out. Same logical rows, so the graph must not move.
 TEST(AnnCagraGpipnn, PaddedStrideMatchesContiguous)
 {
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
   // dim 5 pads to a stride of 8 floats, so this exercises stride != dim and odd dim at once.
   gpipnn_fixture f(/*dim=*/5);
   const auto contiguous =
@@ -417,6 +419,7 @@ TEST(AnnCagraGpipnn, PaddedStrideMatchesContiguous)
 // graph must match the device-resident build.
 TEST(AnnCagraGpipnn, HostDatasetMatchesDevice)
 {
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
   gpipnn_fixture f(/*dim=*/8);
   const auto from_device =
     gpipnn_graph(f.res, make_gpipnn_params(), make_device_standard_dataset_view(f.narrow_matrix()));
@@ -438,6 +441,7 @@ TEST(AnnCagraGpipnn, HostDatasetMatchesDevice)
 // would quietly produce the wrong graph.
 TEST(AnnCagraGpipnn, ParametersReconciledWithCagra)
 {
+  if (!cuvs::neighbors::experimental::gpipnn::is_supported()) { GTEST_SKIP(); }
   gpipnn_fixture f(/*dim=*/8);
   auto dataset = make_device_standard_dataset_view(f.narrow_matrix());
 

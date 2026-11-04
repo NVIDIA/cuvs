@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -114,12 +114,12 @@ inline auto to_device(const segment& s) -> segment_dev
  * Per-row tie-break permutation of the candidate column, used by topk selection to avoid
  * duplicate candidates from the same leaf.
  *
- * Uses a hash function using the golden-ratio constant and finalizers to produce a unique 
+ * Uses a hash function using the golden-ratio constant and finalizers to produce a unique
  * value for each query. The result is XOR-ed with the candidate column to break ties.
  */
 __host__ __device__ inline auto row_salt(id_t q_id) -> uint32_t
 {
-  uint32_t salt = q_id * 0x9e3779b9u + 0x85ebca6bu; // golden-ratio constant
+  uint32_t salt = q_id * 0x9e3779b9u + 0x85ebca6bu;  // golden-ratio constant
   salt ^= salt >> 16;
   salt *= 0x7feb352du;
   salt ^= salt >> 15;
@@ -317,11 +317,10 @@ inline void check_params(const index_params& params, int64_t n_rows, int64_t dim
                "gpipnn: max_candidates (%u) must be >= graph_degree (%u)",
                params.max_candidates,
                params.graph_degree);
-  // DirectEdgePrune and HashPrune stage a full reservoir row in shared memory at the default
-  // 48 KiB dynamic limit.
-  RAFT_EXPECTS(params.max_candidates <= 1024,
-               "gpipnn: max_candidates (%u) exceeds the supported maximum of 1024",
-               params.max_candidates);
+  RAFT_EXPECTS(params.max_candidates <= kMaxCandidates,
+               "gpipnn: max_candidates (%u) exceeds the supported maximum of %u",
+               params.max_candidates,
+               kMaxCandidates);
   // Legal but pathological: with as many slots as candidates, DirectEdgePrune's saturation pass
   // takes back everything the occlusion rule rejected and the stage becomes a sort by distance.
   if (params.max_candidates == params.graph_degree) {
