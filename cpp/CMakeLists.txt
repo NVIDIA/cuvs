@@ -1433,6 +1433,8 @@ if(NOT BUILD_CPU_ONLY)
 
   add_library(
     cuvs_objs OBJECT
+    src/core/calc_nnz_by_rows.cu
+    src/core/gpu_repeat_csr.cu
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}
