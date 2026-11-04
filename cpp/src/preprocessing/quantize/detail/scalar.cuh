@@ -83,17 +83,19 @@ struct quantize_op {
   }
 };
 
-template <typename T, typename Op>
+template <typename T, typename QuantI, typename Op>
 RAFT_INLINE_FUNCTION double reconstruction_error(T x, int64_t j, Op op)
 {
   double const value = static_cast<double>(x);
   double decoded;
   if constexpr (std::is_same_v<Op, typename quantizer_const_view<T>::shifts_type>) {
-    using compute_t         = typename quantizer_const_view<T>::scale_type;
-    compute_t const shift   = static_cast<compute_t>(op.shifts.data_handle()[j]);
-    compute_t const inv     = compute_t{1} / op.scale;
-    compute_t const rounded = rint((static_cast<compute_t>(x) - shift) * inv);
-    int8_t const code = static_cast<int8_t>(fmin(fmax(rounded, compute_t{-127}), compute_t{127}));
+    using compute_t               = typename quantizer_const_view<T>::scale_type;
+    compute_t const shift         = static_cast<compute_t>(op.shifts.data_handle()[j]);
+    compute_t const inv           = compute_t{1} / op.scale;
+    compute_t const rounded       = rint((static_cast<compute_t>(x) - shift) * inv);
+    constexpr compute_t q_max     = std::numeric_limits<QuantI>::max();
+    constexpr compute_t q_min     = std::max<compute_t>(std::numeric_limits<QuantI>::min(), -q_max);
+    QuantI const code             = static_cast<QuantI>(fmin(fmax(rounded, q_min), q_max));
     compute_t const reconstructed = fma(op.scale, static_cast<compute_t>(code), shift);
     compute_t const limit         = static_cast<compute_t>(cuda::std::numeric_limits<T>::max());
     decoded = static_cast<double>(static_cast<T>(fmin(fmax(reconstructed, -limit), limit)));
@@ -113,7 +115,7 @@ auto round_error_up(double error) -> typename quantizer<T>::scale_type
   return error > 0 ? std::nextafter(bound, std::numeric_limits<bound_t>::infinity()) : bound;
 }
 
-template <typename T, typename Op>
+template <typename T, typename QuantI, typename Op>
 void max_reconstruction_error(raft::resources const& res,
                               raft::device_matrix_view<const T, int64_t> dataset,
                               Op op,
@@ -127,7 +129,7 @@ void max_reconstruction_error(raft::resources const& res,
     errors,
     0.0,
     false,
-    [op] __device__(T x, int64_t j) { return reconstruction_error(x, j, op); },
+    [op] __device__(T x, int64_t j) { return reconstruction_error<T, QuantI>(x, j, op); },
     [] __device__(double a, double b) { return hypot(a, b); });
   raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
     res,
@@ -137,42 +139,6 @@ void max_reconstruction_error(raft::resources const& res,
     inplace,
     raft::identity_op{},
     raft::max_op{});
-}
-
-template <typename T, typename Op>
-auto max_reconstruction_error(raft::resources const& res,
-                              raft::device_matrix_view<const T, int64_t> dataset,
-                              Op op) -> typename quantizer<T>::scale_type
-{
-  auto errors  = raft::make_device_vector<double, int64_t>(res, dataset.extent(0));
-  auto maximum = raft::make_device_vector<double, int64_t>(res, 1);
-  max_reconstruction_error(res, dataset, op, errors.view(), maximum.view(), false);
-  double result = std::numeric_limits<double>::infinity();
-  raft::copy(res,
-             raft::make_host_scalar_view(&result),
-             raft::make_device_scalar_view(maximum.data_handle()));
-  raft::resource::sync_stream(res);
-  return round_error_up<T>(result);
-}
-
-template <typename T, typename Op>
-auto max_reconstruction_error(raft::resources const& res,
-                              raft::host_matrix_view<const T, int64_t> dataset,
-                              Op op) -> typename quantizer<T>::scale_type
-{
-  if (raft::resource::get_dry_run_flag(res)) {
-    return std::numeric_limits<typename quantizer<T>::scale_type>::infinity();
-  }
-  double maximum = 0;
-#pragma omp parallel for reduction(max : maximum)
-  for (int64_t row = 0; row < dataset.extent(0); ++row) {
-    double error = 0;
-    for (int64_t j = 0; j < dataset.extent(1); ++j) {
-      error = std::hypot(error, reconstruction_error(dataset(row, j), j, op));
-    }
-    maximum = std::max(maximum, error);
-  }
-  return round_error_up<T>(maximum);
 }
 
 template <typename T, typename IdxT = int64_t, typename accessor>
@@ -232,7 +198,7 @@ std::tuple<T, T> quantile_min_max(
   return {minmax_h[0], minmax_h[1]};
 }
 
-template <typename T>
+template <typename T, typename QuantI = int8_t>
 typename quantizer<T>::shifts_type train(raft::resources const& res,
                                          raft::device_vector<T, int64_t>&& shifts,
                                          raft::device_vector<T, int64_t>&& maxima)
@@ -269,75 +235,11 @@ typename quantizer<T>::shifts_type train(raft::resources const& res,
              raft::make_device_scalar_view(max_half_range.data_handle()));
   raft::resource::sync_stream(res);
   RAFT_EXPECTS(std::isfinite(half_range), "Bounds must be finite with min <= max");
-  compute_t const scale =
-    half_range > 0 ? std::max(half_range / compute_t{127}, std::numeric_limits<compute_t>::min())
-                   : compute_t{1};
+  constexpr compute_t q_max = std::numeric_limits<QuantI>::max();
+  compute_t const scale     = half_range > 0
+                                ? std::max(half_range / q_max, std::numeric_limits<compute_t>::min())
+                                : compute_t{1};
   return {std::move(shifts), scale};
-}
-
-template <typename T>
-quantizer<T> train(raft::resources const& res,
-                   raft::device_matrix_view<const T, int64_t> dataset,
-                   params params)
-{
-  using compute_t = typename quantizer_const_view<T>::scale_type;
-  RAFT_EXPECTS(params.quantile > 0.f && params.quantile <= 1.f, "Quantile must be within (0, 1]");
-  auto const dim = dataset.extent(1);
-  RAFT_EXPECTS(dataset.extent(0) > 0 && dim > 0, "Training requires nonempty rows and dimensions");
-  auto shifts = raft::make_device_vector<T, int64_t>(res, dim);
-  auto maxima = raft::make_device_vector<T, int64_t>(res, dim);
-  if (params.quantile == 1.f) {
-    raft::linalg::reduce<raft::Apply::ALONG_COLUMNS>(
-      res,
-      dataset,
-      shifts.view(),
-      static_cast<T>(std::numeric_limits<compute_t>::infinity()),
-      false,
-      raft::identity_op{},
-      raft::min_op{});
-    raft::linalg::reduce<raft::Apply::ALONG_COLUMNS>(
-      res,
-      dataset,
-      maxima.view(),
-      static_cast<T>(-std::numeric_limits<compute_t>::infinity()),
-      false,
-      raft::identity_op{},
-      raft::max_op{});
-  } else {
-    auto const rows        = dataset.extent(0);
-    auto column            = raft::make_device_vector<T, int64_t>(res, rows);
-    auto stream            = raft::resource::get_cuda_stream(res).get();
-    size_t workspace_bytes = 0;
-    RAFT_CUDA_TRY(cub::DeviceMergeSort::SortKeys(
-      nullptr, workspace_bytes, column.data_handle(), rows, fp_lt_op<T>{}, stream));
-    auto workspace    = raft::make_device_vector<char, int64_t>(res, workspace_bytes);
-    auto const upper  = static_cast<int64_t>(std::ceil((0.5 + 0.5 * params.quantile) * rows)) - 1;
-    auto const lower  = rows - upper - 1;
-    auto const* input = dataset.data_handle();
-    for (int64_t j = 0; j < dim; ++j) {
-      raft::linalg::map_offset(
-        res, column.view(), [input, dim, j] __device__(int64_t i) { return input[i * dim + j]; });
-      if (!raft::resource::get_dry_run_flag(res)) {
-        RAFT_CUDA_TRY(cub::DeviceMergeSort::SortKeys(workspace.data_handle(),
-                                                     workspace_bytes,
-                                                     column.data_handle(),
-                                                     rows,
-                                                     fp_lt_op<T>{},
-                                                     stream));
-      }
-      raft::copy(res,
-                 raft::make_device_scalar_view(shifts.data_handle() + j),
-                 raft::make_device_scalar_view(column.data_handle() + lower));
-      raft::copy(res,
-                 raft::make_device_scalar_view(maxima.data_handle() + j),
-                 raft::make_device_scalar_view(column.data_handle() + upper));
-    }
-  }
-  quantizer<T> result;
-  result.value     = train(res, std::move(shifts), std::move(maxima));
-  result.max_error = max_reconstruction_error(
-    res, dataset, std::get<typename quantizer_const_view<T>::shifts_type>(result.view().value));
-  return result;
 }
 
 template <typename T, typename InT, typename OutT>
@@ -354,11 +256,11 @@ void check_per_dim_shapes(typename quantizer_const_view<T>::shifts_type quantize
                "Input and output shapes must match");
 }
 
-template <typename T>
+template <typename T, typename QuantI>
 void transform(raft::resources const& res,
                typename quantizer_const_view<T>::shifts_type quantizer,
                raft::device_matrix_view<const T, int64_t> dataset,
-               raft::device_matrix_view<int8_t, int64_t> out)
+               raft::device_matrix_view<QuantI, int64_t> out)
 {
   using compute_t = typename quantizer_const_view<T>::scale_type;
   check_per_dim_shapes<T>(quantizer, dataset, out);
@@ -369,14 +271,16 @@ void transform(raft::resources const& res,
   raft::linalg::map_offset(res, out, [input, shifts, dim, inv] __device__(int64_t i) {
     compute_t const code =
       rint((static_cast<compute_t>(input[i]) - static_cast<compute_t>(shifts[i % dim])) * inv);
-    return static_cast<int8_t>(fmin(fmax(code, compute_t{-127}), compute_t{127}));
+    constexpr compute_t q_max = std::numeric_limits<QuantI>::max();
+    constexpr compute_t q_min = std::max<compute_t>(std::numeric_limits<QuantI>::min(), -q_max);
+    return static_cast<QuantI>(fmin(fmax(code, q_min), q_max));
   });
 }
 
-template <typename T>
+template <typename T, typename QuantI>
 void inverse_transform(raft::resources const& res,
                        typename quantizer_const_view<T>::shifts_type quantizer,
-                       raft::device_matrix_view<const int8_t, int64_t> dataset,
+                       raft::device_matrix_view<const QuantI, int64_t> dataset,
                        raft::device_matrix_view<T, int64_t> out)
 {
   using compute_t = typename quantizer_const_view<T>::scale_type;
@@ -391,27 +295,6 @@ void inverse_transform(raft::resources const& res,
     compute_t const limit = static_cast<compute_t>(cuda::std::numeric_limits<T>::max());
     return static_cast<T>(fmin(fmax(value, -limit), limit));
   });
-}
-
-template <typename T>
-cuvs::preprocessing::quantize::scalar::quantizer<T> train(
-  raft::resources const& res,
-  const cuvs::preprocessing::quantize::scalar::params params,
-  raft::device_matrix_view<const T, int64_t> dataset)
-{
-  RAFT_EXPECTS(params.quantile > 0.0 && params.quantile <= 1.0,
-               "quantile for scalar quantization needs to be within (0, 1] but is %f",
-               params.quantile);
-
-  if (params.range == range_mode::per_dimension) { return train(res, dataset, params); }
-
-  auto [min, max] = detail::quantile_min_max(res, dataset, params.quantile);
-
-  RAFT_LOG_DEBUG("quantizer train min=%lf max=%lf.", double(min), double(max));
-
-  quantizer<T> result{min, max};
-  result.max_error = max_reconstruction_error(res, dataset, quantize_op<T, int8_t>{min, max});
-  return result;
 }
 
 template <typename T, typename QuantI = int8_t>
@@ -493,12 +376,13 @@ void inverse_transform(raft::resources const& res,
 }
 
 // The optional output lets dataset construction encode during the error-measurement pass.
-// Standalone host training uses the same shared parameters and corpus-wide error reduction.
-template <typename T>
-quantizer<T> train_host(raft::resources const& res,
-                        params params,
-                        raft::host_matrix_view<const T, int64_t> dataset,
-                        std::optional<raft::device_matrix_view<int8_t, int64_t>> out = std::nullopt)
+// Host and device inputs share the same batch processing and corpus-wide error reduction.
+template <typename T, typename QuantI = int8_t, typename Accessor>
+quantizer<T> train(
+  raft::resources const& res,
+  params params,
+  raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
+  std::optional<raft::device_matrix_view<QuantI, int64_t>> out = std::nullopt)
 {
   using compute_t = typename quantizer<T>::scale_type;
   auto const rows = dataset.extent(0);
@@ -506,11 +390,15 @@ quantizer<T> train_host(raft::resources const& res,
   RAFT_EXPECTS(rows > 0 && dim > 0 && dataset.data_handle() != nullptr,
                "Training requires nonempty rows and dimensions");
   RAFT_EXPECTS(params.quantile > 0.f && params.quantile <= 1.f, "Quantile must be within (0, 1]");
-  RAFT_EXPECTS(params.device_buffer_samples >= 0, "device_buffer_samples must be nonnegative");
-  auto const batch_rows =
-    params.device_buffer_samples == 0 ? rows : std::min(rows, params.device_buffer_samples);
+  constexpr bool data_on_device = raft::is_device_mdspan_v<decltype(dataset)>;
+  if constexpr (!data_on_device) {
+    RAFT_EXPECTS(params.device_buffer_samples >= 0, "device_buffer_samples must be nonnegative");
+  }
+  auto const batch_rows        = data_on_device || params.device_buffer_samples == 0
+                                   ? rows
+                                   : std::min(rows, params.device_buffer_samples);
   auto [copy_stream, prefetch] = cuvs::spatial::knn::detail::utils::get_prefetch_stream(res);
-  cuvs::cluster::kmeans::detail::kmeans_batch_loader<T, int64_t, false> batches(
+  cuvs::cluster::kmeans::detail::kmeans_batch_loader<T, int64_t, data_on_device> batches(
     res,
     dataset,
     batch_rows,
@@ -570,6 +458,34 @@ quantizer<T> train_host(raft::resources const& res,
             raft::max_op{});
         },
         true);
+    } else if constexpr (data_on_device) {
+      auto column            = raft::make_device_vector<T, int64_t>(res, rows);
+      auto stream            = raft::resource::get_cuda_stream(res).get();
+      size_t workspace_bytes = 0;
+      RAFT_CUDA_TRY(cub::DeviceMergeSort::SortKeys(
+        nullptr, workspace_bytes, column.data_handle(), rows, fp_lt_op<T>{}, stream));
+      auto workspace    = raft::make_device_vector<char, int64_t>(res, workspace_bytes);
+      auto const upper  = static_cast<int64_t>(std::ceil((0.5 + 0.5 * params.quantile) * rows)) - 1;
+      auto const lower  = rows - upper - 1;
+      auto const* input = dataset.data_handle();
+      for (int64_t j = 0; j < dim; ++j) {
+        raft::linalg::map_offset(
+          res, column.view(), [input, dim, j] __device__(int64_t i) { return input[i * dim + j]; });
+        if (!raft::resource::get_dry_run_flag(res)) {
+          RAFT_CUDA_TRY(cub::DeviceMergeSort::SortKeys(workspace.data_handle(),
+                                                       workspace_bytes,
+                                                       column.data_handle(),
+                                                       rows,
+                                                       fp_lt_op<T>{},
+                                                       stream));
+        }
+        raft::copy(res,
+                   raft::make_device_scalar_view(minima.data_handle() + j),
+                   raft::make_device_scalar_view(column.data_handle() + lower));
+        raft::copy(res,
+                   raft::make_device_scalar_view(maxima.data_handle() + j),
+                   raft::make_device_scalar_view(column.data_handle() + upper));
+      }
     } else {
       // Select over the complete column, not independently fitted batch quantiles.
       std::vector<T> mins(dim, T{0}), maxs(dim, T{0});
@@ -595,7 +511,7 @@ quantizer<T> train_host(raft::resources const& res,
         res, maxima.view(), raft::make_host_vector_view<const T, int64_t>(maxs.data(), dim));
       raft::resource::sync_stream(res);
     }
-    result.value = train(res, std::move(minima), std::move(maxima));
+    result.value = train<T, QuantI>(res, std::move(minima), std::move(maxima));
   }
 
   auto errors  = raft::make_device_vector<double, int64_t>(res, batch_rows);
@@ -607,18 +523,19 @@ quantizer<T> train_host(raft::resources const& res,
         raft::make_device_vector_view<double, int64_t>(errors.data_handle(), input.extent(0));
       if (auto const* shifts =
             std::get_if<typename quantizer_const_view<T>::shifts_type>(&view.value)) {
-        max_reconstruction_error(res, input, *shifts, batch_errors, maximum.view(), offset != 0);
+        max_reconstruction_error<T, QuantI>(
+          res, input, *shifts, batch_errors, maximum.view(), offset != 0);
       } else {
         auto const& range = std::get<typename quantizer_const_view<T>::range_type>(view.value);
-        max_reconstruction_error(res,
-                                 input,
-                                 quantize_op<T, int8_t>{range.min_, range.max_},
-                                 batch_errors,
-                                 maximum.view(),
-                                 offset != 0);
+        max_reconstruction_error<T, QuantI>(res,
+                                            input,
+                                            quantize_op<T, QuantI>{range.min_, range.max_},
+                                            batch_errors,
+                                            maximum.view(),
+                                            offset != 0);
       }
       if (out) {
-        auto batch_codes = raft::make_device_matrix_view<int8_t, int64_t>(
+        auto batch_codes = raft::make_device_matrix_view<QuantI, int64_t>(
           out->data_handle() + offset * dim, input.extent(0), dim);
         detail::transform(res, view, input, batch_codes);
       }
@@ -629,27 +546,6 @@ quantizer<T> train_host(raft::resources const& res,
     res, raft::make_host_scalar_view(&error), raft::make_device_scalar_view(maximum.data_handle()));
   raft::resource::sync_stream(res);
   result.max_error = round_error_up<T>(error);
-  return result;
-}
-
-template <typename T>
-cuvs::preprocessing::quantize::scalar::quantizer<T> train(
-  raft::resources const& res,
-  const cuvs::preprocessing::quantize::scalar::params params,
-  raft::host_matrix_view<const T, int64_t> dataset)
-{
-  RAFT_EXPECTS(params.quantile > 0.0 && params.quantile <= 1.0,
-               "quantile for scalar quantization needs to be within (0, 1] but is %f",
-               params.quantile);
-
-  if (params.range == range_mode::per_dimension) { return train_host(res, params, dataset); }
-
-  auto [min, max] = detail::quantile_min_max(res, dataset, params.quantile);
-
-  RAFT_LOG_DEBUG("quantizer train min=%lf max=%lf.", double(min), double(max));
-
-  quantizer<T> result{min, max};
-  result.max_error = max_reconstruction_error(res, dataset, quantize_op<T, int8_t>{min, max});
   return result;
 }
 

@@ -53,7 +53,7 @@ struct params {
    */
   range_mode range = range_mode::global;
   /**
-   * Maximum rows staged on device for host per-dimension training and host dataset build.
+   * Maximum rows staged on device for host training and host dataset build.
    * Default: 65536. Zero processes the entire host input in one batch. Ignored for device input.
    * Multiple batches use two input buffers when res has an auxiliary stream pool, and one
    * otherwise. Pageable input uses batch-sized pinned staging buffers, without registering

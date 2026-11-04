@@ -31,13 +31,13 @@ quantizer<T>::quantizer(raft::resources const& res,
              const params params,                                                                \
              raft::device_matrix_view<const T, int64_t> dataset) -> quantizer<T>                 \
   {                                                                                              \
-    return detail::train(res, params, dataset);                                                  \
+    return detail::train<T, QuantI>(res, params, dataset);                                       \
   }                                                                                              \
   auto train(raft::resources const& res,                                                         \
              const params params,                                                                \
              raft::host_matrix_view<const T, int64_t> dataset) -> quantizer<T>                   \
   {                                                                                              \
-    return detail::train(res, params, dataset);                                                  \
+    return detail::train<T, QuantI>(res, params, dataset);                                       \
   }                                                                                              \
   void transform(raft::resources const& res,                                                     \
                  quantizer_const_view<T> quantizer,                                              \
@@ -73,7 +73,7 @@ quantizer<T>::quantizer(raft::resources const& res,
   {                                                                                              \
     auto codes =                                                                                 \
       raft::make_device_matrix<int8_t, int64_t>(res, dataset.extent(0), dataset.extent(1));      \
-    auto quantizer = detail::train_host<T>(res, params, dataset, codes.view());                  \
+    auto quantizer = detail::train<T, QuantI>(res, params, dataset, codes.view());               \
     return {std::move(codes), std::move(quantizer)};                                             \
   }                                                                                              \
   template struct quantizer<T>;

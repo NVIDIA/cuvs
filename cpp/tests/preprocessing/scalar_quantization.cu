@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/preprocessing/quantize/detail/scalar.cuh"
 #include "../test_utils.cuh"
 #include <cuvs/core/dataset/sq.hpp>
 #include <cuvs/preprocessing/quantize/scalar.hpp>
@@ -652,6 +653,36 @@ TYPED_TEST(PerDimensionQuantizationTest, CustomParametersAndValidation)
                raft::logic_error);
 }
 
+TEST(PerDimensionRangeTest, QuantizedTypeLimits)
+{
+  using QuantI = int16_t;
+  raft::resources res;
+  auto stream = raft::resource::get_cuda_stream(res);
+  std::vector<float> values{-100000.f, -32767.f, 0.f, 32767.f, 100000.f};
+  auto input = raft::make_device_matrix<float, int64_t>(res, values.size(), 1);
+  raft::update_device(input.data_handle(), values.data(), values.size(), stream);
+  auto codes = raft::make_device_matrix<QuantI, int64_t>(res, values.size(), 1);
+  auto owner = detail::train<float, QuantI>(res,
+                                            params{.5f, range_mode::per_dimension},
+                                            raft::make_const_mdspan(input.view()),
+                                            codes.view());
+  EXPECT_FLOAT_EQ(std::get<shifts_view>(owner.view().value).scale, 1.f);
+  std::vector<QuantI> expected{-32767, -32767, 0, 32767, 32767};
+  EXPECT_TRUE(devArrMatchHost(
+    expected.data(), codes.data_handle(), expected.size(), cuvs::Compare<QuantI>(), stream.get()));
+  detail::inverse_transform(res, owner.view(), raft::make_const_mdspan(codes.view()), input.view());
+  std::vector<float> decoded(values.size());
+  raft::update_host(decoded.data(), input.data_handle(), decoded.size(), stream);
+  raft::resource::sync_stream(res);
+  double maximum = 0;
+  for (size_t i = 0; i < values.size(); ++i) {
+    EXPECT_FLOAT_EQ(decoded[i], static_cast<float>(expected[i]));
+    maximum = std::max(maximum, std::abs(double(values[i]) - decoded[i]));
+  }
+  EXPECT_GE(owner.max_error, maximum);
+  EXPECT_NEAR(owner.max_error, maximum, maximum * 2e-6);
+}
+
 TEST(QuantizationDatasetTest, GlobalRangeDataset)
 {
   raft::resources res;
@@ -726,7 +757,9 @@ TYPED_TEST(PerDimensionQuantizationTest, BatchedHostDataset)
     std::copy(values.begin(), values.end(), pinned.data_handle());
     for (auto mode : {range_mode::global, range_mode::per_dimension}) {
       for (float quantile : {1.f, .5f, .99f}) {
-        auto expected = build(res, params{quantile, mode}, raft::make_const_mdspan(input.view()));
+        // Device input ignores the host staging limit.
+        auto expected =
+          build(res, params{quantile, mode, -1}, raft::make_const_mdspan(input.view()));
         for (int64_t batch_rows : {int64_t{1}, int64_t{7}, rows, int64_t{0}}) {
           for (bool use_pinned : {false, true}) {
             SCOPED_TRACE(::testing::Message()
