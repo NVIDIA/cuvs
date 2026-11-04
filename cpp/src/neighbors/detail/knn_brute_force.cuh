@@ -11,6 +11,7 @@
 #include <cuvs/selection/select_k.hpp>
 
 #include "../../distance/detail/distance_ops/l2_exp.cuh"
+#include "./cutile_topk/fused_topk_pack.cuh"
 #include "./cutile_topk/fused_topk_tile.hpp"
 #include "./faiss_distance_utils.h"
 #include "./fused_l2_knn.cuh"
@@ -486,17 +487,26 @@ void brute_force_knn_impl(
           auto prepare =
             [&](const value_t* source, IntType rows, rmm::device_uvector<value_t>& destination) {
               destination.resize(static_cast<size_t>(rows) * padded, stream);
-              RAFT_CUDA_TRY(cudaMemsetAsync(
-                destination.data(), 0, static_cast<size_t>(rows) * row_bytes, stream.get()));
-              const size_t source_bytes = static_cast<size_t>(D) * sizeof(value_t);
-              RAFT_CUDA_TRY(cudaMemcpy2DAsync(destination.data(),
-                                              row_bytes,
-                                              source,
-                                              source_bytes,
-                                              source_bytes,
-                                              rows,
-                                              cudaMemcpyDeviceToDevice,
-                                              stream.get()));
+              if (k >= 5) {
+                fused_topk_pack_rows(destination.data(),
+                                     source,
+                                     static_cast<size_t>(rows),
+                                     active_dimensions,
+                                     padded,
+                                     stream.get());
+              } else {
+                RAFT_CUDA_TRY(cudaMemsetAsync(
+                  destination.data(), 0, static_cast<size_t>(rows) * row_bytes, stream.get()));
+                const size_t source_bytes = static_cast<size_t>(D) * sizeof(value_t);
+                RAFT_CUDA_TRY(cudaMemcpy2DAsync(destination.data(),
+                                                row_bytes,
+                                                source,
+                                                source_bytes,
+                                                source_bytes,
+                                                rows,
+                                                cudaMemcpyDeviceToDevice,
+                                                stream.get()));
+              }
             };
           prepare(input[i], sizes[i], packed_corpus);
           active_corpus = packed_corpus.data();
