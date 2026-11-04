@@ -1,0 +1,53 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * All rights reserved. SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <neighbors/detail/cagra/search_launchers.hpp>
+
+#include <cassert>
+#include <raft/util/cuda_dev_essentials.cuh>
+
+namespace cuvs::neighbors::cagra::detail {
+
+namespace multi_kernel_search {
+
+template <class T, class S>
+RAFT_KERNEL batched_memcpy_kernel(T* const dst,  // [batch_size, ld_dst]
+                                  const uint64_t ld_dst,
+                                  const S* const src,  // [batch_size, ld_src]
+                                  const uint64_t ld_src,
+                                  const uint64_t count,
+                                  const uint64_t batch_size)
+{
+  const auto tid = threadIdx.x + blockIdx.x * blockDim.x;
+  if (tid >= count * batch_size) { return; }
+  const auto i          = tid % count;
+  const auto j          = tid / count;
+  dst[i + (ld_dst * j)] = src[i + (ld_src * j)];
+}
+
+template <class T, class S>
+void batched_memcpy(T* const dst,  // [batch_size, ld_dst]
+                    const uint64_t ld_dst,
+                    const S* const src,  // [batch_size, ld_src]
+                    const uint64_t ld_src,
+                    const uint64_t count,
+                    const uint64_t batch_size,
+                    cudaStream_t cuda_stream)
+{
+  assert(ld_dst >= count);
+  assert(ld_src >= count);
+  constexpr uint32_t block_size = 256;
+  const auto grid_size          = (batch_size * count + block_size - 1) / block_size;
+  batched_memcpy_kernel<T, S>
+    <<<grid_size, block_size, 0, cuda_stream>>>(dst, ld_dst, src, ld_src, count, batch_size);
+}
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace multi_kernel_search
+
+}  // namespace cuvs::neighbors::cagra::detail

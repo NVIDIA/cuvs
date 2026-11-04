@@ -1,0 +1,24 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <neighbors/detail/cagra/search_multi_cta.cuh>
+
+namespace {
+
+using inst_data_t = @data_type@;
+
+}  // namespace
+
+namespace cuvs::neighbors::cagra::detail::multi_cta_search {
+
+template struct search<inst_data_t,
+                       uint32_t,
+                       float,
+                       cuvs::neighbors::filtering::none_sample_filter,
+                       uint32_t,
+                       uint32_t>;
+
+}  // namespace cuvs::neighbors::cagra::detail::multi_cta_search
