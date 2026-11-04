@@ -53,15 +53,17 @@ then
   JEXTRACT_DOWNLOAD_URL="https://download.java.net/java/early_access/jextract/22/6/${JEXTRACT_FILENAME}"
   echo "jextract doesn't exist. Downloading it from $JEXTRACT_DOWNLOAD_URL.";
   for attempt in 1 2 3 4 5; do
-    if wget -c "${JEXTRACT_DOWNLOAD_URL}"; then
+    rm -f "${JEXTRACT_FILENAME}"
+    if wget --tries=1 --timeout=60 -O "${JEXTRACT_FILENAME}" "${JEXTRACT_DOWNLOAD_URL}" \
+      && echo "${JEXTRACT_SHA256}  ${JEXTRACT_FILENAME}" | sha256sum -c -; then
       break
     elif [[ ${attempt} == 5 ]]; then
+      rm -f "${JEXTRACT_FILENAME}"
       echo "Failed to download jextract after ${attempt} attempts."
       exit 1
     fi
     sleep $((attempt * 15))
   done
-  echo "${JEXTRACT_SHA256}  ${JEXTRACT_FILENAME}" | sha256sum -c -
   tar -xvf ./"${JEXTRACT_FILENAME}"
   echo "jextract downloaded to $(pwd)/jextract-22"
 fi
