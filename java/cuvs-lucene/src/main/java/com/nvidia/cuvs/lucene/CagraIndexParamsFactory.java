@@ -41,6 +41,7 @@ public class CagraIndexParamsFactory {
               gpuSearchParams.getBuildQuality());
       return new CagraIndexParams.Builder()
           .withGraphDegree(derived.getGraphDegree())
+          .withVariableGraphDegreeFraction(derived.getVariableGraphDegreeFraction())
           .withIntermediateGraphDegree(derived.getIntermediateGraphDegree())
           .withCagraGraphBuildAlgo(derived.getCagraGraphBuildAlgo())
           .withCuVSIvfPqParams(derived.getCuVSIvfPqParams())
@@ -89,6 +90,7 @@ public class CagraIndexParamsFactory {
       // writerThreads for now but should fix this in cuVS in the future.
       return new CagraIndexParams.Builder()
           .withGraphDegree(derived.getGraphDegree())
+          .withVariableGraphDegreeFraction(derived.getVariableGraphDegreeFraction())
           .withIntermediateGraphDegree(derived.getIntermediateGraphDegree())
           .withCagraGraphBuildAlgo(derived.getCagraGraphBuildAlgo())
           .withCuVSIvfPqParams(derived.getCuVSIvfPqParams())
@@ -123,6 +125,7 @@ public class CagraIndexParamsFactory {
     }
     return new CagraIndexParams.Builder()
         .withGraphDegree(maxGraphDegree)
+        .withVariableGraphDegreeFraction(params.getVariableGraphDegreeFraction())
         .withIntermediateGraphDegree(params.getIntermediateGraphDegree())
         .withCagraGraphBuildAlgo(params.getCagraGraphBuildAlgo())
         .withCuVSIvfPqParams(params.getCuVSIvfPqParams())
