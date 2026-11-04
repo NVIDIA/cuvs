@@ -382,6 +382,46 @@ TEST(Top1nnAutoSelection, LegacyHeuristic)
     Backend::Unfused);
 }
 
+TEST(Top1nnAutoSelection, Sm103HighDimCrossover)
+{
+  using cuvs::distance::detail::prefer_cutile_top_1_nn;
+  EXPECT_TRUE(prefer_cutile_top_1_nn(10, 3, 999, 1536));
+  EXPECT_TRUE(prefer_cutile_top_1_nn(10, 3, 1000, 1535));
+  EXPECT_FALSE(prefer_cutile_top_1_nn(10, 3, 1000, 1536));
+  EXPECT_FALSE(prefer_cutile_top_1_nn(10, 3, 10000, 2048));
+  EXPECT_TRUE(prefer_cutile_top_1_nn(10, 0, 1000, 1536));
+  EXPECT_TRUE(prefer_cutile_top_1_nn(10, 7, 1000, 1536));
+
+#if CUVS_CUTILE_ENABLED && CUVS_CUTILE_SM103_ENABLED
+  raft::resources handle;
+  const auto prop = raft::resource::get_device_properties(handle);
+  if (prop.major != 10 || prop.minor != 3) { return; }
+  constexpr int m = 32, n = 1000, k = 1536;
+  auto x        = raft::make_device_matrix<float, int>(handle, m, k);
+  auto y        = raft::make_device_matrix<float, int>(handle, n, k);
+  using Backend = cuvs::distance::detail::Top1nnBackend;
+  auto probe    = [&](Backend backend) {
+    return cuvs::distance::probe_top_1_nn(handle,
+                                          x.data_handle(),
+                                          y.data_handle(),
+                                          m,
+                                          n,
+                                          k,
+                                          cuvs::distance::detail::Top1nnTuning{},
+                                          DistanceType::L2Expanded,
+                                          backend,
+                                          true,
+                                          true);
+  };
+  const auto automatic = probe(Backend::Auto);
+  EXPECT_TRUE(automatic.available);
+  EXPECT_EQ(automatic.backend, Backend::Unfused);
+  const auto explicit_cutile = probe(Backend::Cutile);
+  EXPECT_TRUE(explicit_cutile.available);
+  EXPECT_EQ(explicit_cutile.backend, Backend::Cutile);
+#endif
+}
+
 TEST(Top1nnAccurateSelection, Tf32LabelsFromSixteenFeatures)
 {
   using Backend = cuvs::distance::detail::Top1nnBackend;

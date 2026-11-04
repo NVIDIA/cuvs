@@ -93,6 +93,14 @@ struct Top1nnPlan {
 };
 
 template <typename IdxT>
+constexpr bool prefer_cutile_top_1_nn(int cc_major, int cc_minor, IdxT n, IdxT k)
+{
+  // On sm_103, the existing single-CTA tile loses to the legacy path for
+  // large high-dimensional candidate sets. Explicit cuTile requests remain available.
+  return !(cc_major == 10 && cc_minor == 3 && n >= IdxT{1000} && k >= IdxT{1536});
+}
+
+template <typename IdxT>
 constexpr Top1nnBackend legacy_top_1_nn_backend(int cc_major, IdxT m, IdxT n, DistanceType metric)
 {
   const bool supported = metric == DistanceType::L2Expanded ||
