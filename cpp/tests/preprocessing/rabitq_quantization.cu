@@ -5,6 +5,7 @@
 
 #include "../test_utils.cuh"
 
+#include <cuvs/core/dataset/rabitq.hpp>
 #include <cuvs/preprocessing/quantize/rabitq.hpp>
 
 #include <raft/core/device_mdarray.hpp>
@@ -29,6 +30,7 @@
 #include <optional>
 #include <ostream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 /*
@@ -133,7 +135,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
   }
 
   /** The two peers must agree on the documented padding rule. */
-  void verify_shape(rotator const& rot, encoder const& quant)
+  void verify_shape(rotator<float> const& rot, encoder const& quant)
   {
     const int64_t padded = expected_padded_dim(ps_.dim);
     ASSERT_EQ(quant.dim, ps_.dim);
@@ -154,7 +156,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
   }
 
   /** The dense rotation matrix must be padded_dim x padded_dim and orthonormal. */
-  void verify_matmul_state(rotator const& rot)
+  void verify_matmul_state(rotator<float> const& rot)
   {
     const int64_t padded = rot.padded_dim;
     ASSERT_EQ(rot.rotation_matrix.extent(0), padded);
@@ -179,7 +181,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
   }
 
   /** The packed Kac's-walk sign bits must have the documented size and be mixed. */
-  void verify_fht_kac_state(rotator const& rot)
+  void verify_fht_kac_state(rotator<float> const& rot)
   {
     const int64_t n_bytes = expected_flip_bytes(rot.padded_dim);
     ASSERT_EQ(rot.flip_bits.extent(0), n_bytes);
@@ -199,7 +201,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
     ASSERT_LT(n_set_bits, static_cast<size_t>(n_bytes) * 8);
   }
 
-  void verify_state(rotator const& rot)
+  void verify_state(rotator<float> const& rot)
   {
     if (ps_.rotator_type == rotator_kind::matmul) {
       verify_matmul_state(rot);
@@ -487,7 +489,7 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
    * transform_residuals() - same rotator, same launch shapes, same encoder
    * kernel - so the two paths must agree.
    */
-  void testResidualsMatchTransform(quantizer const& pipe,
+  void testResidualsMatchTransform(quantizer<float> const& pipe,
                                    std::vector<CodeT> const& h_codes_ref,
                                    raft::device_vector<float, int64_t> const& delta_ref,
                                    raft::device_vector<float, int64_t> const& vl_ref)
@@ -851,6 +853,58 @@ TEST(RabitqQuantizationBasicTest, BatchedTransformMatchesUnbatched)
       run(pooled, pinned_data, "pinned host input, stream pool", pinned.data_handle());
     }
   }
+}
+
+/** The quantizer and its outputs form a spec-based dataset: codes and factors are its data. */
+TEST(RabitqQuantizationBasicTest, Dataset)
+{
+  using dataset_t = cuvs::device_rabitq_dataset<float, int64_t>;
+  static_assert(std::is_trivially_copyable_v<dataset_t::view_type>);
+  static_assert(std::is_trivially_copyable_v<dataset_t::const_view_type>);
+  static_assert(std::is_default_constructible_v<dataset_t::const_view_type>);
+
+  raft::resources handle;
+  constexpr int64_t kDim  = 100;  // not a multiple of 32, so dim() != padded_dim
+  constexpr int64_t kRows = 16;
+
+  params p;
+  auto q                = make_quantizer(handle, p, kDim);
+  const int64_t kPadded = q.encoder.padded_dim;
+  ASSERT_NE(kPadded, kDim);
+
+  auto x = raft::make_device_matrix<float, int64_t>(handle, kRows, kDim);
+  raft::random::RngState r(1234ULL);
+  raft::random::uniform(handle, r, x.data_handle(), x.size(), -1.0f, 1.0f);
+  auto codes   = raft::make_device_matrix<uint8_t, int64_t>(handle, kRows, kPadded);
+  auto factors = raft::make_device_matrix<float, int64_t>(handle, kRows, 3);
+  transform(handle,
+            q.encoder,
+            q.rotator,
+            raft::make_const_mdspan(x.view()),
+            std::nullopt,
+            codes.view(),
+            factors.view());
+
+  const auto* codes_ptr   = codes.data_handle();
+  const auto* factors_ptr = factors.data_handle();
+  const auto* flip_ptr    = q.rotator.flip_bits.data_handle();
+  dataset_t ds{{std::move(codes), std::move(factors)}, std::move(q)};
+
+  EXPECT_EQ(ds.n_rows(), kRows);
+  EXPECT_EQ(ds.dim(), kDim);
+  EXPECT_EQ(ds.data_const_view().codes.data_handle(), codes_ptr);
+  EXPECT_EQ(ds.data_const_view().codes.extent(1), kPadded);
+  EXPECT_EQ(ds.data_const_view().factors.data_handle(), factors_ptr);
+  EXPECT_EQ(ds.const_manifest_view().rotator.flip_bits.data_handle(), flip_ptr);
+  EXPECT_EQ(ds.const_manifest_view().encoder.padded_dim, kPadded);
+
+  // A mutable view decays to the read-only one, the way an mdspan does.
+  dataset_t::const_view_type view = ds.view();
+  EXPECT_EQ(view.n_rows(), kRows);
+  EXPECT_EQ(view.dim(), kDim);
+  EXPECT_EQ(view.data_view().factors.data_handle(), factors_ptr);
+  EXPECT_EQ(view.manifest_view().rotator.flip_bits.data_handle(), flip_ptr);
+  raft::resource::sync_stream(handle);
 }
 
 }  // namespace cuvs::preprocessing::quantize::rabitq

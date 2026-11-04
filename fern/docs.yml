@@ -366,6 +366,8 @@ navigation:
             path: "./pages/cpp_api/cpp-api-core-dataset-dense.md"
           - page: "Core Dataset Empty"
             path: "./pages/cpp_api/cpp-api-core-dataset-empty.md"
+          - page: "Core Dataset RaBitQ"
+            path: "./pages/cpp_api/cpp-api-core-dataset-rabitq.md"
           - page: "Core Roaring Allowlist"
             path: "./pages/cpp_api/cpp-api-core-roaring-allowlist.md"
           - page: "Core Dataset Sparse"

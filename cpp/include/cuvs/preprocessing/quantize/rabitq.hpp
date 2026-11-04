@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <type_traits>
 
 namespace CUVS_EXPORT cuvs {
 namespace preprocessing {
@@ -93,6 +94,37 @@ struct params {
 };
 
 /**
+ * @brief Non-owning view of a rotator, with the constness semantics of an mdspan:
+ * `rotator_view<T>` can modify the rotation state, `rotator_view<const T>` cannot.
+ *
+ * @tparam T element type of the rotation matrix, possibly const
+ */
+template <typename T = float>
+struct rotator_view {
+  using flip_type = std::conditional_t<std::is_const_v<T>, const uint8_t, uint8_t>;
+
+  /** Which implementation the state below belongs to. */
+  rotator_kind kind = rotator_kind::fht_kac;
+  /** Working dimension: `dim` rounded up to a multiple of 32. */
+  int64_t padded_dim = 0;
+  /** See rotator::rotation_matrix. */
+  raft::device_matrix_view<T, int64_t, raft::row_major> rotation_matrix;
+  /** See rotator::flip_bits. */
+  raft::device_vector_view<flip_type, int64_t> flip_bits;
+
+  /** A mutable view decays to the read-only one, the way an mdspan does. */
+  template <typename U>
+    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
+  operator rotator_view<U>() const noexcept  // NOLINT(google-explicit-constructor)
+  {
+    return {kind,
+            padded_dim,
+            raft::make_const_mdspan(rotation_matrix),
+            raft::make_const_mdspan(flip_bits)};
+  }
+};
+
+/**
  * @brief Random rotation applied to the data before quantization.
  *
  * The rotator carries no learned information - its state is drawn from
@@ -106,8 +138,13 @@ struct params {
  *
  * A rotator is an independent peer of the encoder: neither contains the
  * other, and a single rotator may be shared by several encoders.
+ *
+ * @tparam T element type of the rotation matrix
  */
+template <typename T = float>
 struct rotator {
+  static_assert(!std::is_const_v<T>, "An owning rotator cannot hold const elements.");
+
   /** Which implementation the state below belongs to. */
   rotator_kind kind = rotator_kind::fht_kac;
   /**
@@ -123,7 +160,7 @@ struct rotator {
    * `padded_dim x padded_dim` row-major random orthogonal matrix `R`; rotate()
    * maps each row `x` to `R x`. Empty unless `kind == rotator_kind::matmul`.
    */
-  raft::device_matrix<float, int64_t, raft::row_major> rotation_matrix;
+  raft::device_matrix<T, int64_t, raft::row_major> rotation_matrix;
   /**
    * Packed sign bits of the four Kac's-walk passes (`4 * padded_dim / 8` bytes).
    * Empty unless `kind == rotator_kind::fht_kac`.
@@ -132,9 +169,23 @@ struct rotator {
 
   /** @brief Construct an empty (uninitialized) rotator. */
   explicit rotator(raft::resources const& res)
-    : rotation_matrix(raft::make_device_matrix<float, int64_t, raft::row_major>(res, 0, 0)),
+    : rotation_matrix(raft::make_device_matrix<T, int64_t, raft::row_major>(res, 0, 0)),
       flip_bits(raft::make_device_vector<uint8_t, int64_t>(res, 0))
   {
+  }
+
+  using view_type       = rotator_view<T>;
+  using const_view_type = rotator_view<const T>;
+
+  /** A non-owning view of the rotator. */
+  [[nodiscard]] auto view() noexcept -> view_type
+  {
+    return {kind, padded_dim, rotation_matrix.view(), flip_bits.view()};
+  }
+  /** A read-only non-owning view of the rotator. */
+  [[nodiscard]] auto view() const noexcept -> const_view_type
+  {
+    return {kind, padded_dim, rotation_matrix.view(), flip_bits.view()};
   }
 };
 
@@ -162,20 +213,54 @@ struct encoder {
 };
 
 /**
+ * @brief Non-owning view of a quantizer, with the constness semantics of an mdspan.
+ *
+ * The encoder holds no buffers, so it is its own view.
+ *
+ * @tparam T element type of the rotation matrix, possibly const
+ */
+template <typename T = float>
+struct quantizer_view {
+  /** Rotation applied before encoding. */
+  rotator_view<T> rotator;
+  /** Encoder applied to the rotated residuals. */
+  rabitq::encoder encoder;
+
+  /** A mutable view decays to the read-only one, the way an mdspan does. */
+  template <typename U>
+    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
+  operator quantizer_view<U>() const noexcept  // NOLINT(google-explicit-constructor)
+  {
+    return {rotator, encoder};
+  }
+};
+
+/**
  * @brief A RaBitQ quantizer: the rotator and the encoder applied after it.
  *
  * The entry point for the common end-to-end flow. It composes the two peers and
  * adds no state and no behaviour of its own. Pass `quantizer::encoder` and
  * `quantizer::rotator` to transform().
+ *
+ * @tparam T element type of the rotation matrix
  */
+template <typename T = float>
 struct quantizer {
   /** Rotation applied before encoding. */
-  rabitq::rotator rotator;
+  rabitq::rotator<T> rotator;
   /** Encoder applied to the rotated residuals. */
   rabitq::encoder encoder;
 
   /** @brief Construct an empty (uninitialized) quantizer. */
   explicit quantizer(raft::resources const& res) : rotator(res) {}
+
+  using view_type       = quantizer_view<T>;
+  using const_view_type = quantizer_view<const T>;
+
+  /** A non-owning view of the quantizer. */
+  [[nodiscard]] auto view() noexcept -> view_type { return {rotator.view(), encoder}; }
+  /** A read-only non-owning view of the quantizer. */
+  [[nodiscard]] auto view() const noexcept -> const_view_type { return {rotator.view(), encoder}; }
 };
 
 /**
@@ -193,13 +278,16 @@ struct quantizer {
  *   cuvs::preprocessing::quantize::rabitq::make_rotator(res, params, dataset.extent(1));
  * @endcode
  *
+ * @tparam T element type of the rotation matrix
+ *
  * @param[in] res raft resource
  * @param[in] params configure the rotator, e.g. kind and seed
  * @param[in] dim dimensionality of the un-rotated input vectors
  *
  * @return rotator
  */
-rotator make_rotator(raft::resources const& res, params const& params, int64_t dim);
+template <typename T = float>
+auto make_rotator(raft::resources const& res, params const& params, int64_t dim) -> rotator<T>;
 
 /**
  * @brief Initializes a RaBitQ encoder.
@@ -240,13 +328,16 @@ encoder make_encoder(raft::resources const& res, params const& params, int64_t d
  *   raft::make_const_mdspan(dataset.view()), std::nullopt, codes.view(), delta.view(), vl.view());
  * @endcode
  *
+ * @tparam T element type of the rotation matrix
+ *
  * @param[in] res raft resource
  * @param[in] params configure both components
  * @param[in] dim dimensionality of the un-rotated input vectors
  *
  * @return quantizer
  */
-quantizer make_quantizer(raft::resources const& res, params const& params, int64_t dim);
+template <typename T = float>
+auto make_quantizer(raft::resources const& res, params const& params, int64_t dim) -> quantizer<T>;
 
 /**
  * @brief Applies the random rotation to already-padded rows.
@@ -271,7 +362,7 @@ quantizer make_quantizer(raft::resources const& res, params const& params, int64
  *
  */
 void rotate(raft::resources const& res,
-            rotator const& rotator,
+            rotator<float> const& rotator,
             raft::device_matrix_view<const float, int64_t, raft::row_major> in,
             raft::device_matrix_view<float, int64_t, raft::row_major> out);
 
@@ -321,7 +412,7 @@ void rotate(raft::resources const& res,
  */
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -331,7 +422,7 @@ void transform(raft::resources const& res,
 /** @copydoc transform */
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
@@ -341,7 +432,7 @@ void transform(raft::resources const& res,
 /** @copydoc transform */
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -351,7 +442,7 @@ void transform(raft::resources const& res,
 /** @copydoc transform */
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
@@ -394,7 +485,7 @@ void transform(raft::resources const& res,
  */
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -403,7 +494,7 @@ void transform(raft::resources const& res,
 /** @copydoc transform */
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
@@ -412,7 +503,7 @@ void transform(raft::resources const& res,
 /** @copydoc transform */
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
@@ -421,7 +512,7 @@ void transform(raft::resources const& res,
 /** @copydoc transform */
 void transform(raft::resources const& res,
                encoder const& encoder,
-               rotator const& rotator,
+               rotator<float> const& rotator,
                raft::host_matrix_view<const float, int64_t, raft::row_major> dataset,
                std::optional<raft::device_vector_view<const float, int64_t>> centroid,
                raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
