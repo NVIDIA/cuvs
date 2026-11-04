@@ -75,10 +75,12 @@ bool launch_fused_topk(OutputIdxT* neighbors,
       (PhysicalK != 8 || num_splits != 1 || packed_output_width < 5 || packed_output_width > 8)) {
     return false;
   }
-  using Planner = std::conditional_t<PhysicalK == 2,
-                                     FusedTopkPk2Planner<DataT, AbiTag>,
-                                     std::conditional_t<PhysicalK == 4, FusedTopkPk4Planner<DataT, AbiTag>,
-                                                        FusedTopkPk8Planner<DataT, AbiTag, OutputIdxT>>>;
+  using Planner =
+    std::conditional_t<PhysicalK == 2,
+                       FusedTopkPk2Planner<DataT, AbiTag>,
+                       std::conditional_t<PhysicalK == 4,
+                                          FusedTopkPk4Planner<DataT, AbiTag>,
+                                          FusedTopkPk8Planner<DataT, AbiTag, OutputIdxT>>>;
   std::shared_ptr<rtcx::algorithm_launcher> launcher;
   std::shared_ptr<rtcx::algorithm_launcher> refine_launcher;
   cuvs::detail::jit_lto::CutileTileConfig tile_cfg{};

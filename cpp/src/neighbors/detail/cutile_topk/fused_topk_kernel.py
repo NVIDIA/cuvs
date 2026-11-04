@@ -230,13 +230,25 @@ def make_kernel(
         raise ValueError(f"Unsupported matrix_layout {matrix_layout!r}")
 
     if index_type == "int64" and (physical_k != 8 or gpu_code != "sm_120"):
-        raise ValueError("Direct int64 storage is qualified only for SM120 PK8")
-    if whole_tile_guard and (physical_k != 8 or gpu_code != "sm_120" or stage != "fused"):
-        raise ValueError("Whole-tile guard is qualified only for fused SM120 PK8")
+        raise ValueError(
+            "Direct int64 storage is qualified only for SM120 PK8"
+        )
+    if whole_tile_guard and (
+        physical_k != 8 or gpu_code != "sm_120" or stage != "fused"
+    ):
+        raise ValueError(
+            "Whole-tile guard is qualified only for fused SM120 PK8"
+        )
     if physical_k == 8 and witness:
         raise ValueError("PK8 does not support the sorted-list witness stage")
-    if physical_k == 8 and stage != "fused" and (
-        gpu_code != "sm_120" or matrix_layout != "strict" or index_type != "int32"
+    if (
+        physical_k == 8
+        and stage != "fused"
+        and (
+            gpu_code != "sm_120"
+            or matrix_layout != "strict"
+            or index_type != "int32"
+        )
     ):
         raise ValueError("PK8 stages require strict SM120 int32 candidates")
     # Candidate arithmetic remains int32; final stores may widen to int64.
@@ -245,7 +257,13 @@ def make_kernel(
     kernel_options = {}
     if occupancy is not None:
         kernel_options["occupancy"] = ct.ByTarget(**{gpu_code: occupancy})
-    insert_candidate = _insert2 if physical_k == 2 else _insert4 if physical_k == 4 else _insert8
+    insert_candidate = (
+        _insert2
+        if physical_k == 2
+        else _insert4
+        if physical_k == 4
+        else _insert8
+    )
 
     @ct.kernel(**kernel_options)
     def fused_topk_kernel(
@@ -301,13 +319,17 @@ def make_kernel(
                     keepdims=False,
                 )
 
-            def update_max_tree(scores, indices, candidate_score, candidate_idx):
+            def update_max_tree(
+                scores, indices, candidate_score, candidate_idx
+            ):
                 slots = ct.arange(physical_k, dtype=idx_dtype)
                 positions = ct.broadcast_to(slots[None, :], (tm, physical_k))
 
                 def reduce_worst(a_score, a_idx, a_pos, b_score, b_idx, b_pos):
                     take_a = _take_worse(a_score, a_idx, b_score, b_idx) | (
-                        (a_score == b_score) & (a_idx == b_idx) & (a_pos > b_pos)
+                        (a_score == b_score)
+                        & (a_idx == b_idx)
+                        & (a_pos > b_pos)
                     )
                     return (
                         ct.where(take_a, a_score, b_score),
@@ -328,13 +350,16 @@ def make_kernel(
                 replace = positions == worst_pos[:, None]
                 return (
                     ct.where(
-                        take[:, None] & replace, candidate_score[:, None], scores
+                        take[:, None] & replace,
+                        candidate_score[:, None],
+                        scores,
                     ),
                     ct.where(
-                        take[:, None] & replace, candidate_idx[:, None], indices
+                        take[:, None] & replace,
+                        candidate_idx[:, None],
+                        indices,
                     ),
                 )
-
 
             for tile_n_index in range(split_begin, split_end):
                 accumulator = ct.zeros((tm, tn), ct.float32)
@@ -451,8 +476,13 @@ def make_kernel(
                 else:
                     select_tile = True
                     if whole_tile_guard:
-                        valid_query_rows = bid_m * tm + ct.arange(tm, dtype=idx_dtype) < query_rows
-                        select_tile = _pk8_tile_needs_selection(scores, best_scores, valid_query_rows)
+                        valid_query_rows = (
+                            bid_m * tm + ct.arange(tm, dtype=idx_dtype)
+                            < query_rows
+                        )
+                        select_tile = _pk8_tile_needs_selection(
+                            scores, best_scores, valid_query_rows
+                        )
                     if select_tile:
                         for _ in range(physical_k):
                             candidate_score, candidate_idx = reduce_best(
@@ -468,7 +498,10 @@ def make_kernel(
                             )
                             if physical_k == 8:
                                 best_scores, best_indices = update_max_tree(
-                                    best_scores, best_indices, candidate_score, candidate_idx
+                                    best_scores,
+                                    best_indices,
+                                    candidate_score,
+                                    candidate_idx,
                                 )
                             else:
                                 best_scores, best_indices = insert_candidate(
