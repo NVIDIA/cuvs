@@ -469,7 +469,7 @@ void brute_force_knn_impl(
         const auto& properties = raft::resource::get_device_properties(handle);
         // SM120 geometry: PK2/4 retain 64 query rows; PK8 uses 32 to bound
         // live candidate/resource pressure. This is not a workload allowlist.
-        const int num_splits = fused_topk_public_num_splits(
+        int num_splits = fused_topk_public_num_splits(
           n, sizes[i], properties.multiProcessorCount, k <= 4 ? 64 : 32);
         int active_dimensions         = static_cast<int>(D);
         const value_t* active_queries = search_items;
@@ -517,6 +517,10 @@ void brute_force_knn_impl(
             active_queries = packed_queries.data();
           }
           active_dimensions = padded;
+        }
+        if (k >= 5 && k <= 8) {
+          num_splits = fused_topk_pk8_public_num_splits<value_t>(
+            n, sizes[i], properties.multiProcessorCount, active_dimensions);
         }
         if (k >= 5 && k <= 8 && num_splits == 1) {
           used_fused_topk =

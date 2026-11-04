@@ -1573,12 +1573,16 @@ void check_public_typed_batch(int k,
     : PhysicalK == 4 ? is_fused_topk_pk4_candidate<DataT>(rows, n, d, k, metric, !independent)
                      : is_fused_topk_pk8_candidate<DataT>(rows, n, d, k, metric, !independent);
   if (available && eligible) {
-    const int splits = fused_topk_public_num_splits(
+    int splits = fused_topk_public_num_splits(
       rows,
       n,
       raft::resource::get_device_properties(resources).multiProcessorCount,
       PhysicalK <= 4 ? 64 : 32);
     const int padded = fused_topk_padded_dimensions<DataT>(d);
+    if constexpr (PhysicalK == 8) {
+      splits = fused_topk_pk8_public_num_splits<DataT>(
+        rows, n, raft::resource::get_device_properties(resources).multiProcessorCount, padded);
+    }
     std::vector<float> padded_x(n * padded, 0), padded_q(rows * padded, 0);
     for (int64_t row = 0; row < n; ++row) {
       std::copy_n(xf.data() + row * d, d, padded_x.data() + row * padded);
@@ -1696,6 +1700,35 @@ TEST(FusedTopkPk2PolicyTest, PublicSplitGeometryIsBoundedAndShapeIndependent)
   for (int q : {1, 16, 128, 129, 4096, 8192, std::numeric_limits<int>::max()}) {
     for (int n : {1, 127, 128, 129, 100000, std::numeric_limits<int>::max()}) {
       const int splits = fused_topk_public_num_splits(q, n, 188);
+      EXPECT_GE(splits, 1);
+      EXPECT_LE(splits, 128);
+      EXPECT_LE(splits, fused_topk_pk2_ceil_div(n, 128));
+    }
+  }
+}
+
+TEST(FusedTopkPk8, NarrowPublicSplitPolicy)
+{
+  for (int d : {16, 32, 128, 256, 508}) {
+    EXPECT_EQ(fused_topk_pk8_public_num_splits<float>(128, 100000, 188, d), 64);
+  }
+  EXPECT_EQ(fused_topk_pk8_public_num_splits<half>(128, 100000, 188, 504), 64);
+  EXPECT_EQ(fused_topk_pk8_public_num_splits<half>(128, 100000, 188, 508), 32);
+  EXPECT_EQ(fused_topk_pk8_public_num_splits<float>(128, 100000, 188, 509), 32);
+  for (int d : {512, 516, 1024}) {
+    EXPECT_EQ(fused_topk_pk8_public_num_splits<float>(128, 100000, 188, d), 32);
+  }
+  for (int d : {16, 128, 512}) {
+    EXPECT_EQ(fused_topk_pk8_public_num_splits<float>(16, 100000, 188, d), 128);
+    EXPECT_EQ(fused_topk_pk8_public_num_splits<float>(10000, 100000, 188, d), 1);
+    EXPECT_EQ(fused_topk_pk8_public_num_splits<half>(100000, 100000, 188, d), 1);
+  }
+  EXPECT_EQ(fused_topk_pk8_public_num_splits<float>(0, 100000, 188, 32), 0);
+  EXPECT_EQ(fused_topk_pk8_public_num_splits<float>(128, 0, 188, 32), 0);
+  EXPECT_EQ(fused_topk_pk8_public_num_splits<float>(128, 100000, 0, 32), 0);
+  for (int q : {1, 16, 128, 129, 4096, 100000}) {
+    for (int n : {1, 127, 128, 129, 100000}) {
+      const int splits = fused_topk_pk8_public_num_splits<float>(q, n, 188, 128);
       EXPECT_GE(splits, 1);
       EXPECT_LE(splits, 128);
       EXPECT_LE(splits, fused_topk_pk2_ceil_div(n, 128));

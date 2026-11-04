@@ -12,6 +12,7 @@
 #include <cuda_fp16.h>
 #include <cuda_runtime.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -167,6 +168,28 @@ constexpr int fused_topk_public_num_splits(int query_rows,
 }
 
 constexpr size_t fused_topk_align_workspace(size_t bytes) { return (bytes + 15) & ~size_t{15}; }
+
+// SM120 PK8 keeps refinement in the producer below D=512. More corpus
+// partitions shorten that producer's live top-k loop; above this boundary the
+// separate refinement stage instead makes extra partitions expensive. Keep
+// the single-partition large-query policy and the relaxed-ABI policy unchanged.
+// Call with the actual dimensions after any zero-extension preparation.
+template <typename DataT>
+constexpr int fused_topk_pk8_public_num_splits(int query_rows,
+                                             int corpus_rows,
+                                             int sm_count,
+                                             int dimensions)
+{
+  const int ordinary = fused_topk_public_num_splits(query_rows, corpus_rows, sm_count, 32);
+  if (ordinary <= 1 || dimensions <= 0 || dimensions >= 512 ||
+      dimensions % (16 / sizeof(DataT)) != 0) {
+    return ordinary;
+  }
+  const int query_tiles = fused_topk_pk2_ceil_div(query_rows, 32);
+  const int desired = fused_topk_pk2_ceil_div(sm_count < 64 ? sm_count * 2 : 256, query_tiles);
+  const int corpus_tiles = fused_topk_pk2_ceil_div(corpus_rows, 128);
+  return std::min(128, std::min(desired, corpus_tiles));
+}
 
 // Separate refinement repays its extra launch only above the broad low-D
 // region for half PK2. Dimensions describe the actual (possibly padded) input.
