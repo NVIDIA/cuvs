@@ -317,6 +317,11 @@ inline void check_params(const index_params& params, int64_t n_rows, int64_t dim
                "gpipnn: max_candidates (%u) must be >= graph_degree (%u)",
                params.max_candidates,
                params.graph_degree);
+  // DirectEdgePrune and HashPrune stage a full reservoir row in shared memory at the default
+  // 48 KiB dynamic limit.
+  RAFT_EXPECTS(params.max_candidates <= 1024,
+               "gpipnn: max_candidates (%u) exceeds the supported maximum of 1024",
+               params.max_candidates);
   // Legal but pathological: with as many slots as candidates, DirectEdgePrune's saturation pass
   // takes back everything the occlusion rule rejected and the stage becomes a sort by distance.
   if (params.max_candidates == params.graph_degree) {

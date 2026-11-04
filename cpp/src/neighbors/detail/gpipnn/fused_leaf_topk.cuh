@@ -275,7 +275,8 @@ RAFT_KERNEL __launch_bounds__(kFusedThreads)
   }
 
   // A chunk is `kBlockN` rows of `dim` halves, copied 16 bytes at a time, which needs `dim` to be
-  // a multiple of 8 halves -- guaranteed by `plan_fused_segments`'s multiple-of-16 test.
+  // a multiple of 8 halves and the dataset base 16-byte aligned -- both guaranteed by
+  // `plan_fused_segments`.
   const int64_t vec_per_row = dim / 8;
   const int64_t vecs        = kBlockN * vec_per_row;
   auto issue_chunk          = [&](int64_t base, half* dst) {
@@ -494,11 +495,14 @@ inline auto gpipnn_arch_problem() -> std::string
  * Divides a call's segments between the fused leaf kernel and the batched path.
  *
  * Anything outside the fused kernel's preconditions stays on the batched path, which handles
- * every shape this one does and more. Call-wide, all four must hold:
+ * every shape this one does and more. Call-wide, all five must hold:
  *  - a self-join, since the kernel reads one id array as both operands;
  *  - `k == kFusedK`, the only instantiation;
  *  - `dim` a multiple of 16, since the mainloop steps the mma k-dimension by 16 and the chunk
  *    copy moves 8 halves at a time;
+ *  - `dataset` 16-byte aligned, since the chunk copy reaches it through `cp.async` at a 16-byte
+ *    width. With `dim` already a multiple of 16 halves every row starts at a multiple of 32
+ *    bytes from the base, so the base's alignment is what the whole buffer's alignment rests on;
  *  - `dim` small enough that a Q tile stays resident.
  *
  * Then per segment: a non-empty candidate range that exactly coincides with the query range.
@@ -516,7 +520,8 @@ struct fused_plan {
   int block_m = 0;
 };
 
-inline auto plan_fused_segments(int64_t dim,
+inline auto plan_fused_segments(const half* dataset,
+                                int64_t dim,
                                 int64_t k,
                                 bool self_join,
                                 const std::vector<segment>& segments) -> fused_plan
@@ -524,8 +529,12 @@ inline auto plan_fused_segments(int64_t dim,
   fused_plan plan;
   plan.batched.reserve(segments.size());
 
-  const bool usable = self_join && k == kFusedK && dim % 16 == 0;
-  plan.block_m      = usable ? fused_leaf_tile_m(dim) : 0;
+  // The chunk copy reaches the dataset through `cp.async` at a 16-byte width, which the base
+  // pointer has to be aligned for.
+  constexpr auto kAlign = static_cast<uintptr_t>(sizeof(uint4));
+  const bool usable     = self_join && k == kFusedK && dim % 16 == 0 &&
+                      reinterpret_cast<uintptr_t>(dataset) % kAlign == 0;
+  plan.block_m = usable ? fused_leaf_tile_m(dim) : 0;
 
   for (size_t i = 0; i < segments.size(); i++) {
     const auto& s = segments[i];

@@ -9,6 +9,7 @@
 #include "fused_leaf_topk.cuh"
 
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/logger.hpp>
 #include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
@@ -252,6 +253,10 @@ inline constexpr int64_t kL2BudgetDiv = 2;
  * `dots` is the one buffer worth holding: the GEMM writes it and selection reads it straight back,
  * while the operand slabs are streamed once each.
  *
+ * Purely a hint: it changes residency, never results. Both calls that set it up are therefore
+ * best-effort, and a driver that refuses either one leaves the window inactive and the error
+ * state cleared rather than failing the build.
+ *
  * Destruction undoes only the stream attribute. The carve-out limit is left set and
  * `cudaCtxResetPersistingL2Cache` is not called, because `segmented_topk` is asynchronous and the
  * guard dies while its kernels are still in flight.
@@ -270,7 +275,15 @@ class persisting_l2_window {
     // Names the first `max_window` bytes rather than spreading a hit ratio over the whole matrix,
     // which would let later rows evict earlier ones from the reserved lines.
     const int64_t window = std::min<int64_t>(bytes, max_window);
-    RAFT_CUDA_TRY(cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, static_cast<size_t>(window)));
+    const auto limit_err =
+      cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, static_cast<size_t>(window));
+    if (limit_err != cudaSuccess) {
+      (void)cudaGetLastError();
+      RAFT_LOG_DEBUG("gpipnn: L2 carve-out of %ld bytes refused (%s); running without it",
+                     static_cast<long>(window),
+                     cudaGetErrorString(limit_err));
+      return;
+    }
 
     cudaStreamAttrValue attr{};
     attr.accessPolicyWindow.base_ptr  = const_cast<void*>(ptr);
@@ -279,7 +292,14 @@ class persisting_l2_window {
     attr.accessPolicyWindow.hitRatio = 1.0f;
     attr.accessPolicyWindow.hitProp  = cudaAccessPropertyPersisting;
     attr.accessPolicyWindow.missProp = cudaAccessPropertyNormal;
-    RAFT_CUDA_TRY(cudaStreamSetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &attr));
+    const auto attr_err =
+      cudaStreamSetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &attr);
+    if (attr_err != cudaSuccess) {
+      (void)cudaGetLastError();
+      RAFT_LOG_DEBUG("gpipnn: L2 access-policy window refused (%s); running without it",
+                     cudaGetErrorString(attr_err));
+      return;
+    }
     active_ = true;
   }
 
@@ -469,7 +489,7 @@ inline void segmented_topk(
   // Segments the fused leaf kernel can take leave the batched path entirely: it works from the
   // dataset itself and shares none of the buffers the batch planner budgets. Partitioning up
   // front keeps the two paths from having to agree about anything.
-  auto fused  = plan_fused_segments(dim, k, self_join, segments);
+  auto fused  = plan_fused_segments(dataset.data_handle(), dim, k, self_join, segments);
   auto& order = fused.batched;
   if (!fused.fused.empty()) {
     launch_fused_leaf_topk(fused.block_m,
