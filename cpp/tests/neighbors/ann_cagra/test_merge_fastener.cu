@@ -837,8 +837,7 @@ TEST(CagraMergeFastener, LeafGemmLimitsRejectOversizedWorkspaceDimensions)
   std::vector<index<int8_t, uint32_t>*> indices{&index0, &index1};
 
   std::vector<int64_t> offsets{0, rows, rows * 2};
-  auto result = detail::preflight_fastener(
-    res, params, fastener, indices, offsets, cuvs::neighbors::filtering::none_sample_filter{});
+  auto result = detail::preflight_fastener(res, params, fastener, indices, offsets);
   EXPECT_FALSE(result.eligible);
   EXPECT_EQ(result.reason, "dataset dimension exceeds the leaf GEMM workspace limit");
   EXPECT_EQ(index0.dataset().n_rows(), rows);
@@ -913,12 +912,7 @@ TEST(CagraMergeFastener, AssignmentGemmLimitsRejectDimensionsThatFitALeaf)
   fastener.max_leaders     = worst_case.max_leaders;
   fastener.leaf_size       = worst_case.leaf_size;
   std::vector<int64_t> preflight_offsets{0, rows_per_input, rows_per_input * 2};
-  auto result = detail::preflight_fastener(res,
-                                           params,
-                                           fastener,
-                                           indices,
-                                           preflight_offsets,
-                                           cuvs::neighbors::filtering::none_sample_filter{});
+  auto result = detail::preflight_fastener(res, params, fastener, indices, preflight_offsets);
   EXPECT_FALSE(result.eligible);
   EXPECT_EQ(result.reason, "dataset dimension exceeds the assignment GEMM workspace limit");
 
@@ -978,8 +972,7 @@ TEST(CagraMergeFastener, PreflightRejectsCandidateDegreeAboveSortLimit)
     fastener.algo = merge_algo::FASTENER;
     std::vector<cagra::device_padded_index<float, uint32_t>*> indices{&index0, &index1};
     std::vector<int64_t> offsets{0, rows, rows * 2};
-    return detail::preflight_fastener(
-      res, params, fastener, indices, offsets, cuvs::neighbors::filtering::none_sample_filter{});
+    return detail::preflight_fastener(res, params, fastener, indices, offsets);
   };
 
   // Exactly at the limit stays eligible; one degree past it is rejected for that specific reason.
@@ -1514,8 +1507,7 @@ TEST(CagraMergeFastener, InvalidManywayOptionsFailPreflightWithoutMutation)
 
   std::vector<int64_t> offsets{0, rows, rows * 2};
   for (auto const& candidate : invalid) {
-    auto result = detail::preflight_fastener(
-      res, params, candidate, indices, offsets, cuvs::neighbors::filtering::none_sample_filter{});
+    auto result = detail::preflight_fastener(res, params, candidate, indices, offsets);
     EXPECT_FALSE(result.eligible) << result.reason;
   }
   EXPECT_EQ(owned.indices[0].dataset().n_rows(), rows);

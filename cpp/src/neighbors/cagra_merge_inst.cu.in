@@ -10,17 +10,16 @@
 
 namespace {
 
-using data_t                    = @data_type@;
-using index_t                   = @index_type@;
-using inst_device_padded_view_t = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
-using inst_device_padded_t      = cuvs::neighbors::device_padded_dataset<data_t, int64_t>;
+using data_t                      = @data_type@;
+using index_t                     = @index_type@;
+using inst_device_padded_view_t   = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>;
+using inst_device_padded_t        = cuvs::neighbors::device_padded_dataset<data_t, int64_t>;
+using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
+using inst_device_standard_t      = cuvs::neighbors::device_standard_dataset<data_t, int64_t>;
 
 }  // namespace
 
 namespace cuvs::neighbors::cagra {
-
-using inst_device_standard_view_t = cuvs::neighbors::device_standard_dataset_view<data_t, int64_t>;
-using inst_device_standard_t      = cuvs::neighbors::device_standard_dataset<data_t, int64_t>;
 
 extern template void index<data_t, index_t, inst_device_padded_view_t>::compute_dataset_norms_(
   raft::resources const&);
@@ -79,3 +78,18 @@ CUVS_EXPORT void merge_instantiation_keepalive()
 template CUVS_EXPORT void merge_instantiation_keepalive<data_t>();
 
 }  // namespace cuvs::neighbors::cagra
+
+namespace cuvs::neighbors {
+
+template CUVS_EXPORT std::unique_ptr<inst_device_padded_t>
+cuvs::neighbors::concatenate_datasets<data_t, inst_device_padded_t, inst_device_padded_view_t>(
+  raft::resources const& handle,
+  std::vector<inst_device_padded_view_t> const& datasets,
+  cuvs::neighbors::filtering::base_filter const& row_filter);
+template CUVS_EXPORT std::unique_ptr<inst_device_standard_t>
+cuvs::neighbors::concatenate_datasets<data_t, inst_device_standard_t, inst_device_standard_view_t>(
+  raft::resources const& handle,
+  std::vector<inst_device_standard_view_t> const& datasets,
+  cuvs::neighbors::filtering::base_filter const& row_filter);
+
+}  // namespace cuvs::neighbors

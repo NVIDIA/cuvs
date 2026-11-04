@@ -728,9 +728,4 @@ auto concatenate_datasets(raft::resources const& handle,
     std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices, \
     DatasetViewT merged_dataset,                                                 \
     std::vector<int64_t> const& offsets,                                         \
-    const cuvs::neighbors::cagra::merge_params& merge_params);                   \
-  template CUVS_EXPORT std::unique_ptr<OutputDatasetT>                           \
-  cuvs::neighbors::concatenate_datasets<T, OutputDatasetT, DatasetViewT>(        \
-    raft::resources const& handle,                                               \
-    std::vector<DatasetViewT> const& datasets,                                   \
-    cuvs::neighbors::filtering::base_filter const& row_filter);
+    const cuvs::neighbors::cagra::merge_params& merge_params);\

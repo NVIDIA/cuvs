@@ -368,7 +368,6 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
         indices.push_back(ptr.get());
       }
 
-      cuvs::neighbors::filtering::none_sample_filter merge_row_filter;
       std::vector<int64_t> offsets;
       offsets.reserve(indices.size() + 1);
       offsets.push_back(0);
@@ -385,14 +384,8 @@ void cuvs_cagra<T, IdxT>::build(const T* dataset, size_t nrow)
       auto merged_dataset_view =
         dataset_is_on_host ? detail::make_padded_view<T>(handle_, dataset_view_host, *dataset_)
                            : detail::make_padded_view<T>(handle_, dataset_view_device, *dataset_);
-      index_ =
-        std::make_shared<index_type>(cuvs::neighbors::cagra::merge(handle_,
-                                                                   params,
-                                                                   indices,
-                                                                   merged_dataset_view,
-                                                                   offsets,
-                                                                   index_params_.merge_params,
-                                                                   merge_row_filter));
+      index_ = std::make_shared<index_type>(cuvs::neighbors::cagra::merge(
+        handle_, params, indices, merged_dataset_view, offsets, index_params_.merge_params));
       // The merged index holds all the rows now; drop the splits rather than keep a second copy
       // of the dataset on the device for the rest of the run.
       sub_indices_.clear();

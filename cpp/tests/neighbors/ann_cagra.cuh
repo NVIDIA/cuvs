@@ -1343,11 +1343,11 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         // Exercise the real concatenate_datasets() helper with a filter -- it gathers directly from
         // index0's/index1's own device dataset storage (not from `database`), so this also
         // validates the helper against the `merged_dataset_offsets()` boundaries computed above.
-        auto merged_dataset = cuvs::neighbors::cagra::concatenate_datasets<DataT>(
-          handle_, dataset_views, bitset_filter_obj);
+        auto merged_dataset =
+          cuvs::neighbors::concatenate_datasets<DataT>(handle_, dataset_views, bitset_filter_obj);
         auto merged_view = std::as_const(*merged_dataset).view();
-        auto merge_idx   = cuvs::neighbors::cagra::merge(
-          handle_, index_params, indices, merged_view, offsets, bitset_filter_obj);
+        auto merge_idx =
+          cuvs::neighbors::cagra::merge(handle_, index_params, indices, merged_view, offsets);
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
           search_queries.data(), ps.n_queries, ps.dim);
@@ -1596,7 +1596,7 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
           for (auto* idx : indices_to_merge) {
             ds_views.push_back(idx->dataset());
           }
-          auto merged_dataset = cagra::concatenate_datasets<DataT>(handle_, ds_views);
+          auto merged_dataset = cuvs::neighbors::concatenate_datasets<DataT>(handle_, ds_views);
           auto merged_view    = std::as_const(*merged_dataset).view();
           auto merged_idx =
             ps.physical_merge_params.has_value()
