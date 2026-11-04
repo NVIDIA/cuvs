@@ -4,10 +4,10 @@
  */
 
 #pragma once
-#include "../../distance/sparse_distance.cuh"
 #include <cuvs/distance/distance.hpp>
 
 #include <raft/core/copy.cuh>
+#include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -393,24 +393,26 @@ class sparse_knn_t {
     /**
      * Compute distances
      */
-    cuvs::distance::detail::sparse::distances_config_t<value_idx, value_t> dist_config(handle);
-    dist_config.b_nrows = idx_batcher.batch_rows();
-    dist_config.b_ncols = n_idx_cols;
-    dist_config.b_nnz   = idx_batch_nnz;
-
-    dist_config.b_indptr  = idx_batch_indptr;
-    dist_config.b_indices = idx_batch_indices;
-    dist_config.b_data    = idx_batch_data;
-
-    dist_config.a_nrows = query_batcher.batch_rows();
-    dist_config.a_ncols = n_query_cols;
-    dist_config.a_nnz   = query_batch_nnz;
-
-    dist_config.a_indptr  = query_batch_indptr;
-    dist_config.a_indices = query_batch_indices;
-    dist_config.a_data    = query_batch_data;
-
-    cuvs::distance::pairwiseDistance(batch_dists, dist_config, metric, metricArg);
+    auto index_structure =
+      raft::make_device_compressed_structure_view<value_idx, value_idx, value_idx>(
+        idx_batch_indptr,
+        idx_batch_indices,
+        idx_batcher.batch_rows(),
+        n_idx_cols,
+        static_cast<value_idx>(idx_batch_nnz));
+    auto query_structure =
+      raft::make_device_compressed_structure_view<value_idx, value_idx, value_idx>(
+        query_batch_indptr,
+        query_batch_indices,
+        query_batcher.batch_rows(),
+        n_query_cols,
+        static_cast<value_idx>(query_batch_nnz));
+    auto index = raft::make_device_csr_matrix_view<const value_t>(idx_batch_data, index_structure);
+    auto query =
+      raft::make_device_csr_matrix_view<const value_t>(query_batch_data, query_structure);
+    auto distances = raft::make_device_matrix_view<value_t, value_idx>(
+      batch_dists, query_batcher.batch_rows(), idx_batcher.batch_rows());
+    cuvs::distance::pairwise_distance(handle, query, index, distances, metric, metricArg);
   }
 
   const value_idx *idxIndptr, *idxIndices, *queryIndptr, *queryIndices;
