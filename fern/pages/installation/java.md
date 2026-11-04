@@ -69,7 +69,7 @@ java/panama-bindings/generate-bindings.sh
 
 `cuvs-lucene` provides Apache Lucene codecs that offload vector index build, and optionally search, to the GPU. It is published as a separate artifact that builds on the Java API described above. For usage guidance, see the [Lucene Integration](/user-guide/lucene) guide.
 
-`cuvs-lucene` supports Lucene 10.2 and requires Maven 3.10 or newer. It compiles and runs on JDK 21, the minimum of Lucene 10, but uses the GPU only on a JDK 22 or newer runtime: on JDK 21 the accelerated HNSW codecs build graphs on the CPU and the GPU search codec is unavailable. It inherits the NVIDIA cuVS [CUDA GPU requirements](/installation#cuda-gpu-requirements).
+`cuvs-lucene` supports Lucene 10.2 and 10.3 and requires Maven 3.10 or newer. It compiles and runs on JDK 21, the minimum of Lucene 10, but uses the GPU only on a JDK 22 or newer runtime: on JDK 21 the accelerated HNSW codecs build graphs on the CPU and the GPU search codec is unavailable. It inherits the NVIDIA cuVS [CUDA GPU requirements](/installation#cuda-gpu-requirements).
 
 The three accelerated HNSW codecs (plain, scalar-quantized and binary-quantized) fall back to CPU index construction when no GPU or native library is available, so an application using them works on GPU and non-GPU hosts alike. The GPU search codec requires a working cuVS installation. See [Lucene Integration](/user-guide/lucene) for details.
 
@@ -80,13 +80,14 @@ Lucene changes its codec APIs between minor releases, so `cuvs-lucene` is publis
 | Lucene | Artifact |
 | --- | --- |
 | 10.2.x | `cuvs-lucene-10.2` |
+| 10.3.x | `cuvs-lucene-10.3` |
 
-For Lucene 10.2, add the following dependency to your `pom.xml`:
+For example, for Lucene 10.3, add the following dependency to your `pom.xml`:
 
 ```xml
 <dependency>
   <groupId>com.nvidia.cuvs.lucene</groupId>
-  <artifactId>cuvs-lucene-10.2</artifactId>
+  <artifactId>cuvs-lucene-10.3</artifactId>
   <version>26.12.0</version>
 </dependency>
 ```
