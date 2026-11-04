@@ -111,9 +111,11 @@ def _kernel_signature(
     ):
         # Native PK16 refinement uses physical-width scratch [Q, splits * 16]
         # before the logical-prefix merge. Keep arbitrary Q/N and input aliases.
-        matrix = replace(
-            matrix, shape_divisible_by=(1, 8 if data_type == "half" else 4)
-        )
+        # The extra FP16 input-shape promise changes accumulation ordering on
+        # near-tie graph rows. Keep its original input descriptor while still
+        # describing the physical output width. FP32 retains the input promise.
+        if data_type == "float":
+            matrix = replace(matrix, shape_divisible_by=(1, 4))
         indices = replace(
             indices,
             shape_divisible_by=(1, physical_k),

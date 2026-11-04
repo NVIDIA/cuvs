@@ -200,7 +200,10 @@ contract and metric/index ordering remain the same as the lower families.
 These are capability/partition rules, not per-shape benchmark dispatch.
 Historical timings are not fresh certification of this combined branch.
 
-The strict SM120 int32 refinement ABI describes padded D (divisible by 4 for
-float or 8 for half) and physical scratch width `splits * 16`. Query and corpus
-row counts remain unconstrained, and same-pointer self-search remains legal.
-These promises do not turn approximate membership into a strict certificate.
+The strict SM120 int32 refinement ABI describes physical scratch width
+`splits * 16`, plus padded input D divisibility by 4 for float. Half retains
+its existing input shape descriptor: adding the redundant shape promise
+changed near-tie accumulation ordering in graph validation. Both types retain
+their actual padded input stride constraints. Query/corpus row counts remain
+unconstrained, and same-pointer self-search remains legal. These promises do
+not turn approximate membership into a strict certificate.

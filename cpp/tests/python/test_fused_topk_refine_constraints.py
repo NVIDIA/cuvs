@@ -30,7 +30,8 @@ def test_native_refinement_promises_physical_width_not_rows(pk, dtype, pitch):
         pk, 4, 128, 32, "sm_120", "strict", dtype, stage="refine"
     )
     for tensor in sig.parameters[:2]:
-        assert tensor.shape_divisible_by == (1, pitch)
+        expected_shape_pitch = 1 if pk == 16 and dtype == "half" else pitch
+        assert tensor.shape_divisible_by == (1, expected_shape_pitch)
         assert tensor.stride_divisible_by == (pitch, 1)
         assert tensor.alias_groups == ("read_only_inputs",)
     for tensor in sig.parameters[2:4]:
