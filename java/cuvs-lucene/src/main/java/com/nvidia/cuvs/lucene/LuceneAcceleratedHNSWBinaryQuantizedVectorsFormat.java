@@ -15,6 +15,9 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.search.TaskExecutor;
@@ -28,23 +31,11 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
 
   private static final Logger log =
       Logger.getLogger(LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat.class.getName());
-  private static final LuceneProvider LUCENE102_PROVIDER;
-  private static final LuceneProvider LUCENE99_PROVIDER;
-  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT;
+  private static final FlatVectorsFormat FLAT_VECTORS_FORMAT =
+      new Lucene99FlatVectorsFormat(DefaultFlatVectorScorer.INSTANCE);
   private static final int MAX_DIMENSIONS = 4096;
 
   private final AcceleratedHNSWParams acceleratedHNSWParams;
-
-  static {
-    try {
-      LUCENE99_PROVIDER = LuceneProvider.getInstance("99");
-      LUCENE102_PROVIDER = LuceneProvider.getInstance("102");
-      FLAT_VECTORS_FORMAT =
-          LUCENE102_PROVIDER.getLuceneFlatVectorsFormatInstance(DefaultFlatVectorScorer.INSTANCE);
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
 
   /**
    * Initializes {@link LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat} with default values.
@@ -71,6 +62,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
    */
   @Override
   public KnnVectorsWriter fieldsWriter(SegmentWriteState state) throws IOException {
+    LuceneVersionGuard.ensureCompatible();
     var flatWriter = FLAT_VECTORS_FORMAT.fieldsWriter(state);
     if (isSupported()) {
       log.log(
@@ -85,17 +77,13 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
       log.log(
           Level.WARNING,
           "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
-      try {
-        return LUCENE99_PROVIDER.getLuceneHnswVectorsWriterInstance(
-            state,
-            acceleratedHNSWParams.getMaxConn(),
-            acceleratedHNSWParams.getBeamWidth(),
-            flatWriter,
-            acceleratedHNSWParams.getNumMergeWorkers(),
-            new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
-      } catch (Exception e) {
-        throw Utils.handleThrowable(e);
-      }
+      return new Lucene99HnswVectorsWriter(
+          state,
+          acceleratedHNSWParams.getMaxConn(),
+          acceleratedHNSWParams.getBeamWidth(),
+          flatWriter,
+          acceleratedHNSWParams.getNumMergeWorkers(),
+          new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
     }
   }
 
@@ -104,12 +92,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
    */
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
-    try {
-      return LUCENE99_PROVIDER.getLuceneHnswVectorsReaderInstance(
-          state, FLAT_VECTORS_FORMAT.fieldsReader(state));
-    } catch (Exception e) {
-      throw Utils.handleThrowable(e);
-    }
+    LuceneVersionGuard.ensureCompatible();
+    return new Lucene99HnswVectorsReader(state, FLAT_VECTORS_FORMAT.fieldsReader(state));
   }
 
   /**

@@ -252,7 +252,7 @@ const index_params& index_params,
 device_binary_dataset_view<float, int64_t> dataset) -> index<int64_t>;
 ```
 
-The thresholds of the dataset dictionary are copied into the index.
+The quantizer of the dataset manifest (the thresholds and the dimension) is copied into the index.
 
 Usage example:
 
@@ -262,7 +262,7 @@ Usage example:
 | --- | --- | --- | --- |
 | `handle` | in | `raft::resources const&` |  |
 | `index_params` | in | [`const index_params&`](/api-reference/cpp-api-neighbors-ivf-binary#neighbors-ivf-binary-index-params) | configure the index building |
-| `dataset` | in | [`device_binary_dataset_view<float, int64_t>`](/api-reference/cpp-api-core-dataset-binary#device-binary-dataset-view) | the binary-quantized vectors |
+| `dataset` | in | `device_binary_dataset_view<float, int64_t>` | the binary-quantized vectors |
 
 **Returns**
 
@@ -287,7 +287,7 @@ The supplied codes are used as-is. The dictionary of the new vectors is not comp
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `handle` | in | `raft::resources const&` |  |
-| `new_vectors` | in | [`device_binary_dataset_view<float, int64_t>`](/api-reference/cpp-api-core-dataset-binary#device-binary-dataset-view) | the binary-quantized vectors to add |
+| `new_vectors` | in | `device_binary_dataset_view<float, int64_t>` | the binary-quantized vectors to add |
 | `new_indices` | in | `std::optional<raft::device_vector_view<const int64_t, int64_t>>` | ids of the new vectors; required if the index is not empty, otherwise the ids start from zero |
 | `index` | inout | [`index<int64_t>*`](/api-reference/cpp-api-neighbors-ivf-binary#neighbors-ivf-binary-index) | the index to extend |
 
