@@ -1328,7 +1328,7 @@ if(NOT BUILD_CPU_ONLY)
   endif()
   # PK2/4/8 staged exports: distinct registrations and symbols, shared maintained factory.
   if(CUVS_CUTILE_ENABLED)
-    foreach(topk_stage select refine witness)
+    foreach(topk_stage select refine witness select_l2)
       generate_cutile_kernels(
         cutile_fused_topk_stage_files
         KERNEL_DIR "${fused_topk_cutile_dir}"

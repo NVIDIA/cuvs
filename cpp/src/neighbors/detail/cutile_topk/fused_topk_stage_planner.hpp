@@ -21,6 +21,7 @@ struct FusedTopkStagePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
   static_assert(std::is_same_v<DataT, float> || std::is_same_v<DataT, half>);
   static_assert(Stage != fused_topk_stage::witness ||
                 (PhysicalK == 4 && std::is_same_v<DataT, half>));
+  static_assert(Stage != fused_topk_stage::select_l2 || PhysicalK == 8);
   static constexpr int tile_m = PhysicalK == 8 ? (Stage == fused_topk_stage::refine ? 4 : 32)
                                                : (Stage == fused_topk_stage::refine ? 32 : 64);
   static constexpr int tile_n = 128;
@@ -31,9 +32,10 @@ struct FusedTopkStagePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
 
   static std::string entrypoint()
   {
-    const char* suffix = Stage == fused_topk_stage::select   ? "select"
-                         : Stage == fused_topk_stage::refine ? "refine"
-                                                             : "witness";
+    const char* suffix = Stage == fused_topk_stage::select      ? "select"
+                         : Stage == fused_topk_stage::refine    ? "refine"
+                         : Stage == fused_topk_stage::select_l2 ? "select_l2"
+                                                                : "witness";
     return "fused_topk_pk" + std::to_string(PhysicalK) +
            (std::is_same_v<DataT, half> ? "_h_i32_" : "_f_i32_") + suffix;
   }

@@ -93,7 +93,7 @@ def _kernel_signature(
     *,
     stage: str = "fused",
 ) -> KernelSignature:
-    if stage not in ("fused", "select", "refine", "witness"):
+    if stage not in ("fused", "select", "refine", "witness", "select_l2"):
         raise ValueError(f"Unsupported stage {stage!r}")
     matrix = _matrix_constraint(
         gpu_code=gpu_code,
@@ -186,9 +186,10 @@ def export_binary(
         gpu_code=gpu_code,
         matrix_layout=matrix_layout,
         occupancy=occupancy,
-        stage="select" if stage == "witness" else stage,
+        stage="select" if stage in ("witness", "select_l2") else stage,
         witness=stage == "witness",
         whole_tile_guard=whole_tile_guard,
+        **({"specialize_l2": True} if stage == "select_l2" else {}),
     )
     signature = _kernel_signature(
         physical_k,
@@ -236,7 +237,7 @@ def main(
     parser.add_argument("--occupancy", type=int)
     parser.add_argument(
         "--stage",
-        choices=("fused", "select", "refine", "witness"),
+        choices=("fused", "select", "refine", "witness", "select_l2"),
         default=default_stage,
     )
     args = parser.parse_args()

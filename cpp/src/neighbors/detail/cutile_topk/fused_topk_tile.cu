@@ -110,6 +110,18 @@ bool launch_fused_topk(OutputIdxT* neighbors,
             Select select;
             selection = select.try_get_launcher();
           }
+        } else if constexpr (PhysicalK == 8) {
+          // L2/sqrt-L2 share candidate ranking; all other metrics retain the
+          // generic image. Resolve the optional specialization before enqueue.
+          if (metric == cuvs::distance::DistanceType::L2Expanded ||
+              metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+            FusedTopkStagePlanner<8, DataT, fused_topk_stage::select_l2> l2_select;
+            selection = l2_select.try_get_launcher();
+          }
+          if (!selection) {
+            Select select;
+            selection = select.try_get_launcher();
+          }
         } else {
           Select select;
           selection = select.try_get_launcher();

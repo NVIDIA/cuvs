@@ -214,10 +214,16 @@ def make_kernel(
     stage: str = "fused",
     witness: bool = False,
     whole_tile_guard: bool = False,
+    specialize_l2: bool = False,
 ):
     """Build native-half or TF32 selection with FP32 accumulation/refinement."""
     if stage not in ("fused", "select", "refine"):
         raise ValueError(f"Unsupported stage {stage!r}")
+    if specialize_l2 and (
+        physical_k != 8 or stage != "select" or index_type != "int32"
+        or gpu_code != "sm_120" or matrix_layout != "strict" or witness
+    ):
+        raise ValueError("L2 specialization requires normal strict SM120 PK8 selection")
     if data_type not in ("float", "half"):
         raise ValueError(f"Unsupported data_type {data_type!r}")
     if metric not in METRICS:
@@ -283,6 +289,7 @@ def make_kernel(
     ):
         bid_m = ct.bid(0)
         split_id = ct.bid(1)
+        selection_metric = METRIC_L2_EXPANDED if specialize_l2 else metric_code
         if stage != "refine":
             best_scores = ct.full((tm, physical_k), _INF, ct.float32)
             best_indices = ct.full((tm, physical_k), _INVALID_INDEX, idx_dtype)
@@ -382,7 +389,7 @@ def make_kernel(
                         padding_mode=ct.PaddingMode.ZERO,
                     ).astype(mma_dtype)
                     accumulator = ct.mma(query_tile, corpus_t, accumulator)
-                    if metric_code != METRIC_INNER_PRODUCT:
+                    if selection_metric != METRIC_INNER_PRODUCT:
                         corpus_f32 = corpus_t.astype(ct.float32)
                         rounded_corpus_norms = rounded_corpus_norms + ct.sum(
                             corpus_f32 * corpus_f32, axis=0
@@ -391,10 +398,10 @@ def make_kernel(
                 global_indices = tile_n_index * tn + ct.arange(
                     tn, dtype=idx_dtype
                 )
-                if metric_code == METRIC_INNER_PRODUCT:
+                if selection_metric == METRIC_INNER_PRODUCT:
                     scores = -accumulator
                 else:
-                    if metric_code == METRIC_COSINE_EXPANDED:
+                    if selection_metric == METRIC_COSINE_EXPANDED:
                         positive_norm = rounded_corpus_norms > 0.0
                         safe_norm = ct.where(
                             positive_norm, rounded_corpus_norms, 1.0

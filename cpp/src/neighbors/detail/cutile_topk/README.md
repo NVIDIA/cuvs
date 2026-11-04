@@ -32,6 +32,14 @@ including ties introduced by the Euclidean square root. Signed zeros compare
 equal. As in Top1, a cosine comparison involving a zero-norm operand has
 distance one. Invalid slots use index -1 and positive infinity; these sentinels
 are not valid results and are excluded from descending-inner-product ordering.
+PK8's existing wide split selection route has an L2-only producer image for
+L2Expanded/L2SqrtExpanded. It preserves the generic scalar launch ABI, rounded
+selection norms, candidate capacity and partitioning. Cosine/inner product keep
+the generic image; missing specialization falls back to that image before any
+kernel is enqueued. Refinement, merge and the approximate-membership contract
+are unchanged. Ordinary exports remain generic; the L2 image has a distinct
+symbol, fragment registration and launcher cache.
+
 Inputs must be finite with representable metric intermediates; the search does
 not perform a device-wide finite/overflow scan.
 
