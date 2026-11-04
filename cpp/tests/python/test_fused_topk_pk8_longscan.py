@@ -10,7 +10,10 @@ from pathlib import Path
 import subprocess
 import sys
 import pytest
-import cuda.tile as ct
+
+ct = pytest.importorskip(
+    "cuda.tile", reason="requires the optional cuTile exporter"
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 KERNEL = ROOT / "cpp/src/neighbors/detail/cutile_topk"
