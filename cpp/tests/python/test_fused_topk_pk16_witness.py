@@ -53,6 +53,8 @@ def functions():
             KERNEL / "fused_topk_pk16_stages.py",
             {
                 "_merge_stage16",
+                "_refine_network_stage",
+                "_refine_sort_network",
                 "_merge_sorted16",
                 "_extract_four",
                 "_group4_continue",
@@ -80,6 +82,39 @@ def functions():
 def ordered(v, i, k=16):
     order = np.lexsort((i, v), axis=1)[:, :k]
     return np.take_along_axis(v, order, 1), np.take_along_axis(i, order, 1)
+
+
+@pytest.mark.parametrize("kind", ["zero_one", "ties", "invalid"])
+def test_actual_retained_refinement_network(kind):
+    """Execute production helper AST, including all binary 16-way inputs."""
+    scope, _ = functions()
+    if kind == "zero_one":
+        values = (
+            (np.arange(1 << 16, dtype=np.uint32)[:, None] >> np.arange(16)) & 1
+        ).astype(np.float32)
+        ids = np.broadcast_to(
+            np.arange(15, -1, -1, dtype=np.int32), values.shape
+        ).copy()
+    else:
+        rng = np.random.default_rng(73)
+        values = rng.choice(
+            np.asarray(
+                [-np.inf, -2.0, -0.0, 0.0, 2.0, np.inf], dtype=np.float32
+            ),
+            size=(4096, 16),
+        )
+        ids = np.argsort(rng.random(values.shape), axis=1).astype(np.int32)
+        if kind == "invalid":
+            values[:, -3:] = np.inf
+            ids[:, -3:] = INVALID
+    expected_values, expected_ids = ordered(values, ids)
+    actual_values, actual_ids = scope["_refine_sort_network"](
+        values, ids, len(values), 16
+    )
+    np.testing.assert_array_equal(actual_ids, expected_ids)
+    np.testing.assert_array_equal(
+        actual_values.view(np.uint32), expected_values.view(np.uint32)
+    )
 
 
 @pytest.mark.parametrize("front", [False, True])

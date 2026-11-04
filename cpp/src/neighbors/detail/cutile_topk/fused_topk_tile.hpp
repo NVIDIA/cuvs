@@ -216,6 +216,13 @@ constexpr int fused_topk_pk8_public_num_splits(int query_rows,
   return std::min(128, std::min(desired, corpus_tiles));
 }
 
+// Optional strict FP32 PK16 refiner: amortize sorting work on wide split scans.
+// D is the actual padded input width; no logical-K or individual-shape rules.
+constexpr bool fused_topk_pk16_sortnet_refinement_eligible(int dimensions, int splits)
+{
+  return dimensions >= 512 && splits > 1;
+}
+
 // Separate refinement repays its extra launch only above the broad low-D
 // region for half PK2. Dimensions describe the actual (possibly padded) input.
 // Architecture and ABI eligibility are checked separately by the launcher.

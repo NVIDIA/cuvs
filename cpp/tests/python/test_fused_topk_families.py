@@ -480,8 +480,9 @@ def test_pk16_stages_share_corpus_partitions_not_feature_tiles():
     assert "tile_cfg.tile_k <= 0" in source
     assert "refine_cfg.tile_k <= 0" in source
     planner = (KERNEL / "fused_topk_pk16_stages_planner.hpp").read_text()
-    assert "Stage != 1 ? selector_tile_m : 4" in planner
-    assert "Stage != 1 ? selector_tile_k : 32" in planner
+    assert "is_refinement = Stage == 1 || Stage == 3" in planner
+    assert "is_refinement ? 4 : selector_tile_m" in planner
+    assert "is_refinement ? 32 : selector_tile_k" in planner
 
 
 def test_pk16_witness_qualified_dtype_images():

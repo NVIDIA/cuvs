@@ -194,6 +194,13 @@ Long strict-layout partitions (at least 512 corpus tiles per split) use
 conservative witness checkpoints: 1/2/4/8/12/16 for FP32, 1/4/8/12/16 for half.
 Equality still enters selection. Two through 128 splits use a warp list merge.
 
+Wide strict FP32 split scans (padded D at least512 and more than one split)
+may use an optional fixed sorting network to order the16 refined values.
+The ordinary refiner remains for half, relaxed layouts, narrower inputs and
+single-split work. Both retain/refine all16 candidates with the same arithmetic
+and returned-value/index key. Missing optional images keep the ordinary
+refiner before any launch; this is not an exactness or new precision mode.
+
 PK16 stage registrations are distinct from the PK2/4 stage registrations.
 Both stage handles are resolved before enqueue. The API defaults, numerical
 contract and metric/index ordering remain the same as the lower families.

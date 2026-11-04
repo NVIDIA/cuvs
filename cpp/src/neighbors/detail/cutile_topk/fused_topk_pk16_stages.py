@@ -26,6 +26,47 @@ from fused_topk_kernel import (
 
 
 @ct.function
+def _refine_network_stage(
+    scores,
+    indices,
+    tm: ConstInt,
+    pk: ConstInt,
+    distance: ConstInt,
+    sequence: ConstInt,
+):
+    groups = pk // (2 * distance)
+    ss = scores.reshape((tm, groups, 2 * distance))
+    ii = indices.reshape((tm, groups, 2 * distance))
+    lo_s = ct.extract(ss, (0, 0, 0), shape=(tm, groups, distance))
+    hi_s = ct.extract(ss, (0, 0, 1), shape=(tm, groups, distance))
+    lo_i = ct.extract(ii, (0, 0, 0), shape=(tm, groups, distance))
+    hi_i = ct.extract(ii, (0, 0, 1), shape=(tm, groups, distance))
+    other_s = ct.cat((hi_s, lo_s), axis=2).reshape((tm, pk))
+    other_i = ct.cat((hi_i, lo_i), axis=2).reshape((tm, pk))
+    slots = ct.arange(pk, dtype=ct.int32)
+    take_min = ((slots & distance) == 0) == ((slots & sequence) == 0)
+    own_less = _take_left(scores, indices, other_s, other_i)
+    keep = ct.where(take_min[None, :], own_less, ~own_less)
+    return ct.where(keep, scores, other_s), ct.where(keep, indices, other_i)
+
+
+@ct.function
+def _refine_sort_network(scores, indices, tm: ConstInt, pk: ConstInt):
+    scores, indices = _refine_network_stage(scores, indices, tm, pk, 1, 2)
+    scores, indices = _refine_network_stage(scores, indices, tm, pk, 2, 4)
+    scores, indices = _refine_network_stage(scores, indices, tm, pk, 1, 4)
+    scores, indices = _refine_network_stage(scores, indices, tm, pk, 4, 8)
+    scores, indices = _refine_network_stage(scores, indices, tm, pk, 2, 8)
+    scores, indices = _refine_network_stage(scores, indices, tm, pk, 1, 8)
+    if pk == 16:
+        scores, indices = _refine_network_stage(scores, indices, tm, pk, 8, 16)
+        scores, indices = _refine_network_stage(scores, indices, tm, pk, 4, 16)
+        scores, indices = _refine_network_stage(scores, indices, tm, pk, 2, 16)
+        scores, indices = _refine_network_stage(scores, indices, tm, pk, 1, 16)
+    return scores, indices
+
+
+@ct.function
 def _merge_stage16(scores, indices, tm: ConstInt, distance: ConstInt):
     # Fixed tile permutations, not dynamic gathers or assumed lane placement.
     groups = 16 // (2 * distance)
@@ -531,8 +572,17 @@ def make_refine_kernel(
     gpu_code: str = "sm_120",
     matrix_layout: str = "strict",
     occupancy: int | None = None,
+    sort_network: bool = False,
 ):
     """Recompute and order all retained candidates using direct FP32 arithmetic."""
+    if sort_network and (
+        data_type != "float"
+        or matrix_layout != "strict"
+        or gpu_code != "sm_120"
+    ):
+        raise ValueError(
+            "Sorting-network refinement requires strict SM120 FP32"
+        )
     if physical_k != 16 or gpu_code != "sm_120" or index_type != "int32":
         raise ValueError(
             "Separated stages require SM120 PK16 int32 candidates"
@@ -663,16 +713,23 @@ def make_refine_kernel(
             valid_rows[:, None] & valid_selected, exact_scores, _INF
         )
 
-        sorted_scores = ct.full((tm, physical_k), _INF, ct.float32)
-        sorted_indices = ct.full((tm, physical_k), _INVALID_INDEX, idx_dtype)
-        for column in range(physical_k):
-            sorted_scores, sorted_indices = insert_candidate(
-                sorted_scores,
-                sorted_indices,
-                _column(exact_scores, column, tm),
-                _column(best_indices, column, tm),
-                tm,
+        if sort_network:
+            sorted_scores, sorted_indices = _refine_sort_network(
+                exact_scores, best_indices, tm, physical_k
             )
+        else:
+            sorted_scores = ct.full((tm, physical_k), _INF, ct.float32)
+            sorted_indices = ct.full(
+                (tm, physical_k), _INVALID_INDEX, idx_dtype
+            )
+            for column in range(physical_k):
+                sorted_scores, sorted_indices = insert_candidate(
+                    sorted_scores,
+                    sorted_indices,
+                    _column(exact_scores, column, tm),
+                    _column(best_indices, column, tm),
+                    tm,
+                )
 
         valid_sorted = sorted_indices < _INVALID_INDEX
         sorted_indices = ct.where(valid_sorted, sorted_indices, -1)

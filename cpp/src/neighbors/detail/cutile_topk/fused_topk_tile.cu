@@ -235,6 +235,23 @@ bool launch_fused_topk(OutputIdxT* neighbors,
           // resolution precedes enqueue; fallback cannot duplicate partial work.
         }
       }
+      if constexpr (std::is_same_v<DataT, float> &&
+                    std::is_same_v<AbiTag, cuvs::distance::detail::cutile_abi_strict>) {
+        if (fused_topk_pk16_sortnet_refinement_eligible(dimensions, num_splits)) {
+          FusedTopkPk16StagePlanner<DataT, AbiTag, 3> network_planner;
+          network_planner.add_entrypoint();
+          auto network = network_planner.try_get_launcher();
+          if (network != nullptr) {
+            const auto config = network_planner.tile_config();
+            if (config.tile_m != refine_cfg.tile_m || config.tile_n != refine_cfg.tile_n ||
+                config.tile_k != refine_cfg.tile_k) {
+              return false;
+            }
+            refiner = std::move(network);
+          }
+          // Missing optional image keeps the ordinary refiner, before enqueue.
+        }
+      }
       refine_tile_m = refine_cfg.tile_m;
       launcher      = std::move(selector);
     }

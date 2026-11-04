@@ -4097,6 +4097,38 @@ TEST_F(FusedTopkPk16HalfTest, DtypeAndLayoutCacheTransitions)
     }
 }
 
+TEST(FusedTopkPk16PolicyTest, SortingNetworkBroadBoundary)
+{
+  for (int d : {16, 508, 511, 512, 513, 516, 1024}) {
+    for (int splits : {0, 1, 2, 3, 128}) {
+      EXPECT_EQ(fused_topk_pk16_sortnet_refinement_eligible(d, splits), d >= 512 && splits > 1);
+    }
+  }
+}
+
+TEST_F(FusedTopkPk16HalfTest, WideRefinementBoundaryAndCacheTransitions)
+{
+  for (int d : {508, 512, 516, 513, 512}) {
+    std::vector<float> q(3 * d, .5f), x(259 * d, .25f);
+    for (int splits : {1, 2, 3}) {
+      for (int k : {9, 16}) {
+        for (auto metric : {cuvs::distance::DistanceType::L2Expanded,
+                            cuvs::distance::DistanceType::L2SqrtExpanded,
+                            cuvs::distance::DistanceType::CosineExpanded,
+                            cuvs::distance::DistanceType::InnerProduct}) {
+          const auto a = check_typed_pk16<float, int64_t>(q, x, d, metric, splits, k);
+          const auto b = check_typed_pk16<half, int64_t>(q, x, d, metric, splits, k);
+          const auto c = check_typed_pk16<float, int64_t>(q, x, d, metric, splits, k);
+          EXPECT_EQ(a.indices, b.indices);
+          EXPECT_EQ(a.distances, b.distances);
+          EXPECT_EQ(a.indices, c.indices);
+          EXPECT_EQ(a.distances, c.distances);
+        }
+      }
+    }
+  }
+}
+
 TEST_F(FusedTopkPk16HalfTest, WideSubnormalZeroAndShortCorpus)
 {
   for (int d : {32, 33})

@@ -9,10 +9,13 @@
 namespace cuvs::neighbors::detail {
 template <typename DataT, typename AbiTag, int Stage>
 struct FusedTopkPk16StagePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
-  static_assert(Stage == 0 || Stage == 1 || Stage == 2);
+  static_assert(Stage == 0 || Stage == 1 || Stage == 2 || Stage == 3);
   static_assert(Stage != 2 || ((std::is_same_v<DataT, half> || std::is_same_v<DataT, float>) &&
                                std::is_same_v<AbiTag, cuvs::distance::detail::cutile_abi_strict>));
   using DataTag = std::conditional_t<std::is_same_v<DataT, half>, tag_h, tag_f>;
+  static_assert(Stage != 3 || (std::is_same_v<DataT, float> &&
+                               std::is_same_v<AbiTag, cuvs::distance::detail::cutile_abi_strict>));
+  static constexpr bool is_refinement = Stage == 1 || Stage == 3;
   // Keep this tag consistent with fused_topk_pk16_stages_matrix.json.
   // This is a dtype/layout configuration, not a workload-size dispatch rule.
   static constexpr int selector_tile_m =
@@ -28,7 +31,8 @@ struct FusedTopkPk16StagePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
     : TileAlgorithmPlanner(std::string(fused_topk_pk16_kernel_entrypoint<DataT, AbiTag>()) +
                              (Stage == 0   ? "_select"
                               : Stage == 1 ? "_refine"
-                                           : "_select_witness"),
+                              : Stage == 2 ? "_select_witness"
+                                           : "_refine_sortnet"),
                            launcher_cache)
   {
   }
@@ -38,7 +42,9 @@ struct FusedTopkPk16StagePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
       DataTag,
       tag_index_i32,
       Stage,
-      cutile_tile_config<Stage != 1 ? selector_tile_m : 4, 128, Stage != 1 ? selector_tile_k : 32>,
+      cutile_tile_config<is_refinement ? 4 : selector_tile_m,
+                         128,
+                         is_refinement ? 32 : selector_tile_k>,
       AbiTag,
       cuvs::detail::jit_lto::cutile_arch_12_0>>();
   }

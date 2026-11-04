@@ -103,7 +103,7 @@ def _kernel_signature(
     indices = _output_matrix_constraint(_idx_dtype(index_type))
     distances = _output_matrix_constraint(ct.float32)
     if (
-        stage == "refine"
+        stage in ("refine", "refine_sortnet")
         and physical_k == 16
         and gpu_code == "sm_120"
         and matrix_layout == "strict"
@@ -169,9 +169,18 @@ def export_binary(
         raise ValueError(
             "Witness export is qualified only for strict float/half inputs"
         )
+    if stage == "refine_sortnet" and (
+        data_type != "float"
+        or matrix_layout != "strict"
+        or gpu_code != "sm_120"
+    ):
+        raise ValueError(
+            "Sorting-network refinement requires strict SM120 FP32"
+        )
     factory = {
         "select": make_select_kernel,
         "refine": make_refine_kernel,
+        "refine_sortnet": partial(make_refine_kernel, sort_network=True),
         "select_witness": partial(
             make_select_kernel, first_candidate_witness=True
         ),
