@@ -57,10 +57,12 @@ struct index_params : cuvs::neighbors::index_params {
   /** Degree of the output graph. */
   uint32_t graph_degree = 64;
   /**
-   * Capacity of the per-point HashPrune reservoir. Must be in [graph_degree, kMaxCandidates].
+   * Capacity of the per-point HashPrune reservoir. Must be at least `graph_degree` and at most
+   * `kMaxCandidates`, which is 1024.
    *
-   * Setting this equal to `graph_degree` disables DirectEdgePrune. The default of
-   * 2 * graph_degree is what the paper uses and is empirically good.
+   * Setting this equal to `graph_degree` disables DirectEdgePrune. The default of 128 is twice
+   * the default `graph_degree`, which is an empirically good value. It is not derived from
+   * `graph_degree`, so it should be updated when `graph_degree` changes.
    */
   uint32_t max_candidates = 128;
   /**
@@ -98,6 +100,7 @@ struct index_params : cuvs::neighbors::index_params {
   /**
    * Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves
    * are processed per batch. Affects only peak memory and build time, not graph quality.
+   * 0 selects an automatic budget of 256 bytes per row.
    */
   uint32_t leaf_batch_mib = 0;
   /** Seed for leader sampling and LSH hyperplane generation. */
@@ -105,6 +108,10 @@ struct index_params : cuvs::neighbors::index_params {
 };
 
 static_assert(std::is_aggregate_v<index_params>);
+
+/**
+ * @}
+ */
 
 /**
  * @defgroup gpipnn_cpp_build GPiPNN graph build
@@ -122,9 +129,10 @@ auto is_supported() -> bool;
 /**
  * @brief Build a GPiPNN proximity graph over `dataset`.
  *
- * The output graph is a fully populated `[n_rows, graph_degree]` adjacency matrix that can be
- * handed directly to a CAGRA index for search:
+ * The output graph is a fully populated `[n_rows, graph_degree]` adjacency matrix. Wrap it with
+ * `raft::make_const_mdspan` and hand it to a CAGRA index to search it.
  *
+ * Usage example:
  * @code{.cpp}
  *   namespace gpipnn = cuvs::neighbors::experimental::gpipnn;
  *
@@ -150,12 +158,14 @@ void build_graph(raft::resources const& res,
                  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
 
 /**
- * @copydoc build_graph(raft::resources const& res, const index_params& params,
- * raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
- * raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph)
+ * @brief Build a GPiPNN proximity graph over a half `dataset`.
  *
- * A half `dataset` is used directly as the scoring operand, so this overload is the one that
- * avoids the fp16 conversion copy.
+ * Used directly as the scoring operand, so this overload avoids the fp16 conversion copy.
+ *
+ * @param[in] res raft resources
+ * @param[in] params build parameters
+ * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
+ * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
  */
 void build_graph(raft::resources const& res,
                  const index_params& params,
@@ -163,12 +173,14 @@ void build_graph(raft::resources const& res,
                  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
 
 /**
- * @copydoc build_graph(raft::resources const& res, const index_params& params,
- * raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
- * raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph)
+ * @brief Build a GPiPNN proximity graph over an int8 `dataset`.
  *
- * An int8 `dataset` converts to fp16 for scoring, exactly: half represents every integer up to
- * 2048.
+ * Converted to fp16 for scoring, exactly: half represents every integer up to 2048.
+ *
+ * @param[in] res raft resources
+ * @param[in] params build parameters
+ * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
+ * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
  */
 void build_graph(raft::resources const& res,
                  const index_params& params,
@@ -176,11 +188,14 @@ void build_graph(raft::resources const& res,
                  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
 
 /**
- * @copydoc build_graph(raft::resources const& res, const index_params& params,
- * raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
- * raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph)
+ * @brief Build a GPiPNN proximity graph over a uint8 `dataset`.
  *
- * A uint8 `dataset` converts to fp16 for scoring, exactly, same as the int8 overload.
+ * Converted to fp16 for scoring, exactly, same as the int8 overload.
+ *
+ * @param[in] res raft resources
+ * @param[in] params build parameters
+ * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
+ * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
  */
 void build_graph(raft::resources const& res,
                  const index_params& params,
@@ -198,7 +213,8 @@ void build_graph(raft::resources const& res,
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
 namespace graph_build_params {
-/** Stays here beside CAGRA's other graph-build parameter types, which are not in `experimental`. */
+// Stays here beside CAGRA's other graph-build parameter types, which are not in `experimental`.
+/** GPiPNN build parameters, as selected through CAGRA's `graph_build_params`. */
 using gpipnn_params = cuvs::neighbors::experimental::gpipnn::index_params;
 }  // namespace graph_build_params
 }  // namespace neighbors

@@ -98,6 +98,7 @@ INSTANTIATE_TEST_CASE_P(AnnGpipnnWideRange,
 
 TEST(AnnGpipnnValidation, RejectsOddDimension)
 {
+  if (!is_supported()) { GTEST_SKIP(); }
   raft::resources res;
   const int64_t n_rows = 256;
   const int64_t dim    = 33;

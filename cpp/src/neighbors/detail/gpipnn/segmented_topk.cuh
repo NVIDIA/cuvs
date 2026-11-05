@@ -253,13 +253,15 @@ inline constexpr int64_t kL2BudgetDiv = 2;
  * `dots` is the one buffer worth holding: the GEMM writes it and selection reads it straight back,
  * while the operand slabs are streamed once each.
  *
- * Purely a hint: it changes residency, never results. Both calls that set it up are therefore
- * best-effort, and a driver that refuses either one leaves the window inactive and the error
- * state cleared rather than failing the build.
+ * Purely a hint: it changes residency, never results. Every call that sets it up is therefore
+ * best-effort, and a driver that refuses one leaves the window inactive and the error state
+ * cleared rather than failing the build.
  *
- * Destruction undoes only the stream attribute. The carve-out limit is left set and
- * `cudaCtxResetPersistingL2Cache` is not called, because `segmented_topk` is asynchronous and the
- * guard dies while its kernels are still in flight.
+ * Both settings outlive a plain scope -- the carve-out is device-wide and the access policy
+ * belongs to the caller's stream -- so the guard records what it found and puts both back.
+ * `cudaCtxResetPersistingL2Cache` is still not called, because `segmented_topk` is asynchronous
+ * and the guard dies while its kernels are still in flight; dropping the carve-out is what
+ * releases the reservation.
  */
 class persisting_l2_window {
  public:
@@ -275,13 +277,41 @@ class persisting_l2_window {
     // Names the first `max_window` bytes rather than spreading a hit ratio over the whole matrix,
     // which would let later rows evict earlier ones from the reserved lines.
     const int64_t window = std::min<int64_t>(bytes, max_window);
-    const auto limit_err =
-      cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, static_cast<size_t>(window));
-    if (limit_err != cudaSuccess) {
+
+    // The carve-out is device-wide, so a concurrent build may already have raised it. Growing it
+    // only when it is too small, and rolling back only a value this guard itself wrote, keeps two
+    // builds from cutting each other's window short.
+    size_t prior_limit  = 0;
+    const auto read_err = cudaDeviceGetLimit(&prior_limit, cudaLimitPersistingL2CacheSize);
+    if (read_err != cudaSuccess) {
       (void)cudaGetLastError();
-      RAFT_LOG_DEBUG("gpipnn: L2 carve-out of %ld bytes refused (%s); running without it",
-                     static_cast<long>(window),
-                     cudaGetErrorString(limit_err));
+      RAFT_LOG_DEBUG("gpipnn: L2 carve-out unreadable (%s); running without it",
+                     cudaGetErrorString(read_err));
+      return;
+    }
+    if (prior_limit < static_cast<size_t>(window)) {
+      const auto limit_err =
+        cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, static_cast<size_t>(window));
+      if (limit_err != cudaSuccess) {
+        (void)cudaGetLastError();
+        RAFT_LOG_DEBUG("gpipnn: L2 carve-out of %ld bytes refused (%s); running without it",
+                       static_cast<long>(window),
+                       cudaGetErrorString(limit_err));
+        return;
+      }
+      prior_limit_ = prior_limit;
+      set_limit_   = static_cast<size_t>(window);
+      owns_limit_  = true;
+    }
+
+    // Saved so a window the caller set for its own reasons survives this guard.
+    const auto prior_err =
+      cudaStreamGetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &prior_attr_);
+    if (prior_err != cudaSuccess) {
+      (void)cudaGetLastError();
+      RAFT_LOG_DEBUG("gpipnn: stream access policy unreadable (%s); running without it",
+                     cudaGetErrorString(prior_err));
+      restore_limit();
       return;
     }
 
@@ -298,6 +328,7 @@ class persisting_l2_window {
       (void)cudaGetLastError();
       RAFT_LOG_DEBUG("gpipnn: L2 access-policy window refused (%s); running without it",
                      cudaGetErrorString(attr_err));
+      restore_limit();
       return;
     }
     active_ = true;
@@ -305,12 +336,12 @@ class persisting_l2_window {
 
   ~persisting_l2_window()
   {
-    if (!active_) { return; }
-    // Unchecked: this can run while an exception from the batch loop propagates, and losing it to
-    // report a failed cache hint would be a poor trade.
-    cudaStreamAttrValue attr{};
-    attr.accessPolicyWindow.num_bytes = 0;
-    cudaStreamSetAttribute(stream_, cudaStreamAttributeAccessPolicyWindow, &attr);
+    // Unchecked throughout: this can run while an exception from the batch loop propagates, and
+    // losing it to report a failed cache hint would be a poor trade.
+    if (active_) {
+      cudaStreamSetAttribute(stream_, cudaStreamAttributeAccessPolicyWindow, &prior_attr_);
+    }
+    restore_limit();
   }
 
   persisting_l2_window(const persisting_l2_window&)                    = delete;
@@ -319,8 +350,29 @@ class persisting_l2_window {
   auto operator=(persisting_l2_window&&) -> persisting_l2_window&      = delete;
 
  private:
+  /** Puts the device-wide carve-out back, but only if it still holds this guard's value. */
+  void restore_limit()
+  {
+    if (!owns_limit_) { return; }
+    owns_limit_    = false;
+    size_t current = 0;
+    if (cudaDeviceGetLimit(&current, cudaLimitPersistingL2CacheSize) != cudaSuccess) {
+      (void)cudaGetLastError();
+      return;
+    }
+    // Anything else means a concurrent build raised it further and is still relying on it.
+    if (current != set_limit_) { return; }
+    if (cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, prior_limit_) != cudaSuccess) {
+      (void)cudaGetLastError();
+    }
+  }
+
   cudaStream_t stream_ = nullptr;
-  bool active_         = false;
+  cudaStreamAttrValue prior_attr_{};
+  size_t prior_limit_ = 0;
+  size_t set_limit_   = 0;
+  bool owns_limit_    = false;
+  bool active_        = false;
 };
 
 /** Returns the working-set budget in bytes, used to bound how many segments run at once. */
