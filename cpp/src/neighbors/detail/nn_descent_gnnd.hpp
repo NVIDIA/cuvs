@@ -21,6 +21,7 @@
 #include <functional>
 #include <limits>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <utility>
 
@@ -301,6 +302,13 @@ class CUVS_EXPORT GNND {
                          int2* list_sizes,
                          cudaStream_t stream = 0);
 
+  // Allocates the per-iteration sample lists, on device when they fit, else in pinned host memory.
+  void allocate_sample_lists();
+  // Publishes this iteration's sampled lists and list sizes to the local-join kernels and builds
+  // the reverse lists.
+  void prepare_sample_lists(cudaStream_t stream);
+  void add_all_reverse_edges(cudaStream_t stream);
+
   template <typename DistEpilogue_t>
   void local_join(cudaStream_t stream = 0, DistEpilogue_t dist_epilogue = DistEpilogue_t{});
 
@@ -342,9 +350,18 @@ class CUVS_EXPORT GNND {
 
   raft::device_vector<int, size_t> d_locks_;
 
-  raft::pinned_matrix<Index_t, size_t> h_rev_graph_new_;
-  raft::pinned_matrix<Index_t, size_t> h_graph_old_;
-  raft::pinned_matrix<Index_t, size_t> h_rev_graph_old_;
+  // Sampled forward/reverse lists read by the local-join kernels. When device_lists_ is set they
+  // live in d_lists_ (one row each for graph_new, rev_graph_new, graph_old, rev_graph_old);
+  // otherwise the kernels read them from pinned host memory over PCIe.
+  bool device_lists_{false};
+  std::optional<raft::device_matrix<Index_t, size_t, raft::row_major>> d_lists_;
+  std::optional<raft::pinned_matrix<Index_t, size_t>> h_rev_graph_new_;
+  std::optional<raft::pinned_matrix<Index_t, size_t>> h_graph_old_;
+  std::optional<raft::pinned_matrix<Index_t, size_t>> h_rev_graph_old_;
+  Index_t* graph_new_ptr_{nullptr};
+  Index_t* rev_graph_new_ptr_{nullptr};
+  Index_t* graph_old_ptr_{nullptr};
+  Index_t* rev_graph_old_ptr_{nullptr};
   // int2.x is the number of forward edges, int2.y is the number of reverse edges
 
   raft::device_vector<int2, size_t> d_list_sizes_new_;

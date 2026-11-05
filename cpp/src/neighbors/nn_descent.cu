@@ -75,6 +75,7 @@ std::pair<size_t, size_t> build_mem_usage(raft::resources const& res,
   dev += nrow * degree_on_device * sizeof(float);  // dists_buffer_ (also reused as d_rev_graph)
   dev += nrow * sizeof(int);                       // d_locks_
   dev += 2 * nrow * sizeof(int2);                  // d_list_sizes_new_ / _old_
+  dev += 4 * nrow * num_samples * idx_size;        // d_lists_ (sampled fwd/rev lists, if they fit)
 
   // Host working set. The GNND solver keeps a pageable distance matrix sized to
   // the (aligned) output degree plus a number of pinned staging buffers whose
@@ -86,7 +87,8 @@ std::pair<size_t, size_t> build_mem_usage(raft::resources const& res,
   host += nrow * degree_on_device * sizeof(int);    // graph_host_buffer_
   host += nrow * degree_on_device * sizeof(float);  // dists_host_buffer_
   host += 2 * nrow * num_samples * idx_size;        // h_graph_new / h_graph_old
-  host += 2 * nrow * num_samples * idx_size;        // h_rev_graph_new_ / _old_
+  // h_rev_graph_new_ / h_graph_old_ / h_rev_graph_old_ are only allocated when d_lists_ does not
+  // fit on device.
   host += 4 * nrow * sizeof(int2);                  // h/d list sizes (new + old)
 
   return std::make_pair(host, dev);
