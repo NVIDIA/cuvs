@@ -37,6 +37,7 @@ These pages are generated from the documented public headers in the cuVS source 
 - [Common](/api-reference/cpp-api-neighbors-common)
 - [Dynamic Batching](/api-reference/cpp-api-neighbors-dynamic-batching)
 - [Epsilon Neighborhood](/api-reference/cpp-api-neighbors-epsilon-neighborhood)
+- [Gpipnn](/api-reference/cpp-api-neighbors-gpipnn)
 - [HNSW](/api-reference/cpp-api-neighbors-hnsw)
 - [Index](/api-reference/cpp-api-neighbors-composite-index)
 - [IVF Binary](/api-reference/cpp-api-neighbors-ivf-binary)
