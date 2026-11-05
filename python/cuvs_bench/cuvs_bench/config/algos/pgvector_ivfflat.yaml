@@ -1,0 +1,13 @@
+# PostgreSQL pgvector CPU build and CPU search.
+name: pgvector_ivfflat
+groups:
+  base:
+    build:
+      lists: [100, 1000, 4000]
+    search:
+      probes: [1, 4, 8, 16, 32, 64, 100]
+  test:
+    build:
+      lists: [4]
+    search:
+      probes: [1, 4]
