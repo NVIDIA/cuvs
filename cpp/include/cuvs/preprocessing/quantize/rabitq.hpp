@@ -68,7 +68,8 @@ struct params {
    * Number of *extended* bits per dimension. The total code width is
    * `ex_bits + 1` bits (one sign bit plus `ex_bits` magnitude bits), so
    * `ex_bits = 0` is plain 1-bit RaBitQ and `ex_bits = 3` is the common
-   * 4-bit configuration.
+   * 4-bit configuration. `ex_bits = 8` needs `uint16_t` codes; `uint8_t` codes are
+   * rejected.
    *
    * Possible value range: [0, 8].
    */

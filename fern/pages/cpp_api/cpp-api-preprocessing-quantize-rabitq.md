@@ -77,7 +77,7 @@ struct params {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `ex_bits` | `uint32_t` | Number of *extended* bits per dimension. The total code width is `ex_bits + 1` bits (one sign bit plus `ex_bits` magnitude bits), so `ex_bits = 0` is plain 1-bit RaBitQ and `ex_bits = 3` is the common 4-bit configuration.<br /><br />Possible value range: [0, 8]. |
+| `ex_bits` | `uint32_t` | Number of *extended* bits per dimension. The total code width is `ex_bits + 1` bits (one sign bit plus `ex_bits` magnitude bits), so `ex_bits = 0` is plain 1-bit RaBitQ and `ex_bits = 3` is the common 4-bit configuration. `ex_bits = 8` needs `uint16_t` codes; `uint8_t` codes are rejected.<br /><br />Possible value range: [0, 8]. |
 | `rotator` | [`rotator_kind`](/api-reference/cpp-api-preprocessing-quantize-rabitq#preprocessing-quantize-rabitq-rotator-kind) | Random-rotation implementation. |
 | `seed` | `uint64_t` | Seed for the RNGs that draw the rotation state and the random probe vectors used to estimate the constant scaling factor. |
 | `delta_mode` | [`delta_kind`](/api-reference/cpp-api-preprocessing-quantize-rabitq#preprocessing-quantize-rabitq-delta-kind) | Rule used to derive the per-vector `delta` / `vl` pair. |
