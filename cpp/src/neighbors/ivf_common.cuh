@@ -263,13 +263,17 @@ void recompute_internal_state(const raft::resources& res, Index& index)
   // Actualize the list pointers
   auto data_ptrs = index.data_ptrs();
   auto inds_ptrs = index.inds_ptrs();
+  auto data_ptrs_host =
+    raft::make_host_vector<typename decltype(data_ptrs)::element_type>(index.n_lists());
+  auto inds_ptrs_host =
+    raft::make_host_vector<typename decltype(inds_ptrs)::element_type>(index.n_lists());
   for (uint32_t label = 0; label < index.n_lists(); label++) {
-    auto& list          = index.lists()[label];
-    const auto data_ptr = list ? list->data_ptr() : nullptr;
-    const auto inds_ptr = list ? list->indices_ptr() : nullptr;
-    raft::copy(&data_ptrs(label), &data_ptr, 1, stream);
-    raft::copy(&inds_ptrs(label), &inds_ptr, 1, stream);
+    auto& list            = index.lists()[label];
+    data_ptrs_host(label) = list ? list->data_ptr() : nullptr;
+    inds_ptrs_host(label) = list ? list->indices_ptr() : nullptr;
   }
+  raft::copy(res, data_ptrs, raft::make_const_mdspan(data_ptrs_host.view()));
+  raft::copy(res, inds_ptrs, raft::make_const_mdspan(inds_ptrs_host.view()));
 
   // Sort the cluster sizes in the descending order.
   // Use helper function to avoid including cub/device/* in this header
