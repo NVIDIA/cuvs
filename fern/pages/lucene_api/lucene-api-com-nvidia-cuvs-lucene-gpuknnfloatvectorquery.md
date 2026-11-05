@@ -33,12 +33,14 @@ graph degree, and a small segment can have its degree truncated at build time).
 
 It also falls back whenever an explicit `filter` is selective enough that Lucene would
 answer the query exactly. `org.apache.lucene.search.KnnFloatVectorQuery` guarantees that a
-filter leaving no more than `k` candidates in a segment is served by an exact scan rather
-than by the approximate index, and that a segment yielding fewer than `k` approximate hits
-while holding more than `k` candidates is re-run exactly. An approximate CAGRA search can
-miss such candidates, so both cases are routed back to Lucene's per-leaf path, which applies
-those rules per segment and still runs this query's GPU `#approximateSearch` wherever an
-approximate search is allowed.
+filter leaving no more than `perLeafTopK` candidates in a segment is served by an exact
+scan rather than by the approximate index, and that a segment yielding fewer than `perLeafTopK` approximate hits while holding more candidates is re-run exactly. `perLeafTopK` is `k` on Lucene 10.2; since 10.3 it is the segment's expected share of the
+top `k` plus a margin, often more than `k` but less for large `k` and many
+segments. The query falls back to Lucene's per-leaf path, which applies both rules and still
+runs this query's GPU `#approximateSearch` wherever an approximate search is allowed,
+whenever a segment has at least one but no more than `k` or `perLeafTopK`
+candidates, whichever is larger, or the merged result has fewer than `k` hits although
+enough candidates pass the filter. The multi-partition search returns only the merged top `k`, so for the other segments it checks only that count, not Lucene's second rule per segment.
 
 On that per-leaf path, since Lucene 10.3, a filtered segment search must return as many hits as
 Lucene expects from the segment, which can exceed `k`. A segment with only a CAGRA index
