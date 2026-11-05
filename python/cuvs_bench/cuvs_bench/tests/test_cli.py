@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -163,6 +163,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
         "test-data/result/search/cuvs_cagra_hnswlib,test,k10,bs100,raw.csv": {
             "header": common_search_header
             + [
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "ef",
                 "end_to_end",
                 "k",
@@ -182,6 +186,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "itopk",
                 "k",
@@ -202,6 +210,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "itopk",
                 "k",
@@ -222,6 +234,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "itopk",
                 "k",
@@ -242,6 +258,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "k",
                 "n_queries",
@@ -261,6 +281,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "k",
                 "n_queries",
@@ -280,6 +304,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "k",
                 "n_queries",
@@ -299,6 +327,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "k",
                 "n_queries",
@@ -318,6 +350,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "k",
                 "n_queries",
@@ -337,6 +373,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "k",
                 "n_queries",
@@ -356,6 +396,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "k",
                 "n_queries",
@@ -379,6 +423,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "k",
                 "n_queries",
@@ -402,6 +450,10 @@ def test_run_command_creates_results(temp_datasets_dir: Path):
             "header": common_search_header
             + [
                 "GPU",
+                "Latency_max",
+                "Latency_p50",
+                "Latency_p95",
+                "Latency_p99",
                 "end_to_end",
                 "k",
                 "n_queries",
