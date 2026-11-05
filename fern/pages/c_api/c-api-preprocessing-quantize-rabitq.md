@@ -36,6 +36,8 @@ Rule used to derive the per-vector reconstruction scale `delta`.
 
 Only relevant for cuvsRabitqTransform / cuvsRabitqTransformResiduals, which emit `(codes, delta, vl)`; the full-factor entry points emit `(f_add, f_rescale, f_error)` instead and ignore this setting.
 
+`delta` is computed from the signed levels `c - (2^ex_bits - 0.5)` of the stored code values `c`, not from `c` itself.
+
 ```c
 enum cuvsRabitqDeltaKind {
   CUVS_RABITQ_DELTA_KIND_RECONSTRUCTION = 0,

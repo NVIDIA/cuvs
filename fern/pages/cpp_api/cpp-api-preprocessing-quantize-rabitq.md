@@ -36,6 +36,8 @@ Rule used to derive the per-vector reconstruction scale `delta`.
 
 Only relevant for the `(codes, delta, vl)` output mode; the full-factor mode emits `(f_add, f_rescale, f_error)` instead and ignores this setting.
 
+`delta` is computed from the signed levels `c - (2^ex_bits - 0.5)` of the stored code values `c`, not from `c` itself.
+
 ```cpp
 enum class delta_kind : uint8_t {
   reconstruction = 0,
