@@ -334,10 +334,6 @@ cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> merge_rebuild(
     total_rows += static_cast<int64_t>(index->size());
   }
 
-  RAFT_EXPECTS(merged_dataset.n_rows() == total_rows,
-               "merged_dataset row count (%ld) must equal the sum of input index sizes (%ld)",
-               long(merged_dataset.n_rows()),
-               long(total_rows));
   RAFT_EXPECTS(merged_dataset.dim() == dim,
                "merged_dataset dimension (%u) must equal the input dimension (%u)",
                unsigned(merged_dataset.dim()),
@@ -621,6 +617,18 @@ auto merge(raft::resources const& handle,
       return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset);
     }
     RAFT_FAIL("FASTENER cagra::merge is unsupported: %s", preflight.reason.c_str());
+  }
+
+  // The caller owns merged_dataset; if it has fewer rows than the sum of input indices (e.g. a
+  // filtered concatenation), Fastener cannot use it — fall back to REBUILD under AUTO.
+  if (merged_dataset.n_rows() != preflight.rows) {
+    if (merge_params.algo == cagra::merge_algo::AUTO) {
+      return merge_rebuild<T, IdxT, DatasetViewT>(handle, params, indices, merged_dataset);
+    }
+    RAFT_FAIL(
+      "FASTENER cagra::merge: merged_dataset rows (%ld) must equal the merged row count (%ld)",
+      long(merged_dataset.n_rows()),
+      long(preflight.rows));
   }
 
   if (merge_params.algo == cagra::merge_algo::AUTO) {

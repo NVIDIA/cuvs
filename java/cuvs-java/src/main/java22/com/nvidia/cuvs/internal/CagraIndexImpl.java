@@ -1215,8 +1215,9 @@ public class CagraIndexImpl implements CagraIndex {
 
   /**
    * Merges multiple CAGRA indexes into a single index, using a caller-owned pre-concatenated
-   * padded dataset that was already filtered by {@code filter} (or unfiltered, if {@code filter}
-   * is null).
+   * padded dataset. Any row filtering must have already been applied when building the dataset
+   * (e.g. via {@code concatenateAndFilterDatasets}); {@code filter} is accepted for API
+   * compatibility but is not forwarded to the C merge call.
    *
    * <p>The dataset stays owned by the caller: this method never allocates or copies dataset rows,
    * it only merges the graphs and binds the returned index to the native dataset handle at {@code
@@ -1227,10 +1228,8 @@ public class CagraIndexImpl implements CagraIndex {
    * @param mergedDatasetHandleAddress native handle address of the caller-owned padded dataset (or
    *                                   padded dataset view) holding the concatenation of every
    *                                   input index's surviving rows, in {@code indexes} order
-   * @param filter Bitset selecting which rows (over the concatenation of every index's rows, in
-   *               {@code indexes} order) survive into the merged dataset; a set bit keeps the row.
-   *               Must be the same filter used to build the dataset at {@code
-   *               mergedDatasetHandleAddress}. Pass null for an unfiltered merge
+   * @param filter Unused; filtering must be applied when building the dataset via
+   *               {@code concatenateAndFilterDatasets}. Accepted for API compatibility.
    * @param mergeParams Parameters to control the merge operation, or null to use defaults
    * @return A new merged CAGRA index
    */
@@ -1254,36 +1253,15 @@ public class CagraIndexImpl implements CagraIndex {
 
         MemorySegment mergedDataset = MemorySegment.ofAddress(mergedDatasetHandleAddress);
 
-        if (filter == null) {
-          MemorySegment mergeFilter = cuvsFilter.allocate(localArena);
-          cuvsFilter.type(mergeFilter, 0); // NO_FILTER
-          cuvsFilter.addr(mergeFilter, 0);
-
-          checkCuVSError(
-              cuvsCagraMerge_v2(
-                  cuvsRes,
-                  nativeMergeParams.handle(),
-                  indexesSegment,
-                  indexes.length,
-                  mergeFilter,
-                  mergedDataset,
-                  mergedIndex),
-              "cuvsCagraMerge_v2");
-        } else {
-          try (var nativeFilter =
-              uploadBitsetFilter(cuvsRes, localArena, filter, totalRows(indexes))) {
-            checkCuVSError(
-                cuvsCagraMerge_v2(
-                    cuvsRes,
-                    nativeMergeParams.handle(),
-                    indexesSegment,
-                    indexes.length,
-                    nativeFilter.segment,
-                    mergedDataset,
-                    mergedIndex),
-                "cuvsCagraMerge_v2");
-          }
-        }
+        checkCuVSError(
+            cuvsCagraMerge_v2(
+                cuvsRes,
+                nativeMergeParams.handle(),
+                indexesSegment,
+                indexes.length,
+                mergedDataset,
+                mergedIndex),
+            "cuvsCagraMerge_v2");
         // mergedDataset is caller-owned; the returned index does not take ownership of it.
         success = true;
         return new CagraIndexImpl(new IndexReference(mergedIndex, null, null), resources);

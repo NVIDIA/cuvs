@@ -1250,12 +1250,6 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         ps.k,
         ps.metric);
 
-      raft::linalg::addScalar(indices_naive_dev.data(),
-                              indices_naive_dev.data(),
-                              IdxT(test_cagra_sample_filter::offset),
-                              queries_size,
-                              stream_.get());
-
       raft::update_host(distances_naive.data(), distances_naive_dev.data(), queries_size, stream_);
       raft::update_host(indices_naive.data(), indices_naive_dev.data(), queries_size, stream_);
       raft::resource::sync_stream(handle_);

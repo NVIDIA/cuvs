@@ -234,7 +234,6 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
                                   cuvsCagraIndexParams_t params,
                                   cuvsCagraIndex_t* indices,
                                   size_t num_indices,
-                                  cuvsFilter filter,
                                   cuvsDataset_t merged_dataset,
                                   cuvsCagraIndex_t output_index)
 
@@ -243,7 +242,6 @@ cdef extern from "cuvs/neighbors/cagra.h" nogil:
                                              cuvsCagraMergeParams_t merge_params,
                                              cuvsCagraIndex_t* indices,
                                              size_t num_indices,
-                                             cuvsFilter filter,
                                              cuvsDataset_t merged_dataset,
                                              cuvsCagraIndex_t output_index)
 

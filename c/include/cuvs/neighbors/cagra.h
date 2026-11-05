@@ -1099,10 +1099,8 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
  * // Build `merged_dataset` as the caller-owned concatenation of index1 || index2 (e.g. via
  * // cuvsConcatenateDatasets).
  * cuvsDataset_t merged_dataset = ...;
- * cuvsFilter filter = {.type = NO_FILTER, .addr = 0};
- *
  * cuvsError_t merge_status = cuvsCagraMerge_v2(res, merge_params, (cuvsCagraIndex_t[]){index1,
- * index2}, 2, filter, merged_dataset, merged_index);
+ * index2}, 2, merged_dataset, merged_index);
  *
  * // Use merged_index for search operations
  *
@@ -1116,7 +1114,6 @@ CUVS_EXPORT cuvsError_t cuvsCagraIndexFromArgs(cuvsResources_t res,
  * @param[in] params cuvsCagraIndexParams_t parameters for the output index
  * @param[in] indices Array of input cuvsCagraIndex_t handles to merge
  * @param[in] num_indices Number of input indices
- * @param[in] filter Filter (unused, reserved for future use; pass `{.type = NO_FILTER, .addr = 0}`)
  * @param[in] merged_dataset Caller-owned dataset handle already containing the concatenated
  *                           dataset, with the same layout as the input indices. Keep this dataset
  *                           alive while using \p output_index. A host-backed dataset must be
@@ -1128,7 +1125,6 @@ CUVS_EXPORT cuvsError_t cuvsCagraMerge_v2(cuvsResources_t res,
                               cuvsCagraIndexParams_t params,
                               cuvsCagraIndex_t* indices,
                               size_t num_indices,
-                              cuvsFilter filter,
                               cuvsDataset_t merged_dataset,
                               cuvsCagraIndex_t output_index);
 
@@ -1143,7 +1139,6 @@ CUVS_EXPORT cuvsError_t cuvsCagraMerge_v2(cuvsResources_t res,
  *                         NULL to use AUTO defaults
  * @param[in] indices Array of input cuvsCagraIndex_t handles to merge
  * @param[in] num_indices Number of input indices
- * @param[in] filter Filter (unused, reserved for future use; pass `{.type = NO_FILTER, .addr = 0}`)
  * @param[in] merged_dataset Caller-owned dataset handle already containing the concatenated
  *                           dataset. Keep this dataset alive while using `output_index`. A
  *                           host-backed dataset must be updated with `cuvsCagraUpdateDataset`
@@ -1155,7 +1150,6 @@ CUVS_EXPORT cuvsError_t cuvsCagraMergeWithParams_v2(cuvsResources_t res,
                                                     cuvsCagraMergeParams_t merge_params,
                                                     cuvsCagraIndex_t* indices,
                                                     size_t num_indices,
-                                                    cuvsFilter filter,
                                                     cuvsDataset_t merged_dataset,
                                                     cuvsCagraIndex_t output_index);
 

@@ -517,7 +517,6 @@ TEST(CagraC, DatasetContractFailures)
                               build_params,
                               host_indices,
                               2,
-                              filter,
                               merged_dataset,
                               merge_out),
             CUVS_ERROR);
@@ -1122,7 +1121,6 @@ TEST(CagraC, BuildMergeSearch)
                                         merge_params,
                                         index_array,
                                         2,
-                                        filter,
                                         merged_dataset,
                                         index_merged),
             CUVS_SUCCESS);
@@ -1330,7 +1328,6 @@ TEST(CagraC, ConcatenateDatasetsMergeSearch)
                               build_params,
                               index_array,
                               2,
-                              no_filter,
                               concatenated_dataset,
                               index_merged),
             CUVS_SUCCESS);
@@ -1399,7 +1396,6 @@ TEST(CagraC, ConcatenateDatasetsMergeSearch)
                               build_params,
                               index_array,
                               2,
-                              bitset_filter,
                               filtered_dataset,
                               index_filtered_merged),
             CUVS_SUCCESS);
@@ -1418,8 +1414,8 @@ TEST(CagraC, ConcatenateDatasetsMergeSearch)
     raft::copy(&neighbor_host, neighbors_d.data(), 1, stream);
     raft::copy(&distance_host, distances_d.data(), 1, stream);
     cudaStreamSynchronize(stream);
-    // Row 6 (the query's exact match) was filtered out, so the nearest neighbor must be a
-    // different, strictly positive-distance row.
+    // Row 6 (the query's exact match) was filtered out of the merged index at build time,
+    // so the nearest neighbor must be a different, strictly positive-distance row.
     EXPECT_NE(neighbor_host, 6);
     EXPECT_GT(distance_host, 1e-6);
   }

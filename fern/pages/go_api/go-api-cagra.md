@@ -350,7 +350,7 @@ _Source: `go/cagra/cagra.go:181`_
 ### MergeIndex
 
 ```go
-func MergeIndex(Resources cuvs.Resource, params *IndexParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error
+func MergeIndex(Resources cuvs.Resource, params *IndexParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, index *CagraIndex) error
 ```
 
 MergeIndex merges multiple CAGRA indices into output using AUTO merge
@@ -361,26 +361,23 @@ parameters.
 * `Resources` - Resources to use
 * `params` - Parameters for the output index
 * `indices` - Input indices to merge, in the order they were concatenated into mergedDataset
-* `mergedDataset` - Caller-owned padded dataset already containing the concatenation (and,
-if allowList is set, already-filtered rows) of every input index's dataset, in `indices` order
-* `offsets` - Per-index starting row within mergedDataset; len(indices)+1 entries, as returned
-by MergedDatasetOffsets (or the trivial cumulative sizes, if allowList is nil)
-* `allowList` - Row filter already applied by the caller while building mergedDataset, or nil
+* `mergedDataset` - Caller-owned padded dataset already containing the full concatenation of
+every input index's dataset, in `indices` order (N1+N2+... rows total)
 * `index` - Output CagraIndex, must be created with CreateIndex before use
 
-_Source: `go/cagra/cagra.go:439`_
+_Source: `go/cagra/cagra.go:436`_
 
 ### MergeIndexWithParams
 
 ```go
-func MergeIndexWithParams(Resources cuvs.Resource, params *IndexParams, mergeParams *MergeParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error
+func MergeIndexWithParams(Resources cuvs.Resource, params *IndexParams, mergeParams *MergeParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, index *CagraIndex) error
 ```
 
 MergeIndexWithParams merges multiple CAGRA indices into output, using
 explicit mergeParams to control the merge algorithm. See MergeIndex for the
 remaining arguments.
 
-_Source: `go/cagra/cagra.go:446`_
+_Source: `go/cagra/cagra.go:443`_
 
 ### MergedDatasetOffsets
 
@@ -407,7 +404,7 @@ Perform a Approximate Nearest Neighbors search on the Index
 * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 * `allowList` - List of indices to allow in the search, if nil, no filtering is applied
 
-_Source: `go/cagra/cagra.go:534`_
+_Source: `go/cagra/cagra.go:508`_
 
 ### UpdateDataset
 
@@ -430,7 +427,7 @@ func (index *CagraIndex) Close() error
 
 Destroys the Cagra Index
 
-_Source: `go/cagra/cagra.go:516`_
+_Source: `go/cagra/cagra.go:490`_
 
 ### ExtendParams.Close
 

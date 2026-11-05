@@ -1393,8 +1393,6 @@ def merge(IndexParams params, indices, merged_dataset,
     if merge_params is not None:
         merge_params_ptr = (<MergeParams>merge_params).params
 
-    cdef cuvsFilter no_filter_c = no_filter().prefilter
-
     try:
         with cuda_interruptible():
             check_cuvs(cuvsCagraMergeWithParams_v2(
@@ -1403,7 +1401,6 @@ def merge(IndexParams params, indices, merged_dataset,
                 merge_params_ptr,
                 c_indices,
                 num_indices,
-                no_filter_c,
                 merged_handle,
                 out_idx.index))
     finally:

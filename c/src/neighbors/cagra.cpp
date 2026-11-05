@@ -1257,7 +1257,6 @@ void _merge(cuvsResources_t res,
             cuvsCagraIndexParams params,
             cuvsCagraIndex_t* indices,
             size_t num_indices,
-            cuvsFilter filter,
             const cuvs::neighbors::cagra::merge_params& merge_params,
             cuvsDataset_t merged_dataset,
             cuvsCagraIndex_t output_index)
@@ -2341,12 +2340,11 @@ extern "C" cuvsError_t cuvsCagraMerge_v2(cuvsResources_t res,
                                          cuvsCagraIndexParams_t params,
                                          cuvsCagraIndex_t* indices,
                                          size_t num_indices,
-                                         cuvsFilter filter,
                                          cuvsDataset_t merged_dataset,
                                          cuvsCagraIndex_t output_index)
 {
   return cuvsCagraMergeWithParams_v2(
-    res, params, nullptr, indices, num_indices, filter, merged_dataset, output_index);
+    res, params, nullptr, indices, num_indices, merged_dataset, output_index);
 }
 
 extern "C" cuvsError_t cuvsCagraMergeWithParams_v2(cuvsResources_t res,
@@ -2354,7 +2352,6 @@ extern "C" cuvsError_t cuvsCagraMergeWithParams_v2(cuvsResources_t res,
                                                    cuvsCagraMergeParams_t merge_params,
                                                    cuvsCagraIndex_t* indices,
                                                    size_t num_indices,
-                                                   cuvsFilter filter,
                                                    cuvsDataset_t merged_dataset,
                                                    cuvsCagraIndex_t output_index)
 {
@@ -2404,16 +2401,16 @@ extern "C" cuvsError_t cuvsCagraMergeWithParams_v2(cuvsResources_t res,
     // Dispatch based on data type
     if (dtype.code == kDLFloat && dtype.bits == 32) {
       _merge<float>(
-        res, *params, indices, num_indices, filter, merge_params_cpp, merged_dataset, output_index);
+        res, *params, indices, num_indices, merge_params_cpp, merged_dataset, output_index);
     } else if (dtype.code == kDLFloat && dtype.bits == 16) {
       _merge<half>(
-        res, *params, indices, num_indices, filter, merge_params_cpp, merged_dataset, output_index);
+        res, *params, indices, num_indices, merge_params_cpp, merged_dataset, output_index);
     } else if (dtype.code == kDLInt && dtype.bits == 8) {
       _merge<int8_t>(
-        res, *params, indices, num_indices, filter, merge_params_cpp, merged_dataset, output_index);
+        res, *params, indices, num_indices, merge_params_cpp, merged_dataset, output_index);
     } else if (dtype.code == kDLUInt && dtype.bits == 8) {
       _merge<uint8_t>(
-        res, *params, indices, num_indices, filter, merge_params_cpp, merged_dataset, output_index);
+        res, *params, indices, num_indices, merge_params_cpp, merged_dataset, output_index);
     } else {
       RAFT_FAIL("Unsupported index data type: code=%d, bits=%d", dtype.code, dtype.bits);
     }
@@ -2472,7 +2469,6 @@ extern "C" cuvsError_t cuvsCagraMergeWithParams(cuvsResources_t res,
                                     merge_params,
                                     indices,
                                     num_indices,
-                                    filter,
                                     concat_result,
                                     output_index);
   if (err != CUVS_SUCCESS) {

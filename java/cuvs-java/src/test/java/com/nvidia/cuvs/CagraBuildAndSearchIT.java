@@ -1418,51 +1418,6 @@ public class CagraBuildAndSearchIT extends CuVSTestCase {
   }
 
   /**
-   * Offsets that do not describe the merged dataset the caller handed in are a caller mistake, not
-   * something to pass on to cuVS.
-   */
-  @Test
-  public void testMergeRejectsInconsistentOffsets() throws Throwable {
-    float[][] vectors = {
-      {0.0f, 0.0f},
-      {1.0f, 1.0f}
-    };
-
-    try (CuVSResources resources = CheckedCuVSResources.create()) {
-      CagraIndexParams indexParams =
-          new CagraIndexParams.Builder()
-              .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
-              .withGraphDegree(1)
-              .withIntermediateGraphDegree(2)
-              .withMetric(CuvsDistanceType.L2Expanded)
-              .build();
-
-      try (CagraIndex index =
-          CagraIndex.newBuilder(resources)
-              .fromDataset(vectors)
-              .withIndexParams(indexParams)
-              .build()) {
-        try (var device = CuVSMatrix.ofArray(vectors).toDevice(resources);
-            var padded = index.makePaddedDataset(device);
-            var mergedDevice = CuVSMatrix.ofArray(vectors).toDevice(resources);
-            var mergedDataset = index.makePaddedDataset(mergedDevice)) {
-          index.updateDataset(padded);
-
-          // One index needs two entries: where its rows start, and the dataset's row count.
-          assertThrows(
-              IllegalArgumentException.class,
-              () -> CagraIndex.merge(new CagraIndex[] {index}, mergedDataset, new long[] {0L}));
-
-          // The last entry has to be the merged dataset's row count, which is two rows here.
-          assertThrows(
-              Throwable.class,
-              () -> CagraIndex.merge(new CagraIndex[] {index}, mergedDataset, new long[] {0L, 3L}));
-        }
-      }
-    }
-  }
-
-  /**
    * A merge that fails inside cuVS has to release the index it was building, and leave every input
    * index untouched and still usable. Host-backed indexes are not mergeable, which fails the native
    * call after the output index has been allocated - the one path where the handle used to be

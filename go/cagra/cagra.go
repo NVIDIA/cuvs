@@ -430,44 +430,26 @@ func MergedDatasetOffsets(Resources cuvs.Resource, indices []*CagraIndex, allowL
 // * `Resources` - Resources to use
 // * `params` - Parameters for the output index
 // * `indices` - Input indices to merge, in the order they were concatenated into mergedDataset
-// * `mergedDataset` - Caller-owned padded dataset already containing the concatenation (and,
-//   if allowList is set, already-filtered rows) of every input index's dataset, in `indices` order
-// * `offsets` - Per-index starting row within mergedDataset; len(indices)+1 entries, as returned
-//   by MergedDatasetOffsets (or the trivial cumulative sizes, if allowList is nil)
-// * `allowList` - Row filter already applied by the caller while building mergedDataset, or nil
+// * `mergedDataset` - Caller-owned padded dataset already containing the full concatenation of
+//   every input index's dataset, in `indices` order (N1+N2+... rows total)
 // * `index` - Output CagraIndex, must be created with CreateIndex before use
-func MergeIndex(Resources cuvs.Resource, params *IndexParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error {
-	return mergeIndex(Resources, params, nil, indices, mergedDataset, offsets, allowList, index)
+func MergeIndex(Resources cuvs.Resource, params *IndexParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, index *CagraIndex) error {
+	return mergeIndex(Resources, params, nil, indices, mergedDataset, index)
 }
 
 // MergeIndexWithParams merges multiple CAGRA indices into output, using
 // explicit mergeParams to control the merge algorithm. See MergeIndex for the
 // remaining arguments.
-func MergeIndexWithParams(Resources cuvs.Resource, params *IndexParams, mergeParams *MergeParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error {
-	return mergeIndex(Resources, params, mergeParams, indices, mergedDataset, offsets, allowList, index)
+func MergeIndexWithParams(Resources cuvs.Resource, params *IndexParams, mergeParams *MergeParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, index *CagraIndex) error {
+	return mergeIndex(Resources, params, mergeParams, indices, mergedDataset, index)
 }
 
-func mergeIndex(Resources cuvs.Resource, params *IndexParams, mergeParams *MergeParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, offsets []int64, allowList []uint32, index *CagraIndex) error {
+func mergeIndex(Resources cuvs.Resource, params *IndexParams, mergeParams *MergeParams, indices []*CagraIndex, mergedDataset PaddedDatasetHandle, index *CagraIndex) error {
 	if len(indices) == 0 {
 		return errors.New("indices must not be empty")
 	}
 	if mergedDataset == nil || mergedDataset.datasetHandle() == nil {
 		return errors.New("mergedDataset is nil")
-	}
-	if len(offsets) != len(indices)+1 {
-		return errors.New("offsets must have len(indices)+1 entries")
-	}
-
-	totalRows, err := sumIndexRows(indices)
-	if err != nil {
-		return err
-	}
-	filter, filterTensor, err := buildAllowListFilter(Resources, allowList, totalRows)
-	if err != nil {
-		return err
-	}
-	if filterTensor != nil {
-		defer filterTensor.Close()
 	}
 
 	cIndices := make([]C.cuvsCagraIndex_t, len(indices))
@@ -475,20 +457,14 @@ func mergeIndex(Resources cuvs.Resource, params *IndexParams, mergeParams *Merge
 		cIndices[i] = idx.index
 	}
 
-	cOffsets := make([]C.int64_t, len(offsets))
-	for i, v := range offsets {
-		cOffsets[i] = C.int64_t(v)
-	}
-
+	var err error
 	if mergeParams == nil {
 		err = cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraMerge_v2(
 			C.cuvsResources_t(Resources.Resource),
 			params.params,
 			&cIndices[0],
 			C.size_t(len(indices)),
-			filter,
 			mergedDataset.datasetHandle(),
-			&cOffsets[0],
 			index.index,
 		)))
 	} else {
@@ -498,9 +474,7 @@ func mergeIndex(Resources cuvs.Resource, params *IndexParams, mergeParams *Merge
 			mergeParams.params,
 			&cIndices[0],
 			C.size_t(len(indices)),
-			filter,
 			mergedDataset.datasetHandle(),
-			&cOffsets[0],
 			index.index,
 		)))
 	}

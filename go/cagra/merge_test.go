@@ -104,16 +104,13 @@ func TestCagraMerge(t *testing.T) {
 	}
 	defer mergedDataset.Close()
 
-	// Unfiltered merge: offsets are just the cumulative row counts.
-	offsets := []int64{0, nDataPoints1, nDataPoints1 + nDataPoints2}
-
 	mergedIndex, err := CreateIndex()
 	if err != nil {
 		t.Fatalf("error creating merged index: %v", err)
 	}
 	defer mergedIndex.Close()
 
-	if err := MergeIndex(resource, indexParams, []*CagraIndex{index1, index2}, mergedDataset, offsets, nil, mergedIndex); err != nil {
+	if err := MergeIndex(resource, indexParams, []*CagraIndex{index1, index2}, mergedDataset, mergedIndex); err != nil {
 		t.Fatalf("error merging indices: %v", err)
 	}
 
