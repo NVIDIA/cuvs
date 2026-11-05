@@ -76,7 +76,7 @@ TYPED_TEST(CagraJaccardTest, SearchCompleteGraph)
     }
     device_padded_index<T> index(res,
                                  cuvs::distance::DistanceType::JaccardExpanded,
-                                 padded->as_dataset_view(),
+                                 padded->view(),
                                  raft::make_const_mdspan(graph.view()));
     auto queries = raft::make_device_matrix<T, int64_t>(res, queries_count, dim);
     raft::copy(queries.data_handle(), data.data_handle(), queries.size(), res.get_stream());
@@ -146,7 +146,7 @@ TYPED_TEST(CagraJaccardTest, DatasetReplacementRefreshesNorms)
     cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(replacement.view()));
   device_padded_index<T> index(res,
                                cuvs::distance::DistanceType::JaccardExpanded,
-                               original_device->as_dataset_view(),
+                               original_device->view(),
                                raft::make_const_mdspan(graph.view()));
   auto queries   = raft::make_device_matrix<T, int64_t>(res, 1, dim);
   auto neighbors = raft::make_device_matrix<uint32_t, int64_t>(res, 1, 1);
@@ -168,7 +168,7 @@ TYPED_TEST(CagraJaccardTest, DatasetReplacementRefreshesNorms)
     EXPECT_NEAR(actual, expected, 1e-6);
   };
   check(index, 1.0f - 1.0f / dim);
-  device_padded_index<T> replaced(res, std::move(index), replacement_device->as_dataset_view());
+  device_padded_index<T> replaced(res, std::move(index), replacement_device->view());
   check(replaced, 0.0f);
 }
 
@@ -220,7 +220,7 @@ TYPED_TEST(CagraJaccardTest, NNDescentDistancesAndBuild)
   cagra_params.graph_degree              = 32;
   cagra_params.graph_build_params        = graph_build_params::nn_descent_params(
     cagra_params.intermediate_graph_degree, cagra_params.metric);
-  auto index = build(res, cagra_params, padded->as_dataset_view());
+  auto index = build(res, cagra_params, padded->view());
   EXPECT_EQ(index.metric(), params.metric);
   auto neighbors = raft::make_device_matrix<uint32_t, int64_t>(res, 4, 1);
   auto distances = raft::make_device_matrix<float, int64_t>(res, 4, 1);
@@ -262,7 +262,7 @@ TYPED_TEST(CagraJaccardTest, IterativeBuildAndSearch)
     params.graph_degree              = 32;
     params.intermediate_graph_degree = 64;
     params.graph_build_params        = graph_build_params::iterative_search_params{};
-    auto index                       = build(res, params, padded->as_dataset_view());
+    auto index                       = build(res, params, padded->view());
     EXPECT_EQ(index.metric(), params.metric);
     EXPECT_EQ(index.size(), rows);
     EXPECT_EQ(index.graph_degree(), params.graph_degree);
@@ -329,7 +329,7 @@ TEST(CagraJaccard, IVFPQBuilderIsRejected)
   params.metric = cuvs::distance::DistanceType::JaccardExpanded;
 
   params.graph_build_params = graph_build_params::ivf_pq_params{};
-  EXPECT_THROW(build(res, params, padded->as_dataset_view()), raft::exception);
+  EXPECT_THROW(build(res, params, padded->view()), raft::exception);
 }
 
 }  // namespace cuvs::neighbors::cagra
