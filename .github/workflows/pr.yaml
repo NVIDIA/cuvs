@@ -463,7 +463,7 @@ jobs:
       build-datetime: ${{ needs.build-details.outputs.build-datetime }}
       node_type: cpu16
       script: ci/build_cpp.sh
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   conda-cpp-tests:
     needs: [conda-cpp-build, changed-files]
     permissions:
@@ -515,7 +515,7 @@ jobs:
       cache-read-only: true
       cache-environment: |
         CUDA_CACHE_PATH=.cache/cuda-jit
-      matrix_type: cuda-13-4-pr,pull-request
+      matrix_type: pull-request
   conda-cpp-checks:
     needs: conda-cpp-build
     permissions:
@@ -545,7 +545,7 @@ jobs:
       script: ci/build_python.sh
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   conda-python-tests:
     needs: [conda-python-build, changed-files]
     permissions:
@@ -560,7 +560,7 @@ jobs:
     with:
       build_type: pull-request
       script: ci/test_python.sh
-      matrix_type: cuda-13-4-pr,pull-request
+      matrix_type: pull-request
   rocky8-clib-standalone-build:
     needs: checks
     permissions:
@@ -572,7 +572,7 @@ jobs:
     uses: ./.github/workflows/clib-build.yaml
     with:
       build_type: pull-request
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   rocky8-clib-tests:
     needs: [rocky8-clib-standalone-build, changed-files]
     permissions:
@@ -587,7 +587,7 @@ jobs:
       build_type: pull-request
       container-image-repository: "rapidsai/citestwheel"
       script: "ci/test_standalone_c.sh"
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   conda-java-build:
     needs: [conda-cpp-build, changed-files]
     permissions:
@@ -607,7 +607,7 @@ jobs:
       script: "ci/build_java.sh"
       artifact-name-prefix: "cuvs-java"
       file_to_upload: "java/cuvs-java/target/"
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   conda-java-tests:
     needs: conda-java-build
     permissions:
@@ -620,7 +620,7 @@ jobs:
     with:
       build_type: pull-request
       script: "ci/test_java.sh"
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   conda-lucene-build:
     # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
     needs: conda-java-build
@@ -640,7 +640,7 @@ jobs:
       script: "ci/build_lucene.sh"
       artifact-name-prefix: "cuvs-lucene"
       file_to_upload: "java/cuvs-lucene/*/target/"
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   conda-lucene-tests:
     needs: conda-lucene-build
     permissions:
@@ -653,7 +653,7 @@ jobs:
     with:
       build_type: pull-request
       script: "ci/test_lucene.sh"
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   conda-lucene-tests-min-jdk:
     # Verifies that cuvs-lucene loads and works without the GPU on the oldest JDK it supports
     # (java_min_jdk in dependencies.yaml), by running its test suite against the amd64-built
@@ -674,7 +674,7 @@ jobs:
       build_type: pull-request
       node_type: cpu8
       matrix_filter: '[map(select(.ARCH == "amd64")) | max_by(.CUDA_VER | split(".") | map(tonumber))]'
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
       script: "ci/test_lucene.sh --min-jdk"
   rust-build:
     needs: [conda-cpp-build, changed-files]
@@ -692,7 +692,7 @@ jobs:
       build_type: pull-request
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_rust.sh"
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   go-build:
     needs: [conda-cpp-build, changed-files]
     permissions:
@@ -709,7 +709,7 @@ jobs:
       build_type: pull-request
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_go.sh"
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   docs-build-matrix:
     permissions:
       contents: read
@@ -717,7 +717,7 @@ jobs:
     with:
       build_type: pull-request
       matrix_name: docs-build
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   docs-build:
     needs: [docs-build-matrix, changed-files]
     permissions:
@@ -757,7 +757,7 @@ jobs:
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       package-name: libcuvs
       package-type: cpp
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   wheel-build-cuvs:
     needs: [build-details, wheel-build-libcuvs]
     permissions:
@@ -777,7 +777,7 @@ jobs:
       package-type: python
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
-      matrix_type: cuda-13-4-pr
+      matrix_type: pull-request
   wheel-tests-cuvs:
     needs: [wheel-build-cuvs, changed-files]
     permissions:
@@ -792,7 +792,7 @@ jobs:
     with:
       build_type: pull-request
       script: ci/test_wheel_cuvs.sh
-      matrix_type: cuda-13-4-pr,pull-request
+      matrix_type: pull-request
   devcontainer:
     permissions:
       actions: read
