@@ -29,7 +29,7 @@ namespace scalar {
  * @{
  */
 
-/** Select a global interval or per-dimension shifts with a shared scale. */
+/** Select global or per-dimension shifts and scales. */
 enum class range_mode { global, per_dimension };
 
 /**
@@ -45,10 +45,10 @@ struct params {
    * Per-dimension training uses every row of a nonempty, finite dataset.
    * It applies the quantile independently to each dimension to select lower and upper bounds.
    * Each dimension's shift is the midpoint of its bounds, rounded to the input type.
-   * A shared scale fits every dimension's bounds around its stored shift into the symmetric
-   * range of quantized values.
+   * Each dimension's scale fits its bounds around its stored shift into the symmetric range
+   * of quantized values.
    *
-   * If every interval has zero width, the scale is one. Otherwise, the scale is at least
+   * For a zero-width interval, its scale is one. Otherwise, each scale is at least
    * the smallest positive normal value of the scale type.
    */
   range_mode range = range_mode::global;
@@ -66,46 +66,52 @@ struct params {
   int64_t device_buffer_samples = 1 << 16;
 };
 
-/** Read-only scalar quantizer parameters. The owner must outlive stream work using shifts. */
+/** Read-only scalar quantizer parameters. The owner must outlive stream work using shifts and
+ * scales. */
 template <typename T>
 struct quantizer_const_view {
   using scale_type = std::conditional_t<std::is_same_v<T, half>, float, T>;
-  /** A global interval mapped to the full range of the quantized type. */
-  struct range_type {
-    T min_;
-    T max_;
+  /** Global affine parameters using double precision for encoding and decoding.
+   * Encode (x - shift) / scale, rounding to nearest with ties away from zero and clamping
+   * to the full quantized range. Decode shift + scale * code, saturating to finite input limits.
+   * A zero scale represents constant training bounds; every code decodes to shift. */
+  struct global_type {
+    /** Shift shared by all dimensions. */
+    double shift = 0;
+    /** Step size shared by all dimensions. */
+    double scale = 0;
   };
-  /** Encode (x - shifts[j]) / scale, rounding to nearest with ties to even and
+  /** Encode (x - shifts[j]) / scales[j], rounding to nearest with ties to even and
    * clamping to the symmetric range of quantized values.
-   * Decode shifts[j] + scale * code, saturating to finite limits of the input type. */
+   * Decode shifts[j] + scales[j] * code, saturating to finite limits of the input type. */
   struct shifts_type {
+    /** One midpoint shift per dimension. */
     raft::device_vector_view<const T, int64_t> shifts;
-    scale_type scale;
+    /** One finite, positive scale per dimension, with a finite reciprocal. */
+    raft::device_vector_view<const scale_type, int64_t> scales;
   };
-  /** Global interval or borrowed per-dimension shifts and scale. */
-  std::variant<range_type, shifts_type> value;
+  /** Global parameters or borrowed per-dimension shifts and scales. */
+  std::variant<global_type, shifts_type> value;
   /** Maximum training-row L2 reconstruction error; see quantizer::max_error. */
   scale_type max_error = INFINITY;
 };
 
 /**
- * Owns either a global interval or device shifts and a shared step size.
+ * Owns a global shift and scale or device shifts and scales for each dimension.
  * Move-only; copy view() to borrow the parameters.
- * Migration: replace q.min_ with std::get<quantizer<T>::range_type>(q.value).min_
- * (likewise for max_).
  */
 template <typename T>
 struct quantizer {
-  using view_type  = quantizer_const_view<T>;
-  using scale_type = typename view_type::scale_type;
-  using range_type = typename view_type::range_type;
+  using view_type   = quantizer_const_view<T>;
+  using scale_type  = typename view_type::scale_type;
+  using global_type = typename view_type::global_type;
   /** Owning per-dimension parameters. */
   struct shifts_type {
     raft::device_vector<T, int64_t> shifts;
-    scale_type scale;
+    raft::device_vector<scale_type, int64_t> scales;
   };
-  /** Global interval or owning per-dimension shifts and scale. */
-  std::variant<range_type, shifts_type> value;
+  /** Global parameters or owning per-dimension shifts and scales. */
+  std::variant<global_type, shifts_type> value;
   /**
    * Upper bound on the L2 error between a training row and its int8 encode/decode result.
    * train measures every input row, including clipped outliers, and rounds the maximum up
@@ -114,22 +120,22 @@ struct quantizer {
    */
   scale_type max_error = INFINITY;
 
-  /** Construct an empty global interval. */
-  quantizer() : value{range_type{}} {}
-  /** Construct a global interval. */
-  quantizer(T min, T max) : value{range_type{min, max}} {}
+  /** Construct default global parameters. */
+  quantizer() : value{global_type{}} {}
+  /** Derive a global shift and scale from finite bounds with min <= max. */
+  quantizer(T min, T max);
   /** Construct from nonempty device bounds of equal length, with finite min <= max.
-   * Derives midpoint shifts and a shared scale. */
+   * Derives midpoint shifts and a scale for each dimension. */
   quantizer(raft::resources const& res,
             raft::device_vector_view<const T, int64_t> mins,
             raft::device_vector_view<const T, int64_t> maxs);
 
-  /** Borrow read-only parameters; the owner must outlive stream work using shifts. */
+  /** Borrow read-only parameters; the owner must outlive stream work using shifts and scales. */
   [[nodiscard]] auto view() const noexcept -> view_type
   {
-    if (auto const* range = std::get_if<range_type>(&value)) { return {*range, max_error}; }
+    if (auto const* range = std::get_if<global_type>(&value)) { return {*range, max_error}; }
     auto const& shifts = std::get<shifts_type>(value);
-    return {typename view_type::shifts_type{shifts.shifts.view(), shifts.scale}, max_error};
+    return {typename view_type::shifts_type{shifts.shifts.view(), shifts.scales.view()}, max_error};
   }
   /** An owning quantizer can be passed wherever a read-only view is accepted. */
   operator view_type() const noexcept { return view(); }  // NOLINT(google-explicit-constructor)
@@ -202,6 +208,9 @@ void transform(raft::resources const& res,
 /**
  * @brief Applies quantization transform to given dataset
  *
+ * Host transforms require a global interval and throw raft::logic_error for per-dimension
+ * parameters. Use device transforms or host build for per-dimension quantization.
+ *
  * Usage example:
  * @code{.cpp}
  * raft::handle_t handle;
@@ -255,6 +264,9 @@ void inverse_transform(raft::resources const& res,
  *
  * Note that depending on the chosen data types train dataset the conversion is
  * not lossless.
+ *
+ * Host transforms require a global interval and throw raft::logic_error for per-dimension
+ * parameters. Use device transforms or host build for per-dimension quantization.
  *
  * Usage example:
  * @code{.cpp}
@@ -343,6 +355,9 @@ void transform(raft::resources const& res,
 /**
  * @brief Applies quantization transform to given dataset
  *
+ * Host transforms require a global interval and throw raft::logic_error for per-dimension
+ * parameters. Use device transforms or host build for per-dimension quantization.
+ *
  * Usage example:
  * @code{.cpp}
  * raft::handle_t handle;
@@ -395,6 +410,9 @@ void inverse_transform(raft::resources const& res,
  *
  * Note that depending on the chosen data types train dataset the conversion is
  * not lossless.
+ *
+ * Host transforms require a global interval and throw raft::logic_error for per-dimension
+ * parameters. Use device transforms or host build for per-dimension quantization.
  *
  * Usage example:
  * @code{.cpp}
@@ -483,6 +501,9 @@ void transform(raft::resources const& res,
 /**
  * @brief Applies quantization transform to given dataset
  *
+ * Host transforms require a global interval and throw raft::logic_error for per-dimension
+ * parameters. Use device transforms or host build for per-dimension quantization.
+ *
  * Usage example:
  * @code{.cpp}
  * raft::handle_t handle;
@@ -535,6 +556,9 @@ void inverse_transform(raft::resources const& res,
  *
  * Note that depending on the chosen data types train dataset the conversion is
  * not lossless.
+ *
+ * Host transforms require a global interval and throw raft::logic_error for per-dimension
+ * parameters. Use device transforms or host build for per-dimension quantization.
  *
  * Usage example:
  * @code{.cpp}

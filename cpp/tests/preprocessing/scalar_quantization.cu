@@ -120,10 +120,10 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
       cuvs::alloc_behavior::DATA_DRIVEN,
       min_train_alloc);
     std::cerr
-      << "Q1: min = "
-      << (double)std::get<typename decltype(quantizer_1)::range_type>(quantizer_1.value).min_
-      << ", max = "
-      << (double)std::get<typename decltype(quantizer_1)::range_type>(quantizer_1.value).max_
+      << "Q1: shift = "
+      << (double)std::get<typename decltype(quantizer_1)::global_type>(quantizer_1.value).shift
+      << ", scale = "
+      << (double)std::get<typename decltype(quantizer_1)::global_type>(quantizer_1.value).scale
       << std::endl;
 
     {
@@ -223,20 +223,20 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
       cuvs::alloc_behavior::DATA_DRIVEN,
       min_train_alloc);
     std::cerr
-      << "Q2: min = "
-      << (double)std::get<typename decltype(quantizer_2)::range_type>(quantizer_2.value).min_
-      << ", max = "
-      << (double)std::get<typename decltype(quantizer_2)::range_type>(quantizer_2.value).max_
+      << "Q2: shift = "
+      << (double)std::get<typename decltype(quantizer_2)::global_type>(quantizer_2.value).shift
+      << ", scale = "
+      << (double)std::get<typename decltype(quantizer_2)::global_type>(quantizer_2.value).scale
       << std::endl;
 
     // check both quantizers are the same (valid if sampling is identical)
     if (input_.size() <= 1000000) {
       ASSERT_TRUE(
-        (double)std::get<typename decltype(quantizer_1)::range_type>(quantizer_1.value).min_ ==
-        (double)std::get<typename decltype(quantizer_2)::range_type>(quantizer_2.value).min_);
+        (double)std::get<typename decltype(quantizer_1)::global_type>(quantizer_1.value).shift ==
+        (double)std::get<typename decltype(quantizer_2)::global_type>(quantizer_2.value).shift);
       ASSERT_TRUE(
-        (double)std::get<typename decltype(quantizer_1)::range_type>(quantizer_1.value).max_ ==
-        (double)std::get<typename decltype(quantizer_2)::range_type>(quantizer_2.value).max_);
+        (double)std::get<typename decltype(quantizer_1)::global_type>(quantizer_1.value).scale ==
+        (double)std::get<typename decltype(quantizer_2)::global_type>(quantizer_2.value).scale);
     }
 
     {
@@ -363,7 +363,12 @@ class PerDimensionRangeTest : public ::testing::TestWithParam<PerDimensionInputs
                                 cuvs::Compare<int8_t>(),
                                 stream));
     if (params_.tolerance == 0.f) {
-      EXPECT_FLOAT_EQ(std::get<shifts_view>(quantizer.view().value).scale, 1.f);
+      EXPECT_TRUE(
+        devArrMatchHost(std::vector<float>(params_.n_features, 1.f).data(),
+                        std::get<shifts_view>(quantizer.view().value).scales.data_handle(),
+                        params_.n_features,
+                        cuvs::Compare<float>(),
+                        stream));
     }
     inverse_transform(handle, quantizer, raft::make_const_mdspan(codes.view()), dataset_.view());
     auto reconstructed =
@@ -498,7 +503,7 @@ TYPED_TEST(PerDimensionQuantizationTest, CorpusAndQueriesShareQuantizer)
   using shifts_view = typename quantizer_const_view<T>::shifts_type;
   raft::resources res;
   auto stream = raft::resource::get_cuda_stream(res);
-  std::vector<T> corpus{0.f, 10.f, 9.f, 254.f, 14.f, 9.f};
+  std::vector<T> corpus{0.f, 10.f, 9.f, 254.f, 137.f, 9.f};
   auto input = raft::make_device_matrix<T, int64_t>(res, 2, 3);
   raft::update_device(input.data_handle(), corpus.data(), corpus.size(), stream);
   auto owner =
@@ -506,10 +511,15 @@ TYPED_TEST(PerDimensionQuantizationTest, CorpusAndQueriesShareQuantizer)
   auto quantizer = owner.view();
   EXPECT_EQ(owner.max_error, 0);
   EXPECT_EQ(quantizer.max_error, 0);
-  EXPECT_FLOAT_EQ(std::get<shifts_view>(quantizer.value).scale, 1.f);
+  using scale_t = typename quantizer_const_view<T>::scale_type;
+  EXPECT_TRUE(devArrMatchHost(std::vector<scale_t>{1, .5, 1}.data(),
+                              std::get<shifts_view>(quantizer.value).scales.data_handle(),
+                              3,
+                              cuvs::Compare<scale_t>(),
+                              stream.get()));
   {
     std::vector<T> actual(3);
-    std::vector<double> expected{127.f, 12.f, 9.f};
+    std::vector<double> expected{127.f, 73.5f, 9.f};
     raft::update_host(actual.data(),
                       std::get<shifts_view>(quantizer.value).shifts.data_handle(),
                       actual.size(),
@@ -520,7 +530,7 @@ TYPED_TEST(PerDimensionQuantizationTest, CorpusAndQueriesShareQuantizer)
     }
   }
   // The corpus manifest, rather than query extrema, controls ties and saturation.
-  std::vector<T> queries{127.5f, 11.5f, 1000.f, 128.5f, 9.5f, -1000.f};
+  std::vector<T> queries{127.5f, 73.75f, 1000.f, 128.5f, 72.75f, -1000.f};
   raft::update_device(input.data_handle(), queries.data(), queries.size(), stream);
   auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 2, 3);
   transform(res, quantizer, raft::make_const_mdspan(input.view()), codes.view());
@@ -532,7 +542,7 @@ TYPED_TEST(PerDimensionQuantizationTest, CorpusAndQueriesShareQuantizer)
   inverse_transform(res, quantizer, raft::make_const_mdspan(codes.view()), input.view());
   {
     std::vector<T> actual(6);
-    std::vector<double> expected{127.f, 12.f, 136.f, 129.f, 10.f, -118.f};
+    std::vector<double> expected{127.f, 73.5f, 136.f, 129.f, 72.5f, -118.f};
     raft::update_host(actual.data(), input.data_handle(), actual.size(), stream);
     raft::resource::sync_stream(res);
     for (size_t i = 0; i < actual.size(); ++i) {
@@ -581,13 +591,25 @@ TEST(PerDimensionRangeTest, PerDimensionQuantiles)
                               dim,
                               cuvs::Compare<float>(),
                               raft::resource::get_cuda_stream(res).get()));
-  EXPECT_FLOAT_EQ(std::get<shifts_view>(quantizer.value).scale, 991.f / 127.f);
+  EXPECT_TRUE(devArrMatchHost(std::vector<float>{495.5f / 127.f, 991.f / 127.f, 1.f}.data(),
+                              std::get<shifts_view>(quantizer.value).scales.data_handle(),
+                              dim,
+                              cuvs::Compare<float>(),
+                              raft::resource::get_cuda_stream(res).get()));
   auto full =
     train(res, params{1.f, range_mode::per_dimension}, raft::make_const_mdspan(input.view()));
-  EXPECT_FLOAT_EQ(std::get<shifts_view>(full.view().value).scale, 999.f / 127.f);
+  EXPECT_TRUE(devArrMatchHost(std::vector<float>{499.5f / 127.f, 999.f / 127.f, 1.f}.data(),
+                              std::get<shifts_view>(full.view().value).scales.data_handle(),
+                              dim,
+                              cuvs::Compare<float>(),
+                              raft::resource::get_cuda_stream(res).get()));
   auto trimmed =
     train(res, params{0.5f, range_mode::per_dimension}, raft::make_const_mdspan(input.view()));
-  EXPECT_FLOAT_EQ(std::get<shifts_view>(trimmed.view().value).scale, 499.f / 127.f);
+  EXPECT_TRUE(devArrMatchHost(std::vector<float>{249.5f / 127.f, 499.f / 127.f, 1.f}.data(),
+                              std::get<shifts_view>(trimmed.view().value).scales.data_handle(),
+                              dim,
+                              cuvs::Compare<float>(),
+                              raft::resource::get_cuda_stream(res).get()));
   for (float q : {0.f, -1.f, 1.1f, std::numeric_limits<float>::quiet_NaN()}) {
     EXPECT_THROW(
       train(res, params{q, range_mode::per_dimension}, raft::make_const_mdspan(input.view())),
@@ -612,7 +634,12 @@ TYPED_TEST(PerDimensionQuantizationTest, CustomParametersAndValidation)
   EXPECT_TRUE(std::isinf(owner.max_error));
   EXPECT_TRUE(std::isinf(quantizer.max_error));
   EXPECT_TRUE(std::isinf((scalar::quantizer<T>{T{-1}, T{1}}.view().max_error)));
-  EXPECT_FLOAT_EQ(std::get<shifts_view>(quantizer.value).scale, 2.f);
+  using scale_t = typename quantizer_const_view<T>::scale_type;
+  EXPECT_TRUE(devArrMatchHost(std::vector<scale_t>{2, scale_t{4} / scale_t{127}}.data(),
+                              std::get<shifts_view>(quantizer.value).scales.data_handle(),
+                              2,
+                              cuvs::Compare<scale_t>(),
+                              stream.get()));
   {
     std::vector<T> actual(2);
     std::vector<double> expected{100.f, -100.f};
@@ -631,11 +658,17 @@ TYPED_TEST(PerDimensionQuantizationTest, CustomParametersAndValidation)
     input.data_handle(), values.data(), values.size(), raft::resource::get_cuda_stream(res));
   auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 1, 2);
   transform(res, quantizer, raft::make_const_mdspan(input.view()), codes.view());
-  EXPECT_TRUE(devArrMatchHost(std::vector<int8_t>{2, -3}.data(),
+  EXPECT_TRUE(devArrMatchHost(std::vector<int8_t>{2, -127}.data(),
                               codes.data_handle(),
                               2,
                               cuvs::Compare<int8_t>(),
                               raft::resource::get_cuda_stream(res).get()));
+  auto wrong_scales = quantizer;
+  std::get<shifts_view>(wrong_scales.value).scales =
+    raft::make_device_vector_view<const scale_t, int64_t>(
+      std::get<shifts_view>(quantizer.value).scales.data_handle(), 1);
+  EXPECT_THROW(transform(res, wrong_scales, raft::make_const_mdspan(input.view()), codes.view()),
+               raft::logic_error);
   auto wrong_shape = raft::make_device_matrix<int8_t, int64_t>(res, 2, 1);
   EXPECT_THROW(transform(res, quantizer, raft::make_const_mdspan(input.view()), wrong_shape.view()),
                raft::logic_error);
@@ -666,7 +699,11 @@ TEST(PerDimensionRangeTest, QuantizedTypeLimits)
                                             params{.5f, range_mode::per_dimension},
                                             raft::make_const_mdspan(input.view()),
                                             codes.view());
-  EXPECT_FLOAT_EQ(std::get<shifts_view>(owner.view().value).scale, 1.f);
+  EXPECT_TRUE(devArrMatchHost(std::vector<float>{1.f}.data(),
+                              std::get<shifts_view>(owner.view().value).scales.data_handle(),
+                              1,
+                              cuvs::Compare<float>(),
+                              stream.get()));
   std::vector<QuantI> expected{-32767, -32767, 0, 32767, 32767};
   EXPECT_TRUE(devArrMatchHost(
     expected.data(), codes.data_handle(), expected.size(), cuvs::Compare<QuantI>(), stream.get()));
@@ -681,6 +718,37 @@ TEST(PerDimensionRangeTest, QuantizedTypeLimits)
   }
   EXPECT_GE(owner.max_error, maximum);
   EXPECT_NEAR(owner.max_error, maximum, maximum * 2e-6);
+}
+
+TYPED_TEST(PerDimensionQuantizationTest, GlobalShiftScale)
+{
+  using T = TypeParam;
+  raft::resources res;
+  auto stream = raft::resource::get_cuda_stream(res);
+  for (auto bounds : {std::pair<T, T>{T{-3}, T{7}}, std::pair<T, T>{T{5}, T{5}}}) {
+    auto owner      = quantizer<T>{bounds.first, bounds.second};
+    auto parameters = std::get<typename quantizer<T>::global_type>(owner.value);
+    EXPECT_EQ(static_cast<T>(
+                std::fma(parameters.scale, std::numeric_limits<int8_t>::min(), parameters.shift)),
+              bounds.first);
+    EXPECT_EQ(static_cast<T>(
+                std::fma(parameters.scale, std::numeric_limits<int8_t>::max(), parameters.shift)),
+              bounds.second);
+    if (bounds.first == bounds.second) { EXPECT_EQ(parameters.scale, 0); }
+    std::vector<T> values{T{-100}, bounds.first, bounds.second, T{100}};
+    auto input = raft::make_device_matrix<T, int64_t>(res, 1, values.size());
+    auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 1, values.size());
+    raft::update_device(input.data_handle(), values.data(), values.size(), stream);
+    transform(res, owner, raft::make_const_mdspan(input.view()), codes.view());
+    inverse_transform(res, owner, raft::make_const_mdspan(codes.view()), input.view());
+    std::vector<T> decoded(values.size());
+    raft::update_host(decoded.data(), input.data_handle(), decoded.size(), stream);
+    raft::resource::sync_stream(res);
+    EXPECT_EQ(decoded.front(), bounds.first);
+    EXPECT_EQ(decoded.back(), bounds.second);
+    EXPECT_EQ(decoded[1], bounds.first);
+    EXPECT_EQ(decoded[2], bounds.second);
+  }
 }
 
 TEST(QuantizationDatasetTest, GlobalRangeDataset)
@@ -700,9 +768,9 @@ TEST(QuantizationDatasetTest, GlobalRangeDataset)
                               cuvs::Compare<int8_t>(),
                               stream.get()));
   auto range =
-    std::get<quantizer_const_view<float>::range_type>(encoded.const_manifest_view().value);
-  EXPECT_FLOAT_EQ(range.min_, -1.f);
-  EXPECT_FLOAT_EQ(range.max_, 1.f);
+    std::get<quantizer_const_view<float>::global_type>(encoded.const_manifest_view().value);
+  EXPECT_DOUBLE_EQ(range.shift, 1.0 / 255.0);
+  EXPECT_DOUBLE_EQ(range.scale, 2.0 / 255.0);
 }
 
 TEST(QuantizationDatasetTest, PerDimensionDataset)
@@ -717,7 +785,7 @@ TEST(QuantizationDatasetTest, PerDimensionDataset)
   EXPECT_EQ(encoded.const_manifest_view().max_error, 0.f);
   EXPECT_EQ(encoded.n_rows(), 2);
   EXPECT_EQ(encoded.dim(), 2u);
-  EXPECT_TRUE(devArrMatchHost(std::vector<int8_t>{-127, -2, 127, 2}.data(),
+  EXPECT_TRUE(devArrMatchHost(std::vector<int8_t>{-127, -127, 127, 127}.data(),
                               encoded.data_const_view().data_handle(),
                               4,
                               cuvs::Compare<int8_t>(),
@@ -783,7 +851,11 @@ TYPED_TEST(PerDimensionQuantizationTest, BatchedHostDataset)
               auto actual_shifts = std::get<typename quantizer_const_view<T>::shifts_type>(a.value);
               auto expected_shifts =
                 std::get<typename quantizer_const_view<T>::shifts_type>(e.value);
-              EXPECT_EQ(actual_shifts.scale, expected_shifts.scale);
+              EXPECT_TRUE(devArrMatch(actual_shifts.scales.data_handle(),
+                                      expected_shifts.scales.data_handle(),
+                                      dim,
+                                      cuvs::Compare<typename quantizer_const_view<T>::scale_type>(),
+                                      stream.get()));
               EXPECT_TRUE(devArrMatch(actual_shifts.shifts.data_handle(),
                                       expected_shifts.shifts.data_handle(),
                                       dim,
@@ -861,6 +933,12 @@ const std::vector<QuantizationInputs<T>> inputs = {
 };
 
 const std::vector<PerDimensionInputs> dataset_inputs = {
+  // Each nonconstant dimension uses the full code range despite different input ranges.
+  {3,
+   3,
+   {-127.f, -127.f / 128.f, 9.f, 1.f, 1.f / 128.f, 9.f, 127.f, 127.f / 128.f, 9.f},
+   {-127, -127, 0, 1, 1, 0, 127, 127, 0},
+   1e-6f},
   {2, 2, {10.f, -7.f, 10.f, -7.f}, {0, 0, 0, 0}, 0.f},
   // Equal subnormal bounds must retain their value and reconstruct exactly.
   {1,

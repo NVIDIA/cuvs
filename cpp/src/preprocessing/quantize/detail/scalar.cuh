@@ -50,36 +50,45 @@ struct fp_lt_op {
   _RAFT_HOST_DEVICE bool operator()(const T& a, const T& b) const { return fp_lt(a, b); }
 };
 
-template <typename T, typename QuantI, typename TempT = double>
-struct quantize_op {
-  const T min_;
-  const T max_;
-  const QuantI q_type_min_ = std::numeric_limits<QuantI>::min();
-  const QuantI q_type_max_ = std::numeric_limits<QuantI>::max();
-  const TempT scalar_;
-  const TempT offset_;
+template <typename T, typename QuantI = int8_t>
+typename quantizer<T>::global_type train(T min, T max)
+{
+  double const lo = static_cast<double>(min);
+  double const hi = static_cast<double>(max);
+  RAFT_EXPECTS(std::isfinite(lo) && std::isfinite(hi) && lo <= hi,
+               "Bounds must be finite with min <= max");
+  if (lo == hi) { return {lo, 0}; }
+  constexpr double q_min = std::numeric_limits<QuantI>::min();
+  constexpr double q_max = std::numeric_limits<QuantI>::max();
+  // Divide the endpoints separately if subtracting them would overflow.
+  double const width = hi - lo;
+  double const scale = std::max(
+    std::isfinite(width) ? width / (q_max - q_min) : hi / (q_max - q_min) - lo / (q_max - q_min),
+    std::numeric_limits<double>::min());
+  double const shift = lo * 0.5 + hi * 0.5 - (q_min + q_max) * 0.5 * scale;
+  return {shift, scale};
+}
 
-  constexpr explicit quantize_op(T min, T max)
-    : min_(min),
-      max_(max),
-      scalar_(static_cast<TempT>(max_) > static_cast<TempT>(min_)
-                ? ((static_cast<TempT>(q_type_max_) - static_cast<TempT>(q_type_min_)) /
-                   (static_cast<TempT>(max_) - static_cast<TempT>(min_)))
-                : static_cast<TempT>(1)),
-      offset_(static_cast<TempT>(q_type_min_) - static_cast<TempT>(min_) * scalar_)
-  {
-  }
+template <typename T, typename QuantI>
+struct quantize_op {
+  typename quantizer_const_view<T>::global_type params;
 
   constexpr RAFT_INLINE_FUNCTION QuantI operator()(const T& x) const
   {
-    if (!fp_lt(min_, x)) return q_type_min_;
-    if (!fp_lt(x, max_)) return q_type_max_;
-    return static_cast<QuantI>(lroundf(scalar_ * static_cast<TempT>(x) + offset_));
+    constexpr double q_min = std::numeric_limits<QuantI>::min();
+    constexpr double q_max = std::numeric_limits<QuantI>::max();
+    if (params.scale == 0) {
+      return static_cast<QuantI>(static_cast<double>(x) <= params.shift ? q_min : q_max);
+    }
+    double const code = (static_cast<double>(x) - params.shift) / params.scale;
+    return static_cast<QuantI>(lroundf(fmin(fmax(code, q_min), q_max)));
   }
 
   constexpr RAFT_INLINE_FUNCTION T operator()(const QuantI& x) const
   {
-    return static_cast<T>((static_cast<TempT>(x) - offset_) / scalar_);
+    double const value = fma(params.scale, static_cast<double>(x), params.shift);
+    double const limit = static_cast<double>(cuda::std::numeric_limits<T>::max());
+    return static_cast<T>(fmin(fmax(value, -limit), limit));
   }
 };
 
@@ -91,12 +100,13 @@ RAFT_INLINE_FUNCTION double reconstruction_error(T x, int64_t j, Op op)
   if constexpr (std::is_same_v<Op, typename quantizer_const_view<T>::shifts_type>) {
     using compute_t               = typename quantizer_const_view<T>::scale_type;
     compute_t const shift         = static_cast<compute_t>(op.shifts.data_handle()[j]);
-    compute_t const inv           = compute_t{1} / op.scale;
+    compute_t const scale         = op.scales.data_handle()[j];
+    compute_t const inv           = compute_t{1} / scale;
     compute_t const rounded       = rint((static_cast<compute_t>(x) - shift) * inv);
     constexpr compute_t q_max     = std::numeric_limits<QuantI>::max();
     constexpr compute_t q_min     = std::max<compute_t>(std::numeric_limits<QuantI>::min(), -q_max);
     QuantI const code             = static_cast<QuantI>(fmin(fmax(rounded, q_min), q_max));
-    compute_t const reconstructed = fma(op.scale, static_cast<compute_t>(code), shift);
+    compute_t const reconstructed = fma(scale, static_cast<compute_t>(code), shift);
     compute_t const limit         = static_cast<compute_t>(cuda::std::numeric_limits<T>::max());
     decoded = static_cast<double>(static_cast<T>(fmin(fmax(reconstructed, -limit), limit)));
   } else {
@@ -205,11 +215,11 @@ typename quantizer<T>::shifts_type train(raft::resources const& res,
 {
   using compute_t     = typename quantizer_const_view<T>::scale_type;
   auto const dim      = shifts.extent(0);
-  auto half_ranges    = raft::make_device_vector<compute_t, int64_t>(res, dim);
-  auto max_half_range = raft::make_device_vector<compute_t, int64_t>(res, 1);
+  auto scales         = raft::make_device_vector<compute_t, int64_t>(res, dim);
+  auto max_scale      = raft::make_device_vector<compute_t, int64_t>(res, 1);
   auto* shift_ptr     = shifts.data_handle();
   auto const* max_ptr = maxima.data_handle();
-  raft::linalg::map_offset(res, half_ranges.view(), [shift_ptr, max_ptr] __device__(int64_t j) {
+  raft::linalg::map_offset(res, scales.view(), [shift_ptr, max_ptr] __device__(int64_t j) {
     // Halve before adding/subtracting to avoid overflow for large finite inputs.
     if (!isfinite(static_cast<compute_t>(shift_ptr[j])) ||
         !isfinite(static_cast<compute_t>(max_ptr[j])) || fp_lt(max_ptr[j], shift_ptr[j])) {
@@ -218,28 +228,27 @@ typename quantizer<T>::shifts_type train(raft::resources const& res,
     compute_t const lo = static_cast<compute_t>(shift_ptr[j]);
     compute_t const hi = static_cast<compute_t>(max_ptr[j]);
     shift_ptr[j]       = static_cast<T>(lo == hi ? lo : lo * compute_t{0.5} + hi * compute_t{0.5});
-    compute_t const shift = static_cast<compute_t>(shift_ptr[j]);
-    return fmax(hi - shift, shift - lo);
+    compute_t const shift      = static_cast<compute_t>(shift_ptr[j]);
+    compute_t const half_range = fmax(hi - shift, shift - lo);
+    constexpr compute_t q_max  = std::numeric_limits<QuantI>::max();
+    return half_range > 0 ? fmax(half_range / q_max, std::numeric_limits<compute_t>::min())
+                          : compute_t{1};
   });
   raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
     res,
-    raft::make_device_matrix_view<const compute_t, int64_t>(half_ranges.data_handle(), 1, dim),
-    max_half_range.view(),
+    raft::make_device_matrix_view<const compute_t, int64_t>(scales.data_handle(), 1, dim),
+    max_scale.view(),
     compute_t{0},
     false,
     raft::identity_op{},
     raft::max_op{});
-  compute_t half_range = 0;
+  compute_t maximum_scale = 0;
   raft::copy(res,
-             raft::make_host_scalar_view(&half_range),
-             raft::make_device_scalar_view(max_half_range.data_handle()));
+             raft::make_host_scalar_view(&maximum_scale),
+             raft::make_device_scalar_view(max_scale.data_handle()));
   raft::resource::sync_stream(res);
-  RAFT_EXPECTS(std::isfinite(half_range), "Bounds must be finite with min <= max");
-  constexpr compute_t q_max = std::numeric_limits<QuantI>::max();
-  compute_t const scale     = half_range > 0
-                                ? std::max(half_range / q_max, std::numeric_limits<compute_t>::min())
-                                : compute_t{1};
-  return {std::move(shifts), scale};
+  RAFT_EXPECTS(std::isfinite(maximum_scale), "Bounds must be finite with min <= max");
+  return {std::move(shifts), std::move(scales)};
 }
 
 template <typename T, typename InT, typename OutT>
@@ -247,11 +256,9 @@ void check_per_dim_shapes(typename quantizer_const_view<T>::shifts_type quantize
                           raft::device_matrix_view<const InT, int64_t> dataset,
                           raft::device_matrix_view<OutT, int64_t> out)
 {
-  RAFT_EXPECTS(
-    std::isfinite(quantizer.scale) && quantizer.scale > 0.f && std::isfinite(1.f / quantizer.scale),
-    "Scale and its reciprocal must be finite and positive");
-  RAFT_EXPECTS(dataset.extent(1) > 0 && dataset.extent(1) == quantizer.shifts.extent(0),
-               "Input width must match the nonempty shifts vector");
+  RAFT_EXPECTS(dataset.extent(1) > 0 && dataset.extent(1) == quantizer.shifts.extent(0) &&
+                 dataset.extent(1) == quantizer.scales.extent(0),
+               "Input width must match the nonempty shifts and scales vectors");
   RAFT_EXPECTS(dataset.extent(0) == out.extent(0) && dataset.extent(1) == out.extent(1),
                "Input and output shapes must match");
 }
@@ -264,11 +271,12 @@ void transform(raft::resources const& res,
 {
   using compute_t = typename quantizer_const_view<T>::scale_type;
   check_per_dim_shapes<T>(quantizer, dataset, out);
-  auto const* input   = dataset.data_handle();
-  auto const* shifts  = quantizer.shifts.data_handle();
-  auto const dim      = dataset.extent(1);
-  compute_t const inv = compute_t{1} / quantizer.scale;
-  raft::linalg::map_offset(res, out, [input, shifts, dim, inv] __device__(int64_t i) {
+  auto const* input  = dataset.data_handle();
+  auto const* shifts = quantizer.shifts.data_handle();
+  auto const dim     = dataset.extent(1);
+  auto const* scales = quantizer.scales.data_handle();
+  raft::linalg::map_offset(res, out, [input, shifts, scales, dim] __device__(int64_t i) {
+    compute_t const inv = compute_t{1} / scales[i % dim];
     compute_t const code =
       rint((static_cast<compute_t>(input[i]) - static_cast<compute_t>(shifts[i % dim])) * inv);
     constexpr compute_t q_max = std::numeric_limits<QuantI>::max();
@@ -285,13 +293,13 @@ void inverse_transform(raft::resources const& res,
 {
   using compute_t = typename quantizer_const_view<T>::scale_type;
   check_per_dim_shapes<T>(quantizer, dataset, out);
-  auto const* input     = dataset.data_handle();
-  auto const* shifts    = quantizer.shifts.data_handle();
-  auto const dim        = dataset.extent(1);
-  compute_t const scale = quantizer.scale;
-  raft::linalg::map_offset(res, out, [input, shifts, dim, scale] __device__(int64_t i) {
-    compute_t const value =
-      fma(scale, static_cast<compute_t>(input[i]), static_cast<compute_t>(shifts[i % dim]));
+  auto const* input  = dataset.data_handle();
+  auto const* shifts = quantizer.shifts.data_handle();
+  auto const dim     = dataset.extent(1);
+  auto const* scales = quantizer.scales.data_handle();
+  raft::linalg::map_offset(res, out, [input, shifts, scales, dim] __device__(int64_t i) {
+    compute_t const value = fma(
+      scales[i % dim], static_cast<compute_t>(input[i]), static_cast<compute_t>(shifts[i % dim]));
     compute_t const limit = static_cast<compute_t>(cuda::std::numeric_limits<T>::max());
     return static_cast<T>(fmin(fmax(value, -limit), limit));
   });
@@ -309,9 +317,8 @@ void transform(raft::resources const& res,
     detail::transform(res, *shifts, dataset, out);
     return;
   }
-  auto const& range = std::get<typename quantizer_const_view<T>::range_type>(view.value);
-  raft::linalg::map(
-    res, out, quantize_op<T, QuantI>(range.min_, range.max_), raft::make_const_mdspan(dataset));
+  auto const& range = std::get<typename quantizer_const_view<T>::global_type>(view.value);
+  raft::linalg::map(res, out, quantize_op<T, QuantI>{range}, raft::make_const_mdspan(dataset));
 }
 
 template <typename T, typename QuantI = int8_t>
@@ -321,10 +328,10 @@ void transform(raft::resources const& res,
                raft::host_matrix_view<QuantI, int64_t> out)
 {
   RAFT_EXPECTS(
-    std::holds_alternative<typename quantizer_const_view<T>::range_type>(quantizer.value),
+    std::holds_alternative<typename quantizer_const_view<T>::global_type>(quantizer.value),
     "Host quantization requires a global interval");
-  auto const& range = std::get<typename quantizer_const_view<T>::range_type>(quantizer.value);
-  auto main_op      = quantize_op<T, QuantI>(range.min_, range.max_);
+  auto const& range = std::get<typename quantizer_const_view<T>::global_type>(quantizer.value);
+  auto main_op      = quantize_op<T, QuantI>{range};
   size_t n_elements = dataset.extent(0) * dataset.extent(1);
 
   // In dry-run mode the views may be unbacked or alias the shared probe buffer.
@@ -348,9 +355,8 @@ void inverse_transform(raft::resources const& res,
     detail::inverse_transform(res, *shifts, dataset, out);
     return;
   }
-  auto const& range = std::get<typename quantizer_const_view<T>::range_type>(view.value);
-  raft::linalg::map(
-    res, out, quantize_op<T, QuantI>(range.min_, range.max_), raft::make_const_mdspan(dataset));
+  auto const& range = std::get<typename quantizer_const_view<T>::global_type>(view.value);
+  raft::linalg::map(res, out, quantize_op<T, QuantI>{range}, raft::make_const_mdspan(dataset));
 }
 
 template <typename T, typename QuantI = int8_t>
@@ -360,10 +366,10 @@ void inverse_transform(raft::resources const& res,
                        raft::host_matrix_view<T, int64_t> out)
 {
   RAFT_EXPECTS(
-    std::holds_alternative<typename quantizer_const_view<T>::range_type>(quantizer.value),
+    std::holds_alternative<typename quantizer_const_view<T>::global_type>(quantizer.value),
     "Host quantization requires a global interval");
-  auto const& range = std::get<typename quantizer_const_view<T>::range_type>(quantizer.value);
-  auto main_op      = quantize_op<T, QuantI>(range.min_, range.max_);
+  auto const& range = std::get<typename quantizer_const_view<T>::global_type>(quantizer.value);
+  auto main_op      = quantize_op<T, QuantI>{range};
   size_t n_elements = dataset.extent(0) * dataset.extent(1);
 
   // In dry-run mode the views may be unbacked or alias the shared probe buffer.
@@ -433,7 +439,7 @@ quantizer<T> train(
   quantizer<T> result;
   if (params.range == range_mode::global) {
     auto [min, max] = quantile_min_max(res, dataset, params.quantile);
-    result          = quantizer<T>{min, max};
+    result.value    = detail::train<T, QuantI>(min, max);
   } else {
     auto minima = raft::make_device_vector<T, int64_t>(res, dim);
     auto maxima = raft::make_device_vector<T, int64_t>(res, dim);
@@ -526,13 +532,9 @@ quantizer<T> train(
         max_reconstruction_error<T, QuantI>(
           res, input, *shifts, batch_errors, maximum.view(), offset != 0);
       } else {
-        auto const& range = std::get<typename quantizer_const_view<T>::range_type>(view.value);
-        max_reconstruction_error<T, QuantI>(res,
-                                            input,
-                                            quantize_op<T, QuantI>{range.min_, range.max_},
-                                            batch_errors,
-                                            maximum.view(),
-                                            offset != 0);
+        auto const& range = std::get<typename quantizer_const_view<T>::global_type>(view.value);
+        max_reconstruction_error<T, QuantI>(
+          res, input, quantize_op<T, QuantI>{range}, batch_errors, maximum.view(), offset != 0);
       }
       if (out) {
         auto batch_codes = raft::make_device_matrix_view<QuantI, int64_t>(

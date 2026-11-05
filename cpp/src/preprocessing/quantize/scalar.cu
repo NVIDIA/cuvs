@@ -13,6 +13,11 @@
 namespace cuvs::preprocessing::quantize::scalar {
 
 template <typename T>
+quantizer<T>::quantizer(T min, T max) : value{detail::train<T>(min, max)}
+{
+}
+
+template <typename T>
 quantizer<T>::quantizer(raft::resources const& res,
                         raft::device_vector_view<const T, int64_t> mins,
                         raft::device_vector_view<const T, int64_t> maxs)
