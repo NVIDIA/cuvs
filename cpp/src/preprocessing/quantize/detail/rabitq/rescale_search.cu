@@ -2,8 +2,9 @@
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged;
- * only include paths, error macros and the enclosing namespace differ.
+ * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged
+ * except that the kernel launch opts in to more than the default shared memory
+ * limit.
  */
 
 //
@@ -11,6 +12,7 @@
 // IVF-RaBitQ-GPU-main/inc/gpu_index/quantizer_gpu_fast.cu.
 //
 
+#include "../../../../neighbors/detail/smem_utils.cuh"
 #include "reductions.cuh"
 #include "rescale_search.cuh"
 #include "tight_start_constants.cuh"
@@ -277,14 +279,21 @@ float get_const_scaling_factor(raft::resources const& res,
     shared_mem_size = (dim + 3 * block_size) * sizeof(float);
   }
 
-  rabitq_rescale_sample_kernel<<<kConstNum, block_size, shared_mem_size, stream.get()>>>(
-    d_factors.data(),
-    kConstNum,
-    static_cast<int>(dim),
-    static_cast<int>(ex_bits),
-    seed,
-    coarse_samples,
-    fine_samples);
+  auto kernel = &rabitq_rescale_sample_kernel;
+  cudaKernel_t cuda_kernel;
+  RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel)));
+  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<decltype(kernel)>(
+    static_cast<std::uint32_t>(shared_mem_size),
+    [&]() {
+      kernel<<<kConstNum, block_size, shared_mem_size, stream.get()>>>(d_factors.data(),
+                                                                       kConstNum,
+                                                                       static_cast<int>(dim),
+                                                                       static_cast<int>(ex_bits),
+                                                                       seed,
+                                                                       coarse_samples,
+                                                                       fine_samples);
+    },
+    cuda_kernel);
   RAFT_CUDA_TRY(cudaGetLastError());
 
   size_t temp_storage_bytes = 0;
