@@ -36,7 +36,7 @@ Rule used to derive the per-vector reconstruction scale `delta`.
 
 Only relevant for cuvsRabitqTransform / cuvsRabitqTransformResiduals, which emit `(codes, delta, vl)`; the full-factor entry points emit `(f_add, f_rescale, f_error)` instead and ignore this setting.
 
-`delta` is computed from the signed levels `c - (2^ex_bits - 0.5)` of the stored code values `c`, not from `c` itself.
+In the formulas below, `code` means the signed levels `c - (2^ex_bits - 0.5)` of the stored code values `c`, not `c` itself.
 
 ```c
 enum cuvsRabitqDeltaKind {
@@ -48,11 +48,11 @@ enum cuvsRabitqDeltaKind {
 
 **Values**
 
-| Name | Value |
-| --- | --- |
-| `CUVS_RABITQ_DELTA_KIND_RECONSTRUCTION` | `0` |
-| `CUVS_RABITQ_DELTA_KIND_UNBIASED` | `1` |
-| `CUVS_RABITQ_DELTA_KIND_PLAIN` | `2` |
+| Name | Value | Description |
+| --- | --- | --- |
+| `CUVS_RABITQ_DELTA_KIND_RECONSTRUCTION` | `0` | `delta = (\|residual\| / \|code\|) * cos(residual, code)`; minimizes reconstruction error. |
+| `CUVS_RABITQ_DELTA_KIND_UNBIASED` | `1` | `delta = (\|residual\| / \|code\|) / cos(residual, code)`; unbiased inner-product estimate. |
+| `CUVS_RABITQ_DELTA_KIND_PLAIN` | `2` | `delta = \|residual\| / \|code\|`; preserves the residual norm, no angular correction. |
 
 <a id="cuvsrabitqquantizerparams"></a>
 ### cuvsRabitqQuantizerParams

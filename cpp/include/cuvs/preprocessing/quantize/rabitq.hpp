@@ -45,17 +45,16 @@ enum class rotator_kind : uint8_t {
  * Only relevant for the `(codes, delta, vl)` output mode; the full-factor mode
  * emits `(f_add, f_rescale, f_error)` instead and ignores this setting.
  *
- * `delta` is computed from the signed levels `c - (2^ex_bits - 0.5)` of the stored
- * code values `c`, not from `c` itself.
+ * In the formulas below, `code` means the signed levels `c - (2^ex_bits - 0.5)` of the stored
+ * code values `c`, not `c` itself.
+ *
+ * - `reconstruction`: `delta = (|residual| / |code|) * cos(residual, code)`; minimizes
+ *   reconstruction error.
+ * - `unbiased`: `delta = (|residual| / |code|) / cos(residual, code)`; unbiased inner-product
+ *   estimate.
+ * - `plain`: `delta = |residual| / |code|`; preserves the residual norm, no angular correction.
  */
-enum class delta_kind : uint8_t {
-  /** `delta = (|residual| / |code|) * cos(residual, code)` - minimizes reconstruction error. */
-  reconstruction = 0,
-  /** `delta = (|residual| / |code|) / cos(residual, code)` - unbiased inner-product estimate. */
-  unbiased = 1,
-  /** `delta = |residual| / |code|` - plain norm ratio, no angular correction. */
-  plain = 2
-};
+enum class delta_kind : uint8_t { reconstruction = 0, unbiased = 1, plain = 2 };
 
 /**
  * @brief RaBitQ quantizer parameters.

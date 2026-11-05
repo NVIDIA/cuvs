@@ -36,7 +36,7 @@ Rule used to derive the per-vector reconstruction scale `delta`.
 
 Only relevant for the `(codes, delta, vl)` output mode; the full-factor mode emits `(f_add, f_rescale, f_error)` instead and ignores this setting.
 
-`delta` is computed from the signed levels `c - (2^ex_bits - 0.5)` of the stored code values `c`, not from `c` itself.
+In the formulas below, `code` means the signed levels `c - (2^ex_bits - 0.5)` of the stored code values `c`, not `c` itself.
 
 ```cpp
 enum class delta_kind : uint8_t {
@@ -48,11 +48,11 @@ enum class delta_kind : uint8_t {
 
 **Values**
 
-| Name | Value |
-| --- | --- |
-| `reconstruction` | `0` |
-| `unbiased` | `1` |
-| `plain` | `2` |
+| Name | Value | Description |
+| --- | --- | --- |
+| `reconstruction` | `0` | `delta = (\|residual\| / \|code\|) * cos(residual, code)`; minimizes reconstruction error. |
+| `unbiased` | `1` | `delta = (\|residual\| / \|code\|) / cos(residual, code)`; unbiased inner-product estimate. |
+| `plain` | `2` | `delta = \|residual\| / \|code\|`; preserves the residual norm, no angular correction. |
 
 <a id="preprocessing-quantize-rabitq-params"></a>
 ### preprocessing::quantize::rabitq::params

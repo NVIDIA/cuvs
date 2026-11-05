@@ -40,15 +40,19 @@ enum cuvsRabitqRotatorKind {
  * emit `(codes, delta, vl)`; the full-factor entry points emit
  * `(f_add, f_rescale, f_error)` instead and ignore this setting.
  *
- * `delta` is computed from the signed levels `c - (2^ex_bits - 0.5)` of the stored
- * code values `c`, not from `c` itself.
+ * In the formulas below, `code` means the signed levels `c - (2^ex_bits - 0.5)` of the stored
+ * code values `c`, not `c` itself.
+ *
+ * - `CUVS_RABITQ_DELTA_KIND_RECONSTRUCTION`: `delta = (|residual| / |code|) * cos(residual, code)`;
+ *   minimizes reconstruction error.
+ * - `CUVS_RABITQ_DELTA_KIND_UNBIASED`: `delta = (|residual| / |code|) / cos(residual, code)`;
+ *   unbiased inner-product estimate.
+ * - `CUVS_RABITQ_DELTA_KIND_PLAIN`: `delta = |residual| / |code|`; preserves the residual norm,
+ *   no angular correction.
  */
 enum cuvsRabitqDeltaKind {
-  /** `delta = (|residual| / |code|) * cos(residual, code)` - minimizes reconstruction error. */
   CUVS_RABITQ_DELTA_KIND_RECONSTRUCTION = 0,
-  /** `delta = (|residual| / |code|) / cos(residual, code)` - unbiased inner-product estimate. */
   CUVS_RABITQ_DELTA_KIND_UNBIASED = 1,
-  /** `delta = |residual| / |code|` - plain norm ratio, no angular correction. */
   CUVS_RABITQ_DELTA_KIND_PLAIN = 2,
 };
 
