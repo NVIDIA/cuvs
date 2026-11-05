@@ -167,9 +167,11 @@ def guard_model():
 @pytest.mark.parametrize("index_type", ["int32", "int64"])
 @pytest.mark.parametrize("layout", ["strict", "relaxed"])
 @pytest.mark.parametrize("longscan", [False, True])
-def test_inner_checkpoint_scope(index_type, layout, longscan):
-    assert kernel._pk8_inner_checkpoints_enabled(index_type, layout, longscan) == (
-        index_type == "int64" and layout == "strict" and longscan
+@pytest.mark.parametrize("stage", ["fused", "select", "refine"])
+def test_inner_checkpoint_scope(index_type, layout, longscan, stage):
+    assert kernel._pk8_inner_checkpoints_enabled(index_type, layout, longscan, stage) == (
+        (index_type == "int64" or stage == "select")
+        and layout == "strict" and longscan
     )
 
 

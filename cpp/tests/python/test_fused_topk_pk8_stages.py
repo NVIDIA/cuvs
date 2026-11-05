@@ -52,7 +52,6 @@ def test_factory_and_signature_keep_physical_eight(dtype, stage, tm):
         {"matrix_layout": "relaxed"},
         {"gpu_code": "sm_100"},
         {"index_type": "int64"},
-        {"whole_tile_guard": True},
         {"witness": True},
     ],
 )
@@ -60,6 +59,19 @@ def test_unqualified_stage_variants_rejected(dtype, override):
     with pytest.raises(ValueError):
         kernel.make_kernel(
             dtype, "runtime", 8, 32, 128, 32, stage="select", **override
+        )
+
+
+@pytest.mark.parametrize("dtype", ["float", "half"])
+def test_longscan_guard_supported_only_in_selection_stage(dtype):
+    assert kernel.make_kernel(
+        dtype, "runtime", 8, 32, 256, 32,
+        stage="select", whole_tile_guard=True,
+    ) is not None
+    with pytest.raises(ValueError):
+        kernel.make_kernel(
+            dtype, "runtime", 8, 4, 128, 32,
+            stage="refine", whole_tile_guard=True,
         )
 
 
