@@ -46,6 +46,7 @@
 
 #include "../../neighbors/detail/ann_utils.cuh"
 #include <algorithm>
+#include <bit>
 #include <limits>
 #include <optional>
 #include <tuple>
@@ -1395,11 +1396,8 @@ auto build_fine_clusters(const raft::resources& handle,
     rmm::device_uvector<IdxT> row_ids(n_rows, stream, large_ws);
     rmm::device_uvector<LabelT> sorted_labels(n_rows, stream, large_ws);
     thrust::sequence(raft::resource::get_thrust_policy(handle), row_ids.begin(), row_ids.end());
-    int end_bit = 1;
-    while (end_bit < static_cast<int>(sizeof(LabelT) * 8) &&
-           (uint64_t{1} << end_bit) < static_cast<uint64_t>(n_mesoclusters)) {
-      end_bit++;
-    }
+    const int end_bit =
+      std::max(1, static_cast<int>(std::bit_width(static_cast<uint64_t>(n_mesoclusters - 1))));
     size_t sort_bytes = 0;
     RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(nullptr,
                                                   sort_bytes,
