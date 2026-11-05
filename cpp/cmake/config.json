@@ -97,6 +97,15 @@
           "KERNEL_EXTRA_COMPILE_OPTIONS": "*"
         }
       },
+      "generate_jit_lto_kernel_collection": {
+        "pargs": {
+          "nargs": 1
+        },
+        "kwargs": {
+          "JSON_FILES": "+",
+          "KERNEL_LINK_LIBRARIES": "*"
+        }
+      },
       "generate_inst_matrix": {
         "pargs": {
           "nargs": 1

@@ -1,0 +1,115 @@
+{
+  "kernels": [
+    {
+      "name_format": "ivf_pq_compute_similarity_out_@out_abbrev@_lut_@lut_abbrev@",
+      "matrix": "compute_similarity_matrix.json",
+      "kernel_input": "compute_similarity_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_compute_similarity<@ivf_pq_ns@::tag_out_@out_abbrev@, @ivf_pq_ns@::tag_lut_@lut_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/compute_similarity"
+    },
+    {
+      "name_format": "ivf_pq_prepare_lut_lut_@lut_abbrev@_@enable_smem_lut_str@_@pq_bits@pq",
+      "matrix": "prepare_lut_matrix.json",
+      "kernel_input": "prepare_lut_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_prepare_lut<@ivf_pq_ns@::tag_lut_@lut_abbrev@, @enable_smem_lut@, @pq_bits@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/prepare_lut"
+    },
+    {
+      "name_format": "ivf_pq_store_calculated_distances_out_@out_abbrev@_@k_manage_local_topk_str@",
+      "matrix": "store_calculated_distances_matrix.json",
+      "kernel_input": "store_calculated_distances_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_store_calculated_distances<@ivf_pq_ns@::tag_out_@out_abbrev@, @k_manage_local_topk@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/store_calculated_distances"
+    },
+    {
+      "name_format": "ivf_pq_precompute_base_diff_metric_@metric@",
+      "matrix": "precompute_base_diff_matrix.json",
+      "kernel_input": "precompute_base_diff_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_precompute_base_diff<@ivf_pq_ns@::tag_metric_@metric@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/precompute_base_diff"
+    },
+    {
+      "name_format": "ivf_pq_create_lut_lut_@lut_abbrev@_@precomp_base_diff_str@_@pq_bits@pq_metric_@metric@",
+      "matrix": "create_lut_matrix.json",
+      "kernel_input": "create_lut_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_create_lut<@ivf_pq_ns@::tag_lut_@lut_abbrev@, @ivf_pq_ns@::tag_metric_@metric@, @precomp_base_diff@, @pq_bits@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/create_lut"
+    },
+    {
+      "name_format": "ivf_pq_compute_distances_out_@out_abbrev@_lut_@lut_abbrev@_capacity_@capacity@",
+      "matrix": "compute_distances_matrix.json",
+      "kernel_input": "compute_distances_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_compute_distances<@ivf_pq_ns@::tag_out_@out_abbrev@, @ivf_pq_ns@::tag_lut_@lut_abbrev@, @capacity@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/compute_distances"
+    },
+    {
+      "name_format": "ivf_pq_get_early_stop_limit_out_@out_abbrev@_metric_@metric@",
+      "matrix": "get_early_stop_limit_matrix.json",
+      "kernel_input": "get_early_stop_limit_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_get_early_stop_limit<@ivf_pq_ns@::tag_out_@out_abbrev@, @ivf_pq_ns@::tag_metric_@metric@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/get_early_stop_limit"
+    },
+    {
+      "name_format": "ivf_pq_sample_filter_@filter_name@",
+      "matrix": "sample_filter_matrix.json",
+      "kernel_input": "sample_filter_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_sample_filter<@neighbors_ns@::tag_filter_@filter_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/sample_filter"
+    },
+    {
+      "name_format": "ivf_pq_get_line_width_@pq_bits@pq",
+      "matrix": "get_line_width_matrix.json",
+      "kernel_input": "get_line_width_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_get_line_width<@pq_bits@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/get_line_width"
+    },
+    {
+      "name_format": "ivf_pq_compute_score_out_@out_abbrev@_lut_@lut_abbrev@_@pq_bits@pq",
+      "matrix": "compute_score_matrix.json",
+      "kernel_input": "compute_score_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_compute_score<@ivf_pq_ns@::tag_out_@out_abbrev@, @ivf_pq_ns@::tag_lut_@lut_abbrev@, @pq_bits@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/compute_score"
+    },
+    {
+      "name_format": "ivf_pq_increment_score_out_@out_abbrev@_@increment_str@",
+      "matrix": "increment_score_matrix.json",
+      "kernel_input": "increment_score_kernel.cu.in",
+      "fragment_tag_format": "@ivf_pq_ns@::fragment_tag_increment_score<@ivf_pq_ns@::tag_out_@out_abbrev@, @increment@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_pq/increment_score"
+    }
+  ]
+}

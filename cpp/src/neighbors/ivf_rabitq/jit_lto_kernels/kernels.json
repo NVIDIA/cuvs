@@ -1,0 +1,144 @@
+{
+  "kernels": [
+    {
+      "name_format": "ivf_rabitq_compute_inner_products_with_lut",
+      "matrix": "compute_inner_products_with_lut_matrix.json",
+      "kernel_input": "compute_inner_products_with_lut_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_compute_inner_products_with_lut",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/compute_inner_products_with_lut"
+    },
+    {
+      "name_format": "ivf_rabitq_lut_emit_distances_@with_ex_descriptor@",
+      "matrix": "lut_emit_distances_matrix.json",
+      "kernel_input": "lut_emit_distances_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_lut_emit_distances<@with_ex_value@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/lut_emit_distances"
+    },
+    {
+      "name_format": "ivf_rabitq_compute_inner_products_with_lut_block_sort",
+      "matrix": "compute_inner_products_with_lut_block_sort_matrix.json",
+      "kernel_input": "compute_inner_products_with_lut_block_sort_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_compute_inner_products_with_lut_block_sort",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/compute_inner_products_with_lut_block_sort"
+    },
+    {
+      "name_format": "ivf_rabitq_lut_block_sort_emit_topk_@with_ex_descriptor@",
+      "matrix": "lut_block_sort_emit_topk_matrix.json",
+      "kernel_input": "lut_block_sort_emit_topk_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_lut_block_sort_emit_topk<@with_ex_value@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/lut_block_sort_emit_topk"
+    },
+    {
+      "name_format": "ivf_rabitq_extract_code_@ex_bits@bit",
+      "matrix": "extract_code_matrix.json",
+      "kernel_input": "extract_code_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_extract_code<@ex_bits@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/extract_code"
+    },
+    {
+      "name_format": "ivf_rabitq_compute_lut_ip_for_vec_@lut_dtype_descriptor@",
+      "matrix": "compute_lut_ip_for_vec_matrix.json",
+      "kernel_input": "compute_lut_ip_for_vec_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_compute_lut_ip_for_vec<@ivf_rabitq_ns@::tag_lut_dtype_@lut_dtype_descriptor@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/compute_lut_ip_for_vec"
+    },
+    {
+      "name_format": "ivf_rabitq_compute_bitwise_quantized_ip_for_vec_@num_bits@bit",
+      "matrix": "compute_bitwise_quantized_ip_for_vec_matrix.json",
+      "kernel_input": "compute_bitwise_quantized_ip_for_vec_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_compute_bitwise_quantized_ip_for_vec<@num_bits@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/compute_bitwise_quantized_ip_for_vec"
+    },
+    {
+      "name_format": "ivf_rabitq_compute_inner_products_with_lut16_opt",
+      "matrix": "compute_inner_products_with_lut16_opt_matrix.json",
+      "kernel_input": "compute_inner_products_with_lut16_opt_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_compute_inner_products_with_lut16_opt",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/compute_inner_products_with_lut16_opt"
+    },
+    {
+      "name_format": "ivf_rabitq_lut16_opt_emit_distances_@with_ex_descriptor@",
+      "matrix": "lut16_opt_emit_distances_matrix.json",
+      "kernel_input": "lut16_opt_emit_distances_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_lut16_opt_emit_distances<@with_ex_value@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/lut16_opt_emit_distances"
+    },
+    {
+      "name_format": "ivf_rabitq_compute_inner_products_with_lut16_opt_block_sort_@with_ex_descriptor@",
+      "matrix": "compute_inner_products_with_lut16_opt_block_sort_matrix.json",
+      "kernel_input": "compute_inner_products_with_lut16_opt_block_sort_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_compute_inner_products_with_lut16_opt_block_sort<@with_ex_value@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/compute_inner_products_with_lut16_opt_block_sort"
+    },
+    {
+      "name_format": "ivf_rabitq_compute_inner_products_with_bitwise",
+      "matrix": "compute_inner_products_with_bitwise_matrix.json",
+      "kernel_input": "compute_inner_products_with_bitwise_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_compute_inner_products_with_bitwise",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/compute_inner_products_with_bitwise"
+    },
+    {
+      "name_format": "ivf_rabitq_bitwise_emit_distances_@with_ex_descriptor@",
+      "matrix": "bitwise_emit_distances_matrix.json",
+      "kernel_input": "bitwise_emit_distances_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_bitwise_emit_distances<@with_ex_value@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/bitwise_emit_distances"
+    },
+    {
+      "name_format": "ivf_rabitq_compute_inner_products_with_bitwise_block_sort",
+      "matrix": "compute_inner_products_with_bitwise_block_sort_matrix.json",
+      "kernel_input": "compute_inner_products_with_bitwise_block_sort_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_compute_inner_products_with_bitwise_block_sort",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/compute_inner_products_with_bitwise_block_sort"
+    },
+    {
+      "name_format": "ivf_rabitq_bitwise_block_sort_emit_topk_@with_ex_descriptor@",
+      "matrix": "bitwise_block_sort_emit_topk_matrix.json",
+      "kernel_input": "bitwise_block_sort_emit_topk_kernel.cu.in",
+      "fragment_tag_format": "@ivf_rabitq_ns@::fragment_tag_bitwise_block_sort_emit_topk<@with_ex_value@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_rabitq/ivf_rabitq_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_rabitq/bitwise_block_sort_emit_topk"
+    }
+  ]
+}

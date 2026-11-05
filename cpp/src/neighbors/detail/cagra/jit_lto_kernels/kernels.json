@@ -1,0 +1,153 @@
+{
+  "kernels": [
+    {
+      "name_format": "cagra_setup_workspace@pq_prefix@_team_size_@team_size@_dataset_block_dim_@dataset_block_dim@_@pq_bits@pq_@pq_len@subd_data_@data_abbrev@_query_@query_abbrev@_smem_@smem_abbrev@",
+      "matrix": "setup_workspace_matrix.json",
+      "kernel_input": "setup_workspace_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_setup_workspace<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@, @neighbors_ns@::tag_@query_abbrev@, @cagra_ns@::tag_codebook_@codebook_abbrev@, @team_size@, @dataset_block_dim@, @pq_bits@, @pq_len@, @cagra_ns@::tag_smem_@smem_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/setup_workspace",
+      "extra_compile_options": [
+        "--maxrregcount=64"
+      ]
+    },
+    {
+      "name_format": "cagra_compute_distance@pq_prefix@_team_size_@team_size@_dataset_block_dim_@dataset_block_dim@_@pq_bits@pq_@pq_len@subd_data_@data_abbrev@_query_@query_abbrev@_smem_@smem_abbrev@",
+      "matrix": "compute_distance_matrix.json",
+      "kernel_input": "compute_distance_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_compute_distance<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@, @neighbors_ns@::tag_@query_abbrev@, @cagra_ns@::tag_codebook_@codebook_abbrev@, @team_size@, @dataset_block_dim@, @pq_bits@, @pq_len@, @cagra_ns@::tag_smem_@smem_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/compute_distance",
+      "extra_compile_options": [
+        "--maxrregcount=64"
+      ]
+    },
+    {
+      "name_format": "cagra_dist_op_@metric_tag@",
+      "matrix": "dist_op_matrix.json",
+      "kernel_input": "dist_op_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_dist_op<@neighbors_ns@::tag_@query_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@, @cagra_ns@::@jit_metric_tag@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/dist_op"
+    },
+    {
+      "name_format": "cagra_apply_normalization_standard_@norm_kind@_team_size_@team_size@_dataset_block_dim_@dataset_block_dim@_data_@data_abbrev@_query_@query_abbrev@",
+      "matrix": "apply_normalization_standard_matrix.json",
+      "kernel_input": "apply_normalization_standard_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_apply_normalization_standard<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@, @neighbors_ns@::tag_@query_abbrev@, @team_size@, @dataset_block_dim@, @cagra_ns@::tag_norm_@norm_kind@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/apply_normalization_standard"
+    },
+    {
+      "name_format": "cagra_search_single_cta_@topk_by_bitonic_sort_str@_@bitonic_sort_and_merge_multi_warps_str@_data_@data_abbrev@",
+      "matrix": "search_single_cta_matrix.json",
+      "kernel_input": "search_single_cta_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_search_single_cta<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@source_index_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@, @topk_by_bitonic_sort@, @bitonic_sort_and_merge_multi_warps@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/search_single_cta"
+    },
+    {
+      "name_format": "cagra_search_single_cta_p_@topk_by_bitonic_sort_str@_@bitonic_sort_and_merge_multi_warps_str@_data_@data_abbrev@",
+      "matrix": "search_single_cta_p_matrix.json",
+      "kernel_input": "search_single_cta_p_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_search_single_cta_p<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@source_index_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@, @topk_by_bitonic_sort@, @bitonic_sort_and_merge_multi_warps@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/search_single_cta_p"
+    },
+    {
+      "name_format": "cagra_search_multi_cta_data_@data_abbrev@",
+      "matrix": "search_multi_cta_matrix.json",
+      "kernel_input": "search_multi_cta_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_search_multi_cta<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@source_index_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/search_multi_cta"
+    },
+    {
+      "name_format": "cagra_search_single_cta_mp_@topk_by_bitonic_sort_str@_@bitonic_sort_and_merge_multi_warps_str@_data_@data_abbrev@",
+      "matrix": "search_single_cta_mp_matrix.json",
+      "kernel_input": "search_single_cta_mp_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_search_single_cta_mp<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@source_index_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@, @topk_by_bitonic_sort@, @bitonic_sort_and_merge_multi_warps@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/search_single_cta_mp"
+    },
+    {
+      "name_format": "cagra_search_multi_cta_mp_data_@data_abbrev@",
+      "matrix": "search_multi_cta_mp_matrix.json",
+      "kernel_input": "search_multi_cta_mp_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_search_multi_cta_mp<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@source_index_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/search_multi_cta_mp"
+    },
+    {
+      "name_format": "cagra_random_pickup_data_@data_abbrev@",
+      "matrix": "random_pickup_matrix.json",
+      "kernel_input": "random_pickup_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_random_pickup<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/random_pickup"
+    },
+    {
+      "name_format": "cagra_compute_distance_to_child_nodes_data_@data_abbrev@",
+      "matrix": "compute_distance_to_child_nodes_matrix.json",
+      "kernel_input": "compute_distance_to_child_nodes_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_compute_distance_to_child_nodes<@neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@, @neighbors_ns@::tag_index_@source_index_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/compute_distance_to_child_nodes"
+    },
+    {
+      "name_format": "cagra_apply_filter",
+      "matrix": "apply_filter_matrix.json",
+      "kernel_input": "apply_filter_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_apply_filter_kernel<@neighbors_ns@::tag_index_@index_abbrev@, @cagra_ns@::tag_dist_@distance_abbrev@, @neighbors_ns@::tag_index_@source_index_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/apply_filter"
+    },
+    {
+      "name_format": "sample_filter_@filter_name@_index_@source_index_abbrev@",
+      "matrix": "sample_filter_matrix.json",
+      "kernel_input": "sample_filter_kernel.cu.in",
+      "fragment_tag_format": "@cagra_ns@::fragment_tag_sample_filter<@neighbors_ns@::tag_bitset_@bitset_abbrev@, @neighbors_ns@::tag_index_@source_index_abbrev@, @neighbors_ns@::tag_filter_@filter_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/cagra/cagra_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/cagra/filter"
+    }
+  ]
+}
