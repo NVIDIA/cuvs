@@ -140,18 +140,31 @@ cpp/build/gtests/NEIGHBORS_TEST --gtest_filter='*FusedTopk*'
 
 PK8 serves logical K5 through K8 using a worst-retained-candidate reduction.
 All eight candidates are refined and sorted before returning a logical prefix.
-Single-split calls write the requested prefix directly, with int32 or int64
-indices. Two through 128 splits use a warp merge of sorted retained lists.
+Fused single-split calls write the requested prefix directly, with int32 or
+int64 indices. Staged calls use physical-width scratch before logical-prefix
+output. Two through 128 splits use a warp merge of sorted retained lists.
 The long-scan variant skips a corpus tile only if no valid query row can admit
 a candidate; equality always enters selection. Its capacity-based guard uses
 at least 512 corpus tiles per split with TM32/TN128/TK32, not exact shapes.
 
 For split SM120 calls with padded feature width at least 512, PK8 separates
-TM32 selection from TM4 refinement. The long-scan guard above takes precedence;
-single-split calls retain fused refinement and direct logical-prefix output.
+TM32 selection from TM4 refinement. The long-scan guard above takes precedence
+for split calls.
 Both stage handles are resolved before either launch. This is a broad resource
 policy, not an exact-shape benchmark lookup. Every physical candidate is still
 refined before the logical prefix is selected.
+
+Large-batch, single-split SM120 L2/sqrt-L2 calls can also separate selection
+from TM4 refinement. This requires at least 10,000 queries, padded feature
+width at least 128, and the existing long-scan threshold (512 TN128 corpus
+tiles). Selection uses TM64/TN128 for at least 32,768 queries or FP32 padded
+width at least 512; otherwise it uses TM32/TN256. Both use TK32, occupancy two,
+and the long-scan admission guard. These broad scheduling rules increase
+query or corpus reuse without changing candidate capacity or the score formula.
+All eight candidates are refined before logical-prefix output and index casting.
+Both optional stage handles must resolve before the direct fused shortcut
+declines or writes any output; unavailable images retain the fused path.
+Small-query calls and cosine/inner product retain their prior scheduling.
 
 The separate strict refinement ABI states the actual padded feature width and
 physical scratch width to the compiler: D is divisible by 4 for float or 8 for

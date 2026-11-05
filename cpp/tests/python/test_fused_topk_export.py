@@ -222,3 +222,79 @@ def test_export_forwards_typed_signature_without_execution(
     }
     assert symbol == expected.symbol
     assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "stage,tm,tn", [("largeq", 64, 128), ("largecorpus", 32, 256)]
+)
+def test_pk8_largebatch_matrices_are_separate_and_sm120_only(stage, tm, tn):
+    iterator = runpy.run_path(
+        str(CPP / "cmake/modules/compute_matrix_product.py")
+    )["iterate_matrix_product"]
+    matrix = KERNEL_DIR / f"fused_topk_select_{stage}_cutile_matrix.json"
+    rows = list(iterator(matrix=json.loads(matrix.read_text())))
+    assert len(rows) == 2
+    assert {r["data_type"] for r in rows} == {"float", "half"}
+    for r in rows:
+        assert (r["tile_m"], r["tile_n"], r["tile_k"]) == (tm, tn, 32)
+        assert (
+            r["gpu_code"], r["physical_k"], r["index_type"], r["matrix_layout"]
+        ) == ("sm_120", 8, "int32", "strict")
+        assert r["occupancy"] == 2
+
+
+@pytest.mark.parametrize("data_type", ["float", "half"])
+@pytest.mark.parametrize("tm,tn", [(64, 128), (32, 256)])
+def test_pk8_largebatch_export_preserves_checkpoints_and_signature(
+    monkeypatch, tmp_path, data_type, tm, tn
+):
+    seen = {}
+    sentinel = object()
+
+    def factory(*args, **kwargs):
+        seen["factory"] = kwargs
+        return sentinel
+    monkeypatch.setattr(exporter, "make_kernel", factory)
+    monkeypatch.setattr(exporter, "export_kernel", lambda **kw: seen.update(kw))
+    symbol = exporter.export_binary(
+        tmp_path / "not-created.cubin", data_type=data_type, metric="runtime",
+        index_type="int32", physical_k=8, tile_m=tm, tile_n=tn, tile_k=32,
+        gpu_code="sm_120", matrix_layout="strict", occupancy=2,
+        stage="select", whole_tile_guard=True,
+    )
+    assert seen["factory"]["whole_tile_guard"]
+    assert seen["factory"]["stage"] == "select"
+    assert seen["kernel"] is sentinel
+    assert symbol == kernel.kernel_symbol(
+        8, "strict", data_type, "int32", True
+    ) + "_select"
+    assert seen["signatures"] == [
+        exporter._kernel_signature(
+            8, tm, tn, 32, "sm_120", "strict", data_type, "int32", True,
+            stage="select",
+        )
+    ]
+    assert not (tmp_path / "not-created.cubin").exists()
+
+
+@pytest.mark.parametrize("stage", ["largeq", "largecorpus"])
+def test_pk8_largebatch_entrypoint_forwards_guard_without_device_work(
+    monkeypatch, stage
+):
+    import sys
+    from types import SimpleNamespace
+    seen = {}
+
+    def main(*args, **kwargs):
+        seen.update(args=args, kwargs=kwargs)
+        return 0
+    monkeypatch.setitem(
+        sys.modules, "export_fused_topk", SimpleNamespace(main=main)
+    )
+    with pytest.raises(SystemExit) as ex:
+        runpy.run_path(
+            str(KERNEL_DIR / f"export_fused_topk_select_{stage}.py"),
+            run_name="__main__",
+        )
+    assert ex.value.code == 0
+    assert seen == dict(args=("select",), kwargs={"whole_tile_guard": True})
