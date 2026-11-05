@@ -1313,15 +1313,15 @@ TopkOutput check_typed_topk(const std::vector<float>& query_values,
   if constexpr (PhysicalK == 8) {
     if (splits == 1 && is_fused_topk_pk8_auto_dispatch_available()) {
       const bool single = try_fused_topk_pk8_single_tile<IdxT>(idd.data() + index_guard,
-                                                       vd.data() + value_guard,
-                                                       qd.data() + input_guard,
-                                                       xd.data() + input_guard,
-                                                       static_cast<IdxT>(rows),
-                                                       static_cast<IdxT>(count),
-                                                       static_cast<IdxT>(dimensions),
-                                                       static_cast<IdxT>(logical_k),
-                                                       metric,
-                                                       stream.get());
+                                                               vd.data() + value_guard,
+                                                               qd.data() + input_guard,
+                                                               xd.data() + input_guard,
+                                                               static_cast<IdxT>(rows),
+                                                               static_cast<IdxT>(count),
+                                                               static_cast<IdxT>(dimensions),
+                                                               static_cast<IdxT>(logical_k),
+                                                               metric,
+                                                               stream.get());
       if (!single) {
         EXPECT_TRUE(fused_topk_pk8_largebatch_eligible(rows, count, dimensions, splits, metric));
         std::vector<IdxT> unchanged_ids(ids.size());
@@ -1510,10 +1510,10 @@ void check_pk8_largebatch_prefixes()
   std::fill(x.end() - 8 * d, x.end(), 0.125f);
   for (int rows : {10001, 32769}) {
     std::vector<float> q(static_cast<size_t>(rows) * d, 0.0f);
-    for (auto metric : {cuvs::distance::DistanceType::L2Expanded,
-                       cuvs::distance::DistanceType::L2SqrtExpanded}) {
+    for (auto metric :
+         {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::L2SqrtExpanded}) {
       for (int k : {5, 6, 7, 8}) {
-        const auto out = check_typed_topk<8, DataT, int64_t>(q, x, d, metric, 1, k, true);
+        const auto out    = check_typed_topk<8, DataT, int64_t>(q, x, d, metric, 1, k, true);
         const auto narrow = check_typed_topk<8, DataT, int>(q, x, d, metric, 1, k, true);
         EXPECT_EQ(out.indices, narrow.indices);
         EXPECT_EQ(out.distances, narrow.distances);

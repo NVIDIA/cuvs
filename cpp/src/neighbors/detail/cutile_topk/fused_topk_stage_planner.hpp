@@ -22,11 +22,12 @@ struct FusedTopkStagePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
   static_assert(Stage != fused_topk_stage::witness ||
                 (PhysicalK == 4 && std::is_same_v<DataT, half>));
   static_assert(Stage != fused_topk_stage::select_l2 || PhysicalK == 8);
-  static constexpr bool largeq = Stage == fused_topk_stage::select_largeq;
+  static constexpr bool largeq      = Stage == fused_topk_stage::select_largeq;
   static constexpr bool largecorpus = Stage == fused_topk_stage::select_largecorpus;
   static_assert(!(largeq || largecorpus) || PhysicalK == 8);
-  static constexpr int tile_m = largeq ? 64 : PhysicalK == 8 ? (Stage == fused_topk_stage::refine ? 4 : 32)
-                                               : (Stage == fused_topk_stage::refine ? 32 : 64);
+  static constexpr int tile_m = largeq           ? 64
+                                : PhysicalK == 8 ? (Stage == fused_topk_stage::refine ? 4 : 32)
+                                                 : (Stage == fused_topk_stage::refine ? 32 : 64);
   static constexpr int tile_n = largecorpus ? 256 : 128;
   static constexpr int tile_k = 32;
   using TileTag               = cutile_tile_config<tile_m, tile_n, tile_k>;
@@ -36,7 +37,7 @@ struct FusedTopkStagePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
   static std::string entrypoint()
   {
     const char* suffix = (largeq || largecorpus)                ? "longscan_select"
-                         : Stage == fused_topk_stage::select      ? "select"
+                         : Stage == fused_topk_stage::select    ? "select"
                          : Stage == fused_topk_stage::refine    ? "refine"
                          : Stage == fused_topk_stage::select_l2 ? "select_l2"
                                                                 : "witness";

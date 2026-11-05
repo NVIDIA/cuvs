@@ -23,7 +23,14 @@ struct fragment_tag_fused_topk_cubin {
   static constexpr int physical_k = PhysicalK;
 };
 
-enum class fused_topk_stage { select, refine, witness, select_l2, select_largeq, select_largecorpus };
+enum class fused_topk_stage {
+  select,
+  refine,
+  witness,
+  select_l2,
+  select_largeq,
+  select_largecorpus
+};
 
 template <typename DataTag,
           typename IndexTag,

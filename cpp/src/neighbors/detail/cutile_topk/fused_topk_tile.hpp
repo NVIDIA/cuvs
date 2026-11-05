@@ -230,11 +230,8 @@ constexpr bool fused_topk_pk8_staged_refinement_eligible(int dimensions,
 
 // One broad large-batch region; preserve short-query and non-L2 routes.
 // Width is the actual (possibly padded) descriptor width.
-constexpr bool fused_topk_pk8_largebatch_eligible(int query_rows,
-                                                 int corpus_rows,
-                                                 int dimensions,
-                                                 int splits,
-                                                 cuvs::distance::DistanceType metric)
+constexpr bool fused_topk_pk8_largebatch_eligible(
+  int query_rows, int corpus_rows, int dimensions, int splits, cuvs::distance::DistanceType metric)
 {
   return query_rows >= 10000 && dimensions >= 128 && splits == 1 &&
          (metric == cuvs::distance::DistanceType::L2Expanded ||
