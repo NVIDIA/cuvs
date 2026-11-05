@@ -835,4 +835,129 @@ void process_batch(raft::resources const& handle,
                     stream);
 }
 
+// These shared fit helpers are instantiated once in the matching CUDA owner sources.
+extern template void compute_centroid_adjustments<float, int, int*>(
+  raft::resources const&,
+  raft::device_matrix_view<const float, int>,
+  raft::device_vector_view<const float, int>,
+  int*,
+  int,
+  raft::device_matrix_view<float, int>,
+  raft::device_vector_view<float, int>,
+  rmm::device_uvector<char>&,
+  bool);
+extern template void compute_centroid_adjustments<
+  float,
+  int,
+  decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::indices(
+    nullptr))>(
+  raft::resources const&,
+  raft::device_matrix_view<const float, int>,
+  raft::device_vector_view<const float, int>,
+  decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, float>*>::indices(
+    nullptr)),
+  int,
+  raft::device_matrix_view<float, int>,
+  raft::device_vector_view<float, int>,
+  rmm::device_uvector<char>&,
+  bool);
+extern template void compute_centroid_adjustments<float, int64_t, int64_t*>(
+  raft::resources const&,
+  raft::device_matrix_view<const float, int64_t>,
+  raft::device_vector_view<const float, int64_t>,
+  int64_t*,
+  int64_t,
+  raft::device_matrix_view<float, int64_t>,
+  raft::device_vector_view<float, int64_t>,
+  rmm::device_uvector<char>&,
+  bool);
+extern template void compute_centroid_adjustments<
+  float,
+  int64_t,
+  decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int64_t, float>*>::indices(
+    nullptr))>(
+  raft::resources const&,
+  raft::device_matrix_view<const float, int64_t>,
+  raft::device_vector_view<const float, int64_t>,
+  decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int64_t, float>*>::indices(
+    nullptr)),
+  int64_t,
+  raft::device_matrix_view<float, int64_t>,
+  raft::device_vector_view<float, int64_t>,
+  rmm::device_uvector<char>&,
+  bool);
+extern template void compute_centroid_adjustments<double, int, int*>(
+  raft::resources const&,
+  raft::device_matrix_view<const double, int>,
+  raft::device_vector_view<const double, int>,
+  int*,
+  int,
+  raft::device_matrix_view<double, int>,
+  raft::device_vector_view<double, int>,
+  rmm::device_uvector<char>&,
+  bool);
+extern template void compute_centroid_adjustments<
+  double,
+  int,
+  decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::indices(
+    nullptr))>(
+  raft::resources const&,
+  raft::device_matrix_view<const double, int>,
+  raft::device_vector_view<const double, int>,
+  decltype(cuvs::distance::detail::Top1nnResultTraits<raft::KeyValuePair<int, double>*>::indices(
+    nullptr)),
+  int,
+  raft::device_matrix_view<double, int>,
+  raft::device_vector_view<double, int>,
+  rmm::device_uvector<char>&,
+  bool);
+extern template void compute_centroid_adjustments<double, int64_t, int64_t*>(
+  raft::resources const&,
+  raft::device_matrix_view<const double, int64_t>,
+  raft::device_vector_view<const double, int64_t>,
+  int64_t*,
+  int64_t,
+  raft::device_matrix_view<double, int64_t>,
+  raft::device_vector_view<double, int64_t>,
+  rmm::device_uvector<char>&,
+  bool);
+extern template void
+compute_centroid_adjustments<double,
+                             int64_t,
+                             decltype(cuvs::distance::detail::Top1nnResultTraits<
+                                      raft::KeyValuePair<int64_t, double>*>::indices(nullptr))>(
+  raft::resources const&,
+  raft::device_matrix_view<const double, int64_t>,
+  raft::device_vector_view<const double, int64_t>,
+  decltype(cuvs::distance::detail::Top1nnResultTraits<
+           raft::KeyValuePair<int64_t, double>*>::indices(nullptr)),
+  int64_t,
+  raft::device_matrix_view<double, int64_t>,
+  raft::device_vector_view<double, int64_t>,
+  rmm::device_uvector<char>&,
+  bool);
+
+extern template void finalize_centroids<float, int>(raft::resources const&,
+                                                    raft::device_matrix_view<const float, int>,
+                                                    raft::device_vector_view<const float, int>,
+                                                    raft::device_matrix_view<const float, int>,
+                                                    raft::device_matrix_view<float, int>);
+extern template void finalize_centroids<float, int64_t>(
+  raft::resources const&,
+  raft::device_matrix_view<const float, int64_t>,
+  raft::device_vector_view<const float, int64_t>,
+  raft::device_matrix_view<const float, int64_t>,
+  raft::device_matrix_view<float, int64_t>);
+extern template void finalize_centroids<double, int>(raft::resources const&,
+                                                     raft::device_matrix_view<const double, int>,
+                                                     raft::device_vector_view<const double, int>,
+                                                     raft::device_matrix_view<const double, int>,
+                                                     raft::device_matrix_view<double, int>);
+extern template void finalize_centroids<double, int64_t>(
+  raft::resources const&,
+  raft::device_matrix_view<const double, int64_t>,
+  raft::device_vector_view<const double, int64_t>,
+  raft::device_matrix_view<const double, int64_t>,
+  raft::device_matrix_view<double, int64_t>);
+
 }  // namespace cuvs::cluster::kmeans::detail

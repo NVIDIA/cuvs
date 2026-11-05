@@ -1,0 +1,32 @@
+[
+  {
+    "instantiation_name": "f32_i32_device",
+    "template_arguments": "<float, int, typename raft::device_matrix_view<const float, int>::accessor_type>",
+    "parameter_types": "raft::resources const&, cuvs::cluster::kmeans::params const&, raft::device_matrix_view<const float, int>, std::optional<raft::device_vector_view<const float, int>>, raft::device_matrix_view<float, int>, raft::host_scalar_view<float>, raft::host_scalar_view<int>, std::optional<std::reference_wrapper<rmm::device_uvector<char>>>"
+  },
+  {
+    "instantiation_name": "f32_i64_device",
+    "template_arguments": "<float, int64_t, typename raft::device_matrix_view<const float, int64_t>::accessor_type>",
+    "parameter_types": "raft::resources const&, cuvs::cluster::kmeans::params const&, raft::device_matrix_view<const float, int64_t>, std::optional<raft::device_vector_view<const float, int64_t>>, raft::device_matrix_view<float, int64_t>, raft::host_scalar_view<float>, raft::host_scalar_view<int64_t>, std::optional<std::reference_wrapper<rmm::device_uvector<char>>>"
+  },
+  {
+    "instantiation_name": "f32_i64_host",
+    "template_arguments": "<float, int64_t, typename raft::host_matrix_view<const float, int64_t>::accessor_type>",
+    "parameter_types": "raft::resources const&, cuvs::cluster::kmeans::params const&, raft::host_matrix_view<const float, int64_t>, std::optional<raft::host_vector_view<const float, int64_t>>, raft::device_matrix_view<float, int64_t>, raft::host_scalar_view<float>, raft::host_scalar_view<int64_t>, std::optional<std::reference_wrapper<rmm::device_uvector<char>>>"
+  },
+  {
+    "instantiation_name": "f64_i32_device",
+    "template_arguments": "<double, int, typename raft::device_matrix_view<const double, int>::accessor_type>",
+    "parameter_types": "raft::resources const&, cuvs::cluster::kmeans::params const&, raft::device_matrix_view<const double, int>, std::optional<raft::device_vector_view<const double, int>>, raft::device_matrix_view<double, int>, raft::host_scalar_view<double>, raft::host_scalar_view<int>, std::optional<std::reference_wrapper<rmm::device_uvector<char>>>"
+  },
+  {
+    "instantiation_name": "f64_i64_device",
+    "template_arguments": "<double, int64_t, typename raft::device_matrix_view<const double, int64_t>::accessor_type>",
+    "parameter_types": "raft::resources const&, cuvs::cluster::kmeans::params const&, raft::device_matrix_view<const double, int64_t>, std::optional<raft::device_vector_view<const double, int64_t>>, raft::device_matrix_view<double, int64_t>, raft::host_scalar_view<double>, raft::host_scalar_view<int64_t>, std::optional<std::reference_wrapper<rmm::device_uvector<char>>>"
+  },
+  {
+    "instantiation_name": "f64_i64_host",
+    "template_arguments": "<double, int64_t, typename raft::host_matrix_view<const double, int64_t>::accessor_type>",
+    "parameter_types": "raft::resources const&, cuvs::cluster::kmeans::params const&, raft::host_matrix_view<const double, int64_t>, std::optional<raft::host_vector_view<const double, int64_t>>, raft::device_matrix_view<double, int64_t>, raft::host_scalar_view<double>, raft::host_scalar_view<int64_t>, std::optional<std::reference_wrapper<rmm::device_uvector<char>>>"
+  }
+]
