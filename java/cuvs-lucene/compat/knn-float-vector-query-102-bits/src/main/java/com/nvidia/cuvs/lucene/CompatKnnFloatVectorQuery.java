@@ -22,7 +22,8 @@ import org.apache.lucene.util.Bits;
  * provides that collector.
  *
  * <p>Each variant also tells the shared query how many hits Lucene expects from a segment search,
- * {@link #perLeafTopK}: Lucene 10.2 expects {@code k}, Lucene 10.3 more.
+ * {@link #perLeafTopK}: Lucene 10.2 expects {@code k}, Lucene 10.3 the segment's share of {@code
+ * k} plus a margin, often more than {@code k} but less for a large {@code k} over many segments.
  */
 abstract class CompatKnnFloatVectorQuery extends KnnFloatVectorQuery {
 
