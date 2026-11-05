@@ -57,7 +57,7 @@ export RAPIDS_DATASET_ROOT_DIR
 
 rapids-logger "DIAG: system"
 uname -r; nproc; free -g; lscpu | grep -E 'Model name|^CPU\(s\)|Thread|Socket|NUMA node\(s\)'
-/opt/conda/bin/python -I ci/cuda_latency_probe.py
+rapids-mamba-retry install --yes -n test -c conda-forge nsight-systems
 cd "$CONDA_PREFIX"/bin/gtests/libcuvs
 set +e
 diag() {
@@ -75,8 +75,19 @@ F_SQ=$(first_tests NEIGHBORS_ANN_IVF_SQ_TEST 12)
 F_FLAT=$(first_tests NEIGHBORS_ANN_IVF_FLAT_TEST 12)
 F_PQ='IvfPq/f32_f32_i64.build_host_input_search/1:IvfPq/f32_f32_i64.build_host_input_search/2:IvfPq/f32_f32_i64.build_host_input_search/19'
 diag sq-async timeout 20m ./NEIGHBORS_ANN_IVF_SQ_TEST --gtest_filter="${F_SQ}"
+diag sq-cuda timeout 20m env GTEST_CUVS_RMM_MODE=cuda ./NEIGHBORS_ANN_IVF_SQ_TEST --gtest_filter="${F_SQ}"
 diag flat-async timeout 20m ./NEIGHBORS_ANN_IVF_FLAT_TEST --gtest_filter="${F_FLAT}"
 diag pq-async timeout 20m ./NEIGHBORS_ANN_IVF_PQ_TEST --gtest_filter="${F_PQ}"
+F_SQ2=$(first_tests NEIGHBORS_ANN_IVF_SQ_TEST 2)
+for t in NEIGHBORS_ANN_IVF_SQ_TEST:"${F_SQ2}" NEIGHBORS_ANN_IVF_PQ_TEST:IvfPq/f32_f32_i64.build_host_input_search/1; do
+  bin=${t%%:*}
+  flt=${t#*:}
+  rapids-logger "DIAG: nsys ${bin} ${flt}"
+  timeout 20m nsys profile -t cuda,osrt --sample=none --cpuctxsw=none --force-overwrite true -o "/tmp/${bin}" "./${bin}" --gtest_filter="${flt}" 2>&1 | grep -E '^\[ +(OK|FAILED) +\]|rror|nsys|WARN' | head -n 40
+  for r in cuda_api_sum osrt_sum cuda_gpu_kern_sum cuda_gpu_mem_time_sum cuda_gpu_mem_size_sum; do
+    nsys stats -q -r "${r}" "/tmp/${bin}.nsys-rep" 2>&1 | head -n 30
+  done
+done
 exit 1
 
 EXITCODE=0
