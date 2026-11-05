@@ -131,6 +131,9 @@ function(_cutile_make_python_args output_var)
   if(DEFINED num_ctas AND NOT "${num_ctas}" STREQUAL "")
     list(APPEND _python_args --num-ctas "${num_ctas}")
   endif()
+  if(DEFINED physical_k AND NOT "${physical_k}" STREQUAL "")
+    list(APPEND _python_args --physical-k "${physical_k}")
+  endif()
   set(${output_var}
       "${_python_args}"
       PARENT_SCOPE

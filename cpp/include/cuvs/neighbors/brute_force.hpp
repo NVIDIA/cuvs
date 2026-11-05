@@ -21,7 +21,30 @@ namespace brute_force {
 
 struct index_params : cuvs::neighbors::index_params {};
 
-struct search_params : cuvs::neighbors::search_params {};
+struct search_params : cuvs::neighbors::search_params {
+  /**
+   * Permit approximate neighbor membership in the fused small-K backend.
+   *
+   * The default preserves the existing brute-force implementation. When enabled, eligible
+   * row-major FP32 or FP16 searches may use the fused backend. FP32 candidate scores use
+   * TF32-rounded operands; FP16 uses stored-half Tensor Core products with FP32 accumulation.
+   * Both recompute and order only the retained candidates in direct FP32. Refinement cannot recover
+   * omitted neighbors: neither exact membership nor a minimum recall is guaranteed. Returned
+   * values need not be bitwise identical to the existing implementation. The fused backend
+   * orders metric ties by corpus index and gives cosine distance one for zero-norm operands.
+   * Inputs must be finite and have representable metric intermediates; this is not checked by
+   * a device-wide scan.
+   *
+   * This is permission, not a forced or guaranteed-fastest backend selection. Unsupported
+   * metrics, architectures, layouts, data types, filtered searches and calls outside the
+   * backend's descriptor/buffer limits retain the existing implementation. The fused backend
+   * may allocate fresh padded input storage and split the corpus across blocks; temporary
+   * memory, latency and approximate membership can depend on the device and launch policy.
+   * Allocation failures propagate normally. This option does not change Top1 or
+   * mutual-reachability graph construction.
+   */
+  bool allow_approximate = false;
+};
 
 /**
  * @defgroup bruteforce_cpp_index Bruteforce index
