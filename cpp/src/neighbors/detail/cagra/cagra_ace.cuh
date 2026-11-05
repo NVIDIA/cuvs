@@ -566,7 +566,9 @@ auto ace_build_pruned_partial_graph(
     res, core_argument_partition, intermediate_graph_degree, metric);
   auto partial_graph =
     raft::make_host_matrix<IdxT, int64_t>(core_argument_partition.extent(0), graph_degree);
-  graph::prune_graph_gpu<IdxT>(res, knn_graph.view(), partial_graph.view());
+  using GraphAccessor = typename decltype(knn_graph.view())::accessor_type;
+  graph::prune_graph_gpu<IdxT, GraphAccessor, GraphAccessor, false>(
+    res, knn_graph.view(), partial_graph.view(), {}, static_cast<uint32_t>(graph_degree));
   return partial_graph;
 }
 
