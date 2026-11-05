@@ -161,20 +161,13 @@ double ann_1nn_agreement_pct(FitFixture& f,
                              size_t itopk)
 {
   auto params = make_fit_params(f.ranges.n_clusters, true, itopk);
-  cuvs::cluster::kmeans::detail::centroid_ann_index index;
-  index.build(f.handle,
-              params,
-              raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
-                centroids_dev, f.ranges.n_clusters, f.ranges.dim));
+  cuvs::distance::detail::top_1_nn_cagra_index index;
+  cuvs::cluster::kmeans::detail::build_ann_index<float>(
+    f.handle, params, index, centroids_dev, f.ranges.n_clusters, f.ranges.dim);
   const int64_t n = f.ranges.n_rows;
   auto neighbors  = raft::make_device_matrix<uint32_t, int64_t>(f.handle, n, 1);
   auto distances  = raft::make_device_matrix<float, int64_t>(f.handle, n, 1);
-  index.top_1_nn_ann(f.handle,
-                     params,
-                     raft::make_device_matrix_view<const float, int64_t, raft::row_major>(
-                       f.dataset.data(), n, f.ranges.dim),
-                     neighbors.view(),
-                     distances.view());
+  index.search(f.handle, f.dataset.data(), n, neighbors.data_handle(), distances.data_handle());
   std::vector<uint32_t> top1(n);
   raft::copy(top1.data(), neighbors.data_handle(), n, raft::resource::get_cuda_stream(f.handle));
   raft::resource::sync_stream(f.handle);

@@ -16,6 +16,7 @@
 
 // kmeans_ann_assignment_core.cuh is under cpp/src/; the bench target adds that to the include path
 #include <cluster/detail/kmeans_ann_assignment_core.cuh>
+#include <cluster/detail/kmeans_common.cuh>
 #include <cuvs/cluster/kmeans.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_resources.hpp>
@@ -28,6 +29,7 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <optional>
 #include <vector>
 
 namespace {
@@ -142,19 +144,44 @@ void BM_LloydAnn_BuildAndSearch(benchmark::State& state)
 
   for (auto _ : state) {
     {
-      cuvs::cluster::kmeans::detail::centroid_ann_index warm;
-      warm.build(f.handle, params, centers_view);  // untimed warm-up build
+      cuvs::distance::detail::top_1_nn_cagra_index warm;
+      cuvs::cluster::kmeans::detail::build_ann_index<float>(
+        f.handle, params, warm, f.centroids.data(), f.n_clusters, f.dim);  // untimed warm-up
+
       raft::resource::sync_stream(f.handle);
     }
-    cuvs::cluster::kmeans::detail::centroid_ann_index index;
-    const double build_ms = timed([&]() { index.build(f.handle, params, centers_view); });
+    cuvs::distance::detail::top_1_nn_cagra_index index;
+    const double build_ms = timed([&]() {
+      cuvs::cluster::kmeans::detail::build_ann_index<float>(
+        f.handle, params, index, f.centroids.data(), f.n_clusters, f.dim);
+    });
     double search_ms      = 1e30;
     for (int rep = 0; rep < 3; ++rep) {
-      search_ms =
-        std::min(search_ms, timed([&]() {
-                   cuvs::cluster::kmeans::detail::minClusterAndDistanceComputeANN<int64_t>(
-                     f.handle, params, index, X_view, labels.data(), dists.data());
-                 }));
+      search_ms = std::min(
+        search_ms, timed([&]() {
+          // The ANN assignment is the Cagra backend of top_1_nn, reached through the
+          // same minClusterAndDistanceCompute the brute-force E-step uses.
+          rmm::device_uvector<char> out_storage(0, stream), ws(0, stream);
+          rmm::device_uvector<float> norm_buf(0, stream);
+          auto x_norm = raft::make_device_vector_view<const float, int64_t>(
+            static_cast<const float*>(nullptr), f.n_rows);
+          const auto result =
+            cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<float, int64_t>(
+              f.handle,
+              X_view,
+              centers_view,
+              out_storage,
+              x_norm,
+              norm_buf,
+              params.metric,
+              params.batch_samples,
+              params.batch_centroids,
+              ws,
+              std::nullopt,
+              cuvs::distance::detail::Top1nnBackend::Cagra,
+              &index);
+          cuvs::cluster::kmeans::detail::copyClusterLabels(f.handle, result, labels.data());
+        }));
     }
     const auto ann_labels = to_host(labels.data());
     int64_t same          = 0;

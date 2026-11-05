@@ -54,7 +54,6 @@
 #include <limits>
 #include <optional>
 #include <random>
-#include <type_traits>
 
 namespace cuvs::cluster::kmeans::detail {
 
@@ -824,10 +823,11 @@ void kmeans_fit(
   rmm::device_uvector<char> batch_workspace(device_buffer_samples, stream);
 
   // Optional CAGRA-based nearest-centroid assignment (float + L2 only; see use_ann_assignment).
+  // It is the `Top1nnBackend::Cagra` backend of top_1_nn, fed with an index over the centroids.
   const bool use_ann = use_ann_assignment<DataT>(pams, n_clusters);
-  centroid_ann_index ann_index;
-  rmm::device_uvector<IndexT> ann_labels(0, stream);
-  rmm::device_uvector<DataT> ann_dists(0, stream);
+  cuvs::distance::detail::top_1_nn_cagra_index ann_index;
+  const auto assignment_backend = use_ann ? cuvs::distance::detail::Top1nnBackend::Cagra
+                                          : cuvs::distance::detail::Top1nnBackend::Auto;
 
   auto batch_mr = raft::resource::get_large_workspace_resource_ref(handle);
   auto [batch_copy_stream, enable_prefetch] =
@@ -914,6 +914,8 @@ void kmeans_fit(
     n_clusters,
     static_cast<size_t>(device_buffer_samples));
 
+  // Norms are also needed by the final exact inertia pass of an ANN fit, so they are computed
+  // whenever the metric uses them.
   bool need_compute_norms = metric == cuvs::distance::DistanceType::L2Expanded ||
                             metric == cuvs::distance::DistanceType::L2SqrtExpanded;
   auto assignment_uses_tf32 =
@@ -1066,39 +1068,25 @@ void kmeans_fit(
           }
         }
 
-        if (use_ann) {
-          process_batch_ann<DataT, IndexT>(handle,
-                                           iter_params,
-                                           ann_index,
-                                           batch_data_view,
-                                           batch_weights_view,
-                                           ann_labels,
-                                           ann_dists,
-                                           ws,
-                                           centroid_sums.view(),
-                                           weight_per_cluster.view(),
-                                           clustering_cost.view(),
-                                           batch_workspace,
-                                           batch_cost.view());
-        } else {
-          process_batch<DataT, IndexT>(handle,
-                                       batch_data_view,
-                                       batch_weights_view,
-                                       centroids_const,
-                                       metric,
-                                       iter_params.batch_samples,
-                                       iter_params.batch_centroids,
-                                       assignment_output,
-                                       l2_const_view,
-                                       tf32_const_view,
-                                       L2NormBuf_OR_DistBuf,
-                                       ws,
-                                       centroid_sums.view(),
-                                       weight_per_cluster.view(),
-                                       clustering_cost.view(),
-                                       batch_workspace,
-                                       batch_cost.view());
-        }
+        process_batch<DataT, IndexT>(handle,
+                                     batch_data_view,
+                                     batch_weights_view,
+                                     centroids_const,
+                                     metric,
+                                     iter_params.batch_samples,
+                                     iter_params.batch_centroids,
+                                     assignment_output,
+                                     l2_const_view,
+                                     tf32_const_view,
+                                     L2NormBuf_OR_DistBuf,
+                                     ws,
+                                     centroid_sums.view(),
+                                     weight_per_cluster.view(),
+                                     clustering_cost.view(),
+                                     batch_workspace,
+                                     batch_cost.view(),
+                                     assignment_backend,
+                                     use_ann ? &ann_index : nullptr);
 
         // The slot is reusable only after every batch consumer above has been submitted. With two
         // buffers the other slot already holds the next batch; with one buffer, refill this slot
@@ -1319,85 +1307,85 @@ void kmeans_predict(raft::resources const& handle,
       raft::make_const_mdspan(weight.view()));
   }
 
-  if (use_ann_assignment<DataT>(pams, centroids.extent(0))) {
-    kmeans_predict_ann<DataT, IndexT>(handle,
-                                      pams,
-                                      X,
-                                      raft::make_const_mdspan(weight.view()),
-                                      centroids,
-                                      labels.data_handle(),
-                                      workspace,
-                                      inertia[0]);
-  } else {
-    rmm::device_uvector<char> assignment_output(0, stream);
-    rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
+  // Optional CAGRA-based assignment: the `Top1nnBackend::Cagra` backend over an index of the
+  // (fixed) centroids. It needs no norms.
+  const bool use_ann = use_ann_assignment<DataT>(pams, centroids.extent(0));
+  cuvs::distance::detail::top_1_nn_cagra_index ann_index;
+  if (use_ann) {
+    build_ann_index<DataT>(
+      handle, pams, ann_index, centroids.data_handle(), centroids.extent(0), n_features);
+  }
 
-    auto L2NormX   = raft::make_device_vector<DataT, IndexT>(handle, n_samples);
-    auto Tf32NormX = raft::make_device_vector<DataT, IndexT>(
-      handle, kmeans_may_require_tf32_norms_v<DataT> ? n_samples : IndexT{0});
-    std::optional<raft::device_vector_view<const DataT, IndexT>> tf32_normx_view = std::nullopt;
-    const bool needs_norms = metric == cuvs::distance::DistanceType::L2Expanded ||
-                             metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                             metric == cuvs::distance::DistanceType::CosineExpanded;
-    if (needs_norms) {
-      bool use_tf32_norms = false;
-      if constexpr (kmeans_may_require_tf32_norms_v<DataT>) {
-        const auto plan = probe_kmeans_top_1_nn(handle,
-                                                X.data_handle(),
-                                                centroids.data_handle(),
-                                                n_samples,
-                                                static_cast<IndexT>(centroids.extent(0)),
-                                                n_features,
-                                                metric,
-                                                pams.batch_samples,
-                                                pams.batch_centroids,
-                                                cuvs::distance::detail::Top1nnBackend::Auto);
-        use_tf32_norms =
-          plan.available && plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32;
-        if (use_tf32_norms) {
-          compute_fp32_tf32_norms(handle,
-                                  X,
-                                  L2NormX.view(),
-                                  Tf32NormX.view(),
-                                  metric == cuvs::distance::DistanceType::CosineExpanded);
-          tf32_normx_view = raft::make_const_mdspan(Tf32NormX.view());
-        } else {
-          raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
-            handle, X, L2NormX.view());
-        }
+  rmm::device_uvector<char> assignment_output(0, stream);
+  rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
+
+  auto L2NormX   = raft::make_device_vector<DataT, IndexT>(handle, n_samples);
+  auto Tf32NormX = raft::make_device_vector<DataT, IndexT>(
+    handle, kmeans_may_require_tf32_norms_v<DataT> ? n_samples : IndexT{0});
+  std::optional<raft::device_vector_view<const DataT, IndexT>> tf32_normx_view = std::nullopt;
+  const bool needs_norms = !use_ann && (metric == cuvs::distance::DistanceType::L2Expanded ||
+                                        metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                                        metric == cuvs::distance::DistanceType::CosineExpanded);
+  if (needs_norms) {
+    bool use_tf32_norms = false;
+    if constexpr (kmeans_may_require_tf32_norms_v<DataT>) {
+      const auto plan = probe_kmeans_top_1_nn(handle,
+                                              X.data_handle(),
+                                              centroids.data_handle(),
+                                              n_samples,
+                                              static_cast<IndexT>(centroids.extent(0)),
+                                              n_features,
+                                              metric,
+                                              pams.batch_samples,
+                                              pams.batch_centroids,
+                                              cuvs::distance::detail::Top1nnBackend::Auto);
+      use_tf32_norms =
+        plan.available && plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32;
+      if (use_tf32_norms) {
+        compute_fp32_tf32_norms(handle,
+                                X,
+                                L2NormX.view(),
+                                Tf32NormX.view(),
+                                metric == cuvs::distance::DistanceType::CosineExpanded);
+        tf32_normx_view = raft::make_const_mdspan(Tf32NormX.view());
       } else {
         raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
           handle, X, L2NormX.view());
       }
+    } else {
+      raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
     }
-
-    auto l2normx_view =
-      raft::make_device_vector_view<const DataT, IndexT>(L2NormX.data_handle(), n_samples);
-    const auto result = cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(
-      handle,
-      X,
-      centroids,
-      assignment_output,
-      l2normx_view,
-      L2NormBuf_OR_DistBuf,
-      pams.metric,
-      pams.batch_samples,
-      pams.batch_centroids,
-      workspace,
-      tf32_normx_view);
-
-    cuvs::cluster::kmeans::detail::copyClusterLabels(handle, result, labels.data_handle());
-
-    rmm::device_scalar<DataT> clusterCostD(stream);
-    cuvs::cluster::kmeans::detail::weightAndComputeClusterCost(
-      handle,
-      result,
-      raft::make_const_mdspan(weight.view()),
-      pams.metric,
-      workspace,
-      raft::make_device_scalar_view(clusterCostD.data()));
-    inertia[0] = clusterCostD.value(stream);
   }
+
+  auto l2normx_view =
+    raft::make_device_vector_view<const DataT, IndexT>(L2NormX.data_handle(), n_samples);
+  const auto result = cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(
+    handle,
+    X,
+    centroids,
+    assignment_output,
+    l2normx_view,
+    L2NormBuf_OR_DistBuf,
+    pams.metric,
+    pams.batch_samples,
+    pams.batch_centroids,
+    workspace,
+    tf32_normx_view,
+    use_ann ? cuvs::distance::detail::Top1nnBackend::Cagra
+            : cuvs::distance::detail::Top1nnBackend::Auto,
+    use_ann ? &ann_index : nullptr);
+
+  cuvs::cluster::kmeans::detail::copyClusterLabels(handle, result, labels.data_handle());
+
+  rmm::device_scalar<DataT> clusterCostD(stream);
+  cuvs::cluster::kmeans::detail::weightAndComputeClusterCost(
+    handle,
+    result,
+    raft::make_const_mdspan(weight.view()),
+    pams.metric,
+    workspace,
+    raft::make_device_scalar_view(clusterCostD.data()));
+  inertia[0] = clusterCostD.value(stream);
 }
 
 template <typename DataT, typename IndexT = int>
