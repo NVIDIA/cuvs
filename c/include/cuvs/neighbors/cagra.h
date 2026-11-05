@@ -56,10 +56,11 @@ enum cuvsCagraGraphBuildAlgo {
  */
 enum cuvsCagraHnswHeuristicType {
   /**
-   * Create a graph that is very similar to an HNSW graph in
-   * terms of the number of nodes and search performance. Since HNSW produces a variable-degree
-   * graph (2M being the max graph degree) and CAGRA produces a fixed-degree graph, there's always a
-   * difference in the performance of the two.
+   * Create a graph that is very similar to an HNSW graph in terms of the number of nodes and
+   * search performance.
+   * Unlike HNSW, the maximum degree of the graph is not fixed to 2*M, but is decided according
+   * the internal logic (smaller than 2*M). The edge selection criteria of the
+   * two algorithms also differ, so there's always a difference in the performance of the two.
    *
    * This function attempts to produce such a graph that the QPS and recall of the two graphs being
    * searched by HNSW are close for any search parameter combination. The CAGRA-produced graph tends
@@ -225,6 +226,20 @@ struct cuvsCagraIndexParams {
    * - Others: nullptr
    */
   void* graph_build_params;
+  /**
+   * Fraction of `graph_degree` to define the minimum output graph degree, allowing
+   * variable-degree neighbor graphs.
+   *
+   * Must be in [0, 1]. The default value of 1.0 disables the variable-degree logic (normal CAGRA
+   * behavior). Values < 1.0 enable variable-degree graphs: the optimize step finds the minimum
+   * detour threshold that covers at least ceil(graph_degree * fraction) edges per node, then lets
+   * reverse edges expand the degree further. Unused slots are filled with an invalid-neighbor
+   * sentinel (all bits set, i.e. `UINT32_MAX` for the 32-bit graph indices).
+   *
+   * This is intended for the CAGRA-to-HNSW conversion pipeline (see
+   * `cuvsCagraIndexParamsFromHnswParams`). Do not use this with CAGRA's native GPU search.
+   */
+  double variable_graph_degree_fraction;
 };
 
 typedef struct cuvsCagraIndexParams* cuvsCagraIndexParams_t;

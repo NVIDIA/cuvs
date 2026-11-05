@@ -394,7 +394,7 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_kernel(
     out_codes_ptr += sizeof(LabelT);
   }
 
-  cuvs::preprocessing::quantize::detail::bitfield_view_t code_view{out_codes_ptr, pq_bits};
+  cuvs::preprocessing::quantize::pq::detail::bitfield_view_t code_view{out_codes_ptr, pq_bits};
   for (uint32_t j = 0; j < pq_dim; j++) {
     // find PQ label
     CodeT code = compute_code<SubWarpSize, CodeT>(
@@ -792,7 +792,8 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_subspaces_kernel
   const uint32_t lane_id = subwarp_align::mod(threadIdx.x);
   const LabelT vq_label  = !vq_labels.empty() ? vq_labels(row_ix) : 0;
 
-  cuvs::preprocessing::quantize::detail::bitfield_view_t code_view{&out_codes(row_ix, 0), pq_bits};
+  cuvs::preprocessing::quantize::pq::detail::bitfield_view_t code_view{&out_codes(row_ix, 0),
+                                                                       pq_bits};
   for (uint32_t j = 0; j < pq_dim; j++) {
     // find PQ label
     uint32_t subspace_offset = j * pq_centers.extent(1) * (1 << pq_bits);
