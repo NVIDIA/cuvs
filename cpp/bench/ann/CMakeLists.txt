@@ -279,6 +279,42 @@ if(CUVS_KNN_BENCH_USE_CUVS_BRUTE_FORCE)
   )
 endif()
 
+# Lloyd's k-means ANN assignment benchmarks: brute force vs CAGRA nearest-centroid assignment
+if(CUVS_ANN_BENCH_USE_CUVS_CAGRA)
+  foreach(
+    _cluster_bench IN ITEMS CUVS_CLUSTER_ASSIGNMENT_BENCH:cuvs_cluster_assignment_bench
+                            CUVS_FIT_ANN_REBUILD_TUNING_BENCH:cuvs_fit_ann_rebuild_tuning_bench
+  )
+    string(REPLACE ":" ";" _cluster_bench ${_cluster_bench})
+    list(GET _cluster_bench 0 _bench_name)
+    list(GET _cluster_bench 1 _bench_src)
+    add_executable(${_bench_name} src/cuvs/${_bench_src}.cu)
+    target_link_libraries(
+      ${_bench_name} PRIVATE cuvs benchmark::benchmark $<$<TARGET_EXISTS:CUDA::nvtx3>:CUDA::nvtx3>
+                             $<COMPILE_ONLY:nvidia::cutlass::cutlass>
+    )
+    target_include_directories(
+      ${_bench_name}
+      PUBLIC "$<BUILD_INTERFACE:${CUVS_SOURCE_DIR}/include>"
+             "$<BUILD_INTERFACE:${CUVS_SOURCE_DIR}/../c/include>"
+      PRIVATE "$<BUILD_INTERFACE:${CUVS_SOURCE_DIR}/src>"
+    )
+    set_target_properties(
+      ${_bench_name}
+      PROPERTIES CXX_STANDARD 17
+                 CXX_STANDARD_REQUIRED ON
+                 CUDA_STANDARD 17
+                 CUDA_STANDARD_REQUIRED ON
+    )
+    install(
+      TARGETS ${_bench_name}
+      COMPONENT ann_bench
+      DESTINATION bin/ann
+    )
+    add_dependencies(CUVS_ANN_BENCH_ALL ${_bench_name})
+  endforeach()
+endif()
+
 if(CUVS_ANN_BENCH_USE_CUVS_CAGRA)
   ConfigureAnnBench(
     NAME

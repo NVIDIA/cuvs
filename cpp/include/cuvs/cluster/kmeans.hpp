@@ -166,6 +166,54 @@ struct params : base_params {
    * count. This is ignored by device-data overloads.
    */
   int64_t device_buffer_samples = 0;
+
+  /**
+   * Use approximate nearest neighbor search (a CAGRA index built over the centroids) instead of
+   * brute force for the nearest-centroid assignment (E-step) of `fit` and `predict`.
+   *
+   * ANN assignment only pays off when `n_clusters` is very large: for small `n_clusters` it is
+   * slower than brute force. There is no automatic threshold, so benchmark on your own data and
+   * hardware.
+   *
+   * In `fit` the ANN index is rebuilt over the current centroids on EVERY Lloyd iteration (the
+   * centroids move each iteration, so the index is never reused), and each point is assigned its
+   * approximate nearest centroid (top-1) from that fresh index. Larger `ann_itopk_size` is more
+   * accurate and slower. With ANN assignment `fit` stops on a cost plateau (relative change
+   * below `tol`, in either direction) or at `max_iter`, because approximate assignments can make
+   * the cost rise slightly.
+   *
+   * Only `float` data with the L2Expanded or L2SqrtExpanded metric is supported; other
+   * combinations log a warning and use brute force. Ignored by the multi-GPU `fit`.
+   * The reported inertia of `fit` is always computed exactly.
+   *
+   * Default: false.
+   */
+  bool use_ann_for_assignment = false;
+
+  /**
+   * CAGRA graph degree of the centroid index (clamped to `n_clusters - 1`). Must be > 0.
+   * Only used when `use_ann_for_assignment` is true.
+   */
+  size_t ann_graph_degree = 64;
+
+  /**
+   * CAGRA intermediate graph degree of the centroid index (clamped to `n_clusters - 1`).
+   * Must be > 0. Only used when `use_ann_for_assignment` is true.
+   */
+  size_t ann_intermediate_graph_degree = 128;
+
+  /**
+   * CAGRA internal top-k list size used when searching the centroid index. Must be > 0.
+   * Larger values improve assignment accuracy and cost throughput.
+   * Only used when `use_ann_for_assignment` is true.
+   */
+  size_t ann_itopk_size = 64;
+
+  /**
+   * Number of graph nodes expanded per search iteration. Must be > 0.
+   * Only used when `use_ann_for_assignment` is true.
+   */
+  size_t ann_search_width = 1;
 };
 
 /**

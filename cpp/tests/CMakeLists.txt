@@ -133,6 +133,7 @@ ConfigureTest(
 ConfigureTest(
   NAME CLUSTER_TEST
   PATH cluster/kmeans.cu
+       cluster/kmeans_ann.cu
        cluster/kmeans_balanced.cu
        cluster/kmeans_find_k.cu
        cluster/gmm.cu

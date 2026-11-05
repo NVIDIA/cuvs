@@ -46,6 +46,11 @@ struct params : base_params {
   int batch_centroids;
   int64_t init_size;
   int64_t device_buffer_samples;
+  bool use_ann_for_assignment;
+  size_t ann_graph_degree;
+  size_t ann_intermediate_graph_degree;
+  size_t ann_itopk_size;
+  size_t ann_search_width;
 };
 ```
 
@@ -65,6 +70,11 @@ struct params : base_params {
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
 | `init_size` | `int64_t` | Number of samples to randomly draw for the KMeansPlusPlus initialization step. A random subset of this size is used for centroid seeding.<br /><br />Only applies when dataset is on host; for device data the full dataset is always used for seeding and this parameter is ignored.<br /><br />When set to 0 (default) with host data uses `min(3 * n_clusters, n_samples)` as a default.<br /><br />In Batched multi-GPU host-data fits, the effective KMeansPlusPlus initialization sample is materialized on device on every rank. Every rank must have enough GPU memory for this sample, and rank 0 must also have enough GPU memory for the seeding workspace.<br /><br />Default: 0. |
 | `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch when fitting with host data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path and ignored by device-data overloads.<br /><br />Default: 0. For a single host input matrix, this creates one full-dataset input buffer on the GPU, even when an auxiliary stream is configured. To stream that matrix in smaller batches, set a positive value less than n_samples.<br /><br />Inputs spanning multiple batches are double-buffered when the handle has an auxiliary stream, and use one buffer otherwise. No auxiliary stream pool is configured by<br />default, so transfers and compute are serialized. Configure a pool with at least one auxiliary stream to enable transfer/compute overlap. Budget about `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer, plus algorithm workspaces. Sample weights require the same number of additional buffers with `device_buffer_samples * sizeof(value_type)` bytes each. In these estimates, substitute n_samples for device_buffer_samples when it is 0.<br /><br />In multi-GPU mode this is a per-rank batch size: each rank processes up to this many local samples per batch, clamped to that rank's local sample count. This is ignored by device-data overloads. |
+| `use_ann_for_assignment` | `bool` | Use approximate nearest neighbor search (a CAGRA index built over the centroids) instead of brute force for the nearest-centroid assignment (E-step) of `fit` and `predict`.<br /><br />ANN assignment only pays off when `n_clusters` is very large: for small `n_clusters` it is slower than brute force. There is no automatic threshold, so benchmark on your own data and hardware.<br /><br />In `fit` the ANN index is rebuilt over the current centroids on EVERY Lloyd iteration (the centroids move each iteration, so the index is never reused), and each point is assigned its approximate nearest centroid (top-1) from that fresh index. Larger `ann_itopk_size` is more accurate and slower. With ANN assignment `fit` stops on a cost plateau (relative change below `tol`, in either direction) or at `max_iter`, because approximate assignments can make the cost rise slightly.<br /><br />Only `float` data with the L2Expanded or L2SqrtExpanded metric is supported; other combinations log a warning and use brute force. Ignored by the multi-GPU `fit`. The reported inertia of `fit` is always computed exactly.<br /><br />Default: false. |
+| `ann_graph_degree` | `size_t` | CAGRA graph degree of the centroid index (clamped to `n_clusters - 1`). Must be &gt; 0. Only used when `use_ann_for_assignment` is true. |
+| `ann_intermediate_graph_degree` | `size_t` | CAGRA intermediate graph degree of the centroid index (clamped to `n_clusters - 1`). Must be &gt; 0. Only used when `use_ann_for_assignment` is true. |
+| `ann_itopk_size` | `size_t` | CAGRA internal top-k list size used when searching the centroid index. Must be &gt; 0. Larger values improve assignment accuracy and cost throughput. Only used when `use_ann_for_assignment` is true. |
+| `ann_search_width` | `size_t` | Number of graph nodes expanded per search iteration. Must be &gt; 0. Only used when `use_ann_for_assignment` is true. |
 
 <a id="cluster-kmeans-balanced-donor-selection"></a>
 ### cluster::kmeans::balanced_donor_selection

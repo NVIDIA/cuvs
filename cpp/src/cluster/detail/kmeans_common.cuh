@@ -729,6 +729,11 @@ void compute_centroid_shift(raft::resources const& handle,
  * Checks the cost-ratio and centroid-shift stopping conditions and writes
  * 0 or 1 into @p done_flag, and advances @p prior_clustering_cost.
  * @p FlagT is deduced from @p done_flag (default `int`).
+ *
+ * By default the cost criterion fires as soon as the cost stops *decreasing* (exact Lloyd's cost is
+ * monotone). With approximate assignments (@p plateau_only) the cost is noisy and may rise
+ * slightly while the fit is still improving, so the criterion fires only when the relative cost
+ * change is within @p tol in either direction.
  */
 template <typename DataT, typename FlagT = int>
 __device__ void check_convergence(raft::device_scalar_view<const DataT> clustering_cost,
@@ -736,7 +741,8 @@ __device__ void check_convergence(raft::device_scalar_view<const DataT> clusteri
                                   raft::device_scalar_view<const DataT> sqrd_norm_error,
                                   DataT tol,
                                   int n_iter,
-                                  raft::device_scalar_view<FlagT> done_flag)
+                                  raft::device_scalar_view<FlagT> done_flag,
+                                  bool plateau_only = false)
 {
   DataT cur_cost = *clustering_cost.data_handle();
   DataT norm_err = *sqrd_norm_error.data_handle();
@@ -744,7 +750,11 @@ __device__ void check_convergence(raft::device_scalar_view<const DataT> clusteri
 
   if (cur_cost != DataT{0} && n_iter > 1) {
     DataT delta = cur_cost / *prior_clustering_cost.data_handle();
-    if (delta > DataT{1} - tol) done = FlagT{1};
+    if (plateau_only) {
+      if (delta > DataT{1} - tol && delta < DataT{1} + tol) done = FlagT{1};
+    } else {
+      if (delta > DataT{1} - tol) done = FlagT{1};
+    }
   }
   if (norm_err < tol) done = FlagT{1};
 
