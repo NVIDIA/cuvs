@@ -323,15 +323,11 @@ void transform(raft::resources const& res,
 
 template <typename T, typename QuantI = int8_t>
 void transform(raft::resources const& res,
-               quantizer_const_view<T> quantizer,
+               typename quantizer_const_view<T>::global_type quantizer,
                raft::host_matrix_view<const T, int64_t> dataset,
                raft::host_matrix_view<QuantI, int64_t> out)
 {
-  RAFT_EXPECTS(
-    std::holds_alternative<typename quantizer_const_view<T>::global_type>(quantizer.value),
-    "Host quantization requires a global interval");
-  auto const& range = std::get<typename quantizer_const_view<T>::global_type>(quantizer.value);
-  auto main_op      = quantize_op<T, QuantI>{range};
+  auto main_op      = quantize_op<T, QuantI>{quantizer};
   size_t n_elements = dataset.extent(0) * dataset.extent(1);
 
   // In dry-run mode the views may be unbacked or alias the shared probe buffer.
@@ -361,15 +357,11 @@ void inverse_transform(raft::resources const& res,
 
 template <typename T, typename QuantI = int8_t>
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<T> quantizer,
+                       typename quantizer_const_view<T>::global_type quantizer,
                        raft::host_matrix_view<const QuantI, int64_t> dataset,
                        raft::host_matrix_view<T, int64_t> out)
 {
-  RAFT_EXPECTS(
-    std::holds_alternative<typename quantizer_const_view<T>::global_type>(quantizer.value),
-    "Host quantization requires a global interval");
-  auto const& range = std::get<typename quantizer_const_view<T>::global_type>(quantizer.value);
-  auto main_op      = quantize_op<T, QuantI>{range};
+  auto main_op      = quantize_op<T, QuantI>{quantizer};
   size_t n_elements = dataset.extent(0) * dataset.extent(1);
 
   // In dry-run mode the views may be unbacked or alias the shared probe buffer.

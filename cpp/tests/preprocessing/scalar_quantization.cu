@@ -140,7 +140,10 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
         handle,
         [&](raft::resources const& h) {
           cuvs::preprocessing::quantize::scalar::transform(
-            h, quantizer_1, dataset_h, quantized_input_h.view());
+            h,
+            std::get<typename decltype(quantizer_1)::global_type>(quantizer_1.value),
+            dataset_h,
+            quantized_input_h.view());
         },
         cuvs::alloc_behavior::NO_ALLOCATIONS);
 
@@ -172,7 +175,10 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
         handle,
         [&](raft::resources const& h) {
           cuvs::preprocessing::quantize::scalar::inverse_transform(
-            h, quantizer_1, quantized_input_h_const_view, re_transformed_input_h.view());
+            h,
+            std::get<typename decltype(quantizer_1)::global_type>(quantizer_1.value),
+            quantized_input_h_const_view,
+            re_transformed_input_h.view());
         },
         cuvs::alloc_behavior::NO_ALLOCATIONS);
       // Also covers the rows outside the range-fitting sample on the large input.
@@ -246,7 +252,10 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
       cuvs::preprocessing::quantize::scalar::transform(
         handle, quantizer_2, dataset, quantized_input_d.view());
       cuvs::preprocessing::quantize::scalar::transform(
-        handle, quantizer_2, dataset_h, quantized_input_h.view());
+        handle,
+        std::get<typename decltype(quantizer_2)::global_type>(quantizer_2.value),
+        dataset_h,
+        quantized_input_h.view());
 
       {
         rmm::device_uvector<int> quantization_for_print(print_size, stream);
