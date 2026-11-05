@@ -24,6 +24,7 @@
 #include <raft/linalg/normalize.cuh>
 #include <raft/random/rng.cuh>
 
+#include <cub/block/block_reduce.cuh>
 #include <cub/device/device_reduce.cuh>
 
 #include <atomic>
@@ -223,7 +224,8 @@ __global__ void gatherAndPadKernel(const float* __restrict__ d_data,
 // 1. Computes the RaBitQ factors (logic from RowwisePackedKernel).
 // 2. Packs the binary representation into uint32_t codes (logic from pack_binary_kernel).
 //
-// It is launched with one block per data point (row).
+// It is launched with one block per data point (row) of BlockSize threads.
+template <unsigned int BlockSize>
 __global__ void pack_and_compute_factors_kernel(
   // Inputs for factor computation
   const float* __restrict__ d_centroid,  // [D]
@@ -240,6 +242,9 @@ __global__ void pack_and_compute_factors_kernel(
                                         // word are contiguous (the layout the search kernels read)
 )
 {
+  using FactorReduce = cub::BlockReduce<FloatSumN<4>, BlockSize>;
+  __shared__ typename FactorReduce::TempStorage factor_temp;
+
   // Each block is responsible for one data point (row).
   size_t row = blockIdx.x;
   if (row >= N) return;
@@ -264,11 +269,13 @@ __global__ void pack_and_compute_factors_kernel(
     xu_sq += xu * xu;
   }
 
-  // Perform parallel reduction within the block
-  l2_sqr       = blockReduceSum(l2_sqr);
-  ip_resi_xucb = blockReduceSum(ip_resi_xucb);
-  ip_cent_xucb = blockReduceSum(ip_cent_xucb);
-  xu_sq        = blockReduceSum(xu_sq);
+  // All four factor components in one block reduction (the sums are valid in thread 0 only)
+  const FloatSumN<4> sums =
+    FactorReduce(factor_temp).Sum(FloatSumN<4>{{l2_sqr, ip_resi_xucb, ip_cent_xucb, xu_sq}});
+  l2_sqr       = sums.v[0];
+  ip_resi_xucb = sums.v[1];
+  ip_cent_xucb = sums.v[2];
+  xu_sq        = sums.v[3];
 
   // Thread 0 performs the final calculations and writes the factors
   if (threadIdx.x == 0) {
@@ -335,6 +342,11 @@ __global__ void exrabitq_fused_kernel_batch(
   uint8_t* d_long_code,
   float* d_ex_factor)
 {
+  using NormReduce   = cub::BlockReduce<float, BlockSize>;
+  using FactorReduce = cub::BlockReduce<FloatSumN<4>, BlockSize>;
+  __shared__ typename NormReduce::TempStorage norm_temp;
+  __shared__ typename FactorReduce::TempStorage factor_temp;
+
   //=========================================================================
   // Setup: One block per row
   //=========================================================================
@@ -376,7 +388,7 @@ __global__ void exrabitq_fused_kernel_batch(
   }
 
   // Finish ip_norm reduction
-  float total_ipnorm = blockReduceSum(thread_ipnorm_sum);
+  float total_ipnorm = NormReduce(norm_temp).Sum(thread_ipnorm_sum);
   float ip_norm_inv  = 1.0f;
   if (tid == 0) {
     float inv   = 1.0f / total_ipnorm;
@@ -402,11 +414,13 @@ __global__ void exrabitq_fused_kernel_batch(
     xu_sq += xu * xu;
   }
 
-  // Perform parallel reductions for all factor components
-  l2_sqr       = blockReduceSum(l2_sqr);
-  ip_resi_xucb = blockReduceSum(ip_resi_xucb);
-  ip_cent_xucb = blockReduceSum(ip_cent_xucb);
-  xu_sq        = blockReduceSum(xu_sq);
+  // All four factor components in one block reduction (the sums are valid in thread 0 only)
+  const FloatSumN<4> sums =
+    FactorReduce(factor_temp).Sum(FloatSumN<4>{{l2_sqr, ip_resi_xucb, ip_cent_xucb, xu_sq}});
+  l2_sqr       = sums.v[0];
+  ip_resi_xucb = sums.v[1];
+  ip_cent_xucb = sums.v[2];
+  xu_sq        = sums.v[3];
 
   // Thread 0 computes and writes the final factors
   if (tid == 0) {
@@ -425,6 +439,10 @@ __global__ void exrabitq_fused_kernel_batch(
     d_ex_factor[base + 0] = fadd;
     d_ex_factor[base + 1] = frescale;
   }
+
+  // Part C reads codes written by other threads in Part A; the cub reductions above do not
+  // guarantee a barrier, so order them explicitly.
+  __syncthreads();
 
   //=========================================================================
   // Part C: Pack and Write Long Code (MINIMAL READS, PARALLEL, COALESCED)
@@ -520,6 +538,9 @@ void data_transformation_batch_opt(const float* d_data,
   // 5. Save the rotated centroid: copy CP into d_rotated_c.
   raft::copy(d_rotated_c, d_CP, D, stream);
 
+  // An empty list only needs its rotated centroid; a launch with zero blocks is invalid.
+  if (num_points == 0) { return; }
+
   // 6. Launch the single FUSED kernel for subtract, normalize, and binarize.
   const unsigned int FusedBlockSize = 256;  // A good default, can be tuned.
   dim3 gridDim(num_points);
@@ -550,19 +571,19 @@ void rabitq_codes_and_factors_fused(const float* d_rotated_c,
 {
   auto stream = raft::resource::get_cuda_stream(handle);
 
-  int threads_per_block = 256;  // A good default, can be tuned
+  const unsigned int threads_per_block = 256;  // A good default, can be tuned
   dim3 grid(num_points);
   dim3 block(threads_per_block);
 
-  pack_and_compute_factors_kernel<<<grid, block, 0, stream.get()>>>(
-    d_rotated_c,
-    d_bin_XP,
-    d_XP,
-    1.9f,  // kConstEpsilon, hardcoded from original call
-    num_points,
-    D,
-    d_short_data_factors,
-    d_short_data);
+  pack_and_compute_factors_kernel<threads_per_block>
+    <<<grid, block, 0, stream.get()>>>(d_rotated_c,
+                                       d_bin_XP,
+                                       d_XP,
+                                       1.9f,  // kConstEpsilon, hardcoded from original call
+                                       num_points,
+                                       D,
+                                       d_short_data_factors,
+                                       d_short_data);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
   raft::resource::sync_stream(handle);
 }
@@ -636,6 +657,9 @@ void DataQuantizerGPU::quantize_batch_opt(const float* d_data,
                                 DIM,
                                 D,
                                 handle_);
+
+  // An empty list has no codes or factors to compute.
+  if (num_points == 0) { return; }
 
   rabitq_codes_and_factors_fused(d_rotated_c,
                                  d_bin_XP.data_handle(),
@@ -714,6 +738,9 @@ void data_transformation_batch_opt_contiguous(const float* d_contiguous_data,
   // 5. Save the rotated centroid: copy CP into d_rotated_c.
   raft::copy(d_rotated_c, d_CP, D, stream);
 
+  // An empty list only needs its rotated centroid; a launch with zero blocks is invalid.
+  if (num_points == 0) { return; }
+
   // 6. Launch the single FUSED kernel for subtract, normalize, and binarize.
   const unsigned int FusedBlockSize = 256;  // A good default, can be tuned.
   dim3 gridDim(num_points);
@@ -757,6 +784,9 @@ void DataQuantizerGPU::quantize_batch_opt_contiguous(const float* d_contiguous_d
                                            DIM,
                                            D,
                                            handle_);
+
+  // An empty list has no codes or factors to compute.
+  if (num_points == 0) { return; }
 
   rabitq_codes_and_factors_fused(d_rotated_c,
                                  d_bin_XP.data_handle(),
@@ -919,33 +949,50 @@ extern __constant__ float d_kTightStart_opt[9] = {
   0.81f,
 };
 
-__device__ float compute_best_rescale_parallel(
-  float* s_xp_norm, int D, int EX_BITS, float* reuse_space, int BlockSize)
+// A (score, scale) candidate of the rescale search. The combiner keeps the candidate with the
+// larger score; ties keep the left operand.
+struct RescaleCandidate {
+  float ip;
+  float t;
+};
+
+struct RescaleCandidateMax {
+  __device__ __forceinline__ RescaleCandidate operator()(const RescaleCandidate& a,
+                                                         const RescaleCandidate& b) const
+  {
+    return (b.ip > a.ip) ? b : a;
+  }
+};
+
+// PRECONDITION: s_xp_norm must be block-visible before the call — callers
+// fill it with block-strided writes and must issue a __syncthreads() between
+// the last write and this call (CUB-style caller-owned input visibility).
+template <unsigned int BlockSize>
+__device__ float compute_best_rescale_parallel(float* s_xp_norm, int D, int EX_BITS)
 {
+  using MaxReduce    = cub::BlockReduce<float, BlockSize>;
+  using ArgMaxReduce = cub::BlockReduce<RescaleCandidate, BlockSize>;
+  __shared__ typename MaxReduce::TempStorage max_temp;
+  __shared__ typename ArgMaxReduce::TempStorage argmax_temp;
+  // The reductions are valid in thread 0 only, but every thread needs them: thread 0 publishes
+  // each result to its own slot, which is never overwritten, behind a barrier.
+  __shared__ float s_max_o, s_coarse_t, s_fine_t;
+
   int tid              = threadIdx.x;
   constexpr float kEps = 1e-5f;
   constexpr int kNEnum = 10;
 
   //=========================================================================
-  // Step 1: Find maximum value using parallel reduction
+  // Step 1: Block maximum (broadcast keeps the early return uniform)
   //=========================================================================
   float local_max = 0.0f;
   for (int i = tid; i < D; i += BlockSize) {
     local_max = fmaxf(local_max, fabsf(s_xp_norm[i]));
   }
-
-  // Block-level reduction for max
-  float* s_reduce;
-  s_reduce      = reuse_space;
-  s_reduce[tid] = local_max;
+  const float block_max = MaxReduce(max_temp).Reduce(local_max, cuda::maximum<>{});
+  if (tid == 0) { s_max_o = block_max; }
   __syncthreads();
-
-  for (int stride = BlockSize / 2; stride > 0; stride >>= 1) {
-    if (tid < stride) { s_reduce[tid] = fmaxf(s_reduce[tid], s_reduce[tid + stride]); }
-    __syncthreads();
-  }
-
-  float max_o = s_reduce[0];  // full max, already visible to all threads via the reduction's sync
+  float max_o = s_max_o;
   if (max_o < kEps) return 1.0f;
 
   //=========================================================================
@@ -984,28 +1031,17 @@ __device__ float compute_best_rescale_parallel(
   }
 
   // Parallel reduction to find best coarse point
-  float* s_coarse_ip;
-  s_coarse_ip = reuse_space + BlockSize;
-  float* s_coarse_t;
-  s_coarse_t       = s_coarse_ip + BlockSize;
-  s_coarse_ip[tid] = best_coarse_ip;
-  s_coarse_t[tid]  = best_coarse_t;
+  const RescaleCandidate coarse_best =
+    ArgMaxReduce(argmax_temp)
+      .Reduce(RescaleCandidate{best_coarse_ip, best_coarse_t}, RescaleCandidateMax{});
+  if (tid == 0) { s_coarse_t = coarse_best.t; }
+  // Publishes s_coarse_t, and lets the fine search reuse argmax_temp.
   __syncthreads();
-
-  for (int stride = BlockSize / 2; stride > 0; stride >>= 1) {
-    if (tid < stride) {
-      if (s_coarse_ip[tid + stride] > s_coarse_ip[tid]) {
-        s_coarse_ip[tid] = s_coarse_ip[tid + stride];
-        s_coarse_t[tid]  = s_coarse_t[tid + stride];
-      }
-    }
-    __syncthreads();
-  }
 
   //=========================================================================
   // Phase 2: Fine search around best coarse point
   //=========================================================================
-  float center_t   = s_coarse_t[0];
+  float center_t   = s_coarse_t;
   float range      = (t_end - t_start) / COARSE_SAMPLES;
   float fine_start = fmaxf(t_start, center_t - range);
   float fine_end   = fminf(t_end, center_t + range);
@@ -1036,25 +1072,12 @@ __device__ float compute_best_rescale_parallel(
   }
 
   // Final reduction
-  float* s_fine_ip;
-  s_fine_ip = s_coarse_ip;
-  float* s_fine_t;
-  s_fine_t       = s_coarse_t;
-  s_fine_ip[tid] = best_fine_ip;
-  s_fine_t[tid]  = best_fine_t;
+  const RescaleCandidate fine_best =
+    ArgMaxReduce(argmax_temp)
+      .Reduce(RescaleCandidate{best_fine_ip, best_fine_t}, RescaleCandidateMax{});
+  if (tid == 0) { s_fine_t = fine_best.t; }
   __syncthreads();
-
-  for (int stride = BlockSize / 2; stride > 0; stride >>= 1) {
-    if (tid < stride) {
-      if (s_fine_ip[tid + stride] > s_fine_ip[tid]) {
-        s_fine_ip[tid] = s_fine_ip[tid + stride];
-        s_fine_t[tid]  = s_fine_t[tid + stride];
-      }
-    }
-    __syncthreads();
-  }
-
-  return s_fine_t[0];
+  return s_fine_t;
 }
 
 template <unsigned int BlockSize>
@@ -1072,6 +1095,11 @@ __global__ void exrabitq_fused_kernel_batch_ori(
   uint8_t* d_long_code,
   float* d_ex_factor)
 {
+  using NormReduce   = cub::BlockReduce<float, BlockSize>;
+  using FactorReduce = cub::BlockReduce<FloatSumN<4>, BlockSize>;
+  __shared__ typename NormReduce::TempStorage norm_temp;
+  __shared__ typename FactorReduce::TempStorage factor_temp;
+
   //=========================================================================
   // Setup: One block per row
   //=========================================================================
@@ -1091,15 +1119,12 @@ __global__ void exrabitq_fused_kernel_batch_ori(
   // Load data
   for (int j = tid; j < D; j += BlockSize) {
     s_xp_norm[j] = d_XP_norm[row * D + j];
-    // Note: s_bin_xp, s_xp not loaded yet - we'll reuse as workspace
   }
-  // Compute scaling factor (reusing unused buffers)
-  float const_scaling_factor =
-    compute_best_rescale_parallel(s_xp_norm,
-                                  D,
-                                  EX_BITS,
-                                  (s_xp_norm + D),  // Reused as workspace
-                                  BlockSize);
+  // compute_best_rescale_parallel cross-reads every element of s_xp_norm:
+  // its precondition requires the writes above to be block-visible.
+  __syncthreads();
+  // Compute scaling factor
+  float const_scaling_factor = compute_best_rescale_parallel<BlockSize>(s_xp_norm, D, EX_BITS);
 
   //=========================================================================
   // Part A: ExRaBitQ Code Generation
@@ -1122,7 +1147,7 @@ __global__ void exrabitq_fused_kernel_batch_ori(
   }
 
   // Finish ip_norm reduction
-  float total_ipnorm = blockReduceSum(thread_ipnorm_sum);
+  float total_ipnorm = NormReduce(norm_temp).Sum(thread_ipnorm_sum);
   float ip_norm_inv  = 1.0f;
   if (tid == 0) {
     float inv   = 1.0f / total_ipnorm;
@@ -1148,11 +1173,13 @@ __global__ void exrabitq_fused_kernel_batch_ori(
     xu_sq += xu * xu;
   }
 
-  // Perform parallel reductions for all factor components
-  l2_sqr       = blockReduceSum(l2_sqr);
-  ip_resi_xucb = blockReduceSum(ip_resi_xucb);
-  ip_cent_xucb = blockReduceSum(ip_cent_xucb);
-  xu_sq        = blockReduceSum(xu_sq);
+  // All four factor components in one block reduction (the sums are valid in thread 0 only)
+  const FloatSumN<4> sums =
+    FactorReduce(factor_temp).Sum(FloatSumN<4>{{l2_sqr, ip_resi_xucb, ip_cent_xucb, xu_sq}});
+  l2_sqr       = sums.v[0];
+  ip_resi_xucb = sums.v[1];
+  ip_cent_xucb = sums.v[2];
+  xu_sq        = sums.v[3];
 
   // Thread 0 computes and writes the final factors
   if (tid == 0) {
@@ -1171,6 +1198,10 @@ __global__ void exrabitq_fused_kernel_batch_ori(
     d_ex_factor[base + 0] = fadd;
     d_ex_factor[base + 1] = frescale;
   }
+
+  // Part C reads codes written by other threads in Part A; the cub reductions above do not
+  // guarantee a barrier, so order them explicitly.
+  __syncthreads();
 
   //=========================================================================
   // Part C: Pack and Write Long Code (MINIMAL READS, PARALLEL, COALESCED)
@@ -1251,13 +1282,6 @@ void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
                            D * sizeof(uint8_t) +       // s_tmp_code
                            BlockSize * sizeof(float);  // s_partials for reduction
 
-  if (shared_mem_size <= D * sizeof(float) + 3 * BlockSize * sizeof(float)) {
-    shared_mem_size =
-      D * sizeof(float) +
-      3 * BlockSize *
-        sizeof(float);  // Make sure there are space to reuse for finding scaling factors
-  }
-
   exrabitq_fused_kernel_batch_ori<BlockSize>
     <<<gridDim, blockDim, shared_mem_size, stream.get()>>>(d_bin_XP,
                                                            d_XP_norm,
@@ -1273,12 +1297,16 @@ void exrabitq_codes_and_factors_fused_ori(const int* d_bin_XP,
   raft::resource::sync_stream(handle);
 }
 
+template <unsigned int BlockSize>
 __global__ void fully_fused_kernel(float* __restrict__ output_factors,
                                    const int rows,
                                    const int cols,
                                    const int ex_bits,
                                    unsigned long long seed)
 {
+  using NormReduce = cub::BlockReduce<float, BlockSize>;
+  __shared__ typename NormReduce::TempStorage norm_temp;
+
   const int row_id = blockIdx.x;
   if (row_id >= rows) return;
 
@@ -1287,10 +1315,8 @@ __global__ void fully_fused_kernel(float* __restrict__ output_factors,
 
   // Calculate shared memory layout
   // row_data: cols floats
-  // reuse_space: 3 * block_size floats (for best_rescale computation)
   extern __shared__ float shared_mem[];
-  float* row_data    = shared_mem;
-  float* reuse_space = &row_data[cols];  // No reduction_buffer needed!
+  float* row_data = shared_mem;
 
   // Initialize RNG state per thread
   curandState rng_state;
@@ -1304,10 +1330,9 @@ __global__ void fully_fused_kernel(float* __restrict__ output_factors,
     local_sum += val * val;
   }
 
-  float norm_squared = blockReduceSum(local_sum);
+  float norm_squared = NormReduce(norm_temp).Sum(local_sum);
 
-  // full block sum only available on lane 0 of warp 0 (see definition of blockReduceSum); need to
-  // make inv_norm a shared variable
+  // the block sum is only valid in thread 0; need to make inv_norm a shared variable
   __shared__ float inv_norm;
   if (tid == 0) { inv_norm = rsqrtf(norm_squared); }
   __syncthreads();
@@ -1315,9 +1340,11 @@ __global__ void fully_fused_kernel(float* __restrict__ output_factors,
   for (int i = tid; i < cols; i += block_size) {
     row_data[i] = fabsf(row_data[i] * inv_norm);
   }
+  // compute_best_rescale_parallel cross-reads every element of row_data:
+  // its precondition requires the writes above to be block-visible.
+  __syncthreads();
 
-  float rescale_factor =
-    compute_best_rescale_parallel(row_data, cols, ex_bits, reuse_space, block_size);
+  float rescale_factor = compute_best_rescale_parallel<BlockSize>(row_data, cols, ex_bits);
 
   if (tid == 0) { output_factors[row_id] = rescale_factor; }
 }
@@ -1337,13 +1364,13 @@ float DataQuantizerGPU::get_const_scaling_factors_fully_gpu(size_t dim, size_t e
   if (dim >= 1536) block_size = 512;
 
   // Calculate shared memory size
-  size_t shared_mem_size = (dim +           // row_data
-                            3 * block_size  // reuse_space for best_rescale
-                            ) *
-                           sizeof(float);
+  size_t shared_mem_size = dim * sizeof(float);  // row_data
 
-  unsigned long long seed     = time(nullptr);
-  auto kernel_fn              = fully_fused_kernel;  // decay to function pointer for std::atomic
+  unsigned long long seed = time(nullptr);
+  // cub needs the block size at compile time; decay to function pointer for std::atomic
+  auto kernel_fn              = block_size == 128   ? fully_fused_kernel<128>
+                                : block_size == 512 ? fully_fused_kernel<512>
+                                                    : fully_fused_kernel<256>;
   auto const& kernel_launcher = [&]() {
     kernel_fn<<<kConstNum, block_size, shared_mem_size, stream_.get()>>>(
       d_factors.data(), kConstNum, dim, ex_bits, seed);
