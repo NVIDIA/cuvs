@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -57,7 +57,8 @@ namespace cuvs::neighbors::ivf_pq::detail {
  *   One can pass reordered indices here to try to improve data reading locality.
  * @param query_kth
  *   query_kths keep the current state of the filtering - atomically updated distances to the
- *   k-th closest neighbors for each query [n_queries].
+ *   k-th closest neighbors for each query [n_queries]. May be nullptr to disable the filtering
+ *   shared across the probes (every probe then reports its own top-k).
  * @param sample_filter
  *   A filter that selects samples for a given query.
  * @param lut_scores

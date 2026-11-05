@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -210,6 +210,20 @@ struct search_params : cuvs::neighbors::search_params {
    * Set the internal batch size to improve GPU utilization at the cost of larger memory footprint.
    */
   uint32_t max_internal_batch_size = 4096;
+  /**
+   * [Internal] Enable the random-probe mode with the given non-zero seed; zero (default) keeps the
+   * usual search of the nearest lists.
+   *
+   * In the random-probe mode, `n_probes` distinct lists are picked uniformly at random for every
+   * query, and the top-k samples of each probed list are returned without merging across the lists.
+   * Hence, the output has `n_probes * k` values per query (the number of columns of the output
+   * matrices must be a multiple of `min(n_probes, n_lists)`; `k` is the multiplier). The values are
+   * grouped by the probes, in the probe order. Missing results (a list has fewer than `k` samples)
+   * are marked by `kOutOfBoundsRecord`.
+   * The same seed picks the same lists for the queries at the same positions, so vary it between
+   * the batches of queries.
+   */
+  uint64_t random_probe_enable_seed = 0;
 };
 /**
  * @}
@@ -3385,6 +3399,14 @@ struct ivf_pq_params {
   cuvs::neighbors::ivf_pq::index_params build_params;
   cuvs::neighbors::ivf_pq::search_params search_params;
   float refinement_rate = 1.0;
+  /**
+   * The number of neighbors of each node that are taken from randomly selected lists
+   * (`ivf_pq::search_params::random_probe_enable_seed != 0`) instead of the nearest ones.
+   * They replace the last `n_random_edges` of the `intermediate_graph_degree` neighbors, which
+   * adds a few long-range edges and helps to connect the clusters of the dataset in the graph.
+   * Zero disables the feature.
+   */
+  uint32_t n_random_edges = 0;
 
   ivf_pq_params() = default;
 
@@ -3444,6 +3466,8 @@ struct ivf_pq_params {
     search_params.max_internal_batch_size = 128 * 1024;
 
     refinement_rate = 1;
+    // A few neighbors from random lists connect the clusters of the dataset in the graph.
+    n_random_edges = 4;
   }
 };
 }  // namespace graph_build_params
