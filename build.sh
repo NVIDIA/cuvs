@@ -19,7 +19,7 @@ ARGS=$*
 # scripts, and that this script resides in the repo dir!
 REPODIR=$(cd "$(dirname "$0")"; pwd)
 
-VALIDARGS="clean libcuvs python rust go java lucene docs tests bench-ann examples tarball --tarball-build-tests --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests --build-java-examples"
+VALIDARGS="clean libcuvs python rust go java lucene docs tests bench-ann bench-cluster examples tarball --tarball-build-tests --uninstall  -v -g -n --allgpuarch --no-mg --mnmg-tests --no-cpu --cpu-only --no-shared-libs --no-nvtx --show_depr_warn --incl-cache-stats --time -h --run-java-tests --build-java-examples"
 HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<tool>] [--limit-tests=<targets>] [--limit-bench-ann=<targets>] [--build-metrics=<filename>]
  where <target> is:
    clean            - remove all existing build artifacts and configuration (start over)
@@ -33,6 +33,7 @@ HELP="$0 [<target> ...] [<flag> ...] [--cmake-args=\"<args>\"] [--cache-tool=<to
    docs             - build the documentation
    tests            - build the tests
    bench-ann        - build end-to-end ann benchmarks
+   bench-cluster    - build clustering benchmarks
    examples         - build the examples
    tarball          - build the standalone C library tarball with Docker
 
@@ -104,6 +105,7 @@ INSTALL_TARGET=install
 BUILD_REPORT_METRICS=""
 BUILD_REPORT_INCL_CACHE_STATS=OFF
 BUILD_SHARED_LIBS=ON
+BUILD_CUVS_CLUSTER_BENCH=OFF
 
 TEST_TARGETS=""
 ANN_BENCH_TARGETS=""
@@ -371,6 +373,14 @@ if hasArg bench-ann || (( NUMARGS == 0 )); then
     fi
 fi
 
+if hasArg bench-cluster; then
+    BUILD_CUVS_CLUSTER_BENCH=ON
+    if ! hasArg tests; then
+        BUILD_TESTS=OFF
+    fi
+    CMAKE_TARGET+=("CUVS_CLUSTER_BENCH_ALL")
+fi
+
 if hasArg --no-shared-libs; then
     BUILD_SHARED_LIBS=OFF
 fi
@@ -412,7 +422,7 @@ fi
 
 ################################################################################
 # Configure for building all C++ targets
-if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims || hasArg bench-ann || hasArg examples; then
+if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-ann || hasArg bench-cluster || hasArg examples; then
     COMPILE_LIBRARY=ON
     if [[ "${BUILD_SHARED_LIBS}" != "OFF" ]]; then
         CMAKE_TARGET+=("cuvs")
@@ -451,6 +461,7 @@ if (( NUMARGS == 0 )) || hasArg libcuvs || hasArg tests || hasArg bench-prims ||
           -DBUILD_TESTS=${BUILD_TESTS} \
           -DBUILD_C_TESTS=${BUILD_TESTS} \
           -DBUILD_CUVS_BENCH="${BUILD_CUVS_BENCH}" \
+          -DBUILD_CUVS_CLUSTER_BENCH="${BUILD_CUVS_CLUSTER_BENCH}" \
           -DBUILD_CPU_ONLY="${BUILD_CPU_ONLY}" \
           -DBUILD_MG_ALGOS=${BUILD_MG_ALGOS} \
           -DBUILD_MNMG_TESTS=${BUILD_MNMG_TESTS} \
