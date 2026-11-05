@@ -150,8 +150,9 @@ struct Fused1nnTilePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
 };
 
 /**
- * Planner for high-dimensional tiles. Only sm_90, sm_100, sm_107, and sm_120 (FP32 only) have
- * high-dim tiles; other architectures yield try_get_launcher() == nullptr (no matching cubin).
+ * Planner for high-dimensional tiles. Only sm_90, sm_100, sm_103, sm_107, and sm_120 (FP32 only)
+ * have high-dim tiles; other architectures yield try_get_launcher() == nullptr (no matching
+ * cubin).
  *
  * The tile aliases below are generated from the JSON entries with abi_abbrev="hd". sm_80 and sm_86
  * do not have high-dim tiles, so no fragment is registered for them.
@@ -175,6 +176,9 @@ struct Fused1nnTilePlanner<DataT, cutile_abi_high_dim>
   void add_entrypoint()
   {
     using cuvs::detail::jit_lto::cutile_arch_10_0;
+#if CUVS_CUTILE_SM103_ENABLED
+    using cuvs::detail::jit_lto::cutile_arch_10_3;
+#endif
 #if CUVS_CUTILE_SM107_ENABLED
     using cuvs::detail::jit_lto::cutile_arch_10_7;
 #endif
@@ -214,6 +218,24 @@ struct Fused1nnTilePlanner<DataT, cutile_abi_high_dim>
                                      cutile_abi_high_dim,
                                      cutile_arch_10_0>>();
     }
+
+#if CUVS_CUTILE_SM103_ENABLED
+    if constexpr (is_float) {
+      this->add_static_fragment<
+        fragment_tag_fused_1nn_cubin<DataTag,
+                                     IndexTag,
+                                     fused_1nn_matrix_tile_f_cutile_arch_10_3_hd,
+                                     cutile_abi_high_dim,
+                                     cutile_arch_10_3>>();
+    } else {
+      this->add_static_fragment<
+        fragment_tag_fused_1nn_cubin<DataTag,
+                                     IndexTag,
+                                     fused_1nn_matrix_tile_h_cutile_arch_10_3_hd,
+                                     cutile_abi_high_dim,
+                                     cutile_arch_10_3>>();
+    }
+#endif
 
 #if CUVS_CUTILE_SM107_ENABLED
     if constexpr (is_float) {

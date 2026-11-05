@@ -416,6 +416,44 @@
               "matrix_layout": "high_dim",
               "abi_abbrev": "hd",
               "abi_tag": "cutile_abi_high_dim",
+              "tile_m": 256,
+              "tile_n": 256,
+              "tile_k": 64,
+              "num_ctas": 4
+            }
+          ],
+          "gpu_code": "sm_103",
+          "cc_major": 10,
+          "cc_minor": 3,
+          "arch_tag": "cutile_arch_10_3"
+        },
+        {
+          "data_type": "half",
+          "data_abbrev": "h",
+          "_abi": [
+            {
+              "matrix_layout": "high_dim",
+              "abi_abbrev": "hd",
+              "abi_tag": "cutile_abi_high_dim",
+              "tile_m": 256,
+              "tile_n": 256,
+              "tile_k": 512,
+              "num_ctas": 4
+            }
+          ],
+          "gpu_code": "sm_103",
+          "cc_major": 10,
+          "cc_minor": 3,
+          "arch_tag": "cutile_arch_10_3"
+        },
+        {
+          "data_type": "float",
+          "data_abbrev": "f",
+          "_abi": [
+            {
+              "matrix_layout": "high_dim",
+              "abi_abbrev": "hd",
+              "abi_tag": "cutile_abi_high_dim",
               "tile_m": 128,
               "tile_n": 512,
               "tile_k": 32,
