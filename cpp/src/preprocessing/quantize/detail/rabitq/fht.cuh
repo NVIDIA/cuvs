@@ -33,7 +33,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cuda_runtime.h>
-#include <iostream>
 #include <raft/core/error.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <type_traits>
@@ -71,8 +70,7 @@ inline void dispatch_log_n(int log_n, Func&& func)
   } else if constexpr (kCur < kMax) {
     dispatch_log_n<kCur + 1, kMax>(log_n, std::forward<Func>(func));
   } else {
-    std::cerr << "fht::dispatch_log_n: unsupported log_N=" << log_n << std::endl;
-    exit(EXIT_FAILURE);
+    RAFT_FAIL("fht::dispatch_log_n: unsupported log_N=%d", log_n);
   }
 }
 
@@ -84,8 +82,7 @@ inline void dispatch_p32(int p32, Func&& func)
   } else if constexpr (kCur < kMax) {
     dispatch_p32<kCur + 1, kMax>(p32, std::forward<Func>(func));
   } else {
-    std::cerr << "fht::dispatch_p32: unsupported p32=" << p32 << std::endl;
-    exit(EXIT_FAILURE);
+    RAFT_FAIL("fht::dispatch_p32: unsupported p32=%d", p32);
   }
 }
 

@@ -50,7 +50,7 @@ inline int64_t floor_log2(int64_t x)
 /// dimension, matching the standalone rotator (see its commit "Derive the
 /// FHT-Kac segment size from the padded dim": the segment size follows the
 /// padded width, which is also the width the flip bits and the kernels work on).
-/// A useful side effect: log_n then always lands in [5, 15], so small dims can
+/// A useful side effect: log_n is then always at least 5, so small dims can
 /// never fall below fht::dispatch_log_n's supported range.
 struct fht_kac_derived {
   int64_t trunc_dim;
