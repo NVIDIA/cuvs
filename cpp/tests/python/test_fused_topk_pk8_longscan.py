@@ -169,9 +169,12 @@ def guard_model():
 @pytest.mark.parametrize("longscan", [False, True])
 @pytest.mark.parametrize("stage", ["fused", "select", "refine"])
 def test_inner_checkpoint_scope(index_type, layout, longscan, stage):
-    assert kernel._pk8_inner_checkpoints_enabled(index_type, layout, longscan, stage) == (
+    assert kernel._pk8_inner_checkpoints_enabled(
+        index_type, layout, longscan, stage
+    ) == (
         (index_type == "int64" or stage == "select")
-        and layout == "strict" and longscan
+        and layout == "strict"
+        and longscan
     )
 
 
@@ -189,7 +192,7 @@ def test_checkpoint_groups_preserve_ordered_topk():
                 scores[:, :cols] = rng.integers(-4, 20, (32, cols))
                 retained = rng.integers(-4, 5, (32, 8)).astype(np.float32)
                 if trial % 3 == 0:
-                    retained[:, trial % 8:] = np.inf
+                    retained[:, trial % 8 :] = np.inf
                 # Corpus indices are unique across prior and current tiles.
                 prior_ids = np.broadcast_to(np.arange(8), (32, 8)).copy()
                 current_ids = np.broadcast_to(np.arange(8, 136), (32, 128))
@@ -205,16 +208,26 @@ def test_checkpoint_groups_preserve_ordered_topk():
                         best = np.argmin(remaining, axis=1)
                         best_scores = remaining[np.arange(32), best]
                         best_ids = current_ids[np.arange(32), best]
-                        joined_scores = np.column_stack((retained, best_scores))
+                        joined_scores = np.column_stack(
+                            (retained, best_scores)
+                        )
                         joined_ids = np.column_stack((prior_ids, best_ids))
-                        selected = np.lexsort((joined_ids, joined_scores), axis=1)[:, :8]
-                        retained = np.take_along_axis(joined_scores, selected, axis=1)
-                        prior_ids = np.take_along_axis(joined_ids, selected, axis=1)
+                        selected = np.lexsort(
+                            (joined_ids, joined_scores), axis=1
+                        )[:, :8]
+                        retained = np.take_along_axis(
+                            joined_scores, selected, axis=1
+                        )
+                        prior_ids = np.take_along_axis(
+                            joined_ids, selected, axis=1
+                        )
                         remaining[np.arange(32), best] = np.inf
                 order = np.lexsort((prior_ids, retained), axis=1)
                 actual_ids = np.take_along_axis(prior_ids, order, axis=1)
                 # Infinite slots are sentinels, not corpus membership.
-                finite = np.isfinite(np.take_along_axis(all_scores, expected, axis=1))
+                finite = np.isfinite(
+                    np.take_along_axis(all_scores, expected, axis=1)
+                )
                 mask = finite & valid[:, None]
                 assert np.array_equal(actual_ids[mask], expected_ids[mask])
 

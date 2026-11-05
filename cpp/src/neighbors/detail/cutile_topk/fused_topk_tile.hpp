@@ -176,17 +176,17 @@ constexpr size_t fused_topk_align_workspace(size_t bytes) { return (bytes + 15) 
 // Call with the actual dimensions after any zero-extension preparation.
 template <typename DataT>
 constexpr int fused_topk_pk8_public_num_splits(int query_rows,
-                                             int corpus_rows,
-                                             int sm_count,
-                                             int dimensions)
+                                               int corpus_rows,
+                                               int sm_count,
+                                               int dimensions)
 {
   const int ordinary = fused_topk_public_num_splits(query_rows, corpus_rows, sm_count, 32);
   if (ordinary <= 1 || dimensions <= 0 || dimensions >= 512 ||
       dimensions % (16 / sizeof(DataT)) != 0) {
     return ordinary;
   }
-  const int query_tiles = fused_topk_pk2_ceil_div(query_rows, 32);
-  const int desired = fused_topk_pk2_ceil_div(sm_count < 64 ? sm_count * 2 : 256, query_tiles);
+  const int query_tiles  = fused_topk_pk2_ceil_div(query_rows, 32);
+  const int desired      = fused_topk_pk2_ceil_div(sm_count < 64 ? sm_count * 2 : 256, query_tiles);
   const int corpus_tiles = fused_topk_pk2_ceil_div(corpus_rows, 128);
   return std::min(128, std::min(desired, corpus_tiles));
 }

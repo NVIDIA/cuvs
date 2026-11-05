@@ -199,8 +199,14 @@ def _idx_dtype(index_type: str):
     raise ValueError(f"Unsupported index_type {index_type!r}")
 
 
-def _pk8_inner_checkpoints_enabled(index_type, matrix_layout, whole_tile_guard, stage):
-    return whole_tile_guard and matrix_layout == "strict" and (index_type == "int64" or stage == "select")
+def _pk8_inner_checkpoints_enabled(
+    index_type, matrix_layout, whole_tile_guard, stage
+):
+    return (
+        whole_tile_guard
+        and matrix_layout == "strict"
+        and (index_type == "int64" or stage == "select")
+    )
 
 
 def make_kernel(
@@ -224,10 +230,16 @@ def make_kernel(
     if stage not in ("fused", "select", "refine"):
         raise ValueError(f"Unsupported stage {stage!r}")
     if specialize_l2 and (
-        physical_k != 8 or stage != "select" or index_type != "int32"
-        or gpu_code != "sm_120" or matrix_layout != "strict" or witness
+        physical_k != 8
+        or stage != "select"
+        or index_type != "int32"
+        or gpu_code != "sm_120"
+        or matrix_layout != "strict"
+        or witness
     ):
-        raise ValueError("L2 specialization requires normal strict SM120 PK8 selection")
+        raise ValueError(
+            "L2 specialization requires normal strict SM120 PK8 selection"
+        )
     if data_type not in ("float", "half"):
         raise ValueError(f"Unsupported data_type {data_type!r}")
     if metric not in METRICS:
@@ -244,7 +256,9 @@ def make_kernel(
             "Direct int64 storage is qualified only for SM120 PK8"
         )
     if whole_tile_guard and (
-        physical_k != 8 or gpu_code != "sm_120" or stage not in ("fused", "select")
+        physical_k != 8
+        or gpu_code != "sm_120"
+        or stage not in ("fused", "select")
     ):
         raise ValueError(
             "Whole-tile guard is qualified only for fused SM120 PK8"
@@ -514,19 +528,23 @@ def make_kernel(
                                     _INVALID_INDEX,
                                 )
                                 if physical_k == 8:
-                                    best_scores, best_indices = update_max_tree(
-                                        best_scores,
-                                        best_indices,
-                                        candidate_score,
-                                        candidate_idx,
+                                    best_scores, best_indices = (
+                                        update_max_tree(
+                                            best_scores,
+                                            best_indices,
+                                            candidate_score,
+                                            candidate_idx,
+                                        )
                                     )
                                 else:
-                                    best_scores, best_indices = insert_candidate(
-                                        best_scores,
-                                        best_indices,
-                                        candidate_score,
-                                        candidate_idx,
-                                        tm,
+                                    best_scores, best_indices = (
+                                        insert_candidate(
+                                            best_scores,
+                                            best_indices,
+                                            candidate_score,
+                                            candidate_idx,
+                                            tm,
+                                        )
                                     )
                                 remaining = ct.where(
                                     tiled_indices == candidate_idx[:, None],
@@ -537,8 +555,8 @@ def make_kernel(
                                 remaining, best_scores, valid_query_rows
                             ):
                                 for _ in range(2):
-                                    candidate_score, candidate_idx = reduce_best(
-                                        remaining, tiled_indices
+                                    candidate_score, candidate_idx = (
+                                        reduce_best(remaining, tiled_indices)
                                     )
                                     # A physical slot with no remaining corpus candidate reduces
                                     # to the score identity. Do not let the reduction's tie-broken
@@ -549,22 +567,27 @@ def make_kernel(
                                         _INVALID_INDEX,
                                     )
                                     if physical_k == 8:
-                                        best_scores, best_indices = update_max_tree(
-                                            best_scores,
-                                            best_indices,
-                                            candidate_score,
-                                            candidate_idx,
+                                        best_scores, best_indices = (
+                                            update_max_tree(
+                                                best_scores,
+                                                best_indices,
+                                                candidate_score,
+                                                candidate_idx,
+                                            )
                                         )
                                     else:
-                                        best_scores, best_indices = insert_candidate(
-                                            best_scores,
-                                            best_indices,
-                                            candidate_score,
-                                            candidate_idx,
-                                            tm,
+                                        best_scores, best_indices = (
+                                            insert_candidate(
+                                                best_scores,
+                                                best_indices,
+                                                candidate_score,
+                                                candidate_idx,
+                                                tm,
+                                            )
                                         )
                                     remaining = ct.where(
-                                        tiled_indices == candidate_idx[:, None],
+                                        tiled_indices
+                                        == candidate_idx[:, None],
                                         _INF,
                                         remaining,
                                     )
@@ -572,8 +595,10 @@ def make_kernel(
                                     remaining, best_scores, valid_query_rows
                                 ):
                                     for _ in range(2):
-                                        candidate_score, candidate_idx = reduce_best(
-                                            remaining, tiled_indices
+                                        candidate_score, candidate_idx = (
+                                            reduce_best(
+                                                remaining, tiled_indices
+                                            )
                                         )
                                         # A physical slot with no remaining corpus candidate reduces
                                         # to the score identity. Do not let the reduction's tie-broken
@@ -584,31 +609,40 @@ def make_kernel(
                                             _INVALID_INDEX,
                                         )
                                         if physical_k == 8:
-                                            best_scores, best_indices = update_max_tree(
-                                                best_scores,
-                                                best_indices,
-                                                candidate_score,
-                                                candidate_idx,
+                                            best_scores, best_indices = (
+                                                update_max_tree(
+                                                    best_scores,
+                                                    best_indices,
+                                                    candidate_score,
+                                                    candidate_idx,
+                                                )
                                             )
                                         else:
-                                            best_scores, best_indices = insert_candidate(
-                                                best_scores,
-                                                best_indices,
-                                                candidate_score,
-                                                candidate_idx,
-                                                tm,
+                                            best_scores, best_indices = (
+                                                insert_candidate(
+                                                    best_scores,
+                                                    best_indices,
+                                                    candidate_score,
+                                                    candidate_idx,
+                                                    tm,
+                                                )
                                             )
                                         remaining = ct.where(
-                                            tiled_indices == candidate_idx[:, None],
+                                            tiled_indices
+                                            == candidate_idx[:, None],
                                             _INF,
                                             remaining,
                                         )
                                     if _pk8_tile_needs_selection(
-                                        remaining, best_scores, valid_query_rows
+                                        remaining,
+                                        best_scores,
+                                        valid_query_rows,
                                     ):
                                         for _ in range(2):
-                                            candidate_score, candidate_idx = reduce_best(
-                                                remaining, tiled_indices
+                                            candidate_score, candidate_idx = (
+                                                reduce_best(
+                                                    remaining, tiled_indices
+                                                )
                                             )
                                             # A physical slot with no remaining corpus candidate reduces
                                             # to the score identity. Do not let the reduction's tie-broken
@@ -619,22 +653,27 @@ def make_kernel(
                                                 _INVALID_INDEX,
                                             )
                                             if physical_k == 8:
-                                                best_scores, best_indices = update_max_tree(
-                                                    best_scores,
-                                                    best_indices,
-                                                    candidate_score,
-                                                    candidate_idx,
+                                                best_scores, best_indices = (
+                                                    update_max_tree(
+                                                        best_scores,
+                                                        best_indices,
+                                                        candidate_score,
+                                                        candidate_idx,
+                                                    )
                                                 )
                                             else:
-                                                best_scores, best_indices = insert_candidate(
-                                                    best_scores,
-                                                    best_indices,
-                                                    candidate_score,
-                                                    candidate_idx,
-                                                    tm,
+                                                best_scores, best_indices = (
+                                                    insert_candidate(
+                                                        best_scores,
+                                                        best_indices,
+                                                        candidate_score,
+                                                        candidate_idx,
+                                                        tm,
+                                                    )
                                                 )
                                             remaining = ct.where(
-                                                tiled_indices == candidate_idx[:, None],
+                                                tiled_indices
+                                                == candidate_idx[:, None],
                                                 _INF,
                                                 remaining,
                                             )
@@ -652,19 +691,23 @@ def make_kernel(
                                     _INVALID_INDEX,
                                 )
                                 if physical_k == 8:
-                                    best_scores, best_indices = update_max_tree(
-                                        best_scores,
-                                        best_indices,
-                                        candidate_score,
-                                        candidate_idx,
+                                    best_scores, best_indices = (
+                                        update_max_tree(
+                                            best_scores,
+                                            best_indices,
+                                            candidate_score,
+                                            candidate_idx,
+                                        )
                                     )
                                 else:
-                                    best_scores, best_indices = insert_candidate(
-                                        best_scores,
-                                        best_indices,
-                                        candidate_score,
-                                        candidate_idx,
-                                        tm,
+                                    best_scores, best_indices = (
+                                        insert_candidate(
+                                            best_scores,
+                                            best_indices,
+                                            candidate_score,
+                                            candidate_idx,
+                                            tm,
+                                        )
                                     )
                                 remaining = ct.where(
                                     tiled_indices == candidate_idx[:, None],

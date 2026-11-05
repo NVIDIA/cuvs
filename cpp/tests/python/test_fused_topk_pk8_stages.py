@@ -64,14 +64,29 @@ def test_unqualified_stage_variants_rejected(dtype, override):
 
 @pytest.mark.parametrize("dtype", ["float", "half"])
 def test_longscan_guard_supported_only_in_selection_stage(dtype):
-    assert kernel.make_kernel(
-        dtype, "runtime", 8, 32, 256, 32,
-        stage="select", whole_tile_guard=True,
-    ) is not None
+    assert (
+        kernel.make_kernel(
+            dtype,
+            "runtime",
+            8,
+            32,
+            256,
+            32,
+            stage="select",
+            whole_tile_guard=True,
+        )
+        is not None
+    )
     with pytest.raises(ValueError):
         kernel.make_kernel(
-            dtype, "runtime", 8, 4, 128, 32,
-            stage="refine", whole_tile_guard=True,
+            dtype,
+            "runtime",
+            8,
+            4,
+            128,
+            32,
+            stage="refine",
+            whole_tile_guard=True,
         )
 
 

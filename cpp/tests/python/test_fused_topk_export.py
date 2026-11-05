@@ -238,7 +238,10 @@ def test_pk8_largebatch_matrices_are_separate_and_sm120_only(stage, tm, tn):
     for r in rows:
         assert (r["tile_m"], r["tile_n"], r["tile_k"]) == (tm, tn, 32)
         assert (
-            r["gpu_code"], r["physical_k"], r["index_type"], r["matrix_layout"]
+            r["gpu_code"],
+            r["physical_k"],
+            r["index_type"],
+            r["matrix_layout"],
         ) == ("sm_120", 8, "int32", "strict")
         assert r["occupancy"] == 2
 
@@ -254,23 +257,45 @@ def test_pk8_largebatch_export_preserves_checkpoints_and_signature(
     def factory(*args, **kwargs):
         seen["factory"] = kwargs
         return sentinel
+
     monkeypatch.setattr(exporter, "make_kernel", factory)
-    monkeypatch.setattr(exporter, "export_kernel", lambda **kw: seen.update(kw))
+    monkeypatch.setattr(
+        exporter, "export_kernel", lambda **kw: seen.update(kw)
+    )
     symbol = exporter.export_binary(
-        tmp_path / "not-created.cubin", data_type=data_type, metric="runtime",
-        index_type="int32", physical_k=8, tile_m=tm, tile_n=tn, tile_k=32,
-        gpu_code="sm_120", matrix_layout="strict", occupancy=2,
-        stage="select", whole_tile_guard=True,
+        tmp_path / "not-created.cubin",
+        data_type=data_type,
+        metric="runtime",
+        index_type="int32",
+        physical_k=8,
+        tile_m=tm,
+        tile_n=tn,
+        tile_k=32,
+        gpu_code="sm_120",
+        matrix_layout="strict",
+        occupancy=2,
+        stage="select",
+        whole_tile_guard=True,
     )
     assert seen["factory"]["whole_tile_guard"]
     assert seen["factory"]["stage"] == "select"
     assert seen["kernel"] is sentinel
-    assert symbol == kernel.kernel_symbol(
-        8, "strict", data_type, "int32", True
-    ) + "_select"
+    assert (
+        symbol
+        == kernel.kernel_symbol(8, "strict", data_type, "int32", True)
+        + "_select"
+    )
     assert seen["signatures"] == [
         exporter._kernel_signature(
-            8, tm, tn, 32, "sm_120", "strict", data_type, "int32", True,
+            8,
+            tm,
+            tn,
+            32,
+            "sm_120",
+            "strict",
+            data_type,
+            "int32",
+            True,
             stage="select",
         )
     ]
@@ -283,11 +308,13 @@ def test_pk8_largebatch_entrypoint_forwards_guard_without_device_work(
 ):
     import sys
     from types import SimpleNamespace
+
     seen = {}
 
     def main(*args, **kwargs):
         seen.update(args=args, kwargs=kwargs)
         return 0
+
     monkeypatch.setitem(
         sys.modules, "export_fused_topk", SimpleNamespace(main=main)
     )
