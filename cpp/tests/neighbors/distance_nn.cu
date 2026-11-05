@@ -333,14 +333,6 @@ const std::vector<NNInputs<IdxT>> input_fp32_fused = [] {
                     uint64_t(31415926),
                     0.1,
                     cuvs::distance::detail::Top1nnBackend::Cutile});
-  inputs.push_back({32,
-                    1000,
-                    1536,
-                    DistanceType::InnerProduct,
-                    false,
-                    uint64_t(31415926),
-                    0.1,
-                    cuvs::distance::detail::Top1nnBackend::Auto});
   // High-dimensional tile, strict ABI, should be selected on all archs with a high-dim tile.
   inputs.push_back({128,
                     2000,
@@ -388,81 +380,6 @@ TEST(Top1nnAutoSelection, LegacyHeuristic)
   EXPECT_EQ(
     cuvs::distance::detail::legacy_top_1_nn_backend(10, 8192, 8192, DistanceType::L2Expanded),
     Backend::Unfused);
-}
-
-TEST(Top1nnAutoSelection, Sm103HighDimCrossover)
-{
-  using cuvs::distance::detail::prefer_cutile_top_1_nn;
-  EXPECT_TRUE(prefer_cutile_top_1_nn(10, 3, 999, 1536));
-  EXPECT_TRUE(prefer_cutile_top_1_nn(10, 3, 1000, 1535));
-  EXPECT_FALSE(prefer_cutile_top_1_nn(10, 3, 1000, 1536));
-  EXPECT_FALSE(prefer_cutile_top_1_nn(10, 3, 10000, 2048));
-  EXPECT_TRUE(prefer_cutile_top_1_nn(10, 0, 1000, 1536));
-  EXPECT_TRUE(prefer_cutile_top_1_nn(10, 7, 1000, 1536));
-
-#if CUVS_CUTILE_ENABLED && CUVS_CUTILE_SM103_ENABLED
-  raft::resources handle;
-  const auto prop = raft::resource::get_device_properties(handle);
-  if (prop.major != 10 || prop.minor != 3) { return; }
-  constexpr int m = 32, n = 1000, k = 1536;
-  auto x        = raft::make_device_matrix<float, int>(handle, m, k);
-  auto y        = raft::make_device_matrix<float, int>(handle, n, k);
-  using Backend = cuvs::distance::detail::Top1nnBackend;
-  auto probe    = [&](Backend backend) {
-    return cuvs::distance::probe_top_1_nn(handle,
-                                          x.data_handle(),
-                                          y.data_handle(),
-                                          m,
-                                          n,
-                                          k,
-                                          cuvs::distance::detail::Top1nnTuning{},
-                                          DistanceType::L2Expanded,
-                                          backend,
-                                          true,
-                                          true);
-  };
-  const auto automatic = probe(Backend::Auto);
-  EXPECT_TRUE(automatic.available);
-  EXPECT_EQ(automatic.backend, Backend::Unfused);
-  const auto explicit_cutile = probe(Backend::Cutile);
-  EXPECT_TRUE(explicit_cutile.available);
-  EXPECT_EQ(explicit_cutile.backend, Backend::Cutile);
-
-  // The crossover cannot select an unavailable legacy backend for these inputs.
-  auto half_x = raft::make_device_matrix<half, int>(handle, m, k);
-  auto half_y = raft::make_device_matrix<half, int>(handle, n, k);
-  for (auto metric : {DistanceType::L2Expanded,
-                      DistanceType::L2SqrtExpanded,
-                      DistanceType::CosineExpanded,
-                      DistanceType::InnerProduct}) {
-    const auto half_plan = cuvs::distance::probe_top_1_nn(handle,
-                                                          half_x.data_handle(),
-                                                          half_y.data_handle(),
-                                                          m,
-                                                          n,
-                                                          k,
-                                                          cuvs::distance::detail::Top1nnTuning{},
-                                                          metric,
-                                                          Backend::Auto,
-                                                          true,
-                                                          false);
-    EXPECT_TRUE(half_plan.available) << static_cast<int>(metric);
-    if (half_plan.available) { EXPECT_EQ(half_plan.backend, Backend::Cutile); }
-  }
-  const auto inner_product = cuvs::distance::probe_top_1_nn(handle,
-                                                            x.data_handle(),
-                                                            y.data_handle(),
-                                                            m,
-                                                            n,
-                                                            k,
-                                                            cuvs::distance::detail::Top1nnTuning{},
-                                                            DistanceType::InnerProduct,
-                                                            Backend::Auto,
-                                                            true,
-                                                            false);
-  EXPECT_TRUE(inner_product.available);
-  if (inner_product.available) { EXPECT_EQ(inner_product.backend, Backend::Cutile); }
-#endif
 }
 
 TEST(Top1nnAccurateSelection, Tf32LabelsFromSixteenFeatures)
@@ -779,14 +696,6 @@ const std::vector<NNInputs<IdxT>> input_fp16_cutile = {
   {257,
    263,
    64,
-   DistanceType::L2Expanded,
-   false,
-   uint64_t(31415926),
-   0.1,
-   cuvs::distance::detail::Top1nnBackend::Auto},
-  {64,
-   1000,
-   1536,
    DistanceType::L2Expanded,
    false,
    uint64_t(31415926),

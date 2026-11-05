@@ -795,20 +795,16 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
 
   auto resolved = requested_backend;
   if (requested_backend == detail::Top1nnBackend::Auto) {
-    bool use_cutile   = false;
-    const auto prop   = raft::resource::get_device_properties(handle);
-    const auto legacy = detail::legacy_top_1_nn_backend(prop.major, m, n, metric);
+    bool use_cutile = false;
 #if CUDART_VERSION >= 13000
-    use_cutile =
-      plan.tf32_assignment &&
-      (detail::prefer_cutile_top_1_nn(prop.major, prop.minor, n, k) ||
-       !detail::is_top_1_nn_backend_available(legacy, x, y, m, n, k, metric)) &&
-      detail::is_top_1_nn_backend_available(detail::Top1nnBackend::Cutile, x, y, m, n, k, metric);
+    use_cutile = plan.tf32_assignment && detail::is_top_1_nn_backend_available(
+                                           detail::Top1nnBackend::Cutile, x, y, m, n, k, metric);
 #endif
     if (use_cutile) {
       resolved = detail::Top1nnBackend::Cutile;
     } else {
-      resolved = legacy;
+      const auto prop = raft::resource::get_device_properties(handle);
+      resolved        = detail::legacy_top_1_nn_backend(prop.major, m, n, metric);
     }
     if (!detail::is_top_1_nn_backend_available(resolved, x, y, m, n, k, metric)) { return plan; }
   } else {
