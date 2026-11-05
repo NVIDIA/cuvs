@@ -4,7 +4,8 @@
  *
  * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged
  * except that the launchers request only the shared memory they use and opt in
- * to more than the default limit.
+ * to more than the default limit, and the full-factor launcher forwards the
+ * rescale sample counts.
  */
 
 //
@@ -411,6 +412,8 @@ static void launch_quantize_full(cudaStream_t stream,
                                  size_t ex_bits,
                                  float const_scaling_factor,
                                  bool use_fast,
+                                 int coarse_samples,
+                                 int fine_samples,
                                  CodeT* d_total_code,
                                  float* d_factors)
 {
@@ -435,8 +438,8 @@ static void launch_quantize_full(cudaStream_t stream,
                                             iB,
                                             const_scaling_factor,
                                             use_fast,
-                                            64,
-                                            64,
+                                            coarse_samples,
+                                            fine_samples,
                                             nullptr,
                                             nullptr,
                                             0,
@@ -456,7 +459,9 @@ void quantize_full_on_residuals(cudaStream_t stream,
                                 float const_scaling_factor,
                                 bool use_fast,
                                 uint16_t* d_total_code,
-                                float* d_factors)
+                                float* d_factors,
+                                int coarse_samples,
+                                int fine_samples)
 {
   launch_quantize_full(stream,
                        d_residuals,
@@ -466,6 +471,8 @@ void quantize_full_on_residuals(cudaStream_t stream,
                        ex_bits,
                        const_scaling_factor,
                        use_fast,
+                       coarse_samples,
+                       fine_samples,
                        d_total_code,
                        d_factors);
 }
@@ -479,7 +486,9 @@ void quantize_full_on_residuals(cudaStream_t stream,
                                 float const_scaling_factor,
                                 bool use_fast,
                                 uint8_t* d_total_code,
-                                float* d_factors)
+                                float* d_factors,
+                                int coarse_samples,
+                                int fine_samples)
 {
   launch_quantize_full(stream,
                        d_residuals,
@@ -489,6 +498,8 @@ void quantize_full_on_residuals(cudaStream_t stream,
                        ex_bits,
                        const_scaling_factor,
                        use_fast,
+                       coarse_samples,
+                       fine_samples,
                        d_total_code,
                        d_factors);
 }

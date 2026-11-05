@@ -82,7 +82,9 @@ void quantize_full_on_residuals(cudaStream_t stream,
                                 float const_scaling_factor,
                                 bool use_fast,
                                 uint16_t* d_total_code,
-                                float* d_factors);
+                                float* d_factors,
+                                int coarse_samples,
+                                int fine_samples);
 
 void quantize_full_on_residuals(cudaStream_t stream,
                                 const float* d_residuals,
@@ -93,7 +95,9 @@ void quantize_full_on_residuals(cudaStream_t stream,
                                 float const_scaling_factor,
                                 bool use_fast,
                                 uint8_t* d_total_code,
-                                float* d_factors);
+                                float* d_factors,
+                                int coarse_samples,
+                                int fine_samples);
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
 

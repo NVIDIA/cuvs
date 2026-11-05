@@ -105,7 +105,9 @@ void quantize_data_full(raft::resources const& res,
                         bool use_fast,
                         uint16_t* d_total_code,
                         float* d_factors,
-                        float* d_residuals);
+                        float* d_residuals,
+                        int coarse_samples,
+                        int fine_samples);
 
 void quantize_data_full(raft::resources const& res,
                         const float* d_data,
@@ -119,7 +121,9 @@ void quantize_data_full(raft::resources const& res,
                         bool use_fast,
                         uint8_t* d_total_code,
                         float* d_factors,
-                        float* d_residuals);
+                        float* d_residuals,
+                        int coarse_samples,
+                        int fine_samples);
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
 

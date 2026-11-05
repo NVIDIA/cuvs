@@ -532,14 +532,8 @@ class RabitqQuantizationTest : public ::testing::TestWithParam<RabitqQuantizatio
       handle_, pipe.encoder, residuals_view, std::nullopt, ff_codes.view(), factors.view());
     raft::resource::sync_stream(handle_, stream_);
     auto h_ff_codes = verify_codes(ff_codes.data_handle(), len);
-    if (ps_.use_fast) {
-      // Both modes then quantize with the same shared scaling factor, so the
-      // codes must match. (On the slow path they need not: the full-factor
-      // launcher hardcodes 64/64 rescale samples instead of forwarding
-      // params::coarse_samples / params::fine_samples.)
-      expect_same_codes(
-        h_codes_ref, h_ff_codes, "the (delta, vl) and (factors) output modes emit different codes");
-    }
+    expect_same_codes(
+      h_codes_ref, h_ff_codes, "the (delta, vl) and (factors) output modes emit different codes");
     verify_finite(factors.data_handle(), static_cast<size_t>(n) * 3, "residual factor");
 
     // Wrong extents must be rejected rather than silently reinterpreted.

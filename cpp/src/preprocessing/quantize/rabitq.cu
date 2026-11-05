@@ -335,7 +335,9 @@ void transform_full_impl(raft::resources const& res,
                                q.params_quantizer.use_fast,
                                codes.data_handle() + r0 * q.padded_dim,
                                factors.data_handle() + r0 * kNumFactors,
-                               residuals.data());
+                               residuals.data(),
+                               static_cast<int>(q.params_quantizer.coarse_samples),
+                               static_cast<int>(q.params_quantizer.fine_samples));
   });
 }
 
@@ -418,7 +420,9 @@ void transform_residuals_full_impl(
                                      q.const_scaling_factor,
                                      q.params_quantizer.use_fast,
                                      codes.data_handle(),
-                                     factors.data_handle());
+                                     factors.data_handle(),
+                                     static_cast<int>(q.params_quantizer.coarse_samples),
+                                     static_cast<int>(q.params_quantizer.fine_samples));
 }
 
 }  // namespace

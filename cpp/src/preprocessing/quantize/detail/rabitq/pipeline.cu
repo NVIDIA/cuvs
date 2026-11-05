@@ -157,7 +157,9 @@ void quantize_data_full_impl(raft::resources const& res,
                              bool use_fast,
                              CodeT* d_total_code,
                              float* d_factors,
-                             float* d_residuals)
+                             float* d_residuals,
+                             int coarse_samples,
+                             int fine_samples)
 {
   prepare_residuals(res,
                     d_data,
@@ -177,7 +179,9 @@ void quantize_data_full_impl(raft::resources const& res,
                              const_scaling_factor,
                              use_fast,
                              d_total_code,
-                             d_factors);
+                             d_factors,
+                             coarse_samples,
+                             fine_samples);
 }
 
 }  // namespace
@@ -268,7 +272,9 @@ void quantize_data_full(raft::resources const& res,
                         bool use_fast,
                         uint16_t* d_total_code,
                         float* d_factors,
-                        float* d_residuals)
+                        float* d_residuals,
+                        int coarse_samples,
+                        int fine_samples)
 {
   quantize_data_full_impl(res,
                           d_data,
@@ -282,7 +288,9 @@ void quantize_data_full(raft::resources const& res,
                           use_fast,
                           d_total_code,
                           d_factors,
-                          d_residuals);
+                          d_residuals,
+                          coarse_samples,
+                          fine_samples);
 }
 
 void quantize_data_full(raft::resources const& res,
@@ -297,7 +305,9 @@ void quantize_data_full(raft::resources const& res,
                         bool use_fast,
                         uint8_t* d_total_code,
                         float* d_factors,
-                        float* d_residuals)
+                        float* d_residuals,
+                        int coarse_samples,
+                        int fine_samples)
 {
   quantize_data_full_impl(res,
                           d_data,
@@ -311,7 +321,9 @@ void quantize_data_full(raft::resources const& res,
                           use_fast,
                           d_total_code,
                           d_factors,
-                          d_residuals);
+                          d_residuals,
+                          coarse_samples,
+                          fine_samples);
 }
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
