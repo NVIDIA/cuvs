@@ -32,6 +32,7 @@ import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.search.DocIdSetIterator;
 import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.IndexSearcher;
+import org.apache.lucene.search.KnnCollector;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.MatchNoDocsQuery;
 import org.apache.lucene.search.Query;
@@ -40,9 +41,7 @@ import org.apache.lucene.search.ScoreDoc;
 import org.apache.lucene.search.ScoreMode;
 import org.apache.lucene.search.Scorer;
 import org.apache.lucene.search.ScorerSupplier;
-import org.apache.lucene.search.TopDocs;
 import org.apache.lucene.search.Weight;
-import org.apache.lucene.search.knn.KnnCollectorManager;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.FixedBitSet;
 
@@ -70,16 +69,21 @@ import org.apache.lucene.util.FixedBitSet;
  *
  * <p>It also falls back whenever an explicit {@code filter} is selective enough that Lucene would
  * answer the query exactly. {@link org.apache.lucene.search.KnnFloatVectorQuery} guarantees that a
- * filter leaving no more than {@code k} candidates in a segment is served by an exact scan rather
- * than by the approximate index, and that a segment yielding fewer than {@code k} approximate hits
- * while holding more than {@code k} candidates is re-run exactly. An approximate CAGRA search can
- * miss such candidates, so both cases are routed back to Lucene's per-leaf path, which applies
- * those rules per segment and still runs this query's GPU {@link #approximateSearch} wherever an
- * approximate search is allowed.
+ * filter leaving no more than {@code perLeafTopK} candidates in a segment is served by an exact
+ * scan rather than by the approximate index, and that a segment yielding fewer than {@code
+ * perLeafTopK} approximate hits while holding more candidates is re-run exactly. {@code
+ * perLeafTopK} is {@code k} on Lucene 10.2; since 10.3 it is the segment's expected share of the
+ * top {@code k} plus a margin, often more than {@code k} but less for large {@code k} and many
+ * segments. The query falls back to Lucene's per-leaf path, which applies both rules and still
+ * runs this query's GPU {@link #approximateSearch} wherever an approximate search is allowed,
+ * whenever a segment has at least one but no more than {@code k} or {@code perLeafTopK}
+ * candidates, whichever is larger, or the merged result has fewer than {@code k} hits although
+ * enough candidates pass the filter. The multi-partition search returns only the merged top {@code
+ * k}, so for the other segments it checks only that count, not Lucene's second rule per segment.
  *
  * @since 25.10
  */
-public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
+public class GPUKnnFloatVectorQuery extends CompatKnnFloatVectorQuery {
 
   /** Smallest supported CAGRA intermediate-result count. */
   public static final int MIN_ITOPK = 1;
@@ -168,7 +172,6 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
       int maxIterations,
       CagraSearchParams.SearchAlgo searchAlgo) {
     super(field, target, k, filter);
-    LuceneVersionGuard.ensureCompatible();
     validateSearchParameters(iTopK, searchWidth, k, threadBlockSize, maxIterations, searchAlgo);
     this.iTopK = iTopK;
     this.searchWidth = searchWidth;
@@ -277,18 +280,25 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
         filterBitsets = buildPerSegmentFilterBitsets(indexSearcher, leaves, gpuReaders);
       }
 
-      // Lucene answers a query exactly when the filter leaves no more than k candidates in a
-      // segment (AbstractKnnVectorQuery.getLeafResults), which an approximate CAGRA search cannot
-      // guarantee. Hand the whole query back to Lucene's per-leaf path in that case: it runs exact
-      // search on the selective segments and this query's GPU approximateSearch on the others.
-      // A segment whose filter accepts nothing contributes no results on either path, so it does
-      // not force the fallback.
+      // Lucene answers a segment exactly when the filter leaves no more than perLeafTopK
+      // candidates in it (AbstractKnnVectorQuery.getLeafResults; k on Lucene 10.2, the segment's
+      // share of k plus a margin since 10.3), which an approximate CAGRA search cannot guarantee.
+      // It also re-runs a segment exactly when its approximate search returns fewer than
+      // perLeafTopK hits, which cannot be checked on the merged result below. Hand the whole query
+      // back to Lucene's per-leaf path if a segment has no more than max(k, perLeafTopK)
+      // candidates: it applies both rules, and runs this query's GPU approximateSearch on the
+      // other segments. The k matters where perLeafTopK is less (large k, many segments): it
+      // leaves only segments with more than k candidates on the GPU path, which the result-count
+      // check below relies on. A segment whose filter accepts nothing contributes no results on
+      // either path, so it does not force the fallback.
       long totalCardinality = 0;
       if (hasExplicitFilter) {
-        for (CachedFilterBitset cached : filterBitsets) {
+        for (int i = 0; i < leaves.size(); i++) {
+          CachedFilterBitset cached = filterBitsets.get(i);
           if (cached == null) continue;
           totalCardinality += cached.cardinality();
-          if (cached.cardinality() > 0 && cached.cardinality() <= k) {
+          if (cached.cardinality() > 0
+              && cached.cardinality() <= Math.max(k, perLeafTopK(leaves.get(i)))) {
             return super.rewrite(indexSearcher);
           }
         }
@@ -334,10 +344,9 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
         MultiPartitionSearchResults results =
             MultiPartitionCagraSearch.search(resources, cagraIndices, cagraQuery, k, filterHandles);
 
-        // Lucene also re-runs a leaf exactly when the approximate search returns fewer than k hits
-        // while more than k candidates pass the filter. Every segment reaching this point holds
-        // either no candidates or more than k of them, so k hits must exist once the filtered
-        // corpus holds at least k; a short result means the approximate search missed them.
+        // Every segment reaching this point holds either no candidates or more than k of them (the
+        // k in max(k, perLeafTopK) above), so k hits must exist once the filtered corpus holds at
+        // least k; a short result means the approximate search missed them.
         if (hasExplicitFilter && totalCardinality >= k && results.count() < k) {
           return super.rewrite(indexSearcher);
         }
@@ -392,17 +401,26 @@ public class GPUKnnFloatVectorQuery extends KnnFloatVectorQuery {
   // -------------------------------------------------------------------------
 
   @Override
-  protected TopDocs approximateSearch(
-      LeafReaderContext context,
-      Bits acceptDocs,
-      int visitedLimit,
-      KnnCollectorManager knnCollectorManager)
-      throws IOException {
-    GPUPerLeafCuVSKnnCollector results =
-        new GPUPerLeafCuVSKnnCollector(
-            k, visitedLimit, iTopK, searchWidth, threadBlockSize, maxIterations, searchAlgo);
-    context.reader().searchNearestVectors(field, getTargetCopy(), results, acceptDocs);
-    return results.topDocs();
+  KnnCollector newPerLeafCollector(LeafReaderContext context, int leafK, int visitedLimit) {
+    int collectorK = leafK;
+    CuVS2510GPUVectorsReader gpuReader = unwrapGpuReader(context, field);
+    // Not getCagraIndexForField, which would load the index of a reader opened for a merge onto the
+    // GPU even if the search then finds nothing to match.
+    if (gpuReader != null && gpuReader.hasCagraIndex(field)) {
+      // Lucene may ask for more hits than this query's k, but CAGRA returns at most
+      // CuVS2510GPUVectorsReader.MAX_CAGRA_K, and SINGLE_CTA at most MAX_SINGLE_CTA_ITOPK (the
+      // constructor checks the query's own k against the latter only). Capped, the collector holds
+      // fewer hits than Lucene asked for, and Lucene searches a filtered segment exactly instead,
+      // which is slower but still correct. The query's own k is never reduced. Other segments,
+      // such as those searched with Lucene's HNSW, have no such limit.
+      int limit =
+          searchAlgo == CagraSearchParams.SearchAlgo.SINGLE_CTA
+              ? MAX_SINGLE_CTA_ITOPK
+              : CuVS2510GPUVectorsReader.MAX_CAGRA_K;
+      collectorK = Math.max(k, Math.min(leafK, limit));
+    }
+    return new GPUPerLeafCuVSKnnCollector(
+        collectorK, visitedLimit, iTopK, searchWidth, threadBlockSize, maxIterations, searchAlgo);
   }
 
   // -------------------------------------------------------------------------
