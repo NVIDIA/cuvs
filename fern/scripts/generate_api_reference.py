@@ -34,6 +34,9 @@ JAVA_SOURCE_DIRS = [
 ]
 LUCENE_SOURCE_DIRS = [
     REPO_DIR / "java" / "cuvs-lucene" / "src" / "main" / "java",
+    # Classes that first appear in a later Lucene release (such as the
+    # Lucene103* codecs) live in that module's lucene-10.x/src/since/java.
+    *(REPO_DIR / "java" / "cuvs-lucene").glob("lucene-*/src/since/java"),
 ]
 API_NAV_SECTIONS = [
     ("C API Documentation", "c_api", "c-api-documentation", "C API", "c-api"),
@@ -142,8 +145,17 @@ LUCENE_EXTENSION_POINTS = frozenset(
         "KnnVectorsFormat",
         "KnnVectorsReader",
         "KnnVectorsWriter",
+        # cuvs-lucene's own base for its codecs, a FilterCodec.
+        "CuVSFilterCodec",
     }
 )
+# Package-private ``cuvs-lucene`` bases that adapt a Lucene class to the Lucene
+# release a module is built for (java/cuvs-lucene/compat). Readers cannot see
+# them, so the pages name the Lucene class each one extends instead.
+JAVA_HIDDEN_SUPERTYPES = {
+    "CompatKnnFloatVectorQuery": "KnnFloatVectorQuery",
+    "CompatKnnVectorsReader": "KnnVectorsReader",
+}
 JAVA_SUPERTYPE_RE = re.compile(r"\b(?:extends|implements)\s+(?P<name>\w+)")
 PUBLIC_JAVA_TYPE_RE = re.compile(
     r"\bpublic\s+(?:abstract\s+|final\s+|sealed\s+|non-sealed\s+)?"
@@ -3017,7 +3029,7 @@ def generate_lucene_api_pages() -> None:
         title="Lucene API Documentation",
         intro=(
             "These pages are generated from the Java source files in "
-            "`java/cuvs-lucene/src/main`.\n\n"
+            "`java/cuvs-lucene/src/main` and `java/cuvs-lucene/lucene-*/src/since`.\n\n"
             "For an introduction to the codecs, configuration, and tuning, see the "
             "[Lucene Integration](/user-guide/lucene) guide."
         ),
@@ -3086,6 +3098,7 @@ def generate_jvm_api_pages(
                     member.doc.summary
                     or member.doc.params
                     or member.doc.returns
+                    or member.doc.is_deprecated
                 ):
                     lines.append("")
                 lines.extend([f"_Source: `{klass.source}:{member.line}`_", ""])
@@ -3151,6 +3164,12 @@ def parse_java_class(path: Path) -> JavaClass | None:
     if not type_match:
         return None
     signature, class_line = java_signature_at(text, type_match.start())
+    signature = re.sub(
+        r"\b(extends\s+)(\w+)",
+        lambda m: m.group(1)
+        + JAVA_HIDDEN_SUPERTYPES.get(m.group(2), m.group(2)),
+        signature,
+    )
     doc = parse_javadoc(comment_before(text, type_match.start()))
     klass = JavaClass(
         package=package,
@@ -3169,18 +3188,21 @@ def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
     members: list[JavaMember] = []
     for match in COMMENT_RE.finditer(text):
         signature, line = java_signature_at(text, match.end())
-        if "(" not in signature:
+        # Annotations stay in the signature on the page, but an argument list
+        # such as @Deprecated(since = "...") must not be taken for the member.
+        declaration = strip_java_annotations(signature)
+        if "(" not in declaration:
             continue
-        if re.search(r"\b(class|interface|enum|record)\b", signature):
+        if re.search(r"\b(class|interface|enum|record)\b", declaration):
             continue
-        if re.search(r"\b(if|for|while|switch|catch)\s*\(", signature):
+        if re.search(r"\b(if|for|while|switch|catch)\s*\(", declaration):
             continue
         # The pages advertise "Public Members"; drop explicitly private ones.
         # Package-private and interface members are left alone because an
         # interface method with no modifier is implicitly public.
-        if re.match(r"\s*private\b", signature):
+        if re.match(r"\s*private\b", declaration):
             continue
-        name_match = re.search(r"([A-Za-z_]\w*)\s*\(", signature)
+        name_match = re.search(r"([A-Za-z_]\w*)\s*\(", declaration)
         if not name_match:
             continue
         name = name_match.group(1)
@@ -3189,6 +3211,13 @@ def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
             JavaMember(name=name, signature=signature, doc=doc, line=line)
         )
     return members
+
+
+def strip_java_annotations(signature: str) -> str:
+    """Returns the declaration that follows the annotations on a member."""
+    while match := re.match(r"@\w+(?:\s*\([^)]*\))?\s*", signature):
+        signature = signature[match.end() :]
+    return signature
 
 
 def clean_doxygen_comment(raw: str) -> str:
@@ -4723,7 +4752,8 @@ def java_signature_at(text: str, start: int) -> tuple[str, int]:
         char = text[idx]
         update_depth(depth, char)
         if char in "{;" and not depth["("] and not depth["["]:
-            signature = text[start:idx].strip()
+            # A line comment after an annotation is not part of the declaration.
+            signature = re.sub(r"//[^\n]*", "", text[start:idx]).strip()
             signature = re.sub(r"\s+", " ", signature)
             return signature, line
         idx += 1
@@ -4843,8 +4873,12 @@ def clean_javadoc_text(text: str) -> str:
         r"\{@literal\s+([^}]+)\}", lambda m: keep(words(m.group(1))), text
     )
     text = re.sub(
-        r"\{@link(?:plain)?\s+([^}\s]+)(?:\s+([^}]+))?\}",
-        lambda m: keep(words(m.group(2)) if m.group(2) else f"`{m.group(1)}`"),
+        # A method's parameter list may contain spaces, so it belongs to the
+        # target rather than starting the label.
+        r"\{@link(?:plain)?\s+([^}\s(]+(?:\([^)]*\))?)(?:\s+([^}]+))?\}",
+        lambda m: keep(
+            words(m.group(2)) if m.group(2) else f"`{words(m.group(1))}`"
+        ),
         text,
     )
     # Any other inline tag shows its text.

@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.IndexOutput;
@@ -37,17 +38,8 @@ public class AcceleratedHNSWUtils {
     NONE
   }
 
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 
   /**
    * Creates a dummy HNSW graph for a single vector.
@@ -321,7 +313,7 @@ public class AcceleratedHNSWUtils {
     try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(subsetDataset)) {
       CagraIndex subsetIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
-              .withDataset(subsetDataset)
+              .fromDataset(subsetDataset)
               .withIndexParams(params)
               .build();
       ownedIndex.transferTo(subsetIndex);
@@ -336,7 +328,11 @@ public class AcceleratedHNSWUtils {
         for (int j = 0; j < degree && j < rv.size(); j++) {
           int subsetIndex1 = rv.getAsInt(j);
           // Map subset index to original node ID
-          if (subsetIndex1 >= 0 && subsetIndex1 < selectedNodes.length) {
+          if (subsetIndex1 == -1) {
+            // kInvalidNeighbor padding of a variable-degree graph: keep it as "no neighbor"
+            // (GPUBuiltHnswGraph skips negative entries) rather than inventing a self-loop.
+            remappedAdjacency[i][j] = -1;
+          } else if (subsetIndex1 >= 0 && subsetIndex1 < selectedNodes.length) {
             remappedAdjacency[i][j] = selectedNodes[subsetIndex1];
           } else {
             // Invalid index, use self-reference

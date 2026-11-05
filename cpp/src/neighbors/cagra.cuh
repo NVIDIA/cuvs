@@ -44,7 +44,7 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
 
   if constexpr (nb::is_padded_dataset_view_v<DatasetViewT> ||
                 nb::is_standard_dataset_view_v<DatasetViewT>) {
-    rm_dataset = dataset_.view();
+    rm_dataset = nb::dense_row_major_view(dataset_);
   } else if constexpr (nb::is_vpq_dataset_view_v<DatasetViewT> ||
                        nb::is_bbq_dataset_view_v<DatasetViewT>) {
     skip_norms = true;
@@ -286,9 +286,11 @@ void optimize(
   raft::resources const& res,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, g_accessor> knn_graph,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, n_accessor> new_graph,
-  const bool guarantee_connectivity = false)
+  const bool guarantee_connectivity           = false,
+  const double variable_graph_degree_fraction = 1.0)
 {
-  detail::optimize(res, knn_graph, new_graph, guarantee_connectivity);
+  detail::optimize(
+    res, knn_graph, new_graph, guarantee_connectivity, variable_graph_degree_fraction);
 }
 
 /**
@@ -330,10 +332,10 @@ auto build(raft::resources const& res, const index_params& params, DatasetViewT 
     RAFT_EXPECTS(effective_params.metric == cuvs::distance::DistanceType::L2Expanded,
                  "cagra::build: a VPQ dataset supports only L2Expanded distance");
     RAFT_EXPECTS(dataset.n_rows() > 0, "cagra::build: VPQ dataset must not be empty");
-    RAFT_EXPECTS(dataset.dset().pq_bits() == 8,
+    RAFT_EXPECTS(dataset.manifest_view().pq_bits() == 8,
                  "cagra::build: VPQ dataset requires pq_bits == 8, got %u",
-                 dataset.dset().pq_bits());
-    auto const pq_len = dataset.dset().pq_len();
+                 dataset.manifest_view().pq_bits());
+    auto const pq_len = dataset.manifest_view().pq_len();
     RAFT_EXPECTS(pq_len == 2 || pq_len == 4 || pq_len == 8,
                  "cagra::build: VPQ dataset requires pq_len in {2, 4, 8}, got %u",
                  pq_len);

@@ -65,9 +65,9 @@ public class TestQuantizedFallbackWriters extends LuceneTestCase {
         new AcceleratedHNSWParams.Builder().withMaxConn(16).withBeamWidth(100).build();
     for (Codec codec :
         List.of(
-            new Lucene101AcceleratedHNSWCodec(params),
-            new LuceneAcceleratedHNSWScalarQuantizedCodec(params),
-            new LuceneAcceleratedHNSWBinaryQuantizedCodec(params))) {
+            CuVSCodecs.acceleratedHNSW(params),
+            CuVSCodecs.acceleratedHNSWScalarQuantized(params),
+            CuVSCodecs.acceleratedHNSWBinaryQuantized(params))) {
       checkWritesAndReads(codec);
     }
   }

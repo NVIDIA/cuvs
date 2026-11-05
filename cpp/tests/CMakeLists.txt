@@ -48,7 +48,6 @@ function(ConfigureTest)
     ${TEST_NAME}
     PRIVATE cuvs
             cuvs::cuvs
-            cuvs_internal
             raft::raft
             rtcx::rtcx
             GTest::gtest
@@ -134,10 +133,12 @@ ConfigureTest(
 ConfigureTest(
   NAME CLUSTER_TEST
   PATH cluster/kmeans.cu
+       cluster/cluster_cost.cu
        cluster/kmeans_balanced.cu
        cluster/kmeans_find_k.cu
        cluster/gmm.cu
        cluster/kmeans_predict_batching.cu
+       cluster/kmeans_batch_loader.cu
        cluster/linkage.cu
        cluster/connect_knn.cu
        cluster/spectral.cu
@@ -205,7 +206,7 @@ ConfigureTest(
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_RABITQ_TEST
-  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu
+  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu neighbors/ann_ivf_rabitq/test_exact_match.cu
   GPUS 1
   PERCENT 100
 )
@@ -269,6 +270,7 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HELPERS_TEST
   PATH neighbors/ann_cagra/test_optimize_uint32_t.cu neighbors/ann_cagra/test_batch_load_iterator.cu
+       neighbors/ann_cagra/test_serialize_dataset_layouts.cu
   GPUS 1
   PERCENT 100
 )
@@ -415,7 +417,7 @@ endif()
 if(BUILD_MG_ALGOS)
   ConfigureTest(
     NAME NEIGHBORS_MG_TEST
-    PATH neighbors/mg/test_float.cu
+    PATH neighbors/mg/test_float.cu neighbors/mg/test_cagra_padded_host.cu
     GPUS 1
     PERCENT 100
     ADDITIONAL_DEP NCCL::NCCL RUN_SERIAL
