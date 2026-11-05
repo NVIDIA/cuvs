@@ -38,16 +38,4 @@ rapids-pip-retry install \
     "${LIBCUVS_WHEELHOUSE}"/libcuvs*.whl \
     "$(echo "${CUVS_WHEELHOUSE}"/cuvs*.whl)[test]"
 
-set +e
-nproc; free -g; uname -r
-T=./python/cuvs/cuvs/tests
-timeout -v --signal=SIGINT --kill-after=30s 15m python -m pytest -v -rfE --tb=long "${T}/test_doctests.py"
-for f in test_mg_cagra test_mg_ivf_flat test_mg_kmeans; do
-  echo "DIAG: ${f}"
-  NCCL_DEBUG=INFO timeout -v --signal=SIGINT --kill-after=30s 5m python -m pytest -v -x -rfE --tb=long -p no:cacheprovider "${T}/${f}.py" 2>&1 | grep -vE 'SKIPPED' | head -n 400
-done
-echo "DIAG: test_mg_kmeans NCCL_CUMEM_ENABLE=0"
-NCCL_DEBUG=WARN NCCL_CUMEM_ENABLE=0 timeout -v --signal=SIGINT --kill-after=30s 5m python -m pytest -v -x -rfE --tb=short "${T}/test_mg_kmeans.py" 2>&1 | tail -n 80
-echo "DIAG: full suite minus mg, durations"
-timeout -v --signal=SIGINT --kill-after=30s 40m python -m pytest -q --durations=40 "${T}" --ignore "${T}/test_mg_kmeans.py" --ignore "${T}/test_mg_cagra.py" --ignore "${T}/test_mg_ivf_flat.py" --ignore "${T}/test_mg_ivf_pq.py" 2>&1 | tail -n 80
-exit 1
+timeout -v --signal=SIGINT --kill-after=60s 40m python -m pytest ./python/cuvs/cuvs/tests
