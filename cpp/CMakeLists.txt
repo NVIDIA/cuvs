@@ -1431,8 +1431,18 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
 
+  generate_inst_matrix(
+    cuvs_ivf_build_index_sources
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/build_index_launcher_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/build_index_launcher.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_flat/build_index_launcher_@instantiation_name@.cu"
+  )
+
   add_library(
     cuvs_objs OBJECT
+    ${cuvs_ivf_build_index_sources}
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}

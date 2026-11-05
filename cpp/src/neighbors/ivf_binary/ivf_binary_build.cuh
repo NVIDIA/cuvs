@@ -150,16 +150,19 @@ inline void extend(raft::resources const& handle,
 
   const dim3 block_dim(256);
   const dim3 grid_dim(raft::ceildiv<int64_t>(n_rows, block_dim.x));
-  ivf_flat::detail::build_index_kernel<uint8_t, int64_t, LabelT>
-    <<<grid_dim, block_dim, 0, stream.get()>>>(labels.data_handle(),
-                                               new_vectors,
-                                               new_indices,
-                                               lists.data_ptrs().data_handle(),
-                                               lists.inds_ptrs().data_handle(),
-                                               list_sizes_ptr,
-                                               n_rows,
-                                               dim,
-                                               lists.veclen());
+  ivf_flat::detail::launch_build_index<uint8_t, int64_t, LabelT, int64_t, false>(
+    grid_dim,
+    block_dim,
+    stream.get(),
+    labels.data_handle(),
+    new_vectors,
+    new_indices,
+    lists.data_ptrs().data_handle(),
+    lists.inds_ptrs().data_handle(),
+    list_sizes_ptr,
+    n_rows,
+    dim,
+    lists.veclen());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
