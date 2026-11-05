@@ -29,6 +29,9 @@ namespace cuvs::distance::detail::pruned_nn {
 
 // Dims between the survivors' re-filters, and d' of the first filter
 constexpr uint32_t kDimTileSize = 256;
+
+/** ADSampling's margin, the eps0 of adsampling_ratio. */
+constexpr float kAdsamplingEps0 = 1.5f;
 // Centroids per batch: one fused filter and pruning launch per row batch and centroid batch
 constexpr uint32_t kCentroidBatchSize = 2048;
 // Rows per batch: bounds the first filter's survivor lists (row batch x centroid batch slots)
@@ -43,10 +46,10 @@ constexpr uint32_t kFullMask = 0xffffffff;
 
 /**
  * ADSampling's pruning ratio for a partial distance over the first i of dim dims:
- * (i / dim) * (1 + eps0 / sqrt(i))^2. A partial distance over i dims is compared against the ratio
- * times the row's current best distance. The ratios assume every dim carries the same share of a
- * distance, which ADSampling ensures with a random rotation of the data; without one they are a
- * heuristic.
+ * (i / dim) * (1 + eps0 / sqrt(i))^2, with eps0 ADSampling's margin. A partial distance over i
+ * dims is compared against the ratio times the row's current best distance. The ratios assume
+ * every dim carries the same share of a distance, which ADSampling ensures with a random rotation
+ * of the data; without one they are a heuristic.
  */
 __host__ __device__ inline float adsampling_ratio(uint32_t i, uint32_t dim, float eps0)
 {
@@ -223,7 +226,6 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
                          uint32_t centroid_offset,
                          uint32_t dim,
                          uint32_t partial_dim,
-                         float eps0,
                          first_filter_lists lists,
                          uint32_t* __restrict__ labels,
                          float* __restrict__ dist,
@@ -255,7 +257,7 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
   for (uint32_t d = partial_dim; n_left; d += kDimTileSize) {
     const bool last = d + kDimTileSize >= dim;
     // The re-filter's ratio
-    const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, eps0);
+    const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, kAdsamplingEps0);
     float row_tile[kDimTileSize / kWarpSize];
     load_tile<kDimTileSize>(row_values + d, row_tile);
     uint32_t kept = 0;
@@ -308,8 +310,7 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
  * The pruning kernel for n_rows rows against one centroid batch (its first centroid
  * centroid_offset), after the fused first filter wrote `lists`. `labels` and `dist` hold each
  * row's current centroid and distance, and get the closer survivor if there is one; `survivors`
- * gets each row's first-filter survivors added. row_order (optional): the rows' order. eps0:
- * ADSampling's margin, for the re-filters' ratios.
+ * gets each row's first-filter survivors added. row_order (optional): the rows' order.
  */
 template <typename T>
 void prune(const T* rows,
@@ -319,7 +320,6 @@ void prune(const T* rows,
            uint32_t centroid_offset,
            int64_t dim,
            uint32_t partial_dim,
-           float eps0,
            first_filter_lists lists,
            uint32_t* labels,
            float* dist,
@@ -335,7 +335,6 @@ void prune(const T* rows,
                                                  centroid_offset,
                                                  static_cast<uint32_t>(dim),
                                                  partial_dim,
-                                                 eps0,
                                                  lists,
                                                  labels,
                                                  dist,

@@ -37,9 +37,6 @@ namespace cuvs::distance {
 
 /** The pruned 1-NN's bounds, and the order its pruning kernel takes the rows in. */
 struct PrunedTop1nnParams {
-  /** ADSampling's margin: a row's bound after i dims is scaled by
-   * detail::pruned_nn::adsampling_ratio(i, k, eps0). */
-  float eps0 = 1.5f;
   /** [m], optional: each row batch's rows in the order to prune them, heaviest first. */
   const uint32_t* row_order = nullptr;
   /** [m], optional: the order for the next call, from this call's first-filter survivors. May be
@@ -190,7 +187,7 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  * assignment of SuperKMeans (Kuffo, Hepkema, Boncz, "A Super Fast K-means for Indexing Vector
  * Embeddings", https://arxiv.org/abs/2603.20009). With b a row's squared distance to its current
  * neighbor and ratio(i) = (i / k) * (1 + eps0 / sqrt(i))^2 (ADSampling's bound, see
- * PrunedTop1nnParams::eps0):
+ * detail::pruned_nn::adsampling_ratio):
  *
  *  1. a fused FP16 GEMM over the first detail::pruned_nn::kDimTileSize dims keeps the rows of y
  *     whose partial distance is under b * ratio(kDimTileSize);
@@ -288,7 +285,7 @@ void pruned_top_1_nn(raft::resources const& handle,
                           xn + i,
                           yn + j,
                           row_dist,
-                          adsampling_ratio(kDimTileSize, static_cast<uint32_t>(k), params.eps0),
+                          adsampling_ratio(kDimTileSize, static_cast<uint32_t>(k), kAdsamplingEps0),
                           static_cast<int>(kDimTileSize),
                           packed,
                           count,
@@ -301,7 +298,6 @@ void pruned_top_1_nn(raft::resources const& handle,
             static_cast<uint32_t>(j),
             k,
             kDimTileSize,
-            params.eps0,
             first_filter_lists{packed, count, kCentroidBatchSize},
             row_labels,
             row_dist,
