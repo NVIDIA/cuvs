@@ -81,9 +81,10 @@ CUVS_EXPORT cuvsError_t cuvsSoarParamsDestroy(cuvsSoarParams_t params);
  * possible (and meaningful) result: it says that no other centroid is worth spilling to, which
  * is the common case for vectors in the interior of a cluster.
  *
- * Scratch memory scales as `n_rows * n_clusters * 4` bytes because scores against all centroids
- * are materialized at once and are not tiled. Process the dataset in row batches to bound the
- * peak device memory usage.
+ * The score matrix alone requires `n_rows * n_clusters * 4` bytes because scores against all
+ * centroids are materialized at once and are not tiled. Additional temporary buffers hold
+ * normalized residuals, dot products, transposed centroids, and centroid norms.
+ * Process the dataset in row batches to bound peak device memory usage.
  *
  * @code{.c}
  * #include <cuvs/core/c_api.h>

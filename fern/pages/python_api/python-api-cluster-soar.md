@@ -67,9 +67,11 @@ says that no other centroid is worth spilling to, which is the common case
 for vectors in the interior of a cluster. Callers that treat SOAR as a
 strictly second posting list should test for this case and skip those rows.
 
-Scratch memory scales as ``n_rows * n_clusters * 4`` bytes because scores
-against all centroids are materialized at once and are not tiled. Process
-the dataset in row batches to bound the peak device memory usage.
+The score matrix alone requires ``n_rows * n_clusters * 4`` bytes because
+scores against all centroids are materialized at once and are not tiled.
+Additional temporary buffers hold normalized residuals, dot products,
+transposed centroids, and centroid norms. Process the dataset in row
+batches to bound peak device memory usage.
 
 **Parameters**
 

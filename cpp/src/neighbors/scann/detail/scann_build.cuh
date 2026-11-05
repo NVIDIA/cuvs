@@ -264,7 +264,7 @@ index<T, IdxT> build(
               params.partitioning_eta,
               copy_stream);
 
-    auto residuals = cuvs::cluster::soar::detail::compute_residuals<T, uint32_t>(
+    auto residuals = cuvs::cluster::soar::detail::compute_residuals_normalized<T, uint32_t>(
       res,
       raft::make_const_mdspan(centers_view),
       raft::make_const_mdspan(coarse_centers),
@@ -275,7 +275,6 @@ index<T, IdxT> build(
       raft::make_const_mdspan(centers_view),
       raft::make_const_mdspan(residuals.view()),
       raft::make_const_mdspan(coarse_centers),
-      raft::make_const_mdspan(coarse_labels),
       idx.coarse_soar_labels(),
       params.soar_lambda);
   }
@@ -344,6 +343,15 @@ index<T, IdxT> build(
     auto avq_residuals = cuvs::cluster::soar::detail::compute_residuals<T, uint32_t>(
       res, batch_view, raft::make_const_mdspan(centers_view), batch_labels_view);
 
+    // Compute and quantize residuals using the public PQ API
+    int64_t codes_dim = cuvs::preprocessing::quantize::pq::get_quantized_dim(pq_build_params);
+    auto avq_quant    = raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), codes_dim);
+    cuvs::preprocessing::quantize::pq::transform(
+      res, pq_quantizer, raft::make_const_mdspan(avq_residuals.view()), avq_quant.view());
+
+    // PQ needs the original residuals; normalize their buffer only after encoding.
+    cuvs::cluster::soar::detail::normalize_residuals(res, avq_residuals.view());
+
     // Compute SOAR labels.
     // We compute SOAR labels in this loop to eliminate one HtoD copy of the full dataset.
     cuvs::cluster::soar::detail::compute_soar_labels<T, uint32_t>(
@@ -351,15 +359,8 @@ index<T, IdxT> build(
       batch_view,
       raft::make_const_mdspan(avq_residuals.view()),
       raft::make_const_mdspan(centers_view),
-      batch_labels_view,
       batch_soar_labels_view,
       params.soar_lambda);
-
-    // Compute and quantize residuals using the public PQ API
-    int64_t codes_dim = cuvs::preprocessing::quantize::pq::get_quantized_dim(pq_build_params);
-    auto avq_quant    = raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), codes_dim);
-    cuvs::preprocessing::quantize::pq::transform(
-      res, pq_quantizer, raft::make_const_mdspan(avq_residuals.view()), avq_quant.view());
 
     // Compute and quantize SOAR residuals
     auto soar_residuals = cuvs::cluster::soar::detail::compute_residuals<T, uint32_t>(

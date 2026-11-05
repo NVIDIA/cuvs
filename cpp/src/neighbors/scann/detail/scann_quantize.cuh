@@ -13,6 +13,7 @@
 #include <raft/matrix/init.cuh>
 
 #include "../../../cluster/detail/soar.cuh"
+#include "scann_common.cuh"
 
 namespace cuvs::neighbors::experimental::scann::detail {
 

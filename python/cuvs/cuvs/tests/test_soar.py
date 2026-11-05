@@ -59,12 +59,14 @@ def nan_filled_pool():
             rmm.mr.CudaMemoryResource(), initial_pool_size=NAN_POOL_BYTES
         )
     )
-    poison = rmm.DeviceBuffer.to_device(
-        np.full(NAN_POOL_BYTES, 0xFF, dtype=np.uint8)
-    )
-    del poison
-    yield
-    rmm.mr.set_current_device_resource(previous)
+    try:
+        poison = rmm.DeviceBuffer.to_device(
+            np.full(NAN_POOL_BYTES, 0xFF, dtype=np.uint8)
+        )
+        del poison
+        yield
+    finally:
+        rmm.mr.set_current_device_resource(previous)
 
 
 def test_params_defaults():
