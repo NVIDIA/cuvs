@@ -1312,7 +1312,7 @@ TopkOutput check_typed_topk(const std::vector<float>& query_values,
   raft::copy(vd.data() + value_guard, values.data() + value_guard, rows * logical_k, stream);
   if constexpr (PhysicalK == 8) {
     if (splits == 1 && is_fused_topk_pk8_auto_dispatch_available()) {
-      EXPECT_TRUE(try_fused_topk_pk8_single_tile<IdxT>(idd.data() + index_guard,
+      const bool single = try_fused_topk_pk8_single_tile<IdxT>(idd.data() + index_guard,
                                                        vd.data() + value_guard,
                                                        qd.data() + input_guard,
                                                        xd.data() + input_guard,
@@ -1321,7 +1321,18 @@ TopkOutput check_typed_topk(const std::vector<float>& query_values,
                                                        static_cast<IdxT>(dimensions),
                                                        static_cast<IdxT>(logical_k),
                                                        metric,
-                                                       stream.get()));
+                                                       stream.get());
+      if (!single) {
+        EXPECT_TRUE(fused_topk_pk8_largebatch_eligible(rows, count, dimensions, splits, metric));
+        std::vector<IdxT> unchanged_ids(ids.size());
+        std::vector<float> unchanged_values(values.size());
+        raft::copy(unchanged_ids.data(), idd.data(), ids.size(), stream);
+        raft::copy(unchanged_values.data(), vd.data(), values.size(), stream);
+        raft::resource::sync_stream(resources);
+        EXPECT_EQ(unchanged_ids, ids);
+        EXPECT_EQ(unchanged_values, values);
+        EXPECT_TRUE(launch());
+      }
     } else {
       EXPECT_TRUE(launch());
     }
@@ -1469,6 +1480,63 @@ TEST(FusedTopkPk8PolicyTest, LongscanUsesMinimumPartitionAndPreservesShortCalls)
   EXPECT_FALSE(fused_topk_pk8_use_longscan(100000, 1, 64, 128, 32));
   EXPECT_FALSE(fused_topk_pk8_use_longscan(100000, 0, 32, 128, 32));
   EXPECT_TRUE(fused_topk_pk8_use_longscan(std::numeric_limits<int>::max(), 1, 32, 128, 32));
+}
+
+TEST(FusedTopkPk8PolicyTest, LargebatchUsesBroadEligibilityAndPreservesOtherRoutes)
+{
+  using M = cuvs::distance::DistanceType;
+  EXPECT_TRUE(fused_topk_pk8_largebatch_eligible(10000, 100000, 128, 1, M::L2Expanded));
+  EXPECT_TRUE(fused_topk_pk8_largebatch_eligible(100000, 100000, 2048, 1, M::L2SqrtExpanded));
+  EXPECT_FALSE(fused_topk_pk8_largebatch_eligible(9999, 100000, 128, 1, M::L2Expanded));
+  EXPECT_FALSE(fused_topk_pk8_largebatch_eligible(10000, 100000, 127, 1, M::L2Expanded));
+  EXPECT_FALSE(fused_topk_pk8_largebatch_eligible(10000, 65408, 128, 1, M::L2Expanded));
+  EXPECT_TRUE(fused_topk_pk8_largebatch_eligible(10000, 65409, 128, 1, M::L2Expanded));
+  EXPECT_FALSE(fused_topk_pk8_largebatch_eligible(10000, 100000, 128, 2, M::L2Expanded));
+  EXPECT_FALSE(fused_topk_pk8_largebatch_eligible(10000, 100000, 128, 1, M::CosineExpanded));
+  EXPECT_FALSE(fused_topk_pk8_largebatch_eligible(10000, 100000, 128, 1, M::InnerProduct));
+  EXPECT_FALSE(fused_topk_pk8_largebatch_query_reuse<float>(10000, 511));
+  EXPECT_TRUE(fused_topk_pk8_largebatch_query_reuse<float>(10000, 512));
+  EXPECT_FALSE(fused_topk_pk8_largebatch_query_reuse<half>(32767, 2048));
+  EXPECT_TRUE(fused_topk_pk8_largebatch_query_reuse<half>(32768, 128));
+}
+
+template <typename DataT>
+void check_pk8_largebatch_prefixes()
+{
+  constexpr int n = 65537;
+  constexpr int d = 128;
+  std::vector<float> x(static_cast<size_t>(n) * d, 2.0f);
+  // Late tied winners exercise long-scan checkpoints and deterministic prefixes.
+  std::fill(x.end() - 8 * d, x.end(), 0.125f);
+  for (int rows : {10001, 32769}) {
+    std::vector<float> q(static_cast<size_t>(rows) * d, 0.0f);
+    for (auto metric : {cuvs::distance::DistanceType::L2Expanded,
+                       cuvs::distance::DistanceType::L2SqrtExpanded}) {
+      for (int k : {5, 6, 7, 8}) {
+        const auto out = check_typed_topk<8, DataT, int64_t>(q, x, d, metric, 1, k, true);
+        const auto narrow = check_typed_topk<8, DataT, int>(q, x, d, metric, 1, k, true);
+        EXPECT_EQ(out.indices, narrow.indices);
+        EXPECT_EQ(out.distances, narrow.distances);
+        for (int row = 0; row < rows; ++row) {
+          for (int col = 0; col < k; ++col) {
+            EXPECT_EQ(out.indices[row * k + col], n - 8 + col);
+          }
+        }
+      }
+    }
+  }
+}
+
+TEST(FusedTopkPk8LargebatchTest, FloatPrefixesBothTilesGuardsAndIndexWidths)
+{
+  if (!is_fused_topk_pk8_auto_dispatch_available()) { GTEST_SKIP() << "Requires SM120"; }
+  check_pk8_largebatch_prefixes<float>();
+}
+
+TEST(FusedTopkPk8LargebatchTest, HalfPrefixesBothTilesGuardsAndIndexWidths)
+{
+  if (!is_fused_topk_pk8_auto_dispatch_available()) { GTEST_SKIP() << "Requires SM120"; }
+  check_pk8_largebatch_prefixes<half>();
 }
 
 template <typename DataT, typename IdxT>

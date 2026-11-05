@@ -199,8 +199,8 @@ def _idx_dtype(index_type: str):
     raise ValueError(f"Unsupported index_type {index_type!r}")
 
 
-def _pk8_inner_checkpoints_enabled(index_type, matrix_layout, whole_tile_guard):
-    return whole_tile_guard and index_type == "int64" and matrix_layout == "strict"
+def _pk8_inner_checkpoints_enabled(index_type, matrix_layout, whole_tile_guard, stage):
+    return whole_tile_guard and matrix_layout == "strict" and (index_type == "int64" or stage == "select")
 
 
 def make_kernel(
@@ -244,7 +244,7 @@ def make_kernel(
             "Direct int64 storage is qualified only for SM120 PK8"
         )
     if whole_tile_guard and (
-        physical_k != 8 or gpu_code != "sm_120" or stage != "fused"
+        physical_k != 8 or gpu_code != "sm_120" or stage not in ("fused", "select")
     ):
         raise ValueError(
             "Whole-tile guard is qualified only for fused SM120 PK8"
@@ -264,7 +264,7 @@ def make_kernel(
     # Static groups preserve register allocation; dynamic loops spill the live list.
     # Only the qualified strict int64 longscan image uses inner checkpoints.
     inner_checkpoints = _pk8_inner_checkpoints_enabled(
-        index_type, matrix_layout, whole_tile_guard
+        index_type, matrix_layout, whole_tile_guard, stage
     )
     # Candidate arithmetic remains int32; final stores may widen to int64.
     idx_dtype = _idx_dtype("int32")

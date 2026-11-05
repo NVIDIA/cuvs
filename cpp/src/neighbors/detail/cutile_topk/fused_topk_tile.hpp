@@ -228,6 +228,28 @@ constexpr bool fused_topk_pk8_staged_refinement_eligible(int dimensions,
          !fused_topk_pk8_use_longscan(corpus_rows, splits, 32, 128, 32);
 }
 
+// One broad large-batch region; preserve short-query and non-L2 routes.
+// Width is the actual (possibly padded) descriptor width.
+constexpr bool fused_topk_pk8_largebatch_eligible(int query_rows,
+                                                 int corpus_rows,
+                                                 int dimensions,
+                                                 int splits,
+                                                 cuvs::distance::DistanceType metric)
+{
+  return query_rows >= 10000 && dimensions >= 128 && splits == 1 &&
+         (metric == cuvs::distance::DistanceType::L2Expanded ||
+          metric == cuvs::distance::DistanceType::L2SqrtExpanded) &&
+         fused_topk_pk8_use_longscan(corpus_rows, splits, 32, 128, 32);
+}
+
+template <typename DataT>
+constexpr bool fused_topk_pk8_largebatch_query_reuse(int query_rows, int dimensions)
+{
+  // More query reuse needs a sufficiently populated grid, or a wide FP32 dot.
+  // This is a broad scheduling rule, not a table of per-shape benchmark winners.
+  return query_rows >= 32768 || (std::is_same_v<DataT, float> && dimensions >= 512);
+}
+
 // Overflow-safe ceil division for the 256-thread merge, with a bounded grid.
 // The kernel uses a 64-bit grid-stride loop independently of public index width.
 constexpr int fused_topk_merge_block_count(int query_rows)

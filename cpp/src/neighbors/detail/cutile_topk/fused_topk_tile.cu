@@ -56,6 +56,45 @@ size_t checked_tensor_bytes(IdxT rows, IdxT cols, size_t element_size)
   return static_cast<size_t>(elements) * element_size;
 }
 
+struct Pk8LargebatchStages {
+  std::shared_ptr<rtcx::algorithm_launcher> selection;
+  std::shared_ptr<rtcx::algorithm_launcher> refinement;
+  cuvs::detail::jit_lto::CutileTileConfig config{};
+  explicit operator bool() const { return selection && refinement; }
+};
+
+template <typename DataT>
+Pk8LargebatchStages resolve_pk8_largebatch(int query_rows,
+                                         int corpus_rows,
+                                         int dimensions,
+                                         int splits,
+                                         cuvs::distance::DistanceType metric)
+{
+  if (!fused_topk_pk8_largebatch_eligible(query_rows, corpus_rows, dimensions, splits, metric)) {
+    return {};
+  }
+  cuvs::detail::jit_lto::CutileRuntimeCapabilities capabilities{};
+  if (!cuvs::detail::jit_lto::query_current_cutile_runtime_capabilities(capabilities) ||
+      capabilities.cc_major != 12 || capabilities.cc_minor != 0) {
+    return {};
+  }
+  Pk8LargebatchStages stages;
+  if (fused_topk_pk8_largebatch_query_reuse<DataT>(query_rows, dimensions)) {
+    using Select = FusedTopkStagePlanner<8, DataT, fused_topk_stage::select_largeq>;
+    Select select;
+    stages.selection = select.try_get_launcher();
+    stages.config = {Select::tile_m, Select::tile_n, Select::tile_k};
+  } else {
+    using Select = FusedTopkStagePlanner<8, DataT, fused_topk_stage::select_largecorpus>;
+    Select select;
+    stages.selection = select.try_get_launcher();
+    stages.config = {Select::tile_m, Select::tile_n, Select::tile_k};
+  }
+  FusedTopkStagePlanner<8, DataT, fused_topk_stage::refine> refine;
+  stages.refinement = refine.try_get_launcher();
+  return stages;
+}
+
 template <int PhysicalK, typename DataT, typename AbiTag, typename OutputIdxT>
 bool launch_fused_topk(OutputIdxT* neighbors,
                        float* distances,
@@ -84,6 +123,15 @@ bool launch_fused_topk(OutputIdxT* neighbors,
   std::shared_ptr<rtcx::algorithm_launcher> launcher;
   std::shared_ptr<rtcx::algorithm_launcher> refine_launcher;
   cuvs::detail::jit_lto::CutileTileConfig tile_cfg{};
+  if constexpr (PhysicalK == 8 && std::is_same_v<OutputIdxT, int> &&
+                std::is_same_v<AbiTag, cuvs::distance::detail::cutile_abi_strict>) {
+    if (auto stages = resolve_pk8_largebatch<DataT>(
+          query_rows, corpus_rows, dimensions, num_splits, metric)) {
+      launcher = std::move(stages.selection);
+      refine_launcher = std::move(stages.refinement);
+      tile_cfg = stages.config;
+    }
+  }
   if constexpr (PhysicalK <= 8 && std::is_same_v<OutputIdxT, int> &&
                 std::is_same_v<AbiTag, cuvs::distance::detail::cutile_abi_strict>) {
     // Preserve corpus splits and other architecture/ABI paths. Half PK2 uses
@@ -95,7 +143,7 @@ bool launch_fused_topk(OutputIdxT* neighbors,
         return fused_topk_separate_refinement_eligible<PhysicalK, DataT>(dimensions, num_splits);
       }
     }();
-    if (staged_eligible) {
+    if (!launcher && staged_eligible) {
       cuvs::detail::jit_lto::CutileRuntimeCapabilities capabilities{};
       if (cuvs::detail::jit_lto::query_current_cutile_runtime_capabilities(capabilities) &&
           capabilities.cc_major == 12 && capabilities.cc_minor == 0) {
@@ -799,6 +847,16 @@ bool try_fused_topk_pk8_single_tile(IdxT* neighbors,
   // Every physical candidate is refined and sorted before the descriptor's
   // logical width bounds-mask discards the surplus. No scratch is required.
   const bool strict = dimensions % (16 / sizeof(DataT)) == 0;
+  // The staged route needs full physical-width scratch before logical-prefix
+  // compaction. Decline only when BOTH optional images resolve, before writes;
+  // unavailable images retain this original no-workspace fused implementation.
+  if (strict && resolve_pk8_largebatch<DataT>(static_cast<int>(query_rows),
+                                             static_cast<int>(corpus_rows),
+                                             static_cast<int>(dimensions),
+                                             1,
+                                             metric)) {
+    return false;
+  }
   if (strict) {
     return launch_fused_topk<8, DataT, cuvs::distance::detail::cutile_abi_strict>(
       neighbors,
