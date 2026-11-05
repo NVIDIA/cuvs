@@ -15,8 +15,11 @@
 #include <rmm/device_uvector.hpp>
 
 #include <cub/device/device_radix_sort.cuh>
+#include <cub/device/device_reduce.cuh>
 #include <cub/util_type.cuh>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 
 namespace cuvs::neighbors::experimental::gpipnn::detail {
@@ -162,14 +165,81 @@ __device__ inline void emit_rank(uint64_t key,
 }
 
 /**
- * Casts a buffer of `T` to half. Exact for int8 and uint8: half represents every integer up to
- * 2048.
+ * Reduction operator returning the larger of two magnitudes, treating non-finite values as 0.
+ *
+ * Dropping them keeps a single stray infinity or NaN in the caller's data from swallowing the
+ * maximum and forcing a scale that crushes everything else to zero. The sanitizing step is
+ * idempotent, so it is safe to apply on partial results as the reduction combines them.
+ */
+struct finite_max_abs_op {
+  __host__ __device__ auto operator()(float a, float b) const -> float
+  {
+    const float x = isfinite(a) ? fabsf(a) : 0.0f;
+    const float y = isfinite(b) ? fabsf(b) : 0.0f;
+    return fmaxf(x, y);
+  }
+};
+
+/** Largest finite magnitude in `[data, data + n)`, or 0 when there is none. */
+inline auto finite_max_abs(const float* data, int64_t n, cudaStream_t stream) -> float
+{
+  rmm::device_uvector<float> out(1, stream);
+  size_t bytes = 0;
+  RAFT_CUDA_TRY(cub::DeviceReduce::Reduce(
+    nullptr, bytes, data, out.data(), n, finite_max_abs_op{}, 0.0f, stream));
+  rmm::device_uvector<char> workspace(bytes, stream);
+  RAFT_CUDA_TRY(cub::DeviceReduce::Reduce(
+    workspace.data(), bytes, data, out.data(), n, finite_max_abs_op{}, 0.0f, stream));
+
+  float max_abs = 0.0f;
+  RAFT_CUDA_TRY(
+    cudaMemcpyAsync(&max_abs, out.data(), sizeof(float), cudaMemcpyDeviceToHost, stream));
+  RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+  return max_abs;
+}
+
+/**
+ * Power-of-two factor that moves a dataset peaking at `max_abs` into half's useful range, or 1
+ * when it is already there.
+ *
+ * Scaling every element by one positive constant multiplies every squared L2 distance by its
+ * square, which leaves the neighbour ordering untouched, and DirectEdgePrune compares ratios of
+ * distances, so the occlusion decisions are unaffected too. Restricting the factor to a power of
+ * two makes the fp32 accumulation scale exactly, so data already inside the band is left
+ * bit-for-bit as it was.
+ */
+inline auto half_cast_scale(float max_abs) -> float
+{
+  // Past the upper edge `__float2half` returns infinity rather than saturating, and the expanded
+  // distance then evaluates to `inf - inf`. Below the lower edge the largest values sit close
+  // enough to half's smallest normal (2^-14) that the rest of each row falls subnormal and loses
+  // mantissa bits.
+  constexpr float kHi = 32768.0f;       // 2^15
+  constexpr float kLo = 0.0009765625f;  // 2^-10
+  if (!(max_abs > 0.0f) || (max_abs >= kLo && max_abs <= kHi)) { return 1.0f; }
+
+  int exp = 0;
+  std::frexp(max_abs, &exp);  // max_abs lies in [2^(exp-1), 2^exp)
+  // Puts max_abs in (2^14, 2^15]. The clamp keeps the factor itself representable when the whole
+  // dataset sits near the bottom of fp32, where the unclamped exponent would overflow to inf.
+  return std::ldexp(1.0f, std::min(15 - exp, 127));
+}
+
+/**
+ * Casts a buffer of `T` to half, rescaling by a shared positive factor on the way. Exact for
+ * int8 and uint8: half represents every integer up to 2048.
+ *
+ * `scale` comes from `half_cast_scale`. Multiplying by the default of 1 is exact for every
+ * input, so callers that do not need rescaling get the plain conversion.
  */
 template <typename T>
-RAFT_KERNEL cast_to_half_kernel(const T* __restrict__ src, half* __restrict__ dst, int64_t n)
+RAFT_KERNEL cast_to_half_kernel(const T* __restrict__ src,
+                                half* __restrict__ dst,
+                                int64_t n,
+                                float scale = 1.0f)
 {
   const int64_t i = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
-  if (i < n) { dst[i] = __float2half(static_cast<float>(src[i])); }
+  if (i < n) { dst[i] = __float2half(static_cast<float>(src[i]) * scale); }
 }
 
 /**

@@ -94,10 +94,11 @@ void build_graph(raft::resources const& res,
   auto stream = raft::resource::get_cuda_stream(res).get();
 
   // All scoring runs on half operands with fp32 accumulation and every other type is converted
-  // here.
+  // here. A dataset whose magnitudes do not fit half is rescaled by one shared power of two
+  // first, which preserves the neighbour ordering; see `half_cast_scale`.
   //
   // Cosine is also handled entirely here by scaling each row to unit norm as it is converted (see
-  // `normalize_rows_to_half_kernel`).
+  // `normalize_rows_to_half_kernel`), which bounds every element by 1 and needs no rescaling.
   const bool normalize = params.metric == cuvs::distance::DistanceType::CosineExpanded;
   rmm::device_uvector<half> half_storage(0, stream);
   const half* scoring_data = nullptr;
@@ -110,10 +111,24 @@ void build_graph(raft::resources const& res,
       normalize_rows_to_half_kernel<<<n_rows, 256, 0, stream>>>(
         dataset.data_handle(), half_storage.data(), n_rows, dim);
     } else {
+      // Only float can fall outside the range half represents: int8 and uint8 are bounded by
+      // 255, and a half input is representable by definition.
+      float scale = 1.0f;
+      if constexpr (std::is_same_v<DataT, float>) {
+        const float max_abs = finite_max_abs(dataset.data_handle(), n_rows * dim, stream);
+        scale               = half_cast_scale(max_abs);
+        if (scale != 1.0f) {
+          RAFT_LOG_DEBUG(
+            "gpipnn: dataset magnitudes peak at %g, outside the range half holds usefully; "
+            "scaling by %g before conversion, which leaves the neighbour ordering unchanged",
+            static_cast<double>(max_abs),
+            static_cast<double>(scale));
+        }
+      }
       const int64_t threads = 256;
       const int64_t blocks  = (n_rows * dim + threads - 1) / threads;
       cast_to_half_kernel<<<blocks, threads, 0, stream>>>(
-        dataset.data_handle(), half_storage.data(), n_rows * dim);
+        dataset.data_handle(), half_storage.data(), n_rows * dim, scale);
     }
     RAFT_CUDA_TRY(cudaPeekAtLastError());
     scoring_data = half_storage.data();
