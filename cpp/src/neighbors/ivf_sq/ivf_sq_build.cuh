@@ -13,6 +13,7 @@
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/neighbors/ivf_sq.hpp>
 
+#include "../../core/histogram.hpp"
 #include "../detail/ann_utils.cuh"
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/logger.hpp>
@@ -28,7 +29,6 @@
 #include <raft/linalg/norm.cuh>
 #include <raft/matrix/sample_rows.cuh>
 #include <raft/random/rng.cuh>
-#include <raft/stats/histogram.cuh>
 #include <raft/util/pow2_utils.cuh>
 #include <raft/util/vectorized.cuh>
 
@@ -334,13 +334,13 @@ void extend_inplace(raft::resources const& handle,
   auto old_list_sizes_dev = raft::make_device_vector<uint32_t, int64_t>(handle, n_lists);
   raft::copy(old_list_sizes_dev.data_handle(), list_sizes_ptr, n_lists, stream);
 
-  raft::stats::histogram<uint32_t, int64_t>(raft::stats::HistTypeAuto,
-                                            reinterpret_cast<int32_t*>(list_sizes_ptr),
-                                            int64_t(n_lists),
-                                            new_labels.data_handle(),
-                                            n_rows,
-                                            1,
-                                            stream.get());
+  cuvs::detail::histogram<uint32_t, int64_t>(raft::stats::HistTypeAuto,
+                                             reinterpret_cast<int32_t*>(list_sizes_ptr),
+                                             int64_t(n_lists),
+                                             new_labels.data_handle(),
+                                             n_rows,
+                                             1,
+                                             stream.get());
   raft::linalg::add(
     list_sizes_ptr, list_sizes_ptr, old_list_sizes_dev.data_handle(), n_lists, stream.get());
 

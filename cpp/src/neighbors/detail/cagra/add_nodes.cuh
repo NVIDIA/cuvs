@@ -2,6 +2,7 @@
  * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
+#include "../../../core/histogram.hpp"
 #include "../../../core/omp_wrapper.hpp"
 #include "../ann_utils.cuh"
 #include <cuvs/neighbors/cagra.hpp>
@@ -11,7 +12,6 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/matrix/init.cuh>
-#include <raft/stats/histogram.cuh>
 #include <raft/util/cudart_utils.hpp>
 
 #include <rmm/device_buffer.hpp>
@@ -41,13 +41,13 @@ void add_node_core(
   auto dev_num_incoming_edges = raft::make_device_vector<int, std::uint64_t>(handle, new_size);
 
   raft::matrix::fill(handle, dev_num_incoming_edges.view(), int(0));
-  raft::stats::histogram<IdxT, std::int64_t>(raft::stats::HistTypeAuto,
-                                             dev_num_incoming_edges.data_handle(),
-                                             old_size,
-                                             idx.graph().data_handle(),
-                                             old_size * degree,
-                                             1,
-                                             raft::resource::get_cuda_stream(handle).get());
+  cuvs::detail::histogram<IdxT, std::int64_t>(raft::stats::HistTypeAuto,
+                                              dev_num_incoming_edges.data_handle(),
+                                              old_size,
+                                              idx.graph().data_handle(),
+                                              old_size * degree,
+                                              1,
+                                              raft::resource::get_cuda_stream(handle).get());
 
   auto host_num_incoming_edges = raft::make_host_vector<int, std::uint64_t>(new_size);
   raft::copy(handle, host_num_incoming_edges.view(), dev_num_incoming_edges.view());

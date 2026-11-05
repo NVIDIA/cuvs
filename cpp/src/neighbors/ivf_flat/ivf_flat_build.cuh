@@ -14,6 +14,7 @@
 #include <cuvs/neighbors/ivf_flat.hpp>
 
 #include "../../cluster/kmeans_balanced.cuh"
+#include "../../core/histogram.hpp"
 #include "../detail/ann_utils.cuh"
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
@@ -31,7 +32,6 @@
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/norm.cuh>
 #include <raft/matrix/init.cuh>
-#include <raft/stats/histogram.cuh>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/pow2_utils.cuh>
 
@@ -256,13 +256,13 @@ void extend(raft::resources const& handle,
       if (enable_prefetch) { raft::resource::sync_stream(handle); }
     }
   } else {
-    raft::stats::histogram<uint32_t, IdxT>(raft::stats::HistTypeAuto,
-                                           reinterpret_cast<int32_t*>(list_sizes_ptr),
-                                           IdxT(n_lists),
-                                           new_labels.data_handle(),
-                                           n_rows,
-                                           1,
-                                           stream.get());
+    cuvs::detail::histogram<uint32_t, IdxT>(raft::stats::HistTypeAuto,
+                                            reinterpret_cast<int32_t*>(list_sizes_ptr),
+                                            IdxT(n_lists),
+                                            new_labels.data_handle(),
+                                            n_rows,
+                                            1,
+                                            stream.get());
     raft::linalg::add(handle,
                       raft::make_device_vector_view<const uint32_t, IdxT>(list_sizes_ptr, n_lists),
                       raft::make_device_vector_view<const uint32_t, IdxT>(
