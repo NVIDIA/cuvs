@@ -58,6 +58,8 @@
 #include <thrust/extrema.h>
 #include <thrust/iterator/transform_iterator.h>
 #include <thrust/scan.h>
+#include <thrust/sequence.h>
+#include <thrust/sort.h>
 
 #include <memory>
 #include <variant>
@@ -205,17 +207,6 @@ void flat_compute_residuals(
                      stream.get());
 }
 
-template <uint32_t BlockDim, typename IdxT>
-__launch_bounds__(BlockDim) static __global__ void fill_indices_kernel(IdxT n_rows,
-                                                                       IdxT* data_indices,
-                                                                       IdxT* data_offsets,
-                                                                       const uint32_t* labels)
-{
-  const auto i = IdxT(BlockDim) * IdxT(blockIdx.x) + IdxT(threadIdx.x);
-  if (i >= n_rows) { return; }
-  data_indices[atomicAdd<IdxT>(data_offsets + labels[i], 1)] = i;
-}
-
 /**
  * @brief Calculate cluster offsets and arrange data indices into clusters.
  *
@@ -249,13 +240,12 @@ auto calculate_offsets_and_indices(IdxT n_rows,
   stream.sync();
   RAFT_EXPECTS(cumsum == n_rows, "cluster sizes do not add up.");
   RAFT_LOG_DEBUG("Max cluster size %d", max_cluster_size);
-  rmm::device_uvector<IdxT> data_offsets_buf(n_lists, stream);
-  auto data_offsets = data_offsets_buf.data();
-  raft::copy(data_offsets, cluster_offsets, n_lists, stream);
-  constexpr uint32_t n_threads = 128;  // NOLINT
-  const IdxT n_blocks          = raft::div_rounding_up_unsafe(n_rows, n_threads);
-  fill_indices_kernel<n_threads>
-    <<<n_blocks, n_threads, 0, stream.get()>>>(n_rows, data_indices, data_offsets, labels);
+  // Group the row indices by cluster with a stable sort, so that the order of the rows within a
+  // cluster (which decides the per-cluster training subsets) is the same in every build.
+  rmm::device_uvector<uint32_t> sorted_labels(n_rows, stream);
+  raft::copy(sorted_labels.data(), labels, n_rows, stream);
+  thrust::sequence(exec_policy, data_indices, data_indices + n_rows);
+  thrust::stable_sort_by_key(exec_policy, sorted_labels.begin(), sorted_labels.end(), data_indices);
   return max_cluster_size;
 }
 
