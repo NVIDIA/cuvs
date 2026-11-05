@@ -92,18 +92,27 @@ public class TestGPUSearchLargeTopK extends LuceneTestCase {
         DirectoryReader reader = index(dir, CuVSCodecs.gpuSearch(), 9000, 3000)) {
       // On Lucene 10.3, the 3000-document segment is expected to return about 643 hits for
       // k = 1500, and the 9000-document one about 1393, fewer than k but still above the limit;
-      // for k = 500, about 280 and 530, the latter above SINGLE_CTA's limit.
+      // for k = 500, about 280 and 530, the latter above SINGLE_CTA's limit. Lucene 10.2 asks every
+      // segment for k, so only k = 1500 goes above the limit there.
+      boolean asksForK = LuceneCompat.LUCENE_MAJOR == 10 && LuceneCompat.LUCENE_MINOR < 3;
       assertSkippedBeyondLimit(
-          reader, gpuQuery(1500, SearchAlgo.AUTO), CuVS2510GPUVectorsReader.MAX_CAGRA_K);
+          reader, gpuQuery(1500, SearchAlgo.AUTO), CuVS2510GPUVectorsReader.MAX_CAGRA_K, true);
       assertSkippedBeyondLimit(
           reader,
           gpuQuery(500, SearchAlgo.SINGLE_CTA),
-          GPUKnnFloatVectorQuery.MAX_SINGLE_CTA_ITOPK);
+          GPUKnnFloatVectorQuery.MAX_SINGLE_CTA_ITOPK,
+          !asksForK);
     }
   }
 
+  /**
+   * Asserts that each segment is searched or skipped as its expected hit count requires, and, if
+   * {@code expectSkip}, that at least one segment is skipped, so that the skip is tested at all.
+   */
   private static void assertSkippedBeyondLimit(
-      DirectoryReader reader, GPUKnnFloatVectorQuery query, int limit) throws Exception {
+      DirectoryReader reader, GPUKnnFloatVectorQuery query, int limit, boolean expectSkip)
+      throws Exception {
+    int skipped = 0;
     for (LeafReaderContext leaf : reader.leaves()) {
       String message = query + " in a segment of " + leaf.reader().maxDoc();
       int perLeafTopK = query.perLeafTopK(leaf);
@@ -116,6 +125,7 @@ public class TestGPUSearchLargeTopK extends LuceneTestCase {
             filteredHits);
       } else {
         assertEquals(message + " should be skipped", 0, filteredHits);
+        skipped++;
       }
       int unfilteredMax = Math.min(query.getK(), limit);
       assertSearched(
@@ -123,6 +133,9 @@ public class TestGPUSearchLargeTopK extends LuceneTestCase {
           Math.min(perLeafTopK, unfilteredMax),
           unfilteredMax,
           approximateHits(query, leaf, null, UNFILTERED));
+    }
+    if (expectSkip) {
+      assertTrue(query + " should skip at least one segment", skipped > 0);
     }
   }
 
