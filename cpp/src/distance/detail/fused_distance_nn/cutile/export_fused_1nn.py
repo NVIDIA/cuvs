@@ -39,23 +39,27 @@ def _dtype_for(data_type: str):
         return ct.float16
     if data_type == "float":
         return ct.float32
+    if data_type == "binary":
+        return ct.uint8
     raise ValueError(f"Unsupported data_type {data_type!r}")
 
 
 def _data_abbrev(data_type: str) -> str:
-    return {"half": "h", "float": "f"}[data_type]
+    return {"half": "h", "float": "f", "binary": "u8"}[data_type]
+
+
+def _bytes_per_elem(elem_dtype) -> int:
+    return {ct.float16: 2, ct.float32: 4, ct.uint8: 1}[elem_dtype]
 
 
 def _elem_stride_divisible_for_tma(elem_dtype) -> tuple[int, int]:
     """Row stride (dim 0) divisible enough for 16-byte TMA access; last dim stride 1."""
-    bytes_per_elem = 2 if elem_dtype == ct.float16 else 4
-    return (16 // bytes_per_elem, 1)
+    return (16 // _bytes_per_elem(elem_dtype), 1)
 
 
 def _elem_shape_divisible_for_ldgsts(elem_dtype) -> tuple[int, int]:
     """Matrix extent aligned to the same 16-byte row pitch enforced on strides."""
-    bytes_per_elem = 2 if elem_dtype == ct.float16 else 4
-    return (1, 16 // bytes_per_elem)
+    return (1, 16 // _bytes_per_elem(elem_dtype))
 
 
 def _cuvs_matrix_constraint(
@@ -152,7 +156,8 @@ def _kernel_signature(
             matrix_layout == "strict" and gpu_code in ("sm_80", "sm_86")
         ),
     )
-    norm_elem = ct.float32 if data_type == "half" else elem
+    # Binary rows carry their popcount as a float32 "norm".
+    norm_elem = ct.float32 if data_type in ("half", "binary") else elem
     norm_array = _cuvs_vector_constraint(
         norm_elem,
         index_dtype=idx_dtype,
@@ -257,7 +262,7 @@ def main() -> int:
     parser.add_argument("output_file", type=Path)
     parser.add_argument("--format", choices=("cubin",), default="cubin")
     parser.add_argument(
-        "--data-type", choices=("half", "float"), required=True
+        "--data-type", choices=("half", "float", "binary"), required=True
     )
     parser.add_argument("--metric", choices=METRICS, required=True)
     parser.add_argument("--index-type", choices=INDEX_TYPES, required=True)

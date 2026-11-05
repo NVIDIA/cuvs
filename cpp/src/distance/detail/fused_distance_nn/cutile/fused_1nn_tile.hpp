@@ -21,9 +21,10 @@ namespace cuvs {
 namespace distance {
 namespace detail {
 
+// uint8_t holds bit-packed rows, BitwiseHamming only.
 template <typename DataT>
 inline constexpr bool is_fused_1nn_cutile_data_v =
-  std::is_same_v<DataT, float> || std::is_same_v<DataT, half>;
+  std::is_same_v<DataT, float> || std::is_same_v<DataT, half> || std::is_same_v<DataT, uint8_t>;
 
 // Norm buffers use FP32 storage. Accumulate FP16 norms in FP32; for FP32 inputs, accumulate
 // the squares of TF32-rounded values in FP32 to match the cuTile MMA operands.
@@ -66,6 +67,8 @@ bool is_fused_1nn_tile_available(
  * All launch arguments are validated. An int64 output index requires an int32 workspace sized to
  * fused_1nn_cutile_index_workspace_rows<DataT>(m). This function throws instead of falling back
  * when the explicitly requested cuTile backend is unavailable.
+ *
+ * For uint8_t, k is the number of bytes per row and xn / yn are not read.
  */
 template <typename DataT, typename IdxT>
   requires is_fused_1nn_cutile_data_v<DataT>

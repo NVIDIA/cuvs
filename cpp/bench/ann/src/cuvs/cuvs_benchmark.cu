@@ -72,7 +72,15 @@ auto create_algo(const std::string& algo_name,
 #endif
   }
 
-  if constexpr (std::is_same_v<T, uint8_t>) {}
+  if constexpr (std::is_same_v<T, uint8_t>) {
+#ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT
+    if (algo_name == "cuvs_ivf_binary") {
+      cuvs::bench::cuvs_ivf_binary::build_param param;
+      parse_build_param(conf, param);
+      a = std::make_unique<cuvs::bench::cuvs_ivf_binary>(metric, dim, param);
+    }
+#endif
+  }
 
 #ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT
   if constexpr (std::is_same_v<T, float> || std::is_same_v<T, uint8_t> ||
@@ -159,6 +167,13 @@ auto create_search_param(const std::string& algo_name, const nlohmann::json& con
   }
 #endif
 #ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_FLAT
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (algo_name == "cuvs_ivf_binary") {
+      auto param = std::make_unique<cuvs::bench::cuvs_ivf_binary::search_param>();
+      parse_search_param(conf, *param);
+      return param;
+    }
+  }
   if constexpr (std::is_same_v<T, float> || std::is_same_v<T, uint8_t> ||
                 std::is_same_v<T, int8_t>) {
     if (algo_name == "raft_ivf_flat" || algo_name == "cuvs_ivf_flat") {

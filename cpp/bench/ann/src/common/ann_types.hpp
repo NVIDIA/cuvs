@@ -44,6 +44,7 @@ enum class HugePages {
 enum class Metric {
   kInnerProduct,
   kEuclidean,
+  kBitwiseHamming,
 };
 
 inline auto parse_metric(const std::string& metric_str) -> Metric
@@ -52,6 +53,8 @@ inline auto parse_metric(const std::string& metric_str) -> Metric
     return cuvs::bench::Metric::kInnerProduct;
   } else if (metric_str == "euclidean") {
     return cuvs::bench::Metric::kEuclidean;
+  } else if (metric_str == "bitwise_hamming") {
+    return cuvs::bench::Metric::kBitwiseHamming;
   } else {
     throw std::runtime_error("invalid metric: '" + metric_str + "'");
   }
@@ -167,9 +170,12 @@ class algo : public algo_base {
 
 }  // namespace cuvs::bench
 
-#define REGISTER_ALGO_INSTANCE(DataT)                                                              \
-  template auto cuvs::bench::create_algo<DataT>(                                                   \
-    const std::string&, const std::string&, int, const nlohmann::json&)                            \
-    -> std::unique_ptr<cuvs::bench::algo<DataT>>;                                                  \
-  template auto cuvs::bench::create_search_param<DataT>(const std::string&, const nlohmann::json&) \
-    -> std::unique_ptr<typename cuvs::bench::algo<DataT>::search_param>;
+#define REGISTER_ALGO_INSTANCE(DataT)                                    \
+  template auto cuvs::bench::create_algo<DataT>(                         \
+    const std::string&,                                                  \
+    const std::string&,                                                  \
+    int,                                                                 \
+    const nlohmann::json&) -> std::unique_ptr<cuvs::bench::algo<DataT>>; \
+  template auto cuvs::bench::create_search_param<DataT>(                 \
+    const std::string&,                                                  \
+    const nlohmann::json&) -> std::unique_ptr<typename cuvs::bench::algo<DataT>::search_param>;
