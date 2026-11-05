@@ -2,8 +2,9 @@
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  *
- * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged;
- * only include paths, error macros and the enclosing namespace differ.
+ * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged
+ * except that the launchers request only the shared memory they use and opt in
+ * to more than the default limit.
  */
 
 //
@@ -15,6 +16,7 @@
 // referenced by the benchmark.
 //
 
+#include "../../../../neighbors/detail/smem_utils.cuh"
 #include "quantize.cuh"
 #include "reductions.cuh"
 #include "rescale_search.cuh"
@@ -289,6 +291,11 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
 // ---------------------------------------------------------------------------
 // Launcher + free-function entry points.
 // ---------------------------------------------------------------------------
+// Keys the shared-memory state per kernel. Both output modes have the same signature but not the
+// same static shared memory, so one must not be raised to the other's limit.
+template <typename CodeT, bool kFullFactors>
+struct quantize_smem_key {};
+
 template <typename CodeT>
 static void launch_quantize_fused(cudaStream_t stream,
                                   const float* d_residual,
@@ -310,21 +317,30 @@ static void launch_quantize_fused(cudaStream_t stream,
   int iB               = static_cast<int>(ex_bits);
   constexpr int nwarps = block / 32;
 
-  size_t q_smem = (padded_dim + 2 * nwarps) * sizeof(float);
-  sa_quantize_fused_kernel<CodeT, block, false><<<iN, block, q_smem, stream>>>(d_residual,
-                                                                               d_total_code,
-                                                                               iN,
-                                                                               iD,
-                                                                               iB,
-                                                                               const_scaling_factor,
-                                                                               use_fast,
-                                                                               coarse_samples,
-                                                                               fine_samples,
-                                                                               d_delta,
-                                                                               d_vl,
-                                                                               delta_mode,
-                                                                               nullptr,
-                                                                               nullptr);
+  // The kernel only reads its shared memory while searching for a per-vector scale.
+  const size_t q_smem = (use_fast || ex_bits == 0) ? 0 : (padded_dim + 2 * nwarps) * sizeof(float);
+  auto kernel         = &sa_quantize_fused_kernel<CodeT, block, false>;
+  cudaKernel_t cuda_kernel;
+  RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel)));
+  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<quantize_smem_key<CodeT, false>>(
+    static_cast<std::uint32_t>(q_smem),
+    [&]() {
+      kernel<<<iN, block, q_smem, stream>>>(d_residual,
+                                            d_total_code,
+                                            iN,
+                                            iD,
+                                            iB,
+                                            const_scaling_factor,
+                                            use_fast,
+                                            coarse_samples,
+                                            fine_samples,
+                                            d_delta,
+                                            d_vl,
+                                            delta_mode,
+                                            nullptr,
+                                            nullptr);
+    },
+    cuda_kernel);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
@@ -404,21 +420,30 @@ static void launch_quantize_full(cudaStream_t stream,
   int iB               = static_cast<int>(ex_bits);
   constexpr int nwarps = block / 32;
 
-  size_t q_smem = (padded_dim + 2 * nwarps) * sizeof(float);
-  sa_quantize_fused_kernel<CodeT, block, true><<<iN, block, q_smem, stream>>>(d_residual,
-                                                                              d_total_code,
-                                                                              iN,
-                                                                              iD,
-                                                                              iB,
-                                                                              const_scaling_factor,
-                                                                              use_fast,
-                                                                              64,
-                                                                              64,
-                                                                              nullptr,
-                                                                              nullptr,
-                                                                              0,
-                                                                              d_centroid,
-                                                                              d_factors);
+  // The kernel only reads its shared memory while searching for a per-vector scale.
+  const size_t q_smem = (use_fast || ex_bits == 0) ? 0 : (padded_dim + 2 * nwarps) * sizeof(float);
+  auto kernel         = &sa_quantize_fused_kernel<CodeT, block, true>;
+  cudaKernel_t cuda_kernel;
+  RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel)));
+  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<quantize_smem_key<CodeT, true>>(
+    static_cast<std::uint32_t>(q_smem),
+    [&]() {
+      kernel<<<iN, block, q_smem, stream>>>(d_residual,
+                                            d_total_code,
+                                            iN,
+                                            iD,
+                                            iB,
+                                            const_scaling_factor,
+                                            use_fast,
+                                            64,
+                                            64,
+                                            nullptr,
+                                            nullptr,
+                                            0,
+                                            d_centroid,
+                                            d_factors);
+    },
+    cuda_kernel);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
