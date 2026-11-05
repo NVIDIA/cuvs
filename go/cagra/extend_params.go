@@ -38,9 +38,13 @@ func (p *ExtendParams) SetMaxChunkSize(max_chunk_size uint32) (*ExtendParams, er
 }
 
 func (p *ExtendParams) Close() error {
+	if p == nil || p.params == nil {
+		return nil
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraExtendParamsDestroy(p.params)))
 	if err != nil {
 		return err
 	}
+	p.params = nil
 	return nil
 }

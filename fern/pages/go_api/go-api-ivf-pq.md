@@ -161,7 +161,7 @@ Perform a Approximate Nearest Neighbors search on the Index
 * `neighbors` - Tensor in device memory that receives the indices of the nearest neighbors
 * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 
-_Source: `go/ivf_pq/ivf_pq.go:67`_
+_Source: `go/ivf_pq/ivf_pq.go:82`_
 
 ## Methods
 
@@ -304,7 +304,7 @@ func (index *IvfPqIndex) Close() error
 
 Destroys the IvfPqIndex
 
-_Source: `go/ivf_pq/ivf_pq.go:49`_
+_Source: `go/ivf_pq/ivf_pq.go:55`_
 
 ### SearchParams.Close
 

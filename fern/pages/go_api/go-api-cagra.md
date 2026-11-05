@@ -184,7 +184,7 @@ Builds a new Index from the dataset for efficient search.
 * `dataset` - A row-major Tensor on either the host or device to index
 * `index` - CagraIndex to build
 
-_Source: `go/cagra/cagra.go:226`_
+_Source: `go/cagra/cagra.go:229`_
 
 ### CreateExtendParams
 
@@ -204,7 +204,7 @@ func CreateIndex() (*CagraIndex, error)
 
 Creates a new empty Cagra Index
 
-_Source: `go/cagra/cagra.go:208`_
+_Source: `go/cagra/cagra.go:211`_
 
 ### CreateIndexParams
 
@@ -242,7 +242,7 @@ Extends the index with a caller-owned pre-concatenated padded dataset.
 * `newStartRow` - Row index where the additional vectors begin (must equal current index size)
 * `index` - CagraIndex to extend
 
-_Source: `go/cagra/cagra.go:277`_
+_Source: `go/cagra/cagra.go:286`_
 
 ### MakePaddedDataset
 
@@ -294,7 +294,7 @@ Perform a Approximate Nearest Neighbors search on the Index
 * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 * `allowList` - List of indices to allow in the search, if nil, no filtering is applied
 
-_Source: `go/cagra/cagra.go:317`_
+_Source: `go/cagra/cagra.go:341`_
 
 ### UpdateDataset
 
@@ -317,7 +317,7 @@ func (index *CagraIndex) Close() error
 
 Destroys the Cagra Index
 
-_Source: `go/cagra/cagra.go:299`_
+_Source: `go/cagra/cagra.go:314`_
 
 ### ExtendParams.Close
 

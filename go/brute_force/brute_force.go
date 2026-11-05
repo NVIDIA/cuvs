@@ -30,11 +30,20 @@ func CreateIndex() (*BruteForceIndex, error) {
 
 // Destroys the Brute Force KNN Index
 func (index *BruteForceIndex) Close() error {
+	if index == nil || index.index == nil {
+		return nil
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsBruteForceIndexDestroy(index.index)))
 	if err != nil {
 		return err
 	}
+	index.index = nil
+	index.trained = false
 	return nil
+}
+
+func (index *BruteForceIndex) closed() bool {
+	return index == nil || index.index == nil
 }
 
 // Builds a new Brute Force KNN Index from the dataset for efficient search.
@@ -46,6 +55,9 @@ func (index *BruteForceIndex) Close() error {
 // * `metric` - Distance type to use for building the index
 // * `metric_arg` - Value of `p` for Minkowski distances - set to 2.0 if not applicable
 func BuildIndex[T any](Resources cuvs.Resource, Dataset *cuvs.Tensor[T], metric cuvs.Distance, metric_arg float32, index *BruteForceIndex) error {
+	if index.closed() {
+		return errors.New("index is closed")
+	}
 	CMetric, exists := cuvs.CDistances[metric]
 
 	if !exists {
@@ -70,6 +82,9 @@ func BuildIndex[T any](Resources cuvs.Resource, Dataset *cuvs.Tensor[T], metric 
 // * `neighbors` - Tensor in device memory that receives the indices of the nearest neighbors
 // * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 func SearchIndex[T any](resources cuvs.Resource, index BruteForceIndex, queries *cuvs.Tensor[T], neighbors *cuvs.Tensor[int64], distances *cuvs.Tensor[float32]) error {
+	if index.closed() {
+		return errors.New("index is closed")
+	}
 	if !index.trained {
 		return errors.New("index needs to be built before calling search")
 	}
