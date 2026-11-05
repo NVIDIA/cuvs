@@ -52,8 +52,8 @@ import org.apache.lucene.util.FixedBitSet;
  * single multi-partition search to cuVS, passing one Lucene segment per cuVS partition. cuVS
  * runs the per-partition CAGRA searches, applies distance post-processing, and performs the
  * cross-partition top-k merge internally; the returned arrays are mapped to Lucene doc IDs on
- * the host. The effective CAGRA algorithm (SINGLE_CTA or MULTI_KERNEL) is selected by cuVS
- * based on {@code searchAlgo} and {@code itopk_size}, with MULTI_KERNEL handling k beyond
+ * the host. The effective CAGRA algorithm (SINGLE_CTA or MULTI_CTA) is selected by cuVS
+ * based on {@code searchAlgo} and {@code itopk_size}, with MULTI_CTA handling k beyond
  * SINGLE_CTA's per-partition cap.
  *
  * <p>If the query has an explicit {@code filter}, or if any segment carries live-document deletes,
@@ -80,6 +80,11 @@ import org.apache.lucene.util.FixedBitSet;
  * candidates, whichever is larger, or the merged result has fewer than {@code k} hits although
  * enough candidates pass the filter. The multi-partition search returns only the merged top {@code
  * k}, so for the other segments it checks only that count, not Lucene's second rule per segment.
+ *
+ * <p>On that per-leaf path, since Lucene 10.3, a filtered segment search must return as many hits as
+ * Lucene expects from the segment, which can exceed {@code k}. A segment with only a CAGRA index
+ * returns at most 1024 hits, or 512 with SINGLE_CTA; when Lucene expects more, the segment is
+ * searched exactly on the CPU instead, which a brute force index avoids.
  *
  * @since 25.10
  */
@@ -397,30 +402,20 @@ public class GPUKnnFloatVectorQuery extends CompatKnnFloatVectorQuery {
   }
 
   // -------------------------------------------------------------------------
-  // Per-segment fallback path (used when k > 1024 or not all GPU segments)
+  // Per-segment fallback path (used when rewrite cannot search all segments at once)
   // -------------------------------------------------------------------------
 
   @Override
-  KnnCollector newPerLeafCollector(LeafReaderContext context, int leafK, int visitedLimit) {
-    int collectorK = leafK;
-    CuVS2510GPUVectorsReader gpuReader = unwrapGpuReader(context, field);
-    // Not getCagraIndexForField, which would load the index of a reader opened for a merge onto the
-    // GPU even if the search then finds nothing to match.
-    if (gpuReader != null && gpuReader.hasCagraIndex(field)) {
-      // Lucene may ask for more hits than this query's k, but CAGRA returns at most
-      // CuVS2510GPUVectorsReader.MAX_CAGRA_K, and SINGLE_CTA at most MAX_SINGLE_CTA_ITOPK (the
-      // constructor checks the query's own k against the latter only). Capped, the collector holds
-      // fewer hits than Lucene asked for, and Lucene searches a filtered segment exactly instead,
-      // which is slower but still correct. The query's own k is never reduced. Other segments,
-      // such as those searched with Lucene's HNSW, have no such limit.
-      int limit =
-          searchAlgo == CagraSearchParams.SearchAlgo.SINGLE_CTA
-              ? MAX_SINGLE_CTA_ITOPK
-              : CuVS2510GPUVectorsReader.MAX_CAGRA_K;
-      collectorK = Math.max(k, Math.min(leafK, limit));
-    }
+  KnnCollector newPerLeafCollector(int leafK, int visitedLimit) {
     return new GPUPerLeafCuVSKnnCollector(
-        collectorK, visitedLimit, iTopK, searchWidth, threadBlockSize, maxIterations, searchAlgo);
+        leafK, visitedLimit, iTopK, searchWidth, threadBlockSize, maxIterations, searchAlgo);
+  }
+
+  @Override
+  int maxHits(LeafReaderContext context) {
+    CuVS2510GPUVectorsReader gpuReader = unwrapGpuReader(context, field);
+    // Other segments, such as those searched with Lucene's HNSW, have no such limit.
+    return gpuReader == null ? Integer.MAX_VALUE : gpuReader.maxHits(field, searchAlgo);
   }
 
   // -------------------------------------------------------------------------

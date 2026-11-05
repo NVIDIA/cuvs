@@ -16,8 +16,8 @@ When all index segments use `CuVS2510GPUVectorsReader`, `#rewrite` delegates a
 single multi-partition search to cuVS, passing one Lucene segment per cuVS partition. cuVS
 runs the per-partition CAGRA searches, applies distance post-processing, and performs the
 cross-partition top-k merge internally; the returned arrays are mapped to Lucene doc IDs on
-the host. The effective CAGRA algorithm (SINGLE_CTA or MULTI_KERNEL) is selected by cuVS
-based on `searchAlgo` and `itopk_size`, with MULTI_KERNEL handling k beyond
+the host. The effective CAGRA algorithm (SINGLE_CTA or MULTI_CTA) is selected by cuVS
+based on `searchAlgo` and `itopk_size`, with MULTI_CTA handling k beyond
 SINGLE_CTA's per-partition cap.
 
 If the query has an explicit `filter`, or if any segment carries live-document deletes,
@@ -42,6 +42,11 @@ whenever a segment has at least one but no more than `k` or `perLeafTopK`
 candidates, whichever is larger, or the merged result has fewer than `k` hits although
 enough candidates pass the filter. The multi-partition search returns only the merged top `k`, so for the other segments it checks only that count, not Lucene's second rule per segment.
 
+On that per-leaf path, since Lucene 10.3, a filtered segment search must return as many hits as
+Lucene expects from the segment, which can exceed `k`. A segment with only a CAGRA index
+returns at most 1024 hits, or 512 with SINGLE_CTA; when Lucene expects more, the segment is
+searched exactly on the CPU instead, which a brute force index avoids.
+
 ## Public Members
 
 ### GPUKnnFloatVectorQuery
@@ -64,7 +69,7 @@ and max_iterations auto-selected (0).
 | `iTopK` | CAGRA itopk_size parameter |
 | `searchWidth` | CAGRA search_width parameter |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:145`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:150`_
 
 ### GPUKnnFloatVectorQuery
 
@@ -88,6 +93,6 @@ Initializes `GPUKnnFloatVectorQuery`.
 | `maxIterations` | nonnegative CAGRA max_iterations (0 = auto) |
 | `searchAlgo` | CAGRA search algorithm |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:163`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:168`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:86`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:91`_

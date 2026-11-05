@@ -245,6 +245,7 @@ SPDX-License-Identifier: Apache-2.0
                 <sources>
                   <source>${cuvs.lucene.shared.dir}/test/java</source>
                   <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.leafReader}/src/test/java</source>
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnFloatVectorQuery}/src/test/java</source>
                 </sources>
               </configuration>
             </execution>

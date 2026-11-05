@@ -71,7 +71,9 @@ Fix every error without changing what the other modules compile:
   `<source>` line to the `add-shared-sources` execution of the parent `pom.xml` (see
   [compat/README.md](compat/README.md));
 - test-only calls, such as `LeafReader.searchNearestVectors`: the same, with `TestLuceneCompat` in the
-  `leaf-reader-*` variants (their `src/test/java`).
+  `leaf-reader-*` variants (their `src/test/java`). A test call to a class that already has variants
+  goes in that class's variants instead, like `TestQueryCompat` in the `knn-float-vector-query-*`
+  variants, with a matching `<source>` line in the `add-shared-test-sources` execution.
 
 The shared `src/` must keep compiling against every supported release. If a shared class needs an API
 that differs between releases, add a method to **every** module's `LuceneCompat` and call that instead.
@@ -114,9 +116,10 @@ into cuvs-lucene and compare it with the previous release; the most important is
 `AbstractKnnVectorQuery.rewrite`, which decides how each segment is searched. For example, Lucene 10.3
 started expecting more than `k` hits from a filtered segment search, and throwing away a search that
 returns fewer; `CompatKnnFloatVectorQuery.perLeafTopK` follows its rule, and has to follow it again if
-it changes. The 10.3 variant also tells filtered segment searches from unfiltered ones by the visit limit
-`rewrite` passes to `approximateSearch` (`Integer.MAX_VALUE` when it applies no filter), so check that
-this still holds.
+it changes. `PerLeafK`, which every variant calls, also tells filtered segment searches from unfiltered
+ones by the visit limit `rewrite` passes to `approximateSearch` (`Integer.MAX_VALUE` when it applies no
+filter), and skips a filtered search that cannot return `perLeafTopK` hits, relying on Lucene then
+searching the segment exactly; check that both still hold.
 
 Also read Lucene's `CHANGES.txt` for the release, looking for:
 
@@ -174,7 +177,8 @@ mvn -pl lucene-10.4 -am verify
 - New abstract methods or new tests in Lucene's `BaseKnnVectorsFormatTestCase` are handled once, in
   `src/test/java/.../BaseCuVSKnnVectorsFormatTestCase.java`, which every format test extends, and without
   `@Override`, so that they still compile against older releases.
-- A test call whose signature changed goes through `TestLuceneCompat`, in a `compat/` variant (step 2).
+- A test call whose signature changed goes through `TestLuceneCompat` or `TestQueryCompat`, in a
+  `compat/` variant (step 2).
 - `TestBackCompat` fails if a codec from `CuVSCodecs` is not registered, or if an older codec can still
   write.
 
