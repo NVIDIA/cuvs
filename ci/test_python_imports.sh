@@ -48,7 +48,7 @@ import_packages() {
     done
 
     rapids-logger "Check that cuvs_bench ships its dataset configuration"
-    python -c "import cuvs_bench, pathlib; path = pathlib.Path(cuvs_bench.__file__).parent / 'config' / 'datasets' / 'datasets.yaml'; assert path.is_file(), path"
+    python -c "from importlib.resources import files; path = files('cuvs_bench') / 'config' / 'datasets' / 'datasets.yaml'; assert path.is_file(), path"
 
     set +u
     conda deactivate
