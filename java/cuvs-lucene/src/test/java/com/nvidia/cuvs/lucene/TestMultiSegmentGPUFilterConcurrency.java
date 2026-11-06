@@ -85,7 +85,10 @@ public class TestMultiSegmentGPUFilterConcurrency extends LuceneTestCase {
     assumeTrue("cuVS not supported", isSupported());
     codec = CuVSCodecs.gpuSearch(new GPUSearchParams.Builder().build(), TEST_CACHE_CONFIG);
 
-    int datasetSize = 2000;
+    // Four segments of 1000, so each category's filter accepts about 42 documents per segment: more
+    // than the max(k, perLeafTopK) at or below which the query falls back to Lucene's per-segment
+    // search (k on Lucene 10.2, 24 for these sizes on 10.3).
+    int datasetSize = 4000;
     int dimensions = 128;
     int numQueries = 64;
     topK = 10;
@@ -158,7 +161,7 @@ public class TestMultiSegmentGPUFilterConcurrency extends LuceneTestCase {
       }
     }
     assertEquals(
-        "every filter here leaves far more than topK candidates per segment",
+        "every filter here leaves more than max(k, perLeafTopK) candidates per segment",
         NUM_CATEGORIES,
         gpuPath);
   }

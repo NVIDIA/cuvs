@@ -347,6 +347,28 @@ public class AcceleratedHNSWUtils {
   }
 
   /**
+   * Returns the nodes of a graph level in ascending order. Lucene's own {@code
+   * NodesIterator.getSortedNodes} was removed in Lucene 10.4.
+   *
+   * @param nodesOnLevel iterates over the nodes of one level
+   * @return the sorted nodes
+   */
+  private static int[] getSortedNodes(NodesIterator nodesOnLevel) {
+    int[] sortedNodes = new int[nodesOnLevel.size()];
+    // One node at a time, as Lucene's helper did: consume() may return fewer nodes than asked for.
+    int n = 0;
+    while (nodesOnLevel.hasNext()) {
+      sortedNodes[n++] = nodesOnLevel.nextInt();
+    }
+    if (n != sortedNodes.length) {
+      throw new IllegalStateException(
+          "iterated " + n + " of the " + sortedNodes.length + " nodes on the level");
+    }
+    Arrays.sort(sortedNodes);
+    return sortedNodes;
+  }
+
+  /**
    * Returns a 2D array of offsets (information written while writing the meta info)
    *
    * @param graph instance of GPUBuiltHnswGraph
@@ -361,7 +383,7 @@ public class AcceleratedHNSWUtils {
     int[][] offsets = new int[graph.numLevels()][];
     int[] scratch = new int[graph.maxConn() * 2];
     for (int level = 0; level < graph.numLevels(); level++) {
-      int[] sortedNodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(level));
+      int[] sortedNodes = getSortedNodes(graph.getNodesOnLevel(level));
       offsets[level] = new int[sortedNodes.length];
       int nodeOffsetId = 0;
 
@@ -497,12 +519,10 @@ public class AcceleratedHNSWUtils {
         NodesIterator nodesOnLevel = graph.getNodesOnLevel(level);
         valueCount += nodesOnLevel.size();
         if (level > 0) {
-          int[] nol = new int[nodesOnLevel.size()];
-          int numberConsumed = nodesOnLevel.consume(nol);
-          Arrays.sort(nol);
-          assert numberConsumed == nodesOnLevel.size();
+          // Sorted the way writeGraph orders the nodes, which the offsets follow.
+          int[] nol = getSortedNodes(nodesOnLevel);
           meta.writeVInt(nol.length); // number of nodes on a level
-          for (int i = nodesOnLevel.size() - 1; i > 0; --i) {
+          for (int i = nol.length - 1; i > 0; --i) {
             nol[i] -= nol[i - 1];
           }
           for (int n : nol) {
