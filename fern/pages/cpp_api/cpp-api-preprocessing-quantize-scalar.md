@@ -58,7 +58,7 @@ scales.
 ```cpp
 template <typename T>
 struct quantizer_const_view {
-  std::variant<global_type, shifts_type> value;
+  std::variant<global_type, per_dim_type> value;
   scale_type max_error;
 };
 ```
@@ -67,7 +67,7 @@ struct quantizer_const_view {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `value` | [`std::variant<global_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-global-type) | Global parameters or borrowed per-dimension shifts and scales. |
+| `value` | [`std::variant<global_type, per_dim_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-global-type) | Global parameters or borrowed per-dimension shifts and scales. |
 | `max_error` | `scale_type` | Maximum training-row L2 reconstruction error; see quantizer::max_error. |
 
 <a id="preprocessing-quantize-scalar-quantizer-const-view-global-type"></a>
@@ -91,15 +91,15 @@ struct global_type {
 | `shift` | `double` | Shift shared by all dimensions. |
 | `scale` | `double` | Step size shared by all dimensions. |
 
-<a id="preprocessing-quantize-scalar-quantizer-const-view-shifts-type"></a>
-### preprocessing::quantize::scalar::quantizer_const_view::shifts_type
+<a id="preprocessing-quantize-scalar-quantizer-const-view-per-dim-type"></a>
+### preprocessing::quantize::scalar::quantizer_const_view::per_dim_type
 
 Encode (x - shifts[j]) / scales[j], rounding to nearest with ties to even and
 
 clamping to the symmetric range of quantized values. Decode shifts[j] + scales[j] * code, saturating to finite limits of the input type.
 
 ```cpp
-struct shifts_type {
+struct per_dim_type {
   raft::device_vector_view<const T, int64_t> shifts;
   raft::device_vector_view<const scale_type, int64_t> scales;
 };
@@ -122,7 +122,7 @@ Move-only; copy view() to borrow the parameters.
 ```cpp
 template <typename T>
 struct quantizer {
-  std::variant<global_type, shifts_type> value;
+  std::variant<global_type, per_dim_type> value;
   scale_type max_error;
 };
 ```
@@ -131,16 +131,16 @@ struct quantizer {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `value` | [`std::variant<global_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-global-type) | Global parameters or owning per-dimension shifts and scales. |
+| `value` | [`std::variant<global_type, per_dim_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-global-type) | Global parameters or owning per-dimension shifts and scales. |
 | `max_error` | `scale_type` | Upper bound on the L2 error between a training row and its int8 encode/decode result. train measures every input row, including clipped outliers, and rounds the maximum up with a relative 1e-6 margin. This bound applies only to the training data, not later queries. It is infinity when constructed from parameters alone or when the error is not finite. |
 
-<a id="preprocessing-quantize-scalar-quantizer-shifts-type"></a>
-### preprocessing::quantize::scalar::quantizer::shifts_type
+<a id="preprocessing-quantize-scalar-quantizer-per-dim-type"></a>
+### preprocessing::quantize::scalar::quantizer::per_dim_type
 
 Owning per-dimension parameters.
 
 ```cpp
-struct shifts_type {
+struct per_dim_type {
   raft::device_vector<T, int64_t> shifts;
   raft::device_vector<scale_type, int64_t> scales;
 };

@@ -97,7 +97,7 @@ RAFT_INLINE_FUNCTION double reconstruction_error(T x, int64_t j, Op op)
 {
   double const value = static_cast<double>(x);
   double decoded;
-  if constexpr (std::is_same_v<Op, typename quantizer_const_view<T>::shifts_type>) {
+  if constexpr (std::is_same_v<Op, typename quantizer_const_view<T>::per_dim_type>) {
     using compute_t               = typename quantizer_const_view<T>::scale_type;
     compute_t const shift         = static_cast<compute_t>(op.shifts.data_handle()[j]);
     compute_t const scale         = op.scales.data_handle()[j];
@@ -209,7 +209,7 @@ std::tuple<T, T> quantile_min_max(
 }
 
 template <typename T, typename QuantI = int8_t>
-typename quantizer<T>::shifts_type train(raft::resources const& res,
+typename quantizer<T>::per_dim_type train(raft::resources const& res,
                                          raft::device_vector<T, int64_t>&& shifts,
                                          raft::device_vector<T, int64_t>&& maxima)
 {
@@ -252,7 +252,7 @@ typename quantizer<T>::shifts_type train(raft::resources const& res,
 }
 
 template <typename T, typename InT, typename OutT>
-void check_per_dim_shapes(typename quantizer_const_view<T>::shifts_type quantizer,
+void check_per_dim_shapes(typename quantizer_const_view<T>::per_dim_type quantizer,
                           raft::device_matrix_view<const InT, int64_t> dataset,
                           raft::device_matrix_view<OutT, int64_t> out)
 {
@@ -265,7 +265,7 @@ void check_per_dim_shapes(typename quantizer_const_view<T>::shifts_type quantize
 
 template <typename T, typename QuantI>
 void transform(raft::resources const& res,
-               typename quantizer_const_view<T>::shifts_type quantizer,
+               typename quantizer_const_view<T>::per_dim_type quantizer,
                raft::device_matrix_view<const T, int64_t> dataset,
                raft::device_matrix_view<QuantI, int64_t> out)
 {
@@ -287,7 +287,7 @@ void transform(raft::resources const& res,
 
 template <typename T, typename QuantI>
 void inverse_transform(raft::resources const& res,
-                       typename quantizer_const_view<T>::shifts_type quantizer,
+                       typename quantizer_const_view<T>::per_dim_type quantizer,
                        raft::device_matrix_view<const QuantI, int64_t> dataset,
                        raft::device_matrix_view<T, int64_t> out)
 {
@@ -313,7 +313,7 @@ void transform(raft::resources const& res,
 {
   auto view = quantizer;
   if (auto const* shifts =
-        std::get_if<typename quantizer_const_view<T>::shifts_type>(&view.value)) {
+        std::get_if<typename quantizer_const_view<T>::per_dim_type>(&view.value)) {
     detail::transform(res, *shifts, dataset, out);
     return;
   }
@@ -351,7 +351,7 @@ void inverse_transform(raft::resources const& res,
 {
   auto view = quantizer;
   if (auto const* shifts =
-        std::get_if<typename quantizer_const_view<T>::shifts_type>(&view.value)) {
+        std::get_if<typename quantizer_const_view<T>::per_dim_type>(&view.value)) {
     detail::inverse_transform(res, *shifts, dataset, out);
     return;
   }
@@ -528,7 +528,7 @@ quantizer<T> train(
       auto batch_errors =
         raft::make_device_vector_view<double, int64_t>(errors.data_handle(), input.extent(0));
       if (auto const* shifts =
-            std::get_if<typename quantizer_const_view<T>::shifts_type>(&view.value)) {
+            std::get_if<typename quantizer_const_view<T>::per_dim_type>(&view.value)) {
         max_reconstruction_error<T, QuantI>(
           res, input, *shifts, batch_errors, maximum.view(), offset != 0);
       } else {

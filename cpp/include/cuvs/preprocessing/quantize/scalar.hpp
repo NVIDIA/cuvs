@@ -84,14 +84,14 @@ struct quantizer_const_view {
   /** Encode (x - shifts[j]) / scales[j], rounding to nearest with ties to even and
    * clamping to the symmetric range of quantized values.
    * Decode shifts[j] + scales[j] * code, saturating to finite limits of the input type. */
-  struct shifts_type {
+  struct per_dim_type {
     /** One midpoint shift per dimension. */
     raft::device_vector_view<const T, int64_t> shifts;
     /** One finite, positive scale per dimension, with a finite reciprocal. */
     raft::device_vector_view<const scale_type, int64_t> scales;
   };
   /** Global parameters or borrowed per-dimension shifts and scales. */
-  std::variant<global_type, shifts_type> value;
+  std::variant<global_type, per_dim_type> value;
   /** Maximum training-row L2 reconstruction error; see quantizer::max_error. */
   scale_type max_error = INFINITY;
 };
@@ -106,12 +106,12 @@ struct quantizer {
   using scale_type  = typename view_type::scale_type;
   using global_type = typename view_type::global_type;
   /** Owning per-dimension parameters. */
-  struct shifts_type {
+  struct per_dim_type {
     raft::device_vector<T, int64_t> shifts;
     raft::device_vector<scale_type, int64_t> scales;
   };
   /** Global parameters or owning per-dimension shifts and scales. */
-  std::variant<global_type, shifts_type> value;
+  std::variant<global_type, per_dim_type> value;
   /**
    * Upper bound on the L2 error between a training row and its int8 encode/decode result.
    * train measures every input row, including clipped outliers, and rounds the maximum up
@@ -134,8 +134,8 @@ struct quantizer {
   [[nodiscard]] auto view() const noexcept -> view_type
   {
     if (auto const* range = std::get_if<global_type>(&value)) { return {*range, max_error}; }
-    auto const& shifts = std::get<shifts_type>(value);
-    return {typename view_type::shifts_type{shifts.shifts.view(), shifts.scales.view()}, max_error};
+    auto const& shifts = std::get<per_dim_type>(value);
+    return {typename view_type::per_dim_type{shifts.shifts.view(), shifts.scales.view()}, max_error};
   }
   /** An owning quantizer can be passed wherever a read-only view is accepted. */
   operator view_type() const noexcept { return view(); }  // NOLINT(google-explicit-constructor)

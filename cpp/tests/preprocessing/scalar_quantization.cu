@@ -343,7 +343,7 @@ class QuantizationTest : public ::testing::TestWithParam<QuantizationInputs<T>> 
   std::vector<T> host_input_;
 };
 
-using shifts_view = quantizer_const_view<float>::shifts_type;
+using shifts_view = quantizer_const_view<float>::per_dim_type;
 
 struct PerDimensionInputs {
   int64_t n_samples;
@@ -519,7 +519,7 @@ TEST(PerDimensionRangeTest, DoubleReconstructionErrorExtremes)
 TYPED_TEST(PerDimensionQuantizationTest, CorpusAndQueriesShareQuantizer)
 {
   using T           = TypeParam;
-  using shifts_view = typename quantizer_const_view<T>::shifts_type;
+  using shifts_view = typename quantizer_const_view<T>::per_dim_type;
   raft::resources res;
   auto stream = raft::resource::get_cuda_stream(res);
   std::vector<T> corpus{0.f, 10.f, 9.f, 254.f, 137.f, 9.f};
@@ -639,7 +639,7 @@ TEST(PerDimensionRangeTest, PerDimensionQuantiles)
 TYPED_TEST(PerDimensionQuantizationTest, CustomParametersAndValidation)
 {
   using T           = TypeParam;
-  using shifts_view = typename quantizer_const_view<T>::shifts_type;
+  using shifts_view = typename quantizer_const_view<T>::per_dim_type;
   raft::resources res;
   auto mins = raft::make_device_vector<T, int64_t>(res, 2);
   auto maxs = raft::make_device_vector<T, int64_t>(res, 2);
@@ -869,8 +869,8 @@ void testHostDataset(params p, bool prefetch = false, bool use_pinned = false)
   auto e = expected.const_manifest_view();
   EXPECT_NEAR(double(a.max_error), double(e.max_error), double(e.max_error) * 1e-6);
   if (p.range == range_mode::per_dimension) {
-    auto actual_shifts   = std::get<typename quantizer_const_view<T>::shifts_type>(a.value);
-    auto expected_shifts = std::get<typename quantizer_const_view<T>::shifts_type>(e.value);
+    auto actual_shifts   = std::get<typename quantizer_const_view<T>::per_dim_type>(a.value);
+    auto expected_shifts = std::get<typename quantizer_const_view<T>::per_dim_type>(e.value);
     EXPECT_TRUE(devArrMatch(actual_shifts.scales.data_handle(),
                             expected_shifts.scales.data_handle(),
                             dim,
