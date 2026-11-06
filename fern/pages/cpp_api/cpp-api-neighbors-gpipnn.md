@@ -59,7 +59,7 @@ struct index_params : cuvs::neighbors::index_params {
 | `fanout_level1` | `uint32_t` | Number of nearest sub-leaders each point is assigned to at the second level. At most 32. |
 | `max_rounds` | `uint32_t` | Maximum number of levels of the partition tree (assign-then-sort rounds). |
 | `alpha` | `float` | Alpha parameter of the DirectEdgePrune occlusion rule. Larger retains more edges. |
-| `leaf_batch_mib` | `uint32_t` | Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves are processed per batch. Affects only peak memory and build time, not graph quality. 0 selects an automatic budget of 256 bytes per row. |
+| `leaf_batch_mib` | `uint32_t` | Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves are processed per batch. Affects only peak memory and build time, not graph quality. 0 selects an automatic budget of 256 bytes per row, clamped to 512 MiB-6 GiB. |
 | `seed` | `uint64_t` | Seed for leader sampling and LSH hyperplane generation. |
 
 ## GPiPNN graph build
