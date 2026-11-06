@@ -42,7 +42,6 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <variant>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_resources.hpp>

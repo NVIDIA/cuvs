@@ -276,109 +276,37 @@ typename quantizer<T>::per_dim_type train(raft::resources const& res,
   return {std::move(minima), std::move(maxima)};
 }
 
-template <typename T, typename InT, typename OutT>
-void check_per_dim_shapes(typename quantizer_view<const T>::per_dim_type quantizer,
-                          raft::device_matrix_view<const InT, int64_t> dataset,
-                          raft::device_matrix_view<OutT, int64_t> out)
+// Encoding and decoding share the traversal; the input type selects the operator overload.
+template <typename T, typename QuantI, typename InT, typename OutT>
+void apply_quantizer(raft::resources const& res,
+                     quantizer_view<const T> quantizer,
+                     raft::device_matrix_view<const InT, int64_t> dataset,
+                     raft::device_matrix_view<OutT, int64_t> out)
 {
-  RAFT_EXPECTS(dataset.extent(1) > 0 && dataset.extent(1) == quantizer.mins.extent(0) &&
-                 dataset.extent(1) == quantizer.maxs.extent(0),
-               "Input width must match the nonempty min and max vectors");
-  RAFT_EXPECTS(dataset.extent(0) == out.extent(0) && dataset.extent(1) == out.extent(1),
-               "Input and output shapes must match");
-}
-
-template <typename T, typename QuantI>
-void transform(raft::resources const& res,
-               typename quantizer_view<const T>::per_dim_type quantizer,
-               raft::device_matrix_view<const T, int64_t> dataset,
-               raft::device_matrix_view<QuantI, int64_t> out)
-{
-  check_per_dim_shapes<T>(quantizer, dataset, out);
-  auto const* input = dataset.data_handle();
-  auto const* mins  = quantizer.mins.data_handle();
-  auto const* maxs  = quantizer.maxs.data_handle();
-  auto const dim    = dataset.extent(1);
-  raft::linalg::map_offset(res, out, [input, mins, maxs, dim] __device__(int64_t i) {
-    return per_dim_quantize_op<T, QuantI>{mins[i % dim], maxs[i % dim]}(input[i]);
-  });
-}
-
-template <typename T, typename QuantI>
-void inverse_transform(raft::resources const& res,
-                       typename quantizer_view<const T>::per_dim_type quantizer,
-                       raft::device_matrix_view<const QuantI, int64_t> dataset,
-                       raft::device_matrix_view<T, int64_t> out)
-{
-  check_per_dim_shapes<T>(quantizer, dataset, out);
-  auto const* input = dataset.data_handle();
-  auto const* mins  = quantizer.mins.data_handle();
-  auto const* maxs  = quantizer.maxs.data_handle();
-  auto const dim    = dataset.extent(1);
-  raft::linalg::map_offset(res, out, [input, mins, maxs, dim] __device__(int64_t i) {
-    return per_dim_quantize_op<T, QuantI>{mins[i % dim], maxs[i % dim]}(input[i]);
-  });
-}
-
-template <typename T, typename QuantI = int8_t>
-void transform(raft::resources const& res,
-               quantizer_view<const T> quantizer,
-               raft::device_matrix_view<const T, int64_t> dataset,
-               raft::device_matrix_view<QuantI, int64_t> out)
-{
-  auto view = quantizer;
   if (auto const* bounds =
-        std::get_if<typename quantizer_view<const T>::per_dim_type>(&view.value)) {
-    detail::transform(res, *bounds, dataset, out);
-    return;
-  }
-  auto const& range = std::get<typename quantizer_view<const T>::global_type>(view.value);
-  raft::linalg::map(res, out, quantize_op<T, QuantI>{range}, raft::make_const_mdspan(dataset));
-}
-
-template <typename T, typename QuantI = int8_t>
-void transform(raft::resources const& res,
-               quantizer_view<const T> quantizer,
-               raft::host_matrix_view<const T, int64_t> dataset,
-               raft::host_matrix_view<QuantI, int64_t> out)
-{
-  RAFT_EXPECTS(
-    std::holds_alternative<typename quantizer_view<const T>::global_type>(quantizer.value),
-    "Host quantization requires global parameters");
-  auto const& range = std::get<typename quantizer_view<const T>::global_type>(quantizer.value);
-  auto main_op      = quantize_op<T, QuantI>{range};
-  size_t n_elements = dataset.extent(0) * dataset.extent(1);
-
-  // In dry-run mode the views may be unbacked or alias the shared probe buffer.
-  if (raft::resource::get_dry_run_flag(res)) { return; }
-
-#pragma omp parallel for
-  for (size_t i = 0; i < n_elements; ++i) {
-    out.data_handle()[i] = main_op(dataset.data_handle()[i]);
+        std::get_if<typename quantizer_view<const T>::per_dim_type>(&quantizer.value)) {
+    auto const dim = dataset.extent(1);
+    RAFT_EXPECTS(dim > 0 && dim == bounds->mins.extent(0) && dim == bounds->maxs.extent(0),
+                 "Input width must match the nonempty min and max vectors");
+    RAFT_EXPECTS(dataset.extent(0) == out.extent(0) && dim == out.extent(1),
+                 "Input and output shapes must match");
+    auto const* input = dataset.data_handle();
+    auto const* mins  = bounds->mins.data_handle();
+    auto const* maxs  = bounds->maxs.data_handle();
+    raft::linalg::map_offset(res, out, [input, mins, maxs, dim] __device__(int64_t i) {
+      return per_dim_quantize_op<T, QuantI>{mins[i % dim], maxs[i % dim]}(input[i]);
+    });
+  } else {
+    auto const& range = std::get<typename quantizer_view<const T>::global_type>(quantizer.value);
+    raft::linalg::map(res, out, quantize_op<T, QuantI>{range}, dataset);
   }
 }
 
-template <typename T, typename QuantI = int8_t>
-void inverse_transform(raft::resources const& res,
-                       quantizer_view<const T> quantizer,
-                       raft::device_matrix_view<const QuantI, int64_t> dataset,
-                       raft::device_matrix_view<T, int64_t> out)
-{
-  auto view = quantizer;
-  if (auto const* bounds =
-        std::get_if<typename quantizer_view<const T>::per_dim_type>(&view.value)) {
-    detail::inverse_transform(res, *bounds, dataset, out);
-    return;
-  }
-  auto const& range = std::get<typename quantizer_view<const T>::global_type>(view.value);
-  raft::linalg::map(res, out, quantize_op<T, QuantI>{range}, raft::make_const_mdspan(dataset));
-}
-
-template <typename T, typename QuantI = int8_t>
-void inverse_transform(raft::resources const& res,
-                       quantizer_view<const T> quantizer,
-                       raft::host_matrix_view<const QuantI, int64_t> dataset,
-                       raft::host_matrix_view<T, int64_t> out)
+template <typename T, typename QuantI, typename InT, typename OutT>
+void apply_quantizer(raft::resources const& res,
+                     quantizer_view<const T> quantizer,
+                     raft::host_matrix_view<const InT, int64_t> dataset,
+                     raft::host_matrix_view<OutT, int64_t> out)
 {
   RAFT_EXPECTS(
     std::holds_alternative<typename quantizer_view<const T>::global_type>(quantizer.value),
@@ -554,7 +482,7 @@ quantizer<T> train(
       if (out) {
         auto batch_codes = raft::make_device_matrix_view<QuantI, int64_t>(
           out->data_handle() + offset * dim, input.extent(0), dim);
-        detail::transform(res, view, input, batch_codes);
+        apply_quantizer<T, QuantI>(res, view, input, batch_codes);
       }
     },
     false);

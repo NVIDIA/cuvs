@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -119,6 +119,81 @@ CUVS_EXPORT cuvsError_t cuvsScalarQuantizerInverseTransform(cuvsResources_t res,
                                                 cuvsScalarQuantizer_t quantizer,
                                                 DLManagedTensor* dataset,
                                                 DLManagedTensor* out);
+
+/**
+ * @brief Owns a scalar quantizer with separate min/max bounds for each dimension.
+ * The fields are managed by the lifecycle and training functions.
+ */
+typedef struct {
+  uintptr_t addr;
+  DLDataType dtype;
+} cuvsScalarQuantizerPerDim;
+
+typedef cuvsScalarQuantizerPerDim* cuvsScalarQuantizerPerDim_t;
+
+/**
+ * @brief Allocate an untrained per-dimension scalar quantizer.
+ * @param[out] quantizer Handle to allocate.
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsScalarQuantizerPerDimCreate(cuvsScalarQuantizerPerDim_t* quantizer);
+
+/**
+ * @brief Release the quantizer and its device bounds after outstanding stream work completes.
+ * @param[in] quantizer Handle to destroy.
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsScalarQuantizerPerDimDestroy(cuvsScalarQuantizerPerDim_t quantizer);
+
+/**
+ * @brief Train per-dimension bounds from every row of a host or device matrix.
+ * Supports float16, float32, and float64. The quantile is applied independently per dimension.
+ * Successful retraining replaces the previous bounds; failed training preserves them.
+ * Complete outstanding stream work using the quantizer before retraining.
+ *
+ * @param[in] res Resources used for training and allocation.
+ * @param[in] params Scalar quantizer parameters.
+ * @param[in] dataset Row-major host or device matrix.
+ * @param[in,out] quantizer Handle created by cuvsScalarQuantizerPerDimCreate.
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsScalarQuantizerPerDimTrain(cuvsResources_t res,
+                                                     cuvsScalarQuantizerParams_t params,
+                                                     DLManagedTensor* dataset,
+                                                     cuvsScalarQuantizerPerDim_t quantizer);
+
+/**
+ * @brief Quantize a device matrix using previously trained per-dimension bounds.
+ * The input type and width must match training. Output codes are int8, in [-127, 127].
+ * The quantizer must outlive stream work using its bounds.
+ *
+ * @param[in] res Resources used for execution.
+ * @param[in] quantizer Trained per-dimension scalar quantizer.
+ * @param[in] dataset Row-major device matrix to encode.
+ * @param[out] out Row-major device int8 matrix with the same shape.
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsScalarQuantizerPerDimTransform(cuvsResources_t res,
+                                                         cuvsScalarQuantizerPerDim_t quantizer,
+                                                         DLManagedTensor* dataset,
+                                                         DLManagedTensor* out);
+
+/**
+ * @brief Reconstruct a device matrix from per-dimension scalar codes.
+ * The output type and width must match training.
+ * The quantizer must outlive stream work using its bounds.
+ *
+ * @param[in] res Resources used for execution.
+ * @param[in] quantizer Trained per-dimension scalar quantizer.
+ * @param[in] dataset Row-major device int8 matrix to decode.
+ * @param[out] out Row-major device matrix with the same shape, in the training data type.
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsScalarQuantizerPerDimInverseTransform(
+  cuvsResources_t res,
+  cuvsScalarQuantizerPerDim_t quantizer,
+  DLManagedTensor* dataset,
+  DLManagedTensor* out);
 
 /**
  * @}
