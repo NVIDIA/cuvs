@@ -42,8 +42,9 @@ void _train(cuvsResources_t res,
     RAFT_FAIL("dataset must be accessible on host or device memory");
   }
 
-  quantizer->min_ = ret.min_;
-  quantizer->max_ = ret.max_;
+  auto const& range = std::get<typename decltype(ret)::global_type>(ret.value);
+  quantizer->min_ = range.min;
+  quantizer->max_ = range.max;
 }
 
 template <typename T, typename OutputT = int8_t>

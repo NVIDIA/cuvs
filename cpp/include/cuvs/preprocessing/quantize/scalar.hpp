@@ -29,8 +29,8 @@ namespace scalar {
  * @{
  */
 
-/** Select global or per-dimension shifts and scales. */
-enum class range_mode { global, per_dimension };
+/** Select global or per-dimension quantization bounds. */
+enum class quantization_mode { GLOBAL, PER_DIMENSION };
 
 /**
  * @brief quantizer parameters.
@@ -44,14 +44,14 @@ struct params {
   /**
    * Per-dimension training uses every row of a nonempty, finite dataset.
    * It applies the quantile independently to each dimension to select lower and upper bounds.
-   * Each dimension's shift is the midpoint of its bounds, rounded to the input type.
-   * Each dimension's scale fits its bounds around its stored shift into the symmetric range
-   * of quantized values.
+   * Transforms derive each dimension's shift from the midpoint of its bounds, rounded to the input
+   * type. Each dimension's scale fits its bounds around that shift into the symmetric range of
+   * quantized values.
    *
    * For a zero-width interval, its scale is one. Otherwise, each scale is at least
    * the smallest positive normal value of the scale type.
    */
-  range_mode range = range_mode::global;
+  quantization_mode range = quantization_mode::GLOBAL;
   /**
    * Maximum rows staged on device for host training and host dataset build.
    * Default: 65536. Zero processes the entire host input in one batch. Ignored for device input.
@@ -66,56 +66,76 @@ struct params {
   int64_t device_buffer_samples = 1 << 16;
 };
 
-/** Read-only scalar quantizer parameters. The owner must outlive stream work using shifts and
- * scales. */
+/**
+ * Non-owning scalar quantizer bounds, with the constness semantics of an mdspan:
+ * quantizer_view<T> can modify per-dimension bounds; quantizer_view<const T> cannot.
+ * Global bounds and max_error are copied. The owner must outlive stream work using the vectors.
+ */
 template <typename T>
-struct quantizer_const_view {
-  using scale_type = std::conditional_t<std::is_same_v<T, half>, float, T>;
-  /** Global affine parameters using double precision for encoding and decoding.
+struct quantizer_view {
+  using value_type       = std::remove_const_t<T>;
+  using scale_type       = std::conditional_t<std::is_same_v<value_type, half>, float, value_type>;
+  using vector_view_type = raft::device_vector_view<T, int64_t>;
+  /** Global bounds. Transforms derive an affine mapping in double precision.
    * Encode (x - shift) / scale, rounding to nearest with ties away from zero and clamping
    * to the full quantized range. Decode shift + scale * code, saturating to finite input limits.
-   * A zero scale represents constant training bounds; every code decodes to shift. */
+   * Equal bounds represent a constant range; every code decodes to that value. */
   struct global_type {
-    /** Shift shared by all dimensions. */
-    double shift = 0;
-    /** Step size shared by all dimensions. */
-    double scale = 0;
+    /** Lower bound shared by all dimensions. */
+    value_type min = value_type{0};
+    /** Upper bound shared by all dimensions. */
+    value_type max = value_type{0};
   };
-  /** Encode (x - shifts[j]) / scales[j], rounding to nearest with ties to even and
+  /** Per-dimension bounds. Transforms derive midpoint shifts and scales from these bounds.
+   * Encode (x - shift) / scale, rounding to nearest with ties to even and
    * clamping to the symmetric range of quantized values.
-   * Decode shifts[j] + scales[j] * code, saturating to finite limits of the input type. */
+   * Decode shift + scale * code, saturating to finite limits of the input type. */
   struct per_dim_type {
-    /** One midpoint shift per dimension. */
-    raft::device_vector_view<const T, int64_t> shifts;
-    /** One finite, positive scale per dimension, with a finite reciprocal. */
-    raft::device_vector_view<const scale_type, int64_t> scales;
+    /** One finite lower bound per dimension, with mins[j] <= maxs[j]. */
+    vector_view_type mins;
+    /** One finite upper bound per dimension; must have the same extent as mins. */
+    vector_view_type maxs;
   };
-  /** Global parameters or borrowed per-dimension shifts and scales. */
+  /** Global bounds or borrowed per-dimension bounds. */
   std::variant<global_type, per_dim_type> value;
   /** Maximum training-row L2 reconstruction error; see quantizer::max_error. */
   scale_type max_error = INFINITY;
+
+  /** A mutable view decays to the read-only one, the way an mdspan does. */
+  template <typename U>
+    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
+  operator quantizer_view<U>() const noexcept  // NOLINT(google-explicit-constructor)
+  {
+    using const_view_type = quantizer_view<U>;
+    if (auto const* range = std::get_if<global_type>(&value)) {
+      return {typename const_view_type::global_type{range->min, range->max}, max_error};
+    }
+    auto const& bounds = std::get<per_dim_type>(value);
+    return {typename const_view_type::per_dim_type{raft::make_const_mdspan(bounds.mins),
+                                                   raft::make_const_mdspan(bounds.maxs)},
+            max_error};
+  }
 };
 
 /**
- * Owns a global shift and scale or device shifts and scales for each dimension.
+ * Owns global bounds or device bounds for each dimension.
  * Move-only; copy view() to borrow the parameters.
  */
 template <typename T>
 struct quantizer {
-  using view_type   = quantizer_const_view<T>;
-  using scale_type  = typename view_type::scale_type;
-  using global_type = typename view_type::global_type;
-  /** Owning per-dimension parameters. */
+  static_assert(!std::is_const_v<T>, "An owning quantizer cannot hold const elements.");
+
+  using view_type       = quantizer_view<T>;
+  using const_view_type = quantizer_view<const T>;
+  using scale_type      = typename view_type::scale_type;
+  using global_type     = typename view_type::global_type;
+  /** Owning per-dimension bounds. */
   struct per_dim_type {
-    raft::device_vector<T, int64_t> shifts;
-    raft::device_vector<scale_type, int64_t> scales;
+    raft::device_vector<T, int64_t> mins;
+    raft::device_vector<T, int64_t> maxs;
   };
-  /** Global parameters or owning per-dimension shifts and scales. */
+  /** Global bounds or owning per-dimension bounds. */
   std::variant<global_type, per_dim_type> value;
-  /** Original lower global bound; unused in per-dimension mode. Does not track changes to value. */
-  T min_ = T{0};
-  /** Original upper global bound; unused in per-dimension mode. Does not track changes to value. */
-  T max_ = T{0};
   /**
    * Upper bound on the L2 error between a training row and its int8 encode/decode result.
    * train measures every input row, including clipped outliers, and rounds the maximum up
@@ -124,26 +144,32 @@ struct quantizer {
    */
   scale_type max_error = INFINITY;
 
-  /** Construct default global parameters. */
+  /** Construct default global bounds. */
   quantizer() : value{global_type{}} {}
-  /** Derive a global shift and scale from finite bounds with min <= max. */
+  /** Construct from finite global bounds with min <= max. */
   quantizer(T min, T max);
-  /** Construct from nonempty device bounds of equal length, with finite min <= max.
-   * Derives midpoint shifts and a scale for each dimension. */
+  /** Copy nonempty device bounds of equal length, with finite min <= max. */
   quantizer(raft::resources const& res,
             raft::device_vector_view<const T, int64_t> mins,
             raft::device_vector_view<const T, int64_t> maxs);
 
-  /** Borrow read-only parameters; the owner must outlive stream work using shifts and scales. */
-  [[nodiscard]] auto view() const noexcept -> view_type
+  /** Borrow mutable per-dimension bounds; the owner must outlive stream work using them. */
+  [[nodiscard]] auto view() noexcept -> view_type
   {
     if (auto const* range = std::get_if<global_type>(&value)) { return {*range, max_error}; }
-    auto const& shifts = std::get<per_dim_type>(value);
-    return {typename view_type::per_dim_type{shifts.shifts.view(), shifts.scales.view()},
+    auto& bounds = std::get<per_dim_type>(value);
+    return {typename view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()}, max_error};
+  }
+  /** Borrow read-only bounds; the owner must outlive stream work using per-dimension bounds. */
+  [[nodiscard]] auto view() const noexcept -> const_view_type
+  {
+    if (auto const* range = std::get_if<global_type>(&value)) {
+      return {typename const_view_type::global_type{range->min, range->max}, max_error};
+    }
+    auto const& bounds = std::get<per_dim_type>(value);
+    return {typename const_view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()},
             max_error};
   }
-  /** An owning quantizer can be passed wherever a read-only view is accepted. */
-  operator view_type() const noexcept { return view(); }  // NOLINT(google-explicit-constructor)
 };
 
 /**
@@ -206,7 +232,7 @@ quantizer<double> train(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               quantizer_const_view<double> quantizer,
+               const quantizer<double>& quantizer,
                raft::device_matrix_view<const double, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
@@ -233,7 +259,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               quantizer_const_view<double> quantizer,
+               const quantizer<double>& quantizer,
                raft::host_matrix_view<const double, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -260,7 +286,7 @@ void transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<double> quantizer,
+                       const quantizer<double>& quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<double, int64_t> out);
 
@@ -289,7 +315,7 @@ void inverse_transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<double> quantizer,
+                       const quantizer<double>& quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<double, int64_t> out);
 
@@ -353,7 +379,7 @@ quantizer<float> train(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               quantizer_const_view<float> quantizer,
+               const quantizer<float>& quantizer,
                raft::device_matrix_view<const float, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
@@ -380,7 +406,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               quantizer_const_view<float> quantizer,
+               const quantizer<float>& quantizer,
                raft::host_matrix_view<const float, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -406,7 +432,7 @@ void transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<float> quantizer,
+                       const quantizer<float>& quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<float, int64_t> out);
 
@@ -435,7 +461,7 @@ void inverse_transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<float> quantizer,
+                       const quantizer<float>& quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<float, int64_t> out);
 
@@ -499,7 +525,7 @@ quantizer<half> train(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               quantizer_const_view<half> quantizer,
+               const quantizer<half>& quantizer,
                raft::device_matrix_view<const half, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
@@ -526,7 +552,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               quantizer_const_view<half> quantizer,
+               const quantizer<half>& quantizer,
                raft::host_matrix_view<const half, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -552,7 +578,7 @@ void transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<half> quantizer,
+                       const quantizer<half>& quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<half, int64_t> out);
 
@@ -581,7 +607,7 @@ void inverse_transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<half> quantizer,
+                       const quantizer<half>& quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<half, int64_t> out);
 

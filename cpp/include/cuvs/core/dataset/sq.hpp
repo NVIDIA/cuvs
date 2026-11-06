@@ -34,9 +34,10 @@ struct sq_spec {
 
   using math_type = MathT;
 
-  // The manifest is either a global shift and scale or owning per-dimension shifts and scales.
-  using manifest_type      = cuvs::preprocessing::quantize::scalar::quantizer<MathT>;
-  using manifest_view_type = typename manifest_type::view_type;
+  // The manifest owns either global bounds or per-dimension bounds.
+  using manifest_type            = cuvs::preprocessing::quantize::scalar::quantizer<MathT>;
+  using manifest_view_type       = typename manifest_type::view_type;
+  using const_manifest_view_type = typename manifest_type::const_view_type;
 
   template <typename T, typename IdxT>
   struct apply : storage_spec<IdxT> {
@@ -45,27 +46,28 @@ struct sq_spec {
     using code_type  = int8_t;
     // NOTE: re-exported rather than declared here, so that they do not belong to one instantiation
     // of `apply`; qualified lookup into `apply` does not reach the enclosing spec on its own.
-    using math_type          = sq_spec::math_type;
-    using manifest_type      = sq_spec::manifest_type;
-    using manifest_view_type = sq_spec::manifest_view_type;
+    using math_type                = sq_spec::math_type;
+    using manifest_type            = sq_spec::manifest_type;
+    using manifest_view_type       = sq_spec::manifest_view_type;
+    using const_manifest_view_type = sq_spec::const_manifest_view_type;
 
     // NOTE: every accessor is inherited; the dimension is still one code per component, so even
     // `get_dim` is the dense one.
-    /** Borrow read-only quantizer parameters from the owning manifest. */
-    [[nodiscard]] static auto get_manifest_view(const manifest_type& manifest) noexcept
+    /** Borrow mutable per-dimension bounds from the owning manifest. */
+    [[nodiscard]] static auto get_manifest_view(manifest_type& manifest) noexcept
       -> manifest_view_type
     {
       return manifest.view();
     }
     /** Borrow read-only quantizer parameters; the manifest must outlive use of the view. */
     [[nodiscard]] static auto get_manifest_const_view(const manifest_type& manifest) noexcept
-      -> manifest_view_type
+      -> const_manifest_view_type
     {
       return manifest.view();
     }
-    /** Return the read-only view; its owner must outlive stream work using it. */
+    /** Convert a mutable view to read-only; its owner must outlive stream work using it. */
     [[nodiscard]] static auto get_manifest_const_view(manifest_view_type manifest) noexcept
-      -> manifest_view_type
+      -> const_manifest_view_type
     {
       return manifest;
     }
@@ -88,9 +90,8 @@ namespace preprocessing::quantize::scalar {
  * @{
  */
 /**
- * @brief Train and encode a device corpus with the selected range mode.
- * Reuse result.const_manifest_view() with transform
- * for query batches. For separate training/encoding, use train and transform.
+ * @brief Train and encode a device corpus with the selected quantization mode.
+ * For separate training and encoding, use train and transform.
  *
  * @param[in] res Resources used for training and allocation.
  * @param[in] params Scalar quantizer parameters.
@@ -98,13 +99,12 @@ namespace preprocessing::quantize::scalar {
  * @return Device dataset owning the quantized codes and quantizer.
  */
 template <typename T>
-inline device_sq_dataset<T, int64_t, T> build(raft::resources const& res,
-                                              params params,
-                                              raft::device_matrix_view<const T, int64_t> dataset)
+inline device_sq_dataset<T, int64_t, T> make_sq_dataset(
+  raft::resources const& res, params params, raft::device_matrix_view<const T, int64_t> dataset)
 {
   auto quantizer = train(res, params, dataset);
   auto codes = raft::make_device_matrix<int8_t, int64_t>(res, dataset.extent(0), dataset.extent(1));
-  transform(res, quantizer.view(), dataset, codes.view());
+  transform(res, quantizer, dataset, codes.view());
   return device_sq_dataset<T, int64_t, T>{std::move(codes), std::move(quantizer)};
 }
 
@@ -119,7 +119,7 @@ inline device_sq_dataset<T, int64_t, T> build(raft::resources const& res,
  * @param[in] dataset Row-major host corpus; pageable and pinned input are supported.
  * @return Device dataset owning the quantized codes and quantizer.
  */
-device_sq_dataset<float, int64_t, float> build(
+device_sq_dataset<float, int64_t, float> make_sq_dataset(
   raft::resources const& res, params params, raft::host_matrix_view<const float, int64_t> dataset);
 
 /**
@@ -133,7 +133,7 @@ device_sq_dataset<float, int64_t, float> build(
  * @param[in] dataset Row-major host corpus; pageable and pinned input are supported.
  * @return Device dataset owning the quantized codes and quantizer.
  */
-device_sq_dataset<double, int64_t, double> build(
+device_sq_dataset<double, int64_t, double> make_sq_dataset(
   raft::resources const& res, params params, raft::host_matrix_view<const double, int64_t> dataset);
 
 /**
@@ -147,9 +147,8 @@ device_sq_dataset<double, int64_t, double> build(
  * @param[in] dataset Row-major host corpus; pageable and pinned input are supported.
  * @return Device dataset owning the quantized codes and quantizer.
  */
-device_sq_dataset<half, int64_t, half> build(raft::resources const& res,
-                                             params params,
-                                             raft::host_matrix_view<const half, int64_t> dataset);
+device_sq_dataset<half, int64_t, half> make_sq_dataset(
+  raft::resources const& res, params params, raft::host_matrix_view<const half, int64_t> dataset);
 
 /** @} */
 
