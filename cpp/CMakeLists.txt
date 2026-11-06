@@ -485,6 +485,19 @@ if(NOT BUILD_CPU_ONLY)
   )
   generate_jit_lto_kernels(
     jit_lto_files
+    NAME_FORMAT "ivf_sq_scan_stable_capacity_@capacity@"
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_sq/detail/jit_lto_kernels/scan_stable_matrix.json"
+    KERNEL_INPUT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_sq/detail/jit_lto_kernels/scan_stable_kernel.cu.in"
+    FRAGMENT_TAG_FORMAT "${ivf_sq_ns}::fragment_tag_ivf_sq_scan_stable<@capacity@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>"
+                              "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/ivf_sq/scan_stable"
+    KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
+  )
+  generate_jit_lto_kernels(
+    jit_lto_files
     NAME_FORMAT "ivf_sq_setup_invariant_smem_metric_@metric_name@"
     MATRIX_JSON_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_sq/detail/jit_lto_kernels/setup_invariant_smem_matrix.json"
