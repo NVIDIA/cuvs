@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 package com.nvidia.cuvs;
@@ -230,11 +230,19 @@ public class TieredIndexQuery {
     }
 
     /**
-     * Sets a BitSet to use as prefilter while searching.
+     * Sets a prefilter shared by all queries. Bit {@code i} set includes dataset vector {@code i}
+     * in the results; bit {@code i} clear excludes it. A {@code BitSet} with no bits set excludes
+     * every vector, so the search returns no results, while a {@code null} prefilter applies no
+     * filtering.
      *
-     * @param prefilter the BitSet to use as prefilter
-     * @param numDocs   Total number of dataset vectors; used to align the prefilter
-     *                  correctly
+     * <p>Known limitation: a filtered search of an index that holds both vectors in its CAGRA
+     * index and vectors added by {@code extend} that have not been indexed yet can return wrong
+     * results: cuVS filters the latter by the wrong bits, and can return wrong ids and distances.
+     *
+     * @param prefilter the filter, or {@code null} for no filtering
+     * @param numDocs the number of vectors in the index at the time of the search, including any
+     *     added by {@code extend}. cuVS reads one bit per vector, so a smaller value leaves it
+     *     reading past the end of the filter. Bits at or beyond {@code numDocs} are ignored.
      * @return an instance of this Builder
      */
     public Builder withPrefilter(BitSet prefilter, int numDocs) {

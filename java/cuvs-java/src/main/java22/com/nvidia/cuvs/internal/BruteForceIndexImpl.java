@@ -7,15 +7,14 @@ package com.nvidia.cuvs.internal;
 import static com.nvidia.cuvs.internal.common.CloseableRMMAllocation.allocateRMMSegment;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT_BYTE_SIZE;
-import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT_BYTE_SIZE;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG_BYTE_SIZE;
-import static com.nvidia.cuvs.internal.common.Util.CudaMemcpyKind.HOST_TO_DEVICE;
 import static com.nvidia.cuvs.internal.common.Util.CudaMemcpyKind.INFER_DIRECTION;
 import static com.nvidia.cuvs.internal.common.Util.buildMemorySegment;
 import static com.nvidia.cuvs.internal.common.Util.checkCuVSError;
-import static com.nvidia.cuvs.internal.common.Util.concatenate;
+import static com.nvidia.cuvs.internal.common.Util.checkCudaError;
 import static com.nvidia.cuvs.internal.common.Util.cudaMemcpy;
+import static com.nvidia.cuvs.internal.common.Util.getStream;
 import static com.nvidia.cuvs.internal.common.Util.prepareTensor;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
 
@@ -26,6 +25,7 @@ import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.SearchResults;
 import com.nvidia.cuvs.internal.common.CloseableRMMAllocation;
+import com.nvidia.cuvs.internal.common.Prefilters;
 import com.nvidia.cuvs.internal.panama.cuvsFilter;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -35,6 +35,7 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SequenceLayout;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Objects;
 import java.util.UUID;
@@ -174,25 +175,22 @@ public class BruteForceIndexImpl implements BruteForceIndex {
       MemorySegment neighborsMemorySegment = localArena.allocate(neighborsSequenceLayout);
       MemorySegment distancesMemorySegment = localArena.allocate(distancesSequenceLayout);
 
-      // prepare the prefiltering data
-      final long prefilterDataLength;
-      final long prefilterBytes;
-      final MemorySegment prefilterDataMemorySegment;
+      // One filter shared by every query is passed as a bitset, one filter per query as a bitmap.
+      // Prefilters.fill picks the type from the number of filters.
       BitSet[] prefilters = cuvsQuery.getPrefilters();
-      if (prefilters != null && prefilters.length > 0) {
-        prefilterDataLength = (long) cuvsQuery.getNumDocs() * prefilters.length;
-        BitSet concatenatedFilters = concatenate(prefilters, cuvsQuery.getNumDocs());
-        // Size the host buffer by the full logical bit count; BitSet.toLongArray() would drop the
-        // trailing all-zero words, leaving the prefilterBytes copy reading past the buffer's end.
-        long[] filters = concatenatedFilters.toLongArray();
-        prefilterDataMemorySegment =
-            buildMemorySegment(localArena, filters, (prefilterDataLength + 63) / 64);
-        long[] prefilterShape = {(prefilterDataLength + 31) / 32};
-        prefilterBytes = C_INT_BYTE_SIZE * prefilterShape[0];
-      } else {
-        prefilterDataLength = 0;
-        prefilterBytes = 0;
-        prefilterDataMemorySegment = MemorySegment.NULL;
+      if (prefilters != null && prefilters.length == 0) {
+        prefilters = null;
+      }
+      if (prefilters != null && prefilters.length > 1) {
+        if (prefilters.length < numQueries) {
+          throw new IllegalArgumentException(
+              "Expected one prefilter shared by all queries or at least one per query ("
+                  + numQueries
+                  + "), got "
+                  + prefilters.length);
+        }
+        // Extra filters, e.g. from an array sized for a larger batch, are ignored.
+        prefilters = Arrays.copyOf(prefilters, (int) numQueries);
       }
 
       MemorySegment querySeg = buildMemorySegment(localArena, cuvsQuery.getQueryVectors());
@@ -205,13 +203,13 @@ public class BruteForceIndexImpl implements BruteForceIndex {
         final long neighborsBytes = C_LONG_BYTE_SIZE * numQueries * topk;
         final long distanceBytes = C_FLOAT_BYTE_SIZE * numQueries * topk;
 
+        MemorySegment prefilter = cuvsFilter.allocate(localArena);
         try (var queriesDP = allocateRMMSegment(cuvsResources, queriesBytes);
             var neighborsDP = allocateRMMSegment(cuvsResources, neighborsBytes);
             var distancesDP = allocateRMMSegment(cuvsResources, distanceBytes);
             var prefilterDP =
-                prefilterBytes > 0
-                    ? allocateRMMSegment(cuvsResources, prefilterBytes)
-                    : CloseableRMMAllocation.EMPTY) {
+                Prefilters.fill(
+                    cuvsResources, localArena, prefilter, prefilters, cuvsQuery.getNumDocs())) {
 
           cudaMemcpy(queriesDP.handle(), querySeg, queriesBytes, INFER_DIRECTION);
 
@@ -228,25 +226,11 @@ public class BruteForceIndexImpl implements BruteForceIndex {
               prepareTensor(
                   localArena, distancesDP.handle(), distancesShape, kDLFloat(), 32, kDLCUDA());
 
-          MemorySegment prefilter = cuvsFilter.allocate(localArena);
-          MemorySegment prefilterTensor;
-
-          if (prefilterDataMemorySegment == MemorySegment.NULL) {
-            cuvsFilter.type(prefilter, 0); // NO_FILTER
-            cuvsFilter.addr(prefilter, 0);
-          } else {
-            long[] prefilterShape = {(prefilterDataLength + 31) / 32};
-            cudaMemcpy(
-                prefilterDP.handle(), prefilterDataMemorySegment, prefilterBytes, HOST_TO_DEVICE);
-
-            // TODO: check if this is correct: filters is a long[] (64 bits)
-            prefilterTensor =
-                prepareTensor(
-                    localArena, prefilterDP.handle(), prefilterShape, kDLUInt(), 32, kDLCUDA());
-
-            cuvsFilter.type(prefilter, 2);
-            cuvsFilter.addr(prefilter, prefilterTensor.address());
-          }
+          // A filtered search can leave result slots unwritten when fewer than topK rows pass the
+          // filter, so mark every slot empty first.
+          checkCudaError(
+              cudaMemsetAsync(neighborsDP.handle(), -1, neighborsBytes, getStream(cuvsResources)),
+              "cudaMemsetAsync");
 
           var returnValue = cuvsStreamSync(cuvsResources);
           checkCuVSError(returnValue, "cuvsStreamSync");

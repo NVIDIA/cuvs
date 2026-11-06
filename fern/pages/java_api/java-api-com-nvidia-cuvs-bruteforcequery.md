@@ -206,19 +206,27 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/BruteForceQuery.java:175`
 public Builder withPrefilters(BitSet[] prefilters, int numDocs)
 ```
 
-Sets the prefilters data for building the `BruteForceQuery`.
+Sets the prefilters for building the `BruteForceQuery`. Bit `i` set includes
+dataset vector `i` in the results; bit `i` clear excludes it.
+
+Pass either one `BitSet`, which applies to every query, or one per query; bitsets
+beyond the number of queries are ignored. A `BitSet` with no bits set excludes every
+vector, so its queries return no results, while a `null` entry applies no filtering
+to its query. A `null` or empty array applies no filtering at all. The search throws
+`IllegalArgumentException` if there are several bitsets but fewer than queries.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
-| `prefilters` | array of bitsets, as many as queries, each containing as many bits as there are vectors in the index |
+| `prefilters` | one bitset shared by every query, or one per query |
+| `numDocs` | the number of vectors in the index, which each bitset covers. It must equal that number: cuVS reads each bitset over the index's rows, and the bitsets of a per-query array are placed `numDocs` bits apart, so any other value reads the wrong bits or past the end of the filter. Bits at or beyond `numDocs` are ignored. |
 
 **Returns**
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/BruteForceQuery.java:187`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/BruteForceQuery.java:197`_
 
 ### build
 
@@ -232,6 +240,6 @@ Builds an instance of `BruteForceQuery`
 
 an instance of `BruteForceQuery`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/BruteForceQuery.java:198`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/BruteForceQuery.java:208`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/BruteForceQuery.java:21`_
