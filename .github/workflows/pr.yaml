@@ -434,6 +434,9 @@ jobs:
       contents: read
     with:
       enable_check_generated_files: false
+      # Main builds seed this cache. PR merge refs can restore it but should not create
+      # duplicate archives that are inaccessible to other PRs.
+      pre-commit-cache-read-only: true
   check-c-abi:
     permissions:
       actions: read
