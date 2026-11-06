@@ -393,7 +393,7 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
 
   void testHnswAceMemoryLimitFallback()
   {
-    // This test verifies that setting tiny memory limits forces disk mode automatically
+    // This test verifies that a constrained host memory budget forces disk mode automatically
     // Create temporary directory for ACE build
     std::string temp_dir = std::string("/tmp/cuvs_hnsw_ace_memlimit_test_") +
                            std::to_string(std::time(nullptr)) + "_" +
@@ -412,16 +412,17 @@ class AnnHnswAceTest : public ::testing::TestWithParam<AnnHnswAceInputs> {
       hnsw_params.hierarchy = hnsw::HnswHierarchy::GPU;
       hnsw_params.M         = 32;
 
-      // Configure ACE parameters with tiny memory limits to force disk mode
+      // Configure ACE parameters with a host memory limit to force disk mode
       auto ace_params            = graph_build_params::ace_params();
       ace_params.npartitions     = ps.npartitions;
       ace_params.ef_construction = ps.ef_construction;
       ace_params.build_dir       = temp_dir;
       ace_params.use_disk        = false;  // Not explicitly requesting disk mode
 
-      // Selected host memory limit should enforce disk mode
-      ace_params.max_host_memory_gb  = 0.001;
-      ace_params.max_gpu_memory_gb   = 3.0;
+      // Leave room for labeling while keeping the host budget below the in-memory build
+      // estimate. Do not cap GPU memory below the device-dependent RAFT workspace budget.
+      ace_params.max_host_memory_gb  = ps.max_host_memory_gb;
+      ace_params.max_gpu_memory_gb   = ps.max_gpu_memory_gb;
       hnsw_params.graph_build_params = ace_params;
 
       // Build HNSW index using ACE - should automatically fall back to disk mode
@@ -998,8 +999,8 @@ inline std::vector<AnnHnswAceInputs> generate_hnsw_ace_memory_fallback_inputs()
      false,  // use_disk (not explicitly set, should be triggered by memory limit)
      cuvs::distance::DistanceType::L2Expanded,
      0.0,    // min_recall (not checked in fallback test)
-     0.001,  // max_host_memory_gb (tiny limit to force disk mode)
-     0.001}  // max_gpu_memory_gb (tiny limit to force disk mode)
+     0.004,  // max_host_memory_gb (fits labeling buffers but forces disk mode)
+     0.0}    // max_gpu_memory_gb (use device memory; this tests host-memory fallback)
   };
 }
 

@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -10,8 +10,18 @@ import pytest
 from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
+from cuvs.common.exceptions import CuvsException
 from cuvs.neighbors import hnsw
 from cuvs.tests.ann_utils import calc_recall, generate_data
+
+
+def test_ace_target_alpha_params():
+    """Preserve default and explicit alpha values in the Python parameter object."""
+    defaults = hnsw.AceParams()
+    configured = hnsw.AceParams(target_alpha=1.5)
+
+    assert defaults.target_alpha == 1.0
+    assert configured.target_alpha == 1.5
 
 
 def run_hnsw_ace_build_search_test(
@@ -25,7 +35,9 @@ def run_hnsw_ace_build_search_test(
     ef_construction=100,
     use_disk=False,
     hierarchy="gpu",
+    target_alpha=1.0,
     expected_recall=0.9,
+    M=32,
 ):
     """
     Test HNSW index build using ACE algorithm.
@@ -52,12 +64,13 @@ def run_hnsw_ace_build_search_test(
             npartitions=npartitions,
             build_dir=temp_dir,
             use_disk=use_disk,
+            target_alpha=target_alpha,
         )
 
         # Build parameters with ACE configuration
         index_params = hnsw.IndexParams(
             hierarchy=hierarchy,
-            M=32,
+            M=M,
             ef_construction=ef_construction,
             metric=metric,
             ace_params=ace_params,
@@ -111,6 +124,8 @@ def run_hnsw_ace_build_search_test(
         nn_skl.fit(dataset)
         skl_idx = nn_skl.kneighbors(queries, return_distance=False)
 
+        assert np.all((out_idx >= 0) & (out_idx < n_rows))
+        assert np.all(np.isfinite(out_dist))
         recall = calc_recall(out_idx, skl_idx)
         assert recall >= expected_recall, (
             f"Recall {recall:.3f} is below expected {expected_recall}"
@@ -239,7 +254,7 @@ def test_hnsw_ace_tiny_memory_limit_triggers_disk_mode():
             npartitions=2,
             build_dir=temp_dir,
             use_disk=False,  # Not explicitly requesting disk mode
-            max_host_memory_gb=0.001,  # Tiny limit to force disk mode
+            max_host_memory_gb=0.004,  # Fit labeling buffers but force disk mode
             max_gpu_memory_gb=0.0,  # No GPU memory limit
         )
 
@@ -267,3 +282,46 @@ def test_hnsw_ace_tiny_memory_limit_triggers_disk_mode():
         assert os.path.exists(reordered_file), (
             "Reordered dataset file should exist when disk mode is triggered"
         )
+
+
+@pytest.mark.parametrize(
+    ("target_alpha", "npartitions"),
+    [(-1.0, 4), (float("nan"), 4), (float("inf"), 4), (3.5, 4), (1.5, 2)],
+)
+def test_ace_rejects_invalid_target_alpha(target_alpha, npartitions, tmp_path):
+    """Validate alpha through the build, including the effective partition limit."""
+    dataset = np.zeros((4096, 16), dtype=np.float32)
+    build_dir = tmp_path / "ace"
+    ace_params = hnsw.AceParams(
+        npartitions=npartitions,
+        target_alpha=target_alpha,
+        use_disk=True,
+        build_dir=str(build_dir),
+    )
+    params = hnsw.IndexParams(hierarchy="none", ace_params=ace_params)
+    with pytest.raises(CuvsException, match="target_alpha"):
+        hnsw.build(params, dataset)
+    assert not build_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("target_alpha", "use_disk", "npartitions"),
+    [(1.5, False, 3), (0.0, True, 2)],
+)
+def test_ace_target_alpha_build_search(target_alpha, use_disk, npartitions):
+    """Exercise zero/multiple spills and reload disk indexes before searching."""
+    run_hnsw_ace_build_search_test(
+        # Keep 1000 rows per partition so ACE preserves the requested count.
+        n_rows=1000 * npartitions,
+        n_cols=8,
+        n_queries=16,
+        k=4,
+        npartitions=npartitions,
+        ef_construction=64,
+        hierarchy="none",
+        target_alpha=target_alpha,
+        use_disk=use_disk,
+        # Core-only graphs can be disconnected; do not impose a quality target.
+        expected_recall=0.0 if target_alpha == 0.0 else 0.7,
+        M=8,
+    )
