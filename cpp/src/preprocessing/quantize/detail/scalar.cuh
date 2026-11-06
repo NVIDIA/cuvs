@@ -210,8 +210,8 @@ std::tuple<T, T> quantile_min_max(
 
 template <typename T, typename QuantI = int8_t>
 typename quantizer<T>::per_dim_type train(raft::resources const& res,
-                                         raft::device_vector<T, int64_t>&& shifts,
-                                         raft::device_vector<T, int64_t>&& maxima)
+                                          raft::device_vector<T, int64_t>&& shifts,
+                                          raft::device_vector<T, int64_t>&& maxima)
 {
   using compute_t     = typename quantizer_const_view<T>::scale_type;
   auto const dim      = shifts.extent(0);
@@ -440,6 +440,8 @@ quantizer<T> train(
   if (params.range == range_mode::global) {
     auto [min, max] = quantile_min_max(res, dataset, params.quantile);
     result.value    = detail::train<T, QuantI>(min, max);
+    result.min_     = min;
+    result.max_     = max;
   } else {
     auto minima = raft::make_device_vector<T, int64_t>(res, dim);
     auto maxima = raft::make_device_vector<T, int64_t>(res, dim);

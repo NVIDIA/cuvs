@@ -112,6 +112,10 @@ struct quantizer {
   };
   /** Global parameters or owning per-dimension shifts and scales. */
   std::variant<global_type, per_dim_type> value;
+  /** Original lower global bound; unused in per-dimension mode. Does not track changes to value. */
+  T min_ = T{0};
+  /** Original upper global bound; unused in per-dimension mode. Does not track changes to value. */
+  T max_ = T{0};
   /**
    * Upper bound on the L2 error between a training row and its int8 encode/decode result.
    * train measures every input row, including clipped outliers, and rounds the maximum up
@@ -135,7 +139,8 @@ struct quantizer {
   {
     if (auto const* range = std::get_if<global_type>(&value)) { return {*range, max_error}; }
     auto const& shifts = std::get<per_dim_type>(value);
-    return {typename view_type::per_dim_type{shifts.shifts.view(), shifts.scales.view()}, max_error};
+    return {typename view_type::per_dim_type{shifts.shifts.view(), shifts.scales.view()},
+            max_error};
   }
   /** An owning quantizer can be passed wherever a read-only view is accepted. */
   operator view_type() const noexcept { return view(); }  // NOLINT(google-explicit-constructor)

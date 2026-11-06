@@ -123,6 +123,8 @@ Move-only; copy view() to borrow the parameters.
 template <typename T>
 struct quantizer {
   std::variant<global_type, per_dim_type> value;
+  T min_;
+  T max_;
   scale_type max_error;
 };
 ```
@@ -132,6 +134,8 @@ struct quantizer {
 | Name | Type | Description |
 | --- | --- | --- |
 | `value` | [`std::variant<global_type, per_dim_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-global-type) | Global parameters or owning per-dimension shifts and scales. |
+| `min_` | `T` | Original lower global bound; unused in per-dimension mode. Does not track changes to value. |
+| `max_` | `T` | Original upper global bound; unused in per-dimension mode. Does not track changes to value. |
 | `max_error` | `scale_type` | Upper bound on the L2 error between a training row and its int8 encode/decode result. train measures every input row, including clipped outliers, and rounds the maximum up with a relative 1e-6 margin. This bound applies only to the training data, not later queries. It is infinity when constructed from parameters alone or when the error is not finite. |
 
 <a id="preprocessing-quantize-scalar-quantizer-per-dim-type"></a>

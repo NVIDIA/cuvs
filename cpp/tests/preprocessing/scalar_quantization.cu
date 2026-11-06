@@ -458,6 +458,12 @@ void testTrainingReconstructionError(params p)
     auto host = train(res,
                       params{p.quantile},
                       raft::make_host_matrix_view<const T, int64_t>(values.data(), rows, dim));
+    EXPECT_EQ(host.min_, owner.min_);
+    EXPECT_EQ(host.max_, owner.max_);
+    if (p.quantile == 1.f) {
+      EXPECT_EQ(owner.min_, values.front());
+      EXPECT_EQ(owner.max_, values.back());
+    }
     EXPECT_GE(static_cast<long double>(host.max_error), maximum);
     EXPECT_NEAR(static_cast<double>(host.max_error),
                 static_cast<double>(owner.max_error),
@@ -763,6 +769,8 @@ TYPED_TEST(PerDimensionQuantizationTest, GlobalShiftScale)
   for (auto bounds : {std::pair<T, T>{T{-3}, T{7}}, std::pair<T, T>{T{5}, T{5}}}) {
     auto owner      = quantizer<T>{bounds.first, bounds.second};
     auto parameters = std::get<typename quantizer<T>::global_type>(owner.value);
+    EXPECT_EQ(owner.min_, bounds.first);
+    EXPECT_EQ(owner.max_, bounds.second);
     EXPECT_EQ(static_cast<T>(
                 std::fma(parameters.scale, std::numeric_limits<int8_t>::min(), parameters.shift)),
               bounds.first);

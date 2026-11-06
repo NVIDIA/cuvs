@@ -13,7 +13,7 @@
 namespace cuvs::preprocessing::quantize::scalar {
 
 template <typename T>
-quantizer<T>::quantizer(T min, T max) : value{detail::train<T>(min, max)}
+quantizer<T>::quantizer(T min, T max) : value{detail::train<T>(min, max)}, min_{min}, max_{max}
 {
 }
 

@@ -3,12 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <algorithm>
-#include <cmath>
 #include <cstdint>
-#include <cuda/std/limits>
 #include <dlpack/dlpack.h>
-#include <limits>
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/preprocessing/quantize/scalar.h>
@@ -46,12 +42,8 @@ void _train(cuvsResources_t res,
     RAFT_FAIL("dataset must be accessible on host or device memory");
   }
 
-  auto const& range  = std::get<typename decltype(ret)::global_type>(ret.value);
-  double const limit = static_cast<double>(cuda::std::numeric_limits<T>::max());
-  quantizer->min_ = static_cast<T>(std::clamp(
-    std::fma(range.scale, std::numeric_limits<int8_t>::min(), range.shift), -limit, limit));
-  quantizer->max_ = static_cast<T>(std::clamp(
-    std::fma(range.scale, std::numeric_limits<int8_t>::max(), range.shift), -limit, limit));
+  quantizer->min_ = ret.min_;
+  quantizer->max_ = ret.max_;
 }
 
 template <typename T, typename OutputT = int8_t>
