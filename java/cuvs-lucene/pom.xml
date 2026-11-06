@@ -61,6 +61,7 @@ SPDX-License-Identifier: Apache-2.0
   <modules>
     <module>lucene-10.2</module>
     <module>lucene-10.3</module>
+    <module>lucene-10.4</module>
     <!-- Relocates the pre-26.12 com.nvidia.cuvs.lucene:cuvs-lucene coordinates to cuvs-lucene-10.2. -->
     <module>relocation</module>
   </modules>
@@ -245,6 +246,7 @@ SPDX-License-Identifier: Apache-2.0
                 <sources>
                   <source>${cuvs.lucene.shared.dir}/test/java</source>
                   <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.leafReader}/src/test/java</source>
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnFloatVectorQuery}/src/test/java</source>
                 </sources>
               </configuration>
             </execution>

@@ -233,6 +233,10 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
     flatVectorsWriter.flush(maxDoc, sortMap);
+    // Since Lucene 10.4, the scalar-quantized flat writer normalizes the buffered vectors of COSINE
+    // fields in place when it flushes, so a flush builds their graph from normalized vectors and a
+    // merge from the vectors as indexed. Both are built with the configured cuVS distance, which
+    // does not depend on the field's similarity yet.
     for (var field : fields) {
       if (sortMap == null) {
         writeField(field);
