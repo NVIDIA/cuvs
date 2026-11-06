@@ -309,6 +309,12 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
 
 inline std::vector<AnnVamanaInputs> generate_inputs()
 {
+  // The degree-32 sweep uses reverse_batchsize = 100 only, because reverse_batchsize doesn't
+  // change the graph. After each batch of inserts, batched_insert_vamana splits the distinct
+  // destination nodes of the reverse edges into chunks of min(reverse_batchsize, n_rows) nodes.
+  // The chunks share no nodes, and the new edge list of a node depends only on its previous list,
+  // its reverse candidates and the dataset. The rand() calls (insert order and medoid) don't
+  // depend on it either. With n_rows = 1000, 100 gives several chunks per pass.
   std::vector<AnnVamanaInputs> inputs = raft::util::itertools::product<AnnVamanaInputs>(
     {1000},
     {1, 3, 5, 7, 8, 17, 64, 128, 137, 192, 256, 384, 512, 619, 1024},
@@ -317,7 +323,7 @@ inline std::vector<AnnVamanaInputs> generate_inputs()
     {0.06, 0.1},
     {cuvs::distance::DistanceType::L2Expanded},
     {false},
-    {100, 1000000},
+    {100},  // reverse_batchsize
     {1.0, 1.5},
     {100},
     {10},
@@ -326,6 +332,16 @@ inline std::vector<AnnVamanaInputs> generate_inputs()
     {64},
     {1},
     {0.2});
+
+  // One chunk per pass (reverse_batchsize >= n_rows, e.g. the default 1e6): each degree-32
+  // configuration at one dim here, and every degree 64/128/256 case below.
+  const auto n_degree_32 = inputs.size();
+  for (std::size_t i = 0; i < n_degree_32; i++) {
+    if (inputs[i].dim != 137) { continue; }
+    auto single_chunk              = inputs[i];
+    single_chunk.reverse_batchsize = 1000000;
+    inputs.push_back(single_chunk);
+  }
 
   std::vector<AnnVamanaInputs> inputs2 = raft::util::itertools::product<AnnVamanaInputs>(
     {1000},
