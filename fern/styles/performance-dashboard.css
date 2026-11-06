@@ -1,0 +1,246 @@
+.performance-dashboard {
+  --pd-nv-green: #76b900;
+  --pd-intel-blue: #0071c5;
+  --pd-border: #e0e0e0;
+  --pd-muted: #666;
+  margin: 0 0 24px;
+  font-size: 13px;
+  color: #222;
+}
+
+.performance-dashboard .pd-subtitle {
+  color: var(--pd-muted);
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.performance-dashboard .pd-status {
+  font-size: 12px;
+  color: var(--pd-muted);
+  padding: 4px 0;
+}
+
+.performance-dashboard .pd-status.err {
+  color: #c00;
+}
+
+.performance-dashboard .pd-filters {
+  background: #fff;
+  border: 1px solid var(--pd-border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.performance-dashboard .pd-filter-group label.pd-title {
+  display: block;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--pd-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.performance-dashboard .pd-ms-dropdown {
+  position: relative;
+}
+
+.performance-dashboard .pd-ms-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 7px 10px;
+  background: #fff;
+  border: 1px solid var(--pd-border);
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+  min-height: 34px;
+}
+
+.performance-dashboard .pd-ms-btn.open {
+  border-color: #333;
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.06);
+}
+
+.performance-dashboard .pd-ms-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.performance-dashboard .pd-ms-count-pill {
+  display: inline-block;
+  background: #eee;
+  color: #333;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  margin-left: 6px;
+}
+
+.performance-dashboard .pd-ms-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid var(--pd-border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+  z-index: 30;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.performance-dashboard .pd-ms-actions {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid #eee;
+  padding: 4px 6px 6px;
+  margin-bottom: 4px;
+}
+
+.performance-dashboard .pd-ms-actions button {
+  flex: 1;
+  background: #f5f5f5;
+  border: 1px solid var(--pd-border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.performance-dashboard .pd-ms-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.performance-dashboard .pd-ms-option:hover {
+  background: #f5f5f5;
+}
+
+.performance-dashboard .pd-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.performance-dashboard .pd-swatch.gpu {
+  background: var(--pd-nv-green);
+}
+
+.performance-dashboard .pd-swatch.cpu {
+  background: var(--pd-intel-blue);
+}
+
+.performance-dashboard .pd-chart-card {
+  background: #fff;
+  border: 1px solid var(--pd-border);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.performance-dashboard .pd-chart-card h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.performance-dashboard .pd-subhead {
+  font-size: 11px;
+  color: var(--pd-muted);
+  margin-bottom: 10px;
+}
+
+.performance-dashboard .pd-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.performance-dashboard .pd-sort-toggle {
+  display: inline-flex;
+  border: 1px solid var(--pd-border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.performance-dashboard .pd-sort-toggle button {
+  background: #fff;
+  border: none;
+  border-left: 1px solid var(--pd-border);
+  font-size: 11px;
+  padding: 5px 10px;
+  color: var(--pd-muted);
+  cursor: pointer;
+}
+
+.performance-dashboard .pd-sort-toggle button:first-child {
+  border-left: none;
+}
+
+.performance-dashboard .pd-sort-toggle button.active {
+  background: #333;
+  color: #fff;
+}
+
+.performance-dashboard .pd-sort-label {
+  font-size: 10px;
+  color: var(--pd-muted);
+  align-self: center;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+  margin-right: 4px;
+}
+
+.performance-dashboard .pd-chart-wrap {
+  position: relative;
+  height: 380px;
+}
+
+.performance-dashboard .pd-series-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid #f0f0f0;
+}
+
+.performance-dashboard .pd-series-legend .item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.performance-dashboard .pd-series-legend .swatch-sq {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+}
