@@ -687,6 +687,10 @@ class SQBruteForceTest : public ::testing::TestWithParam<SQBruteForceInputs> {
                             raft::make_const_mdspan(dataset.view()));
     index_params index_params;
     index_params.metric = params.metric;
+    if (params.range == scalar::range_mode::per_dimension) {
+      EXPECT_THROW(build(res, index_params, sq.view()), raft::logic_error);
+      return;
+    }
     auto index          = build(res, index_params, sq.view());
     auto neighbors      = raft::make_device_matrix<int64_t, int64_t>(res, n_queries, k);
     auto distances      = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
@@ -1060,14 +1064,9 @@ const std::vector<SQBruteForceInputs> sq_inputs{
   {DistanceType::L2SqrtUnexpanded, range_mode::global},
   {DistanceType::InnerProduct, range_mode::global},
   {DistanceType::CosineExpanded, range_mode::global},
-  {DistanceType::L2Expanded, range_mode::per_dimension},
-  {DistanceType::L2Unexpanded, range_mode::per_dimension},
-  {DistanceType::L2SqrtExpanded, range_mode::per_dimension},
-  {DistanceType::L2SqrtUnexpanded, range_mode::per_dimension},
-  {DistanceType::InnerProduct, range_mode::per_dimension},
-  {DistanceType::CosineExpanded, range_mode::per_dimension}};
-const std::vector<SQBruteForceInputs> sq_half_inputs{
   {DistanceType::L2Expanded, range_mode::per_dimension}};
+const std::vector<SQBruteForceInputs> sq_half_inputs{
+  {DistanceType::L2Expanded, range_mode::global}};
 const std::vector<SQBruteForceInputs> sq_double_inputs{
   {DistanceType::InnerProduct, range_mode::global}};
 

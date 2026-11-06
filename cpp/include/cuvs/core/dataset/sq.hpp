@@ -34,7 +34,7 @@ struct sq_spec {
 
   using math_type = MathT;
 
-  // The manifest is either a global interval or owning per-dimension shifts and a shared scale.
+  // The manifest is either a global shift and scale or owning per-dimension shifts and scales.
   using manifest_type      = cuvs::preprocessing::quantize::scalar::quantizer<MathT>;
   using manifest_view_type = typename manifest_type::view_type;
 
@@ -86,9 +86,16 @@ namespace preprocessing::quantize::scalar {
 /**
  * @defgroup scalar_dataset Scalar-quantized dataset construction
  * @{
- * Train and encode a device corpus with the selected range mode.
+ */
+/**
+ * @brief Train and encode a device corpus with the selected range mode.
  * Reuse result.const_manifest_view() with transform
  * for query batches. For separate training/encoding, use train and transform.
+ *
+ * @param[in] res Resources used for training and allocation.
+ * @param[in] params Scalar quantizer parameters.
+ * @param[in] dataset Device corpus to train on and encode.
+ * @return Device dataset owning the quantized codes and quantizer.
  */
 template <typename T>
 inline device_sq_dataset<T, int64_t, T> build(raft::resources const& res,
@@ -100,6 +107,49 @@ inline device_sq_dataset<T, int64_t, T> build(raft::resources const& res,
   transform(res, quantizer.view(), dataset, codes.view());
   return device_sq_dataset<T, int64_t, T>{std::move(codes), std::move(quantizer)};
 }
+
+/**
+ * @brief Train and encode a host corpus in GPU batches, returning device-resident int8 codes.
+ * Uses one quantizer across all batches and measures the maximum error over every row.
+ * Configure params.device_buffer_samples to bound input staging and an auxiliary stream pool
+ * on res to enable double buffering. All int8 codes must fit in device memory.
+ *
+ * @param[in] res Resources used for training, allocation, and transfer streams.
+ * @param[in] params Scalar quantizer and host batching parameters.
+ * @param[in] dataset Row-major host corpus; pageable and pinned input are supported.
+ * @return Device dataset owning the quantized codes and quantizer.
+ */
+device_sq_dataset<float, int64_t, float> build(
+  raft::resources const& res, params params, raft::host_matrix_view<const float, int64_t> dataset);
+
+/**
+ * @brief Train and encode a host corpus in GPU batches, returning device-resident int8 codes.
+ * Uses one quantizer across all batches and measures the maximum error over every row.
+ * Configure params.device_buffer_samples to bound input staging and an auxiliary stream pool
+ * on res to enable double buffering. All int8 codes must fit in device memory.
+ *
+ * @param[in] res Resources used for training, allocation, and transfer streams.
+ * @param[in] params Scalar quantizer and host batching parameters.
+ * @param[in] dataset Row-major host corpus; pageable and pinned input are supported.
+ * @return Device dataset owning the quantized codes and quantizer.
+ */
+device_sq_dataset<double, int64_t, double> build(
+  raft::resources const& res, params params, raft::host_matrix_view<const double, int64_t> dataset);
+
+/**
+ * @brief Train and encode a host corpus in GPU batches, returning device-resident int8 codes.
+ * Uses one quantizer across all batches and measures the maximum error over every row.
+ * Configure params.device_buffer_samples to bound input staging and an auxiliary stream pool
+ * on res to enable double buffering. All int8 codes must fit in device memory.
+ *
+ * @param[in] res Resources used for training, allocation, and transfer streams.
+ * @param[in] params Scalar quantizer and host batching parameters.
+ * @param[in] dataset Row-major host corpus; pageable and pinned input are supported.
+ * @return Device dataset owning the quantized codes and quantizer.
+ */
+device_sq_dataset<half, int64_t, half> build(raft::resources const& res,
+                                             params params,
+                                             raft::host_matrix_view<const half, int64_t> dataset);
 
 /** @} */
 

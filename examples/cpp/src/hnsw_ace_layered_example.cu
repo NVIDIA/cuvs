@@ -42,6 +42,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <variant>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_resources.hpp>
@@ -86,7 +87,10 @@ auto quantize_dataset(raft::device_resources const& dev_resources,
   auto dataset_i8 =
     raft::make_host_matrix<int8_t, int64_t>(dataset_float.extent(0), dataset_float.extent(1));
   cuvs::preprocessing::quantize::scalar::transform(
-    dev_resources, quantizer, dataset_float, dataset_i8.view());
+    dev_resources,
+    std::get<decltype(quantizer)::global_type>(quantizer.value),
+    dataset_float,
+    dataset_i8.view());
   return dataset_i8;
 }
 

@@ -11,7 +11,6 @@
 #include <cuvs/selection/select_k.hpp>
 
 #include <raft/core/copy.cuh>
-#include <raft/core/cublas_macros.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -35,7 +34,6 @@
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <string_view>
 #include <variant>
 
 #include "./faiss_distance_utils.h"
@@ -44,43 +42,27 @@ namespace cuvs::neighbors::detail {
 
 constexpr int kInt8BlockSize = 256;
 
-template <typename T>
 struct sq_affine_parameters {
   double scale;
   double shift;
-  T const* shifts;
 };
 
 template <typename T>
-sq_affine_parameters<T> get_sq_affine_parameters(
-  cuvs::preprocessing::quantize::scalar::quantizer_const_view<T> quantizer, int64_t dim)
+sq_affine_parameters get_sq_affine_parameters(
+  cuvs::preprocessing::quantize::scalar::quantizer_const_view<T> quantizer)
 {
   using view_type = cuvs::preprocessing::quantize::scalar::quantizer_const_view<T>;
-  sq_affine_parameters<T> affine{};
-  if (auto const* range = std::get_if<typename view_type::range_type>(&quantizer.value)) {
-    auto const lo = static_cast<double>(range->min_);
-    auto const hi = static_cast<double>(range->max_);
-    RAFT_EXPECTS(std::isfinite(lo) && std::isfinite(hi) && hi >= lo,
-                 "SQ bounds must be finite with min <= max");
-    constexpr double code_min = std::numeric_limits<int8_t>::min();
-    constexpr double code_max = std::numeric_limits<int8_t>::max();
-    affine.scale              = hi > lo ? (hi - lo) / (code_max - code_min) : 1.0;
-    affine.shift              = lo - code_min * affine.scale;
-  } else {
-    auto const& shifts = std::get<typename view_type::shifts_type>(quantizer.value);
-    RAFT_EXPECTS(shifts.shifts.extent(0) == dim, "SQ shifts must match the dataset dimension");
-    affine.scale  = static_cast<double>(shifts.scale);
-    affine.shifts = shifts.shifts.data_handle();
-  }
-  RAFT_EXPECTS(std::isfinite(affine.scale) && affine.scale > 0.0 && std::isfinite(affine.shift),
-               "SQ scale must be positive and finite, and its shift must be finite");
-  return affine;
+  auto const* global = std::get_if<typename view_type::global_type>(&quantizer.value);
+  RAFT_EXPECTS(global != nullptr, "INT8 brute-force search requires a global scalar quantizer");
+  RAFT_EXPECTS(std::isfinite(global->scale) && global->scale >= 0.0 &&
+                 std::isfinite(global->shift),
+               "SQ scale must be nonnegative and finite, and its shift must be finite");
+  return {global->scale, global->shift};
 }
 
-template <typename T>
-void compute_sq_statistics(raft::resources const& res,
+inline void compute_sq_statistics(raft::resources const& res,
                            raft::device_matrix_view<const int8_t, int64_t> codes,
-                           sq_affine_parameters<T> affine,
+                           sq_affine_parameters affine,
                            cuvs::distance::DistanceType metric,
                            raft::device_vector_view<double, int64_t> norms,
                            raft::device_vector_view<double, int64_t> dot_corrections)
@@ -89,8 +71,8 @@ void compute_sq_statistics(raft::resources const& res,
   if (cosine || metric == cuvs::distance::DistanceType::InnerProduct) {
     // For x = scale * code + shift, dot(x, y) = scale^2 * dot(code_x, code_y) + u_x + u_y.
     raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
-      res, codes, dot_corrections, 0.0, false, [affine] __device__(int8_t code, int64_t j) {
-        auto const shift = affine.shifts ? static_cast<double>(affine.shifts[j]) : affine.shift;
+      res, codes, dot_corrections, 0.0, false, [affine] __device__(int8_t code, int64_t) {
+        auto const shift = affine.shift;
         return shift * (affine.scale * code + 0.5 * shift);
       });
   }
@@ -101,8 +83,8 @@ void compute_sq_statistics(raft::resources const& res,
       norms,
       0.0,
       false,
-      [affine] __device__(int8_t code, int64_t j) {
-        auto const shift = affine.shifts ? static_cast<double>(affine.shifts[j]) : affine.shift;
+      [affine] __device__(int8_t code, int64_t) {
+        auto const shift = affine.shift;
         auto const value = fma(affine.scale, static_cast<double>(code), shift);
         return value * value;
       },
@@ -110,68 +92,6 @@ void compute_sq_statistics(raft::resources const& res,
       [] __device__(double norm) { return sqrt(norm); });
   } else if (metric != cuvs::distance::DistanceType::InnerProduct) {
     raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(res, codes, norms);
-  }
-}
-
-inline void int8_gemm(raft::resources const& res,
-                      std::int8_t const* dataset,
-                      std::int8_t const* queries,
-                      std::int32_t* scores,
-                      int64_t n_rows,
-                      int64_t n_queries,
-                      int64_t dim,
-                      int64_t leading_dim)
-{
-  std::int32_t const alpha = 1;
-  std::int32_t const beta  = 0;
-  try {
-    raft::linalg::gemm(res,
-                       true,
-                       false,
-                       static_cast<int>(n_rows),
-                       static_cast<int>(n_queries),
-                       static_cast<int>(dim),
-                       &alpha,
-                       dataset,
-                       static_cast<int>(dim),
-                       queries,
-                       static_cast<int>(dim),
-                       &beta,
-                       scores,
-                       static_cast<int>(leading_dim),
-                       raft::resource::get_cuda_stream(res).get());
-  } catch (raft::cublas_error const& error) {
-    // Some cuBLASLt versions reject otherwise valid, irregular INT8 shapes. RAFT exposes
-    // the cuBLAS status in the exception message; retry only unsupported products.
-    if (std::string_view{error.what()}.find("CUBLAS_STATUS_NOT_SUPPORTED") ==
-        std::string_view::npos) {
-      throw;
-    }
-    if (n_queries > 16) {
-      for (int64_t query = 0; query < n_queries; query += 16) {
-        int8_gemm(res,
-                  dataset,
-                  queries + query * dim,
-                  scores + query * leading_dim,
-                  n_rows,
-                  std::min<int64_t>(16, n_queries - query),
-                  dim,
-                  leading_dim);
-      }
-    } else if (n_rows >= 8) {
-      auto const first_rows = n_rows / 8 * 4;
-      int8_gemm(res, dataset, queries, scores, first_rows, n_queries, dim, leading_dim);
-      int8_gemm(res,
-                dataset + first_rows * dim,
-                queries,
-                scores + first_rows,
-                n_rows - first_rows,
-                n_queries,
-                dim,
-                leading_dim);
-    } else {
-      throw;
-    }
   }
 }
 
@@ -262,7 +182,7 @@ void int8_brute_force_search(raft::resources const& res,
   auto const stream    = raft::resource::get_cuda_stream(res);
   auto const dataset   = index.dataset();
   auto const quantizer = dataset.const_manifest_view();
-  auto const affine    = get_sq_affine_parameters(quantizer, d);
+  auto const affine    = get_sq_affine_parameters(quantizer);
   auto queries_storage = raft::make_device_matrix<std::int8_t, int64_t>(res, m, d);
   cuvs::preprocessing::quantize::scalar::transform(res, quantizer, queries, queries_storage.view());
   auto const* queries_ptr = queries_storage.data_handle();
@@ -308,6 +228,8 @@ void int8_brute_force_search(raft::resources const& res,
   rmm::device_uvector<std::int8_t> padded_dataset(0, stream);
 
   auto const select_min = cuvs::distance::is_min_close(index.metric());
+  std::int32_t const alpha = 1;
+  std::int32_t const beta = 0;
 
   for (int64_t query_offset = 0; query_offset < m; query_offset += tile_rows) {
     auto const current_queries = std::min<int64_t>(tile_rows, m - query_offset);
@@ -330,14 +252,21 @@ void int8_brute_force_search(raft::resources const& res,
         dataset_ptr = padded_dataset.data();
       }
 
-      int8_gemm(res,
-                dataset_ptr,
-                queries_ptr + query_offset * d,
-                scores.data(),
-                gemm_rows,
-                current_queries,
-                d,
-                tile_cols);
+      raft::linalg::gemm(res,
+                         true,
+                         false,
+                         static_cast<int>(gemm_rows),
+                         static_cast<int>(current_queries),
+                         static_cast<int>(d),
+                         &alpha,
+                         dataset_ptr,
+                         static_cast<int>(d),
+                         queries_ptr + query_offset * d,
+                         static_cast<int>(d),
+                         &beta,
+                         scores.data(),
+                         static_cast<int>(tile_cols),
+                         stream.get());
 
       auto* output_scores = reinterpret_cast<float*>(scores.data());
       if (current_rows != static_cast<int64_t>(tile_cols)) {

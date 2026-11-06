@@ -284,7 +284,7 @@ index<T, DistT, DatasetViewT>::index(raft::resources const& res,
                "SQ brute-force dimension is too large for exact INT32 dot-product accumulation");
   RAFT_EXPECTS(detail::int8_supported_metric(metric_),
                "SQ brute-force supports InnerProduct, L2, and CosineExpanded metrics");
-  auto const affine = detail::get_sq_affine_parameters<T>(dataset_.const_manifest_view(), dim());
+  auto const affine = detail::get_sq_affine_parameters<T>(dataset_.const_manifest_view());
   detail::compute_sq_statistics(
     res, dataset_.data_const_view(), affine, metric_, norms_.view(), dot_corrections_.view());
 }

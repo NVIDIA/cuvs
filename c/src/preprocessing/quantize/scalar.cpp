@@ -3,8 +3,12 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <cuda/std/limits>
 #include <dlpack/dlpack.h>
+#include <limits>
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/preprocessing/quantize/scalar.h>
@@ -42,9 +46,12 @@ void _train(cuvsResources_t res,
     RAFT_FAIL("dataset must be accessible on host or device memory");
   }
 
-  auto const& range = std::get<typename decltype(ret)::range_type>(ret.value);
-  quantizer->min_ = range.min_;
-  quantizer->max_ = range.max_;
+  auto const& range  = std::get<typename decltype(ret)::global_type>(ret.value);
+  double const limit = static_cast<double>(cuda::std::numeric_limits<T>::max());
+  quantizer->min_ = static_cast<T>(std::clamp(
+    std::fma(range.scale, std::numeric_limits<int8_t>::min(), range.shift), -limit, limit));
+  quantizer->max_ = static_cast<T>(std::clamp(
+    std::fma(range.scale, std::numeric_limits<int8_t>::max(), range.shift), -limit, limit));
 }
 
 template <typename T, typename OutputT = int8_t>
@@ -75,7 +82,7 @@ void _transform(cuvsResources_t res,
 
     cuvs::preprocessing::quantize::scalar::transform(
       *res_ptr,
-      quantizer,
+      std::get<typename decltype(quantizer)::global_type>(quantizer.value),
       cuvs::core::from_dlpack<mdspan_type>(dataset_tensor),
       cuvs::core::from_dlpack<out_mdspan_type>(out_tensor));
   } else {
@@ -111,7 +118,7 @@ void _inverse_transform(cuvsResources_t res,
 
     cuvs::preprocessing::quantize::scalar::inverse_transform(
       *res_ptr,
-      quantizer,
+      std::get<typename decltype(quantizer)::global_type>(quantizer.value),
       cuvs::core::from_dlpack<mdspan_type>(dataset_tensor),
       cuvs::core::from_dlpack<out_mdspan_type>(out_tensor));
   } else {

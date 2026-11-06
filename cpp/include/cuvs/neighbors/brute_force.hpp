@@ -373,7 +373,7 @@ auto build(raft::resources const& handle,
  * @brief Build from a scalar-quantized device dataset.
  *
  * The returned index borrows the codes and quantizer; the dataset must remain alive and unchanged.
- * Supports global and per-dimension quantizers. The dimension must be positive, divisible by four,
+ * Supports global quantizers only. The dimension must be positive, divisible by four,
  * and at most 131068. Supported metrics are InnerProduct, expanded and unexpanded L2 (including
  * square-root variants), and CosineExpanded.
  *

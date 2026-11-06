@@ -11,7 +11,7 @@ _Source header: `cuvs/preprocessing/quantize/scalar.hpp`_
 <a id="preprocessing-quantize-scalar-range-mode"></a>
 ### preprocessing::quantize::scalar::range_mode
 
-Select a global interval or per-dimension shifts with a shared scale.
+Select global or per-dimension shifts and scales.
 
 ```cpp
 enum class range_mode {
@@ -36,6 +36,7 @@ quantizer parameters.
 struct params {
   float quantile;
   range_mode range;
+  int64_t device_buffer_samples;
 };
 ```
 
@@ -44,17 +45,21 @@ struct params {
 | Name | Type | Description |
 | --- | --- | --- |
 | `quantile` | `float` | Specifies how many outliers at top & bottom will be ignored. Needs to be within range of (0, 1]. |
-| `range` | [`range_mode`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-range-mode) | Per-dimension training uses every row of a nonempty, finite device dataset. It applies the quantile independently to each dimension to select lower and upper bounds. Each dimension's shift is the midpoint of its bounds, rounded to the input type. A shared scale fits every dimension's bounds around its stored shift into the symmetric range of quantized values.<br /><br />If every interval has zero width, the scale is one. Otherwise, the scale is at least the smallest positive normal value of the scale type. Training synchronizes the stream before returning the scale to the host. |
+| `range` | [`range_mode`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-range-mode) | Per-dimension training uses every row of a nonempty, finite dataset. It applies the quantile independently to each dimension to select lower and upper bounds. Each dimension's shift is the midpoint of its bounds, rounded to the input type. Each dimension's scale fits its bounds around its stored shift into the symmetric range of quantized values.<br /><br />For a zero-width interval, its scale is one. Otherwise, each scale is at least the smallest positive normal value of the scale type. |
+| `device_buffer_samples` | `int64_t` | Maximum rows staged on device for host training and host dataset build.<br />Default: 65536. Zero processes the entire host input in one batch. Ignored for device input. Multiple batches use two input buffers when res has an auxiliary stream pool, and one otherwise. Pageable input uses batch-sized pinned staging buffers, without registering the full input. Each input buffer uses at most device_buffer_samples * dim * sizeof(T) bytes, in addition to reduction and encoding workspace. Substitute n_rows when it is zero.<br /><br />Per-dimension host training with quantile &lt; 1 selects exact quantiles using one column of host scratch (n_rows * sizeof(T) bytes). Global training retains its sampled quantiles. |
 
 <a id="preprocessing-quantize-scalar-quantizer-const-view"></a>
 ### preprocessing::quantize::scalar::quantizer_const_view
 
-Read-only scalar quantizer parameters. The owner must outlive stream work using shifts.
+Read-only scalar quantizer parameters. The owner must outlive stream work using shifts and
+
+scales.
 
 ```cpp
 template <typename T>
 struct quantizer_const_view {
-  std::variant<range_type, shifts_type> value;
+  std::variant<global_type, shifts_type> value;
+  scale_type max_error;
 };
 ```
 
@@ -62,17 +67,20 @@ struct quantizer_const_view {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `value` | [`std::variant<range_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) |  |
+| `value` | [`std::variant<global_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-global-type) | Global parameters or borrowed per-dimension shifts and scales. |
+| `max_error` | `scale_type` | Maximum training-row L2 reconstruction error; see quantizer::max_error. |
 
-<a id="preprocessing-quantize-scalar-quantizer-const-view-range-type"></a>
-### preprocessing::quantize::scalar::quantizer_const_view::range_type
+<a id="preprocessing-quantize-scalar-quantizer-const-view-global-type"></a>
+### preprocessing::quantize::scalar::quantizer_const_view::global_type
 
-A global interval mapped to the full range of the quantized type.
+Global affine parameters using double precision for encoding and decoding.
+
+Encode (x - shift) / scale, rounding to nearest with ties away from zero and clamping to the full quantized range. Decode shift + scale * code, saturating to finite input limits. A zero scale represents constant training bounds; every code decodes to shift.
 
 ```cpp
-struct range_type {
-  T min_;
-  T max_;
+struct global_type {
+  double shift;
+  double scale;
 };
 ```
 
@@ -80,20 +88,20 @@ struct range_type {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `min_` | `T` |  |
-| `max_` | `T` |  |
+| `shift` | `double` | Shift shared by all dimensions. |
+| `scale` | `double` | Step size shared by all dimensions. |
 
 <a id="preprocessing-quantize-scalar-quantizer-const-view-shifts-type"></a>
 ### preprocessing::quantize::scalar::quantizer_const_view::shifts_type
 
-Encode (x - shifts[j]) / scale, rounding to nearest with ties to even and
+Encode (x - shifts[j]) / scales[j], rounding to nearest with ties to even and
 
-clamping to the symmetric range of quantized values. Decode shifts[j] + scale * code, saturating to finite limits of the input type.
+clamping to the symmetric range of quantized values. Decode shifts[j] + scales[j] * code, saturating to finite limits of the input type.
 
 ```cpp
 struct shifts_type {
   raft::device_vector_view<const T, int64_t> shifts;
-  scale_type scale;
+  raft::device_vector_view<const scale_type, int64_t> scales;
 };
 ```
 
@@ -101,20 +109,21 @@ struct shifts_type {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `shifts` | `raft::device_vector_view<const T, int64_t>` |  |
-| `scale` | `scale_type` |  |
+| `shifts` | `raft::device_vector_view<const T, int64_t>` | One midpoint shift per dimension. |
+| `scales` | `raft::device_vector_view<const scale_type, int64_t>` | One finite, positive scale per dimension, with a finite reciprocal. |
 
 <a id="preprocessing-quantize-scalar-quantizer"></a>
 ### preprocessing::quantize::scalar::quantizer
 
-Owns either a global interval or device shifts and a shared step size.
+Owns a global shift and scale or device shifts and scales for each dimension.
 
-Move-only; copy view() to borrow the parameters. Migration: replace q.min_ with std::get&lt;quantizer&lt;T&gt;::range_type&gt;(q.value).min_ (likewise for max_).
+Move-only; copy view() to borrow the parameters.
 
 ```cpp
 template <typename T>
 struct quantizer {
-  std::variant<range_type, shifts_type> value;
+  std::variant<global_type, shifts_type> value;
+  scale_type max_error;
 };
 ```
 
@@ -122,7 +131,8 @@ struct quantizer {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `value` | [`std::variant<range_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-range-type) |  |
+| `value` | [`std::variant<global_type, shifts_type>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view-global-type) | Global parameters or owning per-dimension shifts and scales. |
+| `max_error` | `scale_type` | Upper bound on the L2 error between a training row and its int8 encode/decode result. train measures every input row, including clipped outliers, and rounds the maximum up with a relative 1e-6 margin. This bound applies only to the training data, not later queries. It is infinity when constructed from parameters alone or when the error is not finite. |
 
 <a id="preprocessing-quantize-scalar-quantizer-shifts-type"></a>
 ### preprocessing::quantize::scalar::quantizer::shifts_type
@@ -132,7 +142,7 @@ Owning per-dimension parameters.
 ```cpp
 struct shifts_type {
   raft::device_vector<T, int64_t> shifts;
-  scale_type scale;
+  raft::device_vector<scale_type, int64_t> scales;
 };
 ```
 
@@ -141,12 +151,12 @@ struct shifts_type {
 | Name | Type | Description |
 | --- | --- | --- |
 | `shifts` | `raft::device_vector<T, int64_t>` |  |
-| `scale` | `scale_type` |  |
+| `scales` | `raft::device_vector<scale_type, int64_t>` |  |
 
 <a id="preprocessing-quantize-scalar-quantizer-quantizer"></a>
 ### preprocessing::quantize::scalar::quantizer::quantizer
 
-Construct an empty global interval.
+Construct default global parameters.
 
 ```cpp
 quantizer();
@@ -158,7 +168,7 @@ quantizer();
 
 **Additional overload:** `preprocessing::quantize::scalar::quantizer::quantizer`
 
-Construct a global interval.
+Derive a global shift and scale from finite bounds with min &lt;= max.
 
 ```cpp
 quantizer(T min, T max);
@@ -185,7 +195,7 @@ raft::device_vector_view<const T, int64_t> mins,
 raft::device_vector_view<const T, int64_t> maxs);
 ```
 
-Derives midpoint shifts and a shared scale; synchronizes before returning.
+Derives midpoint shifts and a scale for each dimension.
 
 **Parameters**
 
@@ -202,7 +212,7 @@ Derives midpoint shifts and a shared scale; synchronizes before returning.
 <a id="preprocessing-quantize-scalar-quantizer-view"></a>
 ### preprocessing::quantize::scalar::quantizer::view
 
-Borrow read-only parameters; the owner must outlive stream work using shifts.
+Borrow read-only parameters; the owner must outlive stream work using shifts and scales.
 
 ```cpp
 [[nodiscard]] auto view() const noexcept -> view_type;
@@ -303,11 +313,11 @@ Usage example:
 
 **Additional overload:** `preprocessing::quantize::scalar::transform`
 
-Applies quantization transform to given dataset
+Applies global quantization to a host dataset
 
 ```cpp
 void transform(raft::resources const& res,
-quantizer_const_view<double> quantizer,
+quantizer_const_view<double>::global_type quantizer,
 raft::host_matrix_view<const double, int64_t> dataset,
 raft::host_matrix_view<int8_t, int64_t> out);
 ```
@@ -319,7 +329,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<double>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer |
+| `quantizer` | in | [`quantizer_const_view<double>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
 | `dataset` | in | `raft::host_matrix_view<const double, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<int8_t, int64_t>` | a row-major matrix view on host |
 
@@ -358,11 +368,11 @@ Usage example:
 
 **Additional overload:** `preprocessing::quantize::scalar::inverse_transform`
 
-Perform inverse quantization step on previously quantized dataset
+Applies inverse global quantization to a host dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-quantizer_const_view<double> quantizer,
+quantizer_const_view<double>::global_type quantizer,
 raft::host_matrix_view<const int8_t, int64_t> dataset,
 raft::host_matrix_view<double, int64_t> out);
 ```
@@ -376,7 +386,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<double>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer |
+| `quantizer` | in | [`quantizer_const_view<double>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<double, int64_t>` | a row-major matrix view on host |
 
@@ -460,11 +470,11 @@ Usage example:
 
 **Additional overload:** `preprocessing::quantize::scalar::transform`
 
-Applies quantization transform to given dataset
+Applies global quantization to a host dataset
 
 ```cpp
 void transform(raft::resources const& res,
-quantizer_const_view<float> quantizer,
+quantizer_const_view<float>::global_type quantizer,
 raft::host_matrix_view<const float, int64_t> dataset,
 raft::host_matrix_view<int8_t, int64_t> out);
 ```
@@ -476,7 +486,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<float>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer |
+| `quantizer` | in | [`quantizer_const_view<float>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
 | `dataset` | in | `raft::host_matrix_view<const float, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<int8_t, int64_t>` | a row-major matrix view on host |
 
@@ -514,11 +524,11 @@ Usage example:
 
 **Additional overload:** `preprocessing::quantize::scalar::inverse_transform`
 
-Perform inverse quantization step on previously quantized dataset
+Applies inverse global quantization to a host dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-quantizer_const_view<float> quantizer,
+quantizer_const_view<float>::global_type quantizer,
 raft::host_matrix_view<const int8_t, int64_t> dataset,
 raft::host_matrix_view<float, int64_t> out);
 ```
@@ -532,7 +542,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<float>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer |
+| `quantizer` | in | [`quantizer_const_view<float>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<float, int64_t>` | a row-major matrix view on host |
 
@@ -616,11 +626,11 @@ Usage example:
 
 **Additional overload:** `preprocessing::quantize::scalar::transform`
 
-Applies quantization transform to given dataset
+Applies global quantization to a host dataset
 
 ```cpp
 void transform(raft::resources const& res,
-quantizer_const_view<half> quantizer,
+quantizer_const_view<half>::global_type quantizer,
 raft::host_matrix_view<const half, int64_t> dataset,
 raft::host_matrix_view<int8_t, int64_t> out);
 ```
@@ -632,7 +642,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<half>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer |
+| `quantizer` | in | [`quantizer_const_view<half>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
 | `dataset` | in | `raft::host_matrix_view<const half, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<int8_t, int64_t>` | a row-major matrix view on host |
 
@@ -670,11 +680,11 @@ Usage example:
 
 **Additional overload:** `preprocessing::quantize::scalar::inverse_transform`
 
-Perform inverse quantization step on previously quantized dataset
+Applies inverse global quantization to a host dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-quantizer_const_view<half> quantizer,
+quantizer_const_view<half>::global_type quantizer,
 raft::host_matrix_view<const int8_t, int64_t> dataset,
 raft::host_matrix_view<half, int64_t> out);
 ```
@@ -688,7 +698,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<half>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer |
+| `quantizer` | in | [`quantizer_const_view<half>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<half, int64_t>` | a row-major matrix view on host |
 

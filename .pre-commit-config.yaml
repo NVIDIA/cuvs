@@ -69,6 +69,7 @@ repos:
             ^cpp/include/.*[.](h|hpp|cuh)$|
             ^python/cuvs/cuvs/.*[.](py|pyx|pxd)$|
             ^java/cuvs-(java|lucene)/src/main/.*[.]java$|
+            ^java/cuvs-lucene/lucene-[^/]+/src/since/.*[.]java$|
             ^rust/cuvs/src/.*[.]rs$|
             ^go/.*[.]go$|
             ^fern/scripts/generate_api_reference[.]py$|
