@@ -158,7 +158,7 @@ template <typename T>
 auto round_error_up(double error) -> typename quantizer<T>::scale_type
 {
   using bound_t = typename quantizer<T>::scale_type;
-  // Match Sirius's conservative margin, then round upwards in the public result type.
+  // Apply a conservative margin, then round upwards in the public result type.
   auto const bound = static_cast<bound_t>(error * (1.0 + 1e-6));
   return error > 0 ? std::nextafter(bound, std::numeric_limits<bound_t>::infinity()) : bound;
 }

@@ -6,6 +6,7 @@
 #include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/preprocessing/quantize/scalar.h>
 
+#include <cuda/std/limits>
 #include <gtest/gtest.h>
 #include <raft/util/cudart_utils.hpp>
 #include <rmm/device_uvector.hpp>
@@ -33,25 +34,30 @@ class ScalarQuantizerC : public ::testing::Test {
  protected:
   cuvsResources_t res{};
   cudaStream_t stream{};
-  cuvsScalarQuantizerParams params{1.f};
-  cuvsScalarQuantizerPerDim_t quantizer{};
+  cuvsScalarQuantizerParams_t params{};
+  cuvsScalarQuantizer_t quantizer{};
 
   void SetUp() override
   {
     ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
     ASSERT_EQ(cuvsStreamGet(res, &stream), CUVS_SUCCESS);
-    ASSERT_EQ(cuvsScalarQuantizerPerDimCreate(&quantizer), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsScalarQuantizerParamsCreate(&params), CUVS_SUCCESS);
+    EXPECT_EQ(params->mode, CUVS_SCALAR_GLOBAL);
+    params->quantile = 1.f;
+    ASSERT_EQ(cuvsScalarQuantizerCreate(&quantizer), CUVS_SUCCESS);
   }
 
   void TearDown() override
   {
     EXPECT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
-    EXPECT_EQ(cuvsScalarQuantizerPerDimDestroy(quantizer), CUVS_SUCCESS);
+    EXPECT_EQ(cuvsScalarQuantizerDestroy(quantizer), CUVS_SUCCESS);
+    EXPECT_EQ(cuvsScalarQuantizerParamsDestroy(params), CUVS_SUCCESS);
     EXPECT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
   }
 
   void check_round_trip(bool host_training)
   {
+    params->mode = CUVS_SCALAR_PER_DIMENSION;
     int64_t shape[]{2, 3};
     std::vector<T> values{0.f, 10.f, 9.f, 254.f, 137.f, 9.f};
     rmm::device_uvector<T> input(values.size(), stream);
@@ -60,10 +66,12 @@ class ScalarQuantizerC : public ::testing::Test {
     auto host = matrix_tensor(values.data(), kDLCPU, shape);
     auto device = matrix_tensor(input.data(), kDLCUDA, shape);
     auto encoded = matrix_tensor(codes.data(), kDLCUDA, shape);
-    ASSERT_EQ(cuvsScalarQuantizerPerDimTrain(res, &params, host_training ? &host : &device, quantizer),
+    ASSERT_EQ(cuvsScalarQuantizerTrain(res, params, host_training ? &host : &device, quantizer),
               CUVS_SUCCESS);
-    ASSERT_EQ(cuvsScalarQuantizerPerDimTransform(res, quantizer, &device, &encoded), CUVS_SUCCESS);
-    ASSERT_EQ(cuvsScalarQuantizerPerDimInverseTransform(res, quantizer, &encoded, &device), CUVS_SUCCESS);
+    EXPECT_EQ(quantizer->min_, double(cuda::std::numeric_limits<T>::min()));
+    EXPECT_EQ(quantizer->max_, double(cuda::std::numeric_limits<T>::max()));
+    ASSERT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &device, &encoded), CUVS_SUCCESS);
+    ASSERT_EQ(cuvsScalarQuantizerInverseTransform(res, quantizer, &encoded, &device), CUVS_SUCCESS);
     std::vector<int8_t> actual_codes(values.size());
     std::vector<T> decoded(values.size());
     raft::update_host(actual_codes.data(), codes.data(), actual_codes.size(), stream);
@@ -96,15 +104,24 @@ TYPED_TEST(ScalarQuantizerC, GlobalBoundsAndRoundTrip)
   auto input = matrix_tensor(values.data(), kDLCPU, shape);
   auto encoded = matrix_tensor(codes.data(), kDLCPU, shape);
   auto output = matrix_tensor(decoded.data(), kDLCPU, shape);
-  cuvsScalarQuantizer global{};
-  ASSERT_EQ(cuvsScalarQuantizerTrain(this->res, &this->params, &input, &global), CUVS_SUCCESS);
-  EXPECT_EQ(global.min_, -3);
-  EXPECT_EQ(global.max_, 7);
-  ASSERT_EQ(cuvsScalarQuantizerTransform(this->res, &global, &input, &encoded), CUVS_SUCCESS);
-  ASSERT_EQ(cuvsScalarQuantizerInverseTransform(this->res, &global, &encoded, &output), CUVS_SUCCESS);
+  this->check_round_trip(false);
+  this->params->mode = CUVS_SCALAR_GLOBAL;
+  auto global = this->quantizer;
+  ASSERT_EQ(cuvsScalarQuantizerTrain(this->res, this->params, &input, global), CUVS_SUCCESS);
+  EXPECT_EQ(global->min_, -3);
+  EXPECT_EQ(global->max_, 7);
+  ASSERT_EQ(cuvsScalarQuantizerTransform(this->res, global, &input, &encoded), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsScalarQuantizerInverseTransform(this->res, global, &encoded, &output), CUVS_SUCCESS);
   EXPECT_EQ(codes, (std::vector<int8_t>{-128, 127}));
   EXPECT_EQ(double(decoded[0]), -3);
   EXPECT_EQ(double(decoded[1]), 7);
+  // Global bounds remain directly editable, as in the original C API.
+  global->min_ = 1;
+  global->max_ = 5;
+  ASSERT_EQ(cuvsScalarQuantizerInverseTransform(this->res, global, &encoded, &output), CUVS_SUCCESS);
+  EXPECT_EQ(double(decoded[0]), 1);
+  EXPECT_EQ(double(decoded[1]), 5);
+  this->check_round_trip(true);
 }
 
 using ScalarQuantizerCFloat = ScalarQuantizerC<float>;
@@ -118,25 +135,30 @@ TEST_F(ScalarQuantizerCFloat, InvalidArgumentsPreserveTrainedQuantizer)
   auto host = matrix_tensor(values.data(), kDLCPU, shape);
   auto device = matrix_tensor(input.data(), kDLCUDA, shape);
   auto encoded = matrix_tensor(codes.data(), kDLCUDA, shape);
-  EXPECT_EQ(cuvsScalarQuantizerPerDimTransform(res, quantizer, &device, &encoded), CUVS_ERROR);
-  ASSERT_EQ(cuvsScalarQuantizerPerDimTrain(res, &params, &host, quantizer), CUVS_SUCCESS);
-  auto address = quantizer->addr;
-  params.quantile = 0;
-  EXPECT_EQ(cuvsScalarQuantizerPerDimTrain(res, &params, &host, quantizer), CUVS_ERROR);
-  EXPECT_EQ(quantizer->addr, address);
-  EXPECT_EQ(cuvsScalarQuantizerPerDimTransform(res, quantizer, &device, &encoded), CUVS_SUCCESS);
+  params->mode = CUVS_SCALAR_PER_DIMENSION;
+  ASSERT_EQ(cuvsScalarQuantizerTrain(res, params, &host, quantizer), CUVS_SUCCESS);
+  params->quantile = 0;
+  EXPECT_EQ(cuvsScalarQuantizerTrain(res, params, &host, quantizer), CUVS_ERROR);
+  params->quantile = 1;
+  params->mode = static_cast<cuvsScalarQuantizationMode>(2);
+  EXPECT_EQ(cuvsScalarQuantizerTrain(res, params, &host, quantizer), CUVS_ERROR);
+  EXPECT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &device, &encoded), CUVS_SUCCESS);
+  std::vector<int8_t> actual_codes(values.size());
+  raft::update_host(actual_codes.data(), codes.data(), actual_codes.size(), stream);
+  ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
+  EXPECT_EQ(actual_codes, (std::vector<int8_t>{-127, -127, 0, 127, 127, 0}));
   device.dl_tensor.dtype.bits = 64;
-  EXPECT_EQ(cuvsScalarQuantizerPerDimTransform(res, quantizer, &device, &encoded), CUVS_ERROR);
+  EXPECT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &device, &encoded), CUVS_ERROR);
   device.dl_tensor.dtype.bits = 32;
   encoded.dl_tensor.dtype.code = kDLUInt;
-  EXPECT_EQ(cuvsScalarQuantizerPerDimTransform(res, quantizer, &device, &encoded), CUVS_ERROR);
+  EXPECT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &device, &encoded), CUVS_ERROR);
   encoded.dl_tensor.dtype.code = kDLInt;
   int64_t wrong_shape[]{2, 2};
   device.dl_tensor.shape = wrong_shape;
-  EXPECT_EQ(cuvsScalarQuantizerPerDimTransform(res, quantizer, &device, &encoded), CUVS_ERROR);
+  EXPECT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &device, &encoded), CUVS_ERROR);
   device.dl_tensor.shape = shape;
   std::vector<int8_t> host_codes(values.size());
   auto host_encoded = matrix_tensor(host_codes.data(), kDLCPU, shape);
-  EXPECT_EQ(cuvsScalarQuantizerPerDimTransform(res, quantizer, &host, &host_encoded), CUVS_ERROR);
-  EXPECT_EQ(cuvsScalarQuantizerPerDimInverseTransform(res, quantizer, &host_encoded, &host), CUVS_ERROR);
+  EXPECT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &host, &host_encoded), CUVS_ERROR);
+  EXPECT_EQ(cuvsScalarQuantizerInverseTransform(res, quantizer, &host_encoded, &host), CUVS_ERROR);
 }
