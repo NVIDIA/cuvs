@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <type_traits>
 
 namespace cuvs::neighbors::experimental::gpipnn::detail {
 
@@ -243,6 +244,27 @@ RAFT_KERNEL cast_to_half_kernel(const T* __restrict__ src,
 }
 
 /**
+ * Accumulator width for `normalize_rows_to_half_kernel`.
+ *
+ * Only a float row can push the squared norm out of fp32: squaring halves the exponent headroom,
+ * so magnitudes past ~1e18 saturate the sum to inf and magnitudes under ~1e-23 round it to zero,
+ * both of which land on the zero-row branch and silently flatten a valid direction to all zeros.
+ * The narrower types cannot reach either end -- the largest half squares to 4.3e9, so overflowing
+ * would take a row of 1e29 elements, and the smallest nonzero square is 3.6e-15 for half and 1 for
+ * the integer types, decades clear of underflow. They therefore stay on fp32 bit-for-bit.
+ */
+template <typename T>
+using norm_acc_t = std::conditional_t<std::is_same_v<T, float>, double, float>;
+
+/** `rsqrt` per accumulator width, keeping the fp32 path on the intrinsic it already used. */
+__device__ inline auto norm_rsqrt(float x) -> float { return rsqrtf(x); }
+__device__ inline auto norm_rsqrt(double x) -> double { return rsqrt(x); }
+
+/** Applies the row's reciprocal norm to one element and rounds it to half, once. */
+__device__ inline auto norm_to_half(float v, float s) -> half { return __float2half(v * s); }
+__device__ inline auto norm_to_half(double v, double s) -> half { return __double2half(v * s); }
+
+/**
  * Casts a buffer of `T` to half with each row scaled to unit L2 norm.
  * This normalization enables cosine support and can use the remaining code from the L2 path.
  *
@@ -254,39 +276,42 @@ RAFT_KERNEL normalize_rows_to_half_kernel(const T* __restrict__ src,
                                           int64_t n_rows,
                                           int64_t dim)
 {
+  using acc_t       = norm_acc_t<T>;
   const int64_t row = blockIdx.x;
   if (row >= n_rows) { return; }
   const T* in = src + row * dim;
   half* out   = dst + row * dim;
 
-  float acc = 0.0f;
+  acc_t acc = acc_t{0};
   for (int64_t i = threadIdx.x; i < dim; i += blockDim.x) {
-    const float v = static_cast<float>(in[i]);
-    acc           = fmaf(v, v, acc);
+    const acc_t v = static_cast<acc_t>(in[i]);
+    acc           = fma(v, v, acc);
   }
   for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
     acc += __shfl_down_sync(0xffffffffu, acc, offset);
   }
-  __shared__ float partial[32];
-  __shared__ float scale;
+  __shared__ acc_t partial[32];
+  __shared__ acc_t scale;
   const int warp = static_cast<int>(threadIdx.x) / warpSize;
   const int lane = static_cast<int>(threadIdx.x) % warpSize;
   if (lane == 0) { partial[warp] = acc; }
   __syncthreads();
   if (warp == 0) {
     const int n_warps = static_cast<int>(blockDim.x) / warpSize;
-    acc               = lane < n_warps ? partial[lane] : 0.0f;
+    acc               = lane < n_warps ? partial[lane] : acc_t{0};
     for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
       acc += __shfl_down_sync(0xffffffffu, acc, offset);
     }
     // Zero for a zero row, so the stores below stay finite without a second branch.
-    if (lane == 0) { scale = acc > 0.0f ? rsqrtf(acc) : 0.0f; }
+    if (lane == 0) { scale = acc > acc_t{0} ? norm_rsqrt(acc) : acc_t{0}; }
   }
   __syncthreads();
 
-  const float s = scale;
+  // The scale stays at accumulator width: a row of float subnormals normalizes by ~1e43, which
+  // only fp32 inputs can produce and which fp32 cannot hold.
+  const acc_t s = scale;
   for (int64_t i = threadIdx.x; i < dim; i += blockDim.x) {
-    out[i] = __float2half(static_cast<float>(in[i]) * s);
+    out[i] = norm_to_half(static_cast<acc_t>(in[i]), s);
   }
 }
 
@@ -428,7 +453,12 @@ inline void check_params(const index_params& params, int64_t n_rows, int64_t dim
   RAFT_EXPECTS(params.leader_fraction > 0.0f && params.leader_fraction <= 1.0f,
                "gpipnn: leader_fraction must be in (0, 1]");
   RAFT_EXPECTS(params.max_rounds >= 2, "gpipnn: max_rounds must be at least 2");
-  RAFT_EXPECTS(params.alpha >= 1.0f, "gpipnn: alpha must be >= 1");
+  // Infinity clears the lower bound, and DirectEdgePrune's alpha ramp then never exits: its
+  // `cur_alpha <= alpha` guard stays true once `cur_alpha` saturates, so a row holding fewer
+  // candidates than `graph_degree` spins forever. NaN already fails the comparison.
+  RAFT_EXPECTS(std::isfinite(params.alpha) && params.alpha >= 1.0f,
+               "gpipnn: alpha must be finite and >= 1 (got %f)",
+               static_cast<double>(params.alpha));
 }
 
 }  // namespace cuvs::neighbors::experimental::gpipnn::detail
