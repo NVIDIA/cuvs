@@ -57,7 +57,7 @@ import org.apache.lucene.util.InfoStream;
  *
  * @since 25.10
  */
-public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
+public class CuVS2510GPUVectorsWriter extends CompatKnnVectorsWriter {
 
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(CuVS2510GPUVectorsWriter.class);
@@ -663,11 +663,9 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter {
     }
   }
 
-  /**
-   * Write field for merging.
-   */
+  /** Merges one field, building its graph from the merged vectors. */
   @Override
-  public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+  void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
     if (mergeCagraIndexes(fieldInfo, mergeState) == false) {
       vectorBasedMerge(fieldInfo, mergeState);
