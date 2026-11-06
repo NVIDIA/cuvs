@@ -226,6 +226,11 @@ func CreateIndex() (*CagraIndex, error) {
 // * `params` - Parameters for building the index
 // * `dataset` - A row-major Tensor on either the host or device to index
 // * `index` - CagraIndex to build
+//
+// # Errors
+//
+// * "index is closed" - `index` is nil or has been closed
+// * "index params are closed" - `params` is nil or has been closed
 func BuildIndex[T any](Resources cuvs.Resource, params *IndexParams, dataset *cuvs.Tensor[T], index *CagraIndex) error {
 	if index.closed() {
 		return errors.New("index is closed")
@@ -283,6 +288,11 @@ func BuildIndex[T any](Resources cuvs.Resource, params *IndexParams, dataset *cu
 // * `extended_dataset` - Caller-owned padded dataset already containing old || new rows
 // * `newStartRow` - Row index where the additional vectors begin (must equal current index size)
 // * `index` - CagraIndex to extend
+//
+// # Errors
+//
+// * "index is closed" - `index` is nil or has been closed
+// * "extend params are closed" - `params` is nil or has been closed
 func ExtendIndex(Resources cuvs.Resource, params *ExtendParams, extended_dataset PaddedDatasetHandle, newStartRow int64, index *CagraIndex) error {
 	if index.closed() {
 		return errors.New("index is closed")
@@ -338,6 +348,11 @@ func (index *CagraIndex) closed() bool {
 // * `neighbors` - Tensor in device memory that receives the indices of the nearest neighbors
 // * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 // * `allowList` - List of indices to allow in the search, if nil, no filtering is applied
+//
+// # Errors
+//
+// * "index is closed" - `index` is nil or has been closed
+// * "search params are closed" - `params` is nil or has been closed
 func SearchIndex[T any](Resources cuvs.Resource, params *SearchParams, index *CagraIndex, queries *cuvs.Tensor[T], neighbors *cuvs.Tensor[uint32], distances *cuvs.Tensor[T], allowList []uint32) error {
 	if index.closed() {
 		return errors.New("index is closed")
