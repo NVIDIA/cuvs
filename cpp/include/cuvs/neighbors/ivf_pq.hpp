@@ -215,11 +215,9 @@ struct search_params : cuvs::neighbors::search_params {
    * usual search of the nearest lists.
    *
    * In the random-probe mode, `n_probes` distinct lists are picked uniformly at random for every
-   * query, and the top-k samples of each probed list are returned without merging across the lists.
-   * Hence, the output has `n_probes * k` values per query (the number of columns of the output
-   * matrices must be a multiple of `min(n_probes, n_lists)`; `k` is the multiplier). The values are
-   * grouped by the probes, in the probe order. Missing results (a list has fewer than `k` samples)
-   * are marked by `kOutOfBoundsRecord`.
+   * query. Each of the lists reports its single nearest sample, and the `k` nearest of these
+   * `n_probes` samples are returned (hence, `k <= n_probes`; the larger `n_probes` is compared to
+   * `k`, the more local the results are). All the results come from different lists.
    * The same seed picks the same lists for the queries at the same positions, so vary it between
    * the batches of queries.
    */
@@ -3407,8 +3405,7 @@ struct ivf_pq_params {
    * Zero disables the feature.
    */
   uint32_t n_random_edges = 0;
-
-  ivf_pq_params() = default;
+  ivf_pq_params()         = default;
 
   /**
    * Set default parameters based on shape of the input dataset.

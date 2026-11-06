@@ -259,12 +259,12 @@ void build_knn_graph(
   gpu_top_k              = std::min<IdxT>(std::max(gpu_top_k, top_k), dataset.extent(0));
   const auto num_queries = dataset.extent(0);
 
-  // The optional second search of each batch: the best sample of a few random lists is added to the
-  // neighbors. The extra candidates are searched to be able to skip the invalid / repeated ones.
+  // The optional second search of each batch: n_probes random lists report their best samples, and
+  // the nearest of these samples are added to the neighbors. The extra candidates are searched to
+  // be able to skip the invalid / repeated ones. At least as many lists as candidates are probed.
   const uint32_t n_random_edges =
-    std::min<uint32_t>({pq.n_random_edges, node_degree / 2, index.n_lists()});
-  const uint32_t n_random_candidates =
-    n_random_edges == 0 ? 0 : std::min<uint32_t>(n_random_edges + 2, index.n_lists());
+    std::min<uint32_t>({pq.n_random_edges, node_degree / 4, index.n_lists() / 32});
+  const uint32_t n_random_candidates = n_random_edges == 0 ? 0 : (n_random_edges + 2);
   // The distances of the random pass are not used: its output reuses the `distances` buffer.
   RAFT_EXPECTS(n_random_candidates <= gpu_top_k, "Too many random candidates for the graph build");
 
@@ -376,9 +376,10 @@ void build_knn_graph(
 
     if (n_random_edges > 0) {
       raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> random_scope(
-        "cagra::build_knn_graph<IVF-PQ>::random_pass(%u lists)", n_random_candidates);
-      auto random_search_params                     = pq.search_params;
-      random_search_params.n_probes                 = n_random_candidates;
+        "cagra::build_knn_graph<IVF-PQ>::random_pass(%u candidates)", n_random_candidates);
+      auto random_search_params = pq.search_params;
+      random_search_params.n_probes =
+        std::max<uint32_t>(pq.search_params.n_probes, n_random_candidates);
       random_search_params.random_probe_enable_seed = batch.offset() + 1;
       auto random_neighbors_view = raft::make_device_matrix_view<int64_t, int64_t>(
         random_neighbors.data_handle(), batch.size(), n_random_candidates);
