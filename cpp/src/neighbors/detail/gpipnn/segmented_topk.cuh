@@ -248,14 +248,30 @@ RAFT_KERNEL fused_topk_kernel(const float* __restrict__ dots,
 inline constexpr int64_t kL2BudgetDiv = 2;
 
 /**
+ * Whether `err` is the driver declining an L2 hint rather than a fault this guard did not cause.
+ *
+ * Every runtime call also surfaces errors left behind by earlier asynchronous work, so clearing
+ * whatever these best-effort calls return would bury a real failure under a cache hint. Only the
+ * statuses that the carve-out and access-policy entry points document for themselves are treated
+ * as a refusal: an unsupported or out-of-range limit, a carve-out the device cannot reserve, and
+ * an attribute the stream does not take.
+ */
+inline auto is_l2_hint_refusal(cudaError_t err) -> bool
+{
+  return err == cudaErrorInvalidValue || err == cudaErrorUnsupportedLimit ||
+         err == cudaErrorMemoryAllocation || err == cudaErrorNotSupported;
+}
+
+/**
  * Marks a buffer as persisting in L2 for as long as the guard lives.
  *
  * `dots` is the one buffer worth holding: the GEMM writes it and selection reads it straight back,
  * while the operand slabs are streamed once each.
  *
  * Purely a hint: it changes residency, never results. Every call that sets it up is therefore
- * best-effort, and a driver that refuses one leaves the window inactive and the error state
- * cleared rather than failing the build.
+ * best-effort, and a driver that declines one leaves the window inactive and that status cleared
+ * rather than failing the build. Only a declined hint is swallowed, though; any other status came
+ * from work this guard did not do and is raised as usual.
  *
  * Both settings outlive a plain scope -- the carve-out is device-wide and the access policy
  * belongs to the caller's stream -- so the guard records what it found and puts both back.
@@ -284,6 +300,9 @@ class persisting_l2_window {
     size_t prior_limit  = 0;
     const auto read_err = cudaDeviceGetLimit(&prior_limit, cudaLimitPersistingL2CacheSize);
     if (read_err != cudaSuccess) {
+      if (!is_l2_hint_refusal(read_err)) {
+        raft::check_cuda_error(read_err, "cudaDeviceGetLimit(cudaLimitPersistingL2CacheSize)");
+      }
       (void)cudaGetLastError();
       RAFT_LOG_DEBUG("gpipnn: L2 carve-out unreadable (%s); running without it",
                      cudaGetErrorString(read_err));
@@ -293,6 +312,9 @@ class persisting_l2_window {
       const auto limit_err =
         cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, static_cast<size_t>(window));
       if (limit_err != cudaSuccess) {
+        if (!is_l2_hint_refusal(limit_err)) {
+          raft::check_cuda_error(limit_err, "cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize)");
+        }
         (void)cudaGetLastError();
         RAFT_LOG_DEBUG("gpipnn: L2 carve-out of %ld bytes refused (%s); running without it",
                        static_cast<long>(window),
@@ -308,10 +330,16 @@ class persisting_l2_window {
     const auto prior_err =
       cudaStreamGetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &prior_attr_);
     if (prior_err != cudaSuccess) {
+      // Ahead of the raise as well as the return: throwing here runs no destructor, so the
+      // carve-out would stay raised for the rest of the process.
+      restore_limit();
+      if (!is_l2_hint_refusal(prior_err)) {
+        raft::check_cuda_error(prior_err,
+                               "cudaStreamGetAttribute(cudaStreamAttributeAccessPolicyWindow)");
+      }
       (void)cudaGetLastError();
       RAFT_LOG_DEBUG("gpipnn: stream access policy unreadable (%s); running without it",
                      cudaGetErrorString(prior_err));
-      restore_limit();
       return;
     }
 
@@ -325,10 +353,14 @@ class persisting_l2_window {
     const auto attr_err =
       cudaStreamSetAttribute(stream, cudaStreamAttributeAccessPolicyWindow, &attr);
     if (attr_err != cudaSuccess) {
+      restore_limit();
+      if (!is_l2_hint_refusal(attr_err)) {
+        raft::check_cuda_error(attr_err,
+                               "cudaStreamSetAttribute(cudaStreamAttributeAccessPolicyWindow)");
+      }
       (void)cudaGetLastError();
       RAFT_LOG_DEBUG("gpipnn: L2 access-policy window refused (%s); running without it",
                      cudaGetErrorString(attr_err));
-      restore_limit();
       return;
     }
     active_ = true;
@@ -336,8 +368,8 @@ class persisting_l2_window {
 
   ~persisting_l2_window()
   {
-    // Unchecked throughout: this can run while an exception from the batch loop propagates, and
-    // losing it to report a failed cache hint would be a poor trade.
+    // Reported rather than raised throughout: this can run while an exception from the batch loop
+    // propagates, and losing that to report a failed cache hint would be a poor trade.
     if (active_) {
       RAFT_CUDA_TRY_NO_THROW(
         cudaStreamSetAttribute(stream_, cudaStreamAttributeAccessPolicyWindow, &prior_attr_));
@@ -351,21 +383,22 @@ class persisting_l2_window {
   auto operator=(persisting_l2_window&&) -> persisting_l2_window&      = delete;
 
  private:
-  /** Puts the device-wide carve-out back, but only if it still holds this guard's value. */
+  /**
+   * Puts the device-wide carve-out back, but only if it still holds this guard's value.
+   *
+   * Also reached from the destructor, so a failure is reported and left pending for whatever the
+   * caller does next rather than raised or swallowed here. A failed read leaves `current` at 0,
+   * which never matches the nonzero `set_limit_`, so the rollback is skipped on its own.
+   */
   void restore_limit()
   {
     if (!owns_limit_) { return; }
     owns_limit_    = false;
     size_t current = 0;
-    if (cudaDeviceGetLimit(&current, cudaLimitPersistingL2CacheSize) != cudaSuccess) {
-      (void)cudaGetLastError();
-      return;
-    }
+    RAFT_CUDA_TRY_NO_THROW(cudaDeviceGetLimit(&current, cudaLimitPersistingL2CacheSize));
     // Anything else means a concurrent build raised it further and is still relying on it.
     if (current != set_limit_) { return; }
-    if (cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, prior_limit_) != cudaSuccess) {
-      (void)cudaGetLastError();
-    }
+    RAFT_CUDA_TRY_NO_THROW(cudaDeviceSetLimit(cudaLimitPersistingL2CacheSize, prior_limit_));
   }
 
   cudaStream_t stream_ = nullptr;

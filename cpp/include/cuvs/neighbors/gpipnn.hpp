@@ -100,7 +100,7 @@ struct index_params : cuvs::neighbors::index_params {
   /**
    * Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves
    * are processed per batch. Affects only peak memory and build time, not graph quality.
-   * 0 selects an automatic budget of 256 bytes per row.
+   * 0 selects an automatic budget of 256 bytes per row, clamped to 512 MiB-6 GiB.
    */
   uint32_t leaf_batch_mib = 0;
   /** Seed for leader sampling and LSH hyperplane generation. */
