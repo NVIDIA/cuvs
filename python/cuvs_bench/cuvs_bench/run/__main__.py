@@ -87,6 +87,14 @@ from ..orchestrator import BenchmarkOrchestrator
 @click.option("--build", is_flag=True, help="Build the index")
 @click.option("--search", is_flag=True, help="Perform the search")
 @click.option(
+    "--search-device",
+    type=click.Choice(["cpu"], case_sensitive=False),
+    default=None,
+    help="Search the indexes saved by a GPU algorithm on the CPU, for "
+    "example on a CPU-only host. Use with --search only, with an algorithm "
+    "that has a cpu_search entry in algorithms.yaml.",
+)
+@click.option(
     "--algorithms",
     default="cuvs_cagra",
     show_default=True,
@@ -192,6 +200,7 @@ def main(
     executable_dir: str,
     build: bool,
     search: bool,
+    search_device: Optional[str],
     algorithms: Optional[str],
     groups: str,
     algo_groups: Optional[str],
@@ -228,6 +237,9 @@ def main(
         Whether to build the indices.
     search : bool
         Whether to perform the search.
+    search_device : Optional[str]
+        'cpu' to search a GPU algorithm's saved indexes with its CPU
+        counterpart; None to use the algorithm's own executable.
     algorithms : Optional[str]
         Comma-separated list of algorithm names to use.
     groups : str
@@ -270,6 +282,11 @@ def main(
     # The CLI historically runs both phases when neither flag is specified.
     if not build and not search:
         build = search = True
+    if search_device and build:
+        raise click.UsageError(
+            "--search-device only applies to search; pass --search without "
+            "--build"
+        )
 
     backend_type = "cpp_gbench"
     backend_kwargs = {}
@@ -308,6 +325,7 @@ def main(
         algo_groups=algo_groups,
         subset_size=subset_size,
         executable_dir=executable_dir,
+        search_device=search_device,
         **backend_kwargs,
     )
 
