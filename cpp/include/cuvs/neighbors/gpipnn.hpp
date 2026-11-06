@@ -213,8 +213,13 @@ void build_graph(raft::resources const& res,
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
 namespace graph_build_params {
-// Stays here beside CAGRA's other graph-build parameter types, which are not in `experimental`.
-/** GPiPNN build parameters, as selected through CAGRA's `graph_build_params`. */
+// Named here, beside CAGRA's other graph-build parameter types, which are not in `experimental`.
+/**
+ * @brief Parameters for a standalone GPiPNN build, spelled without the `experimental` namespace.
+ * Despite the enclosing namespace, CAGRA does not accept this type: it is absent from
+ * `cagra::graph_build_params_t`, so a GPiPNN graph is built on its own via
+ * `experimental::gpipnn::build_graph` and handed to a CAGRA index as a prebuilt graph.
+ */
 using gpipnn_params = cuvs::neighbors::experimental::gpipnn::index_params;
 }  // namespace graph_build_params
 }  // namespace neighbors

@@ -191,7 +191,7 @@ Converted to fp16 for scoring, exactly, same as the int8 overload.
 <a id="gpipnn-params"></a>
 ### gpipnn_params
 
-GPiPNN build parameters, as selected through CAGRA's `graph_build_params`.
+Parameters for a standalone GPiPNN build, spelled without the `experimental` namespace. Despite the enclosing namespace, CAGRA does not accept this type: it is absent from `cagra::graph_build_params_t`, so a GPiPNN graph is built on its own via `experimental::gpipnn::build_graph` and handed to a CAGRA index as a prebuilt graph.
 
 ```cpp
 using gpipnn_params = cuvs::neighbors::experimental::gpipnn::index_params;

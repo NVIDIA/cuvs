@@ -339,7 +339,8 @@ class persisting_l2_window {
     // Unchecked throughout: this can run while an exception from the batch loop propagates, and
     // losing it to report a failed cache hint would be a poor trade.
     if (active_) {
-      cudaStreamSetAttribute(stream_, cudaStreamAttributeAccessPolicyWindow, &prior_attr_);
+      RAFT_CUDA_TRY_NO_THROW(
+        cudaStreamSetAttribute(stream_, cudaStreamAttributeAccessPolicyWindow, &prior_attr_));
     }
     restore_limit();
   }
