@@ -274,6 +274,18 @@ void search_impl(raft::resources const& handle,
   RAFT_LOG_TRACE_VEC(distances_dev_ptr, 2 * k);
   if (indices_dev_ptr != nullptr) { RAFT_LOG_TRACE_VEC(indices_dev_ptr, 2 * k); }
 
+  // For CosineExpanded, `select_min` is true, so `select_k` below expects cosine distances.
+  // Without local top-k, the scan kernel writes cosine similarity and skips `post_process`.
+  // Converting each value to 1 - similarity also maps the -inf of filtered samples to +inf.
+  if (!manage_local_topk && effective_metric == cuvs::distance::DistanceType::CosineExpanded) {
+    auto distances_tmp_view = raft::make_device_vector_view<AccT, size_t>(distances_tmp_dev.data(),
+                                                                          distances_tmp_dev.size());
+    raft::linalg::map(handle,
+                      distances_tmp_view,
+                      raft::compose_op(raft::add_const_op<AccT>{1}, raft::mul_const_op<AccT>{-1}),
+                      raft::make_const_mdspan(distances_tmp_view));
+  }
+
   // Merge topk values from different blocks
   if (!manage_local_topk || grid_dim_x > 1) {
     std::optional<raft::device_vector_view<const uint32_t>> num_samples_vector;
