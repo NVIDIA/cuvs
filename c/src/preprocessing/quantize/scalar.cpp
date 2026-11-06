@@ -82,7 +82,7 @@ void _transform(cuvsResources_t res,
 
     cuvs::preprocessing::quantize::scalar::transform(
       *res_ptr,
-      std::get<typename decltype(quantizer)::global_type>(quantizer.value),
+      quantizer,
       cuvs::core::from_dlpack<mdspan_type>(dataset_tensor),
       cuvs::core::from_dlpack<out_mdspan_type>(out_tensor));
   } else {
@@ -118,7 +118,7 @@ void _inverse_transform(cuvsResources_t res,
 
     cuvs::preprocessing::quantize::scalar::inverse_transform(
       *res_ptr,
-      std::get<typename decltype(quantizer)::global_type>(quantizer.value),
+      quantizer,
       cuvs::core::from_dlpack<mdspan_type>(dataset_tensor),
       cuvs::core::from_dlpack<out_mdspan_type>(out_tensor));
   } else {

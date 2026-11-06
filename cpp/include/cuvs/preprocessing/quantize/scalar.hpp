@@ -208,25 +208,27 @@ void transform(raft::resources const& res,
 /**
  * @brief Applies global quantization to a host dataset
  *
+ * Throws raft::logic_error for per-dimension parameters. Use device transforms or host build
+ * for per-dimension quantization.
+ *
  * Usage example:
  * @code{.cpp}
  * raft::handle_t handle;
  * cuvs::preprocessing::quantize::scalar::params params;
  * auto quantizer = cuvs::preprocessing::quantize::scalar::train(handle, params,
  * dataset); auto quantized_dataset = raft::make_host_matrix<int8_t, int64_t>(samples, features);
- * auto global = std::get<decltype(quantizer)::global_type>(quantizer.value);
- * cuvs::preprocessing::quantize::scalar::transform(handle, global, dataset,
+ * cuvs::preprocessing::quantize::scalar::transform(handle, quantizer, dataset,
  * quantized_dataset.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer global shift and scale
+ * @param[in] quantizer a scalar quantizer with global parameters
  * @param[in] dataset a row-major matrix view on host
  * @param[out] out a row-major matrix view on host
  *
  */
 void transform(raft::resources const& res,
-               quantizer_const_view<double>::global_type quantizer,
+               quantizer_const_view<double> quantizer,
                raft::host_matrix_view<const double, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -260,27 +262,29 @@ void inverse_transform(raft::resources const& res,
 /**
  * @brief Applies inverse global quantization to a host dataset
  *
+ * Throws raft::logic_error for per-dimension parameters. Use device inverse_transform
+ * for per-dimension quantization.
+ *
  * Note that depending on the chosen data types train dataset the conversion is
  * not lossless.
  *
  * Usage example:
  * @code{.cpp}
- * auto global = std::get<decltype(quantizer)::global_type>(quantizer.value);
  * auto quantized_dataset = raft::make_host_matrix<int8_t, int64_t>(samples, features);
- * cuvs::preprocessing::quantize::scalar::transform(handle, global, dataset,
+ * cuvs::preprocessing::quantize::scalar::transform(handle, quantizer, dataset,
  * quantized_dataset.view()); auto dataset_revert = raft::make_host_matrix<double, int64_t>(samples,
- * features); cuvs::preprocessing::quantize::scalar::inverse_transform(handle, global,
+ * features); cuvs::preprocessing::quantize::scalar::inverse_transform(handle, quantizer,
  * raft::make_const_mdspan(quantized_dataset.view()), dataset_revert.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer global shift and scale
+ * @param[in] quantizer a scalar quantizer with global parameters
  * @param[in] dataset a row-major matrix view on host
  * @param[out] out a row-major matrix view on host
  *
  */
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<double>::global_type quantizer,
+                       quantizer_const_view<double> quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<double, int64_t> out);
 
@@ -351,25 +355,27 @@ void transform(raft::resources const& res,
 /**
  * @brief Applies global quantization to a host dataset
  *
+ * Throws raft::logic_error for per-dimension parameters. Use device transforms or host build
+ * for per-dimension quantization.
+ *
  * Usage example:
  * @code{.cpp}
  * raft::handle_t handle;
  * cuvs::preprocessing::quantize::scalar::params params;
  * auto quantizer = cuvs::preprocessing::quantize::scalar::train(handle, params,
  * dataset); auto quantized_dataset = raft::make_host_matrix<int8_t, int64_t>(samples, features);
- * auto global = std::get<decltype(quantizer)::global_type>(quantizer.value);
- * cuvs::preprocessing::quantize::scalar::transform(handle, global, dataset,
+ * cuvs::preprocessing::quantize::scalar::transform(handle, quantizer, dataset,
  * quantized_dataset.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer global shift and scale
+ * @param[in] quantizer a scalar quantizer with global parameters
  * @param[in] dataset a row-major matrix view on host
  * @param[out] out a row-major matrix view on host
  *
  */
 void transform(raft::resources const& res,
-               quantizer_const_view<float>::global_type quantizer,
+               quantizer_const_view<float> quantizer,
                raft::host_matrix_view<const float, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -402,27 +408,29 @@ void inverse_transform(raft::resources const& res,
 /**
  * @brief Applies inverse global quantization to a host dataset
  *
+ * Throws raft::logic_error for per-dimension parameters. Use device inverse_transform
+ * for per-dimension quantization.
+ *
  * Note that depending on the chosen data types train dataset the conversion is
  * not lossless.
  *
  * Usage example:
  * @code{.cpp}
- * auto global = std::get<decltype(quantizer)::global_type>(quantizer.value);
  * auto quantized_dataset = raft::make_host_matrix<int8_t, int64_t>(samples, features);
- * cuvs::preprocessing::quantize::scalar::transform(handle, global, dataset,
+ * cuvs::preprocessing::quantize::scalar::transform(handle, quantizer, dataset,
  * quantized_dataset.view()); auto dataset_revert = raft::make_host_matrix<float, int64_t>(samples,
- * features); cuvs::preprocessing::quantize::scalar::inverse_transform(handle, global,
+ * features); cuvs::preprocessing::quantize::scalar::inverse_transform(handle, quantizer,
  * raft::make_const_mdspan(quantized_dataset.view()), dataset_revert.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer global shift and scale
+ * @param[in] quantizer a scalar quantizer with global parameters
  * @param[in] dataset a row-major matrix view on host
  * @param[out] out a row-major matrix view on host
  *
  */
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<float>::global_type quantizer,
+                       quantizer_const_view<float> quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<float, int64_t> out);
 
@@ -493,25 +501,27 @@ void transform(raft::resources const& res,
 /**
  * @brief Applies global quantization to a host dataset
  *
+ * Throws raft::logic_error for per-dimension parameters. Use device transforms or host build
+ * for per-dimension quantization.
+ *
  * Usage example:
  * @code{.cpp}
  * raft::handle_t handle;
  * cuvs::preprocessing::quantize::scalar::params params;
  * auto quantizer = cuvs::preprocessing::quantize::scalar::train(handle, params,
  * dataset); auto quantized_dataset = raft::make_host_matrix<int8_t, int64_t>(samples, features);
- * auto global = std::get<decltype(quantizer)::global_type>(quantizer.value);
- * cuvs::preprocessing::quantize::scalar::transform(handle, global, dataset,
+ * cuvs::preprocessing::quantize::scalar::transform(handle, quantizer, dataset,
  * quantized_dataset.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer global shift and scale
+ * @param[in] quantizer a scalar quantizer with global parameters
  * @param[in] dataset a row-major matrix view on host
  * @param[out] out a row-major matrix view on host
  *
  */
 void transform(raft::resources const& res,
-               quantizer_const_view<half>::global_type quantizer,
+               quantizer_const_view<half> quantizer,
                raft::host_matrix_view<const half, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -544,27 +554,29 @@ void inverse_transform(raft::resources const& res,
 /**
  * @brief Applies inverse global quantization to a host dataset
  *
+ * Throws raft::logic_error for per-dimension parameters. Use device inverse_transform
+ * for per-dimension quantization.
+ *
  * Note that depending on the chosen data types train dataset the conversion is
  * not lossless.
  *
  * Usage example:
  * @code{.cpp}
- * auto global = std::get<decltype(quantizer)::global_type>(quantizer.value);
  * auto quantized_dataset = raft::make_host_matrix<int8_t, int64_t>(samples, features);
- * cuvs::preprocessing::quantize::scalar::transform(handle, global, dataset,
+ * cuvs::preprocessing::quantize::scalar::transform(handle, quantizer, dataset,
  * quantized_dataset.view()); auto dataset_revert = raft::make_host_matrix<half, int64_t>(samples,
- * features); cuvs::preprocessing::quantize::scalar::inverse_transform(handle, global,
+ * features); cuvs::preprocessing::quantize::scalar::inverse_transform(handle, quantizer,
  * raft::make_const_mdspan(quantized_dataset.view()), dataset_revert.view());
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] quantizer global shift and scale
+ * @param[in] quantizer a scalar quantizer with global parameters
  * @param[in] dataset a row-major matrix view on host
  * @param[out] out a row-major matrix view on host
  *
  */
 void inverse_transform(raft::resources const& res,
-                       quantizer_const_view<half>::global_type quantizer,
+                       quantizer_const_view<half> quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<half, int64_t> out);
 

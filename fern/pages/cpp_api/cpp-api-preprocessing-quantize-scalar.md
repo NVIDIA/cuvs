@@ -317,10 +317,12 @@ Applies global quantization to a host dataset
 
 ```cpp
 void transform(raft::resources const& res,
-quantizer_const_view<double>::global_type quantizer,
+quantizer_const_view<double> quantizer,
 raft::host_matrix_view<const double, int64_t> dataset,
 raft::host_matrix_view<int8_t, int64_t> out);
 ```
+
+Throws raft::logic_error for per-dimension parameters. Use device transforms or host build for per-dimension quantization.
 
 Usage example:
 
@@ -329,7 +331,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<double>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
+| `quantizer` | in | [`quantizer_const_view<double>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const double, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<int8_t, int64_t>` | a row-major matrix view on host |
 
@@ -372,10 +374,12 @@ Applies inverse global quantization to a host dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-quantizer_const_view<double>::global_type quantizer,
+quantizer_const_view<double> quantizer,
 raft::host_matrix_view<const int8_t, int64_t> dataset,
 raft::host_matrix_view<double, int64_t> out);
 ```
+
+Throws raft::logic_error for per-dimension parameters. Use device inverse_transform for per-dimension quantization.
 
 Note that depending on the chosen data types train dataset the conversion is not lossless.
 
@@ -386,7 +390,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<double>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
+| `quantizer` | in | [`quantizer_const_view<double>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<double, int64_t>` | a row-major matrix view on host |
 
@@ -474,10 +478,12 @@ Applies global quantization to a host dataset
 
 ```cpp
 void transform(raft::resources const& res,
-quantizer_const_view<float>::global_type quantizer,
+quantizer_const_view<float> quantizer,
 raft::host_matrix_view<const float, int64_t> dataset,
 raft::host_matrix_view<int8_t, int64_t> out);
 ```
+
+Throws raft::logic_error for per-dimension parameters. Use device transforms or host build for per-dimension quantization.
 
 Usage example:
 
@@ -486,7 +492,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<float>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
+| `quantizer` | in | [`quantizer_const_view<float>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const float, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<int8_t, int64_t>` | a row-major matrix view on host |
 
@@ -528,10 +534,12 @@ Applies inverse global quantization to a host dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-quantizer_const_view<float>::global_type quantizer,
+quantizer_const_view<float> quantizer,
 raft::host_matrix_view<const int8_t, int64_t> dataset,
 raft::host_matrix_view<float, int64_t> out);
 ```
+
+Throws raft::logic_error for per-dimension parameters. Use device inverse_transform for per-dimension quantization.
 
 Note that depending on the chosen data types train dataset the conversion is not lossless.
 
@@ -542,7 +550,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<float>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
+| `quantizer` | in | [`quantizer_const_view<float>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<float, int64_t>` | a row-major matrix view on host |
 
@@ -630,10 +638,12 @@ Applies global quantization to a host dataset
 
 ```cpp
 void transform(raft::resources const& res,
-quantizer_const_view<half>::global_type quantizer,
+quantizer_const_view<half> quantizer,
 raft::host_matrix_view<const half, int64_t> dataset,
 raft::host_matrix_view<int8_t, int64_t> out);
 ```
+
+Throws raft::logic_error for per-dimension parameters. Use device transforms or host build for per-dimension quantization.
 
 Usage example:
 
@@ -642,7 +652,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<half>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
+| `quantizer` | in | [`quantizer_const_view<half>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const half, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<int8_t, int64_t>` | a row-major matrix view on host |
 
@@ -684,10 +694,12 @@ Applies inverse global quantization to a host dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-quantizer_const_view<half>::global_type quantizer,
+quantizer_const_view<half> quantizer,
 raft::host_matrix_view<const int8_t, int64_t> dataset,
 raft::host_matrix_view<half, int64_t> out);
 ```
+
+Throws raft::logic_error for per-dimension parameters. Use device inverse_transform for per-dimension quantization.
 
 Note that depending on the chosen data types train dataset the conversion is not lossless.
 
@@ -698,7 +710,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`quantizer_const_view<half>::global_type`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | global shift and scale |
+| `quantizer` | in | [`quantizer_const_view<half>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer-const-view) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<half, int64_t>` | a row-major matrix view on host |
 

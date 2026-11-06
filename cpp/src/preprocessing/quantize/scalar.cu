@@ -52,7 +52,7 @@ quantizer<T>::quantizer(raft::resources const& res,
     detail::transform(res, quantizer, dataset, out);                                             \
   }                                                                                              \
   void transform(raft::resources const& res,                                                     \
-                 typename quantizer_const_view<T>::global_type quantizer,                        \
+                 quantizer_const_view<T> quantizer,                                              \
                  raft::host_matrix_view<const T, int64_t> dataset,                               \
                  raft::host_matrix_view<QuantI, int64_t> out)                                    \
   {                                                                                              \
@@ -66,7 +66,7 @@ quantizer<T>::quantizer(raft::resources const& res,
     detail::inverse_transform(res, quantizer, dataset, out);                                     \
   }                                                                                              \
   void inverse_transform(raft::resources const& res,                                             \
-                         typename quantizer_const_view<T>::global_type quantizer,                \
+                         quantizer_const_view<T> quantizer,                                      \
                          raft::host_matrix_view<const QuantI, int64_t> dataset,                  \
                          raft::host_matrix_view<T, int64_t> out)                                 \
   {                                                                                              \
