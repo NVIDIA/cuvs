@@ -107,7 +107,9 @@ public class OmpThreadsIT extends CuVSTestCase {
                 .withIndexParams(params)
                 .build()) {
       setOmpThreads(BASELINE);
-      try (var merged = CagraIndex.merge(new CagraIndex[] {index1, index2}, params)) {
+      var indexes = new CagraIndex[] {index1, index2};
+      try (var mergedDataset = CagraIndex.concatenateDatasets(indexes);
+          var merged = CagraIndex.merge(indexes, mergedDataset, params)) {
         assertEquals(BASELINE, ompMaxThreads());
       }
     }

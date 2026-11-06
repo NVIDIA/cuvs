@@ -18,6 +18,8 @@
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/composite/index.hpp>
 #include <cuvs/preprocessing/quantize/pq.hpp>
+#include <raft/core/bitset.cuh>
+#include <raft/core/device_csr_matrix.hpp>
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/device_resources.hpp>
@@ -30,6 +32,7 @@
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/normalize.cuh>
 #include <raft/linalg/reduce.cuh>
+#include <raft/matrix/copy.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/itertools.hpp>
 
@@ -1247,12 +1250,6 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         ps.k,
         ps.metric);
 
-      raft::linalg::addScalar(indices_naive_dev.data(),
-                              indices_naive_dev.data(),
-                              IdxT(test_cagra_sample_filter::offset),
-                              queries_size,
-                              stream_.get());
-
       raft::update_host(distances_naive.data(), distances_naive_dev.data(), queries_size, stream_);
       raft::update_host(indices_naive.data(), indices_naive_dev.data(), queries_size, stream_);
       raft::resource::sync_stream(handle_);
@@ -1329,13 +1326,17 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         indices.push_back(&index0);
         indices.push_back(&index1);
 
-        using padded_t      = cuvs::neighbors::device_padded_dataset<DataT, int64_t>;
-        auto merged_dataset = padded_t(cuvs::neighbors::detail::make_dense_array<padded_t>(
-          handle_,
-          ps.n_rows - static_cast<int64_t>(test_cagra_sample_filter::offset),
-          static_cast<uint32_t>(ps.dim)));
-        auto merge_idx      = cuvs::neighbors::cagra::merge(
-          handle_, index_params, indices, std::as_const(merged_dataset).view(), bitset_filter_obj);
+        std::vector<cuvs::neighbors::device_padded_dataset_view<DataT, int64_t>> dataset_views;
+        for (auto* idx : indices) {
+          dataset_views.push_back(idx->dataset());
+        }
+
+        // Exercise the real concatenate_datasets() helper with a filter -- it gathers directly from
+        // index0's/index1's own device dataset storage (not from `database`).
+        auto merged_dataset =
+          cuvs::neighbors::concatenate_datasets<DataT>(handle_, dataset_views, bitset_filter_obj);
+        auto merged_view = std::as_const(*merged_dataset).view();
+        auto merge_idx = cuvs::neighbors::cagra::merge(handle_, index_params, indices, merged_view);
 
         auto search_queries_view = raft::make_device_matrix_view<const DataT, int64_t>(
           search_queries.data(), ps.n_queries, ps.dim);
@@ -1574,20 +1575,19 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
 
         if (ps.merge_strategy == cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL) {
           // The merged index holds only a view, so merged_dataset must outlive it.
-          auto const merged_rows =
-            static_cast<int64_t>(index0.size()) + static_cast<int64_t>(index1.size());
-          using padded_t      = cuvs::neighbors::device_padded_dataset<DataT, int64_t>;
-          auto merged_dataset = padded_t(cuvs::neighbors::detail::make_dense_array<padded_t>(
-            handle_, merged_rows, static_cast<uint32_t>(ps.dim)));
+          // Exercise the real concatenate_datasets() helper -- it gathers directly from index0's
+          // and index1's own device dataset storage, in indices_to_merge order.
+          std::vector<cuvs::neighbors::device_padded_dataset_view<DataT, int64_t>> ds_views;
+          for (auto* idx : indices_to_merge) {
+            ds_views.push_back(idx->dataset());
+          }
+          auto merged_dataset = cuvs::neighbors::concatenate_datasets<DataT>(handle_, ds_views);
+          auto merged_view    = std::as_const(*merged_dataset).view();
           auto merged_idx =
             ps.physical_merge_params.has_value()
-              ? cagra::merge(handle_,
-                             index_params,
-                             indices_to_merge,
-                             std::as_const(merged_dataset).view(),
-                             *ps.physical_merge_params)
-              : cagra::merge(
-                  handle_, index_params, indices_to_merge, std::as_const(merged_dataset).view());
+              ? cagra::merge(
+                  handle_, index_params, indices_to_merge, merged_view, *ps.physical_merge_params)
+              : cagra::merge(handle_, index_params, indices_to_merge, merged_view);
           cagra::search(handle_,
                         search_params,
                         merged_idx,
