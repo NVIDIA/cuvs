@@ -282,6 +282,9 @@ enum class graph_build_algo {
   NN_DESCENT,
   /* Experimental, iteratively execute CAGRA's search() and optimize() */
   ITERATIVE_CAGRA_SEARCH,
+  /* Experimental, build the graph with GPiPNN. Needs sm_80 or newer; CAGRA falls back to
+     NN-descent where it cannot run, so cases using this still pass on older devices. */
+  GPIPNN,
   /* Choose default automatically */
   AUTO
 };
@@ -335,7 +338,8 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
     {search_algo::MULTI_KERNEL, "multi_kernel"},  //
     {search_algo::AUTO, "auto"}                   //
   };
-  std::vector<std::string> build_algo = {"IVF_PQ", "NN_DESCENT", "ITERATIVE_CAGRA_SEARCH", "AUTO"};
+  std::vector<std::string> build_algo = {
+    "IVF_PQ", "NN_DESCENT", "ITERATIVE_CAGRA_SEARCH", "GPIPNN", "AUTO"};
   std::vector<std::string> merge_strategy = {"PHYSICAL", "LOGICAL"};
   os << "{n_queries=" << p.n_queries << ", dataset shape=" << p.n_rows << "x" << p.dim
      << ", degree=" << p.graph_degree << ", k=" << p.k << ", " << algo_name[p.algo]
@@ -383,6 +387,12 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // Dataset size must be larger than 33 for NN Descent
     if (ps.build_algo == graph_build_algo::NN_DESCENT &&
         ((ps.n_rows < 33) || raft::round_up_safe(ps.n_rows, 32) <= ps.graph_degree * 3))
@@ -440,6 +450,10 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
           }
           case graph_build_algo::ITERATIVE_CAGRA_SEARCH: {
             index_params.graph_build_params = graph_build_params::iterative_search_params();
+            break;
+          }
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
           }
           case graph_build_algo::AUTO:
@@ -595,6 +609,12 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -663,6 +683,10 @@ class AnnCagraAddNodesTest : public ::testing::TestWithParam<AnnCagraInputs> {
           }
           case graph_build_algo::ITERATIVE_CAGRA_SEARCH: {
             index_params.graph_build_params = graph_build_params::iterative_search_params();
+            break;
+          }
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
           }
           case graph_build_algo::AUTO:
@@ -803,6 +827,12 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -877,6 +907,10 @@ class AnnCagraFilterTest : public ::testing::TestWithParam<AnnCagraInputs> {
           }
           case graph_build_algo::ITERATIVE_CAGRA_SEARCH: {
             index_params.graph_build_params = graph_build_params::iterative_search_params();
+            break;
+          }
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
           }
           case graph_build_algo::AUTO:
@@ -1185,6 +1219,12 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -1284,6 +1324,10 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
           }
           case graph_build_algo::ITERATIVE_CAGRA_SEARCH: {
             index_params.graph_build_params = graph_build_params::iterative_search_params();
+            break;
+          }
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
           }
           case graph_build_algo::AUTO:
@@ -1433,6 +1477,12 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    // GPiPNN needs strictly more rows than the output degree, and supports only L2 and cosine.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        (ps.n_rows <= ps.graph_degree ||
+         (ps.metric != cuvs::distance::DistanceType::L2Expanded &&
+          ps.metric != cuvs::distance::DistanceType::CosineExpanded)))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -1455,6 +1505,10 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
     if (ps.build_algo == graph_build_algo::NN_DESCENT &&
         ((database1_size < 33) ||
          raft::round_up_safe(database1_size, 32lu) <= ps.graph_degree * 3lu))
+      GTEST_SKIP();
+    // Each half is built independently, so GPiPNN's row requirement applies to the smaller one.
+    if (ps.build_algo == graph_build_algo::GPIPNN &&
+        std::min(database0_size, database1_size) <= static_cast<std::size_t>(ps.graph_degree))
       GTEST_SKIP();
 
     // Avoid splitting datasets with a size of 0
@@ -1516,6 +1570,10 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
           }
           case graph_build_algo::ITERATIVE_CAGRA_SEARCH: {
             index_params.graph_build_params = graph_build_params::iterative_search_params();
+            break;
+          }
+          case graph_build_algo::GPIPNN: {
+            index_params.graph_build_params = graph_build_params::gpipnn_params();
             break;
           }
           case graph_build_algo::AUTO:
@@ -1956,6 +2014,30 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
+  // GPiPNN graph build, restricted to the metrics it supports and to `n_rows > graph_degree`.
+  // The odd dims and `host_dataset` are deliberate: GPiPNN takes a contiguous even-`dim` device
+  // matrix, so those cases exercise the conforming copy CAGRA does on its behalf.
+  inputs2 = raft::util::itertools::product<AnnCagraInputs>(
+    {100},
+    {1000},
+    {5, 8, 64, 137},  // dim, odd values included deliberately
+    {16},             // k
+    {32},             // degree
+    {graph_build_algo::GPIPNN},
+    {search_algo::SINGLE_CTA, search_algo::MULTI_CTA},
+    {0},   // query size
+    {0},   // team_size
+    {64},  // itopk
+    {1},
+    {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::CosineExpanded},
+    {false, true},  // host_dataset
+    {true},         // include_serialized_dataset
+    {false},        // use_source_indices
+    {0.995},        // min_recall
+    {std::optional<float>{std::nullopt}},
+    {cuvs::neighbors::MergeStrategy::MERGE_STRATEGY_PHYSICAL});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
   return inputs;
 }
 
@@ -2186,6 +2268,9 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
       case graph_build_algo::NN_DESCENT:
         index_params.graph_build_params = graph_build_params::nn_descent_params(
           index_params.intermediate_graph_degree, index_params.metric);
+        break;
+      case graph_build_algo::GPIPNN:
+        index_params.graph_build_params = graph_build_params::gpipnn_params();
         break;
       case graph_build_algo::IVF_PQ:
       case graph_build_algo::ITERATIVE_CAGRA_SEARCH:
