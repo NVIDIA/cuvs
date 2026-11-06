@@ -133,6 +133,7 @@ ConfigureTest(
 ConfigureTest(
   NAME CLUSTER_TEST
   PATH cluster/kmeans.cu
+       cluster/cluster_cost.cu
        cluster/kmeans_balanced.cu
        cluster/kmeans_superkmeans.cu
        cluster/kmeans_find_k.cu
@@ -206,7 +207,7 @@ ConfigureTest(
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_RABITQ_TEST
-  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu
+  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu neighbors/ann_ivf_rabitq/test_exact_match.cu
   GPUS 1
   PERCENT 100
 )
