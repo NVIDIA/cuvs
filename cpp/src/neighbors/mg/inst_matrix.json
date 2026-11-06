@@ -1,0 +1,19 @@
+{
+  "inst_matrix": [
+    {
+      "matrix": "mg_flat_matrix.json",
+      "input": "mg_flat_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/mg/mg_flat_inst_data_@data_abbrev@.cu"
+    },
+    {
+      "matrix": "mg_pq_matrix.json",
+      "input": "mg_pq_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/mg/mg_pq_inst_data_@data_abbrev@.cu"
+    },
+    {
+      "matrix": "mg_cagra_matrix.json",
+      "input": "mg_cagra_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/mg/mg_cagra_inst_data_@data_abbrev@.cu"
+    }
+  ]
+}

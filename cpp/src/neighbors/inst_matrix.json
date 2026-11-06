@@ -1,0 +1,44 @@
+{
+  "inst_matrix": [
+    {
+      "matrix": "cagra_search_matrix.json",
+      "input": "cagra_search_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/cagra_search_inst_data_@data_abbrev@.cu"
+    },
+    {
+      "matrix": "cagra_build_matrix.json",
+      "input": "cagra_build_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/cagra_build_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    },
+    {
+      "matrix": "cagra_extend_matrix.json",
+      "input": "cagra_extend_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/cagra_extend_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    },
+    {
+      "matrix": "cagra_serialize_matrix.json",
+      "input": "cagra_serialize_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/cagra_serialized_inst_data_@data_abbrev@.cu"
+    },
+    {
+      "matrix": "cagra_merge_matrix.json",
+      "input": "cagra_merge_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/cagra_merge_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    },
+    {
+      "matrix": "nn_descent_matrix.json",
+      "input": "nn_descent_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/nn_descent_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    },
+    {
+      "matrix": "vamana_matrix.json",
+      "input": "vamana_build_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/vamana_build_inst_data_@data_abbrev@.cu"
+    },
+    {
+      "matrix": "vamana_matrix.json",
+      "input": "vamana_serialize_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/vamana_serialize_inst_data_@data_abbrev@.cu"
+    }
+  ]
+}

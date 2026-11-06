@@ -218,7 +218,7 @@ if(BUILD_CAGRA_HNSWLIB)
   include(cmake/thirdparty/get_hnswlib.cmake)
 endif()
 
-include(cmake/modules/generate_inst_matrix.cmake)
+include(cmake/modules/generate_inst_matrix_collection.cmake)
 include(cmake/modules/generate_jit_lto_kernel_collection.cmake)
 include(cmake/modules/generate_string_matrix.cmake)
 
@@ -236,23 +236,22 @@ if(NOT BUILD_CPU_ONLY)
   )
   target_link_libraries(cuvs_cpp_headers INTERFACE raft::raft rmm::rmm)
 
-  generate_inst_matrix(
-    cagra_search_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_search_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_search_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/cagra_search_inst_data_@data_abbrev@.cu"
+  # Each JSON file describes the instantiations of one family. The `${CMAKE_CURRENT_BINARY_DIR}`
+  # references of the output files are expanded.
+  generate_inst_matrix_collection(
+    cuvs_inst_files
+    JSON_FILES
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/inst_matrix.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/inst_matrix.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/pairwise_matrix/inst_matrix.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/iface/inst_matrix.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/inst_matrix.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/inst_matrix.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/inst_matrix.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/refine/detail/inst_matrix.json"
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/selection/inst_matrix.json"
   )
 
-  generate_inst_matrix(
-    cagra_compute_distance_standard_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_standard_matrix.json"
-    INPUT_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_standard_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/compute_distance_standard_inst_data_@data_abbrev@_index_@index_abbrev@_distance_@distance_abbrev@_metric_@metric@_team_@team_size@_dim_@dim@.cu"
-  )
   generate_string_matrix(
     cagra_compute_distance_standard_selector_template_params
     ITEM_FORMAT
@@ -272,15 +271,6 @@ if(NOT BUILD_CPU_ONLY)
     "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_standard_matrix.json"
   )
 
-  generate_inst_matrix(
-    cagra_compute_distance_vpq_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_vpq_matrix.json"
-    INPUT_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_vpq_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/compute_distance_vpq_inst_data_@data_abbrev@_index_@index_abbrev@_distance_@distance_abbrev@_codebook_@codebook_abbrev@_metric_@metric@_team_@team_size@_dim_@dim@_pq_bits_@pq_bits@_pq_len_@pq_len@_smem_@smem_abbrev@.cu"
-  )
   generate_string_matrix(
     cagra_compute_distance_vpq_selector_template_params
     ITEM_FORMAT
@@ -300,22 +290,6 @@ if(NOT BUILD_CPU_ONLY)
     "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance_vpq_matrix.json"
   )
 
-  generate_inst_matrix(
-    cagra_search_multi_cta_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/search_multi_cta_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/search_multi_cta_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/search_multi_cta_inst_data_@data_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    cagra_search_single_cta_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/search_single_cta_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/search_single_cta_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/search_single_cta_inst_data_@data_abbrev@.cu"
-  )
 
   configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/detail/cagra/compute_distance-ext.cuh.in"
@@ -326,36 +300,10 @@ if(NOT BUILD_CPU_ONLY)
     "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/compute_distance.cu" @ONLY
   )
 
-  set(cuvs_cagra_search_cuda_inst_files
-      ${cagra_search_inst_files}
-      ${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/compute_distance.cu
-      ${cagra_compute_distance_standard_inst_files}
-      ${cagra_compute_distance_vpq_inst_files}
-      ${cagra_search_multi_cta_inst_files}
-      ${cagra_search_single_cta_inst_files}
-  )
-
   if(BUILD_MG_ALGOS)
-    generate_inst_matrix(
+    generate_inst_matrix_collection(
       CUVS_MG_ALGOS
-      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/mg/mg_flat_matrix.json"
-      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/mg/mg_flat_inst.cu.in"
-      OUTPUT_FILE_FORMAT
-        "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/mg/mg_flat_inst_data_@data_abbrev@.cu"
-    )
-    generate_inst_matrix(
-      CUVS_MG_ALGOS
-      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/mg/mg_pq_matrix.json"
-      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/mg/mg_pq_inst.cu.in"
-      OUTPUT_FILE_FORMAT
-        "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/mg/mg_pq_inst_data_@data_abbrev@.cu"
-    )
-    generate_inst_matrix(
-      CUVS_MG_ALGOS
-      MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/mg/mg_cagra_matrix.json"
-      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/mg/mg_cagra_inst.cu.in"
-      OUTPUT_FILE_FORMAT
-        "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/mg/mg_cagra_inst_data_@data_abbrev@.cu"
+      JSON_FILES "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/mg/inst_matrix.json"
     )
   endif()
 
@@ -483,204 +431,12 @@ if(NOT BUILD_CPU_ONLY)
   # Note that this matrix contains an `arch_includes` placeholder, since we don't currently have a
   # way to do an item-wise transform on a list after computing the matrix product and before
   # configuring the file
-  generate_inst_matrix(
-    pairwise_matrix_dispatch_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/pairwise_matrix/dispatch_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/pairwise_matrix/dispatch_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/distance/detail/pairwise_matrix/dispatch_inst_data_@data_abbrev@_acc_@acc_abbrev@_out_@out_abbrev@_index_@index_abbrev@_op_@op_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    pairwise_matrix_dispatch_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/pairwise_matrix/dispatch_rbf_matrix.json"
-    INPUT_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/distance/detail/pairwise_matrix/dispatch_rbf_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/distance/detail/pairwise_matrix/dispatch_rbf_inst_data_@data_abbrev@_acc_@acc_abbrev@_out_@out_abbrev@_index_@index_abbrev@_op_@op_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    cagra_build_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_build_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_build_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/cagra_build_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    cagra_extend_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_extend_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_extend_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/cagra_extend_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    cagra_serialize_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_serialize_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_serialize_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/cagra_serialized_inst_data_@data_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    cagra_merge_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_merge_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/cagra_merge_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/cagra_merge_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    iface_cagra_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/iface/iface_cagra_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/iface/iface_cagra_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/iface/iface_cagra_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    iface_flat_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/iface/iface_flat_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/iface/iface_flat_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/iface/iface_flat_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    iface_pq_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/iface/iface_pq_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/iface/iface_pq_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/iface/iface_pq_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    ivf_flat_build_extend_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/ivf_flat_build_extend_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/ivf_flat_build_extend_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_flat/ivf_flat_build_extend_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    ivf_flat_search_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/ivf_flat_search_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/ivf_flat_search_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_flat/ivf_flat_search_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    ivf_flat_interleaved_scan_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/ivf_flat_interleaved_scan_matrix.json"
-    INPUT_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/ivf_flat_interleaved_scan_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_flat/ivf_flat_interleaved_scan_inst_data_@data_abbrev@_index_@index_abbrev@_filter_@filter_name@.cu"
-  )
-  generate_inst_matrix(
-    ivf_flat_serialize_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/ivf_flat_serialize_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_flat/ivf_flat_serialize_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_flat/ivf_flat_serialize_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    ivf_pq_build_extend_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_build_extend_matrix.json"
-    INPUT_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_build_extend_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_build_extend_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    ivf_pq_compute_similarity_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_compute_similarity_select_matrix.json"
-    INPUT_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_compute_similarity_select_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_compute_similarity_select_inst_out_@out_abbrev@_lut_@lut_abbrev@_filter_@filter_name@_metric_@metric@_@increment_score_str@.cu"
-  )
-  generate_inst_matrix(
-    ivf_pq_compute_similarity_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_compute_similarity_run_matrix.json"
-    INPUT_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_compute_similarity_run_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_compute_similarity_run_inst_out_@out_abbrev@_lut_@lut_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    ivf_pq_search_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_search_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_search_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_search_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    ivf_pq_transform_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_transform_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_transform_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/ivf_pq/detail/ivf_pq_transform_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    gmm_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/gmm_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/gmm_inst.cu.in"
-    OUTPUT_FILE_FORMAT "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/gmm_inst_data_@data_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    nn_descent_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/nn_descent_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/nn_descent_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    vamana_build_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_build_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/vamana_build_inst_data_@data_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    vamana_serialize_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/vamana_serialize_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/vamana_serialize_inst_data_@data_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    refine_device_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/refine/detail/refine_device_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/refine/detail/refine_device_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/refine/detail/refine_device_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
-  generate_inst_matrix(
-    refine_host_inst_files
-    MATRIX_JSON_FILE
-      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/refine/detail/refine_host_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/refine/detail/refine_host_inst.cpp.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/refine/detail/refine_host_inst_data_@data_abbrev@_index_@index_abbrev@.cpp"
-  )
-  generate_inst_matrix(
-    select_k_inst_files
-    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/selection/select_k_matrix.json"
-    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/selection/select_k_inst.cu.in"
-    OUTPUT_FILE_FORMAT
-      "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
-  )
 
   add_library(
     cuvs_objs OBJECT
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
-    ${gmm_inst_files}
+    ${cuvs_inst_files}
     src/cluster/kmeans_cluster_cost.cu
     src/cluster/kmeans_fit_double.cu
     src/cluster/kmeans_fit_float.cu
@@ -716,7 +472,6 @@ if(NOT BUILD_CPU_ONLY)
     src/distance/detail/kernels/gram_matrix.cu
     src/distance/detail/kernels/kernel_factory.cu
     src/distance/detail/kernels/kernel_matrices.cu
-    ${pairwise_matrix_dispatch_inst_files}
     src/distance/distance.cu
     src/distance/top_1_nn.cu
     src/distance/kde.cu
@@ -731,18 +486,11 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/brute_force.cu
     src/neighbors/brute_force_serialize.cu
     src/neighbors/cagra.cpp
-    ${cagra_build_inst_files}
-    ${cagra_extend_inst_files}
     src/neighbors/cagra_optimize.cu
     src/neighbors/detail/cagra/graph_shared.cu
     src/neighbors/detail/cagra/cagra_merge_scaffold_shared.cu
-    ${cagra_serialize_inst_files}
-    ${cagra_merge_inst_files}
-    ${iface_cagra_inst_files}
-    ${iface_flat_inst_files}
-    ${iface_pq_inst_files}
     src/neighbors/detail/cagra/topk_for_cagra/topk.cu
-    ${cuvs_cagra_search_cuda_inst_files}
+    ${CMAKE_CURRENT_BINARY_DIR}/src/neighbors/detail/cagra/compute_distance.cu
     src/neighbors/detail/cagra/cagra_helpers.cpp
     src/neighbors/dynamic_batching.cu
     src/neighbors/composite/index.cu
@@ -752,23 +500,15 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/ivf_binary/ivf_binary.cu
     src/neighbors/ivf_common.cu
     src/neighbors/ivf_flat_index.cpp
-    ${ivf_flat_build_extend_inst_files}
-    ${ivf_flat_search_inst_files}
     src/neighbors/ivf_flat/ivf_flat_helpers.cu
-    ${ivf_flat_interleaved_scan_inst_files}
-    ${ivf_flat_serialize_inst_files}
     src/neighbors/ivf_pq_index.cu
     src/neighbors/ivf_pq/ivf_pq_build_common.cu
     src/neighbors/ivf_pq/ivf_pq_serialize.cu
     src/neighbors/ivf_pq/ivf_pq_deserialize.cu
-    ${ivf_pq_build_extend_inst_files}
     src/neighbors/ivf_pq/detail/ivf_pq_build_precomputed_int64_t.cu
-    ${ivf_pq_compute_similarity_inst_files}
     src/neighbors/ivf_pq/detail/ivf_pq_contiguous_list_data.cu
     src/neighbors/ivf_pq/detail/ivf_pq_list_data.cu
     src/neighbors/ivf_pq/detail/ivf_pq_process_and_fill_codes.cu
-    ${ivf_pq_search_inst_files}
-    ${ivf_pq_transform_inst_files}
     src/neighbors/ivf_rabitq.cu
     src/neighbors/ivf_rabitq/gpu_index/ivf_gpu.cu
     src/neighbors/ivf_rabitq/gpu_index/initializer_gpu.cu
@@ -785,26 +525,20 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/ivf_sq/ivf_sq_serialize_uint8_t.cu
     src/neighbors/knn_merge_parts.cu
     src/neighbors/nn_descent.cu
-    ${nn_descent_inst_files}
     src/neighbors/nn_descent_gnnd_inst.cu
     src/neighbors/nn_descent_index.cpp
-    ${refine_device_inst_files}
-    ${refine_host_inst_files}
     src/neighbors/scann/scann_build_float.cu
     src/neighbors/scann/scann_serialize_float.cu
     src/neighbors/sample_filter.cu
     src/neighbors/tiered_index.cu
     src/neighbors/sparse_brute_force.cu
-    ${vamana_build_inst_files}
     src/neighbors/vamana_codebooks.cu
-    ${vamana_serialize_inst_files}
     src/preprocessing/quantize/scalar.cu
     src/preprocessing/quantize/binary.cu
     src/preprocessing/quantize/pq.cu
     src/preprocessing/quantize/bbq.cu
     src/preprocessing/spectral/spectral_embedding.cu
     src/preprocessing/pca/pca.cu
-    ${select_k_inst_files}
     src/stats/silhouette_score.cu
     src/stats/trustworthiness_score.cu
     ${CUVS_MG_ALGOS}

@@ -106,6 +106,14 @@
           "KERNEL_LINK_LIBRARIES": "*"
         }
       },
+      "generate_inst_matrix_collection": {
+        "pargs": {
+          "nargs": 1
+        },
+        "kwargs": {
+          "JSON_FILES": "+"
+        }
+      },
       "generate_inst_matrix": {
         "pargs": {
           "nargs": 1

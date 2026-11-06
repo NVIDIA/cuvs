@@ -1,0 +1,14 @@
+{
+  "inst_matrix": [
+    {
+      "matrix": "refine_device_matrix.json",
+      "input": "refine_device_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/refine/detail/refine_device_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    },
+    {
+      "matrix": "refine_host_matrix.json",
+      "input": "refine_host_inst.cpp.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/refine/detail/refine_host_inst_data_@data_abbrev@_index_@index_abbrev@.cpp"
+    }
+  ]
+}

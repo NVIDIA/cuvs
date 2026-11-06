@@ -19,9 +19,7 @@ include("${rapids-cmake-dir}/json/parse.cmake")
 #   `NAME_FORMAT`, `MATRIX_JSON_FILE`, `KERNEL_INPUT_FILE`, `FRAGMENT_TAG_FORMAT` and
 #   `OUTPUT_DIRECTORY` arguments.
 # * `fragment_tag_headers` maps to `FRAGMENT_TAG_HEADER_FILES`.
-# * `link_libraries` maps to `KERNEL_LINK_LIBRARIES`, and overrides the libraries provided to this
-#   function.
-# * `extra_compile_options` maps to `KERNEL_EXTRA_COMPILE_OPTIONS`.
+# * `extra_compile_options` maps to `KERNEL_EXTRA_COMPILE_OPTIONS`, and is the only optional member.
 #
 # `matrix` and `kernel_input` are relative to the directory of the JSON file. `@name@` placeholders
 # are replaced using the variables visible to the caller, which is used to refer to
@@ -37,23 +35,25 @@ function(generate_jit_lto_kernel_collection source_list_var)
   cmake_parse_arguments(_JIT_LTO "${options}" "${one_value}" "${multi_value}" ${ARGN})
 
   foreach(json_file IN LISTS _JIT_LTO_JSON_FILES)
-    rapids_json_array_items(jit_lto_kernels FILE "${json_file}" KEY kernels)
+    rapids_json_array_items(
+      jit_lto_kernels FILE "${json_file}" KEY kernels BASE_DIR_VARIABLE jit_lto_kernels_dir
+    )
 
     foreach(jit_lto_kernel IN LISTS jit_lto_kernels)
       rapids_json_parse(
         _jit_lto_kernel
         STRING "${jit_lto_kernel}"
-        BASE_DIR "${jit_lto_kernels_BASE_DIR}"
+        BASE_DIR "${jit_lto_kernels_dir}"
         VALUES name_format fragment_tag_format output_dir
-        LISTS fragment_tag_headers link_libraries extra_compile_options
+        LISTS fragment_tag_headers extra_compile_options
         PATHS matrix kernel_input
-        REQUIRED name_format matrix kernel_input fragment_tag_format output_dir
       )
 
-      set(link_libraries ${_JIT_LTO_KERNEL_LINK_LIBRARIES})
-      if(DEFINED _jit_lto_kernel_link_libraries)
-        set(link_libraries ${_jit_lto_kernel_link_libraries})
-      endif()
+      foreach(member IN ITEMS name_format matrix kernel_input fragment_tag_format output_dir)
+        if(NOT DEFINED _jit_lto_kernel_${member})
+          message(FATAL_ERROR "'${json_file}' has a kernel without the required '${member}' member")
+        endif()
+      endforeach()
 
       string(CONFIGURE "${_jit_lto_kernel_output_dir}" _jit_lto_kernel_output_dir @ONLY)
 
@@ -70,7 +70,7 @@ function(generate_jit_lto_kernel_collection source_list_var)
         FRAGMENT_TAG_FORMAT "${_jit_lto_kernel_fragment_tag_format}"
         FRAGMENT_TAG_HEADER_FILES ${_jit_lto_kernel_fragment_tag_headers}
         OUTPUT_DIRECTORY "${_jit_lto_kernel_output_dir}"
-        KERNEL_LINK_LIBRARIES ${link_libraries}
+        KERNEL_LINK_LIBRARIES ${_JIT_LTO_KERNEL_LINK_LIBRARIES}
         ${extra_args}
       )
     endforeach()
