@@ -220,13 +220,14 @@ void kmeansPlusPlus(raft::resources const& handle,
     }
   }
 
-  raft::random::RngState rng(params.rng_state.seed, params.rng_state.type);
-  std::mt19937 gen(params.rng_state.seed);
+  std::mt19937_64 gen_64(mix_seed(params.rng_state.seed, RngStage::FirstCentroid));
+  uint64_t gpu_seed = mix_seed(params.rng_state.seed, RngStage::CandidateSampling);
+  raft::random::RngState rng(gpu_seed, params.rng_state.type);
   std::uniform_int_distribution<> dis(0, n_samples - 1);
 
   // <<< Step-1 >>>: C <-- sample a point uniformly at random from X
   auto initialCentroid = raft::make_device_matrix_view<const DataT, IndexT>(
-    X.data_handle() + dis(gen) * n_features, 1, n_features);
+    X.data_handle() + dis(gen_64) * n_features, 1, n_features);
   int n_clusters_picked = 1;
 
   // store the chosen centroid in the buffer
@@ -393,10 +394,11 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
   auto n_clusters     = params.n_clusters;
   auto metric         = params.metric;
 
-  raft::random::RngState rng(params.rng_state.seed, params.rng_state.type);
+  raft::random::RngState rng(mix_seed(params.rng_state.seed, RngStage::CandidateSampling),
+                             params.rng_state.type);
 
   // <<<< Step-1 >>> : C <- sample a point uniformly at random from X
-  std::mt19937 gen(params.rng_state.seed);
+  std::mt19937_64 gen(mix_seed(params.rng_state.seed, RngStage::FirstCentroid));
   std::uniform_int_distribution<> dis(0, n_samples - 1);
 
   auto cIdx            = dis(gen);
@@ -601,8 +603,10 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
     // <<< end of Step-7 >>>
 
     // Step-8: Recluster the weighted points in C into k clusters
+    auto init_params           = params;
+    init_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::CandidateRecluster);
     cuvs::cluster::kmeans::detail::kmeansPlusPlus<DataT, IndexT>(
-      handle, params, potentialCentroids, centroidsRawData, workspace);
+      handle, init_params, potentialCentroids, centroidsRawData, workspace);
 
     auto inertia = raft::make_host_scalar<DataT>(0);
     auto n_iter  = raft::make_host_scalar<IndexT>(0);
@@ -636,6 +640,8 @@ void initScalableKMeansPlusPlus(raft::resources const& handle,
 
     // generate `n_random_clusters` centroids
     cuvs::cluster::kmeans::params rand_params;
+    rand_params.rng_state = raft::random::RngState(
+      mix_seed(params.rng_state.seed, RngStage::RandomFallback), params.rng_state.type);
     rand_params.init       = cuvs::cluster::kmeans::params::InitMethod::Random;
     rand_params.n_clusters = n_random_clusters;
     initRandom<DataT, IndexT>(handle, rand_params, X, centroidsRawData);
@@ -771,9 +777,11 @@ void kmeans_fit(
       return;
     }
 
-    raft::random::RngState random_state(iter_params.rng_state.seed);
+    raft::random::RngState random_state(iter_params.rng_state.seed, iter_params.rng_state.type);
 
     if (iter_params.init == cuvs::cluster::kmeans::params::InitMethod::Random) {
+      // mix random_state.seed with a tag
+      random_state.seed = mix_seed(iter_params.rng_state.seed, RngStage::RandomInit);
       raft::matrix::sample_rows(handle, random_state, X, centroidsRawData);
     } else if (iter_params.init == cuvs::cluster::kmeans::params::InitMethod::KMeansPlusPlus) {
       auto run_kmeanspp = [&](raft::device_matrix_view<const DataT, IndexT> init_data) {
@@ -787,6 +795,7 @@ void kmeans_fit(
       if constexpr (data_on_device) {
         run_kmeanspp(X);
       } else {
+        random_state.seed = mix_seed(iter_params.rng_state.seed, RngStage::HostSubsample);
         raft::matrix::sample_rows(handle, random_state, X, init_sample->view());
         run_kmeanspp(raft::make_const_mdspan(init_sample->view()));
       }
@@ -952,7 +961,7 @@ void kmeans_fit(
     if (need_compute_norms) { compute_batch_norms(X.data_handle(), n_samples, device_uses_tf32); }
   }
 
-  std::mt19937 gen(pams.rng_state.seed);
+  std::mt19937_64 gen(pams.rng_state.seed);
   inertia[0] = std::numeric_limits<DataT>::max();
 
   for (int seed_iter = 0; seed_iter < n_init; ++seed_iter) {

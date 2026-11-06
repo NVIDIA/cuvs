@@ -40,6 +40,9 @@
 
 namespace cuvs::cluster::kmeans::mg::detail {
 
+using cuvs::cluster::kmeans::detail::mix_seed;
+using cuvs::cluster::kmeans::detail::RngStage;
+
 /**
  * @brief Compute the global cluster cost (psi) over partitioned device data.
  *
@@ -218,7 +221,9 @@ void initKMeansPlusPlus_distributed(
     distance_storage_size += part_rows;
   }
 
-  raft::random::RngState rng(params.rng_state.seed, raft::random::GeneratorType::GenPhilox);
+  const auto candidate_seed =
+    mix_seed(params.rng_state.seed, RngStage::CandidateSampling, static_cast<std::uint64_t>(rank));
+  raft::random::RngState rng(candidate_seed, params.rng_state.type);
 
   auto d_rp = raft::make_device_scalar<int>(handle, 0);
   int rp    = 0;
@@ -233,7 +238,7 @@ void initKMeansPlusPlus_distributed(
     }
     RAFT_EXPECTS(!non_empty_ranks.empty(),
                  "all ranks have zero local rows; cannot pick a source rank for KMeans++ init");
-    std::mt19937 gen(params.rng_state.seed);
+    std::mt19937_64 gen(mix_seed(params.rng_state.seed, RngStage::SourceRank));
     std::uniform_int_distribution<std::size_t> rank_dist(std::size_t{0},
                                                          non_empty_ranks.size() - 1);
     rp = non_empty_ranks[rank_dist(gen)];
@@ -256,7 +261,7 @@ void initKMeansPlusPlus_distributed(
     RAFT_EXPECTS(n_local > 0,
                  "selected source rank %d has no local rows; cannot pick an initial centroid",
                  rp);
-    std::mt19937 row_gen(params.rng_state.seed);
+    std::mt19937_64 row_gen(mix_seed(params.rng_state.seed, RngStage::FirstCentroid));
     std::uniform_int_distribution<IndexT> row_dist(IndexT{0}, n_local - 1);
     chosen_local_idx             = row_dist(row_gen);
     auto [part_idx, row_in_part] = locate_local_row(part_offsets, chosen_local_idx);
@@ -446,15 +451,19 @@ void initKMeansPlusPlus_distributed(
     auto const_centroids = raft::make_device_matrix_view<const DataT, IndexT>(
       potentialCentroids.data_handle(), potentialCentroids.extent(0), n_features);
 
+    // derive a new seed here based on a tag here but it should be same across ranks
+    auto init_params           = params;
+    init_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::CandidateRecluster);
     cuvs::cluster::kmeans::init_plus_plus<DataT, IndexT>(
-      handle, params, const_centroids, centroidsRawData, workspace);
+      handle, init_params, const_centroids, centroidsRawData, workspace);
 
     auto inertia_out = raft::make_host_scalar<DataT>(0);
     auto n_iter_out  = raft::make_host_scalar<IndexT>(0);
 
-    cuvs::cluster::kmeans::params default_params;
     cuvs::cluster::kmeans::params recluster_params = params;
-    recluster_params.rng_state                     = default_params.rng_state;
+
+    // InitMethod::Array does not produce or consume anyt random numbers,
+    // therefore, rand_state does not need to be changed
     recluster_params.init   = cuvs::cluster::kmeans::params::InitMethod::Array;
     recluster_params.n_init = 1;
 
@@ -476,8 +485,10 @@ void initKMeansPlusPlus_distributed(
       static_cast<int>(n_clusters),
       static_cast<int>(n_random));
 
-    auto random_centroids = sample_global_rows(handle,
-                                               params,
+    auto random_params           = params;
+    random_params.rng_state.seed = mix_seed(params.rng_state.seed, RngStage::RandomFallback);
+    auto random_centroids        = sample_global_rows(handle,
+                                               random_params,
                                                X_parts,
                                                n_features,
                                                n_random,
