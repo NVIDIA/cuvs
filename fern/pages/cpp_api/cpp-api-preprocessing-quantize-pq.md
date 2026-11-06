@@ -276,7 +276,7 @@ Typical **CAGRA-Q** usage: compress the source rows, then build the graph direct
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` |  |
-| `params` |  | [`cuvs::neighbors::vpq_params const&`](/api-reference/cpp-api-neighbors-cagra-params#neighbors-vpq-params) |  |
+| `params` |  | [`cuvs::neighbors::vpq_params const&`](/api-reference/cpp-api-neighbors-cagra#neighbors-vpq-params) |  |
 | `src` |  | `SrcT const&` |  |
 
 **Returns**

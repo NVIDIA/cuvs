@@ -34,7 +34,6 @@ These pages are generated from the documented public headers in the cuVS source 
 - [Ball Cover](/api-reference/cpp-api-neighbors-ball-cover)
 - [Brute Force](/api-reference/cpp-api-neighbors-brute-force)
 - [Cagra](/api-reference/cpp-api-neighbors-cagra)
-- [Cagra Params](/api-reference/cpp-api-neighbors-cagra-params)
 - [Common](/api-reference/cpp-api-neighbors-common)
 - [Dynamic Batching](/api-reference/cpp-api-neighbors-dynamic-batching)
 - [Epsilon Neighborhood](/api-reference/cpp-api-neighbors-epsilon-neighborhood)

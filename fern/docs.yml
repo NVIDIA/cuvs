@@ -388,8 +388,6 @@ navigation:
             path: "./pages/cpp_api/cpp-api-neighbors-brute-force.md"
           - page: "Neighbors Cagra"
             path: "./pages/cpp_api/cpp-api-neighbors-cagra.md"
-          - page: "Neighbors Cagra Params"
-            path: "./pages/cpp_api/cpp-api-neighbors-cagra-params.md"
           - page: "Neighbors Common"
             path: "./pages/cpp_api/cpp-api-neighbors-common.md"
           - page: "Neighbors Dynamic Batching"

@@ -4,7 +4,7 @@
  */
 #pragma once
 #include <cuvs/distance/distance.hpp>
-#include <cuvs/neighbors/cagra_params.hpp>
+#include <cuvs/neighbors/cagra.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
