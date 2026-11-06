@@ -210,6 +210,18 @@ public class Util {
   }
 
   /**
+   * Calls the {@code deleter} of a {@code DLManagedTensor} filled in by native code, if it has one.
+   * cuVS uses it to release the tensor's heap-allocated {@code shape} and {@code strides}; the data
+   * itself is not owned by such tensors.
+   */
+  public static void releaseManagedTensor(MemorySegment managedTensor) {
+    var deleter = DLManagedTensor.deleter(managedTensor);
+    if (deleter.address() != 0) {
+      DLManagedTensor.deleter.invoke(deleter, managedTensor);
+    }
+  }
+
+  /**
    * Helper to get the CUDA stream associated with a {@link CuVSResources}
    */
   public static MemorySegment getStream(CuVSResources resources) {
