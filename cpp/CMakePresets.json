@@ -1,0 +1,19 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "build-for-packaging",
+      "displayName": "package build (flags for production)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CUDA_ARCHITECTURES": "RAPIDS",
+        "CMAKE_LINKER_TYPE": "LLD"
+      }
+    }
+  ]
+}
