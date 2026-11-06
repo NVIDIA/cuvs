@@ -52,6 +52,11 @@ const std::vector<GramMatrixInputs> inputs = {
   {137, 42, 2, true, {KernelType::POLYNOMIAL, 2, 0.5, 2.4}},
   {137, 42, 2, false, {KernelType::POLYNOMIAL, 2, 0.5, 2.4}, 159, 73, 144},
   {137, 42, 2, true, {KernelType::POLYNOMIAL, 2, 0.5, 2.4}, 159, 73, 144},
+  // Odd degree above 2^24 (not exactly representable as float) with a base of exactly -1.
+  {137, 42, 2, false, {KernelType::POLYNOMIAL, 16777217, 0, -1}},
+  {137, 42, 2, true, {KernelType::POLYNOMIAL, 16777217, 0, -1}},
+  {137, 42, 2, false, {KernelType::POLYNOMIAL, 16777217, 0, -1}, 159, 73, 144},
+  {137, 42, 2, true, {KernelType::POLYNOMIAL, 16777217, 0, -1}, 159, 73, 144},
   {42, 137, 2, false, {KernelType::TANH, 0, 0.5, 2.4}},
   {42, 137, 2, true, {KernelType::TANH, 0, 0.5, 2.4}},
   {42, 137, 2, false, {KernelType::TANH, 0, 0.5, 2.4}, 64, 155, 49},

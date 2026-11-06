@@ -72,7 +72,7 @@ public class TestAcceleratedHNSWMultiLayerRoundTrip extends LuceneTestCase {
         new Object[][] {
           {new Lucene99AcceleratedHNSWVectorsFormat(params), 32},
           {new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(params), 129},
-          {new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat(params), 32}
+          {CuVSCodecs.acceleratedHNSWScalarQuantizedFormat(params), 32}
         });
   }
 

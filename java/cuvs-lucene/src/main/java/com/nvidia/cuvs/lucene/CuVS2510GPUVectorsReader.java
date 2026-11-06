@@ -61,8 +61,10 @@ import org.apache.lucene.util.hnsw.IntToIntFunction;
 public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
 
   /**
-   * Largest number of hits searched for with CAGRA in one segment. Beyond it the brute force index
-   * is searched instead if the segment has one, and otherwise CAGRA returns only this many.
+   * Largest number of hits searched for with CAGRA in one segment, or {@link
+   * GPUKnnFloatVectorQuery#MAX_SINGLE_CTA_ITOPK} with SINGLE_CTA. Beyond it the brute force index
+   * is searched instead if the segment has one, and otherwise CAGRA returns only this many; see
+   * {@link #maxHits}.
    */
   static final int MAX_CAGRA_K = 1024;
 
@@ -573,30 +575,39 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
 
     try {
       List<Map<Integer, Float>> searchResult = null;
-      // Lucene's own query may also ask for more than MAX_CAGRA_K hits, even for a k below it: on
-      // Lucene 10.3, as many as it expects from this segment. Without a brute force index, CAGRA
-      // returns as many as it can. That is enough for any k up to MAX_CAGRA_K; a filtered search
-      // that needs more is redone exactly by Lucene, but an unfiltered one gets at most
-      // MAX_CAGRA_K hits from this segment, a documented limit of CAGRA-only indexes.
+      // A collector may ask for more hits than CAGRA returns: Lucene's own query does on Lucene
+      // 10.3, as many as it expects from this segment, and GPUKnnFloatVectorQuery does when the
+      // segment has a brute force index (see maxHits). Without a brute force index, CAGRA returns
+      // as many as it can. A filtered search that needs more is redone exactly by Lucene, but an
+      // unfiltered one gets at most maxHits hits from this segment, a documented limit of
+      // CAGRA-only indexes. The filter over-fetch is a heuristic, not a user request, so it is
+      // capped too, and so is the itopk_size below.
+      GPUPerLeafCuVSKnnCollector gpuCollector =
+          knnCollector instanceof GPUPerLeafCuVSKnnCollector c ? c : null;
+      int cagraLimit =
+          maxCagraHits(
+              gpuCollector != null
+                  ? gpuCollector.getSearchAlgo()
+                  : CagraSearchParams.SearchAlgo.AUTO);
       if (cuvsIndex.getCagraIndex() != null
-          && (knnCollector.k() <= MAX_CAGRA_K || cuvsIndex.getBruteforceIndex() == null)) {
-        topK = Math.min(topK, MAX_CAGRA_K);
+          && (knnCollector.k() <= cagraLimit || cuvsIndex.getBruteforceIndex() == null)) {
+        topK = Math.min(topK, cagraLimit);
         CagraSearchParams searchParams;
-        if (knnCollector instanceof GPUPerLeafCuVSKnnCollector) {
-          GPUPerLeafCuVSKnnCollector collector = (GPUPerLeafCuVSKnnCollector) knnCollector;
-          // The filter over-fetch is a heuristic, not a user request. Keep it within SINGLE_CTA's
-          // limit so valid queries do not start failing as segment/filter cardinalities change.
-          if (collector.getSearchAlgo() == CagraSearchParams.SearchAlgo.SINGLE_CTA) {
-            topK = Math.min(topK, GPUKnnFloatVectorQuery.MAX_SINGLE_CTA_ITOPK);
+        if (gpuCollector != null) {
+          int effectiveITopK = Math.max(gpuCollector.getiTopK(), topK);
+          // The collector's iTopK is at least its k, which can exceed SINGLE_CTA's limit if the
+          // query could not find this reader to ask its maxHits. The query's own iTopK and k are
+          // checked against the limit, so only the excess is cut.
+          if (gpuCollector.getSearchAlgo() == CagraSearchParams.SearchAlgo.SINGLE_CTA) {
+            effectiveITopK = Math.min(effectiveITopK, cagraLimit);
           }
-          int effectiveITopK = Math.max(collector.getiTopK(), topK);
           searchParams =
               new CagraSearchParams.Builder()
                   .withItopkSize(effectiveITopK)
-                  .withSearchWidth(collector.getSearchWidth())
-                  .withThreadBlockSize(collector.getThreadBlockSize())
-                  .withMaxIterations(collector.getMaxIterations())
-                  .withAlgo(collector.getSearchAlgo())
+                  .withSearchWidth(gpuCollector.getSearchWidth())
+                  .withThreadBlockSize(gpuCollector.getThreadBlockSize())
+                  .withMaxIterations(gpuCollector.getMaxIterations())
+                  .withAlgo(gpuCollector.getSearchAlgo())
                   .build();
         } else {
           // Setting itopK as topK because in any case iTopK should be ATLEAST equal to topK
@@ -763,16 +774,31 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
   }
 
   /**
-   * Whether this segment has a CAGRA index for the given field. Unlike {@link
+   * Returns the most hits a search of the given field in this segment returns, or {@link
+   * Integer#MAX_VALUE} if it has no such limit. A segment with a brute force index has none, and
+   * one with only a CAGRA index returns at most {@link #MAX_CAGRA_K} hits, or {@link
+   * GPUKnnFloatVectorQuery#MAX_SINGLE_CTA_ITOPK} with SINGLE_CTA. Unlike {@link
    * #getCagraIndexForField}, this never loads an index onto the GPU.
    *
    * @param field the vector field name
+   * @param searchAlgo the CAGRA search algorithm the search runs with
    */
-  boolean hasCagraIndex(String field) {
+  int maxHits(String field, CagraSearchParams.SearchAlgo searchAlgo) {
     FieldInfo info = fieldInfos.fieldInfo(field);
-    if (info == null) return false;
-    FieldEntry fieldEntry = fields.get(info.number);
-    return fieldEntry != null && fieldEntry.cagraIndexLength() > 0;
+    FieldEntry fieldEntry = info == null ? null : fields.get(info.number);
+    if (fieldEntry == null
+        || fieldEntry.cagraIndexLength() == 0
+        || fieldEntry.bruteForceIndexLength() > 0) {
+      return Integer.MAX_VALUE;
+    }
+    return maxCagraHits(searchAlgo);
+  }
+
+  /** Returns the most hits searched for with CAGRA in one segment with the given algorithm. */
+  private static int maxCagraHits(CagraSearchParams.SearchAlgo searchAlgo) {
+    return searchAlgo == CagraSearchParams.SearchAlgo.SINGLE_CTA
+        ? GPUKnnFloatVectorQuery.MAX_SINGLE_CTA_ITOPK
+        : MAX_CAGRA_K;
   }
 
   /**
