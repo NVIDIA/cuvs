@@ -515,7 +515,7 @@ jobs:
       cache-read-only: true
       cache-environment: |
         CUDA_CACHE_PATH=.cache/cuda-jit
-      matrix_type: pull-request
+      matrix_type: pull-request,wsl-pr
   conda-cpp-checks:
     needs: conda-cpp-build
     permissions:
@@ -792,7 +792,7 @@ jobs:
     with:
       build_type: pull-request
       script: ci/test_wheel_cuvs.sh
-      matrix_type: pull-request
+      matrix_type: pull-request,wsl-pr
   devcontainer:
     permissions:
       actions: read

@@ -293,7 +293,7 @@ def fit(
     ...     X_host.shape, dtype=np.float32, out=X_host)
     >>> params = KMeansParams(n_clusters=1000, device_buffer_samples=1_000_000)
     >>> resources = Resources()
-    >>> resources.set_memory_pool(80)  # Percentage of currently free device memory
+    >>> resources.set_memory_pool(50)  # Percentage of currently free device memory
     >>> resources.set_stream_pool(1)   # Enables H2D/compute overlap
     >>> centroids, inertia, n_iter = fit(params, X_host, resources=resources)
     >>> resources.sync()
