@@ -125,6 +125,42 @@ A new HNSW index ready for search
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:70`_
 
+### materializeToHnswlib
+
+```java
+static void materializeToHnswlib( CuVSResources resources, HnswMaterializeParams materializeParams, String layeredArtifactPath, String outputPath, int dim, HnswIndexParams.CuvsDistanceType metric) throws Throwable
+```
+
+Materializes a layered HNSW artifact into a standard hnswlib index file on
+disk.
+
+Materializes a `GRAPH_ONLY` artifact (graph topology only,
+stored in ACE order) plus a local dataset into a standard hnswlib index file,
+without ever holding the full materialized index in host memory. The
+resulting file is compatible with the original hnswlib library and can be read
+back with `hierarchy == CPU`. The element data type is inferred from the
+external dataset. GRAPH_ONLY artifacts are currently produced through the C++
+API.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `resources` | The CuVS resources |
+| `materializeParams` | Materialization parameters (dataset path, host-memory budget, threads) |
+| `layeredArtifactPath` | Path to the layered HNSW artifact |
+| `outputPath` | Path to the hnswlib index file to write |
+| `dim` | The dimension of the vectors in the index |
+| `metric` | The distance metric used to build the index |
+
+**Throws**
+
+| Type | Description |
+| --- | --- |
+| `Throwable` | if an error occurs during materialization |
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:99`_
+
 ### from
 
 ```java
@@ -144,7 +180,7 @@ needed.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:90`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:129`_
 
 ### withIndexParams
 
@@ -165,7 +201,7 @@ Builder.
 
 An instance of this Builder.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:99`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:138`_
 
 ### build
 
@@ -179,6 +215,6 @@ Builds and returns an instance of CagraIndex.
 
 an instance of CagraIndex
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:106`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:145`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/HnswIndex.java:17`_
