@@ -41,7 +41,6 @@
 #include <thrust/gather.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
-#include <thrust/sequence.h>
 #include <thrust/transform.h>
 
 #include "../../neighbors/detail/ann_utils.cuh"
@@ -1415,7 +1414,9 @@ auto build_fine_clusters(const raft::resources& handle,
   {
     rmm::device_uvector<IdxT> row_ids(n_rows, stream, large_ws);
     rmm::device_uvector<LabelT> sorted_labels(n_rows, stream, large_ws);
-    thrust::sequence(raft::resource::get_thrust_policy(handle), row_ids.begin(), row_ids.end());
+    raft::linalg::map_offset(handle,
+                             raft::make_device_vector_view<IdxT, IdxT>(row_ids.data(), n_rows),
+                             raft::identity_op{});
     const int end_bit =
       std::max(1, static_cast<int>(std::bit_width(static_cast<uint64_t>(n_mesoclusters - 1))));
     size_t sort_bytes = 0;
