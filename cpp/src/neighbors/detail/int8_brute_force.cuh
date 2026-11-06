@@ -76,12 +76,10 @@ inline void compute_sq_statistics(raft::resources const& res,
 {
   auto const cosine = metric == cuvs::distance::DistanceType::CosineExpanded;
   if (cosine || metric == cuvs::distance::DistanceType::InnerProduct) {
-    // For x = scale * code + shift, dot(x, y) = scale^2 * dot(code_x, code_y) + u_x + u_y.
+    // Keep exact code sums so dot products can be centered before applying the affine mapping.
     raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
-      res, codes, dot_corrections, 0.0, false, [affine] __device__(int8_t code, int64_t) {
-        auto const shift = affine.shift / affine.normalization;
-        auto const scale = affine.scale / affine.normalization;
-        return shift * (scale * code + 0.5 * shift);
+      res, codes, dot_corrections, 0.0, false, [] __device__(int8_t code, int64_t) {
+        return static_cast<double>(code);
       });
   }
   if (cosine) {
@@ -116,9 +114,11 @@ RAFT_KERNEL int8_postprocess_kernel(std::int32_t const* scores,
                                     double const* dataset_norms,
                                     double const* query_corrections,
                                     double const* dataset_corrections,
-                                    double scale,
+                                    sq_affine_parameters affine,
+                                    int64_t dim,
                                     cuvs::distance::DistanceType metric)
 {
+  auto const scale       = affine.scale / affine.normalization;
   auto const query       = static_cast<int64_t>(blockIdx.y);
   auto const* row_scores = scores + query * leading_dim;
   auto* row_output       = output + query * n_rows;
@@ -128,15 +128,25 @@ RAFT_KERNEL int8_postprocess_kernel(std::int32_t const* scores,
     auto const dot         = static_cast<double>(integer_dot);
     switch (metric) {
       case cuvs::distance::DistanceType::InnerProduct:
-        row_output[row] = static_cast<float>(scale * (scale * dot) + query_corrections[query] +
-                                             dataset_corrections[row]);
-        break;
       case cuvs::distance::DistanceType::CosineExpanded: {
-        auto const denominator = query_norms[query] * dataset_norms[row];
+        // Center at the code nearest decoded zero. Integer terms stay exact in double,
+        // avoiding cancellation of the large affine terms for tiny reconstructed vectors.
+        auto const zero = affine.scale > 0.0
+                            ? fmin(fmax(round(-affine.shift / affine.scale), -128.0), 127.0)
+                            : 0.0;
+        auto const shift = fma(affine.scale, zero, affine.shift) / affine.normalization;
+        auto const sum = query_corrections[query] + dataset_corrections[row];
+        auto const centered_dot = dot - zero * sum + dim * zero * zero;
+        auto const centered_sum = sum - 2.0 * dim * zero;
         auto const corrected_dot =
-          scale * (scale * dot) + query_corrections[query] + dataset_corrections[row];
-        row_output[row] =
-          denominator > 0.0 ? static_cast<float>(1.0 - corrected_dot / denominator) : 1.0f;
+          scale * (scale * centered_dot) + shift * (scale * centered_sum + dim * shift);
+        if (metric == cuvs::distance::DistanceType::InnerProduct) {
+          row_output[row] = static_cast<float>(corrected_dot);
+        } else {
+          auto const denominator = query_norms[query] * dataset_norms[row];
+          row_output[row] =
+            denominator > 0.0 ? static_cast<float>(1.0 - corrected_dot / denominator) : 1.0f;
+        }
         break;
       }
       default: {
@@ -300,7 +310,8 @@ void int8_brute_force_search(raft::resources const& res,
         needs_norms ? index.norms().data_handle() + dataset_offset : nullptr,
         needs_corrections ? query_corrections.data() + query_offset : nullptr,
         needs_corrections ? index.dot_corrections().data_handle() + dataset_offset : nullptr,
-        affine.scale / affine.normalization,
+        affine,
+        d,
         index.metric());
       RAFT_CUDA_TRY(cudaPeekAtLastError());
 

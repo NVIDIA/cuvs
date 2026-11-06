@@ -40,7 +40,7 @@ _RAFT_HOST_DEVICE bool fp_lt(const T& a, const T& b)
 }
 
 template <>
-_RAFT_HOST_DEVICE bool fp_lt(const half& a, const half& b)
+_RAFT_HOST_DEVICE inline bool fp_lt(const half& a, const half& b)
 {
   return static_cast<float>(a) < static_cast<float>(b);
 }
@@ -123,8 +123,7 @@ struct per_dim_quantize_op {
 
   RAFT_INLINE_FUNCTION QuantI operator()(const T& x) const
   {
-    compute_t const inv       = compute_t{1} / scale;
-    compute_t const code      = rint((static_cast<compute_t>(x) - shift) * inv);
+    compute_t const code      = rint((static_cast<compute_t>(x) - shift) / scale);
     constexpr compute_t q_max = std::numeric_limits<QuantI>::max();
     constexpr compute_t q_min = std::max<compute_t>(std::numeric_limits<QuantI>::min(), -q_max);
     return static_cast<QuantI>(fmin(fmax(code, q_min), q_max));

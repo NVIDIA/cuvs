@@ -1039,6 +1039,8 @@ const std::vector<PerDimensionInputs> dataset_inputs = {
    {-127.f, -127.f / 128.f, 9.f, 1.f, 1.f / 128.f, 9.f, 127.f, 127.f / 128.f, 9.f},
    {-127, -127, 0, 1, 1, 0, 127, 127, 0},
    1e-6f},
+  // Division preserves exact half-way codes when the scale has an inexact reciprocal.
+  {4, 1, {-8001.f, -157.5f, 157.5f, 8001.f}, {-127, -2, 2, 127}, 31.5f},
   {2, 2, {10.f, -7.f, 10.f, -7.f}, {0, 0, 0, 0}, 0.f},
   // Equal subnormal bounds must retain their value and reconstruct exactly.
   {1,

@@ -975,6 +975,48 @@ TEST(BruteForceSQ, CosineNearZero)
   EXPECT_NEAR(actual_distance, 0.0f, 1e-5f);
 }
 
+TEST(BruteForceSQ, NearZeroDouble)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  for (auto metric : {cuvs::distance::DistanceType::CosineExpanded,
+                      cuvs::distance::DistanceType::InnerProduct}) {
+  SCOPED_TRACE(static_cast<int>(metric));
+  raft::resources res;
+  auto stream = raft::resource::get_cuda_stream(res);
+  double const epsilon = std::ldexp(1.0, -40);
+  std::vector<int8_t> const host_codes{-128, -128, -128, -128, -127, -128, -128, -128};
+  auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 2, 4);
+  raft::update_device(codes.data_handle(), host_codes.data(), host_codes.size(), stream.get());
+  cuvs::device_sq_dataset<double, int64_t, double> sq{
+    std::move(codes), scalar::quantizer<double>{epsilon, 255 + epsilon}};
+  index_params params;
+  params.metric = metric;
+  auto index = build(res, params, sq.view());
+  auto queries = raft::make_device_matrix<double, int64_t>(res, 1, 4);
+  raft::matrix::fill(res, queries.view(), epsilon);
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 1, 1);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, 1, 1);
+  search(res,
+         search_params{},
+         index,
+         raft::make_const_mdspan(queries.view()),
+         neighbors.view(),
+         distances.view());
+  int64_t actual_neighbor;
+  float actual_distance;
+  raft::update_host(&actual_neighbor, neighbors.data_handle(), 1, stream.get());
+  raft::update_host(&actual_distance, distances.data_handle(), 1, stream.get());
+  raft::resource::sync_stream(res);
+  if (metric == cuvs::distance::DistanceType::InnerProduct) {
+    EXPECT_EQ(actual_neighbor, 1);
+    EXPECT_FLOAT_EQ(actual_distance, static_cast<float>(epsilon + 4 * epsilon * epsilon));
+  } else {
+    EXPECT_EQ(actual_neighbor, 0);
+    EXPECT_NEAR(actual_distance, 0.0f, 1e-6f);
+  }
+  }
+}
+
 TEST(BruteForceSQ, CosineZeroQuery)
 {
   namespace scalar = cuvs::preprocessing::quantize::scalar;

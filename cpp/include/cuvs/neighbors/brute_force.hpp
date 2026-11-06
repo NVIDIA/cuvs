@@ -205,10 +205,10 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
   size_t dim() const noexcept { return dataset_.dim(); }
   /** Borrowed SQ dataset view, including its quantizer. */
   DatasetViewT dataset() const noexcept { return dataset_; }
-  /** Squared code norms for L2, reconstructed vector norms for cosine, or empty for inner product.
+  /** Squared code norms for L2, normalized reconstructed vector norms for cosine, or empty for inner product.
    */
   raft::device_vector_view<const double, int64_t> norms() const { return norms_.view(); }
-  /** Additive dot-product corrections for inner product and cosine, or empty for L2. */
+  /** Code sums for reconstructing inner products and cosine similarities, or empty for L2. */
   raft::device_vector_view<const double, int64_t> dot_corrections() const
   {
     return dot_corrections_.view();

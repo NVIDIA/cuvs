@@ -435,7 +435,7 @@ DatasetViewT dataset() const noexcept;
 
 **Additional overload:** `neighbors::brute_force::index::norms`
 
-Squared code norms for L2, reconstructed vector norms for cosine, or empty for inner product.
+Squared code norms for L2, normalized reconstructed vector norms for cosine, or empty for inner product.
 
 ```cpp
 raft::device_vector_view<const double, int64_t> norms() const;
@@ -448,7 +448,7 @@ raft::device_vector_view<const double, int64_t> norms() const;
 <a id="neighbors-brute-force-index-dot-corrections"></a>
 ### neighbors::brute_force::index::dot_corrections
 
-Additive dot-product corrections for inner product and cosine, or empty for L2.
+Code sums for reconstructing inner products and cosine similarities, or empty for L2.
 
 ```cpp
 raft::device_vector_view<const double, int64_t> dot_corrections() const;
