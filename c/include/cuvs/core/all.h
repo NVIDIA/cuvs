@@ -14,6 +14,7 @@
 #include <cuvs/core/dataset.h>
 
 #include <cuvs/cluster/kmeans.h>
+#include <cuvs/cluster/soar.h>
 
 #include <cuvs/distance/distance.h>
 #include <cuvs/distance/pairwise_distance.h>
