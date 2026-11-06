@@ -811,4 +811,60 @@ void batched_fit_omp(const raft::resources& clique,
     num_ranks);
 }
 
+// These shared fit helpers are instantiated once in the matching CUDA owner sources.
+extern template void
+mnmg_fit<float, int, typename raft::device_matrix_view<const float, int>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  std::vector<raft::device_matrix_view<const float, int>> const&,
+  std::optional<std::vector<raft::device_vector_view<const float, int>>> const&,
+  raft::device_matrix_view<float, int>,
+  raft::host_scalar_view<float>,
+  raft::host_scalar_view<int>);
+extern template void
+mnmg_fit<float, int64_t, typename raft::device_matrix_view<const float, int64_t>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  std::vector<raft::device_matrix_view<const float, int64_t>> const&,
+  std::optional<std::vector<raft::device_vector_view<const float, int64_t>>> const&,
+  raft::device_matrix_view<float, int64_t>,
+  raft::host_scalar_view<float>,
+  raft::host_scalar_view<int64_t>);
+extern template void
+mnmg_fit<float, int64_t, typename raft::host_matrix_view<const float, int64_t>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  std::vector<raft::host_matrix_view<const float, int64_t>> const&,
+  std::optional<std::vector<raft::host_vector_view<const float, int64_t>>> const&,
+  raft::device_matrix_view<float, int64_t>,
+  raft::host_scalar_view<float>,
+  raft::host_scalar_view<int64_t>);
+extern template void
+mnmg_fit<double, int, typename raft::device_matrix_view<const double, int>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  std::vector<raft::device_matrix_view<const double, int>> const&,
+  std::optional<std::vector<raft::device_vector_view<const double, int>>> const&,
+  raft::device_matrix_view<double, int>,
+  raft::host_scalar_view<double>,
+  raft::host_scalar_view<int>);
+extern template void
+mnmg_fit<double, int64_t, typename raft::device_matrix_view<const double, int64_t>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  std::vector<raft::device_matrix_view<const double, int64_t>> const&,
+  std::optional<std::vector<raft::device_vector_view<const double, int64_t>>> const&,
+  raft::device_matrix_view<double, int64_t>,
+  raft::host_scalar_view<double>,
+  raft::host_scalar_view<int64_t>);
+extern template void
+mnmg_fit<double, int64_t, typename raft::host_matrix_view<const double, int64_t>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  std::vector<raft::host_matrix_view<const double, int64_t>> const&,
+  std::optional<std::vector<raft::host_vector_view<const double, int64_t>>> const&,
+  raft::device_matrix_view<double, int64_t>,
+  raft::host_scalar_view<double>,
+  raft::host_scalar_view<int64_t>);
+
 }  // namespace cuvs::cluster::kmeans::mg::detail
