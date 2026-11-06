@@ -1836,7 +1836,6 @@ unsafe extern "C" {
         params: cuvsCagraIndexParams_t,
         indices: *mut cuvsCagraIndex_t,
         num_indices: usize,
-        filter: cuvsFilter,
         merged_dataset: cuvsDataset_t,
         output_index: cuvsCagraIndex_t,
     ) -> cuvsError_t;
@@ -1850,7 +1849,6 @@ unsafe extern "C" {
         merge_params: cuvsCagraMergeParams_t,
         indices: *mut cuvsCagraIndex_t,
         num_indices: usize,
-        filter: cuvsFilter,
         merged_dataset: cuvsDataset_t,
         output_index: cuvsCagraIndex_t,
     ) -> cuvsError_t;

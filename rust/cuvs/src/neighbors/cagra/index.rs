@@ -140,25 +140,7 @@ impl<'d> Index<'d> {
     where
         D: CuvsDataset + ?Sized,
     {
-        Self::merge_impl(res, params, None, indices, None, merged_dataset)
-    }
-
-    /// Merges multiple CAGRA indices, applying a row-level bitset `filter`.
-    ///
-    /// `merged_dataset` must already contain only the rows surviving `filter`
-    /// (in `indices` order); use [`merged_dataset_offsets`] to compute the
-    /// per-index row offsets within it.
-    pub fn merge_filtered<'a, D>(
-        res: &Resources,
-        params: &IndexParams,
-        indices: &[&Index<'_>],
-        filter: &Filter<'_, Bitset>,
-        merged_dataset: &'a D,
-    ) -> Result<Index<'a>>
-    where
-        D: CuvsDataset + ?Sized,
-    {
-        Self::merge_impl(res, params, None, indices, Some(filter), merged_dataset)
+        Self::merge_impl(res, params, None, indices, merged_dataset)
     }
 
     /// Merges multiple CAGRA indices using explicit [`MergeParams`].
@@ -172,23 +154,7 @@ impl<'d> Index<'d> {
     where
         D: CuvsDataset + ?Sized,
     {
-        Self::merge_impl(res, params, Some(merge_params), indices, None, merged_dataset)
-    }
-
-    /// Merges multiple CAGRA indices using explicit [`MergeParams`] and a
-    /// row-level bitset `filter`.
-    pub fn merge_filtered_with_params<'a, D>(
-        res: &Resources,
-        params: &IndexParams,
-        merge_params: &MergeParams,
-        indices: &[&Index<'_>],
-        filter: &Filter<'_, Bitset>,
-        merged_dataset: &'a D,
-    ) -> Result<Index<'a>>
-    where
-        D: CuvsDataset + ?Sized,
-    {
-        Self::merge_impl(res, params, Some(merge_params), indices, Some(filter), merged_dataset)
+        Self::merge_impl(res, params, Some(merge_params), indices, merged_dataset)
     }
 
     fn merge_impl<'a, D>(
@@ -196,7 +162,6 @@ impl<'d> Index<'d> {
         params: &IndexParams,
         merge_params: Option<&MergeParams>,
         indices: &[&Index<'_>],
-        filter: Option<&Filter<'_, Bitset>>,
         merged_dataset: &'a D,
     ) -> Result<Index<'a>>
     where
@@ -207,30 +172,26 @@ impl<'d> Index<'d> {
         let merged_dataset = merged_dataset.raw_dataset_handle();
         let handle = IndexHandle::new()?;
 
-        with_filter(filter, |c_filter| {
-            check_cuvs(unsafe {
-                match merge_params {
-                    Some(merge_params) => ffi::cuvsCagraMergeWithParams_v2(
-                        res.handle(),
-                        params.handle(),
-                        merge_params.handle(),
-                        raw_indices.as_mut_ptr(),
-                        raw_indices.len(),
-                        c_filter,
-                        merged_dataset,
-                        handle.raw(),
-                    ),
-                    None => ffi::cuvsCagraMerge_v2(
-                        res.handle(),
-                        params.handle(),
-                        raw_indices.as_mut_ptr(),
-                        raw_indices.len(),
-                        c_filter,
-                        merged_dataset,
-                        handle.raw(),
-                    ),
-                }
-            })
+        check_cuvs(unsafe {
+            match merge_params {
+                Some(merge_params) => ffi::cuvsCagraMergeWithParams_v2(
+                    res.handle(),
+                    params.handle(),
+                    merge_params.handle(),
+                    raw_indices.as_mut_ptr(),
+                    raw_indices.len(),
+                    merged_dataset,
+                    handle.raw(),
+                ),
+                None => ffi::cuvsCagraMerge_v2(
+                    res.handle(),
+                    params.handle(),
+                    raw_indices.as_mut_ptr(),
+                    raw_indices.len(),
+                    merged_dataset,
+                    handle.raw(),
+                ),
+            }
         })?;
 
         Ok(Index { handle, _dataset: PhantomData })
