@@ -136,7 +136,6 @@ void _build_host(cuvsResources_t res,
   RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto& cpp_res = *reinterpret_cast<raft::device_resources*>(res);
 
-  cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
   auto& dlt = dataset_tensor->dl_tensor;
   RAFT_EXPECTS(cuvs::core::is_dlpack_host_compatible(dlt),
                "Host build expects host-compatible dataset tensor");
@@ -189,7 +188,6 @@ void _build_device(cuvsResources_t device_res,
   RAFT_EXPECTS(device_res != 0, "res must not be NULL");
   auto& cpp_res = *reinterpret_cast<raft::device_resources*>(device_res);
 
-  cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
   auto& dlt = dataset_tensor->dl_tensor;
   RAFT_EXPECTS(cuvs::core::is_dlpack_device_compatible(dlt),
                "Device build expects device-compatible dataset tensor");
@@ -258,6 +256,7 @@ extern "C" cuvsError_t cuvsAllNeighborsBuild(cuvsResources_t res,
                                              float alpha)
 {
   return cuvs::core::translate_exceptions([=] {
+    cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
     auto dataset = dataset_tensor->dl_tensor;
 
     ensure_indices_dtype(indices_tensor);

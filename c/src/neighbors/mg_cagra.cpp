@@ -194,7 +194,6 @@ void* _mg_build(cuvsResources_t res,
 {
   RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
-  cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
   auto dataset = dataset_tensor->dl_tensor;
 
   auto mg_params = cuvs::neighbors::mg_index_params<cuvs::neighbors::cagra::index_params>();
@@ -366,6 +365,7 @@ extern "C" cuvsError_t cuvsMultiGpuCagraBuild(cuvsResources_t res,
                                               cuvsMultiGpuCagraIndex_t index)
 {
   return cuvs::core::translate_exceptions([=] {
+    cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
     auto dataset = dataset_tensor->dl_tensor;
 
     // Multi-GPU CAGRA requires dataset to be in host memory

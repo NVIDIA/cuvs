@@ -263,6 +263,7 @@ extern "C" cuvsError_t cuvsKMeansFit(cuvsResources_t res,
                                      int* n_iter)
 {
   return cuvs::core::translate_exceptions([=] {
+    cuvs::core::validate_dlpack_tensor(X, 2);
     auto dataset = X->dl_tensor;
     if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
       _fit<float>(res, *params, X, sample_weight, centroids, inertia, n_iter);
@@ -286,6 +287,7 @@ extern "C" cuvsError_t cuvsKMeansPredict(cuvsResources_t res,
                                          double* inertia)
 {
   return cuvs::core::translate_exceptions([=] {
+    cuvs::core::validate_dlpack_tensor(X, 2);
     auto dataset = X->dl_tensor;
     if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
         _predict<float>(res, *params, X, sample_weight, centroids, labels, normalize_weight, inertia);
@@ -305,6 +307,7 @@ extern "C" cuvsError_t cuvsKMeansClusterCost(cuvsResources_t res,
                                              double* cost)
 {
   return cuvs::core::translate_exceptions([=] {
+    cuvs::core::validate_dlpack_tensor(X, 2);
     auto dataset = X->dl_tensor;
     if (dataset.dtype.code == kDLFloat && dataset.dtype.bits == 32) {
       _cluster_cost<float>(res, X, centroids, cost);

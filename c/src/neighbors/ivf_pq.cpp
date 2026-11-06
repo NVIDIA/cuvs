@@ -60,7 +60,6 @@ void* _build(cuvsResources_t res, cuvsIvfPqIndexParams params, DLManagedTensor* 
   auto build_params = cuvs::neighbors::ivf_pq::index_params();
   convert_c_index_params(params, &build_params);
 
-  cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
   auto dataset = dataset_tensor->dl_tensor;
   auto dim     = dataset.shape[1];
 
@@ -285,6 +284,7 @@ extern "C" cuvsError_t cuvsIvfPqBuild(cuvsResources_t res,
                                       cuvsIvfPqIndex_t index)
 {
   return cuvs::core::translate_exceptions([=] {
+    cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
     auto dataset      = dataset_tensor->dl_tensor;
     index->dtype.code = dataset.dtype.code;
     index->dtype.bits = dataset.dtype.bits;
