@@ -1555,7 +1555,13 @@ void build_hierarchical(const raft::resources& handle,
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "build_hierarchical(%zu, %u)", static_cast<size_t>(n_rows), n_clusters);
 
-  IdxT n_mesoclusters = std::min(n_clusters, static_cast<IdxT>(std::sqrt(n_clusters) + 0.5));
+  // Fine clusters per mesocluster: the smallest multiple of 256 that is at least sqrt(k). A sqrt(k)
+  // split runs ~sqrt(k) small fine fits with too few candidates to fill the 1-NN tiles; fewer,
+  // larger groups are faster and also land closer to a flat fit.
+  constexpr IdxT kFineGroupAlign = 256;
+  const auto sqrt_k   = static_cast<IdxT>(std::ceil(std::sqrt(static_cast<double>(n_clusters))));
+  const IdxT group    = raft::div_rounding_up_safe<IdxT>(sqrt_k, kFineGroupAlign) * kFineGroupAlign;
+  IdxT n_mesoclusters = raft::div_rounding_up_safe<IdxT>(n_clusters, group);
   RAFT_LOG_DEBUG("build_hierarchical: n_mesoclusters: %u", n_mesoclusters);
 
   rmm::device_async_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
