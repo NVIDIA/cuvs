@@ -760,6 +760,22 @@ TYPED_TEST(PerDimensionQuantizationTest, GlobalShiftScale)
   }
 }
 
+TEST(QuantizationDatasetTest, GlobalDoubleRounding)
+{
+  raft::resources res;
+  auto stream = raft::resource::get_cuda_stream(res);
+  std::vector<double> values{0.49999999, -0.49999999, 0.5, -0.5};
+  auto input = raft::make_device_matrix<double, int64_t>(res, 1, values.size());
+  auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 1, values.size());
+  raft::update_device(input.data_handle(), values.data(), values.size(), stream);
+  auto owner = quantizer<double>{-128, 127};
+  transform(res, owner, raft::make_const_mdspan(input.view()), codes.view());
+  std::vector<int8_t> actual(values.size());
+  raft::update_host(actual.data(), codes.data_handle(), actual.size(), stream);
+  raft::resource::sync_stream(res);
+  EXPECT_EQ(actual, (std::vector<int8_t>{0, 0, 1, -1}));
+}
+
 TEST(QuantizationDatasetTest, GlobalRangeDataset)
 {
   raft::resources res;

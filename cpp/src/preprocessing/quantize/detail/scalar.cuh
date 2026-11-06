@@ -81,7 +81,7 @@ struct quantize_op {
       return static_cast<QuantI>(static_cast<double>(x) <= params.shift ? q_min : q_max);
     }
     double const code = (static_cast<double>(x) - params.shift) / params.scale;
-    return static_cast<QuantI>(lroundf(fmin(fmax(code, q_min), q_max)));
+    return static_cast<QuantI>(lround(fmin(fmax(code, q_min), q_max)));
   }
 
   constexpr RAFT_INLINE_FUNCTION T operator()(const QuantI& x) const

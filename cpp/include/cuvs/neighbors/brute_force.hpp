@@ -178,7 +178,7 @@ struct CUVS_EXPORT index<T, DistT, void> : cuvs::neighbors::index {
   DistT metric_arg_;
 };
 
-// SQ indexes borrow the codes and quantizer and own their distance statistics.
+/** SQ indexes borrow the codes and quantizer and own their distance statistics. */
 template <typename T, typename DistT, typename DatasetViewT>
 struct CUVS_EXPORT index : cuvs::neighbors::index {
   using index_params_type  = brute_force::index_params;

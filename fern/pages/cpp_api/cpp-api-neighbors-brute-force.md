@@ -341,6 +341,16 @@ inline bool has_norms() const noexcept;
 
 `inline bool`
 
+<a id="neighbors-brute-force-index"></a>
+### neighbors::brute_force::index
+
+SQ indexes borrow the codes and quantizer and own their distance statistics.
+
+```cpp
+template <typename T, typename DistT, typename DatasetViewT>
+struct index;
+```
+
 **Additional overload:** `neighbors::brute_force::index::index`
 
 Construct from an SQ view with the same requirements as build.

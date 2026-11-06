@@ -45,35 +45,43 @@ constexpr int kInt8BlockSize = 256;
 struct sq_affine_parameters {
   double scale;
   double shift;
+  double normalization = 1.0;
 };
 
 template <typename T>
 sq_affine_parameters get_sq_affine_parameters(
-  cuvs::preprocessing::quantize::scalar::quantizer_const_view<T> quantizer)
+  cuvs::preprocessing::quantize::scalar::quantizer_const_view<T> quantizer,
+  cuvs::distance::DistanceType metric)
 {
-  using view_type = cuvs::preprocessing::quantize::scalar::quantizer_const_view<T>;
+  using view_type    = cuvs::preprocessing::quantize::scalar::quantizer_const_view<T>;
   auto const* global = std::get_if<typename view_type::global_type>(&quantizer.value);
   RAFT_EXPECTS(global != nullptr, "INT8 brute-force search requires a global scalar quantizer");
-  RAFT_EXPECTS(std::isfinite(global->scale) && global->scale >= 0.0 &&
-                 std::isfinite(global->shift),
+  RAFT_EXPECTS(std::isfinite(global->scale) && global->scale >= 0.0 && std::isfinite(global->shift),
                "SQ scale must be nonnegative and finite, and its shift must be finite");
-  return {global->scale, global->shift};
+  sq_affine_parameters affine{global->scale, global->shift};
+  if (metric == cuvs::distance::DistanceType::CosineExpanded) {
+    // Cosine is invariant to a shared positive scale. Keep its norms and dot products finite.
+    auto const magnitude = std::max(affine.scale, std::abs(affine.shift));
+    if (magnitude > 0.0) { affine.normalization = magnitude; }
+  }
+  return affine;
 }
 
 inline void compute_sq_statistics(raft::resources const& res,
-                           raft::device_matrix_view<const int8_t, int64_t> codes,
-                           sq_affine_parameters affine,
-                           cuvs::distance::DistanceType metric,
-                           raft::device_vector_view<double, int64_t> norms,
-                           raft::device_vector_view<double, int64_t> dot_corrections)
+                                  raft::device_matrix_view<const int8_t, int64_t> codes,
+                                  sq_affine_parameters affine,
+                                  cuvs::distance::DistanceType metric,
+                                  raft::device_vector_view<double, int64_t> norms,
+                                  raft::device_vector_view<double, int64_t> dot_corrections)
 {
   auto const cosine = metric == cuvs::distance::DistanceType::CosineExpanded;
   if (cosine || metric == cuvs::distance::DistanceType::InnerProduct) {
     // For x = scale * code + shift, dot(x, y) = scale^2 * dot(code_x, code_y) + u_x + u_y.
     raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
       res, codes, dot_corrections, 0.0, false, [affine] __device__(int8_t code, int64_t) {
-        auto const shift = affine.shift;
-        return shift * (affine.scale * code + 0.5 * shift);
+        auto const shift = affine.shift / affine.normalization;
+        auto const scale = affine.scale / affine.normalization;
+        return shift * (scale * code + 0.5 * shift);
       });
   }
   if (cosine) {
@@ -84,8 +92,13 @@ inline void compute_sq_statistics(raft::resources const& res,
       0.0,
       false,
       [affine] __device__(int8_t code, int64_t) {
-        auto const shift = affine.shift;
-        auto const value = fma(affine.scale, static_cast<double>(code), shift);
+        auto const decoded = fma(affine.scale, static_cast<double>(code), affine.shift);
+        // Decode before scaling to preserve exact zeros. If decoding overflows, evaluate
+        // the equivalent normalized affine expression directly.
+        auto const value = isfinite(decoded) ? decoded / affine.normalization
+                                             : fma(affine.scale / affine.normalization,
+                                                   static_cast<double>(code),
+                                                   affine.shift / affine.normalization);
         return value * value;
       },
       raft::add_op{},
@@ -182,7 +195,7 @@ void int8_brute_force_search(raft::resources const& res,
   auto const stream    = raft::resource::get_cuda_stream(res);
   auto const dataset   = index.dataset();
   auto const quantizer = dataset.const_manifest_view();
-  auto const affine    = get_sq_affine_parameters(quantizer);
+  auto const affine    = get_sq_affine_parameters(quantizer, index.metric());
   auto queries_storage = raft::make_device_matrix<std::int8_t, int64_t>(res, m, d);
   cuvs::preprocessing::quantize::scalar::transform(res, quantizer, queries, queries_storage.view());
   auto const* queries_ptr = queries_storage.data_handle();
@@ -227,9 +240,9 @@ void int8_brute_force_search(raft::resources const& res,
   rmm::device_uvector<IdxT> candidate_indices(tile_rows * candidate_cols, stream);
   rmm::device_uvector<std::int8_t> padded_dataset(0, stream);
 
-  auto const select_min = cuvs::distance::is_min_close(index.metric());
+  auto const select_min    = cuvs::distance::is_min_close(index.metric());
   std::int32_t const alpha = 1;
-  std::int32_t const beta = 0;
+  std::int32_t const beta  = 0;
 
   for (int64_t query_offset = 0; query_offset < m; query_offset += tile_rows) {
     auto const current_queries = std::min<int64_t>(tile_rows, m - query_offset);
@@ -286,7 +299,7 @@ void int8_brute_force_search(raft::resources const& res,
         needs_norms ? index.norms().data_handle() + dataset_offset : nullptr,
         needs_corrections ? query_corrections.data() + query_offset : nullptr,
         needs_corrections ? index.dot_corrections().data_handle() + dataset_offset : nullptr,
-        affine.scale,
+        affine.scale / affine.normalization,
         index.metric());
       RAFT_CUDA_TRY(cudaPeekAtLastError());
 
