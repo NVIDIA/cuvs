@@ -86,7 +86,7 @@ class kmeans_batch {
 };
 
 /**
- * Read-only host/device batch loader.
+ * Read-only batch loader used only by KMeans.
  *
  * The device specialization is a zero-copy view. The host specialization below owns the cyclic
  * H2D pipeline used by out-of-core KMeans: two buffers when prefetching is enabled, or one buffer

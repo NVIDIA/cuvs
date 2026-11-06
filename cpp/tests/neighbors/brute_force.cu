@@ -655,7 +655,7 @@ INSTANTIATE_TEST_CASE_P(RandomBruteForceKNNTest,
 
 struct SQBruteForceInputs {
   cuvs::distance::DistanceType metric;
-  cuvs::preprocessing::quantize::scalar::range_mode range;
+  cuvs::preprocessing::quantize::scalar::quantization_mode range;
 };
 
 template <typename T>
@@ -682,12 +682,12 @@ class SQBruteForceTest : public ::testing::TestWithParam<SQBruteForceInputs> {
     raft::update_device(
       queries.data_handle(), host_queries.data(), host_queries.size(), stream.get());
 
-    auto sq = scalar::build(res,
+    auto sq = scalar::make_sq_dataset(res,
                             scalar::params{.quantile = 1.0f, .range = params.range},
                             raft::make_const_mdspan(dataset.view()));
     index_params index_params;
     index_params.metric = params.metric;
-    if (params.range == scalar::range_mode::per_dimension) {
+    if (params.range == scalar::quantization_mode::PER_DIMENSION) {
       EXPECT_THROW(build(res, index_params, sq.view()), raft::logic_error);
       return;
     }
@@ -703,14 +703,15 @@ class SQBruteForceTest : public ::testing::TestWithParam<SQBruteForceInputs> {
 
     auto query_codes = raft::make_device_matrix<int8_t, int64_t>(res, n_queries, dim);
     // Match the affine reconstruction used by search without rounding it back to the input type.
-    auto const global = std::get<typename scalar::quantizer_const_view<T>::global_type>(
+    auto const global = std::get<typename scalar::quantizer_view<const T>::global_type>(
       sq.const_manifest_view().value);
-    scalar::quantizer_const_view<double> decode_quantizer{
-      scalar::quantizer_const_view<double>::global_type{global.shift, global.scale}};
+    scalar::quantizer<T> query_quantizer{global.min, global.max};
+    scalar::quantizer<double> decode_quantizer{static_cast<double>(global.min),
+                                               static_cast<double>(global.max)};
     auto decoded_dataset = raft::make_device_matrix<double, int64_t>(res, n_rows, dim);
     auto decoded_queries = raft::make_device_matrix<double, int64_t>(res, n_queries, dim);
     scalar::transform(
-      res, sq.const_manifest_view(), raft::make_const_mdspan(queries.view()), query_codes.view());
+      res, query_quantizer, raft::make_const_mdspan(queries.view()), query_codes.view());
     scalar::inverse_transform(res, decode_quantizer, sq.data_const_view(), decoded_dataset.view());
     scalar::inverse_transform(
       res, decode_quantizer, raft::make_const_mdspan(query_codes.view()), decoded_queries.view());
@@ -983,7 +984,7 @@ TEST(BruteForceSQ, CosineZeroQuery)
   auto dataset = raft::make_device_matrix<float, int64_t>(res, 3, 4);
   raft::update_device(dataset.data_handle(), values.data(), values.size(), stream.get());
   auto sq =
-    scalar::build(res, scalar::params{.quantile = 1.0f}, raft::make_const_mdspan(dataset.view()));
+    scalar::make_sq_dataset(res, scalar::params{.quantile = 1.0f}, raft::make_const_mdspan(dataset.view()));
   index_params params;
   params.metric = cuvs::distance::DistanceType::CosineExpanded;
   auto index    = build(res, params, sq.view());
@@ -1009,12 +1010,11 @@ TEST(BruteForceSQ, CosineExtremeDoubleMagnitudes)
   raft::resources res;
   auto stream = raft::resource::get_cuda_stream(res);
   std::vector<int8_t> const host_codes{1, 0, 0, 0, 0, 1, 0, 0};
-  for (double magnitude : {1e-200, 1e200}) {
+  for (double magnitude : {std::ldexp(1.0, -665), std::ldexp(1.0, 665)}) {
     SCOPED_TRACE(magnitude);
     auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 2, 4);
     raft::update_device(codes.data_handle(), host_codes.data(), host_codes.size(), stream.get());
-    scalar::quantizer<double> quantizer;
-    quantizer.value = scalar::quantizer<double>::global_type{0, magnitude};
+    scalar::quantizer<double> quantizer{-128 * magnitude, 127 * magnitude};
     cuvs::device_sq_dataset<double, int64_t, double> sq{std::move(codes), std::move(quantizer)};
     index_params params;
     params.metric = cuvs::distance::DistanceType::CosineExpanded;
@@ -1091,7 +1091,7 @@ TEST(BruteForceSQ, InnerProductPadding)
   raft::update_device(
     dataset.data_handle(), host_dataset.data(), host_dataset.size(), stream.get());
   auto sq =
-    scalar::build(res, scalar::params{.quantile = 1.0f}, raft::make_const_mdspan(dataset.view()));
+    scalar::make_sq_dataset(res, scalar::params{.quantile = 1.0f}, raft::make_const_mdspan(dataset.view()));
   index_params params;
   params.metric = cuvs::distance::DistanceType::InnerProduct;
   auto index    = build(res, params, sq.view());
@@ -1125,19 +1125,19 @@ TEST(BruteForceSQ, InnerProductPadding)
 }
 
 using cuvs::distance::DistanceType;
-using cuvs::preprocessing::quantize::scalar::range_mode;
+using cuvs::preprocessing::quantize::scalar::quantization_mode;
 const std::vector<SQBruteForceInputs> sq_inputs{
-  {DistanceType::L2Expanded, range_mode::global},
-  {DistanceType::L2Unexpanded, range_mode::global},
-  {DistanceType::L2SqrtExpanded, range_mode::global},
-  {DistanceType::L2SqrtUnexpanded, range_mode::global},
-  {DistanceType::InnerProduct, range_mode::global},
-  {DistanceType::CosineExpanded, range_mode::global},
-  {DistanceType::L2Expanded, range_mode::per_dimension}};
+  {DistanceType::L2Expanded, quantization_mode::GLOBAL},
+  {DistanceType::L2Unexpanded, quantization_mode::GLOBAL},
+  {DistanceType::L2SqrtExpanded, quantization_mode::GLOBAL},
+  {DistanceType::L2SqrtUnexpanded, quantization_mode::GLOBAL},
+  {DistanceType::InnerProduct, quantization_mode::GLOBAL},
+  {DistanceType::CosineExpanded, quantization_mode::GLOBAL},
+  {DistanceType::L2Expanded, quantization_mode::PER_DIMENSION}};
 const std::vector<SQBruteForceInputs> sq_half_inputs{
-  {DistanceType::L2Expanded, range_mode::global}};
+  {DistanceType::L2Expanded, quantization_mode::GLOBAL}};
 const std::vector<SQBruteForceInputs> sq_double_inputs{
-  {DistanceType::InnerProduct, range_mode::global}};
+  {DistanceType::InnerProduct, quantization_mode::GLOBAL}};
 
 INSTANTIATE_TEST_CASE_P(BruteForceSQ, SQBruteForceTestF, ::testing::ValuesIn(sq_inputs));
 INSTANTIATE_TEST_CASE_P(BruteForceSQ, SQBruteForceTestH, ::testing::ValuesIn(sq_half_inputs));

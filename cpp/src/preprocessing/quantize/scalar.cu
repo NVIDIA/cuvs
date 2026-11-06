@@ -45,34 +45,34 @@ quantizer<T>::quantizer(raft::resources const& res,
     return detail::train<T, QuantI>(res, params, dataset);                                       \
   }                                                                                              \
   void transform(raft::resources const& res,                                                     \
-                 quantizer_const_view<T> quantizer,                                              \
+                 const quantizer<T>& quantizer,                                                  \
                  raft::device_matrix_view<const T, int64_t> dataset,                             \
                  raft::device_matrix_view<QuantI, int64_t> out)                                  \
   {                                                                                              \
-    detail::transform(res, quantizer, dataset, out);                                             \
+    detail::apply_quantizer<T, QuantI>(res, quantizer.view(), dataset, out);                     \
   }                                                                                              \
   void transform(raft::resources const& res,                                                     \
-                 typename quantizer_const_view<T>::global_type quantizer,                        \
+                 const quantizer<T>& quantizer,                                                  \
                  raft::host_matrix_view<const T, int64_t> dataset,                               \
                  raft::host_matrix_view<QuantI, int64_t> out)                                    \
   {                                                                                              \
-    detail::transform(res, quantizer, dataset, out);                                             \
+    detail::apply_quantizer<T, QuantI>(res, quantizer.view(), dataset, out);                     \
   }                                                                                              \
   void inverse_transform(raft::resources const& res,                                             \
-                         quantizer_const_view<T> quantizer,                                      \
+                         const quantizer<T>& quantizer,                                          \
                          raft::device_matrix_view<const QuantI, int64_t> dataset,                \
                          raft::device_matrix_view<T, int64_t> out)                               \
   {                                                                                              \
-    detail::inverse_transform(res, quantizer, dataset, out);                                     \
+    detail::apply_quantizer<T, QuantI>(res, quantizer.view(), dataset, out);                     \
   }                                                                                              \
   void inverse_transform(raft::resources const& res,                                             \
-                         typename quantizer_const_view<T>::global_type quantizer,                \
+                         const quantizer<T>& quantizer,                                          \
                          raft::host_matrix_view<const QuantI, int64_t> dataset,                  \
                          raft::host_matrix_view<T, int64_t> out)                                 \
   {                                                                                              \
-    detail::inverse_transform(res, quantizer, dataset, out);                                     \
+    detail::apply_quantizer<T, QuantI>(res, quantizer.view(), dataset, out);                     \
   }                                                                                              \
-  auto build(                                                                                    \
+  auto make_sq_dataset(                                                                          \
     raft::resources const& res, params params, raft::host_matrix_view<const T, int64_t> dataset) \
     -> device_sq_dataset<T, int64_t, T>                                                          \
   {                                                                                              \

@@ -22,16 +22,15 @@ struct sq_spec;
 
 ## Scalar-quantized dataset construction
 
-<a id="preprocessing-quantize-scalar-build"></a>
-### preprocessing::quantize::scalar::build
+<a id="preprocessing-quantize-scalar-make-sq-dataset"></a>
+### preprocessing::quantize::scalar::make_sq_dataset
 
-Train and encode a device corpus with the selected range mode. Reuse result.const_manifest_view() with transform for query batches. For separate training/encoding, use train and transform.
+Train and encode a device corpus with the selected quantization mode. For separate training and encoding, use train and transform.
 
 ```cpp
 template <typename T>
-inline device_sq_dataset<T, int64_t, T> build(raft::resources const& res,
-params params,
-raft::device_matrix_view<const T, int64_t> dataset);
+inline device_sq_dataset<T, int64_t, T> make_sq_dataset(
+raft::resources const& res, params params, raft::device_matrix_view<const T, int64_t> dataset);
 ```
 
 **Parameters**
@@ -48,12 +47,12 @@ raft::device_matrix_view<const T, int64_t> dataset);
 
 Device dataset owning the quantized codes and quantizer.
 
-**Additional overload:** `preprocessing::quantize::scalar::build`
+**Additional overload:** `preprocessing::quantize::scalar::make_sq_dataset`
 
 Train and encode a host corpus in GPU batches, returning device-resident int8 codes. Uses one quantizer across all batches and measures the maximum error over every row. Configure params.device_buffer_samples to bound input staging and an auxiliary stream pool on res to enable double buffering. All int8 codes must fit in device memory.
 
 ```cpp
-device_sq_dataset<float, int64_t, float> build(
+device_sq_dataset<float, int64_t, float> make_sq_dataset(
 raft::resources const& res, params params, raft::host_matrix_view<const float, int64_t> dataset);
 ```
 
@@ -71,12 +70,12 @@ raft::resources const& res, params params, raft::host_matrix_view<const float, i
 
 Device dataset owning the quantized codes and quantizer.
 
-**Additional overload:** `preprocessing::quantize::scalar::build`
+**Additional overload:** `preprocessing::quantize::scalar::make_sq_dataset`
 
 Train and encode a host corpus in GPU batches, returning device-resident int8 codes. Uses one quantizer across all batches and measures the maximum error over every row. Configure params.device_buffer_samples to bound input staging and an auxiliary stream pool on res to enable double buffering. All int8 codes must fit in device memory.
 
 ```cpp
-device_sq_dataset<double, int64_t, double> build(
+device_sq_dataset<double, int64_t, double> make_sq_dataset(
 raft::resources const& res, params params, raft::host_matrix_view<const double, int64_t> dataset);
 ```
 
@@ -94,14 +93,13 @@ raft::resources const& res, params params, raft::host_matrix_view<const double, 
 
 Device dataset owning the quantized codes and quantizer.
 
-**Additional overload:** `preprocessing::quantize::scalar::build`
+**Additional overload:** `preprocessing::quantize::scalar::make_sq_dataset`
 
 Train and encode a host corpus in GPU batches, returning device-resident int8 codes. Uses one quantizer across all batches and measures the maximum error over every row. Configure params.device_buffer_samples to bound input staging and an auxiliary stream pool on res to enable double buffering. All int8 codes must fit in device memory.
 
 ```cpp
-device_sq_dataset<half, int64_t, half> build(raft::resources const& res,
-params params,
-raft::host_matrix_view<const half, int64_t> dataset);
+device_sq_dataset<half, int64_t, half> make_sq_dataset(
+raft::resources const& res, params params, raft::host_matrix_view<const half, int64_t> dataset);
 ```
 
 **Parameters**

@@ -36,6 +36,7 @@
 #include <optional>
 #include <variant>
 
+#include "../../preprocessing/quantize/detail/scalar.cuh"
 #include "./faiss_distance_utils.h"
 
 namespace cuvs::neighbors::detail {
@@ -50,15 +51,14 @@ struct sq_affine_parameters {
 
 template <typename T>
 sq_affine_parameters get_sq_affine_parameters(
-  cuvs::preprocessing::quantize::scalar::quantizer_const_view<T> quantizer,
+  cuvs::preprocessing::quantize::scalar::quantizer_view<const T> quantizer,
   cuvs::distance::DistanceType metric)
 {
-  using view_type    = cuvs::preprocessing::quantize::scalar::quantizer_const_view<T>;
+  using view_type    = cuvs::preprocessing::quantize::scalar::quantizer_view<const T>;
   auto const* global = std::get_if<typename view_type::global_type>(&quantizer.value);
   RAFT_EXPECTS(global != nullptr, "INT8 brute-force search requires a global scalar quantizer");
-  RAFT_EXPECTS(std::isfinite(global->scale) && global->scale >= 0.0 && std::isfinite(global->shift),
-               "SQ scale must be nonnegative and finite, and its shift must be finite");
-  sq_affine_parameters affine{global->scale, global->shift};
+  auto const op = cuvs::preprocessing::quantize::scalar::detail::quantize_op<T, int8_t>{*global};
+  sq_affine_parameters affine{op.scale, op.shift};
   if (metric == cuvs::distance::DistanceType::CosineExpanded) {
     // Cosine is invariant to a shared positive scale. Keep its norms and dot products finite.
     auto const magnitude = std::max(affine.scale, std::abs(affine.shift));
@@ -197,7 +197,8 @@ void int8_brute_force_search(raft::resources const& res,
   auto const quantizer = dataset.const_manifest_view();
   auto const affine    = get_sq_affine_parameters(quantizer, index.metric());
   auto queries_storage = raft::make_device_matrix<std::int8_t, int64_t>(res, m, d);
-  cuvs::preprocessing::quantize::scalar::transform(res, quantizer, queries, queries_storage.view());
+  cuvs::preprocessing::quantize::scalar::detail::apply_quantizer<T, int8_t>(
+    res, quantizer, queries, queries_storage.view());
   auto const* queries_ptr = queries_storage.data_handle();
 
   auto const cosine            = index.metric() == cuvs::distance::DistanceType::CosineExpanded;
