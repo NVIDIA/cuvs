@@ -235,6 +235,7 @@ void postprocess_distances(const raft::resources& res,
           res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
       }
     } break;
+    case distance::DistanceType::JaccardExpanded:
     case distance::DistanceType::BitwiseHamming: break;
     case distance::DistanceType::L1: {
       if (scaling_factor != 1.0) {

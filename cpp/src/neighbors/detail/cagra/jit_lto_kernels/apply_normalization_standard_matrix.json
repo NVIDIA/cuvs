@@ -51,10 +51,22 @@
           "query_type": "uint8_t",
           "query_abbrev": "u8"
         }
-      ]
+      ],
+      "compute_query_norm": "false"
     },
     {
       "norm_kind": "cosine",
+      "_query": [
+        {
+          "query_type": "float",
+          "query_abbrev": "f"
+        }
+      ],
+      "compute_query_norm": "false"
+    },
+    {
+      "norm_kind": "jaccard",
+      "compute_query_norm": "true",
       "_query": [
         {
           "query_type": "float",

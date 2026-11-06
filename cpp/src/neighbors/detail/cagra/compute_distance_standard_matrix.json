@@ -39,6 +39,7 @@
         "L2Expanded",
         "InnerProduct",
         "CosineExpanded",
+        "JaccardExpanded",
         "L1"
       ]
     },

@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <neighbors/detail/cagra/jit_lto_kernels/apply_normalization_jaccard_impl.cuh>
 #include <neighbors/detail/cagra/jit_lto_kernels/apply_normalization_standard_impl.cuh>
 
 namespace {
@@ -20,6 +21,19 @@ using query_t    = @query_type@;
 namespace cuvs::neighbors::cagra::detail {
 
 using args_t = typename dataset_descriptor_base_t<data_t, index_t, distance_t>::args_t;
+
+template <>
+__device__ void setup_normalization_standard<k_team_size,
+                                             k_dataset_block_dim,
+                                             data_t,
+                                             index_t,
+                                             distance_t,
+                                             query_t>(args_t& args, const data_t* query)
+{
+  if constexpr (@compute_query_norm@) {
+    setup_query_norm_jaccard_impl<data_t, index_t, distance_t, query_t>(args, query);
+  }
+}
 
 template <>
 __device__ distance_t apply_normalization_standard<k_team_size,

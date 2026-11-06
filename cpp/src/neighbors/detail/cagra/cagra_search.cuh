@@ -220,12 +220,14 @@ void search_main(raft::resources const& res,
       params.smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
     }
     // Search using a plain (strided) row-major dataset
-    RAFT_EXPECTS(index.metric() != cuvs::distance::DistanceType::CosineExpanded ||
+    RAFT_EXPECTS((index.metric() != cuvs::distance::DistanceType::CosineExpanded &&
+                  index.metric() != cuvs::distance::DistanceType::JaccardExpanded) ||
                    index.dataset_norms().has_value(),
-                 "Dataset norms must be provided for CosineExpanded metric");
+                 "Dataset norms must be provided for CosineExpanded and JaccardExpanded metrics");
 
     const float* dataset_norms_ptr = nullptr;
-    if (index.metric() == cuvs::distance::DistanceType::CosineExpanded) {
+    if (index.metric() == cuvs::distance::DistanceType::CosineExpanded ||
+        index.metric() == cuvs::distance::DistanceType::JaccardExpanded) {
       dataset_norms_ptr = index.dataset_norms().value().data_handle();
     }
     auto desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
@@ -291,7 +293,8 @@ void search_main(raft::resources const& res,
   float* dist_out          = distances.data_handle();
   const DistanceT* dist_in = distances.data_handle();
   // We're converting the data from T to DistanceT during distance computation
-  // and divide the values by kDivisor. Here we restore the original scale.
+  // and divide the values by kDivisor. Here we restore the original scale where needed.
+  // Jaccard's scaling cancels during expansion inside the search kernel.
   constexpr float kScale = cuvs::spatial::knn::detail::utils::config<T>::kDivisor /
                            cuvs::spatial::knn::detail::utils::config<DistanceT>::kDivisor;
 
@@ -398,7 +401,8 @@ void search_multi_partition(
     max_dataset_size = std::max(max_dataset_size, indices[i]->dataset().n_rows());
   }
 
-  // Query norms are needed only for CosineExpanded (uniform across partitions, checked above).
+  // Query norms are needed here only for CosineExpanded (uniform across partitions, checked above).
+  // Jaccard computes scaled query counts during device workspace setup.
   const bool needs_query_norms = metric == cuvs::distance::DistanceType::CosineExpanded;
 
   if (params.max_queries == 0) {
@@ -438,11 +442,13 @@ void search_multi_partition(
   // the plan's smem/sizing calculations.
   using graph_idx_type = uint32_t;
 
-  RAFT_EXPECTS(metric != cuvs::distance::DistanceType::CosineExpanded ||
+  RAFT_EXPECTS((metric != cuvs::distance::DistanceType::CosineExpanded &&
+                metric != cuvs::distance::DistanceType::JaccardExpanded) ||
                  indices[0]->dataset_norms().has_value(),
-               "Dataset norms must be provided for CosineExpanded metric");
+               "Dataset norms must be provided for CosineExpanded and JaccardExpanded metrics");
   const float* dataset_norms_ptr0 = nullptr;
-  if (metric == cuvs::distance::DistanceType::CosineExpanded) {
+  if (metric == cuvs::distance::DistanceType::CosineExpanded ||
+      metric == cuvs::distance::DistanceType::JaccardExpanded) {
     dataset_norms_ptr0 = indices[0]->dataset_norms().value().data_handle();
   }
   auto plan_desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
@@ -677,10 +683,12 @@ void search_multi_partition(
 
     for (uint32_t i = 0; i < num_partitions; i++) {
       const float* norms_ptr = nullptr;
-      if (indices[i]->metric() == cuvs::distance::DistanceType::CosineExpanded) {
-        RAFT_EXPECTS(indices[i]->dataset_norms().has_value(),
-                     "Dataset norms required for CosineExpanded metric (partition %u)",
-                     i);
+      if (indices[i]->metric() == cuvs::distance::DistanceType::CosineExpanded ||
+          indices[i]->metric() == cuvs::distance::DistanceType::JaccardExpanded) {
+        RAFT_EXPECTS(
+          indices[i]->dataset_norms().has_value(),
+          "Dataset norms required for CosineExpanded and JaccardExpanded metrics (partition %u)",
+          i);
         norms_ptr = indices[i]->dataset_norms().value().data_handle();
       }
       part_dataset_descs.push_back(dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
@@ -754,10 +762,12 @@ void search_multi_partition(
 
     for (uint32_t i = 0; i < num_partitions; i++) {
       const float* norms_ptr = nullptr;
-      if (indices[i]->metric() == cuvs::distance::DistanceType::CosineExpanded) {
-        RAFT_EXPECTS(indices[i]->dataset_norms().has_value(),
-                     "Dataset norms required for CosineExpanded metric (partition %u)",
-                     i);
+      if (indices[i]->metric() == cuvs::distance::DistanceType::CosineExpanded ||
+          indices[i]->metric() == cuvs::distance::DistanceType::JaccardExpanded) {
+        RAFT_EXPECTS(
+          indices[i]->dataset_norms().has_value(),
+          "Dataset norms required for CosineExpanded and JaccardExpanded metrics (partition %u)",
+          i);
         norms_ptr = indices[i]->dataset_norms().value().data_handle();
       }
       part_dataset_descs.push_back(dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(

@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "extern_device_functions.cuh"
+
 #include "../../neighbors_device_intrinsics.cuh"
 #include "../compute_distance_standard-impl.cuh"
 #include "../compute_distance_standard.hpp"
@@ -59,6 +61,12 @@ _RAFT_DEVICE __noinline__ auto setup_workspace_standard_impl(
       buf[j] = 0;
     }
   }
+  setup_normalization_standard<kTeamSize,
+                               kDatasetBlockDim,
+                               DATA_T,
+                               typename DescriptorT::INDEX_T,
+                               typename DescriptorT::DISTANCE_T,
+                               QUERY_T>(r->args, queries_ptr);
   return r;
 }
 
