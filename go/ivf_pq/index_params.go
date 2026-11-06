@@ -141,9 +141,13 @@ func (p *IndexParams) SetAddDataOnBuild(add_data_on_build bool) (*IndexParams, e
 
 // Destroys IndexParams
 func (p *IndexParams) Close() error {
+	if p == nil || p.params == nil {
+		return nil
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsIvfPqIndexParamsDestroy(p.params)))
 	if err != nil {
 		return err
 	}
+	p.params = nil
 	return nil
 }

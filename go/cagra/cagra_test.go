@@ -332,3 +332,102 @@ func TestCagraFiltering(t *testing.T) {
 		}
 	}
 }
+
+func TestCagraUseAfterClose(t *testing.T) {
+	const (
+		nDataPoints = 256
+		nFeatures   = 8
+		k           = 4
+	)
+	r := rand.New(rand.NewPCG(7, 0))
+
+	resource, err := cuvs.NewResource(nil)
+	if err != nil {
+		t.Fatalf("error creating resource: %v", err)
+	}
+	defer resource.Close()
+
+	testDataset := make([][]float32, nDataPoints)
+	for i := range testDataset {
+		testDataset[i] = make([]float32, nFeatures)
+		for j := range testDataset[i] {
+			testDataset[i][j] = r.Float32()
+		}
+	}
+
+	dataset, err := cuvs.NewTensor(testDataset)
+	if err != nil {
+		t.Fatalf("error creating dataset tensor: %v", err)
+	}
+	defer dataset.Close()
+	if _, err := dataset.ToDevice(&resource); err != nil {
+		t.Fatalf("error moving dataset to device: %v", err)
+	}
+
+	queries, err := cuvs.NewTensor(testDataset[:k])
+	if err != nil {
+		t.Fatalf("error creating queries tensor: %v", err)
+	}
+	defer queries.Close()
+	if _, err := queries.ToDevice(&resource); err != nil {
+		t.Fatalf("error moving queries to device: %v", err)
+	}
+
+	neighbors, err := cuvs.NewTensorOnDevice[uint32](&resource, []int64{k, k})
+	if err != nil {
+		t.Fatalf("error creating neighbors tensor: %v", err)
+	}
+	defer neighbors.Close()
+
+	distances, err := cuvs.NewTensorOnDevice[float32](&resource, []int64{k, k})
+	if err != nil {
+		t.Fatalf("error creating distances tensor: %v", err)
+	}
+	defer distances.Close()
+
+	indexParams, err := CreateIndexParams()
+	if err != nil {
+		t.Fatalf("error creating index params: %v", err)
+	}
+	defer indexParams.Close()
+
+	searchParams, err := CreateSearchParams()
+	if err != nil {
+		t.Fatalf("error creating search params: %v", err)
+	}
+	defer searchParams.Close()
+
+	index, err := CreateIndex()
+	if err != nil {
+		t.Fatalf("error creating index: %v", err)
+	}
+	if err := BuildIndex(resource, indexParams, &dataset, index); err != nil {
+		t.Fatalf("error building index: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := index.Close(); err != nil {
+			t.Fatalf("index Close #%d: %v", i+1, err)
+		}
+	}
+	if err := SearchIndex(resource, searchParams, index, &queries, &neighbors, &distances, nil); err == nil {
+		t.Fatal("expected SearchIndex on a closed index to fail")
+	}
+	if err := BuildIndex(resource, indexParams, &dataset, index); err == nil {
+		t.Fatal("expected BuildIndex on a closed index to fail")
+	}
+
+	freshIndex, err := CreateIndex()
+	if err != nil {
+		t.Fatalf("error creating index: %v", err)
+	}
+	defer freshIndex.Close()
+	for i := 0; i < 2; i++ {
+		if err := indexParams.Close(); err != nil {
+			t.Fatalf("index params Close #%d: %v", i+1, err)
+		}
+	}
+	if err := BuildIndex(resource, indexParams, &dataset, freshIndex); err == nil {
+		t.Fatal("expected BuildIndex with closed params to fail")
+	}
+}

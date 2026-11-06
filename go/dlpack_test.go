@@ -57,6 +57,61 @@ func TestDlPack(t *testing.T) {
 	}
 }
 
+func TestCloseIsIdempotent(t *testing.T) {
+	resource, err := cuvs.NewResource(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	data := [][]float32{{1, 2}, {3, 4}}
+
+	host, err := cuvs.NewTensor(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := host.Close(); err != nil {
+			t.Fatalf("host tensor Close #%d: %v", i+1, err)
+		}
+	}
+
+	device, err := cuvs.NewTensorOnDevice[float32](&resource, []int64{2, 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := device.Close(); err != nil {
+			t.Fatalf("device tensor Close #%d: %v", i+1, err)
+		}
+	}
+
+	expanded, err := cuvs.NewTensor(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := expanded.ToDevice(&resource); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := expanded.Expand(&resource, data); err != nil {
+		t.Fatal(err)
+	}
+	if got := expanded.Shape(); got[0] != 4 || got[1] != 2 {
+		t.Fatalf("unexpected shape after Expand: %v", got)
+	}
+	if err := expanded.Close(); err != nil {
+		t.Fatalf("expanded tensor Close: %v", err)
+	}
+
+	for i := 0; i < 2; i++ {
+		if err := resource.Close(); err != nil {
+			t.Fatalf("resource Close #%d: %v", i+1, err)
+		}
+	}
+	if resource.Resource != 0 {
+		t.Fatal("resource handle not cleared by Close")
+	}
+}
+
 func TestShape(t *testing.T) {
 	// Test cases with different shapes
 	testCases := []struct {

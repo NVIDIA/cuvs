@@ -70,7 +70,7 @@ _Source: `go/distance.go:38`_
 var DeviceDataPointer unsafe.Pointer
 ```
 
-_Source: `go/dlpack.go:219`_
+_Source: `go/dlpack.go:223`_
 
 ### NewDeviceDataPointer
 
@@ -78,7 +78,7 @@ _Source: `go/dlpack.go:219`_
 var NewDeviceDataPointer unsafe.Pointer
 ```
 
-_Source: `go/dlpack.go:274`_
+_Source: `go/dlpack.go:278`_
 
 ## Types
 
@@ -259,10 +259,14 @@ _Source: `go/memory_resource.go:73`_
 ### Resource.Close
 
 ```go
-func (r Resource) Close() error
+func (r *Resource) Close() error
 ```
 
-_Source: `go/resources.go:50`_
+Destroys the Resource. Calling Close more than once is a no-op.
+Copies of a Resource share the same underlying handle and must not be used
+after any of them has been closed.
+
+_Source: `go/resources.go:53`_
 
 ### Resource.GetCudaStream
 
@@ -303,7 +307,7 @@ func (t *Tensor[T]) Expand(res *Resource, newData [][]T) (*Tensor[T], error)
 Expands the Tensor by adding newData to the end of the current data.
 The Tensor must be on the device.
 
-_Source: `go/dlpack.go:250`_
+_Source: `go/dlpack.go:254`_
 
 ### Tensor.Shape
 
@@ -313,7 +317,7 @@ func (t *Tensor[T]) Shape() []int64
 
 Returns the shape of the Tensor.
 
-_Source: `go/dlpack.go:244`_
+_Source: `go/dlpack.go:248`_
 
 ### Tensor.Slice
 
@@ -324,7 +328,7 @@ func (t *Tensor[T]) Slice() ([][]T, error)
 Returns a slice of the data in the Tensor.
 The Tensor must be on the host.
 
-_Source: `go/dlpack.go:358`_
+_Source: `go/dlpack.go:363`_
 
 ### Tensor.ToDevice
 
@@ -334,7 +338,7 @@ func (t *Tensor[T]) ToDevice(res *Resource) (*Tensor[T], error)
 
 Transfers the data in the Tensor to the device.
 
-_Source: `go/dlpack.go:216`_
+_Source: `go/dlpack.go:220`_
 
 ### Tensor.ToHost
 
@@ -344,4 +348,4 @@ func (t *Tensor[T]) ToHost(res *Resource) (*Tensor[T], error)
 
 Transfers the data in the Tensor to the host.
 
-_Source: `go/dlpack.go:325`_
+_Source: `go/dlpack.go:330`_

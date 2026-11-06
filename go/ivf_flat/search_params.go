@@ -31,9 +31,13 @@ func (p *SearchParams) SetNProbes(n_probes uint32) (*SearchParams, error) {
 
 // Destroy SearchParams
 func (p *SearchParams) Close() error {
+	if p == nil || p.params == nil {
+		return nil
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsIvfFlatSearchParamsDestroy(p.params)))
 	if err != nil {
 		return err
 	}
+	p.params = nil
 	return nil
 }

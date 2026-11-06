@@ -182,15 +182,23 @@ func NewTensorOnDevice[T TensorNumberType](res *Resource, shape []int64) (Tensor
 
 // Destroys Tensor, freeing the memory it was allocated on.
 func (t *Tensor[T]) Close() error {
+	if t == nil || t.C_tensor == nil {
+		return nil
+	}
 	if t.C_tensor.dl_tensor.device.device_type == C.kDLCUDA {
-		bytes := t.sizeInBytes()
-		res, err := NewResource(nil)
-		if err != nil {
-			return err
+		if t.C_tensor.dl_tensor.data != nil {
+			bytes := t.sizeInBytes()
+			res, err := NewResource(nil)
+			if err != nil {
+				return err
+			}
+			defer res.Close()
+			err = CheckCuvs(CuvsError(C.cuvsRMMFree(res.Resource, t.C_tensor.dl_tensor.data, C.size_t(bytes))))
+			if err != nil {
+				return err
+			}
+			t.C_tensor.dl_tensor.data = nil
 		}
-		err = CheckCuvs(CuvsError(C.cuvsRMMFree(res.Resource, t.C_tensor.dl_tensor.data, C.size_t(bytes))))
-
-		return err
 	} else if t.C_tensor.dl_tensor.device.device_type == C.kDLCPU {
 		if t.C_tensor.dl_tensor.data != nil {
 			C.free(t.C_tensor.dl_tensor.data)
@@ -203,11 +211,7 @@ func (t *Tensor[T]) Close() error {
 		t.C_tensor.dl_tensor.shape = nil
 	}
 
-	if t.C_tensor != nil {
-		C.free(unsafe.Pointer(t.C_tensor))
-		t.C_tensor = nil
-	}
-
+	C.free(unsafe.Pointer(t.C_tensor))
 	t.C_tensor = nil
 	return nil
 }
@@ -309,14 +313,15 @@ func (t *Tensor[T]) Expand(res *Resource, newData [][]T) (*Tensor[T], error) {
 	}
 
 	shape := make([]int64, 2)
-	shape[0] = int64(*t.C_tensor.dl_tensor.shape) + int64(len(newData))
+	shape[0] = old_shape[0] + int64(len(newData))
 
 	shape[1] = newShape[1]
 
 	t.shape = shape
 
 	t.C_tensor.dl_tensor.data = NewDeviceDataPointer
-	t.C_tensor.dl_tensor.shape = (*C.int64_t)(unsafe.Pointer(&shape[0]))
+	// The shape array is C-allocated and freed by Close, so update it in place.
+	old_shape[0] = shape[0]
 
 	return t, nil
 }
