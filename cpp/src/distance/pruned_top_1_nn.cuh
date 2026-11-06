@@ -28,6 +28,7 @@
 #include <cuda_fp16.h>
 
 #include <algorithm>
+#include <bit>
 #include <cstdint>
 #include <optional>
 #include <type_traits>
@@ -141,10 +142,7 @@ inline void order_rows_by_survivors(raft::resources const& handle,
                    m,
                    raft::make_device_vector_view(local_ids, m),
                    raft::make_device_vector_view(batch_offsets, layout.n_row_batches + 1));
-  int end_bit = 1;
-  while (end_bit < 32 && (int64_t{1} << end_bit) <= n) {
-    end_bit++;
-  }
+  const int end_bit     = std::clamp(std::bit_width(static_cast<uint64_t>(n)), 1, 32);
   const int begin_bit   = std::max(0, end_bit - 8);
   std::size_t temp_size = layout.sort_temp_bytes;
   RAFT_CUDA_TRY(cub::DeviceSegmentedRadixSort::SortPairsDescending(
