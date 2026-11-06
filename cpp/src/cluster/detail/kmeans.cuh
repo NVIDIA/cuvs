@@ -1115,15 +1115,12 @@ void kmeans_fit(
       auto d_done_view  = d_done_flag.view();
       DataT tol         = iter_params.tol;
       int iter          = n_current_iter;
-      // Approximate (ANN) assignments make the cost noisy, so only stop on a plateau.
-      const bool plateau_only = use_ann;
 
       raft::linalg::map_offset(
         handle,
         raft::make_device_vector_view<int, int>(d_done_flag.data_handle(), 1),
         [=] __device__(int) {
-          check_convergence(
-            d_cost_view, d_prior_view, d_norm_view, tol, iter, d_done_view, plateau_only);
+          check_convergence(d_cost_view, d_prior_view, d_norm_view, tol, iter, d_done_view);
           return *d_done_view.data_handle();
         });
 

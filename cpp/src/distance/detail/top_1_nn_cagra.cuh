@@ -23,14 +23,6 @@
 
 namespace cuvs::distance::detail {
 
-/** Build/search settings of the CAGRA index used by the `Top1nnBackend::Cagra` backend. */
-struct top_1_nn_cagra_params {
-  std::size_t graph_degree              = 64;
-  std::size_t intermediate_graph_degree = 128;
-  std::size_t itopk_size                = 64;
-  std::size_t search_width              = 1;
-};
-
 /**
  * @brief A CAGRA index over a copy of the candidate set (`y`) of a top-1 NN problem.
  *
@@ -47,30 +39,30 @@ class top_1_nn_cagra_index {
 
   top_1_nn_cagra_index() = default;
 
-  /** Build (or rebuild) the index over `n` row-major candidate vectors of `dim` columns. */
+  /**
+   * Build (or rebuild) the index over `n` row-major candidate vectors of `dim` columns.
+   *
+   * `index_params` and `search_params` are used as given, except for what this backend relies on:
+   * the metric is set to L2Expanded (squared L2 distances), the dataset is attached on build, and
+   * the graph degrees are clamped to `n - 1`.
+   */
   void build(raft::resources const& handle,
-             top_1_nn_cagra_params const& params,
+             cuvs::neighbors::cagra::index_params const& index_params,
+             cuvs::neighbors::cagra::search_params const& search_params,
              const float* candidates,
              int64_t n,
              int64_t dim)
   {
-    RAFT_EXPECTS(params.graph_degree > 0, "CAGRA graph_degree must be > 0");
-    RAFT_EXPECTS(params.intermediate_graph_degree > 0,
-                 "CAGRA intermediate_graph_degree must be > 0");
-    RAFT_EXPECTS(params.itopk_size > 0, "CAGRA itopk_size must be > 0");
-    RAFT_EXPECTS(params.search_width > 0, "CAGRA search_width must be > 0");
-
     const std::size_t max_degree = static_cast<std::size_t>(std::max<int64_t>(1, n - 1));
 
-    cuvs::neighbors::cagra::index_params build_params;
-    build_params.metric       = cuvs::distance::DistanceType::L2Expanded;  // squared L2 distances
-    build_params.graph_degree = std::min(params.graph_degree, max_degree);
-    build_params.intermediate_graph_degree = std::min(params.intermediate_graph_degree, max_degree);
-    build_params.attach_dataset_on_build   = true;
+    cuvs::neighbors::cagra::index_params build_params = index_params;
+    build_params.metric                               = cuvs::distance::DistanceType::L2Expanded;
+    build_params.graph_degree = std::min(build_params.graph_degree, max_degree);
+    build_params.intermediate_graph_degree =
+      std::min(build_params.intermediate_graph_degree, max_degree);
+    build_params.attach_dataset_on_build = true;
 
-    search_params_.itopk_size   = params.itopk_size;
-    search_params_.search_width = params.search_width;
-    search_params_.max_queries  = 0;  // auto
+    search_params_ = search_params;
 
     index_.reset();  // drop the old index before replacing the dataset it views
     snapshot_.reset();

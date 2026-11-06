@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
+#include <cuvs/cluster/kmeans_type.hpp>
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/cagra_params.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
@@ -177,10 +179,9 @@ struct params : base_params {
    *
    * In `fit` the ANN index is rebuilt over the current centroids on EVERY Lloyd iteration (the
    * centroids move each iteration, so the index is never reused), and each point is assigned its
-   * approximate nearest centroid (top-1) from that fresh index. Larger `ann_itopk_size` is more
-   * accurate and slower. With ANN assignment `fit` stops on a cost plateau (relative change
-   * below `tol`, in either direction) or at `max_iter`, because approximate assignments can make
-   * the cost rise slightly.
+   * approximate nearest centroid (top-1) from that fresh index. The CAGRA build and search
+   * settings come from `ann_index_params` and `ann_search_params`; a larger `itopk_size` is more
+   * accurate and slower.
    *
    * Only `float` data with the L2Expanded or L2SqrtExpanded metric is supported; other
    * combinations log a warning and use brute force. Ignored by the multi-GPU `fit`.
@@ -191,29 +192,20 @@ struct params : base_params {
   bool use_ann_for_assignment = false;
 
   /**
-   * CAGRA graph degree of the centroid index (clamped to `n_clusters - 1`). Must be > 0.
-   * Only used when `use_ann_for_assignment` is true.
+   * CAGRA index (build) parameters of the centroid index, used as given. Only used when
+   * `use_ann_for_assignment` is true.
+   *
+   * The following are always overridden, since the feature relies on them: `metric` is set to
+   * L2Expanded, `attach_dataset_on_build` to true, and `graph_degree` and
+   * `intermediate_graph_degree` are clamped to `n_clusters - 1`.
    */
-  size_t ann_graph_degree = 64;
+  cuvs::neighbors::cagra::index_params ann_index_params;
 
   /**
-   * CAGRA intermediate graph degree of the centroid index (clamped to `n_clusters - 1`).
-   * Must be > 0. Only used when `use_ann_for_assignment` is true.
+   * CAGRA search parameters used to find each point's nearest centroid, used as given. Only used
+   * when `use_ann_for_assignment` is true.
    */
-  size_t ann_intermediate_graph_degree = 128;
-
-  /**
-   * CAGRA internal top-k list size used when searching the centroid index. Must be > 0.
-   * Larger values improve assignment accuracy and cost throughput.
-   * Only used when `use_ann_for_assignment` is true.
-   */
-  size_t ann_itopk_size = 64;
-
-  /**
-   * Number of graph nodes expanded per search iteration. Must be > 0.
-   * Only used when `use_ann_for_assignment` is true.
-   */
-  size_t ann_search_width = 1;
+  cuvs::neighbors::cagra::search_params ann_search_params;
 };
 
 /**
@@ -284,11 +276,6 @@ struct balanced_params : base_params {
    */
   bool is_packed_binary = false;
 };
-
-/**
- * @brief Type of k-means algorithm.
- */
-enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
 
 /**
  * @}

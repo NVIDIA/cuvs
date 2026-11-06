@@ -77,7 +77,7 @@ uint32_t max_train_points_per_vq_cluster = 1024);
 | `use_vq` |  | `bool` |  |
 | `vq_n_centers` |  | `uint32_t` |  |
 | `kmeans_n_iters` |  | `uint32_t` |  |
-| `pq_kmeans_type` |  | [`cuvs::cluster::kmeans::kmeans_type`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-kmeans-type) | Default: `cuvs::cluster::kmeans::kmeans_type::KMeansBalanced`. |
+| `pq_kmeans_type` |  | [`cuvs::cluster::kmeans::kmeans_type`](/api-reference/cpp-api-cluster-kmeans-type#cluster-kmeans-kmeans-type) | Default: `cuvs::cluster::kmeans::kmeans_type::KMeansBalanced`. |
 | `max_train_points_per_pq_code` |  | `uint32_t` | Default: `256`. |
 | `max_train_points_per_vq_cluster` |  | `uint32_t` | Default: `1024`. |
 
@@ -276,7 +276,7 @@ Typical **CAGRA-Q** usage: compress the source rows, then build the graph direct
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` |  |
-| `params` |  | [`cuvs::neighbors::vpq_params const&`](/api-reference/cpp-api-neighbors-cagra#neighbors-vpq-params) |  |
+| `params` |  | [`cuvs::neighbors::vpq_params const&`](/api-reference/cpp-api-neighbors-cagra-params#neighbors-vpq-params) |  |
 | `src` |  | `SrcT const&` |  |
 
 **Returns**

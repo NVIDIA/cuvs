@@ -7,6 +7,7 @@
 #include "kmeans_test_blobs.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
+#include <cuvs/neighbors/cagra.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>
@@ -179,15 +180,17 @@ TEST(KmeansAnn, ReportedInertiaMatchesAssignedLabels)
 TEST(KmeansAnn, UserTunableParams)
 {
   ann_fixture<float> f(10000, 16, 200);
-  auto brute                        = f.base_params();
-  auto ann                          = f.base_params();
-  ann.use_ann_for_assignment        = true;
-  ann.ann_graph_degree              = 32;
-  ann.ann_intermediate_graph_degree = 48;
-  ann.ann_itopk_size                = 128;
-  ann.ann_search_width              = 2;
-  auto r_brute                      = f.run(brute);
-  auto r_ann                        = f.run(ann);
+  auto brute                                     = f.base_params();
+  auto ann                                       = f.base_params();
+  ann.use_ann_for_assignment                     = true;
+  ann.ann_index_params.graph_degree              = 32;
+  ann.ann_index_params.intermediate_graph_degree = 48;
+  // The feature needs L2 distances: a different metric here is overridden, not honored.
+  ann.ann_index_params.metric        = cuvs::distance::DistanceType::InnerProduct;
+  ann.ann_search_params.itopk_size   = 128;
+  ann.ann_search_params.search_width = 2;
+  auto r_brute                       = f.run(brute);
+  auto r_ann                         = f.run(ann);
   EXPECT_LE(r_ann.inertia, r_brute.inertia * 1.02f);
 }
 
@@ -222,32 +225,6 @@ TEST(KmeansAnn, DoubleFallsBackToBruteForce)
   auto r_brute               = f.run(f.base_params());
   EXPECT_NEAR(r_ann.inertia, r_brute.inertia, 1e-6 * r_brute.inertia);
   EXPECT_EQ(r_ann.labels, r_brute.labels);
-}
-
-TEST(KmeansAnn, InvalidParamsThrow)
-{
-  ann_fixture<float> f(1000, 8, 10);
-  auto p                   = f.base_params();
-  p.use_ann_for_assignment = true;
-
-  auto bad           = p;
-  bad.ann_itopk_size = 0;
-  EXPECT_THROW(f.run(bad), raft::logic_error);
-  bad                  = p;
-  bad.ann_graph_degree = 0;
-  EXPECT_THROW(f.run(bad), raft::logic_error);
-  bad                               = p;
-  bad.ann_intermediate_graph_degree = 0;
-  EXPECT_THROW(f.run(bad), raft::logic_error);
-  bad                  = p;
-  bad.ann_search_width = 0;
-  EXPECT_THROW(f.run(bad), raft::logic_error);
-
-  // Invalid ANN params are ignored when ANN is disabled.
-  bad                        = p;
-  bad.use_ann_for_assignment = false;
-  bad.ann_itopk_size         = 0;
-  EXPECT_NO_THROW(f.run(bad));
 }
 
 TEST(KmeansAnn, MultipleSeedsAndSampleWeights)

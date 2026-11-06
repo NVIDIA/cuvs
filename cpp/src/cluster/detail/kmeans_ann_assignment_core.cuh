@@ -27,16 +27,6 @@
 
 namespace cuvs::cluster::kmeans::detail {
 
-/** Throws if the ANN-related fields of `params` are invalid. Only checked when ANN is enabled. */
-inline void validate_ann_params(cuvs::cluster::kmeans::params const& params)
-{
-  RAFT_EXPECTS(params.ann_graph_degree > 0, "ann_graph_degree must be > 0");
-  RAFT_EXPECTS(params.ann_intermediate_graph_degree > 0,
-               "ann_intermediate_graph_degree must be > 0");
-  RAFT_EXPECTS(params.ann_itopk_size > 0, "ann_itopk_size must be > 0");
-  RAFT_EXPECTS(params.ann_search_width > 0, "ann_search_width must be > 0");
-}
-
 /**
  * @brief Whether ANN assignment should be used for this call. Validates the ANN params when the
  * flag is set; unsupported configurations log a warning and return false (brute force is used).
@@ -45,7 +35,6 @@ template <typename DataT>
 bool use_ann_assignment(cuvs::cluster::kmeans::params const& params, int64_t n_clusters)
 {
   if (!params.use_ann_for_assignment) { return false; }
-  validate_ann_params(params);
   if constexpr (!std::is_same_v<DataT, float>) {
     RAFT_LOG_WARN("kmeans: use_ann_for_assignment requires float data; using brute force.");
     return false;
@@ -76,12 +65,9 @@ void build_ann_index(raft::resources const& handle,
                      int64_t n_features)
 {
   if constexpr (std::is_same_v<DataT, float>) {
-    cuvs::distance::detail::top_1_nn_cagra_params cagra_params;
-    cagra_params.graph_degree              = params.ann_graph_degree;
-    cagra_params.intermediate_graph_degree = params.ann_intermediate_graph_degree;
-    cagra_params.itopk_size                = params.ann_itopk_size;
-    cagra_params.search_width              = params.ann_search_width;
-    ann_index.build(handle, cagra_params, centroids, n_clusters, n_features);
+    // The user's CAGRA parameters are passed through as they are.
+    ann_index.build(
+      handle, params.ann_index_params, params.ann_search_params, centroids, n_clusters, n_features);
   } else {
     RAFT_FAIL("ANN centroid assignment only supports float data");
   }

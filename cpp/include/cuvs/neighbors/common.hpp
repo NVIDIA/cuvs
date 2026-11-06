@@ -6,7 +6,7 @@
 #pragma once
 
 #include <cstdint>
-#include <cuvs/cluster/kmeans.hpp>
+#include <cuvs/cluster/kmeans_type.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_container_policy.hpp>
 #include <raft/core/device_csr_matrix.hpp>
