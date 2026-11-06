@@ -129,6 +129,7 @@ struct cuvsCagraIndexParams {
   enum cuvsCagraGraphBuildAlgo build_algo;
   size_t nn_descent_niter;
   void* graph_build_params;
+  double variable_graph_degree_fraction;
 };
 ```
 
@@ -142,6 +143,7 @@ struct cuvsCagraIndexParams {
 | `build_algo` | [`enum cuvsCagraGraphBuildAlgo`](/api-reference/c-api-neighbors-cagra#cuvscagragraphbuildalgo) | ANN algorithm to build knn graph. |
 | `nn_descent_niter` | `size_t` | Number of Iterations to run if building with NN_DESCENT |
 | `graph_build_params` | `void*` | Optional: specify graph build params based on build_algo<br />- IVF_PQ: cuvsIvfPqParams_t<br />- ACE: cuvsAceParams_t<br />- Others: nullptr |
+| `variable_graph_degree_fraction` | `double` | Fraction of `graph_degree` to define the minimum output graph degree, allowing variable-degree neighbor graphs.<br /><br />Must be in [0, 1]. The default value of 1.0 disables the variable-degree logic (normal CAGRA behavior). Values &lt; 1.0 enable variable-degree graphs: the optimize step finds the minimum detour threshold that covers at least ceil(graph_degree * fraction) edges per node, then lets reverse edges expand the degree further. Unused slots are filled with an invalid-neighbor sentinel (all bits set, i.e. `UINT32_MAX` for the 32-bit graph indices).<br /><br />This is intended for the CAGRA-to-HNSW conversion pipeline (see `cuvsCagraIndexParamsFromHnswParams`). Do not use this with CAGRA's native GPU search. |
 
 <a id="cuvscagramergealgo"></a>
 ### cuvsCagraMergeAlgo

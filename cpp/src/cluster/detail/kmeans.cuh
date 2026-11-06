@@ -91,7 +91,7 @@ void cluster_cost(
     batch_centroids,
     workspace,
     std::nullopt,
-    cuvs::distance::detail::Top1nnBackend::Stable);
+    /*accurate_distances=*/true);
 
   if (sample_weight.has_value()) {
     raft::linalg::map(

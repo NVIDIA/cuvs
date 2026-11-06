@@ -41,8 +41,6 @@ class top_1_nn_cagra_index;
 /** Implementation or automatic selection policy for the top-1 nearest-neighbor primitive. */
 enum class Top1nnBackend : std::uint8_t {
   Auto,
-  /** Select between CUTLASS and unfused without using reduced-precision cuTile computation. */
-  Stable,
   Cutile,
   /** Legacy fused dispatcher: CUTLASS on SM80+, with its existing SIMT path before SM80. */
   Cutlass,
@@ -96,6 +94,10 @@ struct Top1nnPlan {
   std::size_t workspace_alignment{};
   /** Whether this invocation stores nearest-neighbor indices. */
   bool store_indices{true};
+  /** Recompute distances from each vector to its centroid in accurate precision. */
+  bool refine{};
+  /** Whether 1-NN assignment can use TF32 precision*/
+  bool tf32_assignment{true};
   const void* x{};
   const void* y{};
   /** GEMM-equivalent dimensions: query rows, candidate rows, and feature columns. */
@@ -125,7 +127,6 @@ inline constexpr bool is_top_1_nn_metric_supported(Top1nnBackend backend, Distan
     case Top1nnBackend::Cutile:
       return metric == DistanceType::InnerProduct || metric == DistanceType::L2Expanded ||
              metric == DistanceType::L2SqrtExpanded || metric == DistanceType::CosineExpanded;
-    case Top1nnBackend::Stable:
     case Top1nnBackend::Cutlass:
     case Top1nnBackend::Unfused:
       return metric == DistanceType::L2Expanded || metric == DistanceType::L2SqrtExpanded ||
@@ -150,7 +151,7 @@ bool is_top_1_nn_backend_available(Top1nnBackend backend,
                                    IdxT k,
                                    cuvs::distance::DistanceType metric)
 {
-  if (backend == Top1nnBackend::Auto || backend == Top1nnBackend::Stable) { return false; }
+  if (backend == Top1nnBackend::Auto) { return false; }
   if (!is_top_1_nn_metric_supported(backend, metric)) { return false; }
   if (x == nullptr || y == nullptr || m <= IdxT{0} || n <= IdxT{0} || k <= IdxT{0}) {
     return false;
