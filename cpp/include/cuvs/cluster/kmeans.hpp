@@ -3,7 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
-#include <cuvs/cluster/kmeans_type.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra_params.hpp>
 #include <raft/core/device_mdspan.hpp>

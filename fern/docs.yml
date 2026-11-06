@@ -333,8 +333,6 @@ navigation:
             path: "./pages/cpp_api/cpp-api-cluster-gmm.md"
           - page: "Cluster Kmeans"
             path: "./pages/cpp_api/cpp-api-cluster-kmeans.md"
-          - page: "Cluster Kmeans Type"
-            path: "./pages/cpp_api/cpp-api-cluster-kmeans-type.md"
           - page: "Cluster Spectral"
             path: "./pages/cpp_api/cpp-api-cluster-spectral.md"
           - page: "Core Dataset Binary"
