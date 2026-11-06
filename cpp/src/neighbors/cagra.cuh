@@ -191,6 +191,16 @@ void build_knn_graph(
   detail::build_knn_graph<DataT, IdxT>(res, dataset, knn_graph, build_params);
 }
 
+template <typename DataT, typename IdxT, typename Accessor>
+void build_knn_graph(
+  raft::resources const& res,
+  raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
+  raft::host_matrix_view<IdxT, int64_t, raft::row_major> knn_graph,
+  graph_build_params::brute_force_params params)
+{
+  detail::build_knn_graph(res, dataset, knn_graph, params);
+}
+
 /**
  * @brief Sort a KNN graph index.
  * Preprocessing step for `cagra::optimize`: If a KNN graph is not built using

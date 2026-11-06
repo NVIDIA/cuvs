@@ -757,11 +757,7 @@ static void update_dataset(raft::resources* res_ptr,
 }
 
 static void _set_graph_build_params(
-  std::variant<std::monostate,
-               cuvs::neighbors::cagra::graph_build_params::ivf_pq_params,
-               cuvs::neighbors::cagra::graph_build_params::nn_descent_params,
-               cuvs::neighbors::cagra::graph_build_params::ace_params,
-               cuvs::neighbors::cagra::graph_build_params::iterative_search_params>& out_params,
+  cuvs::neighbors::cagra::graph_build_params_t& out_params,
   cuvsCagraIndexParams& params,
   cuvsCagraGraphBuildAlgo algo,
   int64_t n_rows,
