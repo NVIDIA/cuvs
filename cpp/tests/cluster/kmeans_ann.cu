@@ -227,6 +227,19 @@ TEST(KmeansAnn, DoubleFallsBackToBruteForce)
   EXPECT_EQ(r_ann.labels, r_brute.labels);
 }
 
+TEST(KmeansAnn, AceGraphBuildFallsBackToBruteForce)
+{
+  ann_fixture<float> f(2000, 8, 20);
+  auto ann                   = f.base_params();
+  ann.use_ann_for_assignment = true;
+  ann.ann_index_params.graph_build_params =
+    cuvs::neighbors::cagra::graph_build_params::ace_params();
+  auto r_ann   = f.run(ann);
+  auto r_brute = f.run(f.base_params());
+  EXPECT_NEAR(r_ann.inertia, r_brute.inertia, 1e-6 * r_brute.inertia);
+  EXPECT_EQ(r_ann.labels, r_brute.labels);
+}
+
 TEST(KmeansAnn, MultipleSeedsAndSampleWeights)
 {
   ann_fixture<float> f(10000, 16, 150);

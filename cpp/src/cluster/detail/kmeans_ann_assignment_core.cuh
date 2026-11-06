@@ -24,6 +24,7 @@
 #include <raft/core/resources.hpp>
 
 #include <type_traits>
+#include <variant>
 
 namespace cuvs::cluster::kmeans::detail {
 
@@ -46,6 +47,14 @@ bool use_ann_assignment(cuvs::cluster::kmeans::params const& params, int64_t n_c
     }
     if (n_clusters < 2) {
       RAFT_LOG_WARN("kmeans: use_ann_for_assignment requires n_clusters >= 2; using brute force.");
+      return false;
+    }
+    // The centroids are a device dataset, for which an ACE graph build is not supported.
+    if (std::holds_alternative<cuvs::neighbors::cagra::graph_build_params::ace_params>(
+          params.ann_index_params.graph_build_params)) {
+      RAFT_LOG_WARN(
+        "kmeans: use_ann_for_assignment does not support ACE graph build params; using brute "
+        "force.");
       return false;
     }
     return true;

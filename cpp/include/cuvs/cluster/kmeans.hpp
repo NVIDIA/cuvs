@@ -194,6 +194,9 @@ struct params : base_params {
    * CAGRA index (build) parameters of the centroid index, used as given. Only used when
    * `use_ann_for_assignment` is true.
    *
+   * ACE graph build params (`graph_build_params` holding `ace_params`) are not supported for the
+   * centroid index: they log a warning and brute force is used.
+   *
    * The following are always overridden, since the feature relies on them: `metric` is set to
    * L2Expanded, `attach_dataset_on_build` to true, and `graph_degree` and
    * `intermediate_graph_degree` are clamped to `n_clusters - 1`.
