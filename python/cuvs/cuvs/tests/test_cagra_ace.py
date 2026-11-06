@@ -22,6 +22,28 @@ from cuvs.tests.ann_utils import (
 )
 
 
+@pytest.mark.parametrize(
+    "nsubpartitions,add_global_reverse_edges", [(1, False), (2, True)]
+)
+def test_ace_overlap_params(nsubpartitions, add_global_reverse_edges):
+    defaults = cagra.AceParams()
+    assert defaults.nsubpartitions == 1
+    assert not defaults.add_global_reverse_edges
+    params = cagra.AceParams(
+        npartitions=4,
+        nsubpartitions=nsubpartitions,
+        add_global_reverse_edges=add_global_reverse_edges,
+    )
+    assert params.nsubpartitions == nsubpartitions
+    assert params.add_global_reverse_edges == add_global_reverse_edges
+    index_params = cagra.IndexParams(build_algo="ace", ace_params=params)
+    assert index_params.ace_params.nsubpartitions == nsubpartitions
+    assert (
+        index_params.ace_params.add_global_reverse_edges
+        == add_global_reverse_edges
+    )
+
+
 def run_cagra_ace_build_search_test(
     n_rows=10000,
     n_cols=10,
