@@ -99,7 +99,7 @@ Use RAFT array types consistently in public C++ APIs and implementation code. Fo
 
 Keep data layout explicit. Most NVIDIA cuVS APIs expect row-major dense matrices unless the API says otherwise.
 
-Prefer public API signatures that accept non-owning views, not owning arrays. This keeps NVIDIA cuVS functions flexible because callers can pass memory owned by RAFT, another RAPIDS library, or an application-specific allocator.
+Prefer public API signatures that accept non-owning views, not owning arrays. This keeps NVIDIA cuVS functions flexible because callers can pass memory owned by RAFT, another CUDA-X library for data science, or an application-specific allocator.
 
 Prefer `device_matrix_view` and `device_vector_view` over raw pointers for public NVIDIA cuVS C++ APIs. Views carry shape, layout, memory-space, and constness information, making incorrect dimensions and accidental writes easier to catch.
 
@@ -288,16 +288,22 @@ pre-commit install
 
 ### Core Hooks
 
-C++ and CUDA code are formatted with [clang-format](https://clang.llvm.org/docs/ClangFormat.html). NVIDIA cuVS follows the Google C++ style with a few local adjustments documented in [cpp/.clang-format](https://github.com/nvidia/cuvs/blob/main/cpp/.clang-format):
+C++ and CUDA code are formatted with [clang-format](https://clang.llvm.org/docs/ClangFormat.html). NVIDIA cuVS follows the Google C++ style with a few local adjustments documented in [cpp/.clang-format](https://github.com/NVIDIA/cuvs/blob/main/cpp/.clang-format):
 
 1. Empty functions, records, and namespaces are not split.
 2. Indentation is two spaces, including line continuations.
 3. Comments are not reflowed automatically.
 
-[Doxygen](https://doxygen.nl/) checks C++ and CUDA API documentation:
+Regenerate the Fern API reference pages and run the generator's built-in validation:
 
 ```bash
-./ci/checks/doxygen.sh
+pre-commit run fern-api-reference --all-files
+```
+
+Regenerate the API pages and run Fern's configuration, link, and Markdown checks:
+
+```bash
+fern/build_docs.sh check
 ```
 
 [codespell](https://github.com/codespell-project/codespell) catches spelling issues. To apply suggested fixes interactively, run:
@@ -318,7 +324,7 @@ python ./cpp/scripts/include_checker.py --inplace cpp/include cpp/tests
 
 ### Copyright
 
-RAPIDS pre-commit hooks check copyright headers on modified tracked files. To run that check manually:
+Pre-commit hooks check copyright headers on modified tracked files. To run that check manually:
 
 ```bash
 pre-commit run -a verify-copyright
@@ -346,4 +352,4 @@ Use the `_NO_THROW` variants only where throwing is unsafe, such as destructors.
 
 ### Documentation
 
-Public C++ and CUDA APIs require user-facing [Doxygen](https://doxygen.nl/) documentation. Document the purpose, parameters, return values, relevant template or overload behavior, and any constraints that affect correct use.
+Public C++ and CUDA APIs require user-facing [Doxygen-style](https://doxygen.nl/) source comments consumed by the Fern API generator. Document the purpose, parameters, return values, relevant template or overload behavior, and any constraints that affect correct use.

@@ -1,6 +1,6 @@
 # =============================================================================
 # cmake-format: off
-# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 # cmake-format: on
 
@@ -14,6 +14,7 @@ include(rapids-cpm)
 include(rapids-cuda)
 include(rapids-export)
 include(rapids-find)
+include(GNUInstallDirs)
 
 # ------------- configure project --------------#
 
@@ -59,4 +60,9 @@ add_executable(BRUTEFORCE_C_EXAMPLE src/bruteforce_c_example.c)
 target_include_directories(BRUTEFORCE_C_EXAMPLE PUBLIC "$<BUILD_INTERFACE:${DLPACK_INCLUDE_DIR}>")
 target_link_libraries(
   BRUTEFORCE_C_EXAMPLE PRIVATE cuvs::c_api CUDA::cudart_static $<TARGET_NAME_IF_EXISTS:conda_env>
+)
+
+install(
+  TARGETS CAGRA_C_EXAMPLE L2_C_EXAMPLE IVF_FLAT_C_EXAMPLE IVF_PQ_C_EXAMPLE BRUTEFORCE_C_EXAMPLE
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}/examples/libcuvs COMPONENT cuvs_examples
 )

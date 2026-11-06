@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -59,8 +59,13 @@ cdef class IndexParams:
     max_iterations : int
         The number of iterations that nn-descent will refine the graph for.
         More iterations produce a better quality graph at cost of performance
-    termination_threshold : float
-        The delta at which nn-descent will terminate its iterations
+    termination_threshold : float, default = 0.001
+        NN-descent terminates when the number of graph updates in an iteration
+        is less than
+        ``termination_threshold * internal_graph_degree * dataset_size``,
+        where ``internal_graph_degree`` is the expanded and padded working
+        degree derived from ``graph_degree``. Set to ``0.0`` to disable early
+        termination.
     return_distances : bool
         Whether to return distances array
     dist_comp_dtype : str, default = "auto"

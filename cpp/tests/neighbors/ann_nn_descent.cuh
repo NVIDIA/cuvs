@@ -7,7 +7,6 @@
 #include "../../src/neighbors/detail/knn_brute_force.cuh"
 #include "../../src/neighbors/detail/nn_descent_gnnd.hpp"
 #include "../../src/neighbors/detail/reachability.cuh"
-#include "../test_utils.cuh"
 #include "ann_utils.cuh"
 #include "naive_knn.cuh"
 
@@ -25,7 +24,6 @@
 
 #include <cstddef>
 #include <iostream>
-#include <string>
 #include <vector>
 
 namespace cuvs::neighbors::nn_descent {
@@ -110,6 +108,7 @@ class AnnNNDescentTest : public ::testing::TestWithParam<AnnNNDescentInputs> {
         index_params.graph_degree              = ps.graph_degree;
         index_params.intermediate_graph_degree = 2 * ps.graph_degree;
         index_params.max_iterations            = 100;
+        index_params.termination_threshold     = 0.002f;
         index_params.return_distances          = true;
 
         auto database_view = raft::make_device_matrix_view<const DataT, int64_t>(

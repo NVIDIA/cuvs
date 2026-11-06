@@ -58,7 +58,7 @@ Parameters to build NN-Descent Index
 | `graph_degree` | `int` | For an input dataset of dimensions (N, D), determines the final dimensions of the all-neighbors knn graph which turns out to be of dimensions (N, graph_degree) |
 | `intermediate_graph_degree` | `int` | Internally, nn-descent builds an all-neighbors knn graph of dimensions (N, intermediate_graph_degree) before selecting the final `graph_degree` neighbors. It's recommended that `intermediate_graph_degree` &gt;= 1.5 * graph_degree |
 | `max_iterations` | `int` | The number of iterations that nn-descent will refine the graph for. More iterations produce a better quality graph at cost of performance |
-| `termination_threshold` | `float` | The delta at which nn-descent will terminate its iterations |
+| `termination_threshold` | `float, default = 0.001` | NN-descent terminates when the number of graph updates in an iteration is less than ``termination_threshold * internal_graph_degree * dataset_size``, where ``internal_graph_degree`` is the expanded and padded working degree derived from ``graph_degree``. Set to ``0.0`` to disable early termination. |
 | `return_distances` | `bool` | Whether to return distances array |
 | `dist_comp_dtype` | `str, default = "auto"` | Dtype to use for distance computation. Supported dtypes are `auto`, `fp32`, and `fp16` `auto` automatically determines the best dtype for distance computation based on the dataset dimensions. `fp32` uses fp32 distance computation for better precision at the cost of performance and memory usage. This option is only valid when data type is fp32. `fp16` uses fp16 distance computation for better performance and memory usage at the cost of precision. |
 
