@@ -1164,8 +1164,8 @@ if(NOT BUILD_CPU_ONLY)
   endblock()
 
   include(cmake/modules/generate_cutile_kernels.cmake)
-  # Tile IR supports sm_103 starting with version 13.1 and sm_107 starting with 13.4.
-  # Conservatively gate by the CUDA compiler version, as in the existing sm_107 support.
+  # Tile IR supports sm_103 starting with version 13.1 and sm_107 starting with 13.4. Conservatively
+  # gate by the CUDA compiler version, as in the existing sm_107 support.
   set(CUVS_CUTILE_SM103_ENABLED 0)
   set(CUVS_CUTILE_SM107_ENABLED 0)
   set(CUVS_CUTILE_EXCLUDED_GPU_CODES "")
