@@ -85,6 +85,7 @@ struct search_params : cuvs::neighbors::search_params {
   double preferred_shmem_carveout;
   cudaDataType_t coarse_search_dtype;
   uint32_t max_internal_batch_size;
+  uint64_t random_probe_enable_seed;
 };
 ```
 
@@ -98,6 +99,7 @@ struct search_params : cuvs::neighbors::search_params {
 | `preferred_shmem_carveout` | `double` | Preferred fraction of SM's unified memory / L1 cache to be used as shared memory.<br /><br />Possible values: [0.0 - 1.0] as a fraction of the `sharedMemPerMultiprocessor`.<br /><br />One wants to increase the carveout to make sure a good GPU occupancy for the main search kernel, but not to keep it too high to leave some memory to be used as L1 cache. Note, this value is interpreted only as a hint. Moreover, a GPU usually allows only a fixed set of cache configurations, so the provided value is rounded up to the nearest configuration. Refer to the NVIDIA tuning guide for the target GPU architecture.<br /><br />Note, this is a low-level tuning parameter that can have drastic negative effects on the search performance if tweaked incorrectly. |
 | `coarse_search_dtype` | `cudaDataType_t` | [Experimental] The data type to use as the GEMM element type when searching the clusters to probe.<br /><br />Possible values: [CUDA_R_8I, CUDA_R_16F, CUDA_R_32F].<br /><br />- Legacy default: CUDA_R_32F (float)<br />- Recommended for performance: CUDA_R_16F (half)<br />- Experimental/low-precision: CUDA_R_8I (int8_t) (WARNING: int8_t variant degrades recall unless data is normalized and low-dimensional) |
 | `max_internal_batch_size` | `uint32_t` | Set the internal batch size to improve GPU utilization at the cost of larger memory footprint. |
+| `random_probe_enable_seed` | `uint64_t` | [Internal] Enable the random-probe mode with the given non-zero seed; zero (default) keeps the usual search of the nearest lists.<br /><br />In the random-probe mode, `n_probes` distinct lists are picked uniformly at random for every query, and the top-k samples of each probed list are returned without merging across the lists. Hence, the output has `n_probes * k` values per query (the number of columns of the output matrices must be a multiple of `min(n_probes, n_lists)`; `k` is the multiplier). The values are grouped by the probes, in the probe order. Missing results (a list has fewer than `k` samples) are marked by `kOutOfBoundsRecord`. The same seed picks the same lists for the queries at the same positions, so vary it between the batches of queries. |
 
 ## Types
 
@@ -144,6 +146,7 @@ Specialized parameters utilizing IVF-PQ to build knn graph
 
 ```cpp
 struct ivf_pq_params {
+  uint32_t n_random_edges;
   cuvs::neighbors::ivf_pq::index_params build_params;
   cuvs::neighbors::ivf_pq:: search_params;
   float refinement_rate;
@@ -154,6 +157,7 @@ struct ivf_pq_params {
 
 | Name | Type | Description |
 | --- | --- | --- |
+| `n_random_edges` | `uint32_t` | The number of neighbors of each node that are taken from randomly selected lists (`ivf_pq::search_params::random_probe_enable_seed != 0`) instead of the nearest ones. They replace the last `n_random_edges` of the `intermediate_graph_degree` neighbors, which adds a few long-range edges and helps to connect the clusters of the dataset in the graph. Zero disables the feature. |
 | `build_params` | `cuvs::neighbors::ivf_pq::index_params` |  |
 | `search_params` | `cuvs::neighbors::ivf_pq::` |  |
 | `refinement_rate` | `float` |  |

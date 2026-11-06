@@ -411,6 +411,9 @@ void parse_build_param(const nlohmann::json& conf, cuvs::neighbors::cagra::index
         parse_search_param<T, IdxT>(ivf_pq_search_conf, sparam);
         arg.search_params   = sparam.pq_param;
         arg.refinement_rate = sparam.refine_ratio;
+        if (conf.contains("ivf_pq_random_edges")) {
+          arg.n_random_edges = conf.at("ivf_pq_random_edges");
+        }
       } else if constexpr (std::is_same_v<U,
                                           cuvs::neighbors::graph_build_params::nn_descent_params>) {
         parse_build_param<T, IdxT>(nn_descent_conf, arg);
