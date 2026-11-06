@@ -64,7 +64,7 @@ public class TestAcceleratedHNSWHostInputMemory extends LuceneTestCase {
     return Arrays.asList(
         new Object[][] {
           {new Lucene99AcceleratedHNSWVectorsFormat(params), 128, 512},
-          {new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat(params), 128, 128},
+          {CuVSCodecs.acceleratedHNSWScalarQuantizedFormat(params), 128, 128},
           // 129 binary dimensions deliberately exercise the partial final byte.
           {new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(params), 129, 17}
         });
