@@ -20,6 +20,7 @@ extern "C" cuvsError_t cuvsSelectK(cuvsResources_t res,
                                    DLManagedTensor* out_idx)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
 
     RAFT_EXPECTS(in_val != nullptr && out_val != nullptr && out_idx != nullptr,

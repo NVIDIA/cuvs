@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -13,6 +13,22 @@ namespace cuvs::core {
  * @defgroup interop Interoperability between `mdspan` and `DLManagedTensor`
  * @{
  */
+
+/**
+ * @brief Validate the structural fields of a DLManagedTensor
+ *
+ * Throws raft::logic_error if the tensor is NULL, has a negative or unexpected ndim, a NULL shape,
+ * negative extents, an element count or byte size that overflows int64, or a NULL data pointer
+ * while holding at least one element. from_dlpack calls this before building an mdspan; call it
+ * directly before reading `shape` or `data` of a tensor without from_dlpack.
+ *
+ * @param[in] tensor DLManagedTensor to validate
+ * @param[in] expected_ndim required number of dimensions, or -1 to accept any
+ */
+inline void validate_dlpack_tensor(DLManagedTensor const* tensor, int32_t expected_ndim = -1)
+{
+  detail::validate_dlpack_tensor(tensor, expected_ndim);
+}
 
 /**
  * @brief Check if DLTensor has device accessible memory.

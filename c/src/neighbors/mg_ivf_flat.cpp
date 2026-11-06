@@ -147,6 +147,7 @@ void* _mg_build(cuvsResources_t res,
                 cuvsMultiGpuIvfFlatIndexParams params,
                 DLManagedTensor* dataset_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   auto mg_params = cuvs::neighbors::mg_index_params<cuvs::neighbors::ivf_flat::index_params>();
@@ -170,6 +171,7 @@ void _mg_search(cuvsResources_t res,
                 DLManagedTensor* neighbors_tensor,
                 DLManagedTensor* distances_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   auto mg_index_ptr = reinterpret_cast<
     cuvs::neighbors::mg_index<cuvs::neighbors::ivf_flat::index<T, int64_t>, T, int64_t>*>(
@@ -197,6 +199,7 @@ void _mg_extend(cuvsResources_t res,
                 DLManagedTensor* new_vectors_tensor,
                 DLManagedTensor* new_indices_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   auto mg_index_ptr = reinterpret_cast<
     cuvs::neighbors::mg_index<cuvs::neighbors::ivf_flat::index<T, int64_t>, T, int64_t>*>(
@@ -217,6 +220,7 @@ void _mg_extend(cuvsResources_t res,
 template <typename T>
 void _mg_serialize(cuvsResources_t res, cuvsMultiGpuIvfFlatIndex index, const char* filename)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   auto mg_index_ptr = reinterpret_cast<
     cuvs::neighbors::mg_index<cuvs::neighbors::ivf_flat::index<T, int64_t>, T, int64_t>*>(
@@ -228,6 +232,7 @@ void _mg_serialize(cuvsResources_t res, cuvsMultiGpuIvfFlatIndex index, const ch
 template <typename T>
 void* _mg_deserialize(cuvsResources_t res, const char* filename)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto mg_index =
     new cuvs::neighbors::mg_index<cuvs::neighbors::ivf_flat::index<T, int64_t>, T, int64_t>(
@@ -239,6 +244,7 @@ void* _mg_deserialize(cuvsResources_t res, const char* filename)
 template <typename T>
 void* _mg_distribute(cuvsResources_t res, const char* filename)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto mg_index =
     new cuvs::neighbors::mg_index<cuvs::neighbors::ivf_flat::index<T, int64_t>, T, int64_t>(

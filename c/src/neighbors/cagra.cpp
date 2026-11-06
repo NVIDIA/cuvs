@@ -841,6 +841,7 @@ void _from_args(cuvsResources_t res,
                 DLManagedTensor* dataset_tensor,
                 cuvsCagraIndex_t output_index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto metric  = static_cast<cuvs::distance::DistanceType>((int)_metric);
   auto dataset = dataset_tensor->dl_tensor;
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
@@ -896,6 +897,7 @@ void _extend(cuvsResources_t res,
              cuvsDataset_t extended_dataset,
              int64_t new_start_row)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto* box      = reinterpret_cast<sg_cagra_c_api_index_box*>(index.addr);
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   RAFT_EXPECTS(box != nullptr, "cuvsCagraExtend: null index handle");
@@ -943,6 +945,7 @@ void _search(cuvsResources_t res,
              DLManagedTensor* distances_tensor,
              cuvsFilter filter)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto* box    = reinterpret_cast<sg_cagra_c_api_index_box*>(index.addr);
   with_index_by_layout<T, uint32_t, false, false>(
@@ -1020,6 +1023,7 @@ void _search_multi_partition(cuvsResources_t res,
   using DistanceT = float;
   using IndexT    = cuvs::neighbors::cagra::index<T, IdxT>;
 
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr       = reinterpret_cast<raft::resources*>(res);
   auto search_params = cuvs::neighbors::cagra::search_params();
   convert_c_search_params(params, &search_params);
@@ -1106,6 +1110,7 @@ void _search_multi_partition(cuvsResources_t res,
 template <typename T>
 void _serialize(cuvsResources_t res, const char *filename,
                 cuvsCagraIndex_t index, bool include_dataset) {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources *>(res);
   auto *box = reinterpret_cast<sg_cagra_c_api_index_box *>(index->addr);
   auto const *null_handle_err =
@@ -1143,6 +1148,7 @@ struct serialized_cagra_header {
 
 static auto read_serialized_header(cuvsResources_t res, const char *filename)
     -> serialized_cagra_header {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources *>(res);
   std::ifstream is(filename, std::ios::in | std::ios::binary);
   if (!is) {
@@ -1232,6 +1238,7 @@ template <typename T, cuvs::neighbors::ann_dataset_view ViewT>
 void _deserialize(cuvsResources_t res, const char *filename,
                   cuvsCagraIndex_t output_index, DLDataType dtype,
                   bool include_dataset, cuvsDataset_t *out_dataset) {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources *>(res);
   using view_t = ViewT;
   using owner_dataset_t = cuvs::neighbors::owning_dataset_for_view_t<view_t>;
@@ -1283,6 +1290,7 @@ void _deserialize(cuvsResources_t res, const char *filename,
 template <typename T>
 void _serialize_to_hnswlib(cuvsResources_t res, const char *filename,
                            cuvsCagraIndex_t index) {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources *>(res);
   auto *box = reinterpret_cast<sg_cagra_c_api_index_box *>(index->addr);
   with_index_by_layout<T, uint32_t, true>(
@@ -1309,6 +1317,7 @@ void _merge(cuvsResources_t res,
             cuvsDataset_t merged_dataset,
             cuvsCagraIndex_t output_index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto* first_box = reinterpret_cast<sg_cagra_c_api_index_box*>(indices[0]->addr);
   RAFT_EXPECTS(first_box != nullptr, "cuvsCagraMerge: null index handle");
@@ -1524,6 +1533,7 @@ extern "C" cuvsError_t cuvsCagraIndexCreate(cuvsCagraIndex_t* index)
 extern "C" cuvsError_t cuvsCagraIndexDestroy(cuvsCagraIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (index_c_ptr == nullptr) { return; }
     destroy_sg_cagra_c_api_box(index_c_ptr->addr);
     delete index_c_ptr;
   });
@@ -1621,6 +1631,7 @@ extern "C" cuvsError_t cuvsDatasetMakePadded(cuvsResources_t res,
     RAFT_EXPECTS(dataset_tensor != nullptr, "cuvsDatasetMakePadded: null input tensor");
     RAFT_EXPECTS(padded_dataset != nullptr, "cuvsDatasetMakePadded: null output dataset");
     *padded_dataset = nullptr;
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto dataset  = dataset_tensor->dl_tensor;
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
     auto make_typed = [&]<typename T>() {
@@ -1659,6 +1670,7 @@ extern "C" cuvsError_t cuvsDatasetMakePaddedView(cuvsResources_t res,
     RAFT_EXPECTS(dataset_tensor != nullptr, "cuvsDatasetMakePaddedView: null input tensor");
     RAFT_EXPECTS(padded_dataset != nullptr, "cuvsDatasetMakePaddedView: null output view");
     *padded_dataset = nullptr;
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto dataset  = dataset_tensor->dl_tensor;
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
     auto make_typed = [&]<typename T>() {
@@ -1742,6 +1754,7 @@ extern "C" cuvsError_t cuvsDatasetMakeStandardView(cuvsResources_t res,
     RAFT_EXPECTS(dataset_tensor != nullptr, "cuvsDatasetMakeStandardView: null input tensor");
     RAFT_EXPECTS(standard_dataset != nullptr, "cuvsDatasetMakeStandardView: null output view");
     *standard_dataset = nullptr;
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto dataset  = dataset_tensor->dl_tensor;
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
     auto make_typed = [&]<typename T>() {
@@ -1824,6 +1837,7 @@ extern "C" cuvsError_t cuvsDatasetMakePQ(cuvsResources_t res,
     *pq_dataset = nullptr;
     RAFT_EXPECTS(target_mem_type == CUVS_DATASET_MEM_TYPE_DEVICE,
                  "cuvsDatasetMakePQ currently supports only device output");
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
     std::unique_ptr<device_vpq_owner_t> owner;
     if (dataset->dtype.code == kDLFloat && dataset->dtype.bits == 32) {
@@ -1848,6 +1862,7 @@ static cuvsError_t dispatch_update_dataset(cuvsResources_t res,
                                            cuvsCagraIndex_t index)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto* res_ptr = reinterpret_cast<raft::resources*>(res);
     RAFT_EXPECTS(index != nullptr, "cuvsCagraUpdateDataset: null index handle");
     RAFT_EXPECTS(dataset != nullptr, "cuvsCagraUpdateDataset: null dataset view");
@@ -1979,6 +1994,7 @@ extern "C" cuvsError_t cuvsCagraBuild(cuvsResources_t res,
     RAFT_EXPECTS(params != nullptr, "cuvsCagraBuild: null index params");
     RAFT_EXPECTS(index != nullptr, "cuvsCagraBuild: null index handle");
 
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto* res_ptr    = reinterpret_cast<raft::resources*>(res);
     auto const dtype = dataset->dtype;
 
@@ -2261,6 +2277,7 @@ extern "C" cuvsError_t cuvsCagraIndexParamsCreate(cuvsCagraIndexParams_t* params
 extern "C" cuvsError_t cuvsCagraIndexParamsDestroy(cuvsCagraIndexParams_t params)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (params == nullptr) { return; }
     // Delete graph_build_params based on the build algorithm type
     if (params->graph_build_params != nullptr) {
       switch (params->build_algo) {

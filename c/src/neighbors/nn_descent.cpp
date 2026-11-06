@@ -32,6 +32,7 @@ void* _build(cuvsResources_t res,
              DLManagedTensor* dataset_tensor,
              DLManagedTensor* graph_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto dataset = dataset_tensor->dl_tensor;
 
@@ -69,6 +70,7 @@ void _get_graph(cuvsResources_t res, cuvsNNDescentIndex_t index, DLManagedTensor
 {
   auto dtype = index->dtype;
   if ((dtype.code == kDLUInt) && (dtype.bits == 32)) {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto index_ptr = reinterpret_cast<cuvs::neighbors::nn_descent::index<uint32_t>*>(index->addr);
     auto dst       = cuvs::core::from_dlpack<output_mdspan_type>(graph);
     auto src       = index_ptr->graph();
@@ -97,6 +99,7 @@ void _get_distances(cuvsResources_t res, cuvsNNDescentIndex_t index, DLManagedTe
       RAFT_FAIL("nn-descent index doesn't contain distances - set return_distances when building");
     }
 
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
     auto dst     = cuvs::core::from_dlpack<output_mdspan_type>(distances);
 
@@ -123,6 +126,7 @@ extern "C" cuvsError_t cuvsNNDescentIndexCreate(cuvsNNDescentIndex_t* index)
 extern "C" cuvsError_t cuvsNNDescentIndexDestroy(cuvsNNDescentIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (index_c_ptr == nullptr) { return; }
     auto index = *index_c_ptr;
     if ((index.dtype.code == kDLUInt) && (index.dtype.bits == 32)) {
       auto index_ptr = reinterpret_cast<cuvs::neighbors::nn_descent::index<uint32_t>*>(index.addr);

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -39,12 +39,12 @@ void ivf_flat_build_search_simple(cuvsResources_t* res,
   CHECK_CUVS(cuvsRMMAlloc(*res, (void**)&neighbors_d, sizeof(int64_t) * n_queries * topk));
   CHECK_CUVS(cuvsRMMAlloc(*res, (void**)&distances_d, sizeof(float) * n_queries * topk));
 
-  DLManagedTensor neighbors_tensor;
-  int64_t neighbors_shape[2] = {n_queries, topk};
+  DLManagedTensor neighbors_tensor = {0};
+  int64_t neighbors_shape[2]       = {n_queries, topk};
   int_tensor_initialize(neighbors_d, neighbors_shape, &neighbors_tensor);
 
-  DLManagedTensor distances_tensor;
-  int64_t distances_shape[2] = {n_queries, topk};
+  DLManagedTensor distances_tensor = {0};
+  int64_t distances_shape[2]       = {n_queries, topk};
   float_tensor_initialize(distances_d, distances_shape, &distances_tensor);
 
   // Create default search params
@@ -91,8 +91,8 @@ void ivf_flat_build_extend_search(cuvsResources_t* res,
   int64_t* data_indices_d;
   int64_t n_dataset = dataset_tensor->dl_tensor.shape[0];
   CHECK_CUVS(cuvsRMMAlloc(*res, (void**)&data_indices_d, sizeof(int64_t) * n_dataset));
-  DLManagedTensor data_indices_tensor;
-  int64_t data_indices_shape[1] = {n_dataset};
+  DLManagedTensor data_indices_tensor = {0};
+  int64_t data_indices_shape[1]       = {n_dataset};
   int_tensor_initialize(data_indices_d, data_indices_shape, &data_indices_tensor);
   data_indices_tensor.dl_tensor.ndim = 1;
 
@@ -134,12 +134,12 @@ void ivf_flat_build_extend_search(cuvsResources_t* res,
   CHECK_CUVS(cuvsRMMAlloc(*res, (void**)&neighbors_d, sizeof(int64_t) * n_queries * topk));
   CHECK_CUVS(cuvsRMMAlloc(*res, (void**)&distances_d, sizeof(float) * n_queries * topk));
 
-  DLManagedTensor neighbors_tensor;
-  int64_t neighbors_shape[2] = {n_queries, topk};
+  DLManagedTensor neighbors_tensor = {0};
+  int64_t neighbors_shape[2]       = {n_queries, topk};
   int_tensor_initialize(neighbors_d, neighbors_shape, &neighbors_tensor);
 
-  DLManagedTensor distances_tensor;
-  int64_t distances_shape[2] = {n_queries, topk};
+  DLManagedTensor distances_tensor = {0};
+  int64_t distances_shape[2]       = {n_queries, topk};
   float_tensor_initialize(distances_d, distances_shape, &distances_tensor);
 
   // Create default search params
@@ -200,8 +200,8 @@ int main()
   // Use DLPack to represent `dataset_d` as a tensor
   CHECK_CUDA(cudaMemcpy(dataset_d, dataset, sizeof(float) * n_samples * n_dim, cudaMemcpyDefault));
 
-  DLManagedTensor dataset_tensor;
-  int64_t dataset_shape[2] = {n_samples, n_dim};
+  DLManagedTensor dataset_tensor = {0};
+  int64_t dataset_shape[2]       = {n_samples, n_dim};
   float_tensor_initialize(dataset_d, dataset_shape, &dataset_tensor);
 
   // Allocate memory for `queries`
@@ -211,8 +211,8 @@ int main()
   // Use DLPack to represent `queries` as tensors
   cudaMemcpy(queries_d, queries, sizeof(float) * n_queries * n_dim, cudaMemcpyDefault);
 
-  DLManagedTensor queries_tensor;
-  int64_t queries_shape[2] = {n_queries, n_dim};
+  DLManagedTensor queries_tensor = {0};
+  int64_t queries_shape[2]       = {n_queries, n_dim};
   float_tensor_initialize(queries_d, queries_shape, &queries_tensor);
 
   // Simple build and search example.
@@ -229,8 +229,8 @@ int main()
   CHECK_CUVS(cuvsRMMAlloc(res, (void**)&trainset_d, sizeof(float) * n_trainset * n_dim));
   CHECK_CUDA(
     cudaMemcpy(trainset_d, trainset, sizeof(float) * n_trainset * n_dim, cudaMemcpyDefault));
-  DLManagedTensor trainset_tensor;
-  int64_t trainset_shape[2] = {n_trainset, n_dim};
+  DLManagedTensor trainset_tensor = {0};
+  int64_t trainset_shape[2]       = {n_trainset, n_dim};
   float_tensor_initialize(trainset_d, trainset_shape, &trainset_tensor);
 
   // Build and extend example.
