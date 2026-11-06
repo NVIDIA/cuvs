@@ -192,7 +192,9 @@ void* _mg_build(cuvsResources_t res,
                 DLManagedTensor* dataset_tensor,
                 mg_cagra_dataset_layout layout)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
+  cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
   auto dataset = dataset_tensor->dl_tensor;
 
   auto mg_params = cuvs::neighbors::mg_index_params<cuvs::neighbors::cagra::index_params>();
@@ -221,6 +223,7 @@ void _mg_update_dataset(cuvsResources_t res,
                         cuvsDataset_t device_padded_dataset,
                         cuvsMultiGpuCagraIndex_t index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto* res_ptr = reinterpret_cast<raft::resources*>(res);
   auto* box     = require_mg_cagra_box(*index, "cuvsMultiGpuCagraUpdateDataset: null index handle");
   with_device_padded_dataset_view<T>(device_padded_dataset, [&](auto const& padded_view) {
@@ -253,6 +256,7 @@ void _mg_search(cuvsResources_t res,
                 DLManagedTensor* neighbors_tensor,
                 DLManagedTensor* distances_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   auto* box         = require_mg_cagra_box(index, "cuvsMultiGpuCagraSearch: null index handle");
 
@@ -280,6 +284,7 @@ void _mg_extend(cuvsResources_t res,
                 DLManagedTensor* new_vectors_tensor,
                 DLManagedTensor* new_indices_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   auto* box         = require_mg_cagra_box(index, "cuvsMultiGpuCagraExtend: null index handle");
 
@@ -310,6 +315,7 @@ void _mg_extend(cuvsResources_t res,
 template <typename T>
 void _mg_serialize(cuvsResources_t res, cuvsMultiGpuCagraIndex index, const char* filename)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   auto* box         = require_mg_cagra_box(index, "cuvsMultiGpuCagraSerialize: null index handle");
   with_mg_index_by_layout<T>(
@@ -321,6 +327,7 @@ void _mg_serialize(cuvsResources_t res, cuvsMultiGpuCagraIndex index, const char
 template <typename T>
 void* _mg_deserialize(cuvsResources_t res, const char* filename, mg_cagra_dataset_layout layout)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   if (layout == mg_cagra_dataset_layout::device_padded) {
     using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
@@ -337,6 +344,7 @@ void* _mg_deserialize(cuvsResources_t res, const char* filename, mg_cagra_datase
 template <typename T>
 void* _mg_distribute(cuvsResources_t res, const char* filename, mg_cagra_dataset_layout layout)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   if (layout == mg_cagra_dataset_layout::device_padded) {
     using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;

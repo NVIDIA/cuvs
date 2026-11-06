@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -54,11 +54,13 @@ namespace {
 template <typename T, typename IdxT>
 void* _build(cuvsResources_t res, cuvsIvfPqIndexParams params, DLManagedTensor* dataset_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   auto build_params = cuvs::neighbors::ivf_pq::index_params();
   convert_c_index_params(params, &build_params);
 
+  cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
   auto dataset = dataset_tensor->dl_tensor;
   auto dim     = dataset.shape[1];
 
@@ -85,6 +87,7 @@ void _search(cuvsResources_t res,
              DLManagedTensor* neighbors_tensor,
              DLManagedTensor* distances_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_pq::index<IdxT>*>(index.addr);
 
@@ -105,6 +108,7 @@ void _search(cuvsResources_t res,
 template <typename IdxT>
 void _serialize(cuvsResources_t res, const char* filename, cuvsIvfPqIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_pq::index<IdxT>*>(index.addr);
   cuvs::neighbors::ivf_pq::serialize(*res_ptr, std::string(filename), *index_ptr);
@@ -113,6 +117,7 @@ void _serialize(cuvsResources_t res, const char* filename, cuvsIvfPqIndex index)
 template <typename IdxT>
 void* _deserialize(cuvsResources_t res, const char* filename)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto index   = new cuvs::neighbors::ivf_pq::index<IdxT>(*res_ptr);
   cuvs::neighbors::ivf_pq::deserialize(*res_ptr, std::string(filename), index);
@@ -125,6 +130,7 @@ void _extend(cuvsResources_t res,
              DLManagedTensor* new_indices,
              cuvsIvfPqIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_pq::index<IdxT>*>(index.addr);
 
@@ -205,6 +211,7 @@ void _unpack_contiguous_list_data(cuvsResources_t res,
                                   uint32_t label,
                                   uint32_t offset)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto index_ptr    = reinterpret_cast<cuvs::neighbors::ivf_pq::index<IdxT>*>(index.addr);
   using mdspan_type = raft::device_matrix_view<uint8_t, uint32_t, raft::row_major>;
   auto mds          = cuvs::core::from_dlpack<mdspan_type>(out_codes);
@@ -238,6 +245,7 @@ void _transform(cuvsResources_t res,
              DLManagedTensor* output_labels,
              DLManagedTensor* output_dataset)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto index_ptr    = reinterpret_cast<cuvs::neighbors::ivf_pq::index<IdxT>*>(index.addr);
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
 
@@ -262,6 +270,7 @@ extern "C" cuvsError_t cuvsIvfPqIndexCreate(cuvsIvfPqIndex_t* index)
 extern "C" cuvsError_t cuvsIvfPqIndexDestroy(cuvsIvfPqIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (index_c_ptr == nullptr) { return; }
     auto index = *index_c_ptr;
 
     auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_pq::index<int64_t>*>(index.addr);
@@ -517,6 +526,7 @@ extern "C" cuvsError_t cuvsIvfPqBuildPrecomputed(cuvsResources_t res,
                                                   cuvsIvfPqIndex_t index)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
     auto build_params = cuvs::neighbors::ivf_pq::index_params();

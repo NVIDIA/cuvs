@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -18,7 +18,7 @@ void run_ivf_sq(cuvsResources_t res,
                 size_t n_probes,
                 size_t n_lists)
 {
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor = {0};
   dataset_tensor.dl_tensor.data               = index_data;
   dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -38,7 +38,7 @@ void run_ivf_sq(cuvsResources_t res,
   build_params->n_lists = n_lists;
   cuvsIvfSqBuild(res, build_params, &dataset_tensor, index);
 
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor = {0};
   queries_tensor.dl_tensor.data               = (void*)query_data;
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -49,7 +49,7 @@ void run_ivf_sq(cuvsResources_t res,
   queries_tensor.dl_tensor.shape              = queries_shape;
   queries_tensor.dl_tensor.strides            = NULL;
 
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor = {0};
   neighbors_tensor.dl_tensor.data               = (void*)neighbors_data;
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -60,7 +60,7 @@ void run_ivf_sq(cuvsResources_t res,
   neighbors_tensor.dl_tensor.shape              = neighbors_shape;
   neighbors_tensor.dl_tensor.strides            = NULL;
 
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor = {0};
   distances_tensor.dl_tensor.data               = (void*)distances_data;
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;

@@ -52,6 +52,7 @@ void _fit(cuvsResources_t res,
           DLManagedTensor* noise_vars_tensor,
           bool flip_signs_based_on_U)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr    = reinterpret_cast<raft::resources*>(res);
   auto cpp_params = to_cpp_params(params);
 
@@ -92,6 +93,7 @@ void _fit_transform(cuvsResources_t res,
                     DLManagedTensor* noise_vars_tensor,
                     bool flip_signs_based_on_U)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr    = reinterpret_cast<raft::resources*>(res);
   auto cpp_params = to_cpp_params(params);
 
@@ -130,6 +132,7 @@ void _transform(cuvsResources_t res,
                 DLManagedTensor* mu_tensor,
                 DLManagedTensor* trans_input_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr    = reinterpret_cast<raft::resources*>(res);
   auto cpp_params = to_cpp_params(params);
 
@@ -155,6 +158,7 @@ void _inverse_transform(cuvsResources_t res,
                         DLManagedTensor* mu_tensor,
                         DLManagedTensor* output_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr    = reinterpret_cast<raft::resources*>(res);
   auto cpp_params = to_cpp_params(params);
 

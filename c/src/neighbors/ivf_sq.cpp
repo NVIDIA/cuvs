@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -53,6 +53,7 @@ void _reset_index(cuvsIvfSqIndex_t index)
 template <typename T>
 void* _build(cuvsResources_t res, cuvsIvfSqIndexParams params, DLManagedTensor* dataset_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   auto build_params = cuvs::neighbors::ivf_sq::index_params();
@@ -80,6 +81,7 @@ void _search(cuvsResources_t res,
              DLManagedTensor* distances_tensor,
              cuvsFilter* filter)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_sq::index<uint8_t>*>(index.addr);
 
@@ -117,6 +119,7 @@ void _search(cuvsResources_t res,
 
 void _serialize(cuvsResources_t res, const char* filename, cuvsIvfSqIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_sq::index<uint8_t>*>(index.addr);
   cuvs::neighbors::ivf_sq::serialize(*res_ptr, std::string(filename), *index_ptr);
@@ -124,6 +127,7 @@ void _serialize(cuvsResources_t res, const char* filename, cuvsIvfSqIndex index)
 
 void* _deserialize(cuvsResources_t res, const char* filename)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto index   = new cuvs::neighbors::ivf_sq::index<uint8_t>(*res_ptr);
   cuvs::neighbors::ivf_sq::deserialize(*res_ptr, std::string(filename), index);
@@ -136,6 +140,7 @@ void _extend(cuvsResources_t res,
              DLManagedTensor* new_indices,
              cuvsIvfSqIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_sq::index<uint8_t>*>(index.addr);
 
@@ -181,6 +186,7 @@ extern "C" cuvsError_t cuvsIvfSqIndexCreate(cuvsIvfSqIndex_t* index)
 extern "C" cuvsError_t cuvsIvfSqIndexDestroy(cuvsIvfSqIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (index_c_ptr == nullptr) { return; }
     _reset_index(index_c_ptr);
     delete index_c_ptr;
   });

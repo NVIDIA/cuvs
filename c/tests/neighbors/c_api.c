@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -40,7 +40,7 @@ void test_compile_tiered_index()
   cuvsTieredIndexParams_t index_params;
   cuvsResources_t resources;
   cuvsFilter prefilter;
-  DLManagedTensor dataset, neighbors, distances;
+  DLManagedTensor dataset = {0}, neighbors = {0}, distances = {0};
   cuvsTieredIndexParamsCreate(&index_params);
   cuvsTieredIndexParamsDestroy(index_params);
   cuvsTieredIndexBuild(resources, index_params, &dataset, tiered_index);
@@ -65,7 +65,7 @@ void test_compile_all_neighbors()
 
   cuvsAllNeighborsIndexParams_t params;
   cuvsResources_t resources;
-  DLManagedTensor dataset, indices, distances, core_distances;
+  DLManagedTensor dataset = {0}, indices = {0}, distances = {0}, core_distances = {0};
   cuvsAllNeighborsIndexParamsCreate(&params);
   cuvsAllNeighborsIndexParamsDestroy(params);
   cuvsAllNeighborsBuild(resources, params, &dataset, &indices, &distances, &core_distances, 1.0f);

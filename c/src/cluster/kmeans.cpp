@@ -50,12 +50,14 @@ void _fit(cuvsResources_t res,
           double* inertia,
           int* n_iter)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto X       = X_tensor->dl_tensor;
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   if (!cuvs::core::is_dlpack_device_compatible(X)) {
-    auto n_samples  = static_cast<IdxT>(X.shape[0]);
-    auto n_features = static_cast<IdxT>(X.shape[1]);
+    auto X_view =
+      cuvs::core::from_dlpack<raft::host_matrix_view<T const, IdxT, raft::row_major>>(X_tensor);
+    auto n_samples = X_view.extent(0);
 
     if (params.hierarchical) {
       RAFT_FAIL("hierarchical kmeans is not supported with host data");
@@ -66,8 +68,6 @@ void _fit(cuvsResources_t res,
       RAFT_FAIL("centroids must be on device memory");
     }
 
-    auto X_view = raft::make_host_matrix_view<T const, IdxT>(
-      reinterpret_cast<T const*>(X.data), n_samples, n_features);
     auto centroids_view =
       cuvs::core::from_dlpack<raft::device_matrix_view<T, IdxT, raft::row_major>>(
         centroids_tensor);
@@ -78,8 +78,11 @@ void _fit(cuvsResources_t res,
       if (!cuvs::core::is_dlpack_host_compatible(sw)) {
         RAFT_FAIL("sample_weight must be host accessible when X is on host");
       }
-      sample_weight = raft::make_host_vector_view<T const, IdxT>(
-        reinterpret_cast<T const*>(sw.data), n_samples);
+      auto sw_view =
+        cuvs::core::from_dlpack<raft::host_vector_view<T const, IdxT>>(sample_weight_tensor);
+      RAFT_EXPECTS(sw_view.extent(0) == n_samples,
+                   "sample_weight length must equal the number of rows of X");
+      sample_weight = sw_view;
     }
 
     T inertia_temp;
@@ -150,6 +153,7 @@ void _predict(cuvsResources_t res,
               bool normalize_weight,
               double* inertia)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto X       = X_tensor->dl_tensor;
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
@@ -202,6 +206,7 @@ void _cluster_cost(cuvsResources_t res,
                    DLManagedTensor* centroids_tensor,
                    double* cost)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto X       = X_tensor->dl_tensor;
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
