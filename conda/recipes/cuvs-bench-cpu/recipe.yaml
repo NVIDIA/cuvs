@@ -9,7 +9,6 @@ context:
   linux64: ${{ linux and x86_64 }}
   py_abi_min: ${{ env.get("RAPIDS_PY_VERSION") }}
   py_buildstring: ${{ py_abi_min | version_to_buildstring }}
-  py_runtime_latest: "3.14"
 
 package:
   name: cuvs-bench-cpu
@@ -117,19 +116,6 @@ requirements:
       - libboost
       - libcublas
       - mkl  # relaxes pin from host `mkl-devel`
-
-
-tests:
-  - python:
-      imports:
-        - cuvs_bench
-        - cuvs_bench.generate_groundtruth
-        - cuvs_bench.get_dataset
-        - cuvs_bench.plot
-        - cuvs_bench.run
-        - cuvs_bench.split_groundtruth
-      python_version: ${{ py_runtime_latest }}.*
-      pip_check: false
 
 about:
   homepage: ${{ load_from_file("python/cuvs_bench/pyproject.toml").project.urls.Homepage }}

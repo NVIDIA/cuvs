@@ -20,6 +20,7 @@ jobs:
       - conda-cpp-tests
       - conda-cpp-checks
       - conda-python-build
+      - conda-python-import-tests
       - conda-python-tests
       - rocky8-clib-standalone-build
       - rocky8-clib-tests
@@ -170,6 +171,7 @@ jobs:
           - '!ci/run_cuvs_pytests.sh'
           - '!ci/test_cpp.sh'
           - '!ci/test_python.sh'
+          - '!ci/test_python_imports.sh'
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!conda/environments/**'
@@ -285,6 +287,7 @@ jobs:
           - '!ci/test_java.sh'
           - '!ci/test_lucene.sh'
           - '!ci/test_python.sh'
+          - '!ci/test_python_imports.sh'
           - '!ci/test_standalone_c.sh'
           - '!ci/validate_wheel.sh'
           - '!CODEOWNERS'
@@ -345,6 +348,7 @@ jobs:
           - '!ci/test_java.sh'
           - '!ci/test_lucene.sh'
           - '!ci/test_python.sh'
+          - '!ci/test_python_imports.sh'
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
           - '!docs/**'
@@ -398,6 +402,7 @@ jobs:
           - '!ci/test_java.sh'
           - '!ci/test_lucene.sh'
           - '!ci/test_python.sh'
+          - '!ci/test_python_imports.sh'
           - '!ci/test_standalone_c.sh'
           - '!ci/test_wheel_cuvs.sh'
           - '!ci/validate_wheel.sh'
@@ -549,6 +554,26 @@ jobs:
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
       matrix_type: pull-request
+  conda-python-import-tests:
+    # Installs the built Python packages with only their runtime dependencies and imports them on a
+    # CPU-only runner. This used to run as recipe tests inside conda-python-build; running it here
+    # keeps it off the critical path of the GPU test jobs.
+    needs: [conda-python-build, changed-files]
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      packages: read
+      pull-requests: read
+    secrets: inherit # zizmor: ignore[secrets-inherit]
+    uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
+    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
+    with:
+      build_type: pull-request
+      node_type: cpu8
+      arch: "amd64"
+      container_image: "rapidsai/ci-conda:26.12-latest"
+      script: "ci/test_python_imports.sh"
   conda-python-tests:
     needs: [conda-python-build, changed-files]
     permissions:
