@@ -644,12 +644,12 @@ struct gpu_time_keeper {
   {
     if (timeout) { return false; }
     update_local_remaining_time();
-    if (local_remaining_time_us_ <= 0) {
+    if (local_remaining_time_ns_ <= 0) {
       timeout = true;
       return false;
     }
     update_cpu_provided_remaining_time();
-    if (local_remaining_time_us_ <= 0) {
+    if (local_remaining_time_ns_ <= 0) {
       timeout = true;
       return false;
     }
@@ -659,7 +659,7 @@ struct gpu_time_keeper {
  private:
   cuda::atomic<int32_t, cuda::thread_scope_system>* cpu_provided_remaining_time_us_;
   uint64_t timestamp_ns_           = 0;
-  int32_t local_remaining_time_us_ = std::numeric_limits<int32_t>::max();
+  int64_t local_remaining_time_ns_ = std::numeric_limits<int64_t>::max();
   bool timeout                     = false;
 
   RAFT_DEVICE_INLINE_FUNCTION void update_timestamp() noexcept
@@ -673,14 +673,14 @@ struct gpu_time_keeper {
     update_timestamp();
     // subtract the time passed since the last check
     // (assuming local time is updated every time timestamp is read)
-    local_remaining_time_us_ -= static_cast<int32_t>((timestamp_ns_ - prev_timestamp) / 1000ull);
+    local_remaining_time_ns_ -= static_cast<int64_t>(timestamp_ns_ - prev_timestamp);
   }
 
   RAFT_DEVICE_INLINE_FUNCTION void update_cpu_provided_remaining_time() noexcept
   {
-    local_remaining_time_us_ =
-      std::min<int32_t>(local_remaining_time_us_,
-                        cpu_provided_remaining_time_us_->load(cuda::std::memory_order_relaxed));
+    auto cpu_us = cpu_provided_remaining_time_us_->load(cuda::std::memory_order_relaxed);
+    local_remaining_time_ns_ =
+      std::min<int64_t>(local_remaining_time_ns_, static_cast<int64_t>(cpu_us) * 1000);
   }
 };
 
