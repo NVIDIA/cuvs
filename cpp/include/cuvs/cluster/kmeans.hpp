@@ -4,6 +4,7 @@
  */
 #pragma once
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/cagra.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
@@ -166,6 +167,48 @@ struct params : base_params {
    * count. This is ignored by device-data overloads.
    */
   int64_t device_buffer_samples = 0;
+
+  /**
+   * Use approximate nearest neighbor search (a CAGRA index built over the centroids) instead of
+   * brute force for the nearest-centroid assignment (E-step) of `fit` and `predict`.
+   *
+   * ANN assignment only pays off when `n_clusters` is very large: for small `n_clusters` it is
+   * slower than brute force. There is no automatic threshold, so benchmark on your own data and
+   * hardware.
+   *
+   * In `fit` the ANN index is rebuilt over the current centroids on EVERY Lloyd iteration (the
+   * centroids move each iteration, so the index is never reused), and each point is assigned its
+   * approximate nearest centroid (top-1) from that fresh index. The CAGRA build and search
+   * settings come from `ann_index_params` and `ann_search_params`; a larger `itopk_size` is more
+   * accurate and slower.
+   *
+   * Only `float` data with the L2Expanded or L2SqrtExpanded metric and a number of features that
+   * is a multiple of 4 (CAGRA row alignment, the centroids are indexed in place and not copied) is
+   * supported; other combinations log a warning and use brute force. Ignored by the multi-GPU
+   * `fit`. The reported inertia of `fit` is always computed exactly.
+   *
+   * Default: false.
+   */
+  bool use_ann_for_assignment = false;
+
+  /**
+   * CAGRA index (build) parameters of the centroid index, used as given. Only used when
+   * `use_ann_for_assignment` is true.
+   *
+   * ACE graph build params (`graph_build_params` holding `ace_params`) are not supported for the
+   * centroid index: they log a warning and brute force is used.
+   *
+   * The following are always overridden, since the feature relies on them: `metric` is set to
+   * L2Expanded, `attach_dataset_on_build` to true, and `graph_degree` and
+   * `intermediate_graph_degree` are clamped to `n_clusters - 1`.
+   */
+  cuvs::neighbors::cagra::index_params ann_index_params;
+
+  /**
+   * CAGRA search parameters used to find each point's nearest centroid, used as given. Only used
+   * when `use_ann_for_assignment` is true.
+   */
+  cuvs::neighbors::cagra::search_params ann_search_params;
 };
 
 /**
@@ -236,11 +279,6 @@ struct balanced_params : base_params {
    */
   bool is_packed_binary = false;
 };
-
-/**
- * @brief Type of k-means algorithm.
- */
-enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
 
 /**
  * @}
