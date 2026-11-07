@@ -435,7 +435,7 @@ DatasetViewT dataset() const noexcept;
 
 **Additional overload:** `neighbors::brute_force::index::norms`
 
-Squared code norms for L2, normalized reconstructed vector norms for cosine, or empty for inner product.
+L2 squared code norms or normalized cosine norms; empty for inner product.
 
 ```cpp
 raft::device_vector_view<const double, int64_t> norms() const;

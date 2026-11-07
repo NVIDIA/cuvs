@@ -59,8 +59,9 @@ sq_affine_parameters get_sq_affine_parameters(
   RAFT_EXPECTS(global != nullptr, "INT8 brute-force search requires a global scalar quantizer");
   auto const op = cuvs::preprocessing::quantize::scalar::detail::quantize_op<T, int8_t>{*global};
   sq_affine_parameters affine{op.scale, op.shift};
-  if (metric == cuvs::distance::DistanceType::CosineExpanded) {
-    // Cosine is invariant to a shared positive scale. Keep its norms and dot products finite.
+  if (metric == cuvs::distance::DistanceType::CosineExpanded ||
+      metric == cuvs::distance::DistanceType::InnerProduct) {
+    // Keep intermediate dot products finite; inner product restores this scale afterward.
     auto const magnitude = std::max(affine.scale, std::abs(affine.shift));
     if (magnitude > 0.0) { affine.normalization = magnitude; }
   }
@@ -131,17 +132,17 @@ RAFT_KERNEL int8_postprocess_kernel(std::int32_t const* scores,
       case cuvs::distance::DistanceType::CosineExpanded: {
         // Center at the code nearest decoded zero. Integer terms stay exact in double,
         // avoiding cancellation of the large affine terms for tiny reconstructed vectors.
-        auto const zero = affine.scale > 0.0
-                            ? fmin(fmax(round(-affine.shift / affine.scale), -128.0), 127.0)
-                            : 0.0;
-        auto const shift = fma(affine.scale, zero, affine.shift) / affine.normalization;
-        auto const sum = query_corrections[query] + dataset_corrections[row];
+        auto const zero =
+          affine.scale > 0.0 ? fmin(fmax(round(-affine.shift / affine.scale), -128.0), 127.0) : 0.0;
+        auto const shift        = fma(affine.scale, zero, affine.shift) / affine.normalization;
+        auto const sum          = query_corrections[query] + dataset_corrections[row];
         auto const centered_dot = dot - zero * sum + dim * zero * zero;
         auto const centered_sum = sum - 2.0 * dim * zero;
         auto const corrected_dot =
           scale * (scale * centered_dot) + shift * (scale * centered_sum + dim * shift);
         if (metric == cuvs::distance::DistanceType::InnerProduct) {
-          row_output[row] = static_cast<float>(corrected_dot);
+          row_output[row] =
+            static_cast<float>(affine.normalization * (affine.normalization * corrected_dot));
         } else {
           auto const denominator = query_norms[query] * dataset_norms[row];
           row_output[row] =
