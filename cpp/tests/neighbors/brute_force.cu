@@ -5,11 +5,13 @@
 
 #include "../test_utils.cuh"
 #include "./knn_utils.cuh"
+#include <cuvs/core/dataset/sq.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/brute_force.hpp>
 #include <cuvs/selection/select_k.hpp>
 
 #include <cuvs/neighbors/brute_force.hpp>
+#include <raft/core/copy.cuh>
 #include <raft/core/host_mdarray.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/transpose.cuh>
@@ -19,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 namespace cuvs::neighbors::brute_force {
@@ -649,5 +652,571 @@ INSTANTIATE_TEST_CASE_P(RandomBruteForceKNNTest,
 INSTANTIATE_TEST_CASE_P(RandomBruteForceKNNTest,
                         RandomBruteForceKNNTestH,
                         ::testing::ValuesIn(random_inputs));
+
+struct SQBruteForceInputs {
+  cuvs::distance::DistanceType metric;
+  cuvs::preprocessing::quantize::scalar::quantization_mode range;
+};
+
+template <typename T>
+class SQBruteForceTest : public ::testing::TestWithParam<SQBruteForceInputs> {
+ protected:
+  void testSearch()
+  {
+    namespace scalar  = cuvs::preprocessing::quantize::scalar;
+    auto const params = this->GetParam();
+    raft::resources res;
+    auto const stream           = raft::resource::get_cuda_stream(res);
+    constexpr int64_t n_rows    = 4;
+    constexpr int64_t n_queries = 2;
+    constexpr int64_t dim       = 4;
+    constexpr int64_t k         = 3;
+    std::vector<T> const host_dataset{
+      -300, 10, -16, 60, 208, 18, 12, 140, -100, 24, 20, 200, 44, 30, 4, 100};
+    // Queries outside the corpus bounds must use the corpus quantizer.
+    std::vector<T> const host_queries{-320, 12, -20, 74, 250, 4, 10, 240};
+    auto dataset = raft::make_device_matrix<T, int64_t>(res, n_rows, dim);
+    auto queries = raft::make_device_matrix<T, int64_t>(res, n_queries, dim);
+    raft::update_device(
+      dataset.data_handle(), host_dataset.data(), host_dataset.size(), stream.get());
+    raft::update_device(
+      queries.data_handle(), host_queries.data(), host_queries.size(), stream.get());
+
+    auto sq = scalar::make_sq_dataset(res,
+                                      scalar::params{.quantile = 1.0f, .range = params.range},
+                                      raft::make_const_mdspan(dataset.view()));
+    index_params index_params;
+    index_params.metric = params.metric;
+    if (params.range == scalar::quantization_mode::PER_DIMENSION) {
+      EXPECT_THROW(build(res, index_params, sq.view()), raft::logic_error);
+      return;
+    }
+    auto index     = build(res, index_params, sq.view());
+    auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, n_queries, k);
+    auto distances = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
+    search(res,
+           search_params{},
+           index,
+           raft::make_const_mdspan(queries.view()),
+           neighbors.view(),
+           distances.view());
+
+    auto query_codes = raft::make_device_matrix<int8_t, int64_t>(res, n_queries, dim);
+    // Match the affine reconstruction used by search without rounding it back to the input type.
+    auto const global = std::get<typename scalar::quantizer_view<const T>::global_type>(
+      sq.const_manifest_view().value);
+    scalar::quantizer<T> query_quantizer{global.min, global.max};
+    scalar::quantizer<double> decode_quantizer{static_cast<double>(global.min),
+                                               static_cast<double>(global.max)};
+    auto decoded_dataset = raft::make_device_matrix<double, int64_t>(res, n_rows, dim);
+    auto decoded_queries = raft::make_device_matrix<double, int64_t>(res, n_queries, dim);
+    scalar::transform(
+      res, query_quantizer, raft::make_const_mdspan(queries.view()), query_codes.view());
+    scalar::inverse_transform(res, decode_quantizer, sq.data_const_view(), decoded_dataset.view());
+    scalar::inverse_transform(
+      res, decode_quantizer, raft::make_const_mdspan(query_codes.view()), decoded_queries.view());
+    std::vector<double> corpus(n_rows * dim);
+    std::vector<double> query_values(n_queries * dim);
+    std::vector<int64_t> actual_neighbors(n_queries * k);
+    std::vector<float> actual_distances(n_queries * k);
+    raft::update_host(corpus.data(), decoded_dataset.data_handle(), corpus.size(), stream.get());
+    raft::update_host(
+      query_values.data(), decoded_queries.data_handle(), query_values.size(), stream.get());
+    raft::update_host(
+      actual_neighbors.data(), neighbors.data_handle(), actual_neighbors.size(), stream.get());
+    raft::update_host(
+      actual_distances.data(), distances.data_handle(), actual_distances.size(), stream.get());
+    raft::resource::sync_stream(res);
+
+    using cuvs::distance::DistanceType;
+    for (int64_t query = 0; query < n_queries; ++query) {
+      SCOPED_TRACE(query);
+      std::vector<std::pair<double, int64_t>> expected;
+      for (int64_t row = 0; row < n_rows; ++row) {
+        double dot{}, query_norm{}, dataset_norm{}, squared_distance{};
+        for (int64_t j = 0; j < dim; ++j) {
+          double const x = static_cast<double>(corpus[row * dim + j]);
+          double const y = static_cast<double>(query_values[query * dim + j]);
+          dot += x * y;
+          query_norm += y * y;
+          dataset_norm += x * x;
+          squared_distance += (x - y) * (x - y);
+        }
+        double distance = squared_distance;
+        if (params.metric == DistanceType::InnerProduct) {
+          distance = dot;
+        } else if (params.metric == DistanceType::CosineExpanded) {
+          auto const denominator = std::sqrt(query_norm * dataset_norm);
+          distance               = denominator > 0.0 ? 1.0 - dot / denominator : 1.0;
+        } else if (params.metric == DistanceType::L2SqrtExpanded ||
+                   params.metric == DistanceType::L2SqrtUnexpanded) {
+          distance = std::sqrt(distance);
+        }
+        expected.emplace_back(distance, row);
+      }
+      std::sort(expected.begin(), expected.end(), [params](auto const& a, auto const& b) {
+        return params.metric == DistanceType::InnerProduct ? a.first > b.first : a.first < b.first;
+      });
+      for (int64_t i = 0; i < k; ++i) {
+        EXPECT_EQ(actual_neighbors[query * k + i], expected[i].second);
+        EXPECT_NEAR(actual_distances[query * k + i],
+                    expected[i].first,
+                    std::max(1e-5, std::abs(expected[i].first) * 1e-5));
+      }
+    }
+  }
+};
+
+using SQBruteForceTestF = SQBruteForceTest<float>;
+using SQBruteForceTestH = SQBruteForceTest<half>;
+using SQBruteForceTestD = SQBruteForceTest<double>;
+TEST_P(SQBruteForceTestF, SupportedMetrics) { this->testSearch(); }
+TEST_P(SQBruteForceTestH, SupportedMetrics) { this->testSearch(); }
+TEST_P(SQBruteForceTestD, SupportedMetrics) { this->testSearch(); }
+
+TEST(BruteForceSQ, SearchShapeValidation)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  raft::resources res;
+  auto const stream = raft::resource::get_cuda_stream(res);
+  index_params index_params;
+  index_params.metric = cuvs::distance::DistanceType::L2Unexpanded;
+
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 1, 1);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, 1, 1);
+  auto codes     = raft::make_device_matrix<int8_t, int64_t>(res, 512, 4);
+  raft::matrix::fill(res, codes.view(), int8_t{0});
+  cuvs::device_sq_dataset<float, int64_t, float> sq{std::move(codes),
+                                                    scalar::quantizer<float>{-128.0f, 127.0f}};
+  auto index           = build(res, index_params, sq.view());
+  auto empty_queries   = raft::make_device_matrix<float, int64_t>(res, 0, 4);
+  auto empty_neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 0, 1);
+  auto empty_distances = raft::make_device_matrix<float, int64_t>(res, 0, 1);
+
+  for (int64_t dim : {int64_t{0}, int64_t{131072}, int64_t{33026}}) {
+    auto invalid_codes = raft::make_device_matrix<int8_t, int64_t>(res, 1, dim);
+    cuvs::device_sq_dataset<float, int64_t, float> invalid_sq{
+      std::move(invalid_codes), scalar::quantizer<float>{-128.0f, 127.0f}};
+    EXPECT_THROW(build(res, index_params, invalid_sq.view()), raft::logic_error);
+  }
+  EXPECT_NO_THROW(search(res,
+                         search_params{},
+                         index,
+                         raft::make_const_mdspan(empty_queries.view()),
+                         empty_neighbors.view(),
+                         empty_distances.view()));
+
+  // Aligned dimensions up to the INT32 dot-product limit are valid.
+  for (int64_t dim : {int64_t{33028}, int64_t{131068}}) {
+    auto valid_codes = raft::make_device_matrix<int8_t, int64_t>(res, 1, dim);
+    auto queries     = raft::make_device_matrix<float, int64_t>(res, 1, dim);
+    raft::matrix::fill(res, valid_codes.view(), int8_t{0});
+    raft::matrix::fill(res, queries.view(), 0.0f);
+    cuvs::device_sq_dataset<float, int64_t, float> valid_sq{
+      std::move(valid_codes), scalar::quantizer<float>{-128.0f, 127.0f}};
+    auto valid_index = build(res, index_params, valid_sq.view());
+    search(res,
+           search_params{},
+           valid_index,
+           raft::make_const_mdspan(queries.view()),
+           neighbors.view(),
+           distances.view());
+    int64_t actual_neighbor;
+    float actual_distance;
+    raft::update_host(&actual_neighbor, neighbors.data_handle(), 1, stream.get());
+    raft::update_host(&actual_distance, distances.data_handle(), 1, stream.get());
+    raft::resource::sync_stream(res);
+    EXPECT_EQ(actual_neighbor, 0);
+    EXPECT_FLOAT_EQ(actual_distance, 0.0f);
+  }
+}
+
+TEST(BruteForceSQ, TopKAndAlignment)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  raft::resources res;
+  auto const stream = raft::resource::get_cuda_stream(res);
+  index_params index_params;
+  index_params.metric      = cuvs::distance::DistanceType::L2Unexpanded;
+  constexpr int64_t n_rows = 65;
+
+  for (int64_t dim : {int64_t{3}, int64_t{4}}) {
+    std::vector<int8_t> host_codes(n_rows * dim, 0);
+    for (int64_t row = 0; row < n_rows; ++row) {
+      host_codes[row * dim] = static_cast<int8_t>(row);
+    }
+    auto codes = raft::make_device_matrix<int8_t, int64_t>(res, n_rows, dim);
+    raft::update_device(codes.data_handle(), host_codes.data(), host_codes.size(), stream.get());
+    cuvs::device_sq_dataset<float, int64_t, float> sq{std::move(codes),
+                                                      scalar::quantizer<float>{-128.0f, 127.0f}};
+    if (dim == 3) {
+      EXPECT_THROW(build(res, index_params, sq.view()), raft::logic_error);
+      continue;
+    }
+    auto index   = build(res, index_params, sq.view());
+    auto queries = raft::make_device_matrix<float, int64_t>(res, 1, dim);
+    raft::matrix::fill(res, queries.view(), 0.0f);
+
+    for (int64_t k : {int64_t{64}, int64_t{65}}) {
+      auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 1, k);
+      auto distances = raft::make_device_matrix<float, int64_t>(res, 1, k);
+      search(res,
+             search_params{},
+             index,
+             raft::make_const_mdspan(queries.view()),
+             neighbors.view(),
+             distances.view());
+
+      std::vector<int64_t> actual_neighbors(k);
+      std::vector<float> actual_distances(k);
+      raft::update_host(
+        actual_neighbors.data(), neighbors.data_handle(), actual_neighbors.size(), stream.get());
+      raft::update_host(
+        actual_distances.data(), distances.data_handle(), actual_distances.size(), stream.get());
+      raft::resource::sync_stream(res);
+      for (int64_t i = 0; i < k; ++i) {
+        EXPECT_EQ(actual_neighbors[i], i);
+        EXPECT_FLOAT_EQ(actual_distances[i], static_cast<float>(i * i));
+      }
+    }
+  }
+}
+
+TEST(BruteForceSQ, TiledCandidates)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  raft::resources res;
+  auto const stream           = raft::resource::get_cuda_stream(res);
+  constexpr int64_t n_queries = 1025;
+  constexpr int64_t dim       = 4;
+  constexpr int64_t k         = 3;
+  index_params index_params;
+  index_params.metric = cuvs::distance::DistanceType::L2Unexpanded;
+
+  std::vector<float> host_queries(n_queries * dim, 0.0f);
+  host_queries[(n_queries - 1) * dim] = 4.0f;
+  auto queries   = raft::make_device_matrix<float, int64_t>(res, n_queries, dim);
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, n_queries, k);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, n_queries, k);
+  raft::update_device(
+    queries.data_handle(), host_queries.data(), host_queries.size(), stream.get());
+
+  // Cross a query-tile boundary with both one and multiple dataset tiles.
+  for (int64_t n_rows : {int64_t{65}, int64_t{131073}}) {
+    SCOPED_TRACE(n_rows);
+    std::vector<int8_t> host_codes(n_rows * dim, 127);
+    for (int64_t row : {int64_t{0}, int64_t{5}, n_rows - 1}) {
+      std::fill_n(host_codes.begin() + row * dim, dim, int8_t{0});
+    }
+    host_codes[0]                  = 2;
+    host_codes[5 * dim]            = 3;
+    host_codes[(n_rows - 1) * dim] = 1;
+    auto codes                     = raft::make_device_matrix<int8_t, int64_t>(res, n_rows, dim);
+    raft::update_device(codes.data_handle(), host_codes.data(), host_codes.size(), stream.get());
+    cuvs::device_sq_dataset<float, int64_t, float> sq{std::move(codes),
+                                                      scalar::quantizer<float>{-128.0f, 127.0f}};
+    auto index = build(res, index_params, sq.view());
+    search(res,
+           search_params{},
+           index,
+           raft::make_const_mdspan(queries.view()),
+           neighbors.view(),
+           distances.view());
+
+    std::vector<int64_t> actual_neighbors(n_queries * k);
+    std::vector<float> actual_distances(n_queries * k);
+    raft::update_host(
+      actual_neighbors.data(), neighbors.data_handle(), actual_neighbors.size(), stream.get());
+    raft::update_host(
+      actual_distances.data(), distances.data_handle(), actual_distances.size(), stream.get());
+    raft::resource::sync_stream(res);
+    for (int64_t query = 0; query < n_queries; ++query) {
+      bool const last_query = query == n_queries - 1;
+      EXPECT_EQ(actual_neighbors[query * k], last_query ? 5 : n_rows - 1);
+      EXPECT_EQ(actual_neighbors[query * k + 1], 0);
+      EXPECT_EQ(actual_neighbors[query * k + 2], last_query ? n_rows - 1 : 5);
+      for (int64_t i = 0; i < k; ++i) {
+        EXPECT_FLOAT_EQ(actual_distances[query * k + i], static_cast<float>((i + 1) * (i + 1)));
+      }
+    }
+  }
+}
+
+TEST(BruteForceSQ, CosineNearZero)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  raft::resources res;
+  auto const stream = raft::resource::get_cuda_stream(res);
+  std::vector<int8_t> const host_codes{-128, -128, -128, -128, 127, 127, 127, -128};
+  auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 2, 4);
+  raft::update_device(codes.data_handle(), host_codes.data(), host_codes.size(), stream.get());
+  cuvs::device_sq_dataset<float, int64_t, float> sq{std::move(codes),
+                                                    scalar::quantizer<float>{1e-4f, 1.0f}};
+  index_params params;
+  params.metric = cuvs::distance::DistanceType::CosineExpanded;
+  auto index    = build(res, params, sq.view());
+  auto queries  = raft::make_device_matrix<float, int64_t>(res, 1, 4);
+  raft::matrix::fill(res, queries.view(), 1e-4f);
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 1, 1);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, 1, 1);
+  search(res,
+         search_params{},
+         index,
+         raft::make_const_mdspan(queries.view()),
+         neighbors.view(),
+         distances.view());
+
+  int64_t actual_neighbor;
+  float actual_distance;
+  raft::update_host(&actual_neighbor, neighbors.data_handle(), 1, stream.get());
+  raft::update_host(&actual_distance, distances.data_handle(), 1, stream.get());
+  raft::resource::sync_stream(res);
+  EXPECT_EQ(actual_neighbor, 0);
+  EXPECT_NEAR(actual_distance, 0.0f, 1e-5f);
+}
+
+TEST(BruteForceSQ, NearZeroDouble)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  for (auto metric :
+       {cuvs::distance::DistanceType::CosineExpanded, cuvs::distance::DistanceType::InnerProduct}) {
+    SCOPED_TRACE(static_cast<int>(metric));
+    raft::resources res;
+    auto stream          = raft::resource::get_cuda_stream(res);
+    double const epsilon = std::ldexp(1.0, -40);
+    std::vector<int8_t> const host_codes{-128, -128, -128, -128, -127, -128, -128, -128};
+    auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 2, 4);
+    raft::update_device(codes.data_handle(), host_codes.data(), host_codes.size(), stream.get());
+    cuvs::device_sq_dataset<double, int64_t, double> sq{
+      std::move(codes), scalar::quantizer<double>{epsilon, 255 + epsilon}};
+    index_params params;
+    params.metric = metric;
+    auto index    = build(res, params, sq.view());
+    auto queries  = raft::make_device_matrix<double, int64_t>(res, 1, 4);
+    raft::matrix::fill(res, queries.view(), epsilon);
+    auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 1, 1);
+    auto distances = raft::make_device_matrix<float, int64_t>(res, 1, 1);
+    search(res,
+           search_params{},
+           index,
+           raft::make_const_mdspan(queries.view()),
+           neighbors.view(),
+           distances.view());
+    int64_t actual_neighbor;
+    float actual_distance;
+    raft::update_host(&actual_neighbor, neighbors.data_handle(), 1, stream.get());
+    raft::update_host(&actual_distance, distances.data_handle(), 1, stream.get());
+    raft::resource::sync_stream(res);
+    if (metric == cuvs::distance::DistanceType::InnerProduct) {
+      EXPECT_EQ(actual_neighbor, 1);
+      EXPECT_FLOAT_EQ(actual_distance, static_cast<float>(epsilon + 4 * epsilon * epsilon));
+    } else {
+      EXPECT_EQ(actual_neighbor, 0);
+      EXPECT_NEAR(actual_distance, 0.0f, 1e-6f);
+    }
+  }
+}
+
+TEST(BruteForceSQ, CosineZeroQuery)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  raft::resources res;
+  auto stream = raft::resource::get_cuda_stream(res);
+  std::vector<float> const values{-1, -1, -1, -1, 2, 2, 2, 2, 254, 254, 254, 254};
+  auto dataset = raft::make_device_matrix<float, int64_t>(res, 3, 4);
+  raft::update_device(dataset.data_handle(), values.data(), values.size(), stream.get());
+  auto sq = scalar::make_sq_dataset(
+    res, scalar::params{.quantile = 1.0f}, raft::make_const_mdspan(dataset.view()));
+  index_params params;
+  params.metric = cuvs::distance::DistanceType::CosineExpanded;
+  auto index    = build(res, params, sq.view());
+  auto queries  = raft::make_device_matrix<float, int64_t>(res, 1, 4);
+  raft::matrix::fill(res, queries.view(), 0.0f);
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 1, 3);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, 1, 3);
+  search(res,
+         search_params{},
+         index,
+         raft::make_const_mdspan(queries.view()),
+         neighbors.view(),
+         distances.view());
+  std::vector<float> actual(3);
+  raft::update_host(actual.data(), distances.data_handle(), actual.size(), stream.get());
+  raft::resource::sync_stream(res);
+  EXPECT_EQ(actual, (std::vector<float>{1, 1, 1}));
+}
+
+TEST(BruteForceSQ, CosineExtremeDoubleMagnitudes)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  raft::resources res;
+  auto stream = raft::resource::get_cuda_stream(res);
+  std::vector<int8_t> const host_codes{1, 0, 0, 0, 0, 1, 0, 0};
+  for (double magnitude : {std::ldexp(1.0, -665), std::ldexp(1.0, 665)}) {
+    SCOPED_TRACE(magnitude);
+    auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 2, 4);
+    raft::update_device(codes.data_handle(), host_codes.data(), host_codes.size(), stream.get());
+    scalar::quantizer<double> quantizer{-128 * magnitude, 127 * magnitude};
+    cuvs::device_sq_dataset<double, int64_t, double> sq{std::move(codes), std::move(quantizer)};
+    index_params params;
+    params.metric = cuvs::distance::DistanceType::CosineExpanded;
+    auto index    = build(res, params, sq.view());
+    std::vector<double> const host_queries{magnitude, 0, 0, 0, 0, magnitude, 0, 0};
+    auto queries = raft::make_device_matrix<double, int64_t>(res, 2, 4);
+    raft::update_device(
+      queries.data_handle(), host_queries.data(), host_queries.size(), stream.get());
+    auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 2, 2);
+    auto distances = raft::make_device_matrix<float, int64_t>(res, 2, 2);
+    search(res,
+           search_params{},
+           index,
+           raft::make_const_mdspan(queries.view()),
+           neighbors.view(),
+           distances.view());
+    std::vector<int64_t> actual_neighbors(4);
+    std::vector<float> actual_distances(4);
+    raft::update_host(actual_neighbors.data(), neighbors.data_handle(), 4, stream.get());
+    raft::update_host(actual_distances.data(), distances.data_handle(), 4, stream.get());
+    raft::resource::sync_stream(res);
+    EXPECT_EQ(actual_neighbors, (std::vector<int64_t>{0, 1, 1, 0}));
+    EXPECT_EQ(actual_distances, (std::vector<float>{0, 1, 0, 1}));
+  }
+}
+
+TEST(BruteForceSQ, InnerProductExtremeDoubleMagnitudes)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  raft::resources res;
+  auto stream = raft::resource::get_cuda_stream(res);
+  std::vector<int8_t> const host_codes{127, 127, 127, 127, -128, -128, -128, -128};
+  auto codes = raft::make_device_matrix<int8_t, int64_t>(res, 2, 4);
+  raft::update_device(codes.data_handle(), host_codes.data(), host_codes.size(), stream.get());
+  cuvs::device_sq_dataset<double, int64_t, double> sq{std::move(codes),
+                                                      scalar::quantizer<double>{-1e308, 1e308}};
+  index_params params;
+  params.metric = cuvs::distance::DistanceType::InnerProduct;
+  auto index    = build(res, params, sq.view());
+  auto queries  = raft::make_device_matrix<double, int64_t>(res, 1, 4);
+  raft::matrix::fill(res, queries.view(), 1e308);
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 1, 2);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, 1, 2);
+  search(res,
+         search_params{},
+         index,
+         raft::make_const_mdspan(queries.view()),
+         neighbors.view(),
+         distances.view());
+  std::vector<int64_t> actual_neighbors(2);
+  std::vector<float> actual_distances(2);
+  raft::update_host(actual_neighbors.data(), neighbors.data_handle(), 2, stream.get());
+  raft::update_host(actual_distances.data(), distances.data_handle(), 2, stream.get());
+  raft::resource::sync_stream(res);
+  EXPECT_EQ(actual_neighbors, (std::vector<int64_t>{0, 1}));
+  EXPECT_EQ(actual_distances,
+            (std::vector<float>{std::numeric_limits<float>::infinity(),
+                                -std::numeric_limits<float>::infinity()}));
+}
+
+TEST(BruteForceSQ, L2LargeNorms)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  raft::resources res;
+  auto const stream        = raft::resource::get_cuda_stream(res);
+  constexpr int64_t dim    = 4096;
+  constexpr int64_t n_rows = 3;
+  std::vector<int8_t> host_codes(n_rows * dim, 127);
+  host_codes[0]       = 126;
+  host_codes[2 * dim] = 125;
+  auto codes          = raft::make_device_matrix<int8_t, int64_t>(res, n_rows, dim);
+  raft::update_device(codes.data_handle(), host_codes.data(), host_codes.size(), stream.get());
+  cuvs::device_sq_dataset<float, int64_t, float> sq{std::move(codes),
+                                                    scalar::quantizer<float>{-128.0f, 127.0f}};
+  index_params params;
+  params.metric = cuvs::distance::DistanceType::L2Expanded;
+  auto index    = build(res, params, sq.view());
+  auto queries  = raft::make_device_matrix<float, int64_t>(res, 1, dim);
+  raft::matrix::fill(res, queries.view(), 127.0f);
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 1, n_rows);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, 1, n_rows);
+  search(res,
+         search_params{},
+         index,
+         raft::make_const_mdspan(queries.view()),
+         neighbors.view(),
+         distances.view());
+
+  std::vector<int64_t> actual_neighbors(n_rows);
+  std::vector<float> actual_distances(n_rows);
+  raft::update_host(
+    actual_neighbors.data(), neighbors.data_handle(), actual_neighbors.size(), stream.get());
+  raft::update_host(
+    actual_distances.data(), distances.data_handle(), actual_distances.size(), stream.get());
+  raft::resource::sync_stream(res);
+  EXPECT_EQ(actual_neighbors, (std::vector<int64_t>{1, 0, 2}));
+  EXPECT_EQ(actual_distances, (std::vector<float>{0.0f, 1.0f, 4.0f}));
+}
+
+TEST(BruteForceSQ, InnerProductPadding)
+{
+  namespace scalar = cuvs::preprocessing::quantize::scalar;
+  raft::resources res;
+  auto const stream = raft::resource::get_cuda_stream(res);
+  std::vector<float> const host_dataset{
+    -1e20f, -1e20f, -1e20f, -1e20f, -5e19f, -5e19f, -5e19f, -5e19f, 1e20f, 1e20f, 1e20f, 1e20f};
+  auto dataset = raft::make_device_matrix<float, int64_t>(res, 3, 4);
+  raft::update_device(
+    dataset.data_handle(), host_dataset.data(), host_dataset.size(), stream.get());
+  auto sq = scalar::make_sq_dataset(
+    res, scalar::params{.quantile = 1.0f}, raft::make_const_mdspan(dataset.view()));
+  index_params params;
+  params.metric = cuvs::distance::DistanceType::InnerProduct;
+  auto index    = build(res, params, sq.view());
+  auto queries  = raft::make_device_matrix<float, int64_t>(res, 1, 4);
+  raft::matrix::fill(res, queries.view(), 1e20f);
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(res, 1, 3);
+  auto distances = raft::make_device_matrix<float, int64_t>(res, 1, 3);
+  search(res,
+         search_params{},
+         index,
+         raft::make_const_mdspan(queries.view()),
+         neighbors.view(),
+         distances.view());
+
+  std::vector<int64_t> actual_neighbors(3);
+  std::vector<float> actual_distances(3);
+  raft::update_host(
+    actual_neighbors.data(), neighbors.data_handle(), actual_neighbors.size(), stream.get());
+  raft::update_host(
+    actual_distances.data(), distances.data_handle(), actual_distances.size(), stream.get());
+  raft::resource::sync_stream(res);
+  EXPECT_EQ(actual_neighbors.front(), 2);
+  EXPECT_TRUE(std::isinf(actual_distances.front()));
+  EXPECT_GT(actual_distances.front(), 0.0f);
+  for (size_t i = 1; i < actual_distances.size(); ++i) {
+    EXPECT_TRUE(std::isinf(actual_distances[i]));
+    EXPECT_LT(actual_distances[i], 0.0f);
+  }
+  std::sort(actual_neighbors.begin(), actual_neighbors.end());
+  EXPECT_EQ(actual_neighbors, (std::vector<int64_t>{0, 1, 2}));
+}
+
+using cuvs::distance::DistanceType;
+using cuvs::preprocessing::quantize::scalar::quantization_mode;
+const std::vector<SQBruteForceInputs> sq_inputs{
+  {DistanceType::L2Expanded, quantization_mode::GLOBAL},
+  {DistanceType::L2Unexpanded, quantization_mode::GLOBAL},
+  {DistanceType::L2SqrtExpanded, quantization_mode::GLOBAL},
+  {DistanceType::L2SqrtUnexpanded, quantization_mode::GLOBAL},
+  {DistanceType::InnerProduct, quantization_mode::GLOBAL},
+  {DistanceType::CosineExpanded, quantization_mode::GLOBAL},
+  {DistanceType::L2Expanded, quantization_mode::PER_DIMENSION}};
+const std::vector<SQBruteForceInputs> sq_half_inputs{
+  {DistanceType::L2Expanded, quantization_mode::GLOBAL}};
+const std::vector<SQBruteForceInputs> sq_double_inputs{
+  {DistanceType::InnerProduct, quantization_mode::GLOBAL}};
+
+INSTANTIATE_TEST_CASE_P(BruteForceSQ, SQBruteForceTestF, ::testing::ValuesIn(sq_inputs));
+INSTANTIATE_TEST_CASE_P(BruteForceSQ, SQBruteForceTestH, ::testing::ValuesIn(sq_half_inputs));
+INSTANTIATE_TEST_CASE_P(BruteForceSQ, SQBruteForceTestD, ::testing::ValuesIn(sq_double_inputs));
 
 }  // namespace cuvs::neighbors::brute_force
