@@ -95,6 +95,7 @@ ConfigureTest(
 )
 
 ConfigureTest(NAME PCA_C_TEST PATH preprocessing/pca_c.cu)
+ConfigureTest(NAME SCALAR_QUANTIZATION_C_TEST PATH preprocessing/scalar_c.cu)
 
 if(BUILD_CAGRA_HNSWLIB)
   ConfigureTest(NAME HNSW_C_TEST PATH neighbors/ann_hnsw_c.cu)
