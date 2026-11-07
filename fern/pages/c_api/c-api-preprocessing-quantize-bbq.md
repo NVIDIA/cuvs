@@ -82,7 +82,7 @@ float centroid_norm_sq,
 cuvsBbqQuantizer_t* quantizer);
 ```
 
-Tensors are not copied and must remain valid while a derived dataset is in use.
+Tensors are not copied and must remain valid while a derived dataset is in use. `centroid_norm_sq` is copied to device memory owned by the quantizer handle, and datasets and indexes derived from the handle refer to that copy. The handle must therefore not be destroyed while any dataset or index derived from it is in use.
 
 **Parameters**
 
@@ -115,6 +115,8 @@ Destroy a BBQ quantizer without destroying its caller-owned tensors.
 cuvsError_t cuvsBbqQuantizerDestroy(cuvsBbqQuantizer_t quantizer);
 ```
 
+Frees the quantizer's device copy of `centroid_norm_sq`. Datasets and indexes derived from the quantizer must be destroyed first.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
@@ -137,7 +139,7 @@ size_t num_quantizers,
 cuvsDataset_t* dataset);
 ```
 
-Accepts one symmetric quantizer or two compatible asymmetric quantizers.
+Accepts one symmetric quantizer or two compatible asymmetric quantizers. Both asymmetric quantizers must encode the same rows, in the same order, against the same centroid. The dataset, and any index built from it, refers to the quantizers' data, so the quantizer handles must outlive them.
 
 **Parameters**
 
@@ -147,6 +149,125 @@ Accepts one symmetric quantizer or two compatible asymmetric quantizers.
 | `quantizers` | in | [`cuvsBbqQuantizer_t*`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqquantizer) | array containing one or two BBQ quantizer handles |
 | `num_quantizers` | in | `size_t` | number of elements in `quantizers` |
 | `dataset` | out | `cuvsDataset_t*` | newly allocated non-owning BBQ dataset handle |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsbbqquantizerparams"></a>
+### cuvsBbqQuantizerParams
+
+Parameters for encoding a dataset with `cuvsBbqQuantizerTransform`.
+
+```c
+struct cuvsBbqQuantizerParams {
+  cuvsBbqCodeLayout_t doc_layout;
+  cuvsBbqCodeLayout_t query_layout;
+  cuvsDistanceType metric;
+  float lambda;
+  int iters;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `doc_layout` | [`cuvsBbqCodeLayout_t`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqcodelayout-t) | Code layout of the encoded rows on the document side of a distance. |
+| `query_layout` | [`cuvsBbqCodeLayout_t`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqcodelayout-t) | Code layout of the encoded rows on the query side of a distance. When it differs from `doc_layout`, the dataset is encoded a second time in this layout. |
+| `metric` | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) | Selects the per-row additional correction: \|\|x - c\|\|^2 for L2, x.c otherwise. |
+| `lambda` | `float` | Relative interval weight of the quantization error against the norm-preserving term of the loss. |
+| `iters` | `int` | Coordinate descent iterations per row. |
+
+<a id="cuvsbbqquantizerparamscreate"></a>
+### cuvsBbqQuantizerParamsCreate
+
+Allocate BBQ quantizer params, and populate with default values
+
+```c
+cuvsError_t cuvsBbqQuantizerParamsCreate(cuvsBbqQuantizerParams_t* params);
+```
+
+Defaults: `CUVS_BBQ_CODE_LAYOUT_PACKED_1B` documents, `CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B` queries, `L2Expanded`, `lambda` 0.1 and 5 `iters`.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `params` | out | [`cuvsBbqQuantizerParams_t*`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqquantizerparams) | cuvsBbqQuantizerParams_t to allocate |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsbbqquantizerparamsdestroy"></a>
+### cuvsBbqQuantizerParamsDestroy
+
+De-allocate BBQ quantizer params
+
+```c
+cuvsError_t cuvsBbqQuantizerParamsDestroy(cuvsBbqQuantizerParams_t params);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `params` | in | [`cuvsBbqQuantizerParams_t`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqquantizerparams) | cuvsBbqQuantizerParams_t to de-allocate |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsbbqquantizerbuild"></a>
+### cuvsBbqQuantizerBuild
+
+Build a BBQ quantizer from a dataset: computes the centroid shared by every row.
+
+```c
+cuvsError_t cuvsBbqQuantizerBuild(cuvsResources_t res,
+DLManagedTensor* dataset,
+cuvsBbqQuantizer_t* quantizer);
+```
+
+The returned handle owns the centroid and its squared norm, and only serves to encode datasets with `cuvsBbqQuantizerTransform`: it holds no encoded rows, so `cuvsDatasetMakeBbqView` rejects it. Destroy it with `cuvsBbqQuantizerDestroy`.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuVS resources |
+| `dataset` | in | `DLManagedTensor*` | float32 row-major device matrix |
+| `quantizer` | out | [`cuvsBbqQuantizer_t*`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqquantizer) | newly allocated owning quantizer handle |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsbbqquantizertransform"></a>
+### cuvsBbqQuantizerTransform
+
+Encode a dataset against the centroid of a BBQ quantizer into an owning BBQ dataset.
+
+```c
+cuvsError_t cuvsBbqQuantizerTransform(cuvsResources_t res,
+cuvsBbqQuantizerParams_t params,
+cuvsBbqQuantizer_t quantizer,
+DLManagedTensor* in_dataset,
+cuvsDataset_t* bbq_dataset);
+```
+
+The dataset holds one storage in `params->doc_layout`, plus one in `params->query_layout` when it differs, and its own copy of the centroid, so it does not depend on `quantizer` or `dataset` once returned. `quantizer` is either built by `cuvsBbqQuantizerBuild`, or a float32 view from `cuvsBbqQuantizerCreateView`, whose centroid is then reused. Destroy the result with `cuvsDatasetDestroy`.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | cuVS resources |
+| `params` | in | [`cuvsBbqQuantizerParams_t`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqquantizerparams) | encoding parameters |
+| `quantizer` | in | [`cuvsBbqQuantizer_t`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqquantizer) | BBQ quantizer whose centroid the rows are encoded against |
+| `in_dataset` | in | `DLManagedTensor*` | float32 row-major device matrix with the quantizer's dimension |
+| `bbq_dataset` | out | `cuvsDataset_t*` | newly allocated owning `CUVS_DATASET_LAYOUT_BBQ` device dataset handle |
 
 **Returns**
 

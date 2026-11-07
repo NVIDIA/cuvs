@@ -329,6 +329,30 @@ TEST(DatasetC, MakeBbqView)
   EXPECT_EQ(layout, CUVS_DATASET_LAYOUT_BBQ);
 
   ASSERT_EQ(cuvsDatasetDestroy(asymmetric_dataset), CUVS_SUCCESS);
+
+  cuvsBbqQuantizer_t quantizer_other_centroid;
+  ASSERT_EQ(cuvsBbqQuantizerCreateView(&codes_4t_tensor,
+                                       &lower_tensor,
+                                       &upper_tensor,
+                                       &corrections_tensor,
+                                       &sums_tensor,
+                                       &centroid_tensor,
+                                       &delta_tensor,
+                                       &sum_delta_tensor,
+                                       &row_norm_tensor,
+                                       CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B,
+                                       L2Expanded,
+                                       1.5f,
+                                       &quantizer_other_centroid),
+            CUVS_SUCCESS);
+
+  cuvsBbqQuantizer_t mismatched_quantizers[] = {quantizer, quantizer_other_centroid};
+  cuvsDataset_t mismatched_dataset           = nullptr;
+  EXPECT_EQ(cuvsDatasetMakeBbqView(res, mismatched_quantizers, 2, &mismatched_dataset),
+            CUVS_ERROR);
+  EXPECT_EQ(mismatched_dataset, nullptr);
+
+  ASSERT_EQ(cuvsBbqQuantizerDestroy(quantizer_other_centroid), CUVS_SUCCESS);
   ASSERT_EQ(cuvsBbqQuantizerDestroy(quantizer_4t), CUVS_SUCCESS);
   ASSERT_EQ(cuvsBbqQuantizerDestroy(quantizer), CUVS_SUCCESS);
   ASSERT_EQ(cuvsResourcesDestroy(res), CUVS_SUCCESS);
