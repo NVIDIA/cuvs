@@ -536,17 +536,16 @@ void top_1_nn_legacy_fused(raft::resources const& handle,
 }
 
 /**
- * Approximate top-1 via a CAGRA search of the prebuilt index over `y`. `workspace` holds the
- * m uint32 neighbor ids returned by the search. Writes the (IdxT) nearest ids and the float
- * distances (squared L2, or sqrt of it when `sqrt` is set) into the Separate output.
+ * Approximate top-1 via a CAGRA search of the prebuilt index over the candidates. `workspace`
+ * holds the m uint32 neighbor ids returned by the search. The search writes the squared L2
+ * distances straight into the Separate output; the epilog converts the ids to IdxT and applies
+ * the sqrt when requested.
  */
 template <typename DataT, typename IdxT, typename OutputT>
 void top_1_nn_cagra(raft::resources const& handle,
                     OutputT output,
                     const DataT* x,
-                    const DataT* y,
                     IdxT m,
-                    IdxT k,
                     void* workspace,
                     bool sqrt,
                     const top_1_nn_cagra_index& index)
@@ -555,28 +554,15 @@ void top_1_nn_cagra(raft::resources const& handle,
                 std::is_same_v<std::remove_cvref_t<OutputT>, Top1nnOutput<IdxT, float>>) {
     RAFT_EXPECTS(output.nearest_idx != nullptr && output.nearest_dist != nullptr,
                  "CAGRA top_1_nn requires index and distance outputs");
-    auto* neighbors   = static_cast<uint32_t*>(workspace);
-    auto* dist        = output.nearest_dist;
-    const auto n_cand = static_cast<int64_t>(index.size());
+    auto* neighbors = static_cast<uint32_t*>(workspace);
+    auto* dist      = output.nearest_dist;
     index.search(handle, x, static_cast<int64_t>(m), neighbors, dist);
 
     raft::linalg::map_offset(handle,
                              raft::make_device_vector_view<IdxT, IdxT>(output.nearest_idx, m),
                              [=] __device__(IdxT i) {
-                               uint32_t id = neighbors[i];
-                               float d     = dist[i];
-                               if (static_cast<int64_t>(id) >= n_cand) {
-                                 // The search found nothing: fall back to candidate 0 with its
-                                 // exact distance.
-                                 id = 0;
-                                 d  = 0.0f;
-                                 for (IdxT j = 0; j < k; ++j) {
-                                   const float diff = x[static_cast<std::size_t>(i) * k + j] - y[j];
-                                   d += diff * diff;
-                                 }
-                               }
-                               dist[i] = sqrt ? sqrtf(fmaxf(d, 0.0f)) : d;
-                               return static_cast<IdxT>(id);
+                               if (sqrt) { dist[i] = sqrtf(fmaxf(dist[i], 0.0f)); }
+                               return static_cast<IdxT>(neighbors[i]);
                              });
   } else {
     RAFT_FAIL("The CAGRA top_1_nn backend requires float data and index/distance output");
@@ -1059,7 +1045,7 @@ void top_1_nn(raft::resources const& handle,
       return;
     case detail::Top1nnBackend::Cagra:
       detail::top_1_nn_cagra<DataT, IdxT>(
-        handle, output, x, y, m, k, workspace, sqrt, *plan.tuning.cagra.index);
+        handle, output, x, m, workspace, sqrt, *plan.tuning.cagra.index);
       return;
     case detail::Top1nnBackend::Unfused:
       detail::top_1_nn_unfused(handle,

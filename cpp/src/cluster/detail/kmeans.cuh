@@ -824,7 +824,7 @@ void kmeans_fit(
 
   // Optional CAGRA-based nearest-centroid assignment (float + L2 only; see use_ann_assignment).
   // It is the `Top1nnBackend::Cagra` backend of top_1_nn, fed with an index over the centroids.
-  const bool use_ann = use_ann_assignment<DataT>(pams, n_clusters);
+  const bool use_ann = use_ann_assignment<DataT>(pams, n_clusters, n_features);
   cuvs::distance::detail::top_1_nn_cagra_index ann_index;
   const auto assignment_backend = use_ann ? cuvs::distance::detail::Top1nnBackend::Cagra
                                           : cuvs::distance::detail::Top1nnBackend::Auto;
@@ -1306,7 +1306,7 @@ void kmeans_predict(raft::resources const& handle,
 
   // Optional CAGRA-based assignment: the `Top1nnBackend::Cagra` backend over an index of the
   // (fixed) centroids. It needs no norms.
-  const bool use_ann = use_ann_assignment<DataT>(pams, centroids.extent(0));
+  const bool use_ann = use_ann_assignment<DataT>(pams, centroids.extent(0), n_features);
   cuvs::distance::detail::top_1_nn_cagra_index ann_index;
   if (use_ann) {
     build_ann_index<DataT>(

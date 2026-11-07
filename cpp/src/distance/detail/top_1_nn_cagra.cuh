@@ -30,8 +30,9 @@ namespace cuvs::distance::detail {
  * caller builds it (once per candidate set) and hands it to `top_1_nn` through
  * `Top1nnTuning::cagra.index`.
  *
- * `cagra::index` only stores a *view* of its dataset, and CAGRA needs padded rows, so the copy is
- * owned here to keep graph and vectors consistent. The index uses squared L2 distance.
+ * The index only views the candidates passed to `build`: they must stay alive and unchanged until
+ * the next `build` or the destruction of this object, and their dimension must meet CAGRA's row
+ * alignment (see `build`). The index uses squared L2 distance.
  */
 class top_1_nn_cagra_index {
  public:
@@ -44,7 +45,8 @@ class top_1_nn_cagra_index {
    *
    * `index_params` and `search_params` are used as given, except for what this backend relies on:
    * the metric is set to L2Expanded (squared L2 distances), the dataset is attached on build, and
-   * the graph degrees are clamped to `n - 1`.
+   * the graph degrees are clamped to `n - 1`. Throws if `dim` does not meet CAGRA's row alignment
+   * (a multiple of 4 floats), since the candidates are viewed in place and not copied.
    */
   void build(raft::resources const& handle,
              cuvs::neighbors::cagra::index_params const& index_params,
@@ -64,38 +66,30 @@ class top_1_nn_cagra_index {
 
     search_params_ = search_params;
 
-    index_.reset();  // drop the old index before replacing the dataset it views
-    snapshot_.reset();
-    aligned_snapshot_.reset();
+    // CAGRA indexes rows with a padded stride. The candidates are viewed, not copied, so they
+    // must already have it; erroring out avoids silently allocating a second copy of the dataset.
+    RAFT_EXPECTS(
+      cuvs::neighbors::cagra_required_row_width<float>(static_cast<uint32_t>(dim)) ==
+        static_cast<uint32_t>(dim),
+      "top_1_nn_cagra_index: the candidate dimension (%ld) does not meet CAGRA's row alignment",
+      static_cast<long>(dim));
+
+    index_.reset();  // drop the old index before building the new one
     n_   = n;
     dim_ = dim;
 
     auto candidates_view =
       raft::make_device_matrix_view<const float, int64_t, raft::row_major>(candidates, n, dim);
-    if (cuvs::neighbors::cagra_required_row_width<float>(static_cast<uint32_t>(dim)) ==
-        static_cast<uint32_t>(dim)) {
-      // Rows already have the stride CAGRA needs: make_device_padded_dataset refuses to copy in
-      // this case, so take the snapshot ourselves and index a view of it.
-      aligned_snapshot_.emplace(raft::make_device_matrix<float, int64_t>(handle, n, dim));
-      raft::copy(aligned_snapshot_->data_handle(),
-                 candidates,
-                 static_cast<std::size_t>(n) * static_cast<std::size_t>(dim),
-                 raft::resource::get_cuda_stream(handle));
-      index_.emplace(cuvs::neighbors::cagra::build(
-        handle,
-        build_params,
-        cuvs::neighbors::make_device_padded_dataset_view(handle, aligned_snapshot_->view())));
-    } else {
-      snapshot_ = cuvs::neighbors::make_device_padded_dataset(handle, candidates_view);
-      index_.emplace(cuvs::neighbors::cagra::build(handle, build_params, snapshot_->view()));
-    }
+    index_.emplace(cuvs::neighbors::cagra::build(
+      handle,
+      build_params,
+      cuvs::neighbors::make_device_padded_dataset_view(handle, candidates_view)));
   }
 
   /**
    * Approximate top-1 search: for each of the `m` query rows, writes the id of the nearest
    * candidate to `neighbors` and its squared L2 distance to `distances`. The distance comes from
    * the candidate's vector, so it is exact for the candidate found; only the choice is approximate.
-   * An id may be invalid (>= size()) if the search found nothing.
    */
   void search(raft::resources const& handle,
               const float* queries,
@@ -118,10 +112,6 @@ class top_1_nn_cagra_index {
   int64_t dim() const { return dim_; }
 
  private:
-  // Owns the candidate snapshot the index views: either a padded copy, or (when the rows already
-  // have the required stride) a plain device matrix.
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>> snapshot_;
-  std::optional<raft::device_matrix<float, int64_t>> aligned_snapshot_;
   cuvs::neighbors::cagra::search_params search_params_;
   std::optional<index_type> index_;
   int64_t n_   = 0;

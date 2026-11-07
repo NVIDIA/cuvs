@@ -182,9 +182,10 @@ struct params : base_params {
    * settings come from `ann_index_params` and `ann_search_params`; a larger `itopk_size` is more
    * accurate and slower.
    *
-   * Only `float` data with the L2Expanded or L2SqrtExpanded metric is supported; other
-   * combinations log a warning and use brute force. Ignored by the multi-GPU `fit`.
-   * The reported inertia of `fit` is always computed exactly.
+   * Only `float` data with the L2Expanded or L2SqrtExpanded metric and a number of features that
+   * is a multiple of 4 (CAGRA row alignment, the centroids are indexed in place and not copied) is
+   * supported; other combinations log a warning and use brute force. Ignored by the multi-GPU
+   * `fit`. The reported inertia of `fit` is always computed exactly.
    *
    * Default: false.
    */
