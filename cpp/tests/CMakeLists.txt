@@ -357,7 +357,7 @@ ConfigureTest(
 if(BUILD_CAGRA_HNSWLIB)
   ConfigureTest(
     NAME NEIGHBORS_HNSW_TEST
-    PATH neighbors/hnsw.cu
+    PATH neighbors/hnsw.cu neighbors/hnsw_short_results.cpp
     GPUS 1
     PERCENT 100
   )
