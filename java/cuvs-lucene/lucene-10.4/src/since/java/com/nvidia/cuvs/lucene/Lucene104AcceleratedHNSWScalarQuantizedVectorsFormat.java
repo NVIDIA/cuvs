@@ -13,8 +13,10 @@ import java.util.logging.Logger;
  * one byte per dimension ({@code UNSIGNED_BYTE}), which replaced {@code
  * Lucene99ScalarQuantizedVectorsFormat} in Lucene 10.4. On the GPU, the graph is built over the
  * vectors quantized to 7 bits, as {@link LuceneAcceleratedHNSWScalarQuantizedVectorsFormat} does,
- * and the stored encoding only affects how the graph is searched on the CPU. Without a GPU, Lucene
- * builds the graph on the CPU, scoring with the stored encoding.
+ * so the stored encoding mostly affects how the graph is searched on the CPU. One exception: the
+ * flat format normalizes the vectors of COSINE fields when it flushes them, so the graph of a
+ * flushed segment is built from normalized vectors, and that of a merged segment from the vectors
+ * as indexed. Without a GPU, Lucene builds the graph on the CPU, scoring with the stored encoding.
  *
  * @since 26.12
  */
