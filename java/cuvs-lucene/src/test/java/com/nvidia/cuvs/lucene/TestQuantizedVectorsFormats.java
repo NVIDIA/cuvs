@@ -56,6 +56,14 @@ public class TestQuantizedVectorsFormats extends BaseCuVSKnnVectorsFormatTestCas
         });
   }
 
+  // Building an HNSW graph on the GPU is not deterministic, so merging the same segment again
+  // writes a graph of a different size. Lucene's suite skipped this test for every vectors format
+  // up to Lucene 10.5.
+  @Override
+  protected boolean mergeIsStable() {
+    return false;
+  }
+
   /**
    * Only the scalar-quantized formats keep a quantized copy to rebuild float vectors from; the
    * binary-quantized format stores full-precision vectors only. Lucene calls this only since 10.4,

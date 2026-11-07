@@ -16,6 +16,7 @@ import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
 import org.apache.lucene.codecs.lucene104.Lucene104Codec;
 import org.apache.lucene.codecs.lucene104.Lucene104ScalarQuantizedVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter;
+import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.search.TaskExecutor;
 import org.apache.lucene.store.DataAccessHint;
@@ -52,6 +53,14 @@ final class LuceneCompat {
   /** Returns {@code context} with a hint that the file will be read sequentially. */
   static IOContext sequentialReadContext(IOContext context) {
     return context.withHints(DataAccessHint.SEQUENTIAL);
+  }
+
+  /**
+   * Returns {@code state} for opening the flat vectors under an HNSW graph, which searches read at
+   * random. Before Lucene 10.6 the flat format says so itself, so {@code state} is returned as is.
+   */
+  static SegmentReadState flatReadState(SegmentReadState state) {
+    return state;
   }
 
   /**

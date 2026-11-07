@@ -14,10 +14,10 @@ Creates the cuvs-lucene codecs and vectors formats that write indexes on the Luc
 artifact is built for.
 
 Each cuvs-lucene codec wraps the default codec of one Lucene release, so the codec to write
-with changes along with Lucene: `Lucene101AcceleratedHNSWCodec` on Lucene 10.2, `Lucene103AcceleratedHNSWCodec` on 10.3, `Lucene104AcceleratedHNSWCodec` on 10.4 and
-10.5. The older codecs stay available for reading existing indexes. Creating codecs through this
-class instead of naming them keeps application code unchanged when it moves to another Lucene
-release and the matching cuvs-lucene artifact.
+with changes along with Lucene: `Lucene101AcceleratedHNSWCodec` on Lucene 10.2, `Lucene103AcceleratedHNSWCodec` on 10.3, `Lucene104AcceleratedHNSWCodec` on 10.4, 10.5
+and 10.6. The older codecs stay available for reading existing indexes. Creating codecs through
+this class instead of naming them keeps application code unchanged when it moves to another
+Lucene release and the matching cuvs-lucene artifact.
 
 Every method throws `IllegalStateException` if the Lucene release in use is not the one
 this cuvs-lucene artifact is built for.
