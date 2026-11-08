@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "build_index_launcher.hpp"
+
 #include "../../core/nvtx.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_list.cuh"
@@ -67,91 +69,6 @@ auto clone(const raft::resources& res, const index<T, IdxT>& source) -> index<T,
   ivf::detail::recompute_internal_state(res, target);
 
   return target;
-}
-
-/**
- * @brief Record the dataset into the index, one source row at a time.
- *
- * The index consists of the dataset rows, grouped by their labels (into clusters/lists).
- * Within each cluster (list), the data is grouped into blocks of `WarpSize` interleaved
- * vectors. Note, the total index length is slightly larger than the dataset length, because
- * each cluster is padded by `WarpSize` elements
- *
- * CUDA launch grid:
- *   X dimension must cover the dataset (n_rows), YZ are not used;
- *   there are no dependencies between threads, hence no constraints on the block size.
- *
- * @tparam T      element type.
- * @tparam IdxT   type of the vector ids in the index (corresponds to second arg ofindex<T, IdxT>)
- * @tparam LabelT label type
- * @tparam SourceIndexT input index type (usually same as IdxT)
- * @tparam gather_src if false, then we build the index from vectors source_vecs[i,:], otherwise
- *     we use source_vecs[source_ixs[i],:]. In both cases i=0..n_rows-1.
- *
- * @param[in] labels device pointer to the cluster ids for each row [n_rows]
- * @param[in] source_vecs device pointer to the input data [n_rows, dim]
- * @param[in] source_ixs device pointer to the input indices [n_rows]
- * @param[out] list_data_ptrs device pointer to the index data of size [n_lists][index_size, dim]
- * @param[out] list_index_ptrs device pointer to the source ids corr. to the output [n_lists]
- * [index_size]
- * @param[out] list_sizes_ptr device pointer to the cluster sizes [n_lists];
- *                          it's used as an atomic counter, and must be initialized with zeros.
- * @param n_rows source length
- * @param dim the dimensionality of the data
- * @param veclen size of vectorized loads/stores; must satisfy `dim % veclen == 0`.
- *
- */
-template <typename T, typename IdxT, typename LabelT, typename SourceIdxT, bool gather_src = false>
-RAFT_KERNEL build_index_kernel(const LabelT* labels,
-                               const T* source_vecs,
-                               const SourceIdxT* source_ixs,
-                               T** list_data_ptrs,
-                               IdxT** list_index_ptrs,
-                               uint32_t* list_sizes_ptr,
-                               IdxT n_rows,
-                               uint32_t dim,
-                               uint32_t veclen,
-                               IdxT batch_offset = 0)
-{
-  const IdxT i = IdxT(blockDim.x) * IdxT(blockIdx.x) + threadIdx.x;
-  if (i >= n_rows) { return; }
-  auto source_ix = source_ixs == nullptr ? i + batch_offset : source_ixs[i];
-  // In the context of refinement, some indices may be invalid (the generating NN algorithm does
-  // not return enough valid items). Do not add the item to the index in this case.
-  if (source_ix == ivf::kInvalidRecord<SourceIdxT> ||
-      source_ix == raft::upper_bound<SourceIdxT>()) {
-    return;
-  }
-
-  auto list_id     = labels[i];
-  auto inlist_id   = atomicAdd(list_sizes_ptr + list_id, 1);
-  auto* list_index = list_index_ptrs[list_id];
-  auto* list_data  = list_data_ptrs[list_id];
-
-  // Record the source vector id in the index
-  list_index[inlist_id] = source_ix;
-
-  // The data is written in interleaved groups of `index::kGroupSize` vectors
-  using interleaved_group = raft::Pow2<kIndexGroupSize>;
-  auto group_offset       = interleaved_group::roundDown(inlist_id);
-  auto ingroup_id         = interleaved_group::mod(inlist_id) * veclen;
-
-  // Point to the location of the interleaved group of vectors
-  list_data += group_offset * dim;
-
-  // Point to the source vector
-  if constexpr (gather_src) {
-    source_vecs += source_ix * dim;
-  } else {
-    source_vecs += i * dim;
-  }
-  // Interleave dimensions of the source vector while recording it.
-  // NB: such `veclen` is selected, that `dim % veclen == 0`
-  for (uint32_t l = 0; l < dim; l += veclen) {
-    for (uint32_t j = 0; j < veclen; j++) {
-      list_data[l * kIndexGroupSize + ingroup_id + j] = source_vecs[l + j];
-    }
-  }
 }
 
 /** See cuvs::neighbors::ivf_flat::extend docs */
@@ -315,17 +232,19 @@ void extend(raft::resources const& handle,
     // Kernel to insert the new vectors
     const dim3 block_dim(256);
     const dim3 grid_dim(raft::ceildiv<IdxT>(batch.size(), block_dim.x));
-    build_index_kernel<T, IdxT, LabelT>
-      <<<grid_dim, block_dim, 0, stream.get()>>>(new_labels.data_handle() + batch.offset(),
-                                                 batch_data_view.data_handle(),
-                                                 idx_batch->data(),
-                                                 index->data_ptrs().data_handle(),
-                                                 index->inds_ptrs().data_handle(),
-                                                 list_sizes_ptr,
-                                                 batch.size(),
-                                                 dim,
-                                                 index->veclen(),
-                                                 batch.offset());
+    launch_build_index<T, IdxT, LabelT, IdxT, false>(grid_dim,
+                                                     block_dim,
+                                                     stream.get(),
+                                                     new_labels.data_handle() + batch.offset(),
+                                                     batch_data_view.data_handle(),
+                                                     idx_batch->data(),
+                                                     index->data_ptrs().data_handle(),
+                                                     index->inds_ptrs().data_handle(),
+                                                     list_sizes_ptr,
+                                                     batch.size(),
+                                                     dim,
+                                                     index->veclen(),
+                                                     batch.offset());
     vec_batches.prefetch_next_batch();
     // User needs to make sure kernel finishes its work before we overwrite batch in the next
     // iteration if different streams are used for kernel and copy.
@@ -501,16 +420,19 @@ inline void fill_refinement_index(raft::resources const& handle,
 
   const dim3 block_dim(256);
   const dim3 grid_dim(raft::ceildiv<IdxT>(n_queries * n_candidates, block_dim.x));
-  build_index_kernel<T, IdxT, LabelT, CandidateIdxT, true>
-    <<<grid_dim, block_dim, 0, stream.get()>>>(new_labels.data(),
-                                               dataset,
-                                               candidate_idx,
-                                               refinement_index->data_ptrs().data_handle(),
-                                               refinement_index->inds_ptrs().data_handle(),
-                                               list_sizes_ptr,
-                                               n_queries * n_candidates,
-                                               refinement_index->dim(),
-                                               refinement_index->veclen());
+  launch_build_index<T, IdxT, LabelT, CandidateIdxT, true>(
+    grid_dim,
+    block_dim,
+    stream.get(),
+    new_labels.data(),
+    dataset,
+    candidate_idx,
+    refinement_index->data_ptrs().data_handle(),
+    refinement_index->inds_ptrs().data_handle(),
+    list_sizes_ptr,
+    n_queries * n_candidates,
+    refinement_index->dim(),
+    refinement_index->veclen());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
