@@ -1436,4 +1436,68 @@ void kmeans_transform(raft::resources const& handle,
       handle, datasetView, centroids, pairwiseDistanceView, metric);
   }
 }
+// These shared fit helpers are instantiated once in the matching CUDA owner sources.
+extern template void
+kmeans_fit<float, int, typename raft::device_matrix_view<const float, int>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  raft::device_matrix_view<const float, int>,
+  std::optional<raft::device_vector_view<const float, int>>,
+  raft::device_matrix_view<float, int>,
+  raft::host_scalar_view<float>,
+  raft::host_scalar_view<int>,
+  std::optional<std::reference_wrapper<rmm::device_uvector<char>>>);
+extern template void
+kmeans_fit<float, int64_t, typename raft::device_matrix_view<const float, int64_t>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  raft::device_matrix_view<const float, int64_t>,
+  std::optional<raft::device_vector_view<const float, int64_t>>,
+  raft::device_matrix_view<float, int64_t>,
+  raft::host_scalar_view<float>,
+  raft::host_scalar_view<int64_t>,
+  std::optional<std::reference_wrapper<rmm::device_uvector<char>>>);
+extern template void
+kmeans_fit<float, int64_t, typename raft::host_matrix_view<const float, int64_t>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  raft::host_matrix_view<const float, int64_t>,
+  std::optional<raft::host_vector_view<const float, int64_t>>,
+  raft::device_matrix_view<float, int64_t>,
+  raft::host_scalar_view<float>,
+  raft::host_scalar_view<int64_t>,
+  std::optional<std::reference_wrapper<rmm::device_uvector<char>>>);
+extern template void
+kmeans_fit<double, int, typename raft::device_matrix_view<const double, int>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  raft::device_matrix_view<const double, int>,
+  std::optional<raft::device_vector_view<const double, int>>,
+  raft::device_matrix_view<double, int>,
+  raft::host_scalar_view<double>,
+  raft::host_scalar_view<int>,
+  std::optional<std::reference_wrapper<rmm::device_uvector<char>>>);
+extern template void
+kmeans_fit<double,
+           int64_t,
+           typename raft::device_matrix_view<const double, int64_t>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  raft::device_matrix_view<const double, int64_t>,
+  std::optional<raft::device_vector_view<const double, int64_t>>,
+  raft::device_matrix_view<double, int64_t>,
+  raft::host_scalar_view<double>,
+  raft::host_scalar_view<int64_t>,
+  std::optional<std::reference_wrapper<rmm::device_uvector<char>>>);
+extern template void
+kmeans_fit<double, int64_t, typename raft::host_matrix_view<const double, int64_t>::accessor_type>(
+  raft::resources const&,
+  cuvs::cluster::kmeans::params const&,
+  raft::host_matrix_view<const double, int64_t>,
+  std::optional<raft::host_vector_view<const double, int64_t>>,
+  raft::device_matrix_view<double, int64_t>,
+  raft::host_scalar_view<double>,
+  raft::host_scalar_view<int64_t>,
+  std::optional<std::reference_wrapper<rmm::device_uvector<char>>>);
+
 }  // namespace cuvs::cluster::kmeans::detail

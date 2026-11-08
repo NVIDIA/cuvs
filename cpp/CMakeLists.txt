@@ -1438,8 +1438,46 @@ if(NOT BUILD_CPU_ONLY)
       "${CMAKE_CURRENT_BINARY_DIR}/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
   )
 
+  generate_inst_matrix(
+    cuvs_kmeans_helper_sources
+    MATRIX_JSON_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/detail/kmeans_fit_core_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/detail/kmeans_fit_core.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/detail/kmeans_fit_core_@instantiation_name@.cu"
+  )
+
+  if(BUILD_MG_ALGOS)
+    generate_inst_matrix(
+      cuvs_kmeans_helper_sources
+      MATRIX_JSON_FILE
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/detail/kmeans_mnmg_fit_core_matrix.json"
+      INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/detail/kmeans_mnmg_fit_core.cu.in"
+      OUTPUT_FILE_FORMAT
+        "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/detail/kmeans_mnmg_fit_core_@instantiation_name@.cu"
+    )
+  endif()
+
+  generate_inst_matrix(
+    cuvs_kmeans_helper_sources
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/detail/kmeans_centroid_adjustments_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/detail/kmeans_centroid_adjustments.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/detail/kmeans_centroid_adjustments_@instantiation_name@.cu"
+  )
+
+  generate_inst_matrix(
+    cuvs_kmeans_helper_sources
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/detail/kmeans_finalize_centroids_matrix.json"
+    INPUT_FILE "${CMAKE_CURRENT_SOURCE_DIR}/src/cluster/detail/kmeans_finalize_centroids.cu.in"
+    OUTPUT_FILE_FORMAT
+      "${CMAKE_CURRENT_BINARY_DIR}/src/cluster/detail/kmeans_finalize_centroids_@instantiation_name@.cu"
+  )
+
   add_library(
     cuvs_objs OBJECT
+    ${cuvs_kmeans_helper_sources}
     src/cluster/detail/minClusterDistanceCompute.cu
     src/cluster/agglomerative.cu
     ${gmm_inst_files}
