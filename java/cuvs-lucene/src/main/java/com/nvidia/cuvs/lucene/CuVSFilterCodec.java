@@ -70,8 +70,10 @@ abstract class CuVSFilterCodec extends FilterCodec {
   }
 
   /**
-   * Creates a codec with a delegate chosen by the caller, which is never made read-only: whether
-   * the delegate can write is the caller's responsibility.
+   * Creates a codec with a delegate chosen by the caller, which this class never makes read-only:
+   * whether the delegate can write is the caller's responsibility. The vectors format may still
+   * refuse to write on its own, as {@link LuceneAcceleratedHNSWScalarQuantizedVectorsFormat} does
+   * from Lucene 10.4 on.
    *
    * @param name the codec's name
    * @param delegate the codec to use for everything but vectors
@@ -184,7 +186,9 @@ abstract class CuVSFilterCodec extends FilterCodec {
    */
   public void setKnnVectorsFormat(KnnVectorsFormat format) {
     // A format read back from the knnVectorsFormat() of a read-only codec, this one or another, is
-    // unwrapped first, so that whether it writes depends only on this codec.
+    // unwrapped first, so that this codec does not refuse to write on its behalf. The format itself
+    // may still refuse, as a Lucene99AcceleratedHNSWScalarQuantizedVectorsFormat does from Lucene
+    // 10.4 on.
     if (format instanceof ReadOnlyFormat readOnlyFormat) {
       format = readOnlyFormat.in;
     }

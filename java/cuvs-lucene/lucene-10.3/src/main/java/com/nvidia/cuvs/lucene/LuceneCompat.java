@@ -32,6 +32,12 @@ final class LuceneCompat {
   // read-only. Also a compile-time constant, for the same reason.
   static final int CURRENT_CODEC_GENERATION = 103;
 
+  // The registered name of the scalar-quantized format that writes on this Lucene release, the one
+  // CuVSCodecs.acceleratedHNSWScalarQuantizedFormat returns. A constant, so that the formats can
+  // check it without creating one.
+  static final String SCALAR_QUANTIZED_FORMAT_NAME =
+      "Lucene99AcceleratedHNSWScalarQuantizedVectorsFormat";
+
   private LuceneCompat() {}
 
   /** Returns {@code context} with a hint that the file will be read sequentially. */
@@ -49,7 +55,7 @@ final class LuceneCompat {
     return new Lucene103Codec();
   }
 
-  /** Returns the flat format that stores the vectors of the scalar-quantized codecs. */
+  /** Returns the flat format that stores the vectors of the scalar-quantized codecs up to Lucene 10.3. */
   static FlatVectorsFormat lucene99ScalarQuantizedFlatFormat() {
     return new Lucene99ScalarQuantizedVectorsFormat();
   }
