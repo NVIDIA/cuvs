@@ -65,10 +65,10 @@ struct workspace_layout {
   int64_t n_row_batches;
   int64_t n_streams;
   std::size_t survivors, sorted_keys, local_ids, batch_offsets, sort_temp, sort_temp_bytes;
-  std::vector<std::size_t> packed, count;
+  std::vector<std::size_t> packed, count, filter_rows, filter_norms;
   std::size_t total_bytes;
 
-  workspace_layout(raft::resources const& handle, int64_t m)
+  workspace_layout(raft::resources const& handle, int64_t m, bool copy_rows)
   {
     RAFT_EXPECTS(filter_tile().has_value(), "Pruned 1-NN needs the fused filter's cuTile kernel");
     n_row_batches        = raft::ceildiv(m, kRowBatchSize);
@@ -105,6 +105,10 @@ struct workspace_layout {
     for (int64_t s = 0; s < n_streams; s++) {
       packed.push_back(take(batch_rows * kCentroidBatchSize * sizeof(int64_t)));
       count.push_back(take(batch_rows * sizeof(int32_t)));
+      if (copy_rows) {
+        filter_rows.push_back(take(batch_rows * kDimTileSize * sizeof(half)));
+        filter_norms.push_back(take(batch_rows * sizeof(float)));
+      }
     }
     total_bytes = end;
   }
@@ -175,9 +179,10 @@ inline bool is_pruned_top_1_nn_available(int64_t k)
 }
 
 /** The workspace pruned_top_1_nn needs for m rows on `handle` (the same handle as the call). */
+template <typename DataT>
 inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle, int64_t m)
 {
-  return detail::pruned_nn::workspace_layout(handle, m).total_bytes;
+  return detail::pruned_nn::workspace_layout(handle, m, !std::is_same_v<DataT, half>).total_bytes;
 }
 
 /**
@@ -204,19 +209,17 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  *                    squared distance
  * @param x           [m, k] row-major
  * @param y           [n, k] row-major
- * @param x_fp16      [m, kDimTileSize]: x's first dims in FP16, for float; ignored for half
  * @param y_fp16      [n, kDimTileSize]: y's first dims in FP16, for float; ignored for half
- * @param xn          [m] squared norms of x over the first kDimTileSize dims, of the FP16 values
- *                    the filter reads (x_fp16 for float)
+ * @param xn          [m] squared norms of half x over the first kDimTileSize dims; ignored for
+ *                    float, whose filter rows and norms are prepared in the workspace per batch
  * @param yn          [n] the same for y
- * @param workspace   pruned_top_1_nn_workspace_size(handle, m) bytes, 256-byte aligned
+ * @param workspace   pruned_top_1_nn_workspace_size<DataT>(handle, m) bytes, 256-byte aligned
  */
 template <typename DataT>
 void pruned_top_1_nn(raft::resources const& handle,
                      Top1nnOutput<uint32_t, float> output,
                      const DataT* x,
                      const DataT* y,
-                     const half* x_fp16,
                      const half* y_fp16,
                      const float* xn,
                      const float* yn,
@@ -236,21 +239,18 @@ void pruned_top_1_nn(raft::resources const& handle,
                "Pruned 1-NN needs the fused filter's cuTile kernel and k a multiple of %u above it",
                kDimTileSize);
   RAFT_EXPECTS(m > 0 && n > 0, "Pruned 1-NN needs rows in x and y");
-  RAFT_EXPECTS(kHalf || (x_fp16 != nullptr && y_fp16 != nullptr),
-               "Pruned 1-NN on float needs FP16 copies of x's and y's first dims");
-  const workspace_layout layout(handle, m);
+  RAFT_EXPECTS(kHalf || y_fp16 != nullptr,
+               "Pruned 1-NN on float needs an FP16 copy of y's first dims");
+  const workspace_layout layout(handle, m, !kHalf);
   RAFT_EXPECTS(workspace_bytes >= layout.total_bytes, "Pruned 1-NN's workspace is too small");
   auto* ws = static_cast<char*>(workspace);
 
   // The filter reads FP16 rows: half data whole, float data's FP16 copies of its first dims
   const int64_t filter_dim = kHalf ? k : kDimTileSize;
-  const half* x_filter     = nullptr;
   const half* y_filter     = nullptr;
   if constexpr (kHalf) {
-    x_filter = x;
     y_filter = y;
   } else {
-    x_filter = x_fp16;
     y_filter = y_fp16;
   }
   auto main_stream = raft::resource::get_cuda_stream(handle).get();
@@ -272,15 +272,29 @@ void pruned_top_1_nn(raft::resources const& handle,
     auto* packed          = reinterpret_cast<int64_t*>(ws + layout.packed[s]);
     auto* count           = reinterpret_cast<int32_t*>(ws + layout.count[s]);
     // Each row's bound: its distance to its current neighbor
-    distance_to_assigned(rows, n_rows, y, k, row_labels, row_dist, stream);
+    const half* x_filter;
+    const float* row_norms;
+    if constexpr (kHalf) {
+      x_filter  = rows;
+      row_norms = xn + i;
+      distance_to_assigned(rows, n_rows, y, k, row_labels, row_dist, stream);
+    } else {
+      // Each stream reuses its filter inputs only after its previous row batch finishes.
+      auto* batch_rows  = reinterpret_cast<half*>(ws + layout.filter_rows[s]);
+      auto* batch_norms = reinterpret_cast<float*>(ws + layout.filter_norms[s]);
+      distance_to_assigned<true>(
+        rows, n_rows, y, k, row_labels, row_dist, stream, batch_rows, batch_norms);
+      x_filter  = batch_rows;
+      row_norms = batch_norms;
+    }
     for (int64_t j = 0; j < n; j += kCentroidBatchSize) {
       const int64_t n_centroids = std::min<int64_t>(kCentroidBatchSize, n - j);
-      launch_fused_filter(x_filter + i * filter_dim,
+      launch_fused_filter(x_filter,
                           static_cast<int>(n_rows),
                           y_filter + j * filter_dim,
                           static_cast<int>(n_centroids),
                           static_cast<int>(filter_dim),
-                          xn + i,
+                          row_norms,
                           yn + j,
                           row_dist,
                           adsampling_ratio(kDimTileSize, static_cast<uint32_t>(k), kAdsamplingEps0),

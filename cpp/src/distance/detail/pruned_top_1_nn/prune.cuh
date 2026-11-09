@@ -21,7 +21,10 @@
 
 #include <cub/warp/warp_reduce_batched.cuh>
 
+#include <cuda_fp16.h>
+
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
@@ -60,68 +63,106 @@ __host__ __device__ inline float adsampling_ratio(uint32_t i, uint32_t dim, floa
 /**
  * Squared norm of each of n rows (row stride `stride`) over their first `cols` dims; a warp per
  * row. Not raft::linalg::rowNorm: raft's row reductions take whole contiguous rows (row length =
- * stride), and masking the other columns would still read them all.
+ * stride), and masking the other columns would still read them all. When copying, pack the first
+ * `copy_cols` dims as FP16 and compute the norm from those rounded values.
  */
-template <typename T>
-RAFT_KERNEL squared_norms_kernel(
-  const T* __restrict__ rows, int64_t n, int64_t stride, int64_t cols, float* __restrict__ out)
+template <typename T, typename Copy = std::nullptr_t>
+RAFT_KERNEL squared_norms_kernel(const T* __restrict__ rows,
+                                 int64_t n,
+                                 int64_t stride,
+                                 int64_t cols,
+                                 float* __restrict__ out,
+                                 Copy copy,
+                                 int64_t copy_cols)
 {
   const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / kWarpSize;
   if (row >= n) { return; }
-  float s = 0.f;
-  for (int64_t j = threadIdx.x % kWarpSize; j < cols; j += kWarpSize) {
-    const float v = static_cast<float>(rows[row * stride + j]);
-    s += v * v;
+  float s              = 0.f;
+  constexpr bool kCopy = !std::is_same_v<Copy, std::nullptr_t>;
+  for (int64_t j = threadIdx.x % kWarpSize; j < (kCopy ? copy_cols : cols); j += kWarpSize) {
+    float v = static_cast<float>(rows[row * stride + j]);
+    if constexpr (kCopy) {
+      const half h              = static_cast<half>(v);
+      copy[row * copy_cols + j] = h;
+      v                         = __half2float(h);
+    }
+    if (j < cols) { s += v * v; }
   }
   s = raft::warpReduce(s);
   if (threadIdx.x % kWarpSize == 0) { out[row] = s; }
 }
 
-template <typename T>
-void squared_norms(
-  const T* rows, int64_t n, int64_t stride, int64_t cols, float* out, cudaStream_t stream)
+template <typename T, typename Copy = std::nullptr_t>
+void squared_norms(const T* rows,
+                   int64_t n,
+                   int64_t stride,
+                   int64_t cols,
+                   float* out,
+                   cudaStream_t stream,
+                   Copy copy         = nullptr,
+                   int64_t copy_cols = 0)
 {
   constexpr uint32_t kThreads = 256;
   const auto blocks           = raft::ceildiv<int64_t>(n * kWarpSize, kThreads);
-  squared_norms_kernel<<<blocks, kThreads, 0, stream>>>(rows, n, stride, cols, out);
+  squared_norms_kernel<<<blocks, kThreads, 0, stream>>>(
+    rows, n, stride, cols, out, copy, copy_cols);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
-/** Each row's squared distance to its assigned centroid over all dims; a warp per row. */
-template <typename T, typename C>
-RAFT_KERNEL distance_to_assigned_kernel(const T* __restrict__ rows,
-                                        int64_t n,
-                                        const C* __restrict__ centroids,
-                                        int64_t dim,
-                                        const uint32_t* __restrict__ labels,
-                                        float* __restrict__ dist)
+/** Each row's squared distance to its assigned centroid; optionally pack and norm its filter dims.
+ */
+template <bool Copy, typename T, typename C>
+RAFT_KERNEL distance_to_assigned_and_copy_kernel(const T* __restrict__ rows,
+                                                 int64_t n,
+                                                 const C* __restrict__ centroids,
+                                                 int64_t dim,
+                                                 const uint32_t* __restrict__ labels,
+                                                 float* __restrict__ dist,
+                                                 half* __restrict__ filter_rows,
+                                                 float* __restrict__ filter_norms)
 {
   const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / kWarpSize;
   if (row >= n) { return; }
   const T* a     = rows + row * dim;
   const C* b     = centroids + static_cast<int64_t>(labels[row]) * dim;
   float distance = 0.f;
+  float norm     = 0.f;
   for (int64_t j = threadIdx.x % kWarpSize; j < dim; j += kWarpSize) {
-    const float diff = static_cast<float>(a[j]) - static_cast<float>(b[j]);
+    const float value = static_cast<float>(a[j]);
+    const float diff  = value - static_cast<float>(b[j]);
     distance += diff * diff;
+    if constexpr (Copy) {
+      if (j < kDimTileSize) {
+        const half h                        = static_cast<half>(value);
+        filter_rows[row * kDimTileSize + j] = h;
+        const float f                       = __half2float(h);
+        norm += f * f;
+      }
+    }
   }
   distance = raft::warpReduce(distance);
   if (threadIdx.x % kWarpSize == 0) { dist[row] = distance; }
+  if constexpr (Copy) {
+    norm = raft::warpReduce(norm);
+    if (threadIdx.x % kWarpSize == 0) { filter_norms[row] = norm; }
+  }
 }
 
-template <typename T, typename C>
+template <bool Copy = false, typename T, typename C>
 void distance_to_assigned(const T* rows,
                           int64_t n,
                           const C* centroids,
                           int64_t dim,
                           const uint32_t* labels,
                           float* dist,
-                          cudaStream_t stream)
+                          cudaStream_t stream,
+                          half* filter_rows   = nullptr,
+                          float* filter_norms = nullptr)
 {
   constexpr uint32_t kThreads = 256;
   const auto blocks           = raft::ceildiv<int64_t>(n * kWarpSize, kThreads);
-  distance_to_assigned_kernel<<<blocks, kThreads, 0, stream>>>(
-    rows, n, centroids, dim, labels, dist);
+  distance_to_assigned_and_copy_kernel<Copy><<<blocks, kThreads, 0, stream>>>(
+    rows, n, centroids, dim, labels, dist, filter_rows, filter_norms);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
