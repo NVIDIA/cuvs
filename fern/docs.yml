@@ -595,6 +595,8 @@ navigation:
             path: "./pages/lucene_api/lucene-api-com-nvidia-cuvs-lucene-gpuindex.md"
           - page: "GPUSearchParams"
             path: "./pages/lucene_api/lucene-api-com-nvidia-cuvs-lucene-gpusearchparams.md"
+          - page: "IndexSearcherTimingBridge"
+            path: "./pages/lucene_api/lucene-api-com-nvidia-cuvs-lucene-indexsearchertimingbridge.md"
           - page: "ThreadLocalCuVSResourcesProvider"
             path: "./pages/lucene_api/lucene-api-com-nvidia-cuvs-lucene-threadlocalcuvsresourcesprovider.md"
           - page: "Utils"
