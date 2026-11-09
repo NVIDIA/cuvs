@@ -87,6 +87,12 @@ class BenchmarkOrchestrator:
         # Instantiate config loader
         self.config_loader = loader_class()
 
+    def result_failure_message(
+        self, results: List[Union[BuildResult, SearchResult]]
+    ) -> Optional[str]:
+        """Return the selected backend's fatal result summary, if any."""
+        return self.backend_class.result_failure_message(results)
+
     def run_benchmark(
         self,
         mode: str = "sweep",

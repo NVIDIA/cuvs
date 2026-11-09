@@ -6,17 +6,64 @@
 import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import click
 import yaml
 
+from ..backends.registry import get_backend_class
+from ..orchestrator import BenchmarkOrchestrator
 from .data_export import (
     convert_json_to_csv_build,
     convert_json_to_csv_search,
     write_results_to_csv,
 )
-from ..orchestrator import BenchmarkOrchestrator
+
+
+_DEFAULT_BACKEND = "cpp_gbench"
+_BACKEND_CONFIG_CACHE_KEY = "cuvs_bench.backend_config"
+
+
+def _read_backend_config(path: str) -> dict[str, Any]:
+    with open(path, "r") as stream:
+        config = yaml.safe_load(stream)
+    if not isinstance(config, dict):
+        raise ValueError(
+            "--backend-config must parse to a mapping, "
+            f"got {type(config).__name__}"
+        )
+    if "backend" not in config:
+        raise ValueError("--backend-config must include a 'backend' field")
+    return dict(config)
+
+
+def _backend_config_snapshot(path: str) -> dict[str, Any]:
+    """Return one backend configuration snapshot per CLI invocation."""
+    context = click.get_current_context()
+    cached_config = context.meta.get(_BACKEND_CONFIG_CACHE_KEY)
+    if cached_config is None:
+        cached_config = _read_backend_config(path)
+        context.meta[_BACKEND_CONFIG_CACHE_KEY] = cached_config
+    return dict(cached_config)
+
+
+def _default_algorithm() -> str:
+    """Choose the displayed prompt default from the selected backend."""
+    context = click.get_current_context(silent=True)
+    backend = _DEFAULT_BACKEND
+    if context is not None and (
+        backend_config := context.params.get("backend_config")
+    ):
+        backend = _backend_config_snapshot(backend_config)["backend"]
+    backend_class = get_backend_class(str(backend))
+    if backend_class.default_algorithm is not None:
+        return backend_class.default_algorithm
+    default_backend_class = get_backend_class(_DEFAULT_BACKEND)
+    if default_backend_class.default_algorithm is None:
+        raise RuntimeError(
+            "The default backend must define a default algorithm"
+        )
+    return default_backend_class.default_algorithm
 
 
 @click.command()
@@ -88,12 +135,13 @@ from ..orchestrator import BenchmarkOrchestrator
 @click.option("--search", is_flag=True, help="Perform the search")
 @click.option(
     "--algorithms",
-    default="cuvs_cagra",
+    default=_default_algorithm,
     show_default=True,
     prompt="Enter the comma separated list of named algorithms to run",
     help="Run only comma separated list of named algorithms. If parameters "
     "`groups` and `algo-groups` are both undefined, then group `base` "
-    "is run by default.",
+    "is run by default. A backend may provide its own prompt default; "
+    "otherwise the CLI default is retained.",
 )
 @click.option(
     "--groups",
@@ -271,18 +319,10 @@ def main(
     if not build and not search:
         build = search = True
 
-    backend_type = "cpp_gbench"
+    backend_type = _DEFAULT_BACKEND
     backend_kwargs = {}
     if backend_config:
-        with open(backend_config, "r") as f:
-            cfg = yaml.safe_load(f)
-        if not isinstance(cfg, dict):
-            raise ValueError(
-                f"--backend-config must parse to a mapping, "
-                f"got {type(cfg).__name__}"
-            )
-        if "backend" not in cfg:
-            raise ValueError("--backend-config must include a 'backend' field")
+        cfg = _backend_config_snapshot(backend_config)
         backend_type = cfg.pop("backend")
         backend_kwargs = cfg
 
@@ -321,6 +361,8 @@ def main(
             convert_json_to_csv_search(dataset, dataset_path)
     else:
         write_results_to_csv(results, dataset, dataset_path, count, batch_size)
+        if failure_message := orchestrator.result_failure_message(results):
+            raise click.ClickException(failure_message)
 
 
 if __name__ == "__main__":
