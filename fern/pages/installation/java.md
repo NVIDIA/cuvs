@@ -69,7 +69,7 @@ java/panama-bindings/generate-bindings.sh
 
 `cuvs-lucene` provides Apache Lucene codecs that offload vector index build, and optionally search, to the GPU. It is published as a separate artifact that builds on the Java API described above. For usage guidance, see the [Lucene Integration](/user-guide/lucene) guide.
 
-`cuvs-lucene` supports Lucene 10.2 through 10.5 and requires Maven 3.10 or newer. It compiles and runs on JDK 21, the minimum of Lucene 10, but uses the GPU only on a JDK 22 or newer runtime: on JDK 21 the accelerated HNSW codecs build graphs on the CPU and the GPU search codec is unavailable. It inherits the NVIDIA cuVS [CUDA GPU requirements](/installation#cuda-gpu-requirements).
+`cuvs-lucene` supports Lucene 10.2 through 10.5, and requires Maven 3.10 or newer. It compiles and runs on JDK 21, the minimum of Lucene 10, but uses the GPU only on a JDK 22 or newer runtime: on JDK 21 the accelerated HNSW codecs build graphs on the CPU and the GPU search codec is unavailable. It inherits the NVIDIA cuVS [CUDA GPU requirements](/installation#cuda-gpu-requirements).
 
 The three accelerated HNSW codecs (plain, scalar-quantized and binary-quantized) fall back to CPU index construction when no GPU or native library is available, so an application using them works on GPU and non-GPU hosts alike. The GPU search codec requires a working cuVS installation. See [Lucene Integration](/user-guide/lucene) for details.
 
