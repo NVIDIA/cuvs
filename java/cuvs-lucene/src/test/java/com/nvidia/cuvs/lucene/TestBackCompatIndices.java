@@ -26,6 +26,7 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 import java.util.zip.ZipOutputStream;
 import org.apache.lucene.codecs.Codec;
+import org.apache.lucene.codecs.FilterCodec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
 import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
 import org.apache.lucene.document.Document;
@@ -50,6 +51,7 @@ import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.tests.util.LuceneTestCase;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
+import org.apache.lucene.tests.util.TestUtil;
 import org.apache.lucene.util.Version;
 
 /**
@@ -61,16 +63,18 @@ import org.apache.lucene.util.Version;
  * releases/<cuvs-lucene version>/<lucene major.minor>/<name>.zip}, written by the jars of a released
  * cuvs-lucene version. The path records the Lucene release they were written on and either the
  * cuvs-lucene codec recorded in their segments or, for an index written with Lucene's own codec,
- * the cuvs-lucene vectors format its vector field uses. Each module reads the ones written on its own Lucene
- * release and all earlier ones. See the {@code README.md} next to them for how to add more.
+ * the cuvs-lucene vectors format its vector field uses. Each module reads the ones written on its
+ * own Lucene release and all earlier ones. See the {@code README.md} next to them for how to add
+ * more.
  *
  * <p>Released versions only cover the Lucene releases they supported, so each module also writes
- * indexes with the codecs from {@link CuVSCodecs} to {@code <dir>/<lucene major.minor>/<codec>.zip}
- * in the directory the {@value #DIR_PROPERTY} system property names, and reads and upgrades the
- * ones that modules for earlier Lucene releases wrote there. The parent pom points every module at
- * the same directory, and Maven builds the modules from the oldest Lucene release up, so one {@code
- * mvn test} checks every upgrade from one supported Lucene release to a later one with the code
- * being tested.
+ * indexes with the codecs from {@link CuVSCodecs} to {@code <dir>/<lucene major.minor>/<codec>.zip},
+ * and with Lucene's own codec and each vectors format from {@link CuVSCodecs} set per field to
+ * {@code <dir>/<lucene major.minor>/<format>.zip}, in the directory the {@value #DIR_PROPERTY}
+ * system property names, and reads and upgrades the ones that modules for earlier Lucene releases
+ * wrote there. The parent pom points every module at the same directory, and Maven builds the
+ * modules from the oldest Lucene release up, so one {@code mvn test} checks every upgrade from one
+ * supported Lucene release to a later one with the code being tested.
  *
  * <p>Reading and upgrading need no GPU, so those tests also run where cuVS is not available.
  */
@@ -121,6 +125,14 @@ public class TestBackCompatIndices extends LuceneTestCase {
       writeIndex(indexDir, codec);
       zip(indexDir, targetDir.resolve(codec.getName() + ".zip"));
     }
+    // Applications that keep Lucene's codec name the format of their vector field instead, which
+    // breaks differently on an upgrade: Lucene 10.4 can only read the scalar-quantized format of
+    // earlier releases, and a later module merges these indexes with the format that replaced it.
+    for (KnnVectorsFormat format : formatsToWrite()) {
+      Path indexDir = createTempDir(format.getName());
+      writeIndex(indexDir, perFieldCodec(format));
+      zip(indexDir, targetDir.resolve(format.getName() + ".zip"));
+    }
   }
 
   public void testReadIndicesFromEarlierReleases() throws Exception {
@@ -153,7 +165,24 @@ public class TestBackCompatIndices extends LuceneTestCase {
   }
 
   private void upgradeIndex(Path zip, Matcher matcher) throws IOException {
-    Codec codec = currentCodecFor(matcher.group(3));
+    String name = matcher.group(3);
+    if (KnnVectorsFormat.availableKnnVectorsFormats().contains(name)) {
+      // An index written with Lucene's own codec is upgraded the way its application would keep
+      // it: with Lucene's current codec and, per field, the format that writes in its family on
+      // this release.
+      KnnVectorsFormat format = currentFormatFor(name);
+      upgradeIndex(zip, perFieldCodec(format), format.getName());
+    }
+    // And with the cuvs-lucene codec of its family, which an application may move to instead.
+    upgradeIndex(zip, currentCodecFor(name), null);
+  }
+
+  /**
+   * Upgrades the index in {@code zip} with {@code codec}.
+   *
+   * @param perFieldFormat the vectors format name to expect for the vector field, or null to skip
+   */
+  private void upgradeIndex(Path zip, Codec codec, String perFieldFormat) throws IOException {
     Path indexDir = createTempDir(zip.getFileName().toString());
     unzip(zip, indexDir);
     try (Directory dir = newFSDirectory(indexDir)) {
@@ -169,9 +198,9 @@ public class TestBackCompatIndices extends LuceneTestCase {
         }
         writer.forceMerge(1);
       }
-      checkIndex(dir, codec.getName(), null, NUM_DOCS + UPGRADE_DOCS);
+      checkIndex(dir, codec.getName(), perFieldFormat, NUM_DOCS + UPGRADE_DOCS);
     } catch (AssertionError | Exception e) {
-      throw new AssertionError("Failed to upgrade " + zip, e);
+      throw new AssertionError("Failed to upgrade " + zip + " with " + codec.getName(), e);
     }
   }
 
@@ -183,15 +212,59 @@ public class TestBackCompatIndices extends LuceneTestCase {
         CuVSCodecs.acceleratedHNSWBinaryQuantized());
   }
 
-  /** Returns the codec that writes on this Lucene release in the family of the given codec. */
+  /** The vectors formats that write the indexes with Lucene's own codec. */
+  private static List<KnnVectorsFormat> formatsToWrite() {
+    return List.of(
+        CuVSCodecs.acceleratedHNSWFormat(),
+        CuVSCodecs.acceleratedHNSWScalarQuantizedFormat(),
+        CuVSCodecs.acceleratedHNSWBinaryQuantizedFormat());
+  }
+
+  /**
+   * Returns Lucene's default codec with {@code format} for every vector field, under the default
+   * codec's own name, as {@code GenerateReleasedIndices} writes the released per-field indexes.
+   */
+  private static Codec perFieldCodec(KnnVectorsFormat format) {
+    // Not Codec.getDefault(), which LuceneTestCase randomizes, so that the index records the codec
+    // an application on this release writes with.
+    Codec base = TestUtil.getDefaultCodec();
+    return new FilterCodec(base.getName(), base) {
+      private final KnnVectorsFormat perField =
+          new PerFieldKnnVectorsFormat() {
+            @Override
+            public KnnVectorsFormat getKnnVectorsFormatForField(String field) {
+              return format;
+            }
+          };
+
+      @Override
+      public KnnVectorsFormat knnVectorsFormat() {
+        return perField;
+      }
+    };
+  }
+
+  /**
+   * Returns the codec that writes on this Lucene release in the family of the given codec or
+   * vectors format.
+   */
   private static Codec currentCodecFor(String codecName) {
     if (codecName.contains("ScalarQuantized")) {
       return CuVSCodecs.acceleratedHNSWScalarQuantized();
     } else if (codecName.contains("BinaryQuantized")) {
       return CuVSCodecs.acceleratedHNSWBinaryQuantized();
     }
-    // The accelerated HNSW codecs, and Lucene's own codecs with its vectors format used per field.
     return CuVSCodecs.acceleratedHNSW();
+  }
+
+  /** Returns the vectors format that writes on this Lucene release in the family of the given one. */
+  private static KnnVectorsFormat currentFormatFor(String formatName) {
+    if (formatName.contains("ScalarQuantized")) {
+      return CuVSCodecs.acceleratedHNSWScalarQuantizedFormat();
+    } else if (formatName.contains("BinaryQuantized")) {
+      return CuVSCodecs.acceleratedHNSWBinaryQuantizedFormat();
+    }
+    return CuVSCodecs.acceleratedHNSWFormat();
   }
 
   private static Path resourceDir() throws URISyntaxException {

@@ -22,26 +22,22 @@ __inline__ __device__ T warpReduceSum(T val)
   return val;
 }
 
-// Block-level sum reduction via per-warp shfl + shared-memory exchange.
-// Returns the full block sum in lane 0 of warp 0; other lanes hold partial values.
-template <typename T>
-__inline__ __device__ T blockReduceSum(T val)
-{
-  __shared__ T shared[32];  // up to 1024 threads -> 32 warps
-  int lane = threadIdx.x & 31;
-  int wid  = threadIdx.x >> 5;
+// N floats summed component-wise. Passing this to cub::BlockReduce (with its Sum()) performs N
+// independent block-wide sums in one collective call: one warp-shuffle tree and one set of barriers
+// instead of N of each. Used with cub::BlockReduce<FloatSumN<N>, BlockSize>.
+template <int N>
+struct FloatSumN {
+  float v[N];
 
-  val = warpReduceSum(val);
-  // Wait until every warp has finished reading shared[] in the previous call
-  // before this call overwrites it. Doing this after the warp-local reduction
-  // overlaps the extra synchronization with useful work.
-  __syncthreads();
-  if (lane == 0) shared[wid] = val;
-  __syncthreads();
-
-  T out = (threadIdx.x < blockDim.x / 32) ? shared[lane] : T(0);
-  if (wid == 0) out = warpReduceSum(out);
-  return out;
-}
+  __device__ __forceinline__ FloatSumN operator+(const FloatSumN& o) const
+  {
+    FloatSumN r;
+#pragma unroll
+    for (int k = 0; k < N; ++k) {
+      r.v[k] = v[k] + o.v[k];
+    }
+    return r;
+  }
+};
 
 }  // namespace cuvs::neighbors::ivf_rabitq::detail
