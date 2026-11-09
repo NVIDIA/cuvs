@@ -13,7 +13,7 @@ This is a project for using [cuVS](https://github.com/NVIDIA/cuvs), NVIDIA's GPU
 
 ## What is cuvs-lucene?
 
-`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, existing Lucene applications can take advantage of GPU acceleration with minimal code changes. It supports Lucene 10.2 through 10.4.
+`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, existing Lucene applications can take advantage of GPU acceleration with minimal code changes. It supports Lucene 10.2 through 10.5.
 
 Four codecs are currently provided, created through `CuVSCodecs`:
 
@@ -24,7 +24,7 @@ Four codecs are currently provided, created through `CuVSCodecs`:
 
 Each codec wraps the default codec of one Lucene release, so the codec that writes changes with Lucene: for
 example `Lucene101AcceleratedHNSWCodec` on Lucene 10.2, `Lucene103AcceleratedHNSWCodec` on 10.3 and
-`Lucene104AcceleratedHNSWCodec` on 10.4. Codecs of earlier releases stay available so that existing indexes can
+`Lucene104AcceleratedHNSWCodec` on 10.4 and 10.5. Codecs of earlier releases stay available so that existing indexes can
 still be read after an upgrade, but they refuse to write. Creating the codecs through `CuVSCodecs` rather than by
 class name keeps application code unchanged when the codec to use changes with a later Lucene release. The same
 applies to the scalar-quantized format of earlier releases (class `LuceneAcceleratedHNSWScalarQuantizedVectorsFormat`,
@@ -48,13 +48,13 @@ For guidance on choosing between them, configuring builds, and tuning GPU resour
 ### Maven
 
 Lucene changes its codec APIs between minor releases, so `cuvs-lucene` is published once per supported Lucene
-minor release, as `cuvs-lucene-10.2`, `cuvs-lucene-10.3` and `cuvs-lucene-10.4`. Pick the one matching the
-Lucene version your application uses. For Lucene 10.4, add the following dependency to your `pom.xml`:
+minor release, as `cuvs-lucene-10.2`, `cuvs-lucene-10.3`, `cuvs-lucene-10.4` and `cuvs-lucene-10.5`. Pick the one matching the
+Lucene version your application uses. For Lucene 10.5, add the following dependency to your `pom.xml`:
 
 ```xml
 <dependency>
   <groupId>com.nvidia.cuvs.lucene</groupId>
-  <artifactId>cuvs-lucene-10.4</artifactId>
+  <artifactId>cuvs-lucene-10.5</artifactId>
   <version>26.12.0</version>
 </dependency>
 ```
@@ -192,8 +192,8 @@ The shared code never refers to a Lucene API that differs between releases. Inst
 
 - `LuceneCompat`, for calls whose signature or class location differs, such as the codecs of earlier releases,
   which move to Lucene's backward codecs.
-- `CompatKnnVectorsReader` and `CompatKnnFloatVectorQuery`, which override the Lucene methods whose signatures
-  changed and forward to a method with the same signature on every release. They live in `compat/`, one
+- `CompatKnnVectorsReader`, `CompatKnnVectorsWriter` and `CompatKnnFloatVectorQuery`, which override the Lucene
+  methods whose signatures changed and forward to a method with the same signature on every release. They live in `compat/`, one
   directory per variant, and each module picks its variants in its `pom.xml`.
 
 Do not look up Lucene classes or constants by reflection. It hides API changes from the compiler, and constants
