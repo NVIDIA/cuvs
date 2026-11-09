@@ -35,7 +35,7 @@ Initializes the `CuVS2510GPUVectorsReader`, checks and loads the index.
 | --- | --- |
 | `IOException` | I/O exception |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:99`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:97`_
 
 ### CuVS2510GPUVectorsReader
 
@@ -59,7 +59,7 @@ Initializes the reader with the cache owned by its vectors format.
 | --- | --- |
 | `IOException` | I/O exception |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:112`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:110`_
 
 ### readSimilarityFunction
 
@@ -85,7 +85,7 @@ an instance of VectorSimilarityFunction
 | --- | --- |
 | `IOException` |  |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:238`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:237`_
 
 ### readVectorEncoding
 
@@ -111,7 +111,7 @@ the vector encoding
 | --- | --- |
 | `IOException` |  |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:253`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:252`_
 
 ### getFieldEntry
 
@@ -132,7 +132,7 @@ cuVS index for it.
 
 the meta information for the field, or `null`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:316`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:315`_
 
 ### openCagraIndexForMerge
 
@@ -165,7 +165,7 @@ a freshly loaded CAGRA index, or `null` if this segment has none for the field
 | --- | --- |
 | `IOException` | I/O exception |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:335`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:334`_
 
 ### lazilyLoadedIndexCount
 
@@ -176,7 +176,7 @@ int lazilyLoadedIndexCount()
 Returns the number of indexes a merge-opened reader has loaded so far. Package-private so that
 tests can check that loading is per field.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:412`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:411`_
 
 ### close
 
@@ -186,7 +186,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Closes the resources.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:453`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:452`_
 
 ### checkIntegrity
 
@@ -196,7 +196,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Checks consistency of this reader.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:483`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:482`_
 
 ### getFloatVectorValues
 
@@ -206,7 +206,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Returns the FloatVectorValues for the given field.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:492`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:491`_
 
 ### getByteVectorValues
 
@@ -218,29 +218,29 @@ Returns the ByteVectorValues for the given field.
 
 This is not supported.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:502`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:501`_
 
-### search
+### doSearch
 
 ```java
-@Override public void search(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException
+@Override protected void doSearch(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException
 ```
 
 Returns the k nearest neighbor documents using cuVS's CAGRA or brute force algorithm for this field, to the given vector.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:526`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:525`_
 
-### search
+### doSearch
 
 ```java
-@Override public void search(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException
+@Override protected void doSearch(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs) throws IOException
 ```
 
 Return the k nearest neighbor documents as determined by comparison of their vector values for this field, to the given vector.
 
 This is not supported.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:687`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:702`_
 
 ### readEntry
 
@@ -268,7 +268,25 @@ an instance of FieldEntry
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:715`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:730`_
+
+### maxHits
+
+```java
+int maxHits(String field, CagraSearchParams.SearchAlgo searchAlgo)
+```
+
+Returns the most hits a search of the given field in this segment returns, or `Integer#MAX_VALUE` if it has no such limit. A segment with a brute force index has none, and
+one with only a CAGRA index returns at most `#MAX_CAGRA_K` hits, or `GPUKnnFloatVectorQuery#MAX_SINGLE_CTA_ITOPK` with SINGLE_CTA. Unlike `#getCagraIndexForField`, this never loads an index onto the GPU.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `field` | the vector field name |
+| `searchAlgo` | the CAGRA search algorithm the search runs with |
+
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:785`_
 
 ### getCagraIndexForField
 
@@ -299,7 +317,7 @@ the CAGRA index, or `null`
 | --- | --- |
 | `IOException` | I/O exception |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:772`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:815`_
 
 ### getFilterBitsetCache
 
@@ -309,7 +327,7 @@ FilterBitsetCache getFilterBitsetCache()
 
 Returns the filter cache owned by the vectors format that created this reader.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:781`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:824`_
 
 ### getFieldInfos
 
@@ -323,7 +341,7 @@ Gets the instance of FieldInfos.
 
 the instance of FieldInfos
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:790`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:833`_
 
 ### getCuvsIndexes
 
@@ -337,7 +355,7 @@ Gets the map of `GPUIndex` objects.
 
 the map of GPU index objects, or `null` if this reader was opened for a merge
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:799`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:842`_
 
 ### getFieldEntries
 
@@ -351,6 +369,6 @@ Gets the map of FieldEntry objects that hold the meta information for the field.
 
 the map of FieldEntry objects
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:808`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:851`_
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:62`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:61`_

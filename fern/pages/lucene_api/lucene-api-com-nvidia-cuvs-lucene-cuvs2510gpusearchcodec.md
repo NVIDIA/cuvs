@@ -7,29 +7,26 @@ slug: api-reference/lucene-api-com-nvidia-cuvs-lucene-cuvs2510gpusearchcodec
 _Java package: `com.nvidia.cuvs.lucene`_
 
 ```java
-public class CuVS2510GPUSearchCodec extends FilterCodec
+public class CuVS2510GPUSearchCodec extends CuVSFilterCodec
 ```
 
 cuVS based codec for GPU based vector search that enables both - indexing and search on the GPU.
 cuVS serialization formats are in experimental phase and hence backward compatibility cannot be guaranteed.
+
+This codec wraps `Lucene101Codec`, the default codec of Lucene 10.2. On later Lucene
+releases it can only read existing indexes; use `CuVSCodecs#gpuSearch` to write.
 
 ## Public Members
 
 ### CuVS2510GPUSearchCodec
 
 ```java
-public CuVS2510GPUSearchCodec() throws Exception
+public CuVS2510GPUSearchCodec()
 ```
 
 Default constructor for `CuVS2510GPUSearchCodec`.
 
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `Exception` |  |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:30`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:24`_
 
 ### CuVS2510GPUSearchCodec
 
@@ -47,12 +44,12 @@ having default parameter values.
 | `name` | the name of the codec |
 | `delegate` | the delegate codec |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:45`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:35`_
 
 ### CuVS2510GPUSearchCodec
 
 ```java
-public CuVS2510GPUSearchCodec(GPUSearchParams params) throws Exception
+public CuVS2510GPUSearchCodec(GPUSearchParams params)
 ```
 
 Initialize the codec with an instance of `GPUSearchParams` having either default
@@ -64,18 +61,12 @@ or overridden parameter values.
 | --- | --- |
 | `params` | An instance of `GPUSearchParams` |
 
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `Exception` | Exception raised when initializing the codec |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:56`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:45`_
 
 ### CuVS2510GPUSearchCodec
 
 ```java
-public CuVS2510GPUSearchCodec(GPUSearchParams params, FilterBitsetCacheConfig filterCacheConfig) throws Exception
+public CuVS2510GPUSearchCodec(GPUSearchParams params, FilterBitsetCacheConfig filterCacheConfig)
 ```
 
 Initialize the codec with GPU search and filter-bitset-cache parameters.
@@ -87,13 +78,7 @@ Initialize the codec with GPU search and filter-bitset-cache parameters.
 | `params` | GPU index and search parameters |
 | `filterCacheConfig` | filter-bitset-cache configuration |
 
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `Exception` | Exception raised when initializing the codec |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:67`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:55`_
 
 ### CuVS2510GPUSearchCodec
 
@@ -112,36 +97,6 @@ Initialize a named codec with explicit delegate, GPU search, and filter-cache pa
 | `params` | GPU index and search parameters |
 | `filterCacheConfig` | filter-bitset-cache configuration |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:80`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:71`_
 
-### knnVectorsFormat
-
-```java
-@Override public KnnVectorsFormat knnVectorsFormat()
-```
-
-Get the configured `KnnVectorsFormat`.
-
-**Returns**
-
-the instance of the `KnnVectorsFormat`
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:111`_
-
-### setKnnFormat
-
-```java
-public void setKnnFormat(KnnVectorsFormat format)
-```
-
-Set the `KnnVectorsFormat`.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `format` | the `KnnVectorsFormat` to set |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:121`_
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:20`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUSearchCodec.java:18`_
