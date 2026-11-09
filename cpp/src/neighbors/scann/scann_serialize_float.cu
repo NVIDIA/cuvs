@@ -16,10 +16,9 @@ namespace cuvs::neighbors::scann {
 #define CUVS_INST_SCANN_SERIALIZE(DTYPE, IdxT)                                           \
   void serialize(raft::resources const& handle,                                          \
                  const std::string& file_prefix,                                         \
-                 const cuvs::neighbors::scann::index<DTYPE, IdxT>& index_)              \
+                 const cuvs::neighbors::scann::index<DTYPE, IdxT>& index_)               \
   {                                                                                      \
-    cuvs::neighbors::scann::detail::serialize<DTYPE, IdxT>(                              \
-      handle, file_prefix, index_);                                                      \
+    cuvs::neighbors::scann::detail::serialize<DTYPE, IdxT>(handle, file_prefix, index_); \
   };
 
 CUVS_INST_SCANN_SERIALIZE(float, int64_t);

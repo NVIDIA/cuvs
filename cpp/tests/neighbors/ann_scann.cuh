@@ -535,10 +535,7 @@ inline void run_invalid_build_params()
 #define INSTANTIATE(type, vals) \
   INSTANTIATE_TEST_SUITE_P(ScaNN, type, ::testing::ValuesIn(vals)); /* NOLINT */
 
-#define TEST_INVALID_BUILD_PARAMS()                   \
-  TEST(AnnScaNNTest, InvalidBuildParams) /* NOLINT */ \
-  {                                                   \
-    run_invalid_build_params();                       \
-  }
+#define TEST_INVALID_BUILD_PARAMS() \
+  TEST(AnnScaNNTest, InvalidBuildParams) /* NOLINT */ { run_invalid_build_params(); }
 
 }  // namespace cuvs::neighbors::scann

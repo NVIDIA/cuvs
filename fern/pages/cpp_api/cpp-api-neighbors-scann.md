@@ -424,6 +424,75 @@ raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
 
 [`cuvs::neighbors::scann::index<float, int64_t>`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index)
 
+**Additional overload:** `neighbors::scann::build`
+
+Build the index from the dataset for efficient search.
+
+```cpp
+auto build(raft::resources const& handle,
+const cuvs::neighbors::scann::index_params& params,
+raft::device_matrix_view<const half, int64_t, raft::row_major> dataset)
+-> cuvs::neighbors::scann::index<half, int64_t>;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `params` |  | [`const cuvs::neighbors::scann::index_params&`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index-params) |  |
+| `dataset` |  | `raft::device_matrix_view<const half, int64_t, raft::row_major>` |  |
+
+**Returns**
+
+[`cuvs::neighbors::scann::index<half, int64_t>`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index)
+
+**Additional overload:** `neighbors::scann::build`
+
+Build the index from the dataset for efficient search.
+
+```cpp
+auto build(raft::resources const& handle,
+const cuvs::neighbors::scann::index_params& params,
+raft::device_matrix_view<const int8_t, int64_t, raft::row_major> dataset)
+-> cuvs::neighbors::scann::index<int8_t, int64_t>;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `params` |  | [`const cuvs::neighbors::scann::index_params&`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index-params) |  |
+| `dataset` |  | `raft::device_matrix_view<const int8_t, int64_t, raft::row_major>` |  |
+
+**Returns**
+
+[`cuvs::neighbors::scann::index<int8_t, int64_t>`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index)
+
+**Additional overload:** `neighbors::scann::build`
+
+Build the index from the dataset for efficient search.
+
+```cpp
+auto build(raft::resources const& handle,
+const cuvs::neighbors::scann::index_params& params,
+raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> dataset)
+-> cuvs::neighbors::scann::index<uint8_t, int64_t>;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `params` |  | [`const cuvs::neighbors::scann::index_params&`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index-params) |  |
+| `dataset` |  | `raft::device_matrix_view<const uint8_t, int64_t, raft::row_major>` |  |
+
+**Returns**
+
+[`cuvs::neighbors::scann::index<uint8_t, int64_t>`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index)
+
 <a id="neighbors-scann-serialize"></a>
 ### neighbors::scann::serialize
 

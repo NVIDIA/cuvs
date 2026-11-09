@@ -277,11 +277,11 @@ index<T, IdxT> build(
 
     compute_soar_labels<float, uint32_t>(res,
                                          raft::make_const_mdspan(centers_view),
-                                     raft::make_const_mdspan(residuals.view()),
-                                     coarse_centers,
-                                     coarse_labels,
-                                     idx.coarse_soar_labels(),
-                                     params.soar_lambda);
+                                         raft::make_const_mdspan(residuals.view()),
+                                         coarse_centers,
+                                         coarse_labels,
+                                         idx.coarse_soar_labels(),
+                                         params.soar_lambda);
   }
 
   raft::device_vector_view<uint32_t, int64_t> soar_labels_view = idx.soar_labels();

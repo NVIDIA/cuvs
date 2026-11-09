@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -19,9 +19,9 @@
 #include "common.cuh"
 
 struct scann_args {
-  std::string dataset;                 // required: input binary file
-  std::string output      = "/tmp";    // output artifact directory
-  std::string dtype       = "float";   // float | half | int8 | uint8
+  std::string dataset;                // required: input binary file
+  std::string output      = "/tmp";   // output artifact directory
+  std::string dtype       = "float";  // float | half | int8 | uint8
   int n_leaves            = 1000;
   int pq_dim              = 2;
   int pq_bits             = 4;
@@ -111,9 +111,8 @@ void scann_build_and_write(raft::device_resources const& dev_resources, const sc
   std::cout << "Building ScaNN index" << std::endl;
 
   auto start = std::chrono::system_clock::now();
-  auto index =
-    scann::build(dev_resources, index_params, raft::make_const_mdspan(dataset.view()));
-  auto end = std::chrono::system_clock::now();
+  auto index = scann::build(dev_resources, index_params, raft::make_const_mdspan(dataset.view()));
+  auto end   = std::chrono::system_clock::now();
   std::chrono::duration<double> elapsed_seconds = end - start;
 
   std::cout << "Time to build index: " << elapsed_seconds.count() << "s\n";

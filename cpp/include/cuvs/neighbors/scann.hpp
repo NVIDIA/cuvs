@@ -475,8 +475,8 @@ void serialize(raft::resources const& handle,
 namespace experimental {
 namespace scann {
 
-using index_params [[deprecated(
-  "Use cuvs::neighbors::scann::index_params instead")]] = cuvs::neighbors::scann::index_params;
+using index_params [[deprecated("Use cuvs::neighbors::scann::index_params instead")]] =
+  cuvs::neighbors::scann::index_params;
 
 template <typename T, typename IdxT>
 using index [[deprecated("Use cuvs::neighbors::scann::index instead")]] =

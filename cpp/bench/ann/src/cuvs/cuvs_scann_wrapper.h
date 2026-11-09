@@ -103,8 +103,7 @@ void cuvs_scann<T, IdxT>::load(const std::string&)
 }
 
 template <typename T, typename IdxT>
-void cuvs_scann<T, IdxT>::search(
-  const T*, int, int, algo_base::index_type*, float*) const
+void cuvs_scann<T, IdxT>::search(const T*, int, int, algo_base::index_type*, float*) const
 {
   throw std::runtime_error("ScaNN benchmark supports build only; search is not implemented");
 }
