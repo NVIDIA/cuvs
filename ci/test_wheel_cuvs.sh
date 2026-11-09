@@ -38,4 +38,4 @@ rapids-pip-retry install \
     "${LIBCUVS_WHEELHOUSE}"/libcuvs*.whl \
     "$(echo "${CUVS_WHEELHOUSE}"/cuvs*.whl)[test]"
 
-python -m pytest ./python/cuvs/cuvs/tests
+timeout -v --signal=SIGINT --kill-after=60s 40m python -m pytest ./python/cuvs/cuvs/tests

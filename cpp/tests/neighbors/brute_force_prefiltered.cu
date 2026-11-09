@@ -89,6 +89,93 @@ struct float_to_half {
   __host__ __device__ __half operator()(const float x) const { return __float2half(x); }
 };
 
+struct half_to_float {
+  __host__ __device__ float operator()(const __half x) const { return __half2float(x); }
+};
+
+/**
+ * CPU reference for the filtered distances: for every nonzero (i, cols[j]) of the CSR pattern,
+ * compute the distance between row i of `queries` and row cols[j] of `dataset` (both row-major,
+ * `dim` columns). Norms are computed once per row instead of once per nonzero, and several
+ * independent dot products are interleaved to hide floating point latency. Each dot product and
+ * norm is still summed sequentially over `dim`, so the results match the naive formulation.
+ */
+template <typename dist_t, typename index_t>
+void cpu_sddmm(const std::vector<dist_t>& queries,
+               const std::vector<dist_t>& dataset,
+               std::vector<dist_t>& vals,
+               const std::vector<index_t>& cols,
+               const std::vector<index_t>& row_ptrs,
+               index_t n_queries,
+               index_t n_dataset,
+               index_t dim,
+               cuvs::distance::DistanceType metric)
+{
+  ASSERT_EQ(queries.size(), size_t(n_queries) * dim);
+  ASSERT_EQ(dataset.size(), size_t(n_dataset) * dim);
+
+  auto sq_norm = [dim](const dist_t* v) {
+    dist_t norm = 0;
+    for (index_t l = 0; l < dim; ++l) {
+      norm += v[l] * v[l];
+    }
+    return norm;
+  };
+  auto finalize = [metric](dist_t dot, dist_t query_norm, dist_t dataset_norm) {
+    if (metric == cuvs::distance::DistanceType::L2Expanded) {
+      return dist_t(-2.0) * dot + query_norm + dataset_norm;
+    } else if (metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+      return std::sqrt(dist_t(-2.0) * dot + query_norm + dataset_norm);
+    } else if (metric == cuvs::distance::DistanceType::CosineExpanded) {
+      return dist_t(1.0) - dot / std::sqrt(query_norm * dataset_norm);
+    }
+    return dot;
+  };
+
+  // Dataset norms are computed lazily, the first time a row is used, while it is in cache.
+  std::vector<dist_t> dataset_norms(n_dataset);
+  std::vector<uint8_t> dataset_norm_ready(n_dataset, 0);
+  auto dataset_row = [&](index_t c) {
+    const dist_t* row = dataset.data() + size_t(c) * dim;
+    if (!dataset_norm_ready[c]) {
+      dataset_norms[c]      = sq_norm(row);
+      dataset_norm_ready[c] = 1;
+    }
+    return row;
+  };
+
+  constexpr index_t kBlock = 8;
+  for (index_t i = 0; i < n_queries; ++i) {
+    const dist_t* q   = queries.data() + size_t(i) * dim;
+    dist_t query_norm = sq_norm(q);
+    index_t j         = row_ptrs[i];
+    for (; j + kBlock <= row_ptrs[i + 1]; j += kBlock) {
+      const dist_t* d[kBlock];
+      dist_t dot[kBlock];
+      for (index_t b = 0; b < kBlock; ++b) {
+        d[b]   = dataset_row(cols[j + b]);
+        dot[b] = 0;
+      }
+      for (index_t l = 0; l < dim; ++l) {
+        for (index_t b = 0; b < kBlock; ++b) {
+          dot[b] += q[l] * d[b][l];
+        }
+      }
+      for (index_t b = 0; b < kBlock; ++b) {
+        vals[j + b] = finalize(dot[b], query_norm, dataset_norms[cols[j + b]]);
+      }
+    }
+    for (; j < row_ptrs[i + 1]; ++j) {
+      const dist_t* d = dataset_row(cols[j]);
+      dist_t dot      = 0;
+      for (index_t l = 0; l < dim; ++l) {
+        dot += q[l] * d[l];
+      }
+      vals[j] = finalize(dot, query_norm, dataset_norms[cols[j]]);
+    }
+  }
+}
+
 template <typename OutT, typename InT>
 void normalize(OutT* theta,
                const InT* in_vals,
@@ -249,61 +336,6 @@ class PrefilteredBruteForceOnBitmapTest
     }
   }
 
-  void cpu_sddmm(const std::vector<dist_t>& A,
-                 const std::vector<dist_t>& B,
-                 std::vector<dist_t>& vals,
-                 const std::vector<index_t>& cols,
-                 const std::vector<index_t>& row_ptrs,
-                 bool is_row_major_A,
-                 bool is_row_major_B,
-                 dist_t alpha = 1.0,
-                 dist_t beta  = 0.0)
-  {
-    if (params.n_queries * params.dim != static_cast<index_t>(A.size()) ||
-        params.dim * params.n_dataset != static_cast<index_t>(B.size())) {
-      std::cerr << "Matrix dimensions and vector size do not match!" << std::endl;
-      return;
-    }
-
-    bool trans_a = is_row_major_A;
-    bool trans_b = is_row_major_B;
-
-    for (index_t i = 0; i < params.n_queries; ++i) {
-      for (index_t j = row_ptrs[i]; j < row_ptrs[i + 1]; ++j) {
-        dist_t sum     = 0;
-        dist_t norms_A = 0;
-        dist_t norms_B = 0;
-
-        for (index_t l = 0; l < params.dim; ++l) {
-          index_t a_index = trans_a ? i * params.dim + l : l * params.n_queries + i;
-          index_t b_index = trans_b ? l * params.n_dataset + cols[j] : cols[j] * params.dim + l;
-          dist_t A_v;
-          dist_t B_v;
-          if constexpr (sizeof(value_t) == 2) {
-            A_v = __half2float(__float2half(A[a_index]));
-            B_v = __half2float(__float2half(B[b_index]));
-          } else {
-            A_v = A[a_index];
-            B_v = B[b_index];
-          }
-
-          sum += A_v * B_v;
-
-          norms_A += A_v * A_v;
-          norms_B += B_v * B_v;
-        }
-        vals[j] = alpha * sum + beta * vals[j];
-        if (params.metric == cuvs::distance::DistanceType::L2Expanded) {
-          vals[j] = dist_t(-2.0) * vals[j] + norms_A + norms_B;
-        } else if (params.metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
-          vals[j] = std::sqrt(dist_t(-2.0) * vals[j] + norms_A + norms_B);
-        } else if (params.metric == cuvs::distance::DistanceType::CosineExpanded) {
-          vals[j] = dist_t(1.0) - vals[j] / std::sqrt(norms_A * norms_B);
-        }
-      }
-    }
-  }
-
   void cpu_select_k(const std::vector<index_t>& indptr_h,
                     const std::vector<index_t>& indices_h,
                     const std::vector<dist_t>& values_h,
@@ -363,6 +395,8 @@ class PrefilteredBruteForceOnBitmapTest
       raft::ceildiv(params.n_queries * params.n_dataset, index_t(sizeof(bitmap_t) * 8));
     std::vector<bitmap_t> filter_h(element);
     filter_d.resize(element, stream);
+    // set_bitmap only sets bits, so the filter must start out empty
+    RAFT_CUDA_TRY(cudaMemsetAsync(filter_d.data(), 0, filter_d.size() * sizeof(bitmap_t), stream));
 
     nnz =
       create_sparse_matrix_with_rmat(params.n_queries, params.n_dataset, params.sparsity, filter_d);
@@ -415,25 +449,29 @@ class PrefilteredBruteForceOnBitmapTest
                                                 uint64_t(2024));
     }
 
-    raft::copy(dataset_h.data(), blobs_in_val.data_handle(), dataset_size, stream);
-
     if constexpr (std::is_same_v<value_t, half>) {
       raft::linalg::unaryOp(
         dataset_d.data(), blobs_in_val.data_handle(), dataset_size, float_to_half(), stream);
-    } else {
-      raft::copy(dataset_d.data(), blobs_in_val.data_handle(), dataset_size, stream);
-    }
-
-    raft::copy(queries_h.data(), blobs_in_val.data_handle() + dataset_size, queries_size, stream);
-    if constexpr (std::is_same_v<value_t, half>) {
       raft::linalg::unaryOp(queries_d.data(),
                             blobs_in_val.data_handle() + dataset_size,
                             queries_size,
                             float_to_half(),
                             stream);
+      // Round the host reference inputs to half precision, matching what the device sees.
+      raft::linalg::unaryOp(
+        blobs_in_val.data_handle(), dataset_d.data(), dataset_size, half_to_float(), stream);
+      raft::linalg::unaryOp(blobs_in_val.data_handle() + dataset_size,
+                            queries_d.data(),
+                            queries_size,
+                            half_to_float(),
+                            stream);
     } else {
+      raft::copy(dataset_d.data(), blobs_in_val.data_handle(), dataset_size, stream);
       raft::copy(queries_d.data(), blobs_in_val.data_handle() + dataset_size, queries_size, stream);
     }
+
+    raft::copy(dataset_h.data(), blobs_in_val.data_handle(), dataset_size, stream);
+    raft::copy(queries_h.data(), blobs_in_val.data_handle() + dataset_size, queries_size, stream);
 
     raft::resource::sync_stream(handle);
 
@@ -443,7 +481,15 @@ class PrefilteredBruteForceOnBitmapTest
 
     cpu_convert_to_csr(filter_h, params.n_queries, params.n_dataset, indices_h, indptr_h);
 
-    cpu_sddmm(queries_h, dataset_h, values_h, indices_h, indptr_h, true, false);
+    cpu_sddmm(queries_h,
+              dataset_h,
+              values_h,
+              indices_h,
+              indptr_h,
+              params.n_queries,
+              params.n_dataset,
+              params.dim,
+              params.metric);
 
     bool select_min = cuvs::distance::is_min_close(params.metric);
 
@@ -668,61 +714,6 @@ class PrefilteredBruteForceOnBitsetTest
     }
   }
 
-  void cpu_sddmm(const std::vector<dist_t>& A,
-                 const std::vector<dist_t>& B,
-                 std::vector<dist_t>& vals,
-                 const std::vector<index_t>& cols,
-                 const std::vector<index_t>& row_ptrs,
-                 bool is_row_major_A,
-                 bool is_row_major_B,
-                 dist_t alpha = 1.0,
-                 dist_t beta  = 0.0)
-  {
-    if (params.n_queries * params.dim != static_cast<index_t>(A.size()) ||
-        params.dim * params.n_dataset != static_cast<index_t>(B.size())) {
-      std::cerr << "Matrix dimensions and vector size do not match!" << std::endl;
-      return;
-    }
-
-    bool trans_a = is_row_major_A;
-    bool trans_b = is_row_major_B;
-
-    for (index_t i = 0; i < params.n_queries; ++i) {
-      for (index_t j = row_ptrs[i]; j < row_ptrs[i + 1]; ++j) {
-        dist_t sum     = 0;
-        dist_t norms_A = 0;
-        dist_t norms_B = 0;
-
-        for (index_t l = 0; l < params.dim; ++l) {
-          index_t a_index = trans_a ? i * params.dim + l : l * params.n_queries + i;
-          index_t b_index = trans_b ? l * params.n_dataset + cols[j] : cols[j] * params.dim + l;
-          dist_t A_v;
-          dist_t B_v;
-          if constexpr (sizeof(value_t) == 2) {
-            A_v = __half2float(__float2half(A[a_index]));
-            B_v = __half2float(__float2half(B[b_index]));
-          } else {
-            A_v = A[a_index];
-            B_v = B[b_index];
-          }
-
-          sum += A_v * B_v;
-
-          norms_A += A_v * A_v;
-          norms_B += B_v * B_v;
-        }
-        vals[j] = alpha * sum + beta * vals[j];
-        if (params.metric == cuvs::distance::DistanceType::L2Expanded) {
-          vals[j] = dist_t(-2.0) * vals[j] + norms_A + norms_B;
-        } else if (params.metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
-          vals[j] = std::sqrt(dist_t(-2.0) * vals[j] + norms_A + norms_B);
-        } else if (params.metric == cuvs::distance::DistanceType::CosineExpanded) {
-          vals[j] = dist_t(1.0) - vals[j] / std::sqrt(norms_A * norms_B);
-        }
-      }
-    }
-  }
-
   void cpu_select_k(const std::vector<index_t>& indptr_h,
                     const std::vector<index_t>& indices_h,
                     const std::vector<dist_t>& values_h,
@@ -783,6 +774,8 @@ class PrefilteredBruteForceOnBitsetTest
     std::vector<bitset_t> filter_repeat_h(element * params.n_queries);
 
     filter_d.resize(element, stream);
+    // set_bitmap only sets bits, so the filter must start out empty
+    RAFT_CUDA_TRY(cudaMemsetAsync(filter_d.data(), 0, filter_d.size() * sizeof(bitset_t), stream));
 
     nnz = create_sparse_matrix_with_rmat(1, params.n_dataset, params.sparsity, filter_d);
     raft::update_host(filter_h.data(), filter_d.data(), filter_d.size(), stream);
@@ -837,25 +830,29 @@ class PrefilteredBruteForceOnBitsetTest
                                                 uint64_t(2024));
     }
 
-    raft::copy(dataset_h.data(), blobs_in_val.data_handle(), dataset_size, stream);
-
     if constexpr (std::is_same_v<value_t, half>) {
       raft::linalg::unaryOp(
         dataset_d.data(), blobs_in_val.data_handle(), dataset_size, float_to_half(), stream);
-    } else {
-      raft::copy(dataset_d.data(), blobs_in_val.data_handle(), dataset_size, stream);
-    }
-
-    raft::copy(queries_h.data(), blobs_in_val.data_handle() + dataset_size, queries_size, stream);
-    if constexpr (std::is_same_v<value_t, half>) {
       raft::linalg::unaryOp(queries_d.data(),
                             blobs_in_val.data_handle() + dataset_size,
                             queries_size,
                             float_to_half(),
                             stream);
+      // Round the host reference inputs to half precision, matching what the device sees.
+      raft::linalg::unaryOp(
+        blobs_in_val.data_handle(), dataset_d.data(), dataset_size, half_to_float(), stream);
+      raft::linalg::unaryOp(blobs_in_val.data_handle() + dataset_size,
+                            queries_d.data(),
+                            queries_size,
+                            half_to_float(),
+                            stream);
     } else {
+      raft::copy(dataset_d.data(), blobs_in_val.data_handle(), dataset_size, stream);
       raft::copy(queries_d.data(), blobs_in_val.data_handle() + dataset_size, queries_size, stream);
     }
+
+    raft::copy(dataset_h.data(), blobs_in_val.data_handle(), dataset_size, stream);
+    raft::copy(queries_h.data(), blobs_in_val.data_handle() + dataset_size, queries_size, stream);
 
     raft::resource::sync_stream(handle);
 
@@ -865,7 +862,15 @@ class PrefilteredBruteForceOnBitsetTest
 
     cpu_convert_to_csr(filter_repeat_h, params.n_queries, params.n_dataset, indices_h, indptr_h);
 
-    cpu_sddmm(queries_h, dataset_h, values_h, indices_h, indptr_h, true, false);
+    cpu_sddmm(queries_h,
+              dataset_h,
+              values_h,
+              indices_h,
+              indptr_h,
+              params.n_queries,
+              params.n_dataset,
+              params.dim,
+              params.metric);
 
     bool select_min = cuvs::distance::is_min_close(params.metric);
 
@@ -1012,21 +1017,23 @@ const std::vector<PrefilteredBruteForceInputs<index_t>> selectk_inputs = {
   {1024, 8192, 3, 1, 0.1, cuvs::distance::DistanceType::InnerProduct},
   {1024, 8192, 5, 1, 0.1, cuvs::distance::DistanceType::L2SqrtExpanded},
   {1024, 8192, 8, 1, 0.1, cuvs::distance::DistanceType::CosineExpanded},
-  {1024, 8192, 2050, 16, 0.4, cuvs::distance::DistanceType::L2Expanded},
 
-  {1024, 8192, 2051, 16, 0.5, cuvs::distance::DistanceType::L2Expanded},
-  {1024, 8192, 2052, 16, 0.2, cuvs::distance::DistanceType::L2Expanded},
-  {1024, 8192, 2050, 16, 0.4, cuvs::distance::DistanceType::InnerProduct},
-  {1024, 8192, 2051, 16, 0.5, cuvs::distance::DistanceType::InnerProduct},
-  {1024, 8192, 2052, 16, 0.2, cuvs::distance::DistanceType::InnerProduct},
+  {1024, 8192, 34, 16, 0.1, cuvs::distance::DistanceType::L2Expanded},
+  {1024, 8192, 35, 16, 0.15, cuvs::distance::DistanceType::L2Expanded},
+  {1024, 8192, 36, 16, 0.135, cuvs::distance::DistanceType::L2Expanded},
 
-  {1024, 8192, 2050, 16, 0.4, cuvs::distance::DistanceType::L2SqrtExpanded},
-  {1024, 8192, 2051, 16, 0.5, cuvs::distance::DistanceType::L2SqrtExpanded},
-  {1024, 8192, 2052, 16, 0.2, cuvs::distance::DistanceType::L2SqrtExpanded},
-  {1024, 8192, 2050, 16, 0.4, cuvs::distance::DistanceType::CosineExpanded},
-  {1024, 8192, 2051, 16, 0.5, cuvs::distance::DistanceType::CosineExpanded},
+  {1024, 8192, 34, 16, 0.1, cuvs::distance::DistanceType::InnerProduct},
+  {1024, 8192, 35, 16, 0.15, cuvs::distance::DistanceType::InnerProduct},
+  {1024, 8192, 36, 16, 0.135, cuvs::distance::DistanceType::InnerProduct},
 
-  {1024, 8192, 2052, 16, 0.2, cuvs::distance::DistanceType::CosineExpanded},
+  {1024, 8192, 34, 16, 0.1, cuvs::distance::DistanceType::L2SqrtExpanded},
+  {1024, 8192, 35, 16, 0.15, cuvs::distance::DistanceType::L2SqrtExpanded},
+  {1024, 8192, 36, 16, 0.135, cuvs::distance::DistanceType::L2SqrtExpanded},
+
+  {1024, 8192, 34, 16, 0.1, cuvs::distance::DistanceType::CosineExpanded},
+  {1024, 8192, 35, 16, 0.15, cuvs::distance::DistanceType::CosineExpanded},
+  {1024, 8192, 36, 16, 0.135, cuvs::distance::DistanceType::CosineExpanded},
+
   {1024, 8192, 1, 16, 0.5, cuvs::distance::DistanceType::L2Expanded},
   {1024, 8192, 2, 16, 0.2, cuvs::distance::DistanceType::L2Expanded},
 

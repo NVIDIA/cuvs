@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include <cub/cub.cuh>
+#include <cub/block/block_merge_sort.cuh>
 
 #include "macros.cuh"
 #include "priority_queue.cuh"

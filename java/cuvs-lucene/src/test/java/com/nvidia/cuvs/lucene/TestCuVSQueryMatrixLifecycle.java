@@ -11,6 +11,7 @@ import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
 import com.nvidia.cuvs.CuVSResources;
 import com.nvidia.cuvs.spi.CuVSProvider;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -69,7 +70,7 @@ public class TestCuVSQueryMatrixLifecycle extends LuceneTestCase {
       throws Exception {
     IndexWriterConfig config =
         new IndexWriterConfig()
-            .setCodec(new CuVS2510GPUSearchCodec())
+            .setCodec(CuVSCodecs.gpuSearch())
             .setMergePolicy(NoMergePolicy.INSTANCE)
             .setMaxBufferedDocs(vectors.length + 1);
     try (IndexWriter writer = new IndexWriter(directory, config)) {
@@ -104,7 +105,7 @@ public class TestCuVSQueryMatrixLifecycle extends LuceneTestCase {
     }
   }
 
-  private static void assertCagraIndexLoaded(LeafReader leaf) {
+  private static void assertCagraIndexLoaded(LeafReader leaf) throws IOException {
     KnnVectorsReader vectorReader = ((CodecReader) leaf).getVectorReader();
     if (vectorReader instanceof PerFieldKnnVectorsFormat.FieldsReader fieldsReader) {
       vectorReader = fieldsReader.getFieldReader(VECTOR_FIELD);
@@ -157,7 +158,7 @@ public class TestCuVSQueryMatrixLifecycle extends LuceneTestCase {
 
   private record MemoryTotals(long current, long allocated, long freed) {}
 
-  /** Prevents a Lucene reader from closing the tracker before its final CSV sample is written. */
+  /** Keeps tracker ownership in the surrounding try-with-resources while the reader closes its indexes. */
   private static final class NonClosingResources implements CuVSResources {
     private final CuVSResources delegate;
 

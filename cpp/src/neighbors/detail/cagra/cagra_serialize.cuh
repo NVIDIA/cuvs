@@ -77,6 +77,19 @@ constexpr bool is_valid_serialized_dataset_kind(std::uint32_t raw)
   return raw <= static_cast<std::uint32_t>(kind::host_standard);
 }
 
+/**
+ * Quantized datasets (PQ, BBQ) are owned outside the index and carry codebooks the index file has
+ * no representation for, so such indexes serialize the graph alone.
+ */
+template <typename DatasetViewT>
+inline constexpr bool is_graph_only_dataset_view_v =
+  cuvs::neighbors::is_vpq_dataset_view_v<DatasetViewT> ||
+  cuvs::neighbors::is_bbq_dataset_view_v<DatasetViewT>;
+
+inline constexpr char const* kGraphOnlyDatasetMessage =
+  "CAGRA indexes with a quantized dataset store only the graph; serialize the quantized dataset "
+  "separately and reattach it with update_dataset()";
+
 template <typename MdspanT>
 void serialize_index_mdspan(raft::resources const& res, std::ostream& os, MdspanT const& mdspan)
 {
@@ -110,10 +123,14 @@ void serialize(raft::resources const& res,
     "Saving CAGRA index, size %zu, dim %u", static_cast<size_t>(index_.size()), index_.dim());
 
   include_dataset &= (index_.dataset().n_rows() > 0);
-  auto const dataset_kind = include_dataset ? serialized_dataset_kind_for_view<DatasetViewT>()
-                                            : cuvs::neighbors::cagra::serialized_dataset_kind::none;
+  auto dataset_kind = cuvs::neighbors::cagra::serialized_dataset_kind::none;
+  if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+    RAFT_EXPECTS(!include_dataset, kGraphOnlyDatasetMessage);
+  } else {
+    if (include_dataset) { dataset_kind = serialized_dataset_kind_for_view<DatasetViewT>(); }
+  }
 
-  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = cuvs::util::detail::numpy_dtype_string<T>();
   dtype_string.resize(4);
   os << dtype_string;
 
@@ -134,9 +151,11 @@ void serialize(raft::resources const& res,
     RAFT_LOG_DEBUG("Saving CAGRA index with dataset");
     if constexpr (cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>) {
       neighbors::detail::serialize_cagra_dense_dataset<T, int64_t>(res, os, index_.dataset());
+    } else if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+      RAFT_FAIL(kGraphOnlyDatasetMessage);
     } else {
-      // Future dataset types (e.g. VPQ) require a new branch here and a corresponding
-      // deserialize overload. Use static_assert to catch unsupported types at compile time.
+      // A further dataset type requires a new branch here and a corresponding deserialize branch.
+      // Use static_assert to catch unsupported types at compile time.
       static_assert(
         sizeof(DatasetViewT) == 0,
         "serialize: dataset serialization is not yet implemented for this DatasetViewT");
@@ -293,8 +312,8 @@ void write_hnswlib_rows_host(
                  "CAGRA dataset rows (%zu) do not match index size (%zu)",
                  static_cast<size_t>(dataset_view.n_rows()),
                  n_rows);
-    dataset_data      = dataset_view.view().data_handle();
-    dataset_stride    = dataset_view.stride();
+    dataset_data      = dataset_view.data_const_view().data_handle();
+    dataset_stride    = dataset_view.data_const_view().stride(0);
     dataset_is_device = is_device_cagra_hnsw_serialize_index_v<T, IdxT, CagraIndexT>;
   }
 
@@ -325,10 +344,19 @@ void write_hnswlib_rows_host(
     raft::resource::sync_stream(res);
 
     for (size_t batch_row = 0; batch_row < rows; ++batch_row) {
-      auto const row = first_row + batch_row;
-      os.write(reinterpret_cast<char const*>(&graph_degree_int), sizeof(int));
-      os.write(reinterpret_cast<char const*>(&graph_buffer(batch_row, 0)),
-               graph_degree * sizeof(IdxT));
+      auto const row        = first_row + batch_row;
+      IdxT const* graph_row = &graph_buffer(batch_row, 0);
+      // Variable-degree graphs pad unused neighbor slots with kInvalidNeighbor; the per-node
+      // hnswlib link-list size is the number of valid neighbors before the first sentinel.
+      int actual_degree = graph_degree_int;
+      for (int j = 0; j < graph_degree_int; j++) {
+        if (graph_row[j] == kInvalidNeighbor<IdxT>) {
+          actual_degree = j;
+          break;
+        }
+      }
+      os.write(reinterpret_cast<char const*>(&actual_degree), sizeof(int));
+      os.write(reinterpret_cast<char const*>(graph_row), graph_degree * sizeof(IdxT));
       T const* data_row =
         dataset_is_device ? &dataset_buffer(batch_row, 0) : dataset_data + row * dataset_stride;
       os.write(reinterpret_cast<char const*>(data_row), dim * sizeof(T));
@@ -369,16 +397,29 @@ __global__ void pack_hnswlib_rows(uint8_t* output,
 
   auto const row   = first_row + batch_row;
   auto* row_output = output + batch_row * row_size;
-  if (lane == 0) {
-    write_unaligned_value(row_output, static_cast<int>(graph_degree));
-    auto const label_offset = sizeof(int) + graph_degree * sizeof(IdxT) + dim * sizeof(T);
-    write_unaligned_value(row_output + label_offset, row);
-  }
 
   auto const graph_offset = sizeof(int);
+  uint32_t first_invalid  = graph_degree;
   for (size_t col = lane; col < graph_degree; col += warpSize) {
+    auto const neighbor = graph[row * static_cast<size_t>(graph_degree) + col];
+    if (neighbor == kInvalidNeighbor<GraphT>) {
+      first_invalid = min(first_invalid, static_cast<uint32_t>(col));
+    }
     write_unaligned_value(row_output + graph_offset + col * sizeof(IdxT),
-                          static_cast<IdxT>(graph[row * static_cast<size_t>(graph_degree) + col]));
+                          static_cast<IdxT>(neighbor));
+  }
+  // `batch_row` is warp-uniform, so the early-out above never diverges within a warp and every
+  // lane reaches this reduction.
+  for (int offset = warpSize / 2; offset > 0; offset /= 2) {
+    first_invalid = min(first_invalid, __shfl_xor_sync(0xffffffffu, first_invalid, offset));
+  }
+
+  if (lane == 0) {
+    // Variable-degree graphs pad unused neighbor slots with kInvalidNeighbor; the per-node
+    // hnswlib link-list size is the number of valid neighbors before the first sentinel.
+    write_unaligned_value(row_output, static_cast<int>(first_invalid));
+    auto const label_offset = sizeof(int) + graph_degree * sizeof(IdxT) + dim * sizeof(T);
+    write_unaligned_value(row_output + label_offset, row);
   }
 
   auto const dataset_offset = graph_offset + graph_degree * sizeof(IdxT);
@@ -431,12 +472,12 @@ void write_hnswlib_rows_device(raft::resources const& res,
       output.data_handle(),
       row_size,
       graph.data_handle(),
-      dataset.view().data_handle(),
+      dataset.data_const_view().data_handle(),
       first_row,
       rows,
       graph_degree,
       dim,
-      dataset.stride());
+      dataset.data_const_view().stride(0));
     RAFT_CUDA_TRY(cudaPeekAtLastError());
     raft::resource::sync_stream(res);
 
@@ -580,36 +621,43 @@ void deserialize_impl(
     std::unique_ptr<owner_t> dataset_owner{};
     if (has_dataset) {
       if (out_dataset == nullptr) {
-        cuvs::neighbors::detail::skip_dense_dataset<T, int64_t>(res, is);
-      } else {
-        auto const expected_kind = serialized_dataset_kind_for_view<DatasetViewT>();
-        RAFT_EXPECTS(
-          dataset_kind == expected_kind,
-          "cagra::deserialize: serialized dataset kind %u does not match requested kind %u",
-          dataset_kind_raw,
-          static_cast<std::uint32_t>(expected_kind));
-        if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
-          dataset_owner =
-            cuvs::neighbors::detail::deserialize_padded_dataset<T, int64_t>(res, input);
-        } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
-          dataset_owner =
-            cuvs::neighbors::detail::deserialize_standard_dataset<T, int64_t>(res, input);
-        } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<DatasetViewT>) {
-          dataset_owner =
-            cuvs::neighbors::detail::deserialize_host_padded_dataset<T, int64_t>(res, input);
-        } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
-          dataset_owner =
-            cuvs::neighbors::detail::deserialize_host_standard_dataset<T, int64_t>(res, input);
+        if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+          RAFT_FAIL("cagra::deserialize: quantized index files must contain only the graph");
         } else {
-          static_assert(sizeof(DatasetViewT) == 0,
-                        "deserialize: dataset deserialization is not implemented for this view");
+          cuvs::neighbors::detail::skip_dense_dataset<T, int64_t>(res, is);
+        }
+      } else {
+        if constexpr (is_graph_only_dataset_view_v<DatasetViewT>) {
+          RAFT_FAIL("cagra::deserialize: quantized index files must contain only the graph");
+        } else {
+          auto const expected_kind = serialized_dataset_kind_for_view<DatasetViewT>();
+          RAFT_EXPECTS(
+            dataset_kind == expected_kind,
+            "cagra::deserialize: serialized dataset kind %u does not match requested kind %u",
+            dataset_kind_raw,
+            static_cast<std::uint32_t>(expected_kind));
+          if constexpr (cuvs::neighbors::is_device_padded_dataset_view_v<DatasetViewT>) {
+            dataset_owner =
+              cuvs::neighbors::detail::deserialize_padded_dataset<T, int64_t>(res, input);
+          } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
+            dataset_owner =
+              cuvs::neighbors::detail::deserialize_standard_dataset<T, int64_t>(res, input);
+          } else if constexpr (cuvs::neighbors::is_host_padded_dataset_view_v<DatasetViewT>) {
+            dataset_owner =
+              cuvs::neighbors::detail::deserialize_host_padded_dataset<T, int64_t>(res, input);
+          } else if constexpr (cuvs::neighbors::is_host_standard_dataset_view_v<DatasetViewT>) {
+            dataset_owner =
+              cuvs::neighbors::detail::deserialize_host_standard_dataset<T, int64_t>(res, input);
+          } else {
+            static_assert(sizeof(DatasetViewT) == 0,
+                          "deserialize: dataset deserialization is not implemented for this view");
+          }
         }
       }
     }
 
     if (dataset_owner) {
-      *index_ = index_t(
-        res, metric, dataset_owner->as_dataset_view(), raft::make_const_mdspan(graph.view()));
+      *index_ = index_t(res, metric, dataset_owner->view(), raft::make_const_mdspan(graph.view()));
     } else {
       *index_ = index_t(res, metric);
       if constexpr (raft::is_device_mdspan_v<decltype(graph.view())>) {

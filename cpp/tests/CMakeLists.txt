@@ -12,6 +12,13 @@ enable_testing()
 include(rapids-test)
 rapids_test_init()
 
+# Shared gtest entry point, optionally reporting peak RMM memory usage (see test_main.cpp)
+add_library(cuvs_test_main OBJECT test_main.cpp)
+target_link_libraries(
+  cuvs_test_main PRIVATE rmm::rmm GTest::gtest $<TARGET_NAME_IF_EXISTS:conda_env>
+)
+set_target_properties(cuvs_test_main PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
 function(ConfigureTest)
 
   set(options NOCUDA FETCH_CODEBOOKS RUN_SERIAL)
@@ -44,7 +51,7 @@ function(ConfigureTest)
             raft::raft
             rtcx::rtcx
             GTest::gtest
-            GTest::gtest_main
+            cuvs_test_main
             Threads::Threads
             ${CUVS_CTK_MATH_DEPENDENCIES}
             $<TARGET_NAME_IF_EXISTS:OpenMP::OpenMP_CXX>
@@ -126,10 +133,12 @@ ConfigureTest(
 ConfigureTest(
   NAME CLUSTER_TEST
   PATH cluster/kmeans.cu
+       cluster/cluster_cost.cu
        cluster/kmeans_balanced.cu
        cluster/kmeans_find_k.cu
        cluster/gmm.cu
        cluster/kmeans_predict_batching.cu
+       cluster/kmeans_batch_loader.cu
        cluster/linkage.cu
        cluster/connect_knn.cu
        cluster/spectral.cu
@@ -143,7 +152,12 @@ ConfigureTest(
   GPUS 1
   PERCENT 100
 )
-target_compile_definitions(CUTILE_SMOKE_TEST PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED})
+target_compile_definitions(
+  CUTILE_SMOKE_TEST
+  PRIVATE CUVS_CUTILE_ENABLED=${CUVS_CUTILE_ENABLED}
+          CUVS_CUTILE_SM103_ENABLED=${CUVS_CUTILE_SM103_ENABLED}
+          CUVS_CUTILE_SM107_ENABLED=${CUVS_CUTILE_SM107_ENABLED}
+)
 if(CUVS_CUTILE_ENABLED)
   # These are intentionally library-private implementation symbols. Build the smoke executable with
   # the generated fragment registrations and planner implementation so it can exercise them without
@@ -171,6 +185,13 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_IVF_BINARY_TEST
+  PATH neighbors/ann_ivf_binary.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_SQ_TEST
   PATH neighbors/ann_ivf_sq/test_float_int64_t.cu neighbors/ann_ivf_sq/test_half_int64_t.cu
   GPUS 1
@@ -187,7 +208,7 @@ ConfigureTest(
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_IVF_RABITQ_TEST
-  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu
+  PATH neighbors/ann_ivf_rabitq/test_float_int64_t.cu neighbors/ann_ivf_rabitq/test_exact_match.cu
   GPUS 1
   PERCENT 100
 )
@@ -207,19 +228,29 @@ ConfigureTest(
 )
 
 ConfigureTest(
-  NAME NEIGHBORS_ANN_CAGRA_TEST_BUGS
+  NAME CORE_ROARING_ALLOWLIST_TEST
+  PATH neighbors/roaring_allowlist.cu
+  ADDITIONAL_DEP cuco::cuco
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_BUGS_TEST
   PATH neighbors/ann_cagra/bug_extreme_inputs_oob.cu
        neighbors/ann_cagra/bug_multi_cta_crash.cu
        neighbors/ann_cagra/bug_graph_smaller_than_dataset.cu
        neighbors/ann_cagra/bug_iterative_cagra_build.cu
        neighbors/ann_cagra/bug_issue_93_reproducer.cu
+       neighbors/ann_cagra/bug_issue_2523_hashmap_bitlen.cu
+       neighbors/ann_cagra/bug_nan_queries_multi_kernel.cu
   GPUS 1
   PERCENT 100
 )
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_FLOAT_UINT32_TEST
-  PATH neighbors/ann_cagra/test_float_uint32_t.cu
+  PATH neighbors/ann_cagra/test_float_uint32_t.cu neighbors/ann_cagra/test_iterative_cagra_q.cu
   GPUS 1
   PERCENT 100
 )
@@ -234,6 +265,7 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_HELPERS_TEST
   PATH neighbors/ann_cagra/test_optimize_uint32_t.cu neighbors/ann_cagra/test_batch_load_iterator.cu
+       neighbors/ann_cagra/test_serialize_dataset_layouts.cu
   GPUS 1
   PERCENT 100
 )
@@ -267,10 +299,19 @@ ConfigureTest(
 )
 
 ConfigureTest(
+  NAME NEIGHBORS_ANN_CAGRA_BBQ_UINT32_TEST
+  PATH neighbors/ann_cagra/test_bbq_uint32_t.cu
+  GPUS 1
+  PERCENT 100
+)
+
+ConfigureTest(
   NAME NEIGHBORS_ANN_NN_DESCENT_TEST
-  PATH neighbors/ann_nn_descent/test_float_uint32_t.cu
+  PATH neighbors/ann_nn_descent/test_convergence.cu
+       neighbors/ann_nn_descent/test_float_uint32_t.cu
        neighbors/ann_nn_descent/test_int8_t_uint32_t.cu
        neighbors/ann_nn_descent/test_uint8_t_uint32_t.cu
+       neighbors/ann_nn_descent/test_bbq_uint32_t.cu
   GPUS 1
   PERCENT 100
 )
@@ -280,7 +321,7 @@ ConfigureTest(
   PATH neighbors/ann_vamana/test_float_uint32_t.cu neighbors/ann_vamana/test_int8_t_uint32_t.cu
        neighbors/ann_vamana/test_uint8_t_uint32_t.cu neighbors/ann_vamana/test_half_uint32_t.cu
   GPUS 1
-  PERCENT 100
+  PERCENT 10
   FETCH_CODEBOOKS
 )
 
@@ -371,7 +412,7 @@ endif()
 if(BUILD_MG_ALGOS)
   ConfigureTest(
     NAME NEIGHBORS_MG_TEST
-    PATH neighbors/mg/test_float.cu
+    PATH neighbors/mg/test_float.cu neighbors/mg/test_cagra_padded_host.cu
     GPUS 1
     PERCENT 100
     ADDITIONAL_DEP NCCL::NCCL RUN_SERIAL

@@ -25,6 +25,7 @@
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/knn_merge_parts.hpp>
 #include <cuvs/util/file_io.hpp>
+#include <cuvs/util/numpy_dtype.hpp>
 
 #include <fstream>
 
@@ -653,7 +654,7 @@ void search(const raft::resources& clique,
       cuvs::core::omp::check_threads(index.num_ranks_);
 // Each rank gets its own thread; that thread handles all batches for that rank sequentially.
 // This prevents concurrent access to the same GPU from multiple threads. (see
-// https://github.com/nvidia/cuvs/issues/1720)
+// https://github.com/NVIDIA/cuvs/issues/1720)
 #pragma omp parallel for num_threads(index.num_ranks_)
       for (int rank = 0; rank < index.num_ranks_; rank++) {
         for (int64_t batch_idx = rank; batch_idx < n_batches; batch_idx += index.num_ranks_) {
@@ -753,8 +754,8 @@ void search(const raft::resources& clique,
                                      n_neighbors,
                                      n_batches);
     } else {
+      // Only one rank is available, so process its batches sequentially.
       const int rank = 0;
-#pragma omp parallel for
       for (int64_t batch_idx = 0; batch_idx < n_batches; batch_idx++) {
         int64_t offset                  = batch_idx * n_rows_per_batch;
         int64_t query_offset            = offset * n_cols;
@@ -785,7 +786,7 @@ void serialize(const raft::resources& clique,
 {
   cuvs::util::kvikio_ofstream of(filename);
 
-  std::string dtype_string = raft::numpy_serializer::get_numpy_dtype<T>().to_string();
+  std::string dtype_string = cuvs::util::detail::numpy_dtype_string<T>();
   dtype_string.resize(4);
   of << dtype_string;
 

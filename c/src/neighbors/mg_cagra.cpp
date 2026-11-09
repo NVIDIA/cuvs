@@ -79,7 +79,7 @@ static void with_device_padded_dataset_view(cuvsDataset_t dataset, Fn&& fn)
   using view_t  = cuvs::neighbors::device_padded_dataset_view<T, int64_t>;
   if (dataset->is_owning) {
     auto* owner = reinterpret_cast<owner_t*>(dataset->addr);
-    auto view   = owner->as_dataset_view();
+    auto view   = std::as_const(*owner).view();
     fn(view);
   } else {
     fn(*reinterpret_cast<view_t*>(dataset->addr));
@@ -325,12 +325,12 @@ void* _mg_deserialize(cuvsResources_t res, const char* filename, mg_cagra_datase
   if (layout == mg_cagra_dataset_layout::device_padded) {
     using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
     auto* mg_index = new mg_cagra_index_t<T, padded_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
-    cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+    cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), mg_index);
     return make_mg_cagra_box<T, padded_ann_t>(mg_index, mg_cagra_dataset_layout::device_padded);
   }
   using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
   auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
-  cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+  cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), mg_index);
   return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 
@@ -341,12 +341,12 @@ void* _mg_distribute(cuvsResources_t res, const char* filename, mg_cagra_dataset
   if (layout == mg_cagra_dataset_layout::device_padded) {
     using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
     auto* mg_index = new mg_cagra_index_t<T, padded_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
-    cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+    cuvs::neighbors::cagra::distribute(*res_ptr, std::string(filename), mg_index);
     return make_mg_cagra_box<T, padded_ann_t>(mg_index, mg_cagra_dataset_layout::device_padded);
   }
   using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
   auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
-  cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+  cuvs::neighbors::cagra::distribute(*res_ptr, std::string(filename), mg_index);
   return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 
@@ -581,7 +581,7 @@ extern "C" cuvsError_t cuvsMultiGpuCagraDeserialize(cuvsResources_t res,
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_deser(float{});
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') && dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_deser(half{});
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {
@@ -627,7 +627,7 @@ extern "C" cuvsError_t cuvsMultiGpuCagraDistribute(cuvsResources_t res,
     if (dtype.kind == 'f' && dtype.itemsize == 4) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_distribute(float{});
-    } else if (dtype.kind == 'e' && dtype.itemsize == 2) {
+    } else if ((dtype.kind == 'f' || dtype.kind == 'e') && dtype.itemsize == 2) {
       index->dtype.code = kDLFloat;
       index->addr       = try_layout_distribute(half{});
     } else if (dtype.kind == 'i' && dtype.itemsize == 1) {

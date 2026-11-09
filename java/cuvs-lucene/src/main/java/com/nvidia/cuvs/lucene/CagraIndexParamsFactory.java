@@ -41,6 +41,7 @@ public class CagraIndexParamsFactory {
               gpuSearchParams.getBuildQuality());
       return new CagraIndexParams.Builder()
           .withGraphDegree(derived.getGraphDegree())
+          .withVariableGraphDegreeFraction(derived.getVariableGraphDegreeFraction())
           .withIntermediateGraphDegree(derived.getIntermediateGraphDegree())
           .withCagraGraphBuildAlgo(derived.getCagraGraphBuildAlgo())
           .withCuVSIvfPqParams(derived.getCuVSIvfPqParams())
@@ -89,6 +90,7 @@ public class CagraIndexParamsFactory {
       // writerThreads for now but should fix this in cuVS in the future.
       return new CagraIndexParams.Builder()
           .withGraphDegree(derived.getGraphDegree())
+          .withVariableGraphDegreeFraction(derived.getVariableGraphDegreeFraction())
           .withIntermediateGraphDegree(derived.getIntermediateGraphDegree())
           .withCagraGraphBuildAlgo(derived.getCagraGraphBuildAlgo())
           .withCuVSIvfPqParams(derived.getCuVSIvfPqParams())
@@ -105,6 +107,32 @@ public class CagraIndexParamsFactory {
         .withNNDescentNumIterations(acceleratedHNSWParams.getNNDescentNumIterations())
         .withMetric(acceleratedHNSWParams.getCuvsDistanceType())
         .withNumWriterThreads(acceleratedHNSWParams.getWriterThreads())
+        .build();
+  }
+
+  /**
+   * Returns {@code params} with the graph degree lowered to {@code maxGraphDegree}, or the same
+   * {@code params} if its graph degree is not larger. The intermediate graph degree is kept, so
+   * it stays at least the graph degree, as CAGRA requires.
+   *
+   * @param params the parameters to copy
+   * @param maxGraphDegree the largest graph degree to build
+   * @return parameters whose graph degree is at most {@code maxGraphDegree}
+   */
+  static CagraIndexParams withMaxGraphDegree(CagraIndexParams params, long maxGraphDegree) {
+    if (params.getGraphDegree() <= maxGraphDegree) {
+      return params;
+    }
+    return new CagraIndexParams.Builder()
+        .withGraphDegree(maxGraphDegree)
+        .withVariableGraphDegreeFraction(params.getVariableGraphDegreeFraction())
+        .withIntermediateGraphDegree(params.getIntermediateGraphDegree())
+        .withCagraGraphBuildAlgo(params.getCagraGraphBuildAlgo())
+        .withCuVSIvfPqParams(params.getCuVSIvfPqParams())
+        .withCuVSAceParams(params.getCuVSAceParams())
+        .withNNDescentNumIterations(params.getNNDescentNumIterations())
+        .withMetric(params.getCuvsDistanceType())
+        .withNumWriterThreads(params.getNumWriterThreads())
         .build();
   }
 }

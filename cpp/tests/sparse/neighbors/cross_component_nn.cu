@@ -11,11 +11,11 @@
 // TODO: consider adding this to libraft.so or creating an instance in a
 // separate translation unit for this test.
 //
-// TODO: edge case testing. Reference: https://github.com/rapidsai/raft/issues/1669
+// TODO: edge case testing. Reference: https://github.com/NVIDIA/raft/issues/1669
 
 #include "../../test_utils.cuh"
 
-#include "../../../src/cluster/single_linkage.cuh"
+#include "../../../src/neighbors/detail/knn_graph.cuh"
 #include "../../../src/sparse/neighbors/cross_component_nn.cuh"
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/resource/cuda_stream.hpp>

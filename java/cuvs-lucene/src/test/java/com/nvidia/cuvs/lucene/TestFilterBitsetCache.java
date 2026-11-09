@@ -11,6 +11,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
 import com.nvidia.cuvs.FilterBitsetHandle;
+import com.nvidia.cuvs.lucene.FilterBitsetCache.CachedFilterBitset;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -95,6 +96,11 @@ public class TestFilterBitsetCache {
     return s;
   }
 
+  /** Wraps a handle as a cache value; most tests here don't care about the cardinality. */
+  private static CachedFilterBitset cached(FilterBitsetHandle handle) {
+    return new CachedFilterBitset(handle, 1);
+  }
+
   /** Concurrent misses on the same key build the handle exactly once and each get their own ref. */
   @Test
   public void computeOnceUnderConcurrentAcquire() throws Exception {
@@ -105,7 +111,7 @@ public class TestFilterBitsetCache {
 
     ExecutorService pool = Executors.newFixedThreadPool(threads);
     CountDownLatch start = new CountDownLatch(1);
-    List<Future<FilterBitsetHandle>> results = new ArrayList<>();
+    List<Future<CachedFilterBitset>> results = new ArrayList<>();
     try {
       for (int i = 0; i < threads; i++) {
         results.add(
@@ -125,13 +131,13 @@ public class TestFilterBitsetCache {
                         } catch (InterruptedException e) {
                           Thread.currentThread().interrupt();
                         }
-                        return handle;
+                        return cached(handle);
                       });
                 }));
       }
       start.countDown();
-      for (Future<FilterBitsetHandle> r : results) {
-        assertSame(handle, r.get(10, TimeUnit.SECONDS));
+      for (Future<CachedFilterBitset> r : results) {
+        assertSame(handle, r.get(10, TimeUnit.SECONDS).handle());
       }
     } finally {
       pool.shutdownNow();
@@ -162,7 +168,8 @@ public class TestFilterBitsetCache {
       CountingHandle h = new CountingHandle();
       handles.add(h);
       final String field = "bcap-" + i;
-      FilterBitsetHandle got = cache.acquire(null, segKey(field), field, ENTRY_BYTES, () -> h);
+      FilterBitsetHandle got =
+          cache.acquire(null, segKey(field), field, ENTRY_BYTES, () -> cached(h)).handle();
       assertSame(h, got);
       got.decRef(); // caller finished; the cache keeps its reference
     }
@@ -183,7 +190,7 @@ public class TestFilterBitsetCache {
       CountingHandle h = new CountingHandle();
       handles.add(h);
       final String field = "clr-" + i;
-      cache.acquire(null, segKey(field), field, ENTRY_BYTES, () -> h).decRef();
+      cache.acquire(null, segKey(field), field, ENTRY_BYTES, () -> cached(h)).handle().decRef();
     }
     assertTrue("entries charged to the budget", cache.currentBytesForTests() > 0);
 
@@ -207,15 +214,17 @@ public class TestFilterBitsetCache {
 
     CountingHandle h1 = new CountingHandle();
     FilterBitsetHandle got1 =
-        cache.acquire(
-            null,
-            segKey(field),
-            field,
-            oversized,
-            () -> {
-              buildCount.incrementAndGet();
-              return h1;
-            });
+        cache
+            .acquire(
+                null,
+                segKey(field),
+                field,
+                oversized,
+                () -> {
+                  buildCount.incrementAndGet();
+                  return cached(h1);
+                })
+            .handle();
     assertSame(h1, got1);
     got1.decRef(); // caller-owned; nothing else holds it
     assertTrue("uncached oversized handle freed once caller releases it", h1.freed.get());
@@ -223,15 +232,17 @@ public class TestFilterBitsetCache {
 
     CountingHandle h2 = new CountingHandle();
     FilterBitsetHandle got2 =
-        cache.acquire(
-            null,
-            segKey(field),
-            field,
-            oversized,
-            () -> {
-              buildCount.incrementAndGet();
-              return h2;
-            });
+        cache
+            .acquire(
+                null,
+                segKey(field),
+                field,
+                oversized,
+                () -> {
+                  buildCount.incrementAndGet();
+                  return cached(h2);
+                })
+            .handle();
     assertSame(h2, got2);
     got2.decRef();
     assertEquals("oversized entry is rebuilt every time, never cached", 2, buildCount.get());
@@ -267,8 +278,8 @@ public class TestFilterBitsetCache {
     CountingHandle second = new CountingHandle();
     Object key = segKey("shared-reader-key");
 
-    cache.acquire(null, key, "f", ENTRY_BYTES, () -> first).decRef();
-    other.acquire(null, key, "f", ENTRY_BYTES, () -> second).decRef();
+    cache.acquire(null, key, "f", ENTRY_BYTES, () -> cached(first)).handle().decRef();
+    other.acquire(null, key, "f", ENTRY_BYTES, () -> cached(second)).handle().decRef();
 
     assertFalse(first.freed.get());
     assertFalse(second.freed.get());
@@ -312,10 +323,11 @@ public class TestFilterBitsetCache {
             ENTRY_BYTES,
             () -> {
               buildA.incrementAndGet();
-              return hA;
+              return cached(hA);
             })
+        .handle()
         .decRef();
-    cache.acquire(null, keyB, "f", ENTRY_BYTES, () -> hB).decRef();
+    cache.acquire(null, keyB, "f", ENTRY_BYTES, () -> cached(hB)).handle().decRef();
 
     // Invalidate segment A only, as its reader's close listener would.
     cache.invalidateReader(keyA);
@@ -334,8 +346,9 @@ public class TestFilterBitsetCache {
             ENTRY_BYTES,
             () -> {
               buildA.incrementAndGet();
-              return new CountingHandle();
+              return cached(new CountingHandle());
             })
+        .handle()
         .decRef();
     assertEquals("invalidated segment rebuilds on next acquire", 2, buildA.get());
   }
@@ -365,18 +378,46 @@ public class TestFilterBitsetCache {
 
     CountingHandle handle = new CountingHandle();
     FilterBitsetHandle got =
-        cache.acquire(
-            null,
-            segKey(field),
-            field,
-            ENTRY_BYTES,
-            () -> {
-              buildCount.incrementAndGet();
-              return handle;
-            });
+        cache
+            .acquire(
+                null,
+                segKey(field),
+                field,
+                ENTRY_BYTES,
+                () -> {
+                  buildCount.incrementAndGet();
+                  return cached(handle);
+                })
+            .handle();
     assertSame(handle, got);
     assertEquals("failed entry must not be cached; retry rebuilds", 2, buildCount.get());
     got.decRef();
+  }
+
+  /**
+   * The cardinality is part of the cached value: a hit returns the built cardinality without
+   * rebuilding, which is what lets {@link GPUKnnFloatVectorQuery} decide on exact search for free.
+   */
+  @Test
+  public void cardinalityIsCachedWithTheHandle() throws Exception {
+    final String field = "cardinality";
+    CountingHandle handle = new CountingHandle();
+    AtomicInteger buildCount = new AtomicInteger();
+    FilterBitsetCache.FilterBuilder builder =
+        () -> {
+          buildCount.incrementAndGet();
+          return new CachedFilterBitset(handle, 42);
+        };
+
+    CachedFilterBitset first = cache.acquire(null, segKey(field), field, ENTRY_BYTES, builder);
+    assertEquals(42, first.cardinality());
+    first.handle().decRef();
+
+    CachedFilterBitset second = cache.acquire(null, segKey(field), field, ENTRY_BYTES, builder);
+    assertEquals("cached value carries the cardinality", 42, second.cardinality());
+    assertSame(handle, second.handle());
+    assertEquals("a cache hit must not rebuild", 1, buildCount.get());
+    second.handle().decRef();
   }
 
   /**
@@ -404,7 +445,14 @@ public class TestFilterBitsetCache {
                     final String field = "stress-" + ((seed + i) % keySpace);
                     // A fresh handle per build; a cached key reuses whatever was built first.
                     FilterBitsetHandle h =
-                        cache.acquire(null, segKey(field), field, ENTRY_BYTES, CountingHandle::new);
+                        cache
+                            .acquire(
+                                null,
+                                segKey(field),
+                                field,
+                                ENTRY_BYTES,
+                                () -> cached(new CountingHandle()))
+                            .handle();
                     h.decRef();
                   }
                   return null;

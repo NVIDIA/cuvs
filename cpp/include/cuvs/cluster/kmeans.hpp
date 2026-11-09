@@ -148,10 +148,22 @@ struct params : base_params {
    * Only used by the batched (host-data) code path and ignored by
    * device-data overloads.
    *
+   * Default: 0. For a single host input matrix, this creates one full-dataset input
+   * buffer on the GPU, even when an auxiliary stream is configured. To stream that
+   * matrix in smaller batches, set a positive value less than n_samples.
+   *
+   * Inputs spanning multiple batches are double-buffered when the handle has an auxiliary
+   * stream, and use one buffer otherwise. No auxiliary stream pool is configured by
+   * default, so transfers and compute are serialized. Configure a pool with at least
+   * one auxiliary stream to enable transfer/compute overlap. Budget about
+   * `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer,
+   * plus algorithm workspaces. Sample weights require the same number of additional buffers
+   * with `device_buffer_samples * sizeof(value_type)` bytes each. In these estimates,
+   * substitute n_samples for device_buffer_samples when it is 0.
+   *
    * In multi-GPU mode this is a per-rank batch size: each rank processes up
    * to this many local samples per batch, clamped to that rank's local sample
-   * count. This is is ignored by device-data overloads.
-   * Default: 0 (process all data at once).
+   * count. This is ignored by device-data overloads.
    */
   int64_t device_buffer_samples = 0;
 };
@@ -210,6 +222,19 @@ struct balanced_params : base_params {
    * average cluster size; in that mode, `balance_upper_tolerance` does not control donor selection.
    */
   balanced_donor_selection donor_selection = balanced_donor_selection::SizeSorted;
+
+  /**
+   * If true, treats uint8_t input data as bit-packed binary data where each byte contains 8 bits.
+   * Bits are expanded on-the-fly, least-significant bit first, to {-1, +1} floats
+   * during training and prediction. Other input types are rejected when this flag is set.
+   * When enabled:
+   *   - Input data dimension represents packed dimension (actual_dim / 8)
+   *   - Output centroids dimension is expanded (packed_dim * 8)
+   *   - The metric operates on the expanded floating-point vectors (for example L2Expanded),
+   *     not on the packed bytes; BitwiseHamming is not a balanced k-means training metric.
+   *   - CosineExpanded is not supported.
+   */
+  bool is_packed_binary = false;
 };
 
 /**
@@ -234,11 +259,22 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  * (`raft::resource::comms_initialized(handle)`), and on a single GPU otherwise.
  *
  * TODO: Evaluate replacing the extent type with int64_t. Reference issue:
- * https://github.com/nvidia/cuvs/issues/1961
+ * https://github.com/NVIDIA/cuvs/issues/1961
  *
  * This overload supports out-of-core computation where the dataset resides
  * on the host. Data is processed in batches, streaming from host to
  * device. The batch size is controlled by `params.device_buffer_samples`.
+ * Multiple batches are double-buffered when an auxiliary stream is available.
+ * Without a stream pool, the fit uses one input buffer and remains correct but
+ * serialized. One auxiliary stream is sufficient to overlap transfer and compute.
+ * Pageable and unregistered `mmap`-backed input is read through
+ * one batch-sized pinned host staging buffer per device buffer. The complete input is
+ * never registered or copied into pinned memory. Already pinned input is transferred directly.
+ * Overlap depends on the host reader supplying batches fast enough for the GPU.
+ *
+ * A pool memory resource is optional but recommended, especially for repeated
+ * fits. Configure both pools before `fit` and before first using the handle's
+ * workspace resources.
  *
  * Multi-GPU dispatch is selected automatically based on the handle state:
  *   - If `raft::resource::is_multi_gpu(handle)` (cuVS SNMG): the full dataset X
@@ -254,19 +290,35 @@ enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>
+ *   #include <raft/core/resource/cuda_stream_pool.hpp>
+ *   #include <raft/core/pinned_mdarray.hpp>
  *   #include <cuvs/cluster/kmeans.hpp>
+ *   #include <rmm/cuda_device.hpp>
+ *   #include <rmm/cuda_stream_pool.hpp>
+ *   #include <rmm/mr/per_device_resource.hpp>
+ *   #include <rmm/mr/pool_memory_resource.hpp>
+ *   #include <memory>
  *   using namespace cuvs::cluster;
  *   ...
+ *   // Recommended for OOC fits: pool allocations and use one auxiliary copy stream.
+ *   rmm::mr::pool_memory_resource pool_mr(
+ *     rmm::mr::get_current_device_resource_ref(),
+ *     rmm::percent_of_free_device_memory(80));
+ *   rmm::mr::set_current_device_resource(pool_mr);
  *   raft::resources handle;
+ *   raft::resource::set_cuda_stream_pool(
+ *     handle, std::make_shared<rmm::cuda_stream_pool>(1));
+ *
  *   cuvs::cluster::kmeans::params params;
  *   params.n_clusters = 100;
  *   params.device_buffer_samples = 100000;
  *   float inertia;
  *   int64_t n_iter;
  *
- *   // Data on host
- *   std::vector<float> h_X(n_samples * n_features);
- *   auto X = raft::make_host_matrix_view<const float, int64_t>(h_X.data(), n_samples, n_features);
+ *   // Pinned host input is important for OOC throughput.
+ *   auto h_X = raft::make_pinned_matrix<float, int64_t>(handle, n_samples, n_features);
+ *   auto X =
+ *     raft::make_host_matrix_view<const float, int64_t>(h_X.data_handle(), n_samples, n_features);
  *
  *   // Centroids on device
  *   auto centroids = raft::make_device_matrix<float, int64_t>(handle, params.n_clusters,
@@ -685,6 +737,12 @@ void fit(const raft::resources& handle,
 
 /**
  * @brief Find balanced clusters with k-means algorithm.
+ *
+ * @note When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,
+ * and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are
+ * expanded least-significant bit first to {-1, +1}; the selected metric operates
+ * on those expanded vectors. CosineExpanded is not supported in packed binary mode.
+ * With the flag disabled, uint8_t values are numeric.
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>
@@ -1183,6 +1241,12 @@ void predict(const raft::resources& handle,
 
 /**
  * @brief Predict the closest cluster each sample in X belongs to.
+ *
+ * @note When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,
+ * and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are
+ * expanded least-significant bit first to {-1, +1}; the selected metric operates
+ * on those expanded vectors. CosineExpanded is not supported in packed binary mode.
+ * With the flag disabled, uint8_t values are numeric.
  *
  * @code{.cpp}
  *   #include <raft/core/resources.hpp>
@@ -1689,6 +1753,18 @@ void cluster_cost(
  * host-resident partitions the implementation streams each partition using
  * `params.device_buffer_samples` (per rank). For device-resident partitions
  * `device_buffer_samples` is ignored and each local partition is processed in full.
+ * Host partitions spanning multiple batches are double-buffered when an auxiliary stream
+ * is available. Each rank needs one auxiliary stream for transfer/compute overlap;
+ * otherwise execution uses one input buffer and is correct but serialized. Pageable and
+ * unregistered `mmap`-backed partitions use bounded pinned host staging buffers;
+ * already pinned partitions are transferred directly. Overlap depends on the
+ * host reader supplying batches fast enough for the GPU. A per-device memory pool is also
+ * recommended.
+ * With `raft::device_resources_snmg`, configure these before `fit` with
+ * `handle.set_stream_pool(1)` and `handle.set_memory_pool(percent)`; both calls
+ * apply the setting to every device managed by the handle. With independently
+ * managed per-rank resources, configure the stream pool and current RMM memory
+ * resource in each process.
  *
  * The active backend is selected by the resources attached to
  * `handle`:

@@ -63,15 +63,20 @@ class BinaryQuantizationTest : public ::testing::TestWithParam<BinaryQuantizatio
       params.threshold = params_.threshold;
 
       const auto col_quantized = raft::div_rounding_up_safe(cols_, 8);
-      auto quantized_input_h   = raft::make_host_matrix<QuantI, int64_t>(rows_, cols_);
-      auto quantized_input_d   = raft::make_device_matrix<QuantI, int64_t>(handle, rows_, cols_);
+      auto quantized_input_h   = raft::make_host_matrix<QuantI, int64_t>(rows_, col_quantized);
+      auto quantized_input_d =
+        raft::make_device_matrix<QuantI, int64_t>(handle, rows_, col_quantized);
 
-      cuvs::preprocessing::quantize::binary::quantizer<T> quantizer(handle);
+      cuvs::preprocessing::quantize::binary::quantizer<T> quantizer;
       if (train_host_) {
         quantizer = cuvs::preprocessing::quantize::binary::train(handle, params, dataset_h);
       } else {
         quantizer = cuvs::preprocessing::quantize::binary::train(handle, params, dataset);
       }
+      ASSERT_EQ(quantizer.dim(), static_cast<uint32_t>(cols_));
+      // The zero threshold is implied by the dimension alone
+      ASSERT_EQ(std::holds_alternative<uint32_t>(quantizer.value),
+                params.threshold == cuvs::preprocessing::quantize::binary::bit_threshold::zero);
 
       cuvs::preprocessing::quantize::binary::transform(
         handle, quantizer, dataset, quantized_input_d.view());
@@ -80,7 +85,7 @@ class BinaryQuantizationTest : public ::testing::TestWithParam<BinaryQuantizatio
 
       ASSERT_TRUE(devArrMatchHost(quantized_input_h.data_handle(),
                                   quantized_input_d.data_handle(),
-                                  input_.size(),
+                                  quantized_input_h.size(),
                                   cuvs::Compare<QuantI>(),
                                   stream));
     }

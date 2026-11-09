@@ -1,6 +1,6 @@
 # cuVS Lucene
 
-This is a project for using [cuVS](https://github.com/rapidsai/cuvs), NVIDIA's GPU accelerated vector search library, with [Apache Lucene](https://github.com/apache/lucene).
+This is a project for using [cuVS](https://github.com/NVIDIA/cuvs), NVIDIA's GPU accelerated vector search library, with [Apache Lucene](https://github.com/apache/lucene).
 
 ## Contents
 
@@ -8,127 +8,155 @@ This is a project for using [cuVS](https://github.com/rapidsai/cuvs), NVIDIA's G
 2. [Installing cuvs-lucene](#installing-cuvs-lucene)
 3. [Getting Started](#getting-started)
 4. [Contributing](#contributing)
-5. [References](#references)
+5. [Supporting several Lucene releases](#supporting-several-lucene-releases)
+6. [References](#references)
 
 ## What is cuvs-lucene?
 
-`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, existing Lucene applications can take advantage of GPU acceleration with minimal code changes and gracefully fall back to the default CPU codec when no GPU is present.
+`cuvs-lucene` provides a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that uses cuVS to offload vector index build — and optionally search — to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, existing Lucene applications can take advantage of GPU acceleration with minimal code changes. It supports Lucene 10.2 through 10.4.
 
-Four codecs are currently provided:
+Four codecs are currently provided, created through `CuVSCodecs`:
 
-- `Lucene101AcceleratedHNSWCodec` — GPU-accelerated HNSW build with CPU HNSW search. The on-disk format is standard Lucene HNSW, so indexes built on the GPU can be read by any stock Lucene 10.x reader.
-  - `LuceneAcceleratedHNSWScalarQuantizedCodec` — scalar-quantized vectors for a smaller index footprint.
-  - `LuceneAcceleratedHNSWBinaryQuantizedCodec` — binary-quantized vectors for an even smaller index footprint.
-- `CuVS2510GPUSearchCodec` — GPU-accelerated HNSW build and GPU search
+- `CuVSCodecs.acceleratedHNSW()` — GPU-accelerated HNSW build with CPU HNSW search. The on-disk format is standard Lucene HNSW, so indexes built on the GPU are read back through the standard Lucene reader and searching them needs no GPU. Lucene still resolves the codec by name, so search nodes need the `cuvs-lucene` and `cuvs-java` jars on their classpath. Falls back to building the graph on the CPU when no GPU is present.
+  - `CuVSCodecs.acceleratedHNSWScalarQuantized()` — scalar-quantized vectors for a smaller index footprint.
+  - `CuVSCodecs.acceleratedHNSWBinaryQuantized()` — graph built over binary-quantized vectors.
+- `CuVSCodecs.gpuSearch()` — GPU-accelerated build and GPU search. Requires a GPU.
+
+Each codec wraps the default codec of one Lucene release, so the codec that writes changes with Lucene: for
+example `Lucene101AcceleratedHNSWCodec` on Lucene 10.2, `Lucene103AcceleratedHNSWCodec` on 10.3 and
+`Lucene104AcceleratedHNSWCodec` on 10.4. Codecs of earlier releases stay available so that existing indexes can
+still be read after an upgrade, but they refuse to write. Creating the codecs through `CuVSCodecs` rather than by
+class name keeps application code unchanged when the codec to use changes with a later Lucene release. The same
+applies to the scalar-quantized format of earlier releases (class `LuceneAcceleratedHNSWScalarQuantizedVectorsFormat`,
+registered as `Lucene99AcceleratedHNSWScalarQuantizedVectorsFormat`), which only reads from Lucene 10.4 on; code or
+per-field configuration that uses it has to switch to `Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat`.
+
+For guidance on choosing between them, configuring builds, and tuning GPU resources, see the
+[Lucene Integration](https://docs.nvidia.com/cuvs/user-guide/lucene) guide.
 
 ## Installing cuvs-lucene
 
 ### Prerequisites
 
-- A machine with an NVIDIA GPU
-- [CUDA 12.0+](https://developer.nvidia.com/cuda-toolkit-archive)
-- [JDK 22](https://jdk.java.net/archive/)
-- [Maven 3.9.6+](https://maven.apache.org/download.cgi)
-- A matching version of the [cuVS libraries](https://docs.rapids.ai/api/cuvs/stable/build/#build-from-source). For Maven usage, install the cuVS tarball and add it to your system library load path. See the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
+- An NVIDIA GPU, to use the GPU-accelerated paths (the accelerated HNSW codecs fall back to CPU index construction without one; `CuVS2510GPUSearchCodec` requires a GPU)
+- [CUDA Toolkit 12.2+](https://developer.nvidia.com/cuda-toolkit-archive) and an Ampere architecture GPU or newer, matching the [cuVS requirements](https://docs.nvidia.com/cuvs/installation)
+- JDK 21 or newer. GPU acceleration needs a [JDK 22](https://jdk.java.net/archive/) or newer runtime; on JDK 21
+  the accelerated HNSW codecs build graphs on the CPU, and the GPU search codec is unavailable
+- [Maven 3.10+](https://maven.apache.org/download.cgi)
+- A matching version of the [cuVS libraries](https://docs.nvidia.com/cuvs/installation/java). For Maven usage, install the cuVS libraries and add them to your system library load path.
 
 ### Maven
 
-To pull `cuvs-lucene` into a Maven project, add the following dependency to your `pom.xml`:
+Lucene changes its codec APIs between minor releases, so `cuvs-lucene` is published once per supported Lucene
+minor release, as `cuvs-lucene-10.2`, `cuvs-lucene-10.3` and `cuvs-lucene-10.4`. Pick the one matching the
+Lucene version your application uses. For Lucene 10.4, add the following dependency to your `pom.xml`:
 
 ```xml
 <dependency>
   <groupId>com.nvidia.cuvs.lucene</groupId>
-  <artifactId>cuvs-lucene</artifactId>
+  <artifactId>cuvs-lucene-10.4</artifactId>
   <version>26.12.0</version>
 </dependency>
 ```
 
+Releases up to 26.10 published it as `cuvs-lucene`; those coordinates now relocate to `cuvs-lucene-10.2`.
+
+Against another Lucene minor release, an artifact's codecs fail when they are used, with an error that names
+the artifact to use; the problem is also logged at `SEVERE` the first time Lucene looks up its codecs. Call
+`CuVSCodecs.checkLuceneVersion()` at startup to fail early instead.
+
 ### Building from source
 
-`cuvs-lucene` lives in the [cuVS repository](https://github.com/rapidsai/cuvs) and builds against the cuVS
+`cuvs-lucene` lives in the [cuVS repository](https://github.com/NVIDIA/cuvs) and builds against the cuVS
 Java bindings. If the libcuvs libraries and the Java bindings have not been built and installed, use
 `./build.sh libcuvs java lucene` in the top level directory.
 
 Alternatively, if libcuvs is already built and the `cuvs-java` artifact is already installed in your local
 Maven repository, do `./build.sh lucene` in the top level directory or just do `./build.sh` in this directory.
 
-The resulting artifacts are written to `target/`.
+This builds, and installs into your local Maven repository, every `cuvs-lucene-10.X` artifact. They are
+written to `lucene-10.X/target/`.
 
 To run the tests, add `--run-java-tests` to any of the commands above. Be sure to set (manually, if needed)
 your `LD_LIBRARY_PATH` to include the directory with the appropriate (matching) version of `libcuvs.so`, as
-described in the cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract).
+described in the [cuVS installation instructions](https://docs.nvidia.com/cuvs/installation/java#cuvs-lucene).
 
 ## Getting Started
 
-The example below plugs the GPU-accelerated HNSW codec into a standard Lucene `IndexWriter`. Once the codec is set on the `IndexWriterConfig`, indexing proceeds exactly as it would with the default Lucene codec, and search uses the stock `KnnFloatVectorQuery`.
+The [Lucene Integration](https://docs.nvidia.com/cuvs/user-guide/lucene) guide walks through plugging a
+codec into a standard Lucene `IndexWriter`, searching on the GPU, tuning index builds, and managing GPU
+resources in a long-lived application. Class-level documentation is in the
+[Lucene API reference](https://docs.nvidia.com/cuvs/api-reference/lucene-api-documentation).
 
-Before running it, make sure cuVS is installed and available on your system library load path. The cuVS [tarball install instructions](https://docs.rapids.ai/api/cuvs/stable/build/#download-extract) show how to set this up.
+Runnable examples of CAGRA-accelerated HNSW indexing, and of indexing and searching entirely on the GPU, are
+in the [`examples/`](../../examples/java/cuvs-lucene) directory.
 
-### RMM async allocation for GPU search
+### Accelerated HNSW build memory
 
-Applications using `CuVS2510GPUSearchCodec` can opt into RMM's stream-ordered asynchronous device
-allocator during startup:
+The float, binary-quantized, and scalar-quantized HNSW writers include their primary native host input
+payload in the codec writer's `ramBytesUsed()` while filling the matrix, building the index, and
+writing its graph. Enable Lucene diagnostics with `IndexWriterConfig.setInfoStream(System.out)` to
+see `primary_host_input_bytes` messages identifying each segment and field's allocation.
 
-```java
-CuVSProvider.provider().enableRMMAsyncMemory();
-```
+This is not a process-memory measurement or an allocation limit. It excludes upper-layer inputs,
+adjacency matrices, GPU workspace, and other temporary build storage. Lucene's public
+`IndexWriter.ramBytesUsed()` uses cached indexing counters and does not automatically observe these
+flush/merge allocations. On cleanup failure, the accounting scope ends without claiming that native
+memory was successfully released. Flush policy, segment-size limits, and index formats are unchanged.
 
-Call this before creating any cuVS resources, codecs, writers, or readers. The setting affects the
-entire process on the current CUDA device, so allocator policy belongs to the application rather
-than an individual Lucene codec. Async allocation is optional for correctness and recommended for
-GPU workloads with repeated device allocations, especially concurrent or multi-stream searches.
-Applications that do not opt in use the default RMM device-memory resource.
+### Parameter bounds
 
-In a Maven project that includes the `cuvs-lucene` dependency shown above, create `src/main/java/com/nvidia/cuvs/lucene/examples/HelloCuvsLucene.java`:
+The public Lucene API rejects out-of-range CAGRA parameters in Java before they reach native CAGRA.
+Build parameters are checked by `build()`, and search parameters when the query is constructed.
+Optional filter over-fetch is capped for `SINGLE_CTA` at search time (see below).
+The table below lists what is enforced in Java; it is
+**not** a claim that every value in these ranges is supported by native CAGRA — see the caveats
+that follow.
 
-```java
-package com.nvidia.cuvs.lucene.examples;
+| Parameter | Java-level range enforced |
+| --- | --- |
+| GPU writer threads | 1–512 |
+| Intermediate graph degree | 2–512 |
+| Graph degree | 1–512 |
+| `GPUKnnFloatVectorQuery` `iTopK` | minimum 1; at most 512 with `SINGLE_CTA` |
+| `GPUKnnFloatVectorQuery` `searchWidth` | minimum 1; 4,194,303 numeric-safety ceiling |
+| `GPUKnnFloatVectorQuery` `maxIterations` | nonnegative; 0 selects automatically |
+| `GPUKnnFloatVectorQuery` `threadBlockSize` | 0 (auto), 64, 128, 256, 512, or 1024 |
 
-import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
+Under `CUSTOM`, native CAGRA reduces `graphDegree` to `intermediateGraphDegree` when needed,
+and may reduce both for a small dataset. Java preserves this behavior rather than rejecting the pair. Under
+`HEURISTIC`, the configured `graphDegree`/`intermediateGraphDegree` pair is not what CAGRA
+actually builds with, so this relationship is not enforced on the configured pair: for
+`AcceleratedHNSWParams`, both degrees are derived from `maxConn`/`beamWidth` and the configured
+pair is ignored entirely; for `GPUSearchParams`, the configured `graphDegree` is passed into the
+dataset-size heuristic as an input (it is not ignored), while `intermediateGraphDegree` is ignored
+and the rest of the build parameters are derived from the heuristic's output.
 
-import com.nvidia.cuvs.lucene.AcceleratedHNSWParams;
-import com.nvidia.cuvs.lucene.Lucene101AcceleratedHNSWCodec;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import org.apache.lucene.codecs.Codec;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.document.KnnFloatVectorField;
-import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
-import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.FSDirectory;
+For `iTopK`, the lower bound of 1 and the `SINGLE_CTA` maximum of 512 are native limits.
+`MAX_ITOPK` (`Integer.MAX_VALUE`) is simply the largest value representable by the
+public Java API, and `MAX_SEARCH_WIDTH` (4,194,303) only keeps CAGRA's result buffer within its
+unsigned 32-bit indexing limit. Neither is a promise that native CAGRA supports every value up
+to that ceiling, and in practice values anywhere near `MAX_ITOPK` are not usable. The true upper
+limit for a given search depends on the resolved CAGRA algorithm, `max_iterations`, graph degree,
+filtering, and available GPU memory. In particular, `MULTI_CTA` (which `AUTO` typically selects
+for a single query unless there are enough partitions to use `SINGLE_CTA`) sizes an internal
+traversal hash table from `search_width`, `iTopK`,
+`max_iterations`, and the graph degree. This API does not replicate that calculation, since
+`max_iterations` is itself auto-derived from the graph degree and dataset size, values not known
+at query-construction time, so out-of-range combinations are caught by native CAGRA at search
+time rather than here.
 
-public class HelloCuvsLucene {
-  public static void main(String[] args) throws Exception {
-    AcceleratedHNSWParams params = new AcceleratedHNSWParams.Builder().build();
-    Codec codec = new Lucene101AcceleratedHNSWCodec(params);
-    IndexWriterConfig config = new IndexWriterConfig().setCodec(codec);
+Note that native CAGRA only reports some of those combinations cleanly. Moderately oversized
+values raise a clear exception, but above roughly `iTopK` 1e9 the native hash-table sizing loop
+fails to terminate and the search hangs instead of returning an error
+([#2523](https://github.com/NVIDIA/cuvs/issues/2523)). Treat these constants as representational
+ceilings only, and size `iTopK`/`searchWidth` to what the workload actually needs.
 
-    Path indexPath = Paths.get("index");
-    float[] embedding = new float[] {0.1f, 0.2f, 0.3f, 0.4f};
-
-    try (Directory dir = FSDirectory.open(indexPath);
-        IndexWriter writer = new IndexWriter(dir, config)) {
-      Document doc = new Document();
-      doc.add(new KnnFloatVectorField("vector_field", embedding, EUCLIDEAN));
-      writer.addDocument(doc);
-    }
-
-    System.out.println("Hello cuVS Lucene ran successfully.");
-  }
-}
-```
-
-The artifacts would be built and available in the target / folder.
-
-### Running Tests
-
-```sh
-mvn -q compile org.codehaus.mojo:exec-maven-plugin:3.5.1:java \
-  -Dexec.mainClass=com.nvidia.cuvs.lucene.examples.HelloCuvsLucene
-```
-
-For more examples, including one that indexes and searches entirely on the GPU using `CuVS2510GPUSearchCodec`, please refer to the [`examples/`](../../examples/java/cuvs-lucene) directory.
+The query uses an effective `iTopK` equal to the greater of the configured value and the requested
+Lucene `k`; for `SINGLE_CTA`, that value must be at most 512 at query construction.
+The filtered per-segment path can request up to `k + 10` candidates internally, but caps that
+optional over-fetch at 512 for `SINGLE_CTA`. A change in filter cardinality therefore does not
+turn a valid query into a parameter error.
 
 ## Contributing
 
@@ -136,6 +164,51 @@ If you are interested in contributing to cuvs-lucene, please read the cuVS [Cont
 
 > [!NOTE]
 > The code style format is enforced using the [Spotless maven plugin](https://github.com/diffplug/spotless/tree/main/plugin-maven), which runs as a `pre-commit` hook. Run `pre-commit run --all-files`, or `mvn spotless:apply` in this directory, to format the sources.
+
+## Supporting several Lucene releases
+
+All `cuvs-lucene-10.X` artifacts are built from the same sources:
+
+```
+java/cuvs-lucene/
+  pom.xml                 parent pom, lists one module per Lucene minor release
+  src/main/java           shared code: everything that compiles against every supported Lucene release
+  src/test/java           shared tests
+  src/test/resources/backcompat   indexes written by each release, see below
+  compat/<variant>/src    the adapter for one Lucene class as it looks from one release on, shared by
+                          the releases that have it, such as knn-vectors-reader-102-bits and
+                          knn-vectors-reader-103-acceptdocs; see compat/README.md
+  lucene-10.X/
+    pom.xml               the Lucene 10.X dependencies, and which compat/ variant of each API it uses
+    src/main/java         LuceneCompat: the calls that differ on Lucene 10.X
+    src/main/resources    the META-INF/services files: the codecs and formats Lucene 10.X can load
+    src/since/java        code first needed on Lucene 10.X, such as the codecs wrapping its default
+                          codec; compiled by this module and every later one
+  relocation/pom.xml      relocates the pre-26.12 cuvs-lucene coordinates to cuvs-lucene-10.2
+```
+
+Each module compiles the shared sources against its own Lucene release, so the compiler checks every release.
+The shared code never refers to a Lucene API that differs between releases. Instead it goes through:
+
+- `LuceneCompat`, for calls whose signature or class location differs, such as the codecs of earlier releases,
+  which move to Lucene's backward codecs.
+- `CompatKnnVectorsReader` and `CompatKnnFloatVectorQuery`, which override the Lucene methods whose signatures
+  changed and forward to a method with the same signature on every release. They live in `compat/`, one
+  directory per variant, and each module picks its variants in its `pom.xml`.
+
+Do not look up Lucene classes or constants by reflection. It hides API changes from the compiler, and constants
+such as `Lucene99HnswVectorsFormat.VERSION_CURRENT` change meaning between releases.
+
+`TestBackCompatIndices` reads indexes written by released cuvs-lucene versions, stored as zips in
+`src/test/resources/backcompat`, and checks that every module can still read, search and upgrade them. It also
+writes indexes with each module into `target/backcompat`, and checks that every later module tested in the same
+build can read, search and upgrade those. `TestBackCompat` checks that the codecs from `CuVSCodecs` are
+registered, and that only they write.
+
+### Adding a Lucene release
+
+[MAINTAINING.md](MAINTAINING.md) lists exactly what to change when Lucene publishes a new patch or minor
+release, and how to drop support for one.
 
 ## References
 
