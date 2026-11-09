@@ -615,30 +615,21 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
         }
         CagraIndex cagraIndex = cuvsIndex.getCagraIndex();
         assert cagraIndex != null;
-        CagraQuery query = null;
 
         CuVSMatrix.Builder<?> builder =
             CuVSMatrix.deviceBuilder(
                 getCuVSResourcesInstance(), 1, target.length, CuVSMatrix.DataType.FLOAT);
         builder.addVector(target);
         try (CuVSMatrix queryVector = builder.build()) {
+          CagraQuery.Builder queryBuilder =
+              new CagraQuery.Builder(getCuVSResourcesInstance())
+                  .withTopK(topK)
+                  .withSearchParams(searchParams)
+                  .withQueryVectors(queryVector);
           if (acceptDocs != null) {
-            query =
-                new CagraQuery.Builder(getCuVSResourcesInstance())
-                    .withTopK(topK)
-                    .withSearchParams(searchParams)
-                    .withQueryVectors(queryVector)
-                    .withPrefilter(mask[0], maskLength)
-                    .build();
-          } else {
-            query =
-                new CagraQuery.Builder(getCuVSResourcesInstance())
-                    .withTopK(topK)
-                    .withSearchParams(searchParams)
-                    .withQueryVectors(queryVector)
-                    .build();
+            queryBuilder.withPrefilter(mask[0], maskLength);
           }
-          searchResult = cagraIndex.search(query).getResults();
+          searchResult = cagraIndex.search(queryBuilder.build()).getResults();
         }
       } else {
         BruteForceIndex bruteforceIndex = cuvsIndex.getBruteforceIndex();
