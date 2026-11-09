@@ -147,15 +147,15 @@ Also read Lucene's `CHANGES.txt` for the release, looking for:
 
 ### 4. If Lucene's default codec changed
 
-Check which codec the release writes by default:
+Check which codec the release writes by default, the name `Codec.Holder` looks up:
 
 ```bash
-unzip -p ~/.m2/repository/org/apache/lucene/lucene-core/10.7.0/lucene-core-10.7.0.jar \
-  META-INF/services/org.apache.lucene.codecs.Codec
+javap -c -p -cp ~/.m2/repository/org/apache/lucene/lucene-core/10.7.0/lucene-core-10.7.0.jar \
+  'org.apache.lucene.codecs.Codec$Holder' | grep 'String Lucene'
 ```
 
-If it is still `Lucene104Codec`, skip this step (step 5 may still apply): the `Lucene104*` codecs keep writing on 10.7.
-If it is new, for example `Lucene107Codec`:
+If it is still `Lucene104`, skip this step (step 5 may still apply): the `Lucene104*` codecs keep writing on 10.7.
+If it is new, for example `Lucene107`:
 
 1. Create `lucene-10.7/src/since/java/com/nvidia/cuvs/lucene/` with the four codecs of the new
    generation, copied from the four `Lucene104*Codec` classes in `lucene-10.4/src/since/java` and
