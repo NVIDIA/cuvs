@@ -35,9 +35,9 @@
 #include <raft/util/integer_utils.hpp>
 
 #include <rmm/device_scalar.hpp>
-#include <rmm/mr/managed_memory_resource.hpp>
 #include <rmm/resource_ref.hpp>
 
+#include <cub/device/device_radix_sort.cuh>
 #include <thrust/gather.h>
 #include <thrust/iterator/counting_iterator.h>
 #include <thrust/iterator/transform_iterator.h>
@@ -45,6 +45,7 @@
 
 #include "../../neighbors/detail/ann_utils.cuh"
 #include <algorithm>
+#include <bit>
 #include <limits>
 #include <numeric>
 #include <optional>
@@ -1361,18 +1362,22 @@ inline auto arrange_fine_clusters(IdxT n_clusters,
  *  Given the (coarse) mesoclusters and the distribution of fine clusters within them,
  *  build the fine clusters.
  *
- *  Processing one mesocluster at a time:
+ *  The row ids are first grouped by mesocluster on the device (a stable sort by label), so that
+ *  each mesocluster's rows are a contiguous range in row order. Then, one mesocluster at a time:
  *   1. Copy mesocluster data into a separate buffer
  *   2. Predict fine cluster
- *   3. Refince the fine cluster centers
+ *   3. Refine the fine cluster centers
  *
  *  As a result, the fine clusters are what is returned by `build_hierarchical`;
  *  this function returns the total number of fine clusters, which can be checked to be
  *  the same as the requested number of clusters.
  *
- *  Note: this function uses at most `fine_clusters_nums_max` points per mesocluster for training;
+ *  Note: this function uses at most `mesocluster_size_max` points per mesocluster for training;
  *  if one of the clusters is larger than that (as given by `mesocluster_sizes`), the extra data
  *  is ignored.
+ *
+ *  `labels` is a device pointer [n_rows]; `mesocluster_sizes`, `fine_clusters_nums` and
+ *  `fine_clusters_csum` are host pointers [n_mesoclusters] (the sizes must count `labels`).
  */
 template <typename T,
           typename MathT,
@@ -1385,7 +1390,7 @@ auto build_fine_clusters(const raft::resources& handle,
                          IdxT dim,
                          const T* dataset_mptr,
                          const MathT* dataset_norm_mptr,
-                         const LabelT* labels_mptr,
+                         const LabelT* labels,
                          IdxT n_rows,
                          const IdxT* fine_clusters_nums,
                          const IdxT* fine_clusters_csum,
@@ -1395,18 +1400,51 @@ auto build_fine_clusters(const raft::resources& handle,
                          IdxT fine_clusters_nums_max,
                          MathT* cluster_centers,
                          MappingOpT mapping_op,
-                         rmm::device_async_resource_ref managed_memory,
                          rmm::device_async_resource_ref device_memory) -> IdxT
 {
   auto stream          = raft::resource::get_cuda_stream(handle);
   IdxT transformed_dim = centers_dim<T>(dim, params.is_packed_binary);
-  rmm::device_uvector<IdxT> mc_trainset_ids_buf(mesocluster_size_max, stream, managed_memory);
   // for small cluster counts the maximum mesocluster size is proportional to the number of rows, so
   // we use large workspace
   auto large_ws = raft::resource::get_large_workspace_resource_ref(handle);
+
+  // Row ids grouped by mesocluster, in row order within each, so that each mesocluster's training
+  // rows are a contiguous range (the first `mesocluster_size_max` of them, as before)
+  rmm::device_uvector<IdxT> grouped_ids(n_rows, stream, large_ws);
+  {
+    rmm::device_uvector<IdxT> row_ids(n_rows, stream, large_ws);
+    rmm::device_uvector<LabelT> sorted_labels(n_rows, stream, large_ws);
+    raft::linalg::map_offset(handle,
+                             raft::make_device_vector_view<IdxT, IdxT>(row_ids.data(), n_rows),
+                             raft::identity_op{});
+    const int end_bit =
+      std::max(1, static_cast<int>(std::bit_width(static_cast<uint64_t>(n_mesoclusters - 1))));
+    size_t sort_bytes = 0;
+    RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(nullptr,
+                                                  sort_bytes,
+                                                  labels,
+                                                  sorted_labels.data(),
+                                                  row_ids.data(),
+                                                  grouped_ids.data(),
+                                                  n_rows,
+                                                  0,
+                                                  end_bit,
+                                                  stream.get()));
+    rmm::device_uvector<char> sort_ws(sort_bytes, stream, device_memory);
+    RAFT_CUDA_TRY(cub::DeviceRadixSort::SortPairs(sort_ws.data(),
+                                                  sort_bytes,
+                                                  labels,
+                                                  sorted_labels.data(),
+                                                  row_ids.data(),
+                                                  grouped_ids.data(),
+                                                  n_rows,
+                                                  0,
+                                                  end_bit,
+                                                  stream.get()));
+  }
+
   rmm::device_uvector<T> mc_trainset_buf(mesocluster_size_max * dim, stream, large_ws);
   rmm::device_uvector<MathT> mc_trainset_norm_buf(mesocluster_size_max, stream, device_memory);
-  auto mc_trainset_ids  = mc_trainset_ids_buf.data();
   auto mc_trainset      = mc_trainset_buf.data();
   auto mc_trainset_norm = mc_trainset_norm_buf.data();
 
@@ -1421,16 +1459,12 @@ auto build_fine_clusters(const raft::resources& handle,
 
   // Training clusters in each meso-cluster
   IdxT n_clusters_done = 0;
+  IdxT mc_offset       = 0;
   for (IdxT i = 0; i < n_mesoclusters; i++) {
-    IdxT k = 0;
-    for (IdxT j = 0; j < n_rows && k < mesocluster_size_max; j++) {
-      if (labels_mptr[j] == LabelT(i)) { mc_trainset_ids[k++] = j; }
-    }
-    if (k != static_cast<IdxT>(mesocluster_sizes[i]))
-      RAFT_LOG_DEBUG("Incorrect mesocluster size at %d. %zu vs %zu",
-                     static_cast<int>(i),
-                     static_cast<size_t>(k),
-                     static_cast<size_t>(mesocluster_sizes[i]));
+    const auto mc_size          = static_cast<IdxT>(mesocluster_sizes[i]);
+    const IdxT k                = std::min(mc_size, mesocluster_size_max);
+    const IdxT* mc_trainset_ids = grouped_ids.data() + mc_offset;
+    mc_offset += mc_size;
     if (k == 0) {
       RAFT_LOG_DEBUG("Empty cluster %d", i);
       RAFT_EXPECTS(fine_clusters_nums[i] == 0,
@@ -1478,7 +1512,6 @@ auto build_fine_clusters(const raft::resources& handle,
                                     fine_clusters_nums[i] * transformed_dim),
       raft::make_device_vector_view<const MathT>(mc_trainset_ccenters.data(),
                                                  fine_clusters_nums[i] * transformed_dim));
-    raft::resource::sync_stream(handle, stream);
     n_clusters_done += fine_clusters_nums[i];
   }
   return n_clusters_done;
@@ -1525,8 +1558,6 @@ void build_hierarchical(const raft::resources& handle,
   IdxT n_mesoclusters = std::min(n_clusters, static_cast<IdxT>(std::sqrt(n_clusters) + 0.5));
   RAFT_LOG_DEBUG("build_hierarchical: n_mesoclusters: %u", n_mesoclusters);
 
-  // TODO: Remove the explicit managed memory- we shouldn't be creating this on the user's behalf.
-  rmm::mr::managed_memory_resource managed_memory;
   rmm::device_async_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
   auto [max_minibatch_size, mem_per_row]       = calc_minibatch_size<MathT>(
     handle, n_clusters, n_rows, transformed_dim, params.metric, !std::is_same_v<T, MathT>);
@@ -1578,8 +1609,9 @@ void build_hierarchical(const raft::resources& handle,
     CounterT;
 
   // build coarse clusters (mesoclusters)
-  rmm::device_uvector<LabelT> mesocluster_labels_buf(n_rows, stream, managed_memory);
-  rmm::device_uvector<CounterT> mesocluster_sizes_buf(n_mesoclusters, stream, managed_memory);
+  rmm::device_uvector<LabelT> mesocluster_labels_buf(
+    n_rows, stream, raft::resource::get_large_workspace_resource_ref(handle));
+  rmm::device_uvector<CounterT> mesocluster_sizes_buf(n_mesoclusters, stream, device_memory);
   {
     rmm::device_uvector<MathT> mesocluster_centers_buf(
       n_mesoclusters * transformed_dim, stream, device_memory);
@@ -1597,10 +1629,12 @@ void build_hierarchical(const raft::resources& handle,
                    dataset_norm);
   }
 
-  auto mesocluster_sizes  = mesocluster_sizes_buf.data();
-  auto mesocluster_labels = mesocluster_labels_buf.data();
-
+  std::vector<CounterT> mesocluster_sizes_host(n_mesoclusters);
+  raft::update_host(
+    mesocluster_sizes_host.data(), mesocluster_sizes_buf.data(), n_mesoclusters, stream);
   raft::resource::sync_stream(handle, stream);
+  auto mesocluster_sizes  = mesocluster_sizes_host.data();
+  auto mesocluster_labels = mesocluster_labels_buf.data();
 
   // build fine clusters
   auto [mesocluster_size_max, fine_clusters_nums_max, fine_clusters_nums, fine_clusters_csum] =
@@ -1636,7 +1670,6 @@ void build_hierarchical(const raft::resources& handle,
                                              fine_clusters_nums_max,
                                              cluster_centers,
                                              mapping_op,
-                                             managed_memory,
                                              device_memory);
   RAFT_EXPECTS(n_clusters_done == n_clusters, "Didn't process all clusters.");
 

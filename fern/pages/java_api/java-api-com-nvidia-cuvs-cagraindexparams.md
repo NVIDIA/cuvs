@@ -22,7 +22,7 @@ AUTO_SELECT(0), /** * Use IVF-PQ to build all-neighbors knn graph */ IVF_PQ(1), 
 
 Select build algorithm automatically
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:36`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:37`_
 
 ### IVF_PQ
 
@@ -32,7 +32,7 @@ IVF_PQ(1), /** * Experimental, use NN-Descent to build all-neighbors knn graph *
 
 Use IVF-PQ to build all-neighbors knn graph
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:40`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:41`_
 
 ### NN_DESCENT
 
@@ -42,7 +42,7 @@ NN_DESCENT(2), /** * Experimental, use ACE (Augmented Core Extraction) to build 
 
 Experimental, use NN-Descent to build all-neighbors knn graph
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:44`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:45`_
 
 ### ACE
 
@@ -53,7 +53,7 @@ ACE(4)
 Experimental, use ACE (Augmented Core Extraction) to build graph for large datasets.
 4 to be consistent with the other interfaces.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:49`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:50`_
 
 ### SIMILAR_SEARCH_PERFORMANCE
 
@@ -72,7 +72,7 @@ searched by HNSW are close for any search parameter combination. The CAGRA-produ
 to have a "longer tail" on the low recall side (that is being slightly faster and less
 precise).
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:86`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:87`_
 
 ### SAME_GRAPH_FOOTPRINT
 
@@ -89,7 +89,7 @@ the same ef, the from-CAGRA index likely has a slightly higher recall and slight
 However, the Recall-QPS curves should be similar (i.e. the points are just shifted along the
 curve).
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:97`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:98`_
 
 ### L2Expanded
 
@@ -99,7 +99,7 @@ L2Expanded(0), /** * same as above, but inside the epilogue, perform square root
 
 evaluate as dist_ij = sum(x_ik^2) + sum(y_ij)^2 - 2*sum(x_ik * y_jk)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:125`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:126`_
 
 ### L2SqrtExpanded
 
@@ -109,7 +109,7 @@ L2SqrtExpanded(1), /** * cosine distance */ CosineExpanded(2), /** * L1 distance
 
 same as above, but inside the epilogue, perform square root operation
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:129`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:130`_
 
 ### CosineExpanded
 
@@ -119,7 +119,7 @@ CosineExpanded(2), /** * L1 distance * */ L1(3), /** * evaluate as dist_ij += (x
 
 cosine distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:133`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:134`_
 
 ### L1
 
@@ -129,7 +129,7 @@ L1(3), /** * evaluate as dist_ij += (x_ik - y-jk)^2 * */ L2Unexpanded(4), /** * 
 
 L1 distance *
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:137`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:138`_
 
 ### L2Unexpanded
 
@@ -139,7 +139,7 @@ L2Unexpanded(4), /** * same as above, but inside the epilogue, perform square ro
 
 evaluate as dist_ij += (x_ik - y-jk)^2 *
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:141`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:142`_
 
 ### L2SqrtUnexpanded
 
@@ -149,7 +149,7 @@ L2SqrtUnexpanded(5), /** * basic inner product */ InnerProduct(6), /** * Chebysh
 
 same as above, but inside the epilogue, perform square root operation
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:145`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:146`_
 
 ### InnerProduct
 
@@ -159,7 +159,7 @@ InnerProduct(6), /** * Chebyshev (Linf) distance */ Linf(7), /** * Canberra dist
 
 basic inner product
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:149`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:150`_
 
 ### Linf
 
@@ -169,7 +169,7 @@ Linf(7), /** * Canberra distance */ Canberra(8), /** * Generalized Minkowski dis
 
 Chebyshev (Linf) distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:153`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:154`_
 
 ### Canberra
 
@@ -179,7 +179,7 @@ Canberra(8), /** * Generalized Minkowski distance */ LpUnexpanded(9), /** * Corr
 
 Canberra distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:157`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:158`_
 
 ### LpUnexpanded
 
@@ -189,7 +189,7 @@ LpUnexpanded(9), /** * Correlation distance */ CorrelationExpanded(10), /** * Ja
 
 Generalized Minkowski distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:161`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:162`_
 
 ### CorrelationExpanded
 
@@ -199,7 +199,7 @@ CorrelationExpanded(10), /** * Jaccard distance */ JaccardExpanded(11), /** * He
 
 Correlation distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:165`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:166`_
 
 ### JaccardExpanded
 
@@ -209,7 +209,7 @@ JaccardExpanded(11), /** * Hellinger distance */ HellingerExpanded(12), /** * Ha
 
 Jaccard distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:169`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:170`_
 
 ### HellingerExpanded
 
@@ -219,7 +219,7 @@ HellingerExpanded(12), /** * Haversine distance */ Haversine(13), /** * Bray-Cur
 
 Hellinger distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:173`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:174`_
 
 ### Haversine
 
@@ -229,7 +229,7 @@ Haversine(13), /** * Bray-Curtis distance */ BrayCurtis(14), /** * Jensen-Shanno
 
 Haversine distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:177`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:178`_
 
 ### BrayCurtis
 
@@ -239,7 +239,7 @@ BrayCurtis(14), /** * Jensen-Shannon distance */ JensenShannon(15), /** * Hammin
 
 Bray-Curtis distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:181`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:182`_
 
 ### JensenShannon
 
@@ -249,7 +249,7 @@ JensenShannon(15), /** * Hamming distance */ HammingUnexpanded(16), /** * KLDive
 
 Jensen-Shannon distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:185`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:186`_
 
 ### HammingUnexpanded
 
@@ -259,7 +259,7 @@ HammingUnexpanded(16), /** * KLDivergence */ KLDivergence(17), /** * RusselRao *
 
 Hamming distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:189`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:190`_
 
 ### KLDivergence
 
@@ -269,7 +269,7 @@ KLDivergence(17), /** * RusselRao */ RusselRaoExpanded(18), /** * Dice-Sorensen 
 
 KLDivergence
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:193`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:194`_
 
 ### RusselRaoExpanded
 
@@ -279,7 +279,7 @@ RusselRaoExpanded(18), /** * Dice-Sorensen distance */ DiceExpanded(19), /** * P
 
 RusselRao
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:197`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:198`_
 
 ### DiceExpanded
 
@@ -289,7 +289,7 @@ DiceExpanded(19), /** * Precomputed (special value) */ Precomputed(100)
 
 Dice-Sorensen distance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:201`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:202`_
 
 ### Precomputed
 
@@ -299,7 +299,7 @@ Precomputed(100)
 
 Precomputed (special value)
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:205`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:206`_
 
 ### getIntermediateGraphDegree
 
@@ -313,7 +313,7 @@ Gets the degree of input graph for pruning.
 
 the degree of input graph
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:373`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:376`_
 
 ### getGraphDegree
 
@@ -327,7 +327,7 @@ Gets the degree of output graph.
 
 the degree of output graph
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:382`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:385`_
 
 ### getVariableGraphDegreeFraction
 
@@ -342,7 +342,21 @@ The default value of 1.0 means the graph has a constant degree.
 
 the variable graph degree fraction, in [0, 1]
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:393`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:396`_
+
+### isGuaranteeConnectivity
+
+```java
+public boolean isGuaranteeConnectivity()
+```
+
+Gets whether the graph build guarantees the graph is connected.
+
+**Returns**
+
+whether MST optimization is used to guarantee graph connectivity
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:406`_
 
 ### getCagraGraphBuildAlgo
 
@@ -352,7 +366,7 @@ public CagraGraphBuildAlgo getCagraGraphBuildAlgo()
 
 Gets the `CagraGraphBuildAlgo` used to build the index.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:400`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:413`_
 
 ### getNNDescentNumIterations
 
@@ -363,7 +377,7 @@ public long getNNDescentNumIterations()
 Gets the number of iterations to run if building with
 `CagraGraphBuildAlgo#NN_DESCENT`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:408`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:421`_
 
 ### getCuvsDistanceType
 
@@ -373,7 +387,7 @@ public CuvsDistanceType getCuvsDistanceType()
 
 Gets the `CuvsDistanceType` used to build the index.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:415`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:428`_
 
 ### getNumWriterThreads
 
@@ -383,7 +397,7 @@ public int getNumWriterThreads()
 
 Gets the number of threads used to build the index.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:422`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:435`_
 
 ### getCuVSIvfPqParams
 
@@ -393,7 +407,7 @@ public CuVSIvfPqParams getCuVSIvfPqParams()
 
 Gets the IVF_PQ parameters.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:429`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:442`_
 
 ### getCuVSAceParams
 
@@ -403,7 +417,7 @@ public CuVSAceParams getCuVSAceParams()
 
 Gets the ACE parameters.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:436`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:449`_
 
 ### getCuvsCagraGraphBuildAlgo
 
@@ -413,7 +427,7 @@ public CagraGraphBuildAlgo getCuvsCagraGraphBuildAlgo()
 
 Gets the CAGRA build algorithm.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:443`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:456`_
 
 ### withIntermediateGraphDegree
 
@@ -433,7 +447,7 @@ Sets the degree of input graph for pruning.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:493`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:509`_
 
 ### withGraphDegree
 
@@ -453,7 +467,7 @@ Sets the degree of output graph.
 
 an instance to Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:504`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:520`_
 
 ### withVariableGraphDegreeFraction
 
@@ -483,7 +497,32 @@ native GPU search.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:525`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:541`_
+
+### withGuaranteeConnectivity
+
+```java
+public Builder withGuaranteeConnectivity(boolean guaranteeConnectivity)
+```
+
+Sets whether to use MST optimization to guarantee graph connectivity.
+
+When true, the optimize step keeps the edges of an approximate, degree-constrained minimum
+spanning tree of the kNN graph in the output graph. If the kNN graph itself is disconnected,
+for example for well separated clusters, nodes outside its largest component are also linked
+to that component. Default: false.
+
+**Parameters**
+
+| Name | Description |
+| --- | --- |
+| `guaranteeConnectivity` | whether to guarantee graph connectivity |
+
+**Returns**
+
+an instance of Builder
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:557`_
 
 ### withCagraGraphBuildAlgo
 
@@ -503,7 +542,7 @@ Sets the CuvsCagraGraphBuildAlgo to use.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:536`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:568`_
 
 ### withMetric
 
@@ -523,7 +562,7 @@ Sets the metric to use.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:547`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:579`_
 
 ### withNNDescentNumIterations
 
@@ -544,7 +583,7 @@ Sets the Number of Iterations to run if building with
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:560`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:592`_
 
 ### withNumWriterThreads
 
@@ -569,7 +608,7 @@ core) unless it was set earlier on that thread.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:577`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:609`_
 
 ### withCuVSIvfPqParams
 
@@ -589,7 +628,7 @@ Sets the IVF_PQ index parameters.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:588`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:620`_
 
 ### withCuVSAceParams
 
@@ -609,7 +648,7 @@ Sets the ACE index parameters.
 
 an instance of Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:599`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:631`_
 
 ### build
 
@@ -623,6 +662,6 @@ Builds an instance of `CagraIndexParams`.
 
 an instance of `CagraIndexParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:609`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:641`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraIndexParams.java:18`_
