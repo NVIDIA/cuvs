@@ -211,17 +211,18 @@ struct search_params : cuvs::neighbors::search_params {
    */
   uint32_t max_internal_batch_size = 4096;
   /**
-   * [Internal] Enable the random-probe mode with the given non-zero seed; zero (default) keeps the
-   * usual search of the nearest lists.
+   * [Internal] The number of the last results of the `k` returned for each query that come from
+   * randomly selected probes instead of the nearest samples; zero (default) is the usual search.
    *
-   * In the random-probe mode, `n_probes` distinct lists are picked uniformly at random for every
-   * query. Each of the lists reports its single nearest sample, and the `k` nearest of these
-   * `n_probes` samples are returned (hence, `k <= n_probes`; the larger `n_probes` is compared to
-   * `k`, the more local the results are). All the results come from different lists.
-   * The same seed picks the same lists for the queries at the same positions, so vary it between
-   * the batches of queries.
+   * If non-zero, the fine search runs the search kernel twice. The first pass is the usual search
+   * for the `k - n_random_probes` nearest results. In the second pass, `n_random_probes` probes
+   * are selected uniformly at random among the `n_probes` probed lists of each query, and every
+   * such list reports its nearest sample (the running k-th distance threshold is not used there).
+   * These samples take the last `n_random_probes` places of the results (they are not checked for
+   * the repeats of the nearest results).
+   * The value is clamped to `min(k - 1, n_probes)`, and ignored if `n_probes == 1`.
    */
-  uint64_t random_probe_enable_seed = 0;
+  uint32_t n_random_probes = 0;
 };
 /**
  * @}
@@ -3397,15 +3398,7 @@ struct ivf_pq_params {
   cuvs::neighbors::ivf_pq::index_params build_params;
   cuvs::neighbors::ivf_pq::search_params search_params;
   float refinement_rate = 1.0;
-  /**
-   * The number of neighbors of each node that are taken from randomly selected lists
-   * (`ivf_pq::search_params::random_probe_enable_seed != 0`) instead of the nearest ones.
-   * They replace the last `n_random_edges` of the `intermediate_graph_degree` neighbors, which
-   * adds a few long-range edges and helps to connect the clusters of the dataset in the graph.
-   * Zero disables the feature.
-   */
-  uint32_t n_random_edges = 0;
-  ivf_pq_params()         = default;
+  ivf_pq_params()       = default;
 
   /**
    * Set default parameters based on shape of the input dataset.
@@ -3464,7 +3457,7 @@ struct ivf_pq_params {
 
     refinement_rate = 1;
     // A few neighbors from random lists connect the clusters of the dataset in the graph.
-    n_random_edges = 4;
+    search_params.n_random_probes = 1;
   }
 };
 }  // namespace graph_build_params

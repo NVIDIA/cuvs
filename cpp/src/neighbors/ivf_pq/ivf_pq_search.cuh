@@ -30,7 +30,7 @@
 #include <raft/linalg/normalize.cuh>
 #include <raft/matrix/detail/select_warpsort.cuh>
 #include <raft/matrix/select_k.cuh>
-#include <raft/random/rng.cuh>
+#include <raft/random/rng_device.cuh>
 #include <raft/util/cache.hpp>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
@@ -49,44 +49,6 @@
 namespace cuvs::neighbors::ivf_pq::detail {
 
 using namespace cuvs::spatial::knn::detail;  // NOLINT
-
-/**
- * Select `n_probes` distinct lists for each query uniformly at random
- * (a replacement for `select_clusters` when the lists are not chosen by the proximity).
- */
-inline void random_clusters(raft::resources const& handle,
-                            uint32_t* clusters_to_probe,  // [n_queries, n_probes]
-                            uint32_t n_queries,
-                            uint32_t n_probes,
-                            uint32_t n_lists,
-                            uint64_t seed)
-{
-  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
-    "ivf_pq::search::random_clusters(n_probes = %u, n_queries = %u, n_lists = %u)",
-    n_probes,
-    n_queries,
-    n_lists);
-  raft::random::RngState rng_state(seed);
-  // Draw the random list indices (possibly repeated) for all queries at once.
-  raft::random::uniformInt(
-    handle, rng_state, clusters_to_probe, int64_t(n_queries) * n_probes, uint32_t(0), n_lists);
-  // Make the lists of each query distinct: move a repeated index to the next free list.
-  // (`n_probes <= n_lists`, hence there is always a free list.)
-  auto done = raft::make_device_vector<uint8_t, int64_t>(handle, n_queries);
-  raft::linalg::map_offset(
-    handle, done.view(), [clusters_to_probe, n_probes, n_lists] __device__(int64_t query_ix) {
-      uint32_t* out = clusters_to_probe + size_t(query_ix) * n_probes;
-      for (uint32_t n = 1; n < n_probes; n++) {
-        for (uint32_t i = 0; i < n; i++) {
-          if (out[i] == out[n]) {
-            out[n] = out[n] + 1 == n_lists ? 0 : out[n] + 1;
-            i      = uint32_t(-1);  // start over: the new index may match an earlier one
-          }
-        }
-      }
-      return uint8_t(1);
-    });
-}
 
 /**
  * Select the clusters to probe and, as a side-effect, translate the queries type `T -> float`
@@ -470,7 +432,8 @@ void ivfpq_search_worker(raft::resources const& handle,
                          float scaling_factor,
                          double preferred_shmem_carveout,
                          IvfSampleFilterT sample_filter,
-                         bool random_probes)
+                         uint32_t out_stride,  // the row stride of `neighbors` and `distances`
+                         bool random_pass)
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "ivf_pq::search-worker(n_queries = %u, n_probes = %u, k = %u, dim = %zu)",
@@ -481,17 +444,9 @@ void ivfpq_search_worker(raft::resources const& handle,
   auto stream = raft::resource::get_cuda_stream(handle);
   auto mr     = raft::resource::get_workspace_resource_ref(handle);
 
-  // In the random-probe mode, every probed list reports exactly one best sample (using the fused
-  // kernel regardless of the work size), and the top-k of these n_probes candidates is selected
-  // below as usual.
-  RAFT_EXPECTS(!random_probes || topK <= n_probes,
-               "In the random-probe mode, k (%u) must not exceed n_probes (%u).",
-               topK,
-               n_probes);
-  const uint32_t local_topk    = random_probes ? 1 : topK;
-  bool manage_local_topk       = random_probes || is_local_topk_feasible(topK, n_probes, n_queries);
-  auto topk_len                = manage_local_topk ? n_probes * local_topk : max_samples;
-  std::size_t n_queries_probes = std::size_t(n_queries) * std::size_t(n_probes);
+  bool manage_local_topk         = random_pass || is_local_topk_feasible(topK, n_probes, n_queries);
+  auto topk_len                  = manage_local_topk ? n_probes * topK : max_samples;
+  std::size_t n_queries_probes   = std::size_t(n_queries) * std::size_t(n_probes);
   std::size_t n_queries_topk_len = std::size_t(n_queries) * std::size_t(topk_len);
   if (manage_local_topk) {
     RAFT_LOG_DEBUG("Fused version of the search kernel is selected (manage_local_topk == true)");
@@ -514,7 +469,7 @@ void ivfpq_search_worker(raft::resources const& handle,
   }
   rmm::device_uvector<uint32_t> neighbors_uint32_buf(0, stream, mr);
   uint32_t* neighbors_uint32 = nullptr;
-  if constexpr (sizeof(IdxT) == sizeof(uint32_t)) {
+  if (sizeof(IdxT) == sizeof(uint32_t) && out_stride == topK) {
     neighbors_uint32 = reinterpret_cast<uint32_t*>(neighbors);
   } else {
     neighbors_uint32_buf.resize(n_queries * topK, stream);
@@ -615,7 +570,7 @@ void ivfpq_search_worker(raft::resources const& handle,
                                precomp_data_count,
                                n_queries,
                                n_probes,
-                               local_topk};
+                               topK};
   auto& cache =
     raft::resource::get_custom_resource<search_kernel_cache<ScoreT, LutT, IvfSampleFilterT>>(handle)
       ->value;
@@ -629,7 +584,7 @@ void ivfpq_search_worker(raft::resources const& handle,
                                                      precomp_data_count,
                                                      n_queries,
                                                      n_probes,
-                                                     local_topk);
+                                                     topK);
     cache.set(search_key, search_instance);
   }
 
@@ -646,10 +601,7 @@ void ivfpq_search_worker(raft::resources const& handle,
   rmm::device_uvector<LutT> device_lut(search_instance.device_lut_size, stream, mr);
   std::optional<raft::device_vector<float>> query_kths_buf{std::nullopt};
   float* query_kths = nullptr;
-  // The probes of a query share the running k-th distance to skip the samples that do not make it
-  // into the top-k. This must not happen in the random-probe mode: a probe reports only its best
-  // sample, which does not bound the k-th best result of the query.
-  if (manage_local_topk && !random_probes) {
+  if (manage_local_topk && !random_pass) {
     query_kths_buf.emplace(
       raft::make_device_mdarray<float>(handle, mr, raft::make_extents<uint32_t>(n_queries)));
     raft::linalg::map(
@@ -666,7 +618,7 @@ void ivfpq_search_worker(raft::resources const& handle,
                          n_queries,
                          queries_offset,
                          index.codebook_kind(),
-                         local_topk,
+                         topK,
                          max_samples,
                          index.centers_rot().data_handle(),
                          index.pq_centers().data_handle(),
@@ -684,20 +636,28 @@ void ivfpq_search_worker(raft::resources const& handle,
                          distances_buf.data(),
                          neighbors_ptr);
 
-  if (random_probes) {
-    // The probes with nothing to report have the dummy score; mark their samples as invalid.
-    const ScoreT kDummyScore = raft::upper_bound<ScoreT>();
-    auto neighbors_probes_view =
-      raft::make_device_vector_view<uint32_t, int64_t>(neighbors_ptr, n_queries_topk_len);
-    raft::linalg::map(
-      handle,
-      neighbors_probes_view,
-      [kDummyScore] __device__(uint32_t sample_ix, ScoreT score) {
-        return score == kDummyScore ? raft::upper_bound<uint32_t>() : sample_ix;
-      },
-      raft::make_const_mdspan(neighbors_probes_view),
-      raft::make_device_vector_view<const ScoreT, int64_t>(distances_buf.data(),
-                                                           n_queries_topk_len));
+  if (random_pass) {
+    // The results of each probe are reported as they are (without selecting the best ones).
+    ivf::detail::postprocess_distances(handle,
+                                       distances,
+                                       distances_buf.data(),
+                                       index.metric(),
+                                       n_queries,
+                                       n_probes * topK,
+                                       scaling_factor,
+                                       index.metric() != distance::DistanceType::CosineExpanded,
+                                       out_stride);
+    ivf::detail::postprocess_neighbors(neighbors,
+                                       neighbors_ptr,
+                                       index.inds_ptrs().data_handle(),
+                                       clusters_to_probe,
+                                       chunk_index.data(),
+                                       n_queries,
+                                       n_probes,
+                                       n_probes * topK,
+                                       stream,
+                                       out_stride);
+    return;
   }
 
   // Select topk vectors for each query
@@ -728,7 +688,8 @@ void ivfpq_search_worker(raft::resources const& handle,
                                      n_queries,
                                      topK,
                                      scaling_factor,
-                                     index.metric() != distance::DistanceType::CosineExpanded);
+                                     index.metric() != distance::DistanceType::CosineExpanded,
+                                     out_stride);
   ivf::detail::postprocess_neighbors(neighbors,
                                      neighbors_uint32,
                                      index.inds_ptrs().data_handle(),
@@ -737,7 +698,8 @@ void ivfpq_search_worker(raft::resources const& handle,
                                      n_queries,
                                      n_probes,
                                      topK,
-                                     stream);
+                                     stream,
+                                     out_stride);
 }
 
 /**
@@ -996,13 +958,6 @@ inline void search(raft::resources const& handle,
                     ? get_centers<int8_t, IdxT>(handle, index).extent(1)
                     : index.dim_ext();
   auto n_probes = std::min<uint32_t>(params.n_probes, index.n_lists());
-  // In the random-probe mode, the probed lists are random, and each of them reports its best sample
-  // (hence, k <= n_probes); the k best of these samples are returned.
-  const bool random_probes = params.random_probe_enable_seed != 0;
-  RAFT_EXPECTS(!random_probes || k <= n_probes,
-               "In the random-probe mode, k (%u) must not exceed n_probes (%u).",
-               k,
-               n_probes);
 
   uint32_t max_samples = 0;
   {
@@ -1022,6 +977,10 @@ inline void search(raft::resources const& handle,
   // This is usually smaller than the outer loop when the non-fused kernel has to keep intermediate
   // results in the device memory.
   auto max_bs_inner = get_max_fine_batch_size(handle, k, n_probes, max_bs_outer, max_samples);
+  // A single probe has no other probes to choose from; at least the nearest result must remain.
+  // Each random probe reports its nearest sample, so there are at most `n_probes` of them.
+  const uint32_t n_random_probes =
+    n_probes > 1 ? std::min({params.n_random_probes, k - 1, n_probes}) : 0;
 
   using some_query_t = std::
     variant<rmm::device_uvector<float>, rmm::device_uvector<half>, rmm::device_uvector<int8_t>>;
@@ -1041,6 +1000,9 @@ inline void search(raft::resources const& handle,
   rmm::device_uvector<uint32_t> clusters_to_probe(max_bs_outer * n_probes, stream, mr);
 
   auto search_instance = ivfpq_search<IdxT, IvfSampleFilterT>::fun(params, index.metric());
+  const std::size_t max_bs_random = n_random_probes > 0 ? max_bs_inner : 0;
+  rmm::device_uvector<uint32_t> random_clusters(max_bs_random * n_random_probes, stream, mr);
+  rmm::device_uvector<uint8_t> random_done(max_bs_random, stream, mr);
 
   for (uint32_t offset_q = 0; offset_q < n_queries; offset_q += max_bs_outer) {
     uint32_t queries_batch = min(max_bs_outer, n_queries - offset_q);
@@ -1065,15 +1027,6 @@ inline void search(raft::resources const& handle,
                                mr);
       },
       gemm_queries);
-
-    if (random_probes) {
-      random_clusters(handle,
-                      clusters_to_probe.data(),
-                      queries_batch,
-                      n_probes,
-                      index.n_lists(),
-                      params.random_probe_enable_seed + uint64_t(offset_q) * 0x2545F4914F6CDD1Dull);
-    }
 
     // Rotate queries
     std::visit(
@@ -1111,21 +1064,55 @@ inline void search(raft::resources const& handle,
          as long as `index.rotation_matrix()` is orthogonal, the distances and thus results are
          preserved.
        */
-      search_instance(handle,
-                      index,
-                      max_samples,
-                      n_probes,
-                      k,
-                      batch_size,
-                      offset_q + offset_b,
-                      clusters_to_probe.data() + uint64_t(n_probes) * offset_b,
-                      rot_queries.data() + uint64_t(index.rot_dim()) * offset_b,
-                      neighbors + uint64_t(k) * (offset_q + offset_b),
-                      distances + uint64_t(k) * (offset_q + offset_b),
-                      utils::config<T>::kDivisor / utils::config<float>::kDivisor,
-                      params.preferred_shmem_carveout,
-                      sample_filter,
-                      random_probes);
+      const uint32_t queries_offset = offset_q + offset_b;
+      const uint32_t* clusters      = clusters_to_probe.data() + uint64_t(n_probes) * offset_b;
+      IdxT* neighbors_batch         = neighbors + uint64_t(k) * queries_offset;
+      float* distances_batch        = distances + uint64_t(k) * queries_offset;
+      auto search_part              = [&](uint32_t n_probes_part,
+                             uint32_t k_part,
+                             const uint32_t* clusters_part,
+                             uint32_t offset_k,
+                             bool random_pass) {
+        search_instance(handle,
+                        index,
+                        max_samples,
+                        n_probes_part,
+                        k_part,
+                        batch_size,
+                        queries_offset,
+                        clusters_part,
+                        rot_queries.data() + uint64_t(index.rot_dim()) * offset_b,
+                        neighbors_batch + offset_k,
+                        distances_batch + offset_k,
+                        utils::config<T>::kDivisor / utils::config<float>::kDivisor,
+                        params.preferred_shmem_carveout,
+                        sample_filter,
+                        k,
+                        random_pass);
+      };
+      // The nearest results go first; the last `n_random_probes` results are the nearest samples
+      // of randomly selected probes (the k-th distance filter is not used for them).
+      search_part(n_probes, k - n_random_probes, clusters, 0, false);
+      if (n_random_probes > 0) {
+        // Choose a random subset of the probes of each query (selection sampling).
+        uint32_t* random_out = random_clusters.data();
+        raft::linalg::map_offset(
+          handle,
+          raft::make_device_vector_view<uint8_t, int64_t>(random_done.data(), batch_size),
+          [=] __device__(int64_t query_ix) {
+            raft::random::PCGenerator gen{0, uint64_t(queries_offset) + query_ix, 0};
+            uint32_t chosen = 0;
+            for (uint32_t j = 0; j < n_probes && chosen < n_random_probes; j++) {
+              // take the j-th probe with the probability (still needed) / (still available)
+              if (gen.next_u32() % (n_probes - j) < n_random_probes - chosen) {
+                random_out[query_ix * n_random_probes + chosen++] =
+                  clusters[query_ix * n_probes + j];
+              }
+            }
+            return uint8_t(1);
+          });
+        search_part(n_random_probes, 1, random_clusters.data(), k - n_random_probes, true);
+      }
     }
   }
 }

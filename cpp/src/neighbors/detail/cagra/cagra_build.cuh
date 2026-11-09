@@ -111,42 +111,6 @@ void write_to_graph(raft::host_matrix_view<IdxT, int64_t, raft::row_major> knn_g
   }
 }
 
-/**
- * Replace the last `n_random_edges` neighbors of the nodes in the batch with the candidates found
- * in randomly selected lists (the best sample of each list). The candidates that are invalid, refer
- * to the node itself, or are already among its neighbors are skipped; if there are not enough valid
- * candidates, the remaining neighbors are left as they were.
- */
-template <typename IdxT>
-void add_random_edges(raft::host_matrix_view<IdxT, int64_t, raft::row_major> knn_graph,
-                      raft::host_matrix<int64_t, int64_t>& candidates_host,
-                      size_t batch_size,
-                      size_t batch_offset,
-                      uint32_t n_random_edges)
-{
-  const uint32_t node_degree = knn_graph.extent(1);
-  const size_t n_candidates  = candidates_host.extent(1);
-  const size_t n_rows        = knn_graph.extent(0);
-  const uint32_t first_slot  = node_degree - n_random_edges;
-  for (size_t i = 0; i < batch_size; i++) {
-    const size_t vec_idx = i + batch_offset;
-    uint32_t num_added   = 0;
-    for (size_t j = 0; j < n_candidates && num_added < n_random_edges; j++) {
-      const auto v = candidates_host(i, j);
-      if (v < 0 || static_cast<size_t>(v) >= n_rows || static_cast<size_t>(v) == vec_idx) {
-        continue;
-      }
-      bool duplicate = false;
-      for (uint32_t c = 0; c < node_degree && !duplicate; c++) {
-        duplicate = static_cast<int64_t>(knn_graph(vec_idx, c)) == v;
-      }
-      if (duplicate) { continue; }
-      knn_graph(vec_idx, first_slot + num_added) = static_cast<IdxT>(v);
-      num_added++;
-    }
-  }
-}
-
 template <typename DataT, typename IdxT, typename accessor>
 void refine_host_and_write_graph(
   raft::resources const& res,
@@ -259,14 +223,10 @@ void build_knn_graph(
   gpu_top_k              = std::min<IdxT>(std::max(gpu_top_k, top_k), dataset.extent(0));
   const auto num_queries = dataset.extent(0);
 
-  // The optional second search of each batch: n_probes random lists report their best samples, and
-  // the nearest of these samples are added to the neighbors. The extra candidates are searched to
-  // be able to skip the invalid / repeated ones. At least as many lists as candidates are probed.
-  const uint32_t n_random_edges =
-    std::min<uint32_t>({pq.n_random_edges, node_degree / 4, index.n_lists() / 32});
-  const uint32_t n_random_candidates = n_random_edges == 0 ? 0 : (n_random_edges + 2);
-  // The distances of the random pass are not used: its output reuses the `distances` buffer.
-  RAFT_EXPECTS(n_random_candidates <= gpu_top_k, "Too many random candidates for the graph build");
+  // The last neighbors of each node come from the randomly selected probes (the second pass of the
+  // fine search, see `ivf_pq::search_params::n_random_probes`). The refinement would re-rank them
+  // among the other candidates and mostly drop, hence it is not combined with the random edges.
+  pq.search_params.n_random_probes = top_k == gpu_top_k ? pq.search_params.n_random_probes : 0;
 
   // Use the same maximum batch size as the ivf_pq::search to avoid allocating more than needed.
   uint32_t max_queries = pq.search_params.max_internal_batch_size;
@@ -277,12 +237,11 @@ void build_knn_graph(
   constexpr size_t kMinWorkspaceRatio = 5;
   constexpr size_t kMinLargeBatchSize = 512;
   auto desired_workspace_size =
-    max_queries * (sizeof(DataT) * dataset.extent(1)        // queries (dataset batch)
-                   + sizeof(float) * gpu_top_k              // distances
-                   + sizeof(int64_t) * gpu_top_k            // neighbors
-                   + sizeof(float) * top_k                  // refined_distances
-                   + sizeof(int64_t) * top_k                // refined_neighbors
-                   + sizeof(int64_t) * n_random_candidates  // random lists
+    max_queries * (sizeof(DataT) * dataset.extent(1)  // queries (dataset batch)
+                   + sizeof(float) * gpu_top_k        // distances
+                   + sizeof(int64_t) * gpu_top_k      // neighbors
+                   + sizeof(float) * top_k            // refined_distances
+                   + sizeof(int64_t) * top_k          // refined_neighbors
                   );
   auto free_space_ratio    = raft::resource::get_workspace_free_bytes(res) / desired_workspace_size;
   bool use_large_workspace = false;
@@ -332,10 +291,6 @@ void build_knn_graph(
     res, workspace_mr, raft::make_extents<int64_t>(max_queries, top_k));
   auto refined_neighbors = raft::make_device_mdarray<int64_t>(
     res, workspace_mr, raft::make_extents<int64_t>(max_queries, top_k));
-  auto random_neighbors = raft::make_device_mdarray<int64_t>(
-    res, workspace_mr, raft::make_extents<int64_t>(max_queries, n_random_candidates));
-  auto random_neighbors_host =
-    raft::make_host_matrix<int64_t, int64_t>(max_queries, n_random_candidates);
   auto neighbors_host = raft::make_host_matrix<int64_t, int64_t>(max_queries, gpu_top_k);
   auto queries_host   = raft::make_host_matrix<DataT, int64_t>(max_queries, dataset.extent(1));
   auto refined_neighbors_host = raft::make_host_matrix<int64_t, int64_t>(max_queries, top_k);
@@ -374,26 +329,6 @@ void build_knn_graph(
     cuvs::neighbors::ivf_pq::search(
       res, pq.search_params, index, queries_view, neighbors_view, distances_view);
 
-    if (n_random_edges > 0) {
-      raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> random_scope(
-        "cagra::build_knn_graph<IVF-PQ>::random_pass(%u candidates)", n_random_candidates);
-      auto random_search_params = pq.search_params;
-      random_search_params.n_probes =
-        std::max<uint32_t>(pq.search_params.n_probes, n_random_candidates);
-      random_search_params.random_probe_enable_seed = batch.offset() + 1;
-      auto random_neighbors_view = raft::make_device_matrix_view<int64_t, int64_t>(
-        random_neighbors.data_handle(), batch.size(), n_random_candidates);
-      // the distances of the first pass have been consumed, so the buffer can be reused here
-      auto random_distances_view = raft::make_device_matrix_view<float, int64_t>(
-        distances.data_handle(), batch.size(), n_random_candidates);
-      cuvs::neighbors::ivf_pq::search(res,
-                                      random_search_params,
-                                      index,
-                                      queries_view,
-                                      random_neighbors_view,
-                                      random_distances_view);
-    }
-
     if (async_host_processing) {
       // process previous batch async on host
       // NOTE: the async path also covers disabled refinement (top_k == gpu_top_k)
@@ -411,26 +346,12 @@ void build_knn_graph(
                                     previous_batch_offset,
                                     top_k,
                                     gpu_top_k);
-        if (n_random_edges > 0) {
-          add_random_edges(knn_graph,
-                           random_neighbors_host,
-                           previous_batch_size,
-                           previous_batch_offset,
-                           n_random_edges);
-        }
       }
 
       // copy next batch to host
       raft::copy(res,
                  raft::make_host_vector_view(neighbors_host.data_handle(), neighbors_view.size()),
                  raft::make_device_vector_view(neighbors.data_handle(), neighbors_view.size()));
-      if (n_random_edges > 0) {
-        raft::copy(res,
-                   raft::make_host_vector_view(random_neighbors_host.data_handle(),
-                                               batch.size() * n_random_candidates),
-                   raft::make_device_vector_view(random_neighbors.data_handle(),
-                                                 batch.size() * n_random_candidates));
-      }
       if (top_k != gpu_top_k) {
         // can be skipped for disabled refinement
         raft::copy(res,
@@ -459,13 +380,6 @@ void build_knn_graph(
                                     previous_batch_offset,
                                     top_k,
                                     gpu_top_k);
-        if (n_random_edges > 0) {
-          add_random_edges(knn_graph,
-                           random_neighbors_host,
-                           previous_batch_size,
-                           previous_batch_offset,
-                           n_random_edges);
-        }
       }
     } else {
       auto neighbor_candidates_view = raft::make_device_matrix_view<const int64_t, int64_t>(
@@ -489,23 +403,12 @@ void build_knn_graph(
                                              refined_neighbors_view.size()),
                  raft::make_device_vector_view(refined_neighbors_view.data_handle(),
                                                refined_neighbors_view.size()));
-      if (n_random_edges > 0) {
-        raft::copy(res,
-                   raft::make_host_vector_view(random_neighbors_host.data_handle(),
-                                               batch.size() * n_random_candidates),
-                   raft::make_device_vector_view(random_neighbors.data_handle(),
-                                                 batch.size() * n_random_candidates));
-      }
       raft::resource::sync_stream(res);
 
       auto refined_neighbors_host_view = raft::make_host_matrix_view<int64_t, int64_t>(
         refined_neighbors_host.data_handle(), batch.size(), top_k);
       write_to_graph(
         knn_graph, refined_neighbors_host_view, num_self_included, batch.size(), batch.offset());
-      if (n_random_edges > 0) {
-        add_random_edges(
-          knn_graph, random_neighbors_host, batch.size(), batch.offset(), n_random_edges);
-      }
     }
 
     size_t num_queries_done = batch.offset() + batch.size();
