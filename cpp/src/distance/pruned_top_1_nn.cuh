@@ -38,6 +38,8 @@ namespace cuvs::distance {
 
 /** The pruned 1-NN's bounds, and the order its pruning kernel takes the rows in. */
 struct PrunedTop1nnParams {
+  /** Rows per batch; keep fixed between workspace sizing and calls that reuse row_order. */
+  int64_t row_batch_size = 0;
   /** [m], optional: each row batch's rows in the order to prune them, heaviest first. */
   const uint32_t* row_order = nullptr;
   /** [m], optional: the order for the next call, from this call's first-filter survivors. May be
@@ -64,14 +66,19 @@ inline auto filter_tile() -> std::optional<fused_filter_tile>
 struct workspace_layout {
   int64_t n_row_batches;
   int64_t n_streams;
+  int64_t row_batch_size;
   std::size_t survivors, sorted_keys, local_ids, batch_offsets, sort_temp, sort_temp_bytes;
   std::vector<std::size_t> packed, count, filter_rows, filter_norms;
   std::size_t total_bytes;
 
-  workspace_layout(raft::resources const& handle, int64_t m, bool copy_rows)
+  workspace_layout(raft::resources const& handle, int64_t m, bool copy_rows, int64_t batch_size)
+    : row_batch_size(batch_size)
   {
     RAFT_EXPECTS(filter_tile().has_value(), "Pruned 1-NN needs the fused filter's cuTile kernel");
-    n_row_batches        = raft::ceildiv(m, kRowBatchSize);
+    RAFT_EXPECTS(row_batch_size > 0 &&
+                   (row_batch_size >= m || row_batch_size % (kAlignment / sizeof(float)) == 0),
+                 "Pruned 1-NN row batches must preserve 16-byte alignment of per-row buffers");
+    n_row_batches        = raft::ceildiv(m, row_batch_size);
     const auto pool_size = raft::resource::is_stream_pool_initialized(handle)
                              ? static_cast<int64_t>(raft::resource::get_stream_pool_size(handle))
                              : 0;
@@ -101,7 +108,7 @@ struct workspace_layout {
     sort_temp = take(sort_temp_bytes);
     // The first filter's survivor lists, one pair per stream: a region of a whole centroid batch
     // per row of a row batch
-    const int64_t batch_rows = std::min(m, kRowBatchSize);
+    const int64_t batch_rows = std::min(m, row_batch_size);
     for (int64_t s = 0; s < n_streams; s++) {
       packed.push_back(take(batch_rows * kCentroidBatchSize * sizeof(int64_t)));
       count.push_back(take(batch_rows * sizeof(int32_t)));
@@ -117,14 +124,15 @@ struct workspace_layout {
 /** Each row's id within its row batch, and the row batches' bounds (n_row_batches + 1). */
 inline void row_batch_layout(raft::resources const& handle,
                              int64_t m,
+                             int64_t row_batch_size,
                              raft::device_vector_view<uint32_t, int64_t> local_ids,
                              raft::device_vector_view<int64_t, int64_t> batch_offsets)
 {
-  raft::linalg::map_offset(handle, local_ids, [] __device__(int64_t i) {
-    return static_cast<uint32_t>(i % kRowBatchSize);
+  raft::linalg::map_offset(handle, local_ids, [row_batch_size] __device__(int64_t i) {
+    return static_cast<uint32_t>(i % row_batch_size);
   });
-  raft::linalg::map_offset(handle, batch_offsets, [m] __device__(int64_t b) {
-    return b * kRowBatchSize < m ? b * kRowBatchSize : m;
+  raft::linalg::map_offset(handle, batch_offsets, [m, row_batch_size] __device__(int64_t b) {
+    return b * row_batch_size < m ? b * row_batch_size : m;
   });
 }
 
@@ -144,6 +152,7 @@ inline void order_rows_by_survivors(raft::resources const& handle,
   auto* batch_offsets = reinterpret_cast<int64_t*>(workspace + layout.batch_offsets);
   row_batch_layout(handle,
                    m,
+                   layout.row_batch_size,
                    raft::make_device_vector_view(local_ids, m),
                    raft::make_device_vector_view(batch_offsets, layout.n_row_batches + 1));
   const int end_bit     = std::clamp(std::bit_width(static_cast<uint64_t>(n)), 1, 32);
@@ -180,9 +189,13 @@ inline bool is_pruned_top_1_nn_available(int64_t k)
 
 /** The workspace pruned_top_1_nn needs for m rows on `handle` (the same handle as the call). */
 template <typename DataT>
-inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle, int64_t m)
+inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
+                                                  int64_t m,
+                                                  int64_t row_batch_size)
 {
-  return detail::pruned_nn::workspace_layout(handle, m, !std::is_same_v<DataT, half>).total_bytes;
+  return detail::pruned_nn::workspace_layout(
+           handle, m, !std::is_same_v<DataT, half>, row_batch_size)
+    .total_bytes;
 }
 
 /**
@@ -200,7 +213,7 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  *
  * Not exact: a neighbor pruned away on a partial distance is missed.
  *
- * Rows go in batches of kRowBatchSize against batches of kCentroidBatchSize rows of y, each
+ * Rows go in batches of params.row_batch_size against batches of kCentroidBatchSize rows of y, each
  * centroid batch tightening b for the next. The row batches round-robin over the main stream and,
  * with a stream pool on the handle, its first stream, which waits on and is synchronized with the
  * main stream.
@@ -213,7 +226,8 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  * @param xn          [m] squared norms of half x over the first kDimTileSize dims; ignored for
  *                    float, whose filter rows and norms are prepared in the workspace per batch
  * @param yn          [n] the same for y
- * @param workspace   pruned_top_1_nn_workspace_size<DataT>(handle, m) bytes, 16-byte aligned
+ * @param workspace   pruned_top_1_nn_workspace_size<DataT>(handle, m, params.row_batch_size) bytes,
+ *                    16-byte aligned
  */
 template <typename DataT>
 void pruned_top_1_nn(raft::resources const& handle,
@@ -241,7 +255,7 @@ void pruned_top_1_nn(raft::resources const& handle,
   RAFT_EXPECTS(m > 0 && n > 0, "Pruned 1-NN needs rows in x and y");
   RAFT_EXPECTS(kHalf || y_fp16 != nullptr,
                "Pruned 1-NN on float needs an FP16 copy of y's first dims");
-  const workspace_layout layout(handle, m, !kHalf);
+  const workspace_layout layout(handle, m, !kHalf, params.row_batch_size);
   RAFT_EXPECTS(workspace_bytes >= layout.total_bytes, "Pruned 1-NN's workspace is too small");
   auto* ws = static_cast<char*>(workspace);
 
@@ -260,8 +274,8 @@ void pruned_top_1_nn(raft::resources const& handle,
   if (pooled) { raft::resource::wait_stream_pool_on_stream(handle); }
 
   for (int64_t b = 0; b < layout.n_row_batches; b++) {
-    const int64_t i      = b * kRowBatchSize;
-    const int64_t n_rows = std::min(kRowBatchSize, m - i);
+    const int64_t i      = b * layout.row_batch_size;
+    const int64_t n_rows = std::min(layout.row_batch_size, m - i);
     const int64_t s      = b % layout.n_streams;
     cudaStream_t stream =
       s > 0 ? raft::resource::get_stream_from_stream_pool(handle, s - 1).get() : main_stream;

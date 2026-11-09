@@ -37,8 +37,6 @@ constexpr uint32_t kDimTileSize = 256;
 constexpr float kAdsamplingEps0 = 1.5f;
 // Centroids per batch: one fused filter and pruning launch per row batch and centroid batch
 constexpr uint32_t kCentroidBatchSize = 1024;
-// Rows per batch: bounds the first filter's survivor lists (row batch x centroid batch slots)
-constexpr int64_t kRowBatchSize = 128 * 1024;
 // Survivors whose loads are batched over a dim tile
 constexpr uint32_t kSurvivorTileSize = 16;
 // fused_filter_kernel.py's ID_SHIFT

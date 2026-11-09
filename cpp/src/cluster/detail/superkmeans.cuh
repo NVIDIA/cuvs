@@ -46,6 +46,29 @@ inline bool prunes(int64_t n_clusters, int64_t dim)
   return dim > kMinPrunedDim && n_clusters > kMinPrunedK;
 }
 
+/** Budget the per-stream survivor lists and filter inputs together, as in balanced prediction. */
+template <typename T>
+auto calc_minibatch_size(const raft::resources& handle, int64_t n_rows) -> int64_t
+{
+  std::size_t mem_per_row = pruned_nn::kCentroidBatchSize * sizeof(int64_t) + sizeof(int32_t);
+  if constexpr (!std::is_same_v<T, half>) {
+    mem_per_row += pruned_nn::kDimTileSize * sizeof(half) + sizeof(float);
+  }
+  const auto pool_size    = raft::resource::is_stream_pool_initialized(handle)
+                              ? static_cast<int64_t>(raft::resource::get_stream_pool_size(handle))
+                              : 0;
+  const auto n_streams    = std::min({1 + pool_size, pruned_nn::kMaxStreams, n_rows});
+  const auto free_ws_size = raft::resource::get_workspace_free_bytes(handle);
+  const auto available_ws_size =
+    std::min<std::size_t>((free_ws_size / std::size_t{10}) * std::size_t{8}, std::size_t{1} << 29);
+  // Prefer whole 1K-row batches; under tight budgets retain float-buffer alignment.
+  constexpr std::size_t kAlignedRows = pruned_nn::kAlignment / sizeof(float);
+  auto batch_size         = std::max(kAlignedRows, available_ws_size / (n_streams * mem_per_row));
+  const auto row_multiple = batch_size >= 1024 ? std::size_t{1024} : kAlignedRows;
+  batch_size              = batch_size / row_multiple * row_multiple;
+  return static_cast<int64_t>(std::min(batch_size, static_cast<std::size_t>(n_rows)));
+}
+
 /** Sum of squared distances of the rows to their assigned centroids. */
 template <typename T>
 auto inertia(const raft::resources& handle,
@@ -128,8 +151,10 @@ class pruned_assignment {
       dist_(raft::make_device_vector<float, int64_t>(handle, n_rows_)),
       row_order_(raft::make_device_vector<uint32_t, int64_t>(handle, n_rows_)),
       filter_centroids_(raft::make_device_matrix<half, int64_t>(handle, n_clusters, filter_dim_)),
+      params_{.row_batch_size = calc_minibatch_size<T>(handle, n_rows_)},
       workspace_(raft::make_device_vector<char, int64_t>(
-        handle, cuvs::distance::pruned_top_1_nn_workspace_size<T>(handle, n_rows_)))
+        handle,
+        cuvs::distance::pruned_top_1_nn_workspace_size<T>(handle, n_rows_, params_.row_batch_size)))
   {
     auto stream = raft::resource::get_cuda_stream(handle).get();
     if constexpr (std::is_same_v<T, half>) {
@@ -181,10 +206,10 @@ class pruned_assignment {
   const raft::resources& handle_;
   raft::device_matrix_view<const T, int64_t> X_;
   int64_t n_rows_, dim_, n_clusters_, filter_dim_;
-  cuvs::distance::PrunedTop1nnParams params_;
   raft::device_vector<float, int64_t> row_norms_, centroid_norms_, dist_;
   raft::device_vector<uint32_t, int64_t> row_order_;
   raft::device_matrix<half, int64_t> filter_centroids_;
+  cuvs::distance::PrunedTop1nnParams params_;
   raft::device_vector<char, int64_t> workspace_;
 };
 
