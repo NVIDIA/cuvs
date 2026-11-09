@@ -158,7 +158,10 @@ public class TestCuVSQueryMatrixLifecycle extends LuceneTestCase {
 
   private record MemoryTotals(long current, long allocated, long freed) {}
 
-  /** Keeps tracker ownership in the surrounding try-with-resources while the reader closes its indexes. */
+  /**
+   * Lets the reader close its indexes without stopping the memory tracker. The outer try-with-resources
+   * closes the tracker last so its final CSV sample includes index cleanup.
+   */
   private static final class NonClosingResources implements CuVSResources {
     private final CuVSResources delegate;
 

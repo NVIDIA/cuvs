@@ -620,6 +620,7 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
             CuVSMatrix.deviceBuilder(
                 getCuVSResourcesInstance(), 1, target.length, CuVSMatrix.DataType.FLOAT);
         builder.addVector(target);
+        // CAGRA borrows this device matrix; close it after the results are materialized.
         try (CuVSMatrix queryVector = builder.build()) {
           CagraQuery.Builder queryBuilder =
               new CagraQuery.Builder(getCuVSResourcesInstance())
