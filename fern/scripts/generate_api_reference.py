@@ -157,6 +157,7 @@ JAVA_HIDDEN_SUPERTYPES = {
     "BaseAcceleratedHNSWScalarQuantizedVectorsFormat": "KnnVectorsFormat",
     "CompatKnnFloatVectorQuery": "KnnFloatVectorQuery",
     "CompatKnnVectorsReader": "KnnVectorsReader",
+    "CompatKnnVectorsWriter": "KnnVectorsWriter",
 }
 JAVA_SUPERTYPE_RE = re.compile(r"\b(?:extends|implements)\s+(?P<name>\w+)")
 PUBLIC_JAVA_TYPE_RE = re.compile(
