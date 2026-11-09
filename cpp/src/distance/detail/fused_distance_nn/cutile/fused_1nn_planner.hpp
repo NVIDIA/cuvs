@@ -56,6 +56,9 @@ struct Fused1nnTilePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
   void add_entrypoint()
   {
     using cuvs::detail::jit_lto::cutile_arch_10_0;
+#if CUVS_CUTILE_SM103_ENABLED
+    using cuvs::detail::jit_lto::cutile_arch_10_3;
+#endif
 #if CUVS_CUTILE_SM107_ENABLED
     using cuvs::detail::jit_lto::cutile_arch_10_7;
 #endif
@@ -98,6 +101,16 @@ struct Fused1nnTilePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
                          std::conditional_t<is_relaxed,
                                             fused_1nn_matrix_tile_h_cutile_arch_10_0_relaxed,
                                             fused_1nn_matrix_tile_h_cutile_arch_10_0_strict>>;
+#if CUVS_CUTILE_SM103_ENABLED
+    using Tile103 =
+      std::conditional_t<is_float,
+                         std::conditional_t<is_relaxed,
+                                            fused_1nn_matrix_tile_f_cutile_arch_10_3_relaxed,
+                                            fused_1nn_matrix_tile_f_cutile_arch_10_3_strict>,
+                         std::conditional_t<is_relaxed,
+                                            fused_1nn_matrix_tile_h_cutile_arch_10_3_relaxed,
+                                            fused_1nn_matrix_tile_h_cutile_arch_10_3_strict>>;
+#endif
     using Tile120 =
       std::conditional_t<is_float,
                          std::conditional_t<is_relaxed,
@@ -115,6 +128,10 @@ struct Fused1nnTilePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
       fragment_tag_fused_1nn_cubin<DataTag, IndexTag, Tile90, AbiTag, cutile_arch_9_0>>();
     this->add_static_fragment<
       fragment_tag_fused_1nn_cubin<DataTag, IndexTag, Tile100, AbiTag, cutile_arch_10_0>>();
+#if CUVS_CUTILE_SM103_ENABLED
+    this->add_static_fragment<
+      fragment_tag_fused_1nn_cubin<DataTag, IndexTag, Tile103, AbiTag, cutile_arch_10_3>>();
+#endif
 #if CUVS_CUTILE_SM107_ENABLED
     using Tile107 =
       std::conditional_t<is_float,

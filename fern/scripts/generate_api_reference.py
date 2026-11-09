@@ -34,6 +34,9 @@ JAVA_SOURCE_DIRS = [
 ]
 LUCENE_SOURCE_DIRS = [
     REPO_DIR / "java" / "cuvs-lucene" / "src" / "main" / "java",
+    # Classes that first appear in a later Lucene release (such as the
+    # Lucene103* codecs) live in that module's lucene-10.x/src/since/java.
+    *(REPO_DIR / "java" / "cuvs-lucene").glob("lucene-*/src/since/java"),
 ]
 API_NAV_SECTIONS = [
     ("C API Documentation", "c_api", "c-api-documentation", "C API", "c-api"),
@@ -142,8 +145,19 @@ LUCENE_EXTENSION_POINTS = frozenset(
         "KnnVectorsFormat",
         "KnnVectorsReader",
         "KnnVectorsWriter",
+        # cuvs-lucene's own base for its codecs, a FilterCodec.
+        "CuVSFilterCodec",
     }
 )
+# Package-private ``cuvs-lucene`` bases: those that adapt a Lucene class to the
+# Lucene release a module is built for (java/cuvs-lucene/compat), and those
+# shared by the formats of several Lucene releases. Readers cannot see them, so
+# the pages name the Lucene class each one extends instead.
+JAVA_HIDDEN_SUPERTYPES = {
+    "BaseAcceleratedHNSWScalarQuantizedVectorsFormat": "KnnVectorsFormat",
+    "CompatKnnFloatVectorQuery": "KnnFloatVectorQuery",
+    "CompatKnnVectorsReader": "KnnVectorsReader",
+}
 JAVA_SUPERTYPE_RE = re.compile(r"\b(?:extends|implements)\s+(?P<name>\w+)")
 PUBLIC_JAVA_TYPE_RE = re.compile(
     r"\bpublic\s+(?:abstract\s+|final\s+|sealed\s+|non-sealed\s+)?"
@@ -3017,7 +3031,7 @@ def generate_lucene_api_pages() -> None:
         title="Lucene API Documentation",
         intro=(
             "These pages are generated from the Java source files in "
-            "`java/cuvs-lucene/src/main`.\n\n"
+            "`java/cuvs-lucene/src/main` and `java/cuvs-lucene/lucene-*/src/since`.\n\n"
             "For an introduction to the codecs, configuration, and tuning, see the "
             "[Lucene Integration](/user-guide/lucene) guide."
         ),
@@ -3152,6 +3166,12 @@ def parse_java_class(path: Path) -> JavaClass | None:
     if not type_match:
         return None
     signature, class_line = java_signature_at(text, type_match.start())
+    signature = re.sub(
+        r"\b(extends\s+)(\w+)",
+        lambda m: m.group(1)
+        + JAVA_HIDDEN_SUPERTYPES.get(m.group(2), m.group(2)),
+        signature,
+    )
     doc = parse_javadoc(comment_before(text, type_match.start()))
     klass = JavaClass(
         package=package,
