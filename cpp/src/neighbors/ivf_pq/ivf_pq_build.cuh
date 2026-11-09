@@ -52,15 +52,17 @@
 
 #include <cuda/stream>
 #include <rmm/device_uvector.hpp>
-#include <rmm/mr/managed_memory_resource.hpp>
 
 #include <cuda_fp16.h>
 #include <thrust/extrema.h>
 #include <thrust/iterator/transform_iterator.h>
 #include <thrust/scan.h>
+#include <thrust/sequence.h>
+#include <thrust/sort.h>
 
 #include <memory>
 #include <variant>
+#include <vector>
 
 namespace cuvs::neighbors::ivf_pq::detail {
 using namespace cuvs::spatial::knn::detail;  // NOLINT
@@ -205,17 +207,6 @@ void flat_compute_residuals(
                      stream.get());
 }
 
-template <uint32_t BlockDim, typename IdxT>
-__launch_bounds__(BlockDim) static __global__ void fill_indices_kernel(IdxT n_rows,
-                                                                       IdxT* data_indices,
-                                                                       IdxT* data_offsets,
-                                                                       const uint32_t* labels)
-{
-  const auto i = IdxT(BlockDim) * IdxT(blockIdx.x) + IdxT(threadIdx.x);
-  if (i >= n_rows) { return; }
-  data_indices[atomicAdd<IdxT>(data_offsets + labels[i], 1)] = i;
-}
-
 /**
  * @brief Calculate cluster offsets and arrange data indices into clusters.
  *
@@ -244,18 +235,20 @@ auto calculate_offsets_and_indices(IdxT n_rows,
   thrust::inclusive_scan(
     exec_policy, cluster_sizes, cluster_sizes + n_lists, cluster_offsets + 1, thrust::plus<>{});
   raft::update_host(&cumsum, cluster_offsets + n_lists, 1, stream);
-  uint32_t max_cluster_size =
-    *thrust::max_element(exec_policy, cluster_sizes, cluster_sizes + n_lists);
+  uint32_t max_cluster_size = 0;
+  raft::update_host(&max_cluster_size,
+                    thrust::max_element(exec_policy, cluster_sizes, cluster_sizes + n_lists),
+                    1,
+                    stream);
   stream.sync();
   RAFT_EXPECTS(cumsum == n_rows, "cluster sizes do not add up.");
   RAFT_LOG_DEBUG("Max cluster size %d", max_cluster_size);
-  rmm::device_uvector<IdxT> data_offsets_buf(n_lists, stream);
-  auto data_offsets = data_offsets_buf.data();
-  raft::copy(data_offsets, cluster_offsets, n_lists, stream);
-  constexpr uint32_t n_threads = 128;  // NOLINT
-  const IdxT n_blocks          = raft::div_rounding_up_unsafe(n_rows, n_threads);
-  fill_indices_kernel<n_threads>
-    <<<n_blocks, n_threads, 0, stream.get()>>>(n_rows, data_indices, data_offsets, labels);
+  // Group the row indices by cluster with a stable sort, so that the order of the rows within a
+  // cluster (which decides the per-cluster training subsets) is the same in every build.
+  rmm::device_uvector<uint32_t> sorted_labels(n_rows, stream);
+  raft::copy(sorted_labels.data(), labels, n_rows, stream);
+  thrust::sequence(exec_policy, data_indices, data_indices + n_rows);
+  thrust::stable_sort_by_key(exec_policy, sorted_labels.begin(), sorted_labels.end(), data_indices);
   return max_cluster_size;
 }
 
@@ -425,14 +418,10 @@ void train_per_cluster(raft::resources const& handle,
 {
   auto stream        = raft::resource::get_cuda_stream(handle);
   auto device_memory = raft::resource::get_workspace_resource_ref(handle);
-  // NB: Managed memory is used for small arrays accessed from both device and host. There's no
-  // performance reasoning behind this, just avoiding the boilerplate of explicit copies.
-  rmm::mr::managed_memory_resource managed_memory;
-
   rmm::device_uvector<float> pq_centers_tmp(impl->pq_centers().size(), stream, device_memory);
-  rmm::device_uvector<uint32_t> cluster_sizes(impl->n_lists(), stream, managed_memory);
+  rmm::device_uvector<uint32_t> cluster_sizes(impl->n_lists(), stream, device_memory);
   rmm::device_uvector<IdxT> indices_buf(n_rows, stream, device_memory);
-  rmm::device_uvector<IdxT> offsets_buf(impl->n_lists() + 1, stream, managed_memory);
+  rmm::device_uvector<IdxT> offsets_buf(impl->n_lists() + 1, stream, device_memory);
 
   raft::stats::histogram<uint32_t, size_t>(raft::stats::HistTypeAuto,
                                            reinterpret_cast<int32_t*>(cluster_sizes.data()),
@@ -453,9 +442,14 @@ void train_per_cluster(raft::resources const& handle,
   rmm::device_uvector<float> rot_vectors(
     size_t(max_cluster_size) * size_t(impl->rot_dim()), stream, device_memory);
 
-  raft::resource::sync_stream(handle);  // make sure cluster offsets are up-to-date
+  // The loop below reads the per-cluster sizes and offsets on the host
+  std::vector<uint32_t> cluster_sizes_host(impl->n_lists());
+  std::vector<IdxT> cluster_offsets_host(impl->n_lists());
+  raft::update_host(cluster_sizes_host.data(), cluster_sizes.data(), impl->n_lists(), stream);
+  raft::update_host(cluster_offsets_host.data(), cluster_offsets, impl->n_lists(), stream);
+  raft::resource::sync_stream(handle);
   for (uint32_t l = 0; l < impl->n_lists(); l++) {
-    auto cluster_size = cluster_sizes.data()[l];
+    auto cluster_size = cluster_sizes_host[l];
     if (cluster_size == 0) continue;
     raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> pq_per_cluster_scope(
       "ivf_pq::build::per_cluster[%u](size = %u)", l, cluster_size);
@@ -468,7 +462,7 @@ void train_per_cluster(raft::resources const& handle,
                      impl->rotation_matrix().data_handle(),
                      impl->centers().data_handle() + size_t(l) * size_t(impl->dim_ext()),
                      trainset,
-                     indices + cluster_offsets[l],
+                     indices + cluster_offsets_host[l],
                      device_memory);
 
     // limit the cluster size to bound the training time based on max_train_points_per_pq_code

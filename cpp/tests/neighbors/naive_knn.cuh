@@ -7,7 +7,8 @@
 
 #include "../../src/neighbors/detail/ann_utils.cuh"
 #include <cuvs/distance/distance.hpp>
-#include <raft/matrix/detail/select_k.cuh>
+#include <cuvs/selection/select_k.hpp>
+#include <raft/core/device_mdspan.hpp>
 #include <raft/util/cuda_utils.cuh>
 
 #include <raft/core/resource/cuda_stream.hpp>
@@ -149,15 +150,16 @@ void naive_knn(raft::resources const& handle,
     naive_distance_kernel<EvalT, DataT, IdxT><<<grid_dim, block_dim, 0, stream.get()>>>(
       dist.data(), x + offset * dim, y, batch_size, input_len, dim, type);
 
-    raft::matrix::detail::select_k<EvalT, IdxT>(handle,
-                                                dist.data(),
-                                                nullptr,
-                                                batch_size,
-                                                input_len,
-                                                static_cast<int>(k),
-                                                dist_topk + offset * k,
-                                                indices_topk + offset * k,
-                                                cuvs::distance::is_min_close(type));
+    // cuvs does not instantiate select_k for uint64_t indices, so reinterpret_cast if necessary.
+    using select_idx_t = std::conditional_t<std::is_same_v<IdxT, uint64_t>, int64_t, IdxT>;
+    cuvs::selection::select_k(
+      handle,
+      raft::make_device_matrix_view<const EvalT, int64_t>(dist.data(), batch_size, input_len),
+      std::nullopt,
+      raft::make_device_matrix_view<EvalT, int64_t>(dist_topk + offset * k, batch_size, k),
+      raft::make_device_matrix_view<select_idx_t, int64_t>(
+        reinterpret_cast<select_idx_t*>(indices_topk + offset * k), batch_size, k),
+      cuvs::distance::is_min_close(type));
   }
   RAFT_CUDA_TRY(cudaStreamSynchronize(stream.get()));
 }

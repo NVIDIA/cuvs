@@ -21,7 +21,7 @@ static Path tempDirectory()
 ```
 
 The temporary directory to use for intermediate operations.
-Defaults to \{@systemProperty java.io.tmpdir\}.
+Defaults to `java.io.tmpdir`.
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:25`_
 
@@ -32,7 +32,7 @@ default Path nativeLibraryPath()
 ```
 
 The directory where to extract and install the native library.
-Defaults to \{@systemProperty java.io.tmpdir\}.
+Defaults to `java.io.tmpdir`.
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/spi/CuVSProvider.java:33`_
 
@@ -336,7 +336,7 @@ CagraIndex mergeCagraIndexes(CagraIndex[] indexes, CagraIndexParams mergeParams,
 ```
 
 Merges multiple CAGRA indexes into a single index, keeping only the rows selected by
-`rowFilter`. See CagraIndexParams, BitSet) for the
+`rowFilter`. See `CagraIndex#merge(CagraIndex[], CagraIndexParams, BitSet)` for the
 meaning of the filter.
 
 **Parameters**

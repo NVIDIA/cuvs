@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -111,7 +111,7 @@ public class CagraIndexBenchmarks {
 
             // Create the index with the dataset
             try (CagraIndex index = CagraIndex.newBuilder(resources)
-                .withDataset(arrayDataset)
+                .fromDataset(arrayDataset)
                 .withIndexParams(indexParams)
                 .build()) {
 
@@ -142,7 +142,7 @@ public class CagraIndexBenchmarks {
 
             // Create the index with the dataset
             CagraIndex index = CagraIndex.newBuilder(resources)
-                .withDataset(arrayDataset)
+                .fromDataset(arrayDataset)
                 .withIndexParams(indexParams)
                 .build();
             blackhole.consume(index);
@@ -163,7 +163,7 @@ public class CagraIndexBenchmarks {
 
             // Create the index with the dataset
             CagraIndex index = CagraIndex.newBuilder(resources)
-                .withDataset(fromMemorySegment(memorySegmentDataset, size, dims))
+                .fromDataset(fromMemorySegment(memorySegmentDataset, size, dims))
                 .withIndexParams(indexParams)
                 .build();
             blackhole.consume(index);

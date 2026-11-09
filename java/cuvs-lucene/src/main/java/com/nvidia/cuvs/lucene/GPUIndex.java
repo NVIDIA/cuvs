@@ -134,15 +134,9 @@ public class GPUIndex implements Closeable {
    * @throws IOException
    */
   private void destroyIndices() throws IOException {
-    try {
-      if (cagraIndex != null) {
-        cagraIndex.close();
-      }
-      if (bruteforceIndex != null) {
-        bruteforceIndex.close();
-      }
-    } catch (Throwable t) {
-      Utils.handleThrowable(t);
+    Throwable failure = Utils.closeAll(null, cagraIndex, bruteforceIndex);
+    if (failure != null) {
+      Utils.handleThrowable(failure);
     }
   }
 }

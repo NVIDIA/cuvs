@@ -468,7 +468,8 @@ public class TestAcceleratedHNSWDeletedDocuments extends LuceneTestCase {
         assertEquals(liveVectors == 0 ? 0 : 1, graph.numLevels());
         assertEquals(liveVectors, graph.getNodesOnLevel(0).size());
         if (liveVectors == 1) {
-          assertEquals(0, graph.maxConn());
+          // A lone node has no neighbors, but the segment still records maxConn as its M.
+          assertEquals(AcceleratedHNSWParams.DEFAULT_MAX_CONN, graph.maxConn());
           graph.seek(0, 0);
           assertEquals(NO_MORE_DOCS, graph.nextNeighbor());
         }

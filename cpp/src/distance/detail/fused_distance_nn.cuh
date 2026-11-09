@@ -10,6 +10,7 @@
 #include "fused_distance_nn/cutile/fused_1nn_tile.hpp"
 #endif
 #include "fused_distance_nn/cutlass_base.cuh"
+#include "fused_distance_nn/fused_bitwise_hamming_nn.cuh"
 #include "fused_distance_nn/fused_cosine_nn.cuh"
 #include "fused_distance_nn/fused_l2_nn.cuh"
 #include "fused_distance_nn/helper_structs.cuh"
@@ -37,8 +38,6 @@ namespace detail {
 /** Implementation or automatic selection policy for the top-1 nearest-neighbor primitive. */
 enum class Top1nnBackend : std::uint8_t {
   Auto,
-  /** Select between CUTLASS and unfused without using reduced-precision cuTile computation. */
-  Stable,
   Cutile,
   /** Legacy fused dispatcher: CUTLASS on SM80+, with its existing SIMT path before SM80. */
   Cutlass,
@@ -79,6 +78,10 @@ struct Top1nnPlan {
   std::size_t workspace_alignment{};
   /** Whether this invocation stores nearest-neighbor indices. */
   bool store_indices{true};
+  /** Recompute distances from each vector to its centroid in accurate precision. */
+  bool refine{};
+  /** Whether 1-NN assignment can use TF32 precision*/
+  bool tf32_assignment{true};
   const void* x{};
   const void* y{};
   /** GEMM-equivalent dimensions: query rows, candidate rows, and feature columns. */
@@ -108,7 +111,6 @@ inline constexpr bool is_top_1_nn_metric_supported(Top1nnBackend backend, Distan
     case Top1nnBackend::Cutile:
       return metric == DistanceType::InnerProduct || metric == DistanceType::L2Expanded ||
              metric == DistanceType::L2SqrtExpanded || metric == DistanceType::CosineExpanded;
-    case Top1nnBackend::Stable:
     case Top1nnBackend::Cutlass:
     case Top1nnBackend::Unfused:
       return metric == DistanceType::L2Expanded || metric == DistanceType::L2SqrtExpanded ||
@@ -131,7 +133,7 @@ bool is_top_1_nn_backend_available(Top1nnBackend backend,
                                    IdxT k,
                                    cuvs::distance::DistanceType metric)
 {
-  if (backend == Top1nnBackend::Auto || backend == Top1nnBackend::Stable) { return false; }
+  if (backend == Top1nnBackend::Auto) { return false; }
   if (!is_top_1_nn_metric_supported(backend, metric)) { return false; }
   if (x == nullptr || y == nullptr || m <= IdxT{0} || n <= IdxT{0} || k <= IdxT{0}) {
     return false;
@@ -180,28 +182,46 @@ void fusedDistanceNNImpl(raft::resources const& handle,
 
   dim3 blk(P::Nthreads);
   auto nblks            = raft::ceildiv<int>(m, P::Nthreads);
-  constexpr auto maxVal = std::numeric_limits<DataT>::max();
-  typedef raft::KeyValuePair<IdxT, DataT> KVPair;
+  using AccT            = std::conditional_t<std::is_same_v<DataT, uint8_t>, uint32_t, DataT>;
+  constexpr auto maxVal = std::numeric_limits<AccT>::max();
 
   RAFT_CUDA_TRY(cudaMemsetAsync(workspace, 0, sizeof(int) * m, stream.get()));
   if (initOutBuffer) {
-    initKernel<DataT, OutT, IdxT, ReduceOpT>
+    initKernel<AccT, OutT, IdxT, ReduceOpT>
       <<<nblks, P::Nthreads, 0, stream.get()>>>(min, m, maxVal, redOp);
     RAFT_CUDA_TRY(cudaGetLastError());
   }
 
+  // An empty candidate set leaves the initialized (or supplied) result unchanged.
+  if (n == 0) { return; }
+
   switch (metric) {
     case cuvs::distance::DistanceType::CosineExpanded:
-      fusedCosineNN<DataT, OutT, IdxT, P, ReduceOpT, KVPReduceOpT>(
-        min, x, y, xn, yn, m, n, k, workspace, redOp, pairRedOp, sqrt, stream.get());
+      if constexpr (std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>) {
+        RAFT_FAIL("Cosine distance is not supported for uint8_t/int8_t data types");
+      } else {
+        fusedCosineNN<DataT, OutT, IdxT, P, ReduceOpT, KVPReduceOpT>(
+          min, x, y, xn, yn, m, n, k, workspace, redOp, pairRedOp, sqrt, stream.get());
+      }
       break;
     case cuvs::distance::DistanceType::L2SqrtExpanded:
     case cuvs::distance::DistanceType::L2Expanded:
-      // initOutBuffer is take care by fusedDistanceNNImpl() so we set it false to fusedL2NNImpl.
-      fusedL2NNImpl<DataT, OutT, IdxT, P, ReduceOpT, KVPReduceOpT>(
-        min, x, y, xn, yn, m, n, k, workspace, redOp, pairRedOp, sqrt, false, stream.get());
+      if constexpr (std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>) {
+        RAFT_FAIL("L2 distance is not supported for uint8_t/int8_t data types");
+      } else {
+        fusedL2NNImpl<DataT, OutT, IdxT, P, ReduceOpT, KVPReduceOpT>(
+          min, x, y, xn, yn, m, n, k, workspace, redOp, pairRedOp, sqrt, false, stream.get());
+      }
       break;
-    default: RAFT_FAIL("Only cosine and L2 metrics are supported by fusedDistanceNN");
+    case cuvs::distance::DistanceType::BitwiseHamming:
+      if constexpr (std::is_same_v<DataT, uint8_t>) {
+        fusedBitwiseHammingNN<DataT, OutT, IdxT, P, ReduceOpT, KVPReduceOpT>(
+          min, x, y, xn, yn, m, n, k, workspace, redOp, pairRedOp, sqrt, stream.get());
+      } else {
+        RAFT_FAIL("BitwiseHamming distance only supports uint8_t data type");
+      }
+      break;
+    default: RAFT_FAIL("only cosine/l2/bitwise hamming metric is supported with fusedDistanceNN");
   }
 }
 
