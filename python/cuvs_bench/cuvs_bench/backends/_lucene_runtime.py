@@ -1153,6 +1153,7 @@ class LuceneRuntime:
     def build_index(
         self, index_path: Path, vectors: np.ndarray, codec_name: str
     ) -> RuntimeBuildResult:
+        """Replace the index at a caller-owned path with the supplied vectors."""
         self.attach_current_thread()
         runtime_started = time.perf_counter_ns()
         directory_open_started = time.perf_counter_ns()
@@ -1354,6 +1355,16 @@ class LuceneRuntime:
         k: int,
         num_candidates: int,
     ) -> RuntimeSearchResult:
+        """Return up to k hits per query using at least k query candidates.
+
+        num_candidates is Lucene's query result limit, not a batch size.
+        It must be at least k, including when the query corpus is empty;
+        larger budgets are capped to the index's document count.
+        """
+        if num_candidates < k:
+            raise ValueError(
+                f"num_candidates={num_candidates} must be at least k={k}"
+            )
         self.attach_current_thread()
         plan_started = time.perf_counter_ns()
         directory_open_started = time.perf_counter_ns()

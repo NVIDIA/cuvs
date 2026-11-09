@@ -31,6 +31,32 @@ from cuvs_bench.backends._lucene_runtime_config import maven_artifact_version
 _ARTIFACT_VERSION = maven_artifact_version()
 
 
+@pytest.mark.parametrize("num_candidates", [-1, 0, 9])
+@pytest.mark.parametrize(
+    "query_count", [0, 1], ids=["empty-queries", "one-query"]
+)
+def test_search_rejects_fewer_candidates_than_requested_hits_before_using_java(
+    tmp_path,
+    num_candidates,
+    query_count,
+):
+    # Only Java attachment is faked; call the real runtime entry point.
+    runtime = object.__new__(LuceneRuntime)
+    runtime.attach_current_thread = Mock()
+    queries = np.zeros((query_count, 16), dtype=np.float32)
+
+    with pytest.raises(ValueError) as failure:
+        runtime.search_index(
+            tmp_path, queries, k=10, num_candidates=num_candidates
+        )
+
+    assert (
+        str(failure.value)
+        == f"num_candidates={num_candidates} must be at least k=10"
+    )
+    runtime.attach_current_thread.assert_not_called()
+
+
 def _properties(group: str, artifact: str, version: str) -> bytes:
     return (
         f"groupId={group}\nartifactId={artifact}\nversion={version}\n"

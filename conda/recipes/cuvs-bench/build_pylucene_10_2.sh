@@ -44,6 +44,9 @@ in the generated extension. A full build requires Linux, CPython 3.11-3.14,
 and JDK ${JDK_VERSION}. --prepare-only only downloads, verifies, and patches the sources.
 Current cuVS Bench requires Python 3.12 or newer, even though this standalone
 PyLucene builder also supports Python 3.11.
+
+Use a build root controlled by your user, not a cache writable by untrusted
+users. Reuse checks detect changed build inputs, not arbitrary source tampering.
 EOF
 }
 
