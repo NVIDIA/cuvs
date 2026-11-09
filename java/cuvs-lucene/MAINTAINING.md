@@ -1,8 +1,8 @@
 # Maintaining cuvs-lucene across Lucene releases
 
-`cuvs-lucene` is published as one artifact per supported Lucene minor release (`cuvs-lucene-10.2`,
-`cuvs-lucene-10.3`), all built from the same sources. This page lists exactly what to change when Lucene
-publishes a new patch release (for example 10.3.3) or a new minor release (for example 10.4.0). For how
+`cuvs-lucene` is published as one artifact per supported Lucene minor release (`cuvs-lucene-10.2` …
+`cuvs-lucene-10.4`), all built from the same sources. This page lists exactly what to change when Lucene
+publishes a new patch release (for example 10.3.3) or a new minor release (for example 10.5.0). For how
 the layout works, see [Supporting several Lucene releases](README.md#supporting-several-lucene-releases).
 
 All commands run from `java/cuvs-lucene/` unless stated otherwise, with `libcuvs` built and `cuvs-java`
@@ -24,25 +24,25 @@ makes the artifact depend on, and be tested against, it.
 
 Nothing else needs to change: no back-compat indexes, no codecs, no CI, no docs.
 
-## A new minor release (example: 10.4.0)
+## A new minor release (example: 10.5.0)
 
 Work through the steps in order. Steps 1–3 always apply; the others depend on what the release changed.
 
 ### 1. Create the module
 
-1. Copy the newest module: `cp -r lucene-10.3 lucene-10.4`, then `rm -rf lucene-10.4/target
-   lucene-10.4/src/since`. The `src/since/java` of the copied module belongs to that module only;
-   later modules compile it from there (below), and step 4 adds the new module's own if it needs one.
-2. In `lucene-10.4/pom.xml`:
-   - change `artifactId` and `name` to `cuvs-lucene-10.4`, and the version in `description`;
-   - set `<lucene.version>10.4.0</lucene.version>`;
+1. Copy the newest module: `cp -r lucene-10.4 lucene-10.5`, then `rm -rf lucene-10.5/target
+   lucene-10.5/src/since`. The `src/since/java` of the copied module belongs to that module only;
+   later modules compile it from there (below), and step 4 or 5 adds the new module's own if it needs one.
+2. In `lucene-10.5/pom.xml`:
+   - change `artifactId` and `name` to `cuvs-lucene-10.5`, and the version in `description`;
+   - set `<lucene.version>10.5.0</lucene.version>`;
    - keep the `add-since-sources` list, but name the `src/since/java` directory of **every** earlier
-     module that has one instead of its own (today `../lucene-10.3/src/since/java`); step 4 adds its
-     own if it gets one;
+     module that has one instead of its own (today `../lucene-10.3/src/since/java` and
+     `../lucene-10.4/src/since/java`); step 4 or 5 adds its own if it gets one;
    - keep the `cuvs.lucene.compat.*` properties: the new release starts with the same variant of each
      Lucene API as the previous one (see [compat/README.md](compat/README.md)).
-3. In the parent `pom.xml`, add `<module>lucene-10.4</module>`.
-4. In `lucene-10.4/src/main/java/com/nvidia/cuvs/lucene/LuceneCompat.java`, set `LUCENE_MINOR = 4`
+3. In the parent `pom.xml`, add `<module>lucene-10.5</module>`.
+4. In `lucene-10.5/src/main/java/com/nvidia/cuvs/lucene/LuceneCompat.java`, set `LUCENE_MINOR = 5`
    and the Lucene version in the javadoc. Keep `LUCENE_MAJOR`/`LUCENE_MINOR` compile-time constants:
    the version check reads them without loading `LuceneCompat`.
 
@@ -53,25 +53,27 @@ the new module by itself.
 ### 2. Make it compile
 
 ```bash
-mvn -pl lucene-10.4 -am test-compile
+mvn -pl lucene-10.5 -am test-compile
 ```
 
 Fix every error without changing what the other modules compile:
 
 - calls whose signature or class location changed (a class moved to `org.apache.lucene.backward_codecs`,
   a constructor lost or gained parameters, an enum moved to another class): in
-  `lucene-10.4/src/main/java/.../LuceneCompat.java`;
+  `lucene-10.5/src/main/java/.../LuceneCompat.java`;
 - a Lucene class cuvs-lucene adapts in `compat/` changed (for example `KnnVectorsReader`): copy the
-  variant the module uses to `compat/<class>-104-<change>` (for example
-  `compat/knn-vectors-reader-104-<change>`), change it there, and point the module's property
+  variant the module uses to `compat/<class>-105-<change>` (for example
+  `compat/knn-vectors-reader-105-<change>`), change it there, and point the module's property
   (`cuvs.lucene.compat.knnVectorsReader`) at it. Do not edit a variant other modules still use;
 - a Lucene class with no variants yet changed (for example `KnnVectorsWriter`): move its adapter from
   the shared `src/` into two new variants, `<class>-102-<old shape>` for the existing modules and
-  `<class>-104-<change>`, add a `cuvs.lucene.compat.<class>` property to every module and a matching
+  `<class>-105-<change>`, add a `cuvs.lucene.compat.<class>` property to every module and a matching
   `<source>` line to the `add-shared-sources` execution of the parent `pom.xml` (see
   [compat/README.md](compat/README.md));
 - test-only calls, such as `LeafReader.searchNearestVectors`: the same, with `TestLuceneCompat` in the
-  `leaf-reader-*` variants (their `src/test/java`).
+  `leaf-reader-*` variants (their `src/test/java`). A test call to a class that already has variants
+  goes in that class's variants instead, like `TestQueryCompat` in the `knn-float-vector-query-*`
+  variants, with a matching `<source>` line in the `add-shared-test-sources` execution.
 
 The shared `src/` must keep compiling against every supported release. If a shared class needs an API
 that differs between releases, add a method to **every** module's `LuceneCompat` and call that instead.
@@ -96,8 +98,8 @@ for cls in org.apache.lucene.codecs.FilterCodec org.apache.lucene.codecs.KnnVect
     org.apache.lucene.search.Weight org.apache.lucene.search.Scorer \
     org.apache.lucene.search.ScorerSupplier org.apache.lucene.search.DocIdSetIterator \
     'org.apache.lucene.util.hnsw.HnswGraph' 'org.apache.lucene.util.hnsw.HnswGraph$NodesIterator'; do
-  diff <(javap -protected -cp $M/10.3.2/lucene-core-10.3.2.jar "$cls" | grep -Ev ' (final|static) ' | sort) \
-       <(javap -protected -cp $M/10.4.0/lucene-core-10.4.0.jar "$cls" | grep -Ev ' (final|static) ' | sort) \
+  diff <(javap -protected -cp $M/10.4.0/lucene-core-10.4.0.jar "$cls" | grep -Ev ' (final|static) ' | sort) \
+       <(javap -protected -cp $M/10.5.0/lucene-core-10.5.0.jar "$cls" | grep -Ev ' (final|static) ' | sort) \
     | grep '^[<>]' && echo "^^^ $cls"
 done
 ```
@@ -106,7 +108,7 @@ For each new or changed method, decide whether Lucene's default is right for the
 If not, override it in the `Compat*` class of the variant the new release uses, creating a new variant
 if older releases share that one (see how `compat/knn-vectors-reader-103-acceptdocs` overrides
 `getOffHeapByteSize`). To refresh the class list, run `javap` on the classes in
-`lucene-10.4/target/classes/com/nvidia/cuvs/lucene` and collect their `org.apache.lucene` supertypes,
+`lucene-10.5/target/classes/com/nvidia/cuvs/lucene` and collect their `org.apache.lucene` supertypes,
 all the way up.
 
 Behaviour can also change without any signature changing. Read the source of the Lucene methods that call
@@ -114,9 +116,10 @@ into cuvs-lucene and compare it with the previous release; the most important is
 `AbstractKnnVectorQuery.rewrite`, which decides how each segment is searched. For example, Lucene 10.3
 started expecting more than `k` hits from a filtered segment search, and throwing away a search that
 returns fewer; `CompatKnnFloatVectorQuery.perLeafTopK` follows its rule, and has to follow it again if
-it changes. The 10.3 variant also tells filtered segment searches from unfiltered ones by the visit limit
-`rewrite` passes to `approximateSearch` (`Integer.MAX_VALUE` when it applies no filter), so check that
-this still holds.
+it changes. `PerLeafK`, which every variant calls, also tells filtered segment searches from unfiltered
+ones by the visit limit `rewrite` passes to `approximateSearch` (`Integer.MAX_VALUE` when it applies no
+filter), and skips a filtered search that cannot return `perLeafTopK` hits, relying on Lucene then
+searching the segment exactly; check that both still hold.
 
 Also read Lucene's `CHANGES.txt` for the release, looking for:
 
@@ -124,61 +127,83 @@ Also read Lucene's `CHANGES.txt` for the release, looking for:
   themselves (`AcceleratedHNSWUtils`) with `VERSION_START`; the new release's reader must still accept
   that version. If Lucene replaced `Lucene99HnswVectorsFormat` as its HNSW format, plan a new
   cuvs-lucene format; that is feature work, not part of this checklist;
-- vector formats moved to `backward_codecs` (they can then only be read, see step 4);
-- changes to `BaseKnnVectorsFormatTestCase` (see step 5).
+- vector formats moved to `backward_codecs` (they can then only be read, see step 5);
+- changes to `BaseKnnVectorsFormatTestCase` (see step 6).
 
 ### 4. If Lucene's default codec changed
 
 Check which codec the release writes by default:
 
 ```bash
-unzip -p ~/.m2/repository/org/apache/lucene/lucene-core/10.4.0/lucene-core-10.4.0.jar \
+unzip -p ~/.m2/repository/org/apache/lucene/lucene-core/10.5.0/lucene-core-10.5.0.jar \
   META-INF/services/org.apache.lucene.codecs.Codec
 ```
 
-If it is still `Lucene103Codec`, skip this step: the `Lucene103*` codecs keep writing on 10.4.
-If it is new, for example `Lucene104Codec`:
+If it is still `Lucene104Codec`, skip this step (step 5 may still apply): the `Lucene104*` codecs keep writing on 10.5.
+If it is new, for example `Lucene105Codec`:
 
-1. Create `lucene-10.4/src/since/java/com/nvidia/cuvs/lucene/` with the four codecs of the new
-   generation, copied from `lucene-10.3/src/since/java` and renamed: `Lucene104AcceleratedHNSWCodec`,
-   `Lucene104AcceleratedHNSWScalarQuantizedCodec`, `Lucene104AcceleratedHNSWBinaryQuantizedCodec`,
-   `Lucene104CuVSGPUSearchCodec`. Each passes generation `104` and `() -> LuceneCompat.lucene104Codec()`
+1. Create `lucene-10.5/src/since/java/com/nvidia/cuvs/lucene/` with the four codecs of the new
+   generation, copied from the four `Lucene104*Codec` classes in `lucene-10.4/src/since/java` and
+   renamed: `Lucene105AcceleratedHNSWCodec`, `Lucene105AcceleratedHNSWScalarQuantizedCodec`,
+   `Lucene105AcceleratedHNSWBinaryQuantizedCodec`, `Lucene105CuVSGPUSearchCodec`. Copy only the
+   codecs: the formats there, such as `Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat`, stay
+   where they are and the new codecs keep using them, unless step 5 replaces one. Each passes generation `105` and `() -> LuceneCompat.lucene105Codec()`
    (a lambda, not a method reference) to the `CuVSFilterCodec` constructor. The codec name
    is written into every segment, so never reuse or rename one once released.
-2. Add `src/since/java` to the `add-since-sources` list in `lucene-10.4/pom.xml` (and, later, in every
+2. Add `src/since/java` to the `add-since-sources` list in `lucene-10.5/pom.xml` (and, later, in every
    module after it).
-3. In `lucene-10.4/.../LuceneCompat.java`:
-   - add `lucene104Codec()` returning `new org.apache.lucene.codecs.lucene104.Lucene104Codec()`;
-   - point `lucene103Codec()` at `org.apache.lucene.backward_codecs.lucene103.Lucene103Codec`, where
+3. In `lucene-10.5/.../LuceneCompat.java`:
+   - add `lucene105Codec()` returning `new org.apache.lucene.codecs.lucene105.Lucene105Codec()`;
+   - point `lucene104Codec()` at `org.apache.lucene.backward_codecs.lucene104.Lucene104Codec`, where
      Lucene moves the old default codec;
-   - set `CURRENT_CODEC_GENERATION = 104`. The new codecs pass `104` as their generation to the
-     `CuVSFilterCodec` constructor, and the `Lucene103*` codecs, which pass `103`, become read-only;
+   - set `CURRENT_CODEC_GENERATION = 105`. The new codecs pass `105` as their generation to the
+     `CuVSFilterCodec` constructor, and the `Lucene104*` codecs, which pass `104`, become read-only;
    - make `acceleratedHNSWCodec`, `acceleratedHNSWScalarQuantizedCodec`,
-     `acceleratedHNSWBinaryQuantizedCodec` and `gpuSearchCodec` return the `Lucene104*` codecs.
-4. Register the four new codecs in `lucene-10.4/src/main/resources/META-INF/services/org.apache.lucene.codecs.Codec`,
+     `acceleratedHNSWBinaryQuantizedCodec` and `gpuSearchCodec` return the `Lucene105*` codecs.
+4. Register the four new codecs in `lucene-10.5/src/main/resources/META-INF/services/org.apache.lucene.codecs.Codec`,
    after the existing ones. List only cuvs-lucene classes in the services files: a Lucene class there
    breaks every codec or format lookup in the JVM once a later release moves it.
 5. Update the list of codecs per Lucene release in the class javadoc of `CuVSCodecs`.
 
-If a vector format cuvs-lucene writes moved to `backward_codecs`, the codecs using it can no longer
-write on the new release: add a new format next to the codecs of step 1, register it in
-`META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat`, and have the new codecs and the matching
-`LuceneCompat` format method use it.
+### 5. If a vector format cuvs-lucene writes moved to `backward_codecs`
 
-### 5. Make the tests pass
+Do this whether or not step 4 applied: Lucene can move a format its default codec does not use
+without changing the default codec. The formats wrapping the moved one can then no longer write on
+the new release:
+
+1. Add a new format in `lucene-10.5/src/since/java` (create it, and add it to `add-since-sources`, as in
+   step 4 if step 4 did not), and register it in
+   `META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat`.
+2. Add a `LuceneCompat` method returning the new flat format, and have the matching `LuceneCompat`
+   codec and format methods return the new codec and format. Keep the methods of every format it still
+   reads.
+3. Have new codecs use the new format: the codecs of step 4 if it applied, otherwise new codecs under
+   new names for the codecs that used the moved format. Never change the format behind an existing
+   codec or format name: segments record the name, so their existing files would be read with the new
+   format.
+
+Lucene 10.4 did this to `Lucene99ScalarQuantizedVectorsFormat`:
+`Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat` replaced
+`LuceneAcceleratedHNSWScalarQuantizedVectorsFormat`, whose `readOnlyReason` now names
+the replacement when something writes with it: the format writes only while it is still the one
+`CuVSCodecs.acceleratedHNSWScalarQuantizedFormat()` returns (`LuceneCompat.SCALAR_QUANTIZED_FORMAT_NAME`).
+`LuceneCompat` keeps both `lucene99ScalarQuantizedFlatFormat` and `lucene104ScalarQuantizedFlatFormat`.
+
+### 6. Make the tests pass
 
 ```bash
-mvn -pl lucene-10.4 -am verify
+mvn -pl lucene-10.5 -am verify
 ```
 
 - New abstract methods or new tests in Lucene's `BaseKnnVectorsFormatTestCase` are handled once, in
   `src/test/java/.../BaseCuVSKnnVectorsFormatTestCase.java`, which every format test extends, and without
   `@Override`, so that they still compile against older releases.
-- A test call whose signature changed goes through `TestLuceneCompat`, in a `compat/` variant (step 2).
+- A test call whose signature changed goes through `TestLuceneCompat` or `TestQueryCompat`, in a
+  `compat/` variant (step 2).
 - `TestBackCompat` fails if a codec from `CuVSCodecs` is not registered, or if an older codec can still
   write.
 
-### 6. Run everything
+### 7. Run everything
 
 ```bash
 ./build.sh --run-java-tests --build-java-examples
@@ -189,13 +214,13 @@ from every earlier supported release: `TestBackCompatIndices` in each module wri
 codecs to `target/backcompat`, and reads and upgrades those that the modules for earlier releases wrote
 there before it. Nothing needs to be committed for that.
 
-### 7. Update the documentation
+### 8. Update the documentation
 
 | File | Change |
 | --- | --- |
-| `README.md` (this directory) | the supported range and the artifact list; the codec paragraph if step 4 applied |
+| `README.md` (this directory) | the supported range and the artifact list; the codec paragraph if step 4 or 5 applied |
 | `../../fern/pages/installation/java.md` | "supports Lucene 10.2 through 10.X", the artifact table |
-| `../../fern/pages/user_guide/lucene.md` | the supported range, the artifact list, the codec table if step 4 applied |
+| `../../fern/pages/user_guide/lucene.md` | the supported range, the artifact list, the codec table if step 4 or 5 applied |
 
 The API reference pages in `fern/pages/lucene_api` are generated: the `fern-api-reference` pre-commit
 hook picks up new classes in `lucene-*/src/since/java` by itself. Run `pre-commit run --all-files` last.
@@ -225,7 +250,7 @@ artifacts. Record the new zips in `src/test/resources/backcompat/README.md`.
    `pom.xml`. Do the same for any `LuceneCompat` method that is now identical in every module.
 3. Keep its codecs and its `src/test/resources/backcompat/releases/*/10.X/` indexes as long as later
    releases must read indexes written with it.
-4. Update the documentation listed in step 7 above.
+4. Update the documentation listed in step 8 above.
 5. When dropping 10.2, the relocation in `relocation/pom.xml` would point to an artifact that is no longer
    published: remove the `relocation` module (and stop publishing it) at that point. The deprecated
    `LuceneProvider` in `lucene-10.2/src/main/java`, kept only for callers of the old artifact, goes
