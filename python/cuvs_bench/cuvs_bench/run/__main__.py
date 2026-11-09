@@ -11,7 +11,8 @@ from typing import Any, Optional
 import click
 import yaml
 
-from ..backends.registry import get_backend_class
+from ..backends.base import BenchmarkBackend
+from ..backends.registry import _BackendNotFoundError, get_backend_class
 from ..orchestrator import BenchmarkOrchestrator
 from .data_export import (
     convert_json_to_csv_build,
@@ -25,16 +26,34 @@ _BACKEND_CONFIG_CACHE_KEY = "cuvs_bench.backend_config"
 
 
 def _read_backend_config(path: str) -> dict[str, Any]:
-    with open(path, "r") as stream:
-        config = yaml.safe_load(stream)
+    try:
+        with open(path, "r") as stream:
+            config = yaml.safe_load(stream)
+    except (OSError, yaml.YAMLError) as error:
+        raise click.BadParameter(
+            f"Cannot read {path!r}: {error}", param_hint="--backend-config"
+        ) from error
     if not isinstance(config, dict):
-        raise ValueError(
-            "--backend-config must parse to a mapping, "
-            f"got {type(config).__name__}"
+        raise click.BadParameter(
+            f"{path!r} must parse to a mapping, got {type(config).__name__}",
+            param_hint="--backend-config",
         )
     if "backend" not in config:
-        raise ValueError("--backend-config must include a 'backend' field")
+        raise click.BadParameter(
+            f"{path!r} must include a 'backend' field",
+            param_hint="--backend-config",
+        )
     return dict(config)
+
+
+def _backend_class_for_cli(name: str) -> type[BenchmarkBackend]:
+    """Report unknown names as input errors without hiding plugin failures."""
+    try:
+        return get_backend_class(name)
+    except _BackendNotFoundError as error:
+        raise click.BadParameter(
+            str(error), param_hint="--backend-config"
+        ) from error
 
 
 def _backend_config_snapshot(path: str) -> dict[str, Any]:
@@ -50,12 +69,13 @@ def _backend_config_snapshot(path: str) -> dict[str, Any]:
 def _default_algorithm() -> str:
     """Choose the displayed prompt default from the selected backend."""
     context = click.get_current_context(silent=True)
-    backend = _DEFAULT_BACKEND
     if context is not None and (
         backend_config := context.params.get("backend_config")
     ):
         backend = _backend_config_snapshot(backend_config)["backend"]
-    backend_class = get_backend_class(str(backend))
+        backend_class = _backend_class_for_cli(str(backend))
+    else:
+        backend_class = get_backend_class(_DEFAULT_BACKEND)
     if backend_class.default_algorithm is not None:
         return backend_class.default_algorithm
     default_backend_class = get_backend_class(_DEFAULT_BACKEND)
@@ -325,6 +345,7 @@ def main(
         cfg = _backend_config_snapshot(backend_config)
         backend_type = cfg.pop("backend")
         backend_kwargs = cfg
+        _backend_class_for_cli(backend_type)
 
     orchestrator = BenchmarkOrchestrator(backend_type=backend_type)
     results = orchestrator.run_benchmark(
