@@ -35,8 +35,8 @@ namespace cuvs::distance::detail {
  * `Top1nnTuning::cagra.index`.
  *
  * The index only views the candidates passed to `build`: they must stay alive and unchanged until
- * the next `build` or the destruction of this object, and their dimension must meet CAGRA's row
- * alignment (see `build`). The index uses squared L2 distance.
+ * the next `build` or the destruction of this object (when their dimension does not meet CAGRA's
+ * row alignment, `build` pads them into a copy it owns). The index uses squared L2 distance.
  */
 class top_1_nn_cagra_index {
  public:
@@ -49,8 +49,8 @@ class top_1_nn_cagra_index {
    *
    * `index_params` and `search_params` are used as given, except for what this backend relies on:
    * the metric is set to L2Expanded (squared L2 distances), the dataset is attached on build, and
-   * the graph degrees are clamped to `n - 1`. Throws if `dim` does not meet CAGRA's row alignment
-   * (a multiple of 4 floats), since the candidates are viewed in place and not copied.
+   * the graph degrees are clamped to `n - 1`. Candidates whose `dim` does not meet CAGRA's row
+   * alignment (a multiple of 4 floats) are copied into a padded buffer owned by this object.
    */
   void build(raft::resources const& handle,
              cuvs::neighbors::cagra::index_params const& index_params,
@@ -70,24 +70,26 @@ class top_1_nn_cagra_index {
 
     search_params_ = search_params;
 
-    // CAGRA indexes rows with a padded stride. The candidates are viewed, not copied, so they
-    // must already have it; erroring out avoids silently allocating a second copy of the dataset.
-    RAFT_EXPECTS(
-      cuvs::neighbors::cagra_required_row_width<float>(static_cast<uint32_t>(dim)) ==
-        static_cast<uint32_t>(dim),
-      "top_1_nn_cagra_index: the candidate dimension (%ld) does not meet CAGRA's row alignment",
-      static_cast<long>(dim));
-
-    index_.reset();  // drop the old index before building the new one
+    index_.reset();  // drop the old index (and its view) before building the new one
+    padded_copy_.reset();
     n_   = n;
     dim_ = dim;
 
     auto candidates_view =
       raft::make_device_matrix_view<const float, int64_t, raft::row_major>(candidates, n, dim);
-    index_.emplace(cuvs::neighbors::cagra::build(
-      handle,
-      build_params,
-      cuvs::neighbors::make_device_padded_dataset_view(handle, candidates_view)));
+    // CAGRA indexes rows with a padded stride. Aligned candidates are viewed in place; otherwise
+    // they are copied into a padded buffer (zero padding leaves the L2 distances unchanged) that
+    // lives as long as the index.
+    if (cuvs::neighbors::cagra_required_row_width<float>(static_cast<uint32_t>(dim)) ==
+        static_cast<uint32_t>(dim)) {
+      index_.emplace(cuvs::neighbors::cagra::build(
+        handle,
+        build_params,
+        cuvs::neighbors::make_device_padded_dataset_view(handle, candidates_view)));
+    } else {
+      padded_copy_ = cuvs::neighbors::make_device_padded_dataset(handle, candidates_view);
+      index_.emplace(cuvs::neighbors::cagra::build(handle, build_params, padded_copy_->view()));
+    }
   }
 
   /**
@@ -117,6 +119,7 @@ class top_1_nn_cagra_index {
 
  private:
   cuvs::neighbors::cagra::search_params search_params_;
+  std::unique_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>> padded_copy_;
   std::optional<index_type> index_;
   int64_t n_   = 0;
   int64_t dim_ = 0;

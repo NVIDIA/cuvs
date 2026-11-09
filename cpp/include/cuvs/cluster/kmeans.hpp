@@ -182,10 +182,10 @@ struct params : base_params {
    * settings come from `ann_index_params` and `ann_search_params`; a larger `itopk_size` is more
    * accurate and slower.
    *
-   * Only `float` data with the L2Expanded or L2SqrtExpanded metric and a number of features that
-   * is a multiple of 4 (CAGRA row alignment, the centroids are indexed in place and not copied) is
-   * supported; other combinations log a warning and use brute force. Ignored by the multi-GPU
-   * `fit`. The reported inertia of `fit` is always computed exactly.
+   * Only `float` data with the L2Expanded or L2SqrtExpanded metric is supported; other
+   * combinations log a warning and use brute force. When `n_features` is not a multiple of 4 (CAGRA
+   * row alignment), the centroids are copied into a zero-padded buffer for each index build.
+   * Ignored by the multi-GPU `fit`. The reported inertia of `fit` is always computed exactly.
    *
    * Default: false.
    */
@@ -206,9 +206,14 @@ struct params : base_params {
 
   /**
    * CAGRA search parameters used to find each point's nearest centroid, used as given. Only used
-   * when `use_ann_for_assignment` is true.
+   * when `use_ann_for_assignment` is true. `itopk_size` defaults to 32 here (CAGRA's own default
+   * is 64), which keeps the centroid quality while making the search faster.
    */
-  cuvs::neighbors::cagra::search_params ann_search_params;
+  cuvs::neighbors::cagra::search_params ann_search_params = [] {
+    cuvs::neighbors::cagra::search_params p;
+    p.itopk_size = 32;
+    return p;
+  }();
 };
 
 /**

@@ -51,14 +51,6 @@ bool use_ann_assignment(cuvs::cluster::kmeans::params const& params,
       RAFT_LOG_WARN("kmeans: use_ann_for_assignment requires n_clusters >= 2; using brute force.");
       return false;
     }
-    // The index views the centroids in place, so their rows must already meet CAGRA's alignment.
-    if (cuvs::neighbors::cagra_required_row_width<float>(static_cast<uint32_t>(n_features)) !=
-        static_cast<uint32_t>(n_features)) {
-      RAFT_LOG_WARN(
-        "kmeans: use_ann_for_assignment requires n_features to be a multiple of 4 (CAGRA row "
-        "alignment); using brute force.");
-      return false;
-    }
     // The centroids are a device dataset, for which an ACE graph build is not supported.
     if (std::holds_alternative<cuvs::neighbors::cagra::graph_build_params::ace_params>(
           params.ann_index_params.graph_build_params)) {

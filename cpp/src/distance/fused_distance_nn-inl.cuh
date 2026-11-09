@@ -756,6 +756,9 @@ std::size_t top_1_nn_workspace_size(IdxT m,
     case detail::Top1nnBackend::Unfused:
       return detail::make_unfused_top_1_nn_workspace_layout<DataT>(m, n, tuning).total_bytes;
     case detail::Top1nnBackend::Cagra:
+      // Search-time scratch only: the uint32 neighbor ids the CAGRA search returns before they are
+      // converted to IdxT. The index itself (graph and, for unaligned candidates, the padded copy)
+      // is allocated by `top_1_nn_cagra_index::build`, outside this workspace.
       return detail::checked_top_1_nn_workspace_multiply(rows, sizeof(uint32_t));
   }
   RAFT_FAIL("Unknown top_1_nn backend");
