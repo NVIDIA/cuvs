@@ -663,7 +663,10 @@ public class CuVS2510GPUVectorsWriter extends CompatKnnVectorsWriter {
     }
   }
 
-  /** Merges one field, building its graph from the merged vectors. */
+  /**
+   * Merges one field: merges the CAGRA indexes of the segments on the GPU when it can, and
+   * otherwise builds a new index from the merged vectors.
+   */
   @Override
   void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);

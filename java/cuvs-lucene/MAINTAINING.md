@@ -65,10 +65,13 @@ Fix every error without changing what the other modules compile:
   variant the module uses to `compat/<class>-106-<change>` (for example
   `compat/knn-vectors-reader-106-<change>`), change it there, and point the module's property
   (`cuvs.lucene.compat.knnVectorsReader`) at it. Do not edit a variant other modules still use;
-- a Lucene class with no variants yet changed (for example `KnnFieldVectorsWriter`): move its adapter from
-  the shared `src/` into two new variants, `<class>-102-<old shape>` for the existing modules and
-  `<class>-106-<change>`, add a `cuvs.lucene.compat.<class>` property to every module and a matching
-  `<source>` line to the `add-shared-sources` execution of the parent `pom.xml` (see
+- a Lucene class with no variants yet changed (for example `KnnFieldVectorsWriter`): add a
+  `Compat<Class>` base in two new variants, `<class>-102-<old shape>` for the existing modules and
+  `<class>-106-<change>`, each overriding the changed method and forwarding it to a `do*` method
+  whose signature is the same in both, and have the shared classes that extend the Lucene class
+  extend the base and implement the `do*` method instead (as `CompatKnnVectorsWriter` did for
+  `mergeOneField` in 10.5). Then add a `cuvs.lucene.compat.<class>` property to every module and a
+  matching `<source>` line to the `add-shared-sources` execution of the parent `pom.xml` (see
   [compat/README.md](compat/README.md));
 - test-only calls, such as `LeafReader.searchNearestVectors`: the same, with `TestLuceneCompat` in the
   `leaf-reader-*` variants (their `src/test/java`). A test call to a class that already has variants
