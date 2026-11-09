@@ -22,6 +22,7 @@ public class CagraIndexParams {
   private final long intermediateGraphDegree;
   private final long graphDegree;
   private final double variableGraphDegreeFraction;
+  private final boolean guaranteeConnectivity;
   private final long nnDescentNiter;
   private final int numWriterThreads;
   private final CuVSIvfPqParams cuVSIvfPqParams;
@@ -332,6 +333,7 @@ public class CagraIndexParams {
       long intermediateGraphDegree,
       long graphDegree,
       double variableGraphDegreeFraction,
+      boolean guaranteeConnectivity,
       CagraGraphBuildAlgo CuvsCagraGraphBuildAlgo,
       long nnDescentNiter,
       int writerThreads,
@@ -341,6 +343,7 @@ public class CagraIndexParams {
     this.intermediateGraphDegree = intermediateGraphDegree;
     this.graphDegree = graphDegree;
     this.variableGraphDegreeFraction = variableGraphDegreeFraction;
+    this.guaranteeConnectivity = guaranteeConnectivity;
     this.cuvsCagraGraphBuildAlgo = CuvsCagraGraphBuildAlgo;
     this.nnDescentNiter = nnDescentNiter;
     this.numWriterThreads = writerThreads;
@@ -393,6 +396,16 @@ public class CagraIndexParams {
    */
   public double getVariableGraphDegreeFraction() {
     return variableGraphDegreeFraction;
+  }
+
+  /**
+   * Gets whether the graph build guarantees the graph is connected.
+   *
+   * @return whether MST optimization is used to guarantee graph connectivity
+   * @see Builder#withGuaranteeConnectivity(boolean)
+   */
+  public boolean isGuaranteeConnectivity() {
+    return guaranteeConnectivity;
   }
 
   /**
@@ -457,6 +470,8 @@ public class CagraIndexParams {
         + graphDegree
         + ", variableGraphDegreeFraction="
         + variableGraphDegreeFraction
+        + ", guaranteeConnectivity="
+        + guaranteeConnectivity
         + ", nnDescentNiter="
         + nnDescentNiter
         + ", numWriterThreads="
@@ -478,6 +493,7 @@ public class CagraIndexParams {
     private long intermediateGraphDegree = 128;
     private long graphDegree = 64;
     private double variableGraphDegreeFraction = 1.0;
+    private boolean guaranteeConnectivity = false;
     private long nnDescentNumIterations = 20;
     private int numWriterThreads = 2;
     private CuVSIvfPqParams cuVSIvfPqParams = new CuVSIvfPqParams.Builder().build();
@@ -525,6 +541,22 @@ public class CagraIndexParams {
      */
     public Builder withVariableGraphDegreeFraction(double variableGraphDegreeFraction) {
       this.variableGraphDegreeFraction = variableGraphDegreeFraction;
+      return this;
+    }
+
+    /**
+     * Sets whether to use MST optimization to guarantee graph connectivity.
+     *
+     * <p>When true, the optimize step keeps the edges of an approximate, degree-constrained minimum
+     * spanning tree of the kNN graph in the output graph. If the kNN graph itself is disconnected,
+     * for example for well separated clusters, nodes outside its largest component are also linked
+     * to that component. Default: false.
+     *
+     * @param guaranteeConnectivity whether to guarantee graph connectivity
+     * @return an instance of Builder
+     */
+    public Builder withGuaranteeConnectivity(boolean guaranteeConnectivity) {
+      this.guaranteeConnectivity = guaranteeConnectivity;
       return this;
     }
 
@@ -612,6 +644,7 @@ public class CagraIndexParams {
           intermediateGraphDegree,
           graphDegree,
           variableGraphDegreeFraction,
+          guaranteeConnectivity,
           cuvsCagraGraphBuildAlgo,
           nnDescentNumIterations,
           numWriterThreads,

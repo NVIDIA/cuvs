@@ -240,6 +240,15 @@ struct cuvsCagraIndexParams {
    * `cuvsCagraIndexParamsFromHnswParams`). Do not use this with CAGRA's native GPU search.
    */
   double variable_graph_degree_fraction;
+  /**
+   * Whether to use MST optimization to guarantee graph connectivity.
+   *
+   * When true, the optimize step keeps the edges of an approximate, degree-constrained minimum
+   * spanning tree of the kNN graph in the output graph. If the kNN graph itself is disconnected, for
+   * example for well separated clusters, nodes outside its largest component are also linked to
+   * that component. Default: false.
+   */
+  bool guarantee_connectivity;
 };
 
 typedef struct cuvsCagraIndexParams* cuvsCagraIndexParams_t;
