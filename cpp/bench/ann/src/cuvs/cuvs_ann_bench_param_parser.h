@@ -542,3 +542,36 @@ void parse_search_param(const nlohmann::json& conf,
   parse_dynamic_batching_params(conf, param);
 }
 #endif
+
+#ifdef CUVS_ANN_BENCH_USE_CUVS_SCANN
+#include "cuvs_scann_wrapper.h"
+extern template class cuvs::bench::cuvs_scann<float, int64_t>;
+extern template class cuvs::bench::cuvs_scann<half, int64_t>;
+extern template class cuvs::bench::cuvs_scann<uint8_t, int64_t>;
+extern template class cuvs::bench::cuvs_scann<int8_t, int64_t>;
+
+template <typename T, typename IdxT>
+void parse_build_param(const nlohmann::json& conf,
+                       typename cuvs::bench::cuvs_scann<T, IdxT>::build_param& param)
+{
+  if (conf.contains("n_leaves")) { param.n_leaves = conf.at("n_leaves"); }
+  if (conf.contains("n_coarse_clusters")) {
+    param.n_coarse_clusters = conf.at("n_coarse_clusters");
+  }
+  if (conf.contains("kmeans_n_rows_train")) {
+    param.kmeans_n_rows_train = conf.at("kmeans_n_rows_train");
+  }
+  if (conf.contains("partitioning_eta")) { param.partitioning_eta = conf.at("partitioning_eta"); }
+  if (conf.contains("soar_lambda")) { param.soar_lambda = conf.at("soar_lambda"); }
+  if (conf.contains("pq_dim")) { param.pq_dim = conf.at("pq_dim"); }
+  if (conf.contains("pq_bits")) { param.pq_bits = conf.at("pq_bits"); }
+  if (conf.contains("pq_n_rows_train")) { param.pq_n_rows_train = conf.at("pq_n_rows_train"); }
+  if (conf.contains("reordering_bf16")) { param.reordering_bf16 = conf.at("reordering_bf16"); }
+}
+
+template <typename T, typename IdxT>
+void parse_search_param(const nlohmann::json&,
+                        typename cuvs::bench::cuvs_scann<T, IdxT>::search_param&)
+{
+}
+#endif

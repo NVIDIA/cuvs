@@ -100,6 +100,13 @@ auto create_algo(const std::string& algo_name,
     a = std::make_unique<cuvs::bench::cuvs_ivf_pq<T, int64_t>>(metric, dim, param);
   }
 #endif
+#ifdef CUVS_ANN_BENCH_USE_CUVS_SCANN
+  if (algo_name == "cuvs_scann") {
+    typename cuvs::bench::cuvs_scann<T, int64_t>::build_param param;
+    parse_build_param<T, int64_t>(conf, param);
+    a = std::make_unique<cuvs::bench::cuvs_scann<T, int64_t>>(metric, dim, param);
+  }
+#endif
 #ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_RABITQ
   if constexpr (std::is_same_v<T, float>) {
     if (algo_name == "cuvs_ivf_rabitq") {
@@ -181,6 +188,13 @@ auto create_search_param(const std::string& algo_name, const nlohmann::json& con
 #ifdef CUVS_ANN_BENCH_USE_CUVS_IVF_PQ
   if (algo_name == "raft_ivf_pq" || algo_name == "cuvs_ivf_pq") {
     auto param = std::make_unique<typename cuvs::bench::cuvs_ivf_pq<T, int64_t>::search_param>();
+    parse_search_param<T, int64_t>(conf, *param);
+    return param;
+  }
+#endif
+#ifdef CUVS_ANN_BENCH_USE_CUVS_SCANN
+  if (algo_name == "cuvs_scann") {
+    auto param = std::make_unique<typename cuvs::bench::cuvs_scann<T, int64_t>::search_param>();
     parse_search_param<T, int64_t>(conf, *param);
     return param;
   }

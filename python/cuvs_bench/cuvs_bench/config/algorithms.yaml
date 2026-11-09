@@ -40,6 +40,9 @@ cuvs_ivf_flat:
 cuvs_ivf_pq:
   executable: CUVS_IVF_PQ_ANN_BENCH
   requires_gpu: true
+cuvs_scann:
+  executable: CUVS_SCANN_ANN_BENCH
+  requires_gpu: true
 cuvs_ivf_rabitq:
   executable: CUVS_IVF_RABITQ_ANN_BENCH
   requires_gpu: true
