@@ -14,7 +14,6 @@ import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.search.TaskExecutor;
@@ -71,23 +70,26 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
     if (readOnlyReason != null) {
       throw new UnsupportedOperationException(readOnlyReason);
     }
-    var flatWriter = flatVectorsFormat().fieldsWriter(state);
+    FlatVectorsFormat flatFormat = flatVectorsFormat();
+    var flatWriter = flatFormat.fieldsWriter(state);
     if (isSupported()) {
       log.info(getName() + ": cuVS is supported, so building the graph on the GPU");
       return new LuceneAcceleratedHNSWScalarQuantizedVectorsWriter(
           state, acceleratedHNSWParams, flatWriter);
     } else {
       // Builds the graph on the CPU over the scalar-quantized flat writer opened above, which is
-      // what Lucene's HNSW scalar-quantized formats write, so the reader below reads it.
+      // what Lucene's HNSW scalar-quantized formats write, so the reader below reads it. On Lucene
+      // 10.5, Lucene's writer also reads merged vectors back with flatFormat to build the graph.
       // Starts with the prefix the user guide documents for the fallback warning.
       log.warning(
           "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter"
               + " for "
               + getName());
-      return new Lucene99HnswVectorsWriter(
+      return LuceneCompat.hnswVectorsWriter(
           state,
           acceleratedHNSWParams.getMaxConn(),
           acceleratedHNSWParams.getBeamWidth(),
+          flatFormat,
           flatWriter,
           acceleratedHNSWParams.getNumMergeWorkers(),
           new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
