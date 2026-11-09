@@ -244,8 +244,11 @@ struct balanced_params : base_params {
  * row with the fused 1-NN over all dimensions; later iterations compute partial distances over the
  * first 256 dimensions, discard centroids that are unlikely to beat a row's current one (the
  * ADSampling bound, without its random rotation), and finish the remaining dimensions only for the
- * survivors. Pruning applies with more than 256 clusters and more than 256 dimensions, which must
- * then be a multiple of 256; otherwise every iteration assigns with the full 1-NN.
+ * survivors. With more than 256 clusters and more than 1024 dimensions, pruning is required:
+ * the dimension count must be divisible by 256, dataset and centroid pointers must be 16-byte
+ * aligned, and the build and device must provide the pruning kernel. Inputs that violate these
+ * requirements raise an error. With at most 256 clusters or at most 1024 dimensions, every
+ * iteration uses full nearest-centroid assignment (Lloyd's algorithm).
  *
  * The number of clusters is taken from the `centroids` argument. The start centroids are rows
  * sampled at random, as with kmeans::params::InitMethod::Random; all `n_iters` iterations run

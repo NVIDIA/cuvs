@@ -38,11 +38,12 @@ namespace pruned_nn = cuvs::distance::detail::pruned_nn;
 
 // Pruning works on whole dimension tiles past the first filter's, and only pays off with enough
 // centroids to discard; below that every iteration assigns with the full 1-NN.
-constexpr int64_t kMinPrunedK = 256;
+constexpr int64_t kMinPrunedK   = 256;
+constexpr int64_t kMinPrunedDim = 1024;
 
 inline bool prunes(int64_t n_clusters, int64_t dim)
 {
-  return dim > pruned_nn::kDimTileSize && n_clusters > kMinPrunedK;
+  return dim > kMinPrunedDim && n_clusters > kMinPrunedK;
 }
 
 /** Sum of squared distances of the rows to their assigned centroids. */
@@ -209,15 +210,20 @@ void fit(const raft::resources& handle,
   RAFT_EXPECTS(!labels.has_value() || labels->extent(0) == n_rows,
                "Number of rows in dataset and labels are different");
   RAFT_EXPECTS(params.n_iters > 0, "SuperKMeans needs at least one iteration");
-  RAFT_EXPECTS(!prunes(n_clusters, dim) || dim % pruned_nn::kDimTileSize == 0,
-               "SuperKMeans with pruning (n_clusters > %ld) needs dim to be a multiple of %u",
-               kMinPrunedK,
-               pruned_nn::kDimTileSize);
-  // Without the filter's kernels on this build or device, every iteration assigns in full; so too
-  // for half rows the filter can't read in place (it needs them 16-byte aligned)
-  const bool pruned =
-    prunes(n_clusters, dim) && cuvs::distance::is_pruned_top_1_nn_available(dim) &&
-    (!std::is_same_v<T, half> || reinterpret_cast<uintptr_t>(X.data_handle()) % 16 == 0);
+  const bool pruned = prunes(n_clusters, dim);
+  if (pruned) {
+    // Validate before sampling centroids or allocating scratch: eligible inputs must use pruning.
+    RAFT_EXPECTS(dim % pruned_nn::kDimTileSize == 0,
+                 "SuperKMeans pruning needs dim to be a multiple of %u",
+                 pruned_nn::kDimTileSize);
+    const auto aligned = [](const void* ptr) {
+      return reinterpret_cast<uintptr_t>(ptr) % pruned_nn::kAlignment == 0;
+    };
+    RAFT_EXPECTS(aligned(X.data_handle()) && aligned(centroids.data_handle()),
+                 "SuperKMeans pruning needs 16-byte-aligned dataset and centroid pointers");
+    RAFT_EXPECTS(cuvs::distance::is_pruned_top_1_nn_available(dim),
+                 "SuperKMeans pruning kernel is unavailable on this build or device");
+  }
 
   auto stream     = raft::resource::get_cuda_stream(handle);
   auto mapping_op = cuvs::spatial::knn::detail::utils::mapping<float>{};

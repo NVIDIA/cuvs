@@ -27,6 +27,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -293,17 +294,16 @@ TEST(KmeansSuperKMeans, Fallback)
   }
 }
 
-/* With more than 256 clusters and more than 256 dims, a multiple of 256, the iterations after the
- * first prune (on a build and device with the filter's kernels; otherwise they assign in full). The
+/* With more than 256 clusters and more than 1024 dims, a multiple of 256, the iterations after
+ * the first prune on a build and device with the filter's kernels. The
  * pruning bound is a heuristic without a rotation, so the result is compared with Lloyd's from the
  * same start rows rather than exactly. The labels and inertia come from a full assignment.
  */
 TEST(KmeansSuperKMeans, Pruned)
 {
-  // Three row batches, the last partial; two centroid batches, the second partial; and two tail
-  // dim tiles (one re-filter)
+  // Multiple row and centroid batches, with partial final batches and several tail dimension tiles
   constexpr int64_t n_rows     = 300000;
-  constexpr int64_t dim        = 768;
+  constexpr int64_t dim        = 1536;
   constexpr int64_t n_clusters = 2200;
   constexpr uint32_t n_iters   = 8;
   constexpr uint64_t seed      = 42;
@@ -369,22 +369,102 @@ TEST(KmeansSuperKMeans, Pruned)
     if (pooled) {
       raft::resource::set_cuda_stream_pool(handle, std::make_shared<rmm::cuda_stream_pool>(1));
     }
-    check(X);
-    check(raft::make_const_mdspan(X_half.view()));
+    try {
+      check(X);
+      check(raft::make_const_mdspan(X_half.view()));
+    } catch (const raft::logic_error& e) {
+      if (std::string{e.what()}.find("SuperKMeans pruning kernel is unavailable") !=
+          std::string::npos) {
+        GTEST_SKIP() << e.what();
+      }
+      throw;
+    }
   }
+}
+
+TEST(KmeansSuperKMeans, AlignmentRequirements)
+{
+  constexpr int64_t n_rows = 1024, n_clusters = 300;
+  for (int64_t dim : {1024, 1280}) {
+    raft::handle_t handle;
+    auto stream = raft::resource::get_cuda_stream(handle);
+    auto check  = [&](auto value) {
+      using T      = decltype(value);
+      auto storage = raft::make_device_vector<T, int64_t>(handle, n_rows * dim + 1);
+      auto centers = raft::make_device_vector<float, int64_t>(handle, n_clusters * dim + 1);
+      auto labels  = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+      std::vector<T> host(n_rows * dim);
+      for (int64_t i = 0; i < n_rows * dim; ++i) {
+        host[i] = static_cast<T>(std::sin(static_cast<float>(i) * 0.13f));
+      }
+      cuvs::cluster::kmeans::superkmeans_params params;
+      params.n_iters = 3;
+      for (auto offsets : {std::pair{1, 0}, std::pair{0, 1}, std::pair{1, 1}}) {
+        SCOPED_TRACE(sizeof(T));
+        SCOPED_TRACE(offsets.first);
+        SCOPED_TRACE(offsets.second);
+        auto X = raft::make_device_matrix_view<const T, int64_t>(
+          storage.data_handle() + offsets.first, n_rows, dim);
+        auto C = raft::make_device_matrix_view<float, int64_t>(
+          centers.data_handle() + offsets.second, n_clusters, dim);
+        raft::copy(storage.data_handle() + offsets.first, host.data(), host.size(), stream);
+        float inertia = 0;
+        if (dim > 1024) {
+          EXPECT_THROW(
+            cuvs::cluster::kmeans::fit_predict(
+              handle, params, X, C, labels.view(), raft::make_host_scalar_view(&inertia)),
+            raft::logic_error);
+          continue;
+        }
+        cuvs::cluster::kmeans::fit_predict(
+          handle, params, X, C, labels.view(), raft::make_host_scalar_view(&inertia));
+        std::vector<float> host_centers(n_clusters * dim);
+        std::vector<uint32_t> host_labels(n_rows);
+        raft::copy(host_centers.data(), C.data_handle(), host_centers.size(), stream);
+        raft::copy(host_labels.data(), labels.data_handle(), n_rows, stream);
+        raft::resource::sync_stream(handle);
+        double expected = 0;
+        for (int64_t r = 0; r < n_rows; ++r) {
+          ASSERT_LT(host_labels[r], n_clusters);
+          for (int64_t j = 0; j < dim; ++j) {
+            const double diff = static_cast<float>(host[r * dim + j]) -
+                                host_centers[int64_t{host_labels[r]} * dim + j];
+            expected += diff * diff;
+          }
+        }
+        EXPECT_TRUE(std::isfinite(inertia));
+        EXPECT_NEAR(inertia, expected, 1e-4 * expected);
+      }
+    };
+    check(float{});
+    check(half{});
+  }
+}
+
+TEST(KmeansSuperKMeans, UntiledDimensionFallback)
+{
+  raft::handle_t handle;
+  cuvs::cluster::kmeans::superkmeans_params params;
+  params.n_iters = 3;
+  auto X_odd     = raft::make_device_matrix<float, int64_t>(handle, 1000, 384);
+  auto centroids = raft::make_device_matrix<float, int64_t>(handle, 300, 384);
+  RAFT_CUDA_TRY(cudaMemsetAsync(X_odd.data_handle(),
+                                0,
+                                X_odd.size() * sizeof(float),
+                                raft::resource::get_cuda_stream(handle).get()));
+  float inertia = -1;
+  cuvs::cluster::kmeans::fit(handle,
+                             params,
+                             raft::make_const_mdspan(X_odd.view()),
+                             centroids.view(),
+                             raft::make_host_scalar_view(&inertia));
+  EXPECT_EQ(inertia, 0);
 }
 
 TEST(KmeansSuperKMeans, RejectsUnsupported)
 {
   raft::handle_t handle;
   cuvs::cluster::kmeans::superkmeans_params params;
-  // Pruning works on whole 256-dim tiles.
-  auto X_odd     = raft::make_device_matrix<float, int64_t>(handle, 1000, 384);
-  auto centroids = raft::make_device_matrix<float, int64_t>(handle, 300, 384);
-  EXPECT_THROW(cuvs::cluster::kmeans::fit(
-                 handle, params, raft::make_const_mdspan(X_odd.view()), centroids.view()),
-               raft::logic_error);
-
   auto X               = raft::make_device_matrix<float, int64_t>(handle, 1000, 256);
   auto small_centroids = raft::make_device_matrix<float, int64_t>(handle, 8, 256);
   params.metric        = cuvs::distance::DistanceType::InnerProduct;
@@ -393,6 +473,11 @@ TEST(KmeansSuperKMeans, RejectsUnsupported)
                raft::logic_error);
 
   params.metric = cuvs::distance::DistanceType::L2Expanded;
+  auto X_odd    = raft::make_device_matrix<float, int64_t>(handle, 1000, 1152);
+  auto C_odd    = raft::make_device_matrix<float, int64_t>(handle, 300, 1152);
+  EXPECT_THROW(
+    cuvs::cluster::kmeans::fit(handle, params, raft::make_const_mdspan(X_odd.view()), C_odd.view()),
+    raft::logic_error);
   auto too_many = raft::make_device_matrix<float, int64_t>(handle, 1001, 256);
   EXPECT_THROW(
     cuvs::cluster::kmeans::fit(handle, params, raft::make_const_mdspan(X.view()), too_many.view()),

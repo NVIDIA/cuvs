@@ -48,7 +48,7 @@ struct PrunedTop1nnParams {
 namespace detail::pruned_nn {
 
 constexpr int64_t kMaxStreams    = 2;
-constexpr std::size_t kAlignment = 256;
+constexpr std::size_t kAlignment = 16;
 
 /** The fused first filter's tile on this device, or nullopt when the build or device has none. */
 inline auto filter_tile() -> std::optional<fused_filter_tile>
@@ -213,7 +213,7 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  * @param xn          [m] squared norms of half x over the first kDimTileSize dims; ignored for
  *                    float, whose filter rows and norms are prepared in the workspace per batch
  * @param yn          [n] the same for y
- * @param workspace   pruned_top_1_nn_workspace_size<DataT>(handle, m) bytes, 256-byte aligned
+ * @param workspace   pruned_top_1_nn_workspace_size<DataT>(handle, m) bytes, 16-byte aligned
  */
 template <typename DataT>
 void pruned_top_1_nn(raft::resources const& handle,
