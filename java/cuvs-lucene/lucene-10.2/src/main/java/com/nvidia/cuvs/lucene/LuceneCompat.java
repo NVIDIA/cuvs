@@ -77,7 +77,7 @@ final class LuceneCompat {
         state, maxConn, beamWidth, flatWriter, numMergeWorkers, mergeExec);
   }
 
-  /** Returns Lucene 10.2's {@code Lucene101Codec}. */
+  /** Returns {@code Lucene101Codec}, the default codec of Lucene 10.2. */
   static Codec lucene101Codec() {
     return new Lucene101Codec();
   }

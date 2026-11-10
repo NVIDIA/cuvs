@@ -81,17 +81,23 @@ final class LuceneCompat {
         state, maxConn, beamWidth, flatWriter, numMergeWorkers, mergeExec);
   }
 
-  /** Returns Lucene 10.2's {@code Lucene101Codec}, which Lucene 10.4 can only read. */
+  /**
+   * Returns {@code Lucene101Codec}, the default codec of Lucene 10.2, which
+   * Lucene 10.4 can only read.
+   */
   static Codec lucene101Codec() {
     return new Lucene101Codec();
   }
 
-  /** Returns Lucene 10.3's {@code Lucene103Codec}, which Lucene 10.4 can only read. */
+  /**
+   * Returns {@code Lucene103Codec}, the default codec of Lucene 10.3, which
+   * Lucene 10.4 can only read.
+   */
   static Codec lucene103Codec() {
     return new Lucene103Codec();
   }
 
-  /** Returns Lucene 10.4's {@code Lucene104Codec}. */
+  /** Returns {@code Lucene104Codec}, the default codec of Lucene 10.4. */
   static Codec lucene104Codec() {
     return new Lucene104Codec();
   }
