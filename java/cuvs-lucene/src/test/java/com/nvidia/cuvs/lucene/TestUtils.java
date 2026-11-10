@@ -16,6 +16,10 @@ import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.IntStream;
+import org.apache.lucene.codecs.KnnVectorsReader;
+import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
+import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
+import org.apache.lucene.index.CodecReader;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.StoredFields;
@@ -23,8 +27,18 @@ import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.util.hnsw.HnswGraph;
 
 public class TestUtils {
+
+  /** Returns the HNSW graph of {@code field} in {@code leaf}, which an HNSW format wrote. */
+  static HnswGraph graphOf(LeafReader leaf, String field) throws IOException {
+    KnnVectorsReader reader = ((CodecReader) leaf).getVectorReader();
+    if (reader instanceof PerFieldKnnVectorsFormat.FieldsReader fieldsReader) {
+      reader = fieldsReader.getFieldReader(field);
+    }
+    return ((HnswGraphProvider) reader).getGraph(field);
+  }
 
   /**
    * Asserts that every vector in {@code field} is still paired with the document that indexed it,
