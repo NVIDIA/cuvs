@@ -30,6 +30,7 @@ dependencies:
 - libnvjitlink-dev
 - libopenblas<=0.3.30
 - librmm==26.12.*,>=0.0.0a0
+- lld
 - make
 - maven>=3.10.0,<3.11.0
 - nccl>=2.19

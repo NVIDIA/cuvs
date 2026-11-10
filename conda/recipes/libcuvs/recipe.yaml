@@ -32,7 +32,7 @@ outputs:
           export CXXFLAGS=$(echo $CXXFLAGS | sed -E 's@\-fdebug\-prefix\-map[^ ]*@@g')
           set +x
 
-          ./build.sh libcuvs bench-ann tests --allgpuarch --mnmg-tests --build-metrics=compile_lib --incl-cache-stats --no-nvtx -n
+          ./build.sh libcuvs bench-ann tests --allgpuarch --mnmg-tests --build-metrics=compile_lib --incl-cache-stats --no-nvtx -n --cmake-args=\"--preset=build-for-packaging\"
 
           cmake --build cpp/build --target cuvs cuvs_c
           ./examples/build.sh --allgpuarch
@@ -76,6 +76,7 @@ outputs:
         - ${{ compiler("cuda") }}
         - cuda-version =${{ cuda_version }}
         - cmake ${{ cmake_version }}
+        - lld
         - ninja
         - python
         - if: cuda_major == "13"
