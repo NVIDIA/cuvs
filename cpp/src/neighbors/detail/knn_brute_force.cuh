@@ -91,7 +91,7 @@ void tiled_brute_force_knn(const raft::resources& handle,
   auto stream      = raft::resource::get_cuda_stream(handle);
 
   cuvs::neighbors::detail::faiss_select::chooseTileSize(
-    m, n, d, sizeof(DistanceT), tile_rows, tile_cols);
+    m, std::max(n, k), d, sizeof(DistanceT), tile_rows, tile_cols);
 
   // for unittesting, its convenient to be able to put a max size on the tiles
   // so we can test the tiling logic without having to use huge inputs.
