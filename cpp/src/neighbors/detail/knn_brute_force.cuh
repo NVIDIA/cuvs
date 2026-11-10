@@ -172,8 +172,10 @@ void tiled_brute_force_knn(const raft::resources& handle,
     }
   }
 
-  rmm::device_uvector<DistanceT> temp_out_distances(tile_rows * temp_out_cols, stream);
-  rmm::device_uvector<IndexType> temp_out_indices(tile_rows * temp_out_cols, stream);
+  // only needed to merge the per-column-tile results
+  size_t temp_out_size = tile_cols != n ? tile_rows * temp_out_cols : 0;
+  rmm::device_uvector<DistanceT> temp_out_distances(temp_out_size, stream);
+  rmm::device_uvector<IndexType> temp_out_indices(temp_out_size, stream);
 
   bool select_min = cuvs::distance::is_min_close(metric);
 
@@ -450,7 +452,9 @@ void brute_force_knn_impl(
 
     auto stream = raft::resource::get_next_usable_stream(handle, i);
 
-    if (k <= 64 && rowMajorQuery == rowMajorIndex && rowMajorQuery == true &&
+    // fusedL2Knn has no tensor-core path, so half is faster through the tiled GEMM below.
+    if (!std::is_same_v<value_t, half> && k <= 64 && rowMajorQuery == rowMajorIndex &&
+        rowMajorQuery == true &&
         (metric == cuvs::distance::DistanceType::L2Unexpanded ||
          metric == cuvs::distance::DistanceType::L2SqrtUnexpanded ||
          metric == cuvs::distance::DistanceType::L2Expanded ||
