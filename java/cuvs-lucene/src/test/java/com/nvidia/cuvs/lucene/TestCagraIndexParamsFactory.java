@@ -248,6 +248,35 @@ public class TestCagraIndexParamsFactory extends LuceneTestCase {
   }
 
   /**
+   * Lowering the graph degree for the upper HNSW layers keeps every other parameter, including
+   * guarantee_connectivity, so those layers are built the same way as the base layer. Pure Java, no
+   * GPU needed.
+   */
+  @Test
+  public void testWithMaxGraphDegreeKeepsOtherParams() {
+    CagraIndexParams params =
+        new CagraIndexParams.Builder()
+            .withGraphDegree(64)
+            .withIntermediateGraphDegree(128)
+            .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
+            .withNNDescentNumIterations(17)
+            .withMetric(CuvsDistanceType.InnerProduct)
+            .withNumWriterThreads(3)
+            .withGuaranteeConnectivity(true)
+            .build();
+
+    CagraIndexParams capped = CagraIndexParamsFactory.withMaxGraphDegree(params, 32);
+
+    assertEquals(32, capped.getGraphDegree());
+    assertEquals(128, capped.getIntermediateGraphDegree());
+    assertEquals(CagraGraphBuildAlgo.NN_DESCENT, capped.getCagraGraphBuildAlgo());
+    assertEquals(17, capped.getNNDescentNumIterations());
+    assertEquals(CuvsDistanceType.InnerProduct, capped.getCuvsDistanceType());
+    assertEquals(3, capped.getNumWriterThreads());
+    assertTrue(capped.isGuaranteeConnectivity());
+  }
+
+  /**
    * Parameters that only the other strategy consumes are still accepted (they are not an error), so
    * that switching strategies does not require rewriting the builder chain -- they are simply not
    * applied. Pure Java, no GPU needed.
