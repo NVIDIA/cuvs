@@ -528,14 +528,10 @@ void search(raft::resources const& handle,
  *   auto index = brute_force::build(handle, index_params, dataset);
  *   // use default search parameters
  *   brute_force::search_params search_params;
- *   // create a bitset to filter the search
- *   auto removed_indices = raft::make_device_vector<int64_t, int64_t>(res, n_removed_indices);
- *   raft::core::bitset<std::uint32_t, int64_t> removed_indices_bitset(
- *     res, removed_indices.view(), dataset.extent(0));
- *   // search K nearest neighbours according to a bitset
+ *   // search K nearest neighbours; col-major queries only accept none_sample_filter
  *   auto neighbors = raft::make_device_matrix<uint32_t>(res, n_queries, k);
  *   auto distances = raft::make_device_matrix<float>(res, n_queries, k);
- *   auto filter    = filtering::bitset_filter(removed_indices_bitset.view());
+ *   auto filter    = filtering::none_sample_filter{};
  *   brute_force::search(res, search_params, index, queries, neighbors, distances, filter);
  * @endcode
  *
@@ -614,14 +610,10 @@ void search(raft::resources const& handle,
  *   auto index = brute_force::build(handle, index_params, dataset);
  *   // use default search parameters
  *   brute_force::search_params search_params;
- *   // create a bitset to filter the search
- *   auto removed_indices = raft::make_device_vector<int64_t, int64_t>(res, n_removed_indices);
- *   raft::core::bitset<std::uint32_t, int64_t> removed_indices_bitset(
- *     res, removed_indices.view(), dataset.extent(0));
- *   // search K nearest neighbours according to a bitset
+ *   // search K nearest neighbours; col-major queries only accept none_sample_filter
  *   auto neighbors = raft::make_device_matrix<uint32_t>(res, n_queries, k);
  *   auto distances = raft::make_device_matrix<half>(res, n_queries, k);
- *   auto filter    = filtering::bitset_filter(removed_indices_bitset.view());
+ *   auto filter    = filtering::none_sample_filter{};
  *   brute_force::search(res, search_params, index, queries, neighbors, distances, filter);
  * @endcode
  *
