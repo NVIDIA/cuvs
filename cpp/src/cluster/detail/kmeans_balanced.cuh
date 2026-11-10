@@ -1517,6 +1517,13 @@ auto build_fine_clusters(const raft::resources& handle,
   return n_clusters_done;
 }
 
+/** Number of coarse clusters used to construct K fine clusters. */
+template <typename IdxT>
+inline IdxT num_mesoclusters(IdxT n_clusters)
+{
+  return std::min(n_clusters, static_cast<IdxT>(std::sqrt(n_clusters) + 0.5));
+}
+
 /**
  * @brief Hierarchical balanced k-means
  *
@@ -1536,17 +1543,23 @@ auto build_fine_clusters(const raft::resources& handle,
  * @param[out] inertia         (optional) If non-null, the sum of squared distances of samples to
  *                             their closest cluster center is written here.
  *                             Only supported when T == MathT (float/double).
+ * @param[out] parent_centroids Optional device output for coarse centroids before global
+ * refinement.
+ * @param[out] centroid_to_parent    Optional device output for original fine-to-coarse parent IDs.
  */
 template <typename T, typename MathT, typename IdxT, typename MappingOpT>
-void build_hierarchical(const raft::resources& handle,
-                        const cuvs::cluster::kmeans::balanced_params& params,
-                        IdxT dim,
-                        const T* dataset,
-                        IdxT n_rows,
-                        MathT* cluster_centers,
-                        IdxT n_clusters,
-                        MappingOpT mapping_op,
-                        MathT* inertia = nullptr)
+void build_hierarchical(
+  const raft::resources& handle,
+  const cuvs::cluster::kmeans::balanced_params& params,
+  IdxT dim,
+  const T* dataset,
+  IdxT n_rows,
+  MathT* cluster_centers,
+  IdxT n_clusters,
+  MappingOpT mapping_op,
+  MathT* inertia                                                             = nullptr,
+  std::optional<raft::device_matrix_view<MathT, IdxT>> parent_centroids      = std::nullopt,
+  std::optional<raft::device_vector_view<uint32_t, IdxT>> centroid_to_parent = std::nullopt)
 {
   auto stream          = raft::resource::get_cuda_stream(handle);
   using LabelT         = uint32_t;
@@ -1555,7 +1568,7 @@ void build_hierarchical(const raft::resources& handle,
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "build_hierarchical(%zu, %u)", static_cast<size_t>(n_rows), n_clusters);
 
-  IdxT n_mesoclusters = std::min(n_clusters, static_cast<IdxT>(std::sqrt(n_clusters) + 0.5));
+  IdxT n_mesoclusters = num_mesoclusters(n_clusters);
   RAFT_LOG_DEBUG("build_hierarchical: n_mesoclusters: %u", n_mesoclusters);
 
   rmm::device_async_resource_ref device_memory = raft::resource::get_workspace_resource_ref(handle);
@@ -1627,6 +1640,12 @@ void build_hierarchical(const raft::resources& handle,
                    mapping_op,
                    device_memory,
                    dataset_norm);
+    if (parent_centroids.has_value()) {
+      raft::copy(handle,
+                 *parent_centroids,
+                 raft::make_device_matrix_view<const MathT, IdxT>(
+                   mesocluster_centers_buf.data(), n_mesoclusters, transformed_dim));
+    }
   }
 
   std::vector<CounterT> mesocluster_sizes_host(n_mesoclusters);
@@ -1639,6 +1658,19 @@ void build_hierarchical(const raft::resources& handle,
   // build fine clusters
   auto [mesocluster_size_max, fine_clusters_nums_max, fine_clusters_nums, fine_clusters_csum] =
     arrange_fine_clusters(n_clusters, n_mesoclusters, n_rows, mesocluster_sizes);
+
+  // Preserve construction ancestry; global refinement does not update this mapping.
+  if (centroid_to_parent.has_value()) {
+    for (IdxT i = 0; i < n_mesoclusters; ++i) {
+      if (fine_clusters_nums[i] == 0) { continue; }
+      raft::matrix::fill(handle,
+                         raft::make_device_matrix_view<uint32_t, IdxT>(
+                           centroid_to_parent->data_handle() + fine_clusters_csum[i],
+                           fine_clusters_nums[i],
+                           IdxT{1}),
+                         static_cast<uint32_t>(i));
+    }
+  }
 
   const IdxT mesocluster_size_max_balanced = raft::div_rounding_up_safe<size_t>(
     2lu * size_t(n_rows), std::max<size_t>(size_t(n_mesoclusters), 1lu));
