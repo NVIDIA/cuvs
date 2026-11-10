@@ -179,8 +179,8 @@ struct params : base_params {
    * In `fit` the ANN index is rebuilt over the current centroids on EVERY Lloyd iteration (the
    * centroids move each iteration, so the index is never reused), and each point is assigned its
    * approximate nearest centroid (top-1) from that fresh index. The CAGRA build and search
-   * settings come from `ann_index_params` and `ann_search_params`; a larger `itopk_size` is more
-   * accurate and slower.
+   * settings come from `ann_index_params` and `ann_search_params` (defaults are used when they are
+   * `std::nullopt`); a larger `itopk_size` is more accurate and slower.
    *
    * Only `float` data is supported; other data types log a warning and use brute force (Lloyd's
    * k-means itself already requires the L2Expanded or L2SqrtExpanded metric). When `n_features` is
@@ -193,8 +193,9 @@ struct params : base_params {
   bool use_ann_for_assignment = false;
 
   /**
-   * CAGRA index (build) parameters of the centroid index, used as given. Only used when
-   * `use_ann_for_assignment` is true.
+   * CAGRA index (build) parameters of the centroid index. Only used when
+   * `use_ann_for_assignment` is true. When `std::nullopt`, CAGRA's default `index_params` are
+   * used.
    *
    * ACE graph build params (`graph_build_params` holding `ace_params`) are not supported for the
    * centroid index: they log a warning and brute force is used.
@@ -202,19 +203,18 @@ struct params : base_params {
    * The following are always overridden, since the feature relies on them: `metric` is set to
    * L2Expanded, `attach_dataset_on_build` to true, and `graph_degree` and
    * `intermediate_graph_degree` are clamped to `n_clusters - 1`.
+   *
+   * Held in a `std::optional` so that `kmeans::params` stays small when the feature is unused.
    */
-  cuvs::neighbors::cagra::index_params ann_index_params;
+  std::optional<cuvs::neighbors::cagra::index_params> ann_index_params = std::nullopt;
 
   /**
-   * CAGRA search parameters used to find each point's nearest centroid, used as given. Only used
-   * when `use_ann_for_assignment` is true. `itopk_size` defaults to 32 here (CAGRA's own default
-   * is 64), which keeps the centroid quality while making the search faster.
+   * CAGRA search parameters used to find each point's nearest centroid. Only used when
+   * `use_ann_for_assignment` is true. When `std::nullopt`, CAGRA's default `search_params` are
+   * used except `itopk_size`, which is 32 (CAGRA's own default is 64); this keeps the centroid
+   * quality while making the search faster.
    */
-  cuvs::neighbors::cagra::search_params ann_search_params = [] {
-    cuvs::neighbors::cagra::search_params p;
-    p.itopk_size = 32;
-    return p;
-  }();
+  std::optional<cuvs::neighbors::cagra::search_params> ann_search_params = std::nullopt;
 };
 
 /**

@@ -24,6 +24,7 @@
 #include <raft/core/logger.hpp>
 #include <raft/core/resources.hpp>
 
+#include <optional>
 #include <type_traits>
 #include <variant>
 
@@ -48,8 +49,9 @@ bool use_ann_assignment(cuvs::cluster::kmeans::params const& params,
       return false;
     }
     // The centroids are a device dataset, for which an ACE graph build is not supported.
-    if (std::holds_alternative<cuvs::neighbors::cagra::graph_build_params::ace_params>(
-          params.ann_index_params.graph_build_params)) {
+    if (params.ann_index_params.has_value() &&
+        std::holds_alternative<cuvs::neighbors::cagra::graph_build_params::ace_params>(
+          params.ann_index_params->graph_build_params)) {
       RAFT_LOG_WARN(
         "kmeans: use_ann_for_assignment does not support ACE graph build params; using brute "
         "force.");
@@ -72,9 +74,17 @@ void build_ann_index(raft::resources const& handle,
                      int64_t n_features)
 {
   if constexpr (std::is_same_v<DataT, float>) {
-    // The user's CAGRA parameters are passed through as they are.
-    ann_index.build(
-      handle, params.ann_index_params, params.ann_search_params, centroids, n_clusters, n_features);
+    // The user's CAGRA parameters are passed through as they are; an unset optional falls back to
+    // the defaults (CAGRA's own for the index, itopk_size = 32 for the search).
+    cuvs::neighbors::cagra::index_params index_params =
+      params.ann_index_params.value_or(cuvs::neighbors::cagra::index_params{});
+    cuvs::neighbors::cagra::search_params search_params;
+    if (params.ann_search_params.has_value()) {
+      search_params = *params.ann_search_params;
+    } else {
+      search_params.itopk_size = 32;
+    }
+    ann_index.build(handle, index_params, search_params, centroids, n_clusters, n_features);
   } else {
     RAFT_FAIL("ANN centroid assignment only supports float data");
   }

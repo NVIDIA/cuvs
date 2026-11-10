@@ -4,6 +4,7 @@
  */
 
 #include <cstdint>
+#include <utility>
 #include <dlpack/dlpack.h>
 
 #include <cuvs/core/c_api.h>
@@ -54,13 +55,6 @@ void _transform(cuvsResources_t res,
   }
 }
 
-// GCC 14 reports a false-positive -Wmaybe-uninitialized when it inlines the copy of
-// pq::params (whose kmeans::params alternative embeds the CAGRA index/search params variants) into
-// the quantizer constructed below.
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
 template <typename T>
 void* _build(cuvsResources_t res,
              cuvsProductQuantizerParams_t params,
@@ -79,20 +73,17 @@ void* _build(cuvsResources_t res,
     using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
     auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
     ret = new cuvs::preprocessing::quantize::pq::quantizer<T>{
-      cuvs::preprocessing::quantize::pq::build(*res_ptr, quantizer_params, mds)};
+      cuvs::preprocessing::quantize::pq::build(*res_ptr, std::move(quantizer_params), mds)};
   } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
     using host_mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
     auto mds          = cuvs::core::from_dlpack<host_mdspan_type>(dataset_tensor);
     ret = new cuvs::preprocessing::quantize::pq::quantizer<T>{
-      cuvs::preprocessing::quantize::pq::build(*res_ptr, quantizer_params, mds)};
+      cuvs::preprocessing::quantize::pq::build(*res_ptr, std::move(quantizer_params), mds)};
   } else {
     RAFT_FAIL("dataset must be accessible on host or device memory");
   }
   return ret;
 }
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 template <typename DataT, typename QuantT = uint8_t>
 void _inverse_transform(cuvsResources_t res,
