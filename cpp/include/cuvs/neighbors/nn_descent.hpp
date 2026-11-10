@@ -217,10 +217,6 @@ struct index : cuvs::neighbors::index {
 /**
  * @defgroup nn_descent_cpp_index_build nn-descent index build
  * @{
- *
- * BitwiseJaccard is supported for int8_t and uint8_t datasets containing packed bitstrings.
- * Each byte stores eight binary features; dimensions are in bytes and unused trailing bits
- * must be zero. Two empty bitstrings have distance zero.
  */
 
 /**
