@@ -9,6 +9,10 @@
 #define CUVS_CUTILE_ENABLED 0
 #endif
 
+#ifndef CUVS_CUTILE_SM103_ENABLED
+#define CUVS_CUTILE_SM103_ENABLED 0
+#endif
+
 #ifndef CUVS_CUTILE_SM107_ENABLED
 #define CUVS_CUTILE_SM107_ENABLED 0
 #endif
@@ -38,6 +42,13 @@ struct cutile_arch_10_0 {
   static constexpr int cc_minor = 0;
 };
 
+#if CUVS_CUTILE_SM103_ENABLED
+struct cutile_arch_10_3 {
+  static constexpr int cc_major = 10;
+  static constexpr int cc_minor = 3;
+};
+#endif
+
 #if CUVS_CUTILE_SM107_ENABLED
 struct cutile_arch_10_7 {
   static constexpr int cc_major = 10;
@@ -54,6 +65,7 @@ inline bool is_embedded_cubin_arch(int cc_major, int cc_minor)
 {
   return (cc_major == 8 && (cc_minor == 0 || cc_minor == 6)) || (cc_major == 9 && cc_minor == 0) ||
          (cc_major == 10 && cc_minor == 0) ||
+         (CUVS_CUTILE_SM103_ENABLED && cc_major == 10 && cc_minor == 3) ||
          (CUVS_CUTILE_SM107_ENABLED && cc_major == 10 && cc_minor == 7) ||
          (cc_major == 12 && cc_minor == 0);
 }

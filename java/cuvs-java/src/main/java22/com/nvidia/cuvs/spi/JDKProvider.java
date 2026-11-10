@@ -446,6 +446,11 @@ final class JDKProvider implements CuVSProvider {
             .withIntermediateGraphDegree(
                 cuvsCagraIndexParams.intermediate_graph_degree(nativeCagraIndexParams.handle()))
             .withGraphDegree(cuvsCagraIndexParams.graph_degree(nativeCagraIndexParams.handle()))
+            .withVariableGraphDegreeFraction(
+                cuvsCagraIndexParams.variable_graph_degree_fraction(
+                    nativeCagraIndexParams.handle()))
+            .withGuaranteeConnectivity(
+                cuvsCagraIndexParams.guarantee_connectivity(nativeCagraIndexParams.handle()))
             .withCagraGraphBuildAlgo(algo);
 
     if (algo == CagraIndexParams.CagraGraphBuildAlgo.NN_DESCENT) {
