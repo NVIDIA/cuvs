@@ -57,6 +57,39 @@
 
 namespace cuvs::cluster::kmeans::detail {
 
+// Fixed stage tags used to derive separate RNG seeds during initialization.
+enum class RngStage : std::uint64_t {
+  HostSubsample      = 0x02E77032DF7C7222ULL,
+  SubsampleInit      = 0x0B84260B4077B741ULL,
+  FirstCentroid      = 0xAFADEFDCF6DBA39AULL,
+  SourceRank         = 0x484AC2242C8A758DULL,
+  CandidateSampling  = 0x32AF6248381F23CFULL,
+  CandidateRecluster = 0x9E03A2FE0FC4D50EULL,
+  RandomFallback     = 0xD97FB312C4A6A281ULL,
+  RandomInit         = 0xA6A07F1B9C2CAEB9ULL
+};
+
+// SplitMix64 mixing step; unsigned arithmetic intentionally wraps modulo 2^64.
+inline constexpr std::uint64_t mix_seed_bits(std::uint64_t value)
+{
+  value += 0x9E3779B97F4A7C15ULL;
+  value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ULL;
+  value = (value ^ (value >> 27)) * 0x94D049BB133111EBULL;
+  return value ^ (value >> 31);
+}
+
+// Use for stages that must share a seed across ranks.
+inline constexpr std::uint64_t mix_seed(std::uint64_t seed, RngStage stage)
+{
+  return mix_seed_bits(seed ^ static_cast<std::uint64_t>(stage));
+}
+
+// Use for rank-local sampling. Rank 0 is distinct from omitting the rank.
+inline constexpr std::uint64_t mix_seed(std::uint64_t seed, RngStage stage, std::uint64_t rank)
+{
+  return mix_seed(seed ^ mix_seed_bits(rank), stage);
+}
+
 #if defined(CUVS_CUTILE_ENABLED) && CUVS_CUTILE_ENABLED && CUDA_VERSION >= 13000
 template <typename DataT>
 inline constexpr bool kmeans_may_require_tf32_norms_v = std::is_same_v<DataT, float>;
@@ -470,7 +503,8 @@ void shuffleAndGather(raft::resources const& handle,
                                                (IndexT)in.extent(1),
                                                (IndexT)in.extent(0),
                                                true,
-                                               stream);
+                                               stream,
+                                               seed);
 
   raft::matrix::gather((DataT*)in.data_handle(),
                        in.extent(1),
