@@ -194,11 +194,12 @@ Parameters to build index for CAGRA nearest neighbor search
 | `ivf_pq_search_params` | `cuvs.neighbors.ivf_pq.SearchParams, optional` | Parameters for IVF-PQ search. If provided, it will be used for searching the graph. |
 | `ace_params` | `AceParams, optional` | Parameters for ACE algorithm. If provided, it will be used for building the graph with ACE partitioning. |
 | `refinement_rate` | `float, default = 1.0` |  |
+| `guarantee_connectivity` | `bool, default = False` | Whether to ensure the optimized graph is connected. |
 
 **Constructor**
 
 ```python
-def __init__(self, *, metric="sqeuclidean", intermediate_graph_degree=128, graph_degree=64, build_algo="ivf_pq", nn_descent_niter=20, ivf_pq_build_params: ivf_pq.IndexParams = None, ivf_pq_search_params: ivf_pq.SearchParams = None, ace_params: AceParams = None, refinement_rate: float = 1.0)
+def __init__(self, *, metric="sqeuclidean", intermediate_graph_degree=128, graph_degree=64, build_algo="ivf_pq", nn_descent_niter=20, ivf_pq_build_params: ivf_pq.IndexParams = None, ivf_pq_search_params: ivf_pq.SearchParams = None, ace_params: AceParams = None, refinement_rate: float = 1.0, guarantee_connectivity: bool = False)
 ```
 
 **Members**
@@ -211,6 +212,7 @@ def __init__(self, *, metric="sqeuclidean", intermediate_graph_degree=128, graph
 | `graph_degree` | property |
 | `build_algo` | property |
 | `nn_descent_niter` | property |
+| `guarantee_connectivity` | property |
 | `refinement_rate` | property |
 
 ### get_handle
@@ -247,6 +249,12 @@ def build_algo(self)
 
 ```python
 def nn_descent_niter(self)
+```
+
+### guarantee_connectivity
+
+```python
+def guarantee_connectivity(self)
 ```
 
 ### refinement_rate
