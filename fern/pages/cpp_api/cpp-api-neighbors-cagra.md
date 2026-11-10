@@ -2697,6 +2697,7 @@ A vector of `datasets.size() + 1` offsets: entry `i` is the row at which `datase
 Merge multiple physical CAGRA indices into one.
 
 ```cpp
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
 std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,

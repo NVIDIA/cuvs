@@ -3563,11 +3563,13 @@ auto merged_dataset_offsets(raft::resources const& res,
  * (one row per vector, same dimension and stride as the input datasets).
  * @return The merged physical CAGRA index.
  */
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
            DatasetViewT merged_dataset) -> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
 
+template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
            const cuvs::neighbors::cagra::index_params& params,
            std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
