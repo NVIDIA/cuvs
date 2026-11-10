@@ -2697,7 +2697,6 @@ A vector of `datasets.size() + 1` offsets: entry `i` is the row at which `datase
 Merge multiple physical CAGRA indices into one.
 
 ```cpp
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
 auto merge(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
 std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
@@ -2706,7 +2705,9 @@ DatasetViewT merged_dataset) -> cuvs::neighbors::cagra::index<T, IdxT, DatasetVi
 
 The caller is responsible for concatenating every input index's dataset into a single `merged_dataset` buffer (see `concatenate_datasets()`). `merge()` only builds/merges the graph and rebinds the returned index to `merged_dataset` -- it never allocates or copies dataset rows itself. This mirrors the `extend()` contract.
 
-The overload without `merge_params` uses `merge_algo::AUTO`. AUTO runs Fastener only after a non-mutating preflight validates every input and option; otherwise it calls the existing rebuild implementation. REBUILD always preserves every input dataset.
+The caller is responsible for concatenating every input index's dataset into a single `merged_dataset` buffer (see `concatenate_datasets()`). `merge()` only builds/merges the graph and rebinds the returned index to `merged_dataset` -- it never allocates or copies dataset rows itself. This mirrors the `extend()` contract.
+
+`merge_params` selects the algorithm and defaults to `merge_algo::AUTO`. AUTO runs Fastener only after a non-mutating preflight validates every input and option; otherwise it calls the existing rebuild implementation. REBUILD always preserves every input dataset.
 
 Fastener supports uncompressed `float`, `half`, `int8_t`, and `uint8_t` indices using L2Expanded and `uint32_t` graph IDs. Fastener uses `root_fanout` at the first split and `lower_fanout` at every later split. Fanouts from 1 through 32, leader fractions in (0, 1], leader caps through 8192, leaf sizes from 1 through 256, and leaf degrees from 1 through 8 are supported. The configured spill width times `leaf_degree` must not exceed 255. `index_params::graph_degree` is the final output degree.
 
@@ -2724,32 +2725,6 @@ Usage example:
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | Parameters for the returned CAGRA index. |
 | `indices` | in | [`std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index) | CAGRA indices to merge. |
 | `merged_dataset` | in | `DatasetViewT` | Caller-owned storage already containing the concatenated dataset rows (one row per vector, same dimension and stride as the input datasets). |
-
-**Returns**
-
-[`cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index)
-
-**Additional overload:** `neighbors::cagra::merge`
-
-```cpp
-template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>
-auto merge(raft::resources const& res,
-const cuvs::neighbors::cagra::index_params& params,
-std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>& indices,
-DatasetViewT merged_dataset,
-const cuvs::neighbors::cagra::merge_params& merge_params)
--> cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>;
-```
-
-**Parameters**
-
-| Name | Direction | Type | Description |
-| --- | --- | --- | --- |
-| `res` |  | `raft::resources const&` |  |
-| `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
-| `indices` |  | [`std::vector<cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT>*>&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-index) |  |
-| `merged_dataset` |  | `DatasetViewT` |  |
-| `merge_params` | in | [`const cuvs::neighbors::cagra::merge_params&`](/api-reference/cpp-api-neighbors-cagra#neighbors-cagra-merge-params) | Parameters for the merge, including the algorithm selection. |
 
 **Returns**
 
