@@ -243,8 +243,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<DataT, uint32_t>,
                                   DataT,
                                   uint32_t>(clique_);
-      cuvs::neighbors::cagra::deserialize<DataT, uint32_t>(
-        clique_, index_file.filename, &new_index);
+      cuvs::neighbors::cagra::deserialize(clique_, index_file.filename, &new_index);
       auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
         d_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto padded_index_dataset =
@@ -403,8 +402,7 @@ class AnnMGTest : public ::testing::TestWithParam<AnnMGInputs> {
         cuvs::neighbors::mg_index<cuvs::neighbors::cagra::device_standard_index<DataT, uint32_t>,
                                   DataT,
                                   uint32_t>(clique_);
-      cuvs::neighbors::cagra::distribute<DataT, uint32_t>(
-        clique_, index_file.filename, &distributed_index);
+      cuvs::neighbors::cagra::distribute(clique_, index_file.filename, &distributed_index);
       auto index_dataset_device = raft::make_device_matrix_view<const DataT, int64_t>(
         d_index_dataset.data(), ps.num_db_vecs, ps.dim);
       auto padded_index_dataset =
