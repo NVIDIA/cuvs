@@ -30,6 +30,15 @@ public abstract class BaseCuVSKnnVectorsFormatTestCase extends BaseKnnVectorsFor
     return VectorEncoding.FLOAT32;
   }
 
+  // Whether the format can rebuild float vectors from its quantized copy once the raw vectors are
+  // gone. Lucene's suite runs its raw-vector fallback tests only when this returns true; subclasses
+  // that return true also implement simulateEmptyRawVectors(Directory).
+  // BaseKnnVectorsFormatTestCase declares it abstract since Lucene 10.4 and not at all before, so
+  // it cannot be marked @Override.
+  protected boolean supportsFloatVectorFallback() {
+    return false;
+  }
+
   // The tests below index byte vectors, which the cuvs-lucene formats do not support.
 
   @Ignore
@@ -55,4 +64,8 @@ public abstract class BaseCuVSKnnVectorsFormatTestCase extends BaseKnnVectorsFor
   @Ignore
   @Override
   public void testSortedIndexBytes() {}
+
+  // Added in Lucene 10.5, so it cannot be marked @Override.
+  @Ignore
+  public void testWriterByteVectorRamEstimate() {}
 }
