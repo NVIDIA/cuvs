@@ -10,6 +10,7 @@ permissions: {}
 jobs:
   pr-builder:
     needs:
+      - burndown-pr
       - build-details
       - check-nightly-ci
       - changed-files
@@ -42,6 +43,13 @@ jobs:
     if: always()
     with:
       needs: ${{ toJSON(needs) }}
+  burndown-pr:
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+    uses: rapidsai/shared-workflows/.github/workflows/burndown-pr.yaml@main
+
   build-details:
     uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
   check-nightly-ci:
@@ -438,6 +446,9 @@ jobs:
       # duplicate archives that are inaccessible to other PRs.
       pre-commit-cache-read-only: true
   check-c-abi:
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr]
     permissions:
       actions: read
       contents: read
@@ -452,7 +463,9 @@ jobs:
       security-events: write # publish redacted SARIF to code scanning
     uses: ./.github/workflows/security-suite.yml
   conda-cpp-build:
-    needs: [build-details, checks]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, build-details, checks]
     permissions:
       actions: read
       contents: read
@@ -468,7 +481,7 @@ jobs:
       script: ci/build_cpp.sh
       matrix_type: pull-request
   conda-cpp-tests:
-    needs: [conda-cpp-build, changed-files]
+    needs: [burndown-pr, conda-cpp-build, changed-files]
     permissions:
       actions: read
       contents: read
@@ -477,8 +490,8 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
-    # Split the C++ tests across several jobs for each CUDA/GPU configuration
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp)
     strategy:
       fail-fast: false
       matrix:
@@ -520,7 +533,9 @@ jobs:
         CUDA_CACHE_PATH=.cache/cuda-jit
       matrix_type: pull-request
   conda-cpp-checks:
-    needs: conda-cpp-build
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, conda-cpp-build]
     permissions:
       actions: read
       contents: read
@@ -533,7 +548,9 @@ jobs:
       symbol_exclusions: (void (thrust::|cub::))
       package_name: libcuvs
   conda-python-build:
-    needs: [build-details, conda-cpp-build]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, build-details, conda-cpp-build]
     permissions:
       actions: read
       contents: read
@@ -550,7 +567,7 @@ jobs:
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
       matrix_type: pull-request
   conda-python-tests:
-    needs: [conda-python-build, changed-files]
+    needs: [burndown-pr, conda-python-build, changed-files]
     permissions:
       actions: read
       contents: read
@@ -559,13 +576,16 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_conda)
     with:
       build_type: pull-request
       script: ci/test_python.sh
       matrix_type: pull-request
   rocky8-clib-standalone-build:
-    needs: checks
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, checks]
     permissions:
       actions: read
       contents: read
@@ -577,7 +597,7 @@ jobs:
       build_type: pull-request
       matrix_type: pull-request
   rocky8-clib-tests:
-    needs: [rocky8-clib-standalone-build, changed-files]
+    needs: [burndown-pr, rocky8-clib-standalone-build, changed-files]
     permissions:
       actions: read
       contents: read
@@ -585,14 +605,15 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_standalone_c
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_standalone_c)
     with:
       build_type: pull-request
       container-image-repository: "rapidsai/citestwheel"
       script: "ci/test_standalone_c.sh"
       matrix_type: pull-request
   conda-java-build:
-    needs: [conda-cpp-build, changed-files]
+    needs: [burndown-pr, conda-cpp-build, changed-files]
     permissions:
       actions: read
       contents: read
@@ -600,9 +621,8 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_java || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp)
     with:
       build_type: pull-request
       node_type: cpu8
@@ -612,7 +632,9 @@ jobs:
       file_to_upload: "java/cuvs-java/target/"
       matrix_type: pull-request
   conda-java-tests:
-    needs: conda-java-build
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, conda-java-build]
     permissions:
       actions: read
       contents: read
@@ -625,8 +647,10 @@ jobs:
       script: "ci/test_java.sh"
       matrix_type: pull-request
   conda-lucene-build:
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
     # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
-    needs: conda-java-build
+    needs: [burndown-pr, conda-java-build]
     permissions:
       actions: read
       contents: read
@@ -645,7 +669,9 @@ jobs:
       file_to_upload: "java/cuvs-lucene/*/target/"
       matrix_type: pull-request
   conda-lucene-tests:
-    needs: conda-lucene-build
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, conda-lucene-build]
     permissions:
       actions: read
       contents: read
@@ -658,6 +684,8 @@ jobs:
       script: "ci/test_lucene.sh"
       matrix_type: pull-request
   conda-lucene-tests-min-jdk:
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
     # Verifies that cuvs-lucene loads and works without the GPU on the oldest JDK it supports
     # (java_min_jdk in dependencies.yaml), by running its test suite against the amd64-built
     # classes without recompiling -- see ci/test_lucene.sh. It runs once, not per CUDA version: it
@@ -665,7 +693,7 @@ jobs:
     # because many applications built on Lucene support older JDKs than the 22 that cuvs-java needs
     # for the GPU. cuvs-lucene can't stop such an application from starting on an older JDK, so
     # there it has to load and fall back to the CPU.
-    needs: conda-lucene-build
+    needs: [burndown-pr, conda-lucene-build]
     permissions:
       actions: read
       contents: read
@@ -680,7 +708,7 @@ jobs:
       matrix_type: pull-request
       script: "ci/test_lucene.sh --min-jdk"
   rust-build:
-    needs: [conda-cpp-build, changed-files]
+    needs: [burndown-pr, conda-cpp-build, changed-files]
     permissions:
       actions: read
       contents: read
@@ -688,16 +716,15 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_rust || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_rust || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp)
     with:
       build_type: pull-request
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_rust.sh"
       matrix_type: pull-request
   go-build:
-    needs: [conda-cpp-build, changed-files]
+    needs: [burndown-pr, conda-cpp-build, changed-files]
     permissions:
       actions: read
       contents: read
@@ -705,15 +732,17 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_go || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_go || fromJSON(needs.changed-files.outputs.changed_file_groups).test_cpp)
     with:
       build_type: pull-request
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_go.sh"
       matrix_type: pull-request
   docs-build-matrix:
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr]
     permissions:
       contents: read
     uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
@@ -722,7 +751,7 @@ jobs:
       matrix_name: docs-build
       matrix_type: pull-request
   docs-build:
-    needs: [docs-build-matrix, changed-files]
+    needs: [burndown-pr, docs-build-matrix, changed-files]
     permissions:
       actions: read
       contents: read
@@ -731,7 +760,8 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/custom-job.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).build_docs
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).build_docs)
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.docs-build-matrix.outputs.matrix) }}
@@ -742,7 +772,9 @@ jobs:
       container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       script: "ci/build_docs.sh"
   wheel-build-libcuvs:
-    needs: [build-details, checks]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, build-details, checks]
     permissions:
       actions: read
       contents: read
@@ -762,7 +794,9 @@ jobs:
       package-type: cpp
       matrix_type: pull-request
   wheel-build-cuvs:
-    needs: [build-details, wheel-build-libcuvs]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true'
+    needs: [burndown-pr, build-details, wheel-build-libcuvs]
     permissions:
       actions: read
       contents: read
@@ -782,7 +816,7 @@ jobs:
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
       matrix_type: pull-request
   wheel-tests-cuvs:
-    needs: [wheel-build-cuvs, changed-files]
+    needs: [burndown-pr, wheel-build-cuvs, changed-files]
     permissions:
       actions: read
       contents: read
@@ -791,7 +825,8 @@ jobs:
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
     uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).test_python_wheels)
     with:
       build_type: pull-request
       script: ci/test_wheel_cuvs.sh
@@ -804,8 +839,9 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    needs: [changed-files]
-    if: fromJSON(needs.changed-files.outputs.changed_file_groups).devcontainer_build_inputs
+    needs: [burndown-pr, changed-files]
+    if: >-
+      needs.burndown-pr.result == 'success' && needs.burndown-pr.outputs.skip-product-ci != 'true' && (fromJSON(needs.changed-files.outputs.changed_file_groups).devcontainer_build_inputs)
     uses: rapidsai/shared-workflows/.github/workflows/build-in-devcontainer.yaml@main
     with:
       arch: '["amd64", "arm64"]'
