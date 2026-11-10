@@ -1128,10 +1128,11 @@ pub struct cuvsCagraIndexParams {
     pub nn_descent_niter: usize,
     pub graph_build_params: *mut ::std::os::raw::c_void,
     pub variable_graph_degree_fraction: f64,
+    pub guarantee_connectivity: bool,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsCagraIndexParams"][::std::mem::size_of::<cuvsCagraIndexParams>() - 56usize];
+    ["Size of cuvsCagraIndexParams"][::std::mem::size_of::<cuvsCagraIndexParams>() - 64usize];
     ["Alignment of cuvsCagraIndexParams"][::std::mem::align_of::<cuvsCagraIndexParams>() - 8usize];
     ["Offset of field: cuvsCagraIndexParams::metric"]
         [::std::mem::offset_of!(cuvsCagraIndexParams, metric) - 0usize];
@@ -1147,6 +1148,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsCagraIndexParams, graph_build_params) - 40usize];
     ["Offset of field: cuvsCagraIndexParams::variable_graph_degree_fraction"]
         [::std::mem::offset_of!(cuvsCagraIndexParams, variable_graph_degree_fraction) - 48usize];
+    ["Offset of field: cuvsCagraIndexParams::guarantee_connectivity"]
+        [::std::mem::offset_of!(cuvsCagraIndexParams, guarantee_connectivity) - 56usize];
 };
 pub type cuvsCagraIndexParams_t = *mut cuvsCagraIndexParams;
 unsafe extern "C" {
