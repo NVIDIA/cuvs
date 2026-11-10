@@ -172,7 +172,7 @@ void tiled_brute_force_knn(const raft::resources& handle,
     }
   }
 
-  // only needed to merge the per-column-tile results
+  // Only used when the index is split into column tiles, to merge each tile's top-k.
   size_t temp_out_size = tile_cols != n ? tile_rows * temp_out_cols : 0;
   rmm::device_uvector<DistanceT> temp_out_distances(temp_out_size, stream);
   rmm::device_uvector<IndexType> temp_out_indices(temp_out_size, stream);
