@@ -386,13 +386,13 @@ inline BuildConfig get_build_config(raft::resources const& res,
   auto allowed_metrics = params.metric == cuvs::distance::DistanceType::L2Expanded ||
                          params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
                          params.metric == cuvs::distance::DistanceType::CosineExpanded ||
-                         params.metric == cuvs::distance::DistanceType::JaccardExpanded ||
                          params.metric == cuvs::distance::DistanceType::InnerProduct ||
                          params.metric == cuvs::distance::DistanceType::BitwiseHamming ||
+                         params.metric == cuvs::distance::DistanceType::BitwiseJaccard ||
                          params.metric == cuvs::distance::DistanceType::L1;
   RAFT_EXPECTS(allowed_metrics,
                "The metric for NN Descent should be L2Expanded, L2SqrtExpanded, CosineExpanded, "
-               "JaccardExpanded, InnerProduct, BitwiseHamming or L1");
+               "InnerProduct, BitwiseHamming, BitwiseJaccard or L1");
   RAFT_EXPECTS(
     metric == params.metric,
     "The metrics set in nn_descent::index_params and nn_descent::index are inconsistent");

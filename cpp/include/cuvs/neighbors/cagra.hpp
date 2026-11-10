@@ -593,7 +593,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     return mapping_fd_;
   }
 
-  /** Scaled L2 norms for cosine or scaled set cardinalities for binary Jaccard [size]. */
+  /** Dataset norms for cosine distance [size] */
   [[nodiscard]] inline auto dataset_norms() const noexcept
     -> std::optional<raft::device_vector_view<const float, int64_t>>
   {
@@ -668,9 +668,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
     update_graph(res, knn_graph);
 
     if constexpr (cuvs::neighbors::is_device_dataset_view_v<DatasetViewT>) {
-      if ((metric_ == cuvs::distance::DistanceType::CosineExpanded ||
-           metric_ == cuvs::distance::DistanceType::JaccardExpanded) &&
-          dataset.n_rows() > 0) {
+      if (metric_ == cuvs::distance::DistanceType::CosineExpanded && dataset.n_rows() > 0) {
         compute_dataset_norms_(res);
       }
     }
@@ -695,8 +693,7 @@ struct CUVS_EXPORT index : cuvs::neighbors::index {
       graph_degree_(other.graph_degree_)
   {
     if constexpr (is_device_dataset_view_v<DatasetViewT>) {
-      if (metric() == cuvs::distance::DistanceType::CosineExpanded ||
-          metric() == cuvs::distance::DistanceType::JaccardExpanded) {
+      if (metric() == cuvs::distance::DistanceType::CosineExpanded) {
         if (dataset_.n_rows() > 0) { compute_dataset_norms_(res); }
       }
     }
@@ -998,6 +995,11 @@ using cagra_index_t =
  * Dense device/host views support the usual graph-build algorithms. A device VPQ view with FP16
  * codebooks is built with iterative CAGRA search and must use L2Expanded, 8-bit PQ codes, and a
  * supported PQ subvector length.
+ *
+ * BitwiseJaccard accepts packed int8_t or uint8_t bitstrings. Each byte stores eight binary
+ * features, and dataset/query dimensions are measured in bytes. Unused bits in the final byte
+ * must be zero. Select NN-descent or iterative graph construction; ACE is supported only when
+ * all partitions use NN-descent. Two empty bitstrings have distance zero.
  *
  * When `index_params.attach_dataset_on_build = true` (the default), a dense `dataset` view is
  * stored in the returned index as a **non-owning view** — no copy is made. The caller must keep the

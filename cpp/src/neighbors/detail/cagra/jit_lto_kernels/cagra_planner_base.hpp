@@ -97,31 +97,61 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
     dispatch_cagra_smem_dtype(smem_dtype, dispatch_smem);
   }
 
-  /// Registers dist_op + normalization + `compute_distance` for standard layout.
+  /// Registers the distance fragments for standard layout; Jaccard computes both counts itself.
   template <typename CB                                                  = CodebookTag,
             std::enable_if_t<std::is_same_v<CB, tag_codebook_none>, int> = 0>
   void add_compute_distance_device_function(cuvs::distance::DistanceType metric,
                                             uint32_t team_size,
                                             uint32_t dataset_block_dim)
   {
-    add_dist_op_device_function(metric);
-    add_normalization_device_function(metric, team_size, dataset_block_dim);
-    auto add = [&]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV>() {
-      this->add_static_fragment<fragment_tag_compute_distance<DataTag,
-                                                              IndexTag,
-                                                              DistanceTag,
-                                                              QueryTag,
-                                                              CodebookTag,
-                                                              TeamSz,
-                                                              Dim,
-                                                              PqBitsV,
-                                                              PqLenV,
-                                                              tag_smem_f16>>();
-    };
-    dispatch_cagra_standard_team_dim(
-      team_size, dataset_block_dim, [&add]<uint32_t TeamSz, uint32_t Dim>() {
-        add.template operator()<TeamSz, Dim, 0u, 0u>();
-      });
+    if (metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+      if constexpr ((std::is_same_v<DataTag, cuvs::neighbors::detail::tag_i8> ||
+                     std::is_same_v<DataTag, cuvs::neighbors::detail::tag_u8>) &&
+                    std::is_same_v<QueryTag, cuvs::neighbors::detail::tag_u8>) {
+        dispatch_cagra_standard_team_dim(
+          team_size, dataset_block_dim, [&]<uint32_t TeamSz, uint32_t Dim>() {
+            this->add_static_fragment<fragment_tag_compute_distance<DataTag,
+                                                                    IndexTag,
+                                                                    DistanceTag,
+                                                                    QueryTag,
+                                                                    CodebookTag,
+                                                                    TeamSz,
+                                                                    Dim,
+                                                                    0u,
+                                                                    0u,
+                                                                    tag_smem_f16,
+                                                                    true>>();
+          });
+      } else {
+        RAFT_FAIL("BitwiseJaccard requires packed int8_t or uint8_t data and uint8_t queries");
+      }
+      return;
+    }
+    // Signed-byte data with unsigned-byte queries is only emitted for packed Jaccard.
+    // Do not instantiate generic fragments for this layout: they have no registered fatbins.
+    if constexpr (std::is_same_v<DataTag, cuvs::neighbors::detail::tag_i8> &&
+                  std::is_same_v<QueryTag, cuvs::neighbors::detail::tag_u8>) {
+      RAFT_FAIL("The int8_t data / uint8_t query layout requires BitwiseJaccard");
+    } else {
+      add_dist_op_device_function(metric);
+      add_normalization_device_function(metric, team_size, dataset_block_dim);
+      auto add = [&]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV>() {
+        this->add_static_fragment<fragment_tag_compute_distance<DataTag,
+                                                                IndexTag,
+                                                                DistanceTag,
+                                                                QueryTag,
+                                                                CodebookTag,
+                                                                TeamSz,
+                                                                Dim,
+                                                                PqBitsV,
+                                                                PqLenV,
+                                                                tag_smem_f16>>();
+      };
+      dispatch_cagra_standard_team_dim(
+        team_size, dataset_block_dim, [&add]<uint32_t TeamSz, uint32_t Dim>() {
+          add.template operator()<TeamSz, Dim, 0u, 0u>();
+        });
+    }
   }
 
   /// VPQ: only the `compute_distance` fragment (no standard dist_op / normalization in this path).
@@ -220,9 +250,8 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
           break;
         case cuvs::distance::DistanceType::InnerProduct:
         case cuvs::distance::DistanceType::CosineExpanded:
-        case cuvs::distance::DistanceType::JaccardExpanded:
-          // CosineExpanded and JaccardExpanded reuse the InnerProduct dist_op.
-          // add_normalization_device_function links cosine normalization or Jaccard expansion.
+          // CosineExpanded reuses the InnerProduct dist_op; the cosine normalization is
+          // layered on by add_normalization_device_function below.
           this->add_static_fragment<
             fragment_tag_dist_op<QueryTag, DistanceTag, tag_metric_inner_product>>();
           break;
@@ -256,15 +285,13 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
                                                                               NormT>>();
         });
     };
-    // tag_u8 is only used for BitwiseHamming query layout. Cosine and Jaccard normalization
-    // fragments require the float query tag. Use if constexpr to avoid instantiating either
-    // normalization with tag_u8; a runtime metric check would still instantiate both.
+    // tag_u8 is only used for BitwiseHamming query layout; cosine norm fragments are built for
+    // float query tag. Use if constexpr so we do not instantiate tag_norm_cosine with tag_u8
+    // (a runtime metric check would still pull in those template specializations).
     if constexpr (std::is_same_v<QueryTag, cuvs::neighbors::detail::tag_u8>) {
       go.template operator()<tag_norm_noop>();
     } else if (metric == cuvs::distance::DistanceType::CosineExpanded) {
       go.template operator()<tag_norm_cosine>();
-    } else if (metric == cuvs::distance::DistanceType::JaccardExpanded) {
-      go.template operator()<tag_norm_jaccard>();
     } else {
       go.template operator()<tag_norm_noop>();
     }

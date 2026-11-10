@@ -27,9 +27,9 @@ namespace cuvs::neighbors::nn_descent {
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
+ * - BitwiseJaccard (packed int8/uint8 bitstrings; dimensions are in bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -67,9 +67,9 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
+ * - BitwiseJaccard (packed int8/uint8 bitstrings; dimensions are in bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -111,9 +111,9 @@ void build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
+ * - BitwiseJaccard (packed int8/uint8 bitstrings; dimensions are in bytes)
  *
  * Usage example:
  * @code{.cpp}
@@ -151,9 +151,9 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
+ * - BitwiseJaccard (packed int8/uint8 bitstrings; dimensions are in bytes)
  *
  * Usage example:
  * @code{.cpp}

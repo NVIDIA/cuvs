@@ -7,6 +7,7 @@
 
 #include "extern_device_functions.cuh"
 
+#include "../../bitwise_jaccard.cuh"
 #include "../../neighbors_device_intrinsics.cuh"
 #include "../compute_distance_standard-impl.cuh"
 #include "../compute_distance_standard.hpp"
@@ -84,6 +85,77 @@ _RAFT_DEVICE __noinline__ auto compute_distance_standard_impl(
                                  typename DescriptorT::QUERY_T>(distance, args, dataset_index);
 
   return distance;
+}
+
+template <typename DescriptorT>
+RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_worker_impl(
+  const typename DescriptorT::DATA_T* __restrict__ dataset_ptr,
+  uint32_t dim,
+  uint32_t query_smem_ptr) -> typename DescriptorT::DISTANCE_T
+{
+  using DataT                     = typename DescriptorT::DATA_T;
+  using DistanceT                 = typename DescriptorT::DISTANCE_T;
+  using LoadT                     = typename DescriptorT::LOAD_T;
+  constexpr auto kTeamSize        = DescriptorT::kTeamSize;
+  constexpr auto kDatasetBlockDim = DescriptorT::kDatasetBlockDim;
+  constexpr auto vlen             = device::get_vlen<LoadT, DataT>();
+  constexpr auto reg_nelem =
+    raft::div_rounding_up_unsafe<uint32_t>(kDatasetBlockDim, kTeamSize * vlen);
+
+  DistanceT differing = 0;
+  DistanceT set_union = 0;
+  // Use the same vector loads and swizzled query layout as the standard distance fragment.
+  for (uint32_t elem_offset = (threadIdx.x % kTeamSize) * vlen; elem_offset < dim;
+       elem_offset += kDatasetBlockDim) {
+    DataT data[reg_nelem][vlen];
+#pragma unroll
+    for (uint32_t e = 0; e < reg_nelem; e++) {
+      const uint32_t k = e * (kTeamSize * vlen) + elem_offset;
+      if (k >= dim) break;
+      device::ldg_cg(reinterpret_cast<LoadT&>(data[e]),
+                     reinterpret_cast<const LoadT*>(dataset_ptr + k));
+    }
+#pragma unroll
+    for (uint32_t e = 0; e < reg_nelem; e++) {
+      const uint32_t k = e * (kTeamSize * vlen) + elem_offset;
+      if (k >= dim) break;
+#pragma unroll
+      for (uint32_t v = 0; v < vlen; v++) {
+        // Padding bytes are not features and must not contribute to the union.
+        if (k + v >= dim) break;
+        uint8_t query_byte;
+        device::lds(query_byte,
+                    query_smem_ptr + device::swizzling<kDatasetBlockDim, vlen * kTeamSize>(k + v));
+        auto data_byte = static_cast<uint8_t>(data[e][v]);
+        differing += __popc(query_byte ^ data_byte);
+        set_union += __popc(query_byte | data_byte);
+      }
+    }
+  }
+
+  // Calls may be conditional on candidate validity. All lanes of this team participate,
+  // while other teams in the warp may be inactive.
+  const auto team_lane = (threadIdx.x % 32) / kTeamSize * kTeamSize;
+  const auto mask      = (0xffffffffu >> (32 - kTeamSize)) << team_lane;
+#pragma unroll
+  for (uint32_t offset = kTeamSize / 2; offset > 0; offset /= 2) {
+    differing += __shfl_xor_sync(mask, differing, offset, kTeamSize);
+    set_union += __shfl_xor_sync(mask, set_union, offset, kTeamSize);
+  }
+  auto distance = cuvs::neighbors::detail::bitwise_jaccard_distance(differing, set_union);
+  // The search kernels sum per-thread contributions after this call.
+  return distance / DistanceT(kTeamSize);
+}
+
+template <typename DescriptorT>
+RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_impl(
+  const typename DescriptorT::args_t args, const typename DescriptorT::INDEX_T dataset_index) ->
+  typename DescriptorT::DISTANCE_T
+{
+  return compute_distance_jaccard_worker_impl<DescriptorT>(
+    DescriptorT::ptr(args) + (static_cast<std::uint64_t>(DescriptorT::ld(args)) * dataset_index),
+    args.dim,
+    args.smem_ws_ptr);
 }
 
 template <typename DescriptorT>
@@ -266,12 +338,21 @@ template <uint32_t TeamSize,
           typename IndexT,
           typename DistanceT,
           typename QueryT,
-          cuvs::neighbors::cagra::internal_dtype SmemDType>
+          cuvs::neighbors::cagra::internal_dtype SmemDType,
+          bool IsJaccard = false>
 __device__ DistanceT compute_distance_impl(
   const typename dataset_descriptor_base_t<DataT, IndexT, DistanceT>::args_t args,
   IndexT dataset_index)
 {
-  if constexpr (PQ_BITS == 0 && PQ_LEN == 0 && std::is_same_v<CodebookT, void>) {
+  if constexpr (IsJaccard) {
+    static_assert(PQ_BITS == 0 && PQ_LEN == 0 && std::is_same_v<CodebookT, void> &&
+                    (std::is_same_v<DataT, int8_t> || std::is_same_v<DataT, uint8_t>) &&
+                    std::is_same_v<QueryT, uint8_t>,
+                  "BitwiseJaccard requires a standard packed-byte descriptor");
+    using desc_t =
+      standard_dataset_descriptor_t<TeamSize, DatasetBlockDim, DataT, IndexT, DistanceT, QueryT>;
+    return compute_distance_jaccard_impl<desc_t>(args, dataset_index);
+  } else if constexpr (PQ_BITS == 0 && PQ_LEN == 0 && std::is_same_v<CodebookT, void>) {
     using desc_t =
       standard_dataset_descriptor_t<TeamSize, DatasetBlockDim, DataT, IndexT, DistanceT, QueryT>;
     return compute_distance_standard_impl<desc_t>(args, dataset_index);

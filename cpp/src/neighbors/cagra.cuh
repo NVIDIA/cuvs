@@ -62,26 +62,17 @@ CUVS_EXPORT void index<T, IdxT, DatasetViewT>::compute_dataset_norms_(raft::reso
   constexpr float kScale = cuvs::spatial::knn::detail::utils::config<T>::kDivisor /
                            cuvs::spatial::knn::detail::utils::config<float>::kDivisor;
 
-  auto reduce_norms = [&](auto transform, auto epilogue) {
-    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(res,
-                                                  *rm_dataset,
-                                                  dataset_norms_->view(),
-                                                  (float)0,
-                                                  false,
-                                                  transform,
-                                                  raft::add_op(),
-                                                  epilogue);
-  };
-  if (metric() == cuvs::distance::DistanceType::JaccardExpanded) {
-    // For binary inputs, sum(x) = |x|. Divide by kScale^2 because both vectors are
-    // scaled by 1/kScale when computing their dot product.
-    reduce_norms(raft::cast_op<float>(), raft::div_const_op<float>{kScale * kScale});
-  } else {
-    // First scale the dataset, then compute Euclidean norms for cosine.
-    auto scaled_sq_op = raft::compose_op(
-      raft::sq_op{}, raft::div_const_op<float>{float(kScale)}, raft::cast_op<float>());
-    reduce_norms(scaled_sq_op, raft::sqrt_op{});
-  }
+  // first scale the dataset and then compute norms
+  auto scaled_sq_op = raft::compose_op(
+    raft::sq_op{}, raft::div_const_op<float>{float(kScale)}, raft::cast_op<float>());
+  raft::linalg::reduce<raft::Apply::ALONG_ROWS>(res,
+                                                *rm_dataset,
+                                                dataset_norms_->view(),
+                                                (float)0,
+                                                false,
+                                                scaled_sq_op,
+                                                raft::add_op(),
+                                                raft::sqrt_op{});
 }
 
 /**
@@ -159,7 +150,7 @@ void build_knn_graph(
  *
  * The following distance metrics are supported:
  * - L2Expanded
- * - JaccardExpanded (binary 0/1 vectors)
+ * - BitwiseJaccard (packed int8/uint8 bitstrings; dimensions are in bytes)
  *
  * Usage example:
  * @code{.cpp}

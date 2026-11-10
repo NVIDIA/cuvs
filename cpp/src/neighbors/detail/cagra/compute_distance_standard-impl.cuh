@@ -99,8 +99,10 @@ RAFT_KERNEL __launch_bounds__(1, 1)
                                           uint32_t ld,
                                           const DistanceT* dataset_norms = nullptr)
 {
-  using query_t =
-    std::conditional_t<Metric == cuvs::distance::DistanceType::BitwiseHamming, DataT, float>;
+  using query_t = std::conditional_t<
+    Metric == cuvs::distance::DistanceType::BitwiseJaccard,
+    uint8_t,
+    std::conditional_t<Metric == cuvs::distance::DistanceType::BitwiseHamming, DataT, float>>;
   using desc_type =
     standard_dataset_descriptor_t<TeamSize, DatasetBlockDim, DataT, IndexT, DistanceT, query_t>;
   using base_type = typename desc_type::base_type;
@@ -123,16 +125,16 @@ standard_descriptor_spec<Metric, TeamSize, DatasetBlockDim, DataT, IndexT, Dista
   uint32_t ld,
   const DistanceT* dataset_norms)
 {
-  using query_t =
-    std::conditional_t<Metric == cuvs::distance::DistanceType::BitwiseHamming, DataT, float>;
+  using query_t = std::conditional_t<
+    Metric == cuvs::distance::DistanceType::BitwiseJaccard,
+    uint8_t,
+    std::conditional_t<Metric == cuvs::distance::DistanceType::BitwiseHamming, DataT, float>>;
   using desc_type =
     standard_dataset_descriptor_t<TeamSize, DatasetBlockDim, DataT, IndexT, DistanceT, query_t>;
   using base_type = typename desc_type::base_type;
 
-  RAFT_EXPECTS((Metric != cuvs::distance::DistanceType::CosineExpanded &&
-                Metric != cuvs::distance::DistanceType::JaccardExpanded) ||
-                 dataset_norms != nullptr,
-               "Dataset norms must be provided for CosineExpanded and JaccardExpanded metrics");
+  RAFT_EXPECTS(Metric != cuvs::distance::DistanceType::CosineExpanded || dataset_norms != nullptr,
+               "Dataset norms must be provided for CosineExpanded metric");
 
   return host_type{
     desc_type{ptr, size, dim, ld, dataset_norms},

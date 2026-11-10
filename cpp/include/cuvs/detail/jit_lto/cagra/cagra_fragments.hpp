@@ -21,7 +21,6 @@ struct tag_smem_e5m2 {};
 struct tag_metric_l1 {};
 struct tag_norm_noop {};
 struct tag_norm_cosine {};
-struct tag_norm_jaccard {};
 
 /// Multi-kernel planners that do not link `sample_filter` into the JIT link (e.g.
 /// `random_pickup`). Real filters use `cuvs::neighbors::detail::tag_filter_*` on
@@ -49,7 +48,8 @@ template <typename DataTag,
           uint32_t DatasetBlockDim,
           uint32_t PqBits,
           uint32_t PqLen,
-          typename SmemTag>
+          typename SmemTag,
+          bool IsJaccard = false>
 struct fragment_tag_compute_distance {};
 
 template <typename QueryTag, typename DistanceTag, typename MetricTag>

@@ -6,6 +6,7 @@
 #pragma once
 
 #include "ann_utils.cuh"
+#include "bitwise_jaccard.cuh"
 #include "neighbors_device_intrinsics.cuh"
 #include "nn_descent_gnnd.hpp"
 
@@ -27,7 +28,6 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
-#include <raft/linalg/reduce.cuh>
 #include <raft/matrix/init.cuh>
 #include <raft/matrix/slice.cuh>
 #include <raft/util/arch.cuh>  // raft::util::arch::SM_*
@@ -557,6 +557,18 @@ __device__ __forceinline__ void calculate_metric(float* s_distances,
         for (int d = 0; d < data_dim; d++) {
           s_distances[i] += __popc(static_cast<uint32_t>(data_n1[d] ^ data_n2[d]) & 0xff);
         }
+      } else if (metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+        int n1                 = row_neighbors[row_id];
+        int n2                 = col_neighbors[col_id];
+        const uint8_t* data_n1 = reinterpret_cast<const uint8_t*>(data) + n1 * data_dim;
+        const uint8_t* data_n2 = reinterpret_cast<const uint8_t*>(data) + n2 * data_dim;
+        float differing        = 0.0f;
+        float set_union        = 0.0f;
+        for (int d = 0; d < data_dim; d++) {
+          differing += __popc(data_n1[d] ^ data_n2[d]);
+          set_union += __popc(data_n1[d] | data_n2[d]);
+        }
+        s_distances[i] = cuvs::neighbors::detail::bitwise_jaccard_distance(differing, set_union);
       } else if (metric == cuvs::distance::DistanceType::L2Expanded ||
                  metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
         s_distances[i] =
@@ -567,13 +579,6 @@ __device__ __forceinline__ void calculate_metric(float* s_distances,
         if (!can_postprocess_dist && metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
           s_distances[i] = sqrtf(s_distances[i]);
         }
-      } else if (metric == cuvs::distance::DistanceType::JaccardExpanded) {
-        // For binary inputs, l2_norms holds set cardinalities and the dot product
-        // counts their intersection. Two empty sets have distance zero.
-        float intersection = s_distances[i];
-        float set_union =
-          l2_norms[row_neighbors[row_id]] + l2_norms[col_neighbors[col_id]] - intersection;
-        s_distances[i] = set_union > 0.0f ? 1.0f - intersection / set_union : 0.0f;
       }
       s_distances[i] = dist_epilogue(s_distances[i], row_neighbors[row_id], col_neighbors[col_id]);
     } else {
@@ -587,8 +592,7 @@ struct DistAccumulator {
   __device__ __forceinline__ float operator()(float a, float b) const
   {
     if (metric == cuvs::distance::DistanceType::L1) { return raft::abs(a - b); }
-    // Dot product reused by IP, cosine, L2, and binary Jaccard.
-    // calculate_metric applies the metric-specific expansion.
+    // dot product: reused by IP, cosine, and L2 (postprocessed in calculate_metric)
     return a * b;
   }
 };
@@ -978,7 +982,8 @@ __launch_bounds__(BLOCK_SIZE)
   // starts past either extent only produces cells calculate_metric discards -- skip its MMA and
   // its store. Staging is cooperative, so this must not skip the barriers.
   const bool warp_active = warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_new_size;
-  if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
+  if (metric != cuvs::distance::DistanceType::BitwiseHamming &&
+      metric != cuvs::distance::DistanceType::BitwiseJaccard) {
     wmma::fill_fragment(c_frag, 0.0);
 
     for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
@@ -1050,7 +1055,8 @@ __launch_bounds__(BLOCK_SIZE)
   // starts past either extent only produces cells calculate_metric discards
   const bool warp_active_2 =
     warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_old_size;
-  if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
+  if (metric != cuvs::distance::DistanceType::BitwiseHamming &&
+      metric != cuvs::distance::DistanceType::BitwiseJaccard) {
     wmma::fill_fragment(c_frag, 0.0);
     for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
       int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
@@ -2381,10 +2387,10 @@ GNND<Data_t, Index_t>::GNND(raft::resources const& res, const BuildConfig& build
 
   if (build_config.metric == cuvs::distance::DistanceType::L2Expanded ||
       build_config.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-      build_config.metric == cuvs::distance::DistanceType::CosineExpanded ||
-      build_config.metric == cuvs::distance::DistanceType::JaccardExpanded) {
-    // L2 and cosine use squared norms; binary Jaccard uses set cardinalities.
-    // Cosine normalization is applied in calculate_metric without a normalized dataset copy.
+      build_config.metric == cuvs::distance::DistanceType::CosineExpanded) {
+    // for device memory efficiency, we do not allocate a separate array for the data
+    // to normalize the data when using CosineExpanded metric. Instead, we use the l2_norms_ vector
+    // and compute inside the calculate_metric kernel.
     l2_norms_ = raft::make_device_vector<DistData_t, size_t>(res, nrow_);
   }
 };
@@ -2631,6 +2637,11 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
     RAFT_FAIL(
       "Data type needs to be int8 or uint8 for NN Descent to run with BitwiseHamming distance.");
   }
+  if (build_config_.metric == distance::DistanceType::BitwiseJaccard &&
+      !(std::is_same_v<input_t, uint8_t> || std::is_same_v<input_t, int8_t>)) {
+    RAFT_FAIL(
+      "Data type needs to be int8 or uint8 for NN Descent to run with BitwiseJaccard distance.");
+  }
 
   cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
   nrow_               = nrow;
@@ -2649,22 +2660,6 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
   bool needs_l2_norms = build_config_.metric == cuvs::distance::DistanceType::L2Expanded ||
                         build_config_.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
                         build_config_.metric == cuvs::distance::DistanceType::CosineExpanded;
-  bool needs_jaccard_counts = build_config_.metric == cuvs::distance::DistanceType::JaccardExpanded;
-
-  // Reuse the norm buffer for binary set cardinalities, on the same scale as the dot product.
-  auto compute_jaccard_counts = [&](const input_t* batch_data, size_t batch_rows, size_t offset) {
-    raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
-      res,
-      raft::make_device_matrix_view<const input_t, size_t>(
-        batch_data, batch_rows, build_config_.dataset_dim),
-      raft::make_device_vector_view<DistData_t, size_t>(l2_norms_.data_handle() + offset,
-                                                        batch_rows),
-      DistData_t(0),
-      false,
-      raft::cast_op<DistData_t>{},
-      raft::add_op{},
-      raft::identity_op{});
-  };
 
   // For fp32 host input, downcast to a device-side fp16 buffer when distance computation will be
   // done in fp16 anyway: dispatch matches the SIMT/WMMA decision in local_join() (FP16 explicit, or
@@ -2702,10 +2697,8 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
       size_t n_elems    = batch.size() * build_config_.dataset_dim;
       int num_blocks    = raft::ceildiv(n_elems, static_cast<size_t>(TPB));
       size_t dst_offset = batch.offset() * build_config_.dataset_dim;
-      if (needs_jaccard_counts) {
-        compute_jaccard_counts(batch.data(), batch.size(), batch.offset());
-      } else if (needs_l2_norms) {
-        // Compute squared L2 norms before downcasting the fp32 batches to fp16.
+      if (needs_l2_norms) {
+        // Compute l2 norms on the fp32 batches before they're downcast to fp16.
         compute_l2_norms_kernel<<<batch.size(),
                                   raft::warp_size(),
                                   sizeof(float) *
@@ -2733,11 +2726,6 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
                static_cast<size_t>(nrow_) * build_config_.dataset_dim,
                stream);
     d_data_ptr_ = d_data_direct_.value().data_handle();
-  }
-
-  if (needs_jaccard_counts && !downcast_host_data) {
-    compute_jaccard_counts(static_cast<const input_t*>(d_data_ptr_), nrow_, 0);
-    raft::resource::sync_stream(res);
   }
 
   if (needs_l2_norms && !downcast_host_data) {

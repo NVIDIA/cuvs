@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -55,6 +55,8 @@ typedef enum {
   DiceExpanded = 19,
   /** Bitstring Hamming distance **/
   BitwiseHamming = 20,
+  /** Jaccard distance between packed bitstrings **/
+  BitwiseJaccard = 21,
   /** Precomputed (special value) **/
   Precomputed = 100
 } cuvsDistanceType;

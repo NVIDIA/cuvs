@@ -217,6 +217,10 @@ struct index : cuvs::neighbors::index {
 /**
  * @defgroup nn_descent_cpp_index_build nn-descent index build
  * @{
+ *
+ * BitwiseJaccard is supported for int8_t and uint8_t datasets containing packed bitstrings.
+ * Each byte stores eight binary features; dimensions are in bytes and unused trailing bits
+ * must be zero. Two empty bitstrings have distance zero.
  */
 
 /**
@@ -226,7 +230,6 @@ struct index : cuvs::neighbors::index {
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  *
@@ -264,7 +267,6 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  *
@@ -304,7 +306,6 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  *
@@ -342,7 +343,6 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  *
@@ -382,10 +382,10 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  * - BitwiseHamming
+ * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}
@@ -421,10 +421,10 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  * - BitwiseHamming
+ * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}
@@ -462,10 +462,10 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  * - BitwiseHamming
+ * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}
@@ -501,10 +501,10 @@ auto build(raft::resources const& res,
  * - L2Expanded
  * - L2SqrtExpanded
  * - CosineExpanded
- * - JaccardExpanded (binary 0/1 vectors)
  * - InnerProduct
  * - L1
  * - BitwiseHamming
+ * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}

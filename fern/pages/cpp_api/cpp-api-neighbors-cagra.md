@@ -418,7 +418,7 @@ Get the mapping file descriptor (for disk-backed index)
 <a id="neighbors-cagra-index-dataset-norms"></a>
 ### neighbors::cagra::index::dataset_norms
 
-Scaled L2 norms for cosine or scaled set cardinalities for binary Jaccard [size].
+Dataset norms for cosine distance [size]
 
 ```cpp
 [[nodiscard]] inline auto dataset_norms() const noexcept

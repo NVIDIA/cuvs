@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -28,4 +28,5 @@ cdef extern from "cuvs/distance/distance.h" nogil:
         RusselRaoExpanded
         DiceExpanded
         BitwiseHamming
+        BitwiseJaccard
         Precomputed

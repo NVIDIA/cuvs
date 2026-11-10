@@ -4,6 +4,8 @@
  */
 
 #include "graph_core.cuh"
+
+#include "../bitwise_jaccard.cuh"
 #include "graph_shared.cuh"
 #include "utils.hpp"
 
@@ -45,7 +47,7 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
     const uint32_t dstNode = knn_graph[k + static_cast<uint64_t>(graph_degree) * srcNode];
     float dist             = 0;
     float norm2_dst        = 0;
-    float cardinality_sum  = 0;
+    float set_union        = 0;
     if (metric == cuvs::distance::DistanceType::InnerProduct ||
         metric == cuvs::distance::DistanceType::CosineExpanded) {
       for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
@@ -67,13 +69,6 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
                        dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
         dist += diff * diff;
       }
-    } else if (metric == cuvs::distance::DistanceType::JaccardExpanded) {
-      for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
-        float a = static_cast<float>(dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]);
-        float b = static_cast<float>(dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
-        dist += a * b;
-        cardinality_sum += a + b;
-      }
     } else if (metric == cuvs::distance::DistanceType::L1) {
       for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
         float diff = cuvs::spatial::knn::detail::utils::mapping<float>{}(
@@ -89,6 +84,15 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
             static_cast<uint32_t>(dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode] ^
                                   dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]) &
             0xffu);
+        }
+      }
+    } else if (metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+      if constexpr (std::is_integral_v<DATA_T>) {
+        for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
+          auto a = static_cast<uint8_t>(dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]);
+          auto b = static_cast<uint8_t>(dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
+          dist += __popc(a ^ b);
+          set_union += __popc(a | b);
         }
       }
     }
@@ -107,13 +111,11 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
       if (lane_id == (k % raft::WarpSize)) { dist /= sqrt(norm2_dst); }
     }
 
-    if (metric == cuvs::distance::DistanceType::JaccardExpanded) {
+    if (metric == cuvs::distance::DistanceType::BitwiseJaccard) {
       for (int offset = 1; offset < raft::WarpSize; offset *= 2) {
-        cardinality_sum += __shfl_xor_sync(0xffffffff, cardinality_sum, offset);
+        set_union += __shfl_xor_sync(0xffffffff, set_union, offset);
       }
-      // For binary inputs, the dot product is the intersection and sum(a + b) = |a| + |b|.
-      float set_union = cardinality_sum - dist;
-      dist            = set_union > 0.0f ? 1.0f - dist / set_union : 0.0f;
+      dist = cuvs::neighbors::detail::bitwise_jaccard_distance(dist, set_union);
     }
 
     if (lane_id == (k % raft::WarpSize)) {

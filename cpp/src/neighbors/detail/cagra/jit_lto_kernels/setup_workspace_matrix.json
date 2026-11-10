@@ -42,6 +42,10 @@
           {
             "query_type": "float",
             "query_abbrev": "f"
+          },
+          {
+            "query_type": "uint8_t",
+            "query_abbrev": "u8"
           }
         ]
       }

@@ -1,5 +1,6 @@
 [
   {
+    "is_jaccard": "false",
     "_data": [
       {
         "data_type": "float",
@@ -90,6 +91,7 @@
     ]
   },
   {
+    "is_jaccard": "false",
     "_data": [
       {
         "data_type": "float",
@@ -168,6 +170,7 @@
     ]
   },
   {
+    "is_jaccard": "false",
     "_data": [
       {
         "data_type": "float",
@@ -246,5 +249,42 @@
         "smem_abbrev": "e5m2"
       }
     ]
+  },
+  {
+    "is_jaccard": "true",
+    "_data": [
+      {
+        "data_type": "uint8_t",
+        "data_abbrev": "u8"
+      },
+      {
+        "data_type": "int8_t",
+        "data_abbrev": "i8"
+      }
+    ],
+    "index_type": "uint32_t",
+    "index_abbrev": "u32",
+    "distance_type": "float",
+    "distance_abbrev": "f",
+    "team_size": [
+      "8",
+      "16",
+      "32"
+    ],
+    "dataset_block_dim": [
+      "128",
+      "256",
+      "512"
+    ],
+    "query_type": "uint8_t",
+    "query_abbrev": "u8",
+    "pq_len": "0",
+    "pq_bits": "0",
+    "pq_prefix": "_jaccard",
+    "pq_suffix": "",
+    "codebook_type": "void",
+    "codebook_abbrev": "none",
+    "smem_dtype": "cuvs::neighbors::cagra::internal_dtype::F16",
+    "smem_abbrev": "f16"
   }
 ]

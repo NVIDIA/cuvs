@@ -39,7 +39,6 @@
         "L2Expanded",
         "InnerProduct",
         "CosineExpanded",
-        "JaccardExpanded",
         "L1"
       ]
     },
@@ -51,6 +50,23 @@
       "distance_type": "float",
       "distance_abbrev": "f",
       "metric": "BitwiseHamming"
+    },
+    {
+      "_data": [
+        {
+          "data_type": "uint8_t",
+          "data_abbrev": "u8"
+        },
+        {
+          "data_type": "int8_t",
+          "data_abbrev": "i8"
+        }
+      ],
+      "index_type": "uint32_t",
+      "index_abbrev": "u32",
+      "distance_type": "float",
+      "distance_abbrev": "f",
+      "metric": "BitwiseJaccard"
     }
   ],
   "_mxdim_team": [

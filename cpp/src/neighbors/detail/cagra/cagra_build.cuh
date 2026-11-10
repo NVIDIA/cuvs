@@ -991,13 +991,6 @@ inline void validate_cagra_knn_graph_build_constraints(index_params const& param
                                                        KnnParamsVariant const& knn_build_params)
 {
   RAFT_EXPECTS(
-    params.metric != cuvs::distance::DistanceType::JaccardExpanded ||
-      std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
-        knn_build_params) ||
-      std::holds_alternative<cagra::graph_build_params::nn_descent_params>(knn_build_params),
-    "IVF_PQ for CAGRA graph build does not support JaccardExpanded as a metric. Please "
-    "use nn-descent or the iterative CAGRA search build.");
-  RAFT_EXPECTS(
     params.metric != cuvs::distance::DistanceType::BitwiseHamming ||
       std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
         knn_build_params) ||
@@ -1013,6 +1006,18 @@ inline void validate_cagra_knn_graph_build_constraints(index_params const& param
   RAFT_EXPECTS(params.metric != cuvs::distance::DistanceType::BitwiseHamming ||
                  (std::is_same_v<T, uint8_t> || std::is_same_v<T, int8_t>),
                "BitwiseHamming distance is only supported for int8_t and uint8_t data types. "
+               "Current data type is not supported.");
+
+  RAFT_EXPECTS(
+    params.metric != cuvs::distance::DistanceType::BitwiseJaccard ||
+      std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
+        knn_build_params) ||
+      std::holds_alternative<cagra::graph_build_params::nn_descent_params>(knn_build_params),
+    "IVF_PQ for CAGRA graph build does not support BitwiseJaccard as a metric. Please "
+    "use nn-descent or the iterative CAGRA search build.");
+  RAFT_EXPECTS(params.metric != cuvs::distance::DistanceType::BitwiseJaccard ||
+                 (std::is_same_v<T, uint8_t> || std::is_same_v<T, int8_t>),
+               "BitwiseJaccard distance is only supported for int8_t and uint8_t data types. "
                "Current data type is not supported.");
 }
 
