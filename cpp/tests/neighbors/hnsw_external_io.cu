@@ -22,12 +22,14 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <future>
 #include <iterator>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <unistd.h>
 #include <vector>
@@ -167,7 +169,7 @@ TEST(HnswExternalPlan, OutputBufferFitsRemainingDeviceMemory)
   input.graph_degree           = 48;
   input.intermediate_degree    = 72;
   input.available_host_bytes   = uint64_t{8} << 30;
-  input.available_device_bytes = uint64_t{431} << 20;
+  input.available_device_bytes = uint64_t{432} << 20;
   input.force_disk             = true;
   const uint64_t initial_rows  = 3 * input.rows;  // Initial two-partition skew estimate.
   auto [host, device, host_fixed, device_fixed] = cagra::helpers::optimize_workspace_size(
@@ -490,6 +492,36 @@ TEST(HnswExternalHierarchy, DeterministicNestedDistribution)
   auto summary = summarize_hierarchy(rows, 24);
   ASSERT_FALSE(summary.active_by_level.empty());
   EXPECT_EQ(summary.active_by_level[0], level_one);
+}
+
+TEST(HnswExternalLayout, VariableDegreePreservesRowLayout)
+{
+  hnsw_serialize_layout layout;
+  layout.graph_degree = 3;
+  layout.maxM0        = 4;
+  layout.dimension    = 2;
+  std::array<float, 2> vector{1.5f, -2.0f};
+  for (uint32_t degree = 0; degree <= layout.graph_degree; ++degree) {
+    std::array<uint32_t, 3> neighbors{7, 8, 9};
+    std::fill(neighbors.begin() + degree,
+              neighbors.end(),
+              cuvs::neighbors::cagra::kInvalidNeighbor<uint32_t>);
+    std::ostringstream writer;
+    write_hnsw_base_row(writer, layout, neighbors.data(), vector.data(), 42);
+    auto bytes = writer.str();
+    ASSERT_EQ(bytes.size(), 5 * sizeof(uint32_t) + sizeof(vector) + sizeof(size_t));
+    uint32_t count;
+    std::memcpy(&count, bytes.data(), sizeof(count));
+    EXPECT_EQ(count, degree);
+    EXPECT_EQ(std::memcmp(bytes.data() + sizeof(count), neighbors.data(), sizeof(neighbors)), 0);
+    uint32_t padding;
+    std::memcpy(&padding, bytes.data() + 4 * sizeof(uint32_t), sizeof(padding));
+    EXPECT_EQ(padding, 0);
+    EXPECT_EQ(std::memcmp(bytes.data() + 5 * sizeof(uint32_t), vector.data(), sizeof(vector)), 0);
+    size_t label;
+    std::memcpy(&label, bytes.data() + bytes.size() - sizeof(label), sizeof(label));
+    EXPECT_EQ(label, 42);
+  }
 }
 
 TEST(HnswExternalLayout, WritesLoadableNoneHierarchy)

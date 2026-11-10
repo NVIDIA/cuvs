@@ -270,7 +270,11 @@ void write_hnsw_base_row(Writer& writer,
                          const T* vector,
                          uint32_t external_label)
 {
-  uint32_t count = static_cast<uint32_t>(layout.graph_degree);
+  // Variable-degree graphs pad unused slots with CAGRA's uint32_t invalid-neighbor sentinel.
+  uint32_t count = 0;
+  while (count < layout.graph_degree && neighbors[count] != std::numeric_limits<uint32_t>::max()) {
+    ++count;
+  }
   writer.write(reinterpret_cast<const char*>(&count), sizeof(count));
   writer.write(reinterpret_cast<const char*>(neighbors), layout.graph_degree * sizeof(uint32_t));
   uint32_t zero = 0;

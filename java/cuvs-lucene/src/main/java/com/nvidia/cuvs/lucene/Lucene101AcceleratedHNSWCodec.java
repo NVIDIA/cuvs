@@ -11,8 +11,8 @@ import org.apache.lucene.codecs.Codec;
  * to accelerated indexing using GPUs and search using CPUs. Fallbacks to CPU
  * based indexing when used on a machine without a GPU and/or cuVS.
  *
- * <p>This codec wraps {@code Lucene101Codec}, the default codec of Lucene 10.2. {@link CuVSCodecs#acceleratedHNSW}
- * returns the codec of this family for the Lucene release in use.
+ * <p>This codec wraps {@code Lucene101Codec}, the default codec of Lucene 10.2. On later Lucene
+ * releases it can only read existing indexes; use {@link CuVSCodecs#acceleratedHNSW} to write.
  *
  * @since 25.10
  */
@@ -49,7 +49,8 @@ public class Lucene101AcceleratedHNSWCodec extends CuVSFilterCodec {
   public Lucene101AcceleratedHNSWCodec(AcceleratedHNSWParams acceleratedHNSWParams) {
     super(
         NAME,
-        delegate(NAME, () -> LuceneCompat.lucene101Codec()),
+        101,
+        () -> LuceneCompat.lucene101Codec(),
         () -> new Lucene99AcceleratedHNSWVectorsFormat(acceleratedHNSWParams));
   }
 }

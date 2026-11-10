@@ -325,12 +325,12 @@ void* _mg_deserialize(cuvsResources_t res, const char* filename, mg_cagra_datase
   if (layout == mg_cagra_dataset_layout::device_padded) {
     using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
     auto* mg_index = new mg_cagra_index_t<T, padded_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
-    cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+    cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), mg_index);
     return make_mg_cagra_box<T, padded_ann_t>(mg_index, mg_cagra_dataset_layout::device_padded);
   }
   using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
   auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
-  cuvs::neighbors::cagra::deserialize<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+  cuvs::neighbors::cagra::deserialize(*res_ptr, std::string(filename), mg_index);
   return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 
@@ -341,12 +341,12 @@ void* _mg_distribute(cuvsResources_t res, const char* filename, mg_cagra_dataset
   if (layout == mg_cagra_dataset_layout::device_padded) {
     using padded_ann_t = cuvs::neighbors::cagra::device_padded_index<T, uint32_t>;
     auto* mg_index = new mg_cagra_index_t<T, padded_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
-    cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+    cuvs::neighbors::cagra::distribute(*res_ptr, std::string(filename), mg_index);
     return make_mg_cagra_box<T, padded_ann_t>(mg_index, mg_cagra_dataset_layout::device_padded);
   }
   using standard_ann_t = cuvs::neighbors::cagra::device_standard_index<T, uint32_t>;
   auto* mg_index       = new mg_cagra_index_t<T, standard_ann_t>(*res_ptr, cuvs::neighbors::REPLICATED);
-  cuvs::neighbors::cagra::distribute<T, uint32_t>(*res_ptr, std::string(filename), mg_index);
+  cuvs::neighbors::cagra::distribute(*res_ptr, std::string(filename), mg_index);
   return make_mg_cagra_box<T, standard_ann_t>(mg_index, mg_cagra_dataset_layout::device_standard);
 }
 

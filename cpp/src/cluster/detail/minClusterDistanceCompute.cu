@@ -9,9 +9,14 @@
 #include <raft/linalg/coalesced_reduction.cuh>
 #include <raft/matrix/init.cuh>
 
+#include <rmm/device_uvector.hpp>
+
 #include <mma.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <limits>
+#include <optional>
 
 namespace cuvs::cluster::kmeans::detail {
 
@@ -419,7 +424,7 @@ void minClusterDistanceCompute(
   int batch_centroids,
   rmm::device_uvector<char>& workspace,
   std::optional<raft::device_vector_view<const DataT, IndexT>> Tf32NormX,
-  cuvs::distance::detail::Top1nnBackend backend)
+  bool accurate_distances)
 {
   auto stream       = raft::resource::get_cuda_stream(handle);
   auto n_samples    = X.extent(0);
@@ -438,6 +443,7 @@ void minClusterDistanceCompute(
                                         static_cast<IndexT>(tuning.unfused.candidate_tile)));
     const auto centroids_const = raft::make_device_matrix_view<const DataT, IndexT>(
       centroids.data_handle(), n_clusters, n_features);
+    // Accurate distances (cluster cost) are refined in FP32 by top_1_nn after the 1-NN.
     const auto plan = cuvs::distance::probe_top_1_nn(handle,
                                                      X.data_handle(),
                                                      centroids.data_handle(),
@@ -446,8 +452,9 @@ void minClusterDistanceCompute(
                                                      n_features,
                                                      tuning,
                                                      metric,
-                                                     backend,
-                                                     false);
+                                                     cuvs::distance::detail::Top1nnBackend::Auto,
+                                                     false,
+                                                     accurate_distances);
     RAFT_EXPECTS(plan.available,
                  "Requested top_1_nn backend is unavailable for KMeans distance reduction");
 
@@ -498,9 +505,8 @@ void minClusterDistanceCompute(
       y_norm = L2NormBuf_OR_DistBuf.data();
     }
 
-    std::size_t backend_workspace_bytes = plan.workspace_bytes;
-    void* backend_workspace             = reserve_aligned_workspace(
-      workspace, 0, backend_workspace_bytes, plan.workspace_alignment, stream);
+    auto* backend_workspace = reserve_aligned_workspace(
+      workspace, 0, plan.workspace_bytes, plan.workspace_alignment, stream);
 
     auto launch = [&](auto output) {
       cuvs::distance::top_1_nn<DataT, IndexT>(handle,
@@ -514,7 +520,7 @@ void minClusterDistanceCompute(
                                               n_features,
                                               tuning,
                                               backend_workspace,
-                                              backend_workspace_bytes,
+                                              plan.workspace_bytes,
                                               metric != cuvs::distance::DistanceType::L2Expanded,
                                               true,
                                               true,
@@ -582,7 +588,7 @@ void minClusterDistanceCompute(
     int batch_centroids,                                          \
     rmm::device_uvector<char>& workspace,                         \
     std::optional<raft::device_vector_view<const DataT, IndexT>>, \
-    cuvs::distance::detail::Top1nnBackend backend);
+    bool accurate_distances);
 
 INSTANTIATE_MIN_CLUSTER_DISTANCE(float, int64_t)
 INSTANTIATE_MIN_CLUSTER_DISTANCE(double, int64_t)
