@@ -161,20 +161,19 @@ __global__ void kern_fused_prune(KnnGraphView knn_graph,        // [graph_chunk_
   }
   warp.sync();
 
-  // count number of detours (A->D->B)
+  // Count the detours A->D->B of each edge A->B. A detour through a closer neighbor D
+  // (kAD < kAB) is counted only if B is ranked higher in D's neighbor list than in A's
+  // (kDB < kAB), i.e. only if B is relatively closer to D than to A.
   for (uint32_t kAD = 0; kAD < knn_graph_degree - 1; kAD++) {
     const uint64_t iD = smem_indices[kAD];
     if (iD >= graph_size) { continue; }
     for (uint32_t kDB = lane_id; kDB < knn_graph_degree; kDB += raft::WarpSize) {
       const uint64_t iB_candidate = knn_graph(iD, kDB);
       for (uint32_t kAB = kAD + 1; kAB < knn_graph_degree; kAB++) {
-        // if ( kDB < kAB )
-        {
-          const uint64_t iB = smem_indices[kAB];
-          if (iB == iB_candidate) {
-            atomicAdd(smem_num_detour + kAB, 1);
-            break;
-          }
+        const uint64_t iB = smem_indices[kAB];
+        if (iB == iB_candidate) {
+          if (kDB < kAB) { atomicAdd(smem_num_detour + kAB, 1); }
+          break;
         }
       }
     }
