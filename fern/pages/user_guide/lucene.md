@@ -6,7 +6,7 @@ slug: user-guide/lucene
 
 NVIDIA cuVS Lucene (`cuvs-lucene`) is a pluggable [KnnVectorsFormat](https://lucene.apache.org/core/10_2_0/core/org/apache/lucene/codecs/KnnVectorsFormat.html) that offloads vector index build, and optionally search, from the CPU to NVIDIA GPUs. Because it plugs in through a standard Lucene codec, an existing Lucene application adopts it by setting a codec on its `IndexWriterConfig`; the rest of the indexing and query code is unchanged.
 
-`cuvs-lucene` supports Lucene 10.2 through 10.5, with one artifact per Lucene minor release, and is built on the [NVIDIA cuVS Java APIs](/api-reference/java-api-documentation). For installation and build instructions, see [cuVS Lucene](/installation/java#cuvs-lucene) in the Java installation guide. For class-level details, see the [Lucene API Documentation](/api-reference/lucene-api-documentation).
+`cuvs-lucene` supports Lucene 10.2 through 10.6, with one artifact per Lucene minor release, and is built on the [NVIDIA cuVS Java APIs](/api-reference/java-api-documentation). For installation and build instructions, see [cuVS Lucene](/installation/java#cuvs-lucene) in the Java installation guide. For class-level details, see the [Lucene API Documentation](/api-reference/lucene-api-documentation).
 
 ## When To Use It
 
@@ -39,7 +39,7 @@ The GPU search codec has no such fallback. Its on-disk format has no CPU reader,
 
 ## Lucene Versions and Upgrades
 
-Lucene changes its codec APIs between minor releases, so `cuvs-lucene` is published as one artifact per Lucene minor release, `cuvs-lucene-10.2` through `cuvs-lucene-10.5`; see [cuVS Lucene](/installation/java#cuvs-lucene). Use the one that matches your application's Lucene version. Against another Lucene minor release, its codecs fail when they are used; see [Troubleshooting](#troubleshooting).
+Lucene changes its codec APIs between minor releases, so `cuvs-lucene` is published as one artifact per Lucene minor release, `cuvs-lucene-10.2` through `cuvs-lucene-10.6`; see [cuVS Lucene](/installation/java#cuvs-lucene). Use the one that matches your application's Lucene version. Against another Lucene minor release, its codecs fail when they are used; see [Troubleshooting](#troubleshooting).
 
 Each codec also wraps the default codec of one Lucene release, and Lucene records the codec's name in every segment it writes. The codec that writes therefore changes with Lucene:
 
@@ -47,7 +47,7 @@ Each codec also wraps the default codec of one Lucene release, and Lucene record
 | --- | --- | --- |
 | 10.2 | `Lucene101AcceleratedHNSWCodec` | `CuVS2510GPUSearchCodec` |
 | 10.3 | `Lucene103AcceleratedHNSWCodec` | `Lucene103CuVSGPUSearchCodec` |
-| 10.4, 10.5 | `Lucene104AcceleratedHNSWCodec` | `Lucene104CuVSGPUSearchCodec` |
+| 10.4, 10.5, 10.6 | `Lucene104AcceleratedHNSWCodec` | `Lucene104CuVSGPUSearchCodec` |
 
 The quantized codecs follow the same pattern, for example `Lucene104AcceleratedHNSWScalarQuantizedCodec`; on Lucene 10.2 they are `Lucene101AcceleratedHNSWScalarQuantizedCodec` and `Lucene101AcceleratedHNSWBinaryQuantizedCodec`. `CuVSCodecs` always returns the codecs that write on the Lucene release in use, so code that creates its codecs through it does not change when the application moves to another Lucene release.
 
