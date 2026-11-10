@@ -36,6 +36,9 @@ struct FusedFilterTilePlanner : cuvs::detail::jit_lto::TileAlgorithmPlanner {
     add_static_fragment<fragment_tag_fused_filter_cubin<DataTag, cutile_arch_8_6>>();
     add_static_fragment<fragment_tag_fused_filter_cubin<DataTag, cutile_arch_9_0>>();
     add_static_fragment<fragment_tag_fused_filter_cubin<DataTag, cutile_arch_10_0>>();
+#if CUVS_CUTILE_SM103_ENABLED
+    add_static_fragment<fragment_tag_fused_filter_cubin<DataTag, cutile_arch_10_3>>();
+#endif
 #if CUVS_CUTILE_SM107_ENABLED
     add_static_fragment<fragment_tag_fused_filter_cubin<DataTag, cutile_arch_10_7>>();
 #endif
