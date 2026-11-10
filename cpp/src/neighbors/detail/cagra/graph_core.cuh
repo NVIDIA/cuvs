@@ -16,6 +16,7 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/reduce.cuh>
 #include <raft/matrix/init.cuh>
@@ -31,7 +32,11 @@
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/integer_utils.hpp>
 
+#include <cuda/functional>
 #include <cuda_fp16.h>
+#include <thrust/count.h>
+#include <thrust/reduce.h>
+#include <thrust/sequence.h>
 
 #include <float.h>
 #include <sys/time.h>
@@ -820,6 +825,112 @@ void check_duplicates_and_out_of_range(
     num_oor == 0, "%lu out-of-range index node(s) are found in the generated CAGRA graph", num_oor);
 }
 
+// Union-find with parent[v] <= v, so that every root is the smallest id of its component. Path
+// compression with plain stores is safe under concurrent hooking (ECL-CC).
+template <typename IdxT>
+__device__ auto uf_find(IdxT* parent, IdxT x) -> IdxT
+{
+  volatile IdxT* p = parent;
+  IdxT cur         = p[x];
+  if (cur == x) { return x; }
+  IdxT prev = x;
+  IdxT next;
+  while (cur > (next = p[cur])) {
+    p[prev] = next;
+    prev    = cur;
+    cur     = next;
+  }
+  return cur;
+}
+
+template <typename IdxT>
+__device__ void uf_unite(IdxT* parent, IdxT a, IdxT b)
+{
+  IdxT ra = uf_find(parent, a);
+  IdxT rb = uf_find(parent, b);
+  while (ra != rb) {
+    if (ra > rb) {
+      const IdxT t = ra;
+      ra           = rb;
+      rb           = t;
+    }
+    const IdxT old = atomicCAS(parent + rb, rb, ra);
+    if (old == rb) { return; }
+    rb = uf_find(parent, old);
+    ra = uf_find(parent, ra);
+  }
+}
+
+// Unites the endpoints of every edge in a batch of graph rows starting at node `row_offset`.
+template <typename IdxT, class GraphView>
+__global__ void kern_union_edges(GraphView graph_batch,  // [batch_size, degree]
+                                 uint64_t row_offset,
+                                 raft::device_vector_view<IdxT, int64_t> parent)  // [graph_size]
+{
+  const uint64_t degree = graph_batch.extent(1);
+  const uint64_t tid    = threadIdx.x + static_cast<uint64_t>(blockDim.x) * blockIdx.x;
+  if (tid >= graph_batch.extent(0) * degree) { return; }
+  const uint64_t row = tid / degree;
+  const uint64_t src = row_offset + row;
+  const uint64_t dst = graph_batch(row, tid % degree);
+  if (dst >= static_cast<uint64_t>(parent.extent(0)) || dst == src) { return; }
+  uf_unite(parent.data_handle(), static_cast<IdxT>(src), static_cast<IdxT>(dst));
+}
+
+// Lanes with the same root share one atomic, as most nodes belong to the largest component.
+// Requires blockDim.x to be a multiple of the warp size.
+template <typename IdxT>
+__global__ void kern_component_sizes(raft::device_vector_view<IdxT, int64_t> parent,
+                                     raft::device_vector_view<uint32_t, int64_t> sizes)
+{
+  const uint64_t n       = parent.extent(0);
+  const uint64_t i       = threadIdx.x + static_cast<uint64_t>(blockDim.x) * blockIdx.x;
+  const uint32_t lane_id = threadIdx.x % 32;
+  // Out-of-range lanes must still reach the full-mask match; roots are < n, so n matches none.
+  const IdxT root =
+    i < n ? uf_find(parent.data_handle(), static_cast<IdxT>(i)) : static_cast<IdxT>(n);
+  const uint32_t group = __match_any_sync(0xffffffffu, root);
+  if (i < n && (group & ((1u << lane_id) - 1u)) == 0u) {
+    atomicAdd(&sizes(root), static_cast<uint32_t>(__popc(group)));
+  }
+}
+
+// Logs the weakly connected components of a graph given its union-find forest. `sizes` is
+// scratch memory of the same length.
+template <typename IdxT>
+void log_connected_components(raft::resources const& res,
+                              raft::device_vector_view<IdxT, int64_t> parent,
+                              raft::device_vector_view<uint32_t, int64_t> sizes)
+{
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> block_scope(
+    "cagra::graph::optimize/connected_components");
+
+  const uint64_t graph_size  = parent.extent(0);
+  const uint32_t num_threads = 256;
+  const uint32_t num_blocks  = raft::ceildiv<uint64_t>(graph_size, num_threads);
+  raft::matrix::fill(res, sizes, uint32_t(0));
+  kern_component_sizes<IdxT>
+    <<<num_blocks, num_threads, 0, raft::resource::get_cuda_stream(res).get()>>>(parent, sizes);
+  RAFT_CUDA_TRY(cudaPeekAtLastError());
+
+  auto policy               = raft::resource::get_thrust_policy(res);
+  const uint32_t* sizes_ptr = sizes.data_handle();
+  const uint64_t num_components =
+    graph_size - thrust::count(policy, sizes_ptr, sizes_ptr + graph_size, 0u);
+  const uint64_t largest =
+    thrust::reduce(policy, sizes_ptr, sizes_ptr + graph_size, 0u, cuda::maximum<uint32_t>{});
+  if (num_components > 1) {
+    RAFT_LOG_WARN(
+      "CAGRA graph has %lu weakly connected components, the largest has %lu of %lu nodes (%.2f%%)",
+      num_components,
+      largest,
+      graph_size,
+      100.0 * largest / graph_size);
+  } else {
+    RAFT_LOG_DEBUG("CAGRA graph is weakly connected (%lu nodes)", graph_size);
+  }
+}
+
 template <typename IdxT, typename AccessorOutputGraph, bool VariableDegree>
 void merge_graph_gpu(
   raft::resources const& res,
@@ -830,7 +941,8 @@ void merge_graph_gpu(
   raft::host_matrix_view<IdxT, int64_t> mst_graph,
   raft::host_vector_view<uint32_t, int64_t> mst_graph_num_edges,
   bool guarantee_connectivity,
-  raft::device_vector_view<uint32_t, int64_t> d_natural_degree)
+  raft::device_vector_view<uint32_t, int64_t> d_natural_degree,
+  raft::device_vector_view<IdxT, int64_t> d_uf_parent)  // out: union-find forest of output_graph
 {
   const uint64_t graph_size          = output_graph.extent(0);
   const uint64_t output_graph_degree = output_graph.extent(1);
@@ -877,10 +989,15 @@ void merge_graph_gpu(
   d_mst_graph.prefetch_next_batch();
   d_mst_graph_num_edges.prefetch_next_batch();
 
+  thrust::sequence(raft::resource::get_thrust_policy(res),
+                   d_uf_parent.data_handle(),
+                   d_uf_parent.data_handle() + graph_size);
+
   const uint32_t num_warps = 4;
   const dim3 threads_merge(raft::WarpSize * num_warps, 1, 1);
   const dim3 blocks_merge(raft::ceildiv(batch_size, num_warps), 1, 1);
   const size_t merge_smem_size = num_warps * output_graph_degree * sizeof(IdxT);
+  const uint32_t threads_union = 256;
   for (uint32_t i_batch = 0; i_batch < num_batch; i_batch++) {
     auto mst_graph_view           = (*d_mst_graph).view();
     auto mst_graph_num_edges_view = (*d_mst_graph_num_edges).view();
@@ -899,6 +1016,13 @@ void merge_graph_gpu(
                                                        guarantee_connectivity,
                                                        d_check_num_protected_edges.view(),
                                                        d_natural_degree);
+
+    // Must be enqueued before prefetch_next_batch(), which syncs the stream before the batch
+    // buffer is reused.
+    const uint32_t blocks_union = raft::ceildiv<uint64_t>(output_view.size(), threads_union);
+    kern_union_edges<IdxT>
+      <<<blocks_union, threads_union, 0, raft::resource::get_cuda_stream(res).get()>>>(
+        output_view, static_cast<uint64_t>(batch_size) * i_batch, d_uf_parent);
 
     d_output_graph.prefetch_next_batch();
     d_mst_graph.prefetch_next_batch();
@@ -1793,6 +1917,10 @@ void optimize(
   RAFT_LOG_DEBUG("\n# Making reverse graph time: %.1lf ms",
                  (time_make_end - time_make_start) * 1000.0);
 
+  // Union-find forest of the merged graph for the connectivity check (random access / atomics)
+  auto d_uf_parent =
+    raft::make_device_mdarray<IdxT>(res, default_ws_mr, raft::make_extents<int64_t>(graph_size));
+
   // merge graph -- will always use GPU path
   {
     if (variable_graph_degree) {
@@ -1803,7 +1931,8 @@ void optimize(
                                                        mst_graph.view(),
                                                        mst_graph_num_edges.view(),
                                                        guarantee_connectivity,
-                                                       d_natural_degree.view());
+                                                       d_natural_degree.view(),
+                                                       d_uf_parent.view());
     } else {
       merge_graph_gpu<IdxT, AccessorOutputGraph, false>(res,
                                                         new_graph,
@@ -1812,9 +1941,13 @@ void optimize(
                                                         mst_graph.view(),
                                                         mst_graph_num_edges.view(),
                                                         guarantee_connectivity,
-                                                        d_natural_degree.view());
+                                                        d_natural_degree.view(),
+                                                        d_uf_parent.view());
     }
   }
+
+  // d_rev_graph_count is no longer needed after the merge and serves as scratch here.
+  log_connected_components<IdxT>(res, d_uf_parent.view(), d_rev_graph_count.view());
 
   raft::resource::sync_stream(res);
 
