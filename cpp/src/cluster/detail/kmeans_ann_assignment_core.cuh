@@ -12,7 +12,8 @@
  * E-step and M-step is the existing Lloyd code. The index always matches the centroids used in
  * the iteration.
  *
- * Only float data with the L2Expanded / L2SqrtExpanded metrics is supported.
+ * Only float data is supported. The metric (L2Expanded / L2SqrtExpanded) is already enforced by
+ * fit/predict.
  */
 #pragma once
 
@@ -42,11 +43,6 @@ bool use_ann_assignment(cuvs::cluster::kmeans::params const& params,
     RAFT_LOG_WARN("kmeans: use_ann_for_assignment requires float data; using brute force.");
     return false;
   } else {
-    if (params.metric != cuvs::distance::DistanceType::L2Expanded &&
-        params.metric != cuvs::distance::DistanceType::L2SqrtExpanded) {
-      RAFT_LOG_WARN("kmeans: use_ann_for_assignment requires an L2 metric; using brute force.");
-      return false;
-    }
     if (n_clusters < 2) {
       RAFT_LOG_WARN("kmeans: use_ann_for_assignment requires n_clusters >= 2; using brute force.");
       return false;

@@ -182,9 +182,10 @@ struct params : base_params {
    * settings come from `ann_index_params` and `ann_search_params`; a larger `itopk_size` is more
    * accurate and slower.
    *
-   * Only `float` data with the L2Expanded or L2SqrtExpanded metric is supported; other
-   * combinations log a warning and use brute force. When `n_features` is not a multiple of 4 (CAGRA
-   * row alignment), the centroids are copied into a zero-padded buffer for each index build.
+   * Only `float` data is supported; other data types log a warning and use brute force (Lloyd's
+   * k-means itself already requires the L2Expanded or L2SqrtExpanded metric). When `n_features` is
+   * not a multiple of 4 (CAGRA row alignment), the centroids are copied into a zero-padded buffer
+   * for each index build.
    * Ignored by the multi-GPU `fit`. The reported inertia of `fit` is always computed exactly.
    *
    * Default: false.
