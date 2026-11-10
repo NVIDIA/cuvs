@@ -88,6 +88,7 @@ std::tuple<size_t, size_t, size_t, size_t> optimize_workspace_size(size_t n_rows
     combine_dev_fixed += 2 * batch_size * sizeof(uint32_t);  // d_mst_graph_num_edges(2*batch)
   }
   size_t combine_dev = combine_dev_fixed;
+  combine_dev += n_rows * index_size;  // d_uf_parent (connectivity check)
 
   size_t debug_host_size = 0;
   if (raft::default_logger().should_log(rapids_logger::level_enum::debug)) {
