@@ -59,16 +59,6 @@ Build the indexes and writes it to the disk.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:233`_
 
-### doMergeOneField
-
-```java
-@Override void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
-```
-
-Merges one field, building its graph from the merged vectors.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:317`_
-
 ### finish
 
 ```java
@@ -98,5 +88,16 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 Returns the memory usage of this object in bytes.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:377`_
+
+### mergeOneField
+
+```java
+@Override public IORunnable mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
+```
+
+Merges one field, building its index as it does, and returns `null`: nothing is left
+for Lucene to run once every field has been merged.
+
+_Source: `java/cuvs-lucene/compat/knn-vectors-writer-105-iorunnable/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsWriter.java:28`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.java:57`_

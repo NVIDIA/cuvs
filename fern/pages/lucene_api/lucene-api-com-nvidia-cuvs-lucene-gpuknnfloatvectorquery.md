@@ -95,4 +95,17 @@ Initializes `GPUKnnFloatVectorQuery`.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:168`_
 
+### getKnnCollectorManager
+
+```java
+@Override protected KnnCollectorManager getKnnCollectorManager(int k, IndexSearcher searcher)
+```
+
+Returns a manager that is not optimistic. Since Lucene 10.3, `rewrite` searches again,
+expecting more hits, every segment whose hits all beat the global top-k when the manager is
+optimistic. `#approximateSearch` does not use the manager, so that second search would
+only repeat the first one.
+
+_Source: `java/cuvs-lucene/compat/knn-float-vector-query-103-acceptdocs/src/main/java/com/nvidia/cuvs/lucene/CompatKnnFloatVectorQuery.java:88`_
+
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:91`_

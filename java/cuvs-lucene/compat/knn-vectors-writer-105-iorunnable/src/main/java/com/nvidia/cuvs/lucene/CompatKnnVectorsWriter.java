@@ -22,6 +22,10 @@ import org.apache.lucene.util.IORunnable;
  */
 abstract class CompatKnnVectorsWriter extends KnnVectorsWriter {
 
+  /**
+   * Merges one field, building its index as it does, and returns {@code null}: nothing is left
+   * for Lucene to run once every field has been merged.
+   */
   @Override
   public IORunnable mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     doMergeOneField(fieldInfo, mergeState);
