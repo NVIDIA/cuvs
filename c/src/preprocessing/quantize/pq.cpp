@@ -54,6 +54,13 @@ void _transform(cuvsResources_t res,
   }
 }
 
+// GCC 14 reports a false-positive -Wmaybe-uninitialized when it inlines the copy of
+// pq::params (whose kmeans::params alternative embeds the CAGRA index/search params variants) into
+// the quantizer constructed below.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
 template <typename T>
 void* _build(cuvsResources_t res,
              cuvsProductQuantizerParams_t params,
@@ -83,6 +90,9 @@ void* _build(cuvsResources_t res,
   }
   return ret;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 template <typename DataT, typename QuantT = uint8_t>
 void _inverse_transform(cuvsResources_t res,
