@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -68,7 +68,9 @@ __device__ void compute_distances(const uint32_t* chunk_indices,
                                   const int64_t* const* inds_ptrs,
                                   uint32_t* bitset_ptr,
                                   int64_t bitset_len,
-                                  int64_t original_nbits);
+                                  int64_t original_nbits,
+                                  uint32_t force_n_probes,
+                                  OutT forced_score);
 
 template <typename OutT>
 __device__ OutT get_early_stop_limit(OutT query_kth);

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -36,7 +36,9 @@ extern "C" __global__ void compute_similarity(uint32_t dim,
                                               int64_t original_nbits,
                                               lut_t* lut_scores,
                                               out_t* _out_scores,
-                                              uint32_t* _out_indices)
+                                              uint32_t* _out_indices,
+                                              uint32_t force_n_probes,
+                                              out_t forced_score)
 {
   cuvs::neighbors::ivf_pq::detail::compute_similarity_impl<out_t, lut_t>(dim,
                                                                          n_probes,
@@ -60,7 +62,9 @@ extern "C" __global__ void compute_similarity(uint32_t dim,
                                                                          original_nbits,
                                                                          lut_scores,
                                                                          _out_scores,
-                                                                         _out_indices);
+                                                                         _out_indices,
+                                                                         force_n_probes,
+                                                                         forced_score);
 }
 
 static_assert(

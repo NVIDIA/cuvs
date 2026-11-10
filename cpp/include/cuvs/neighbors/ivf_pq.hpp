@@ -211,18 +211,15 @@ struct search_params : cuvs::neighbors::search_params {
    */
   uint32_t max_internal_batch_size = 4096;
   /**
-   * [Internal] The number of the last results of the `k` returned for each query that come from
-   * randomly selected probes instead of the nearest samples; zero (default) is the usual search.
+   * [Internal] The minimum number of different probes (lists) the `k` results of each query should
+   * come from; zero (default) is the usual search.
    *
-   * If non-zero, the fine search runs the search kernel twice. The first pass is the usual search
-   * for the `k - n_random_probes` nearest results. In the second pass, `n_random_probes` probes
-   * are selected uniformly at random among the `n_probes` probed lists of each query, and every
-   * such list reports its nearest sample (the running k-th distance threshold is not used there).
-   * These samples take the last `n_random_probes` places of the results (they are not checked for
-   * the repeats of the nearest results).
-   * The value is clamped to `min(k - 1, n_probes)`, and ignored if `n_probes == 1`.
+   * If a value above zero is requested, the best sample of `force_n_probes` probes of each query
+   * is always kept in the results, so these results come from different probes.
+   * The distances of such samples are not meaningful.
+   * This is useful for generating neighbor graphs with improved connectivity.
    */
-  uint32_t n_random_probes = 0;
+  uint32_t force_n_probes = 0;
 };
 /**
  * @}
@@ -3398,7 +3395,8 @@ struct ivf_pq_params {
   cuvs::neighbors::ivf_pq::index_params build_params;
   cuvs::neighbors::ivf_pq::search_params search_params;
   float refinement_rate = 1.0;
-  ivf_pq_params()       = default;
+
+  ivf_pq_params() = default;
 
   /**
    * Set default parameters based on shape of the input dataset.
@@ -3456,8 +3454,8 @@ struct ivf_pq_params {
     search_params.max_internal_batch_size = 128 * 1024;
 
     refinement_rate = 1;
-    // A few neighbors from random lists connect the clusters of the dataset in the graph.
-    search_params.n_random_probes = 1;
+    // A neighbor from another list connects the clusters of the dataset in the graph.
+    search_params.force_n_probes = std::min<uint32_t>({4, search_params.n_probes / 4});
   }
 };
 }  // namespace graph_build_params

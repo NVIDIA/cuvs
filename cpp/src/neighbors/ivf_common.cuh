@@ -119,8 +119,7 @@ __launch_bounds__(BlockDim) RAFT_KERNEL
                                const uint32_t* chunk_indices,      // [n_queries, n_probes]
                                uint32_t n_queries,
                                uint32_t n_probes,
-                               uint32_t topk,
-                               size_t out_stride)
+                               uint32_t topk)
 {
   static_assert(!raft::is_narrowing_v<uint32_t, IdxT>,
                 "IdxT must be able to represent all values of uint32_t");
@@ -129,7 +128,7 @@ __launch_bounds__(BlockDim) RAFT_KERNEL
   if (query_ix >= n_queries) { return; }
   const uint32_t k = i % uint64_t(topk);
   neighbors_in += query_ix * topk;
-  neighbors_out += query_ix * out_stride;
+  neighbors_out += query_ix * topk;
   chunk_indices += query_ix * n_probes;
   clusters_to_probe += query_ix * n_probes;
   uint32_t data_ix        = neighbors_in[k];
@@ -155,8 +154,7 @@ void postprocess_neighbors(IdxT* neighbors_out,                // [n_queries, to
                            uint32_t n_queries,
                            uint32_t n_probes,
                            uint32_t topk,
-                           cuda::stream_ref stream,
-                           size_t out_stride = 0)  // the row stride of the output (0: dense rows)
+                           cuda::stream_ref stream)
 {
   constexpr int kPNThreads = 256;
   const int pn_blocks      = raft::div_rounding_up_unsafe<size_t>(n_queries * topk, kPNThreads);
@@ -168,37 +166,7 @@ void postprocess_neighbors(IdxT* neighbors_out,                // [n_queries, to
                                                  chunk_indices,
                                                  n_queries,
                                                  n_probes,
-                                                 topk,
-                                                 out_stride == 0 ? topk : out_stride);
-}
-
-/** Writes `op(in)` into the rows of `out`; the padding of the rows (if any) is left unchanged. */
-template <typename OutView, typename InView, typename OpT>
-struct padded_rows_op {
-  OutView out;
-  InView in;
-  OpT op;
-  HDI auto operator()(size_t i) const -> typename OutView::value_type
-  {
-    const size_t col = i % out.stride(0);
-    if (col >= in.extent(1)) { return out.data_handle()[i]; }
-    return op(in(i / out.stride(0), col));
-  }
-};
-
-/** Same as `raft::linalg::map`, but the rows of the output may be padded (strided). */
-template <typename OutView, typename InView, typename OpT>
-void map_padded_output(const raft::resources& res, OutView out, OpT op, InView in)
-{
-  if (out.is_exhaustive()) {
-    raft::linalg::map(res, out, op, in);
-  } else {
-    raft::linalg::map_offset(
-      res,
-      raft::make_device_vector_view<typename OutView::value_type, size_t>(
-        out.data_handle(), (out.extent(0) - 1) * out.stride(0) + out.extent(1)),
-      padded_rows_op<OutView, InView, OpT>{out, in, op});
-  }
+                                                 topk);
 }
 
 /**
@@ -213,71 +181,70 @@ void postprocess_distances(const raft::resources& res,
                            uint32_t n_queries,
                            uint32_t topk,
                            float scaling_factor,
-                           bool account_for_max_close,
-                           size_t out_stride = 0)  // the row stride of the output (0: dense rows)
+                           bool account_for_max_close)
 {
   constexpr bool needs_cast = !std::is_same<ScoreInT, ScoreOutT>::value;
   const bool needs_copy     = ((void*)in) != ((void*)out);
-  auto out_view             = raft::make_device_strided_matrix_view<ScoreOutT, size_t>(
-    out, size_t(n_queries), size_t(topk), out_stride);
-  auto in_view = raft::make_device_matrix_view<const ScoreInT, size_t>(in, n_queries, topk);
+  size_t len                = size_t(n_queries) * size_t(topk);
+  auto out_view             = raft::make_device_vector_view<ScoreOutT, size_t>(out, len);
+  auto in_view              = raft::make_device_vector_view<const ScoreInT, size_t>(in, len);
   switch (metric) {
     case distance::DistanceType::L2Unexpanded:
     case distance::DistanceType::L2Expanded: {
       if (scaling_factor != 1.0) {
-        map_padded_output(
+        raft::linalg::map(
           res,
           out_view,
           raft::compose_op(raft::mul_const_op<ScoreOutT>{scaling_factor * scaling_factor},
                            raft::cast_op<ScoreOutT>{}),
           raft::make_const_mdspan(in_view));
       } else if (needs_cast || needs_copy) {
-        map_padded_output(
+        raft::linalg::map(
           res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
       }
     } break;
     case distance::DistanceType::L2SqrtUnexpanded:
     case distance::DistanceType::L2SqrtExpanded: {
       if (scaling_factor != 1.0) {
-        map_padded_output(res,
+        raft::linalg::map(res,
                           out_view,
                           raft::compose_op{raft::mul_const_op<ScoreOutT>{scaling_factor},
                                            raft::sqrt_op{},
                                            raft::cast_op<ScoreOutT>{}},
                           raft::make_const_mdspan(in_view));
       } else if (needs_cast) {
-        map_padded_output(res,
+        raft::linalg::map(res,
                           out_view,
                           raft::compose_op{raft::sqrt_op{}, raft::cast_op<ScoreOutT>{}},
                           raft::make_const_mdspan(in_view));
       } else {
-        map_padded_output(res, out_view, raft::sqrt_op{}, raft::make_const_mdspan(in_view));
+        raft::linalg::map(res, out_view, raft::sqrt_op{}, raft::make_const_mdspan(in_view));
       }
     } break;
     case distance::DistanceType::CosineExpanded:
     case distance::DistanceType::InnerProduct: {
       float factor = (account_for_max_close ? -1.0 : 1.0) * scaling_factor * scaling_factor;
       if (factor != 1.0) {
-        map_padded_output(
+        raft::linalg::map(
           res,
           out_view,
           raft::compose_op(raft::mul_const_op<ScoreOutT>{factor}, raft::cast_op<ScoreOutT>{}),
           raft::make_const_mdspan(in_view));
       } else if (needs_cast || needs_copy) {
-        map_padded_output(
+        raft::linalg::map(
           res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
       }
     } break;
     case distance::DistanceType::BitwiseHamming: break;
     case distance::DistanceType::L1: {
       if (scaling_factor != 1.0) {
-        map_padded_output(res,
+        raft::linalg::map(res,
                           out_view,
                           raft::compose_op(raft::mul_const_op<ScoreOutT>{scaling_factor},
                                            raft::cast_op<ScoreOutT>{}),
                           raft::make_const_mdspan(in_view));
       } else if (needs_cast || needs_copy) {
-        map_padded_output(
+        raft::linalg::map(
           res, out_view, raft::cast_op<ScoreOutT>{}, raft::make_const_mdspan(in_view));
       }
     } break;

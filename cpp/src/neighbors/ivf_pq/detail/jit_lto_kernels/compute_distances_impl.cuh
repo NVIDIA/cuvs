@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -61,9 +61,7 @@ __device__ void compute_distances_impl(const uint32_t* chunk_indices,
 
   constexpr OutT kDummy = raft::upper_bound<OutT>();
   OutT query_kth        = kDummy;
-  if constexpr (kManageLocalTopK) {
-    if (query_kths != nullptr) { query_kth = OutT(query_kths[query_ix]); }
-  }
+  if constexpr (kManageLocalTopK) { query_kth = OutT(query_kths[query_ix]); }
   OutT early_stop_limit = get_early_stop_limit(query_kth);
 
   // Ensure lut_scores is written by all threads before using it in ivfpq-compute-score
@@ -95,9 +93,7 @@ __device__ void compute_distances_impl(const uint32_t* chunk_indices,
     __syncthreads();
     block_topk.done(smem_buf);
     block_topk.store(out_scores, out_indices);
-    if (query_kths != nullptr && threadIdx.x == 0) {
-      atomicMin(query_kths + query_ix, float(out_scores[topk - 1]));
-    }
+    if (threadIdx.x == 0) { atomicMin(query_kths + query_ix, float(out_scores[topk - 1])); }
   } else {
     // fill in the rest of the out_scores with dummy values
     if (probe_ix + 1 == n_probes) {

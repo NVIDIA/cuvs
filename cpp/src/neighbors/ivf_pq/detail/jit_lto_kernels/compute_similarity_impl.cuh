@@ -57,8 +57,7 @@ namespace cuvs::neighbors::ivf_pq::detail {
  *   One can pass reordered indices here to try to improve data reading locality.
  * @param query_kth
  *   query_kths keep the current state of the filtering - atomically updated distances to the
- *   k-th closest neighbors for each query [n_queries]. May be nullptr to disable the filtering
- *   shared across the probes (every probe then reports its own top-k).
+ *   k-th closest neighbors for each query [n_queries].
  * @param sample_filter
  *   A filter that selects samples for a given query.
  * @param lut_scores
@@ -73,6 +72,11 @@ namespace cuvs::neighbors::ivf_pq::detail {
  *   clusters / defined by the `_chunk_indices`.
  *   The indices can have values within the range [0, max_samples).
  *   Ignored  when `Capacity == 0`.
+ * @param force_n_probes
+ *   The number of probes of each query (selected pseudo-randomly) that report their best sample
+ *   regardless of the other probes, so that the final top-k contains it; zero disables forcing.
+ * @param forced_score
+ *   The score of the forced samples; it should be the lowest possible score for the metric.
  */
 template <typename OutT, typename LutT>
 __device__ void compute_similarity_impl(uint32_t dim,
@@ -97,7 +101,9 @@ __device__ void compute_similarity_impl(uint32_t dim,
                                         int64_t original_nbits,
                                         LutT* lut_scores,
                                         OutT* _out_scores,
-                                        uint32_t* _out_indices)
+                                        uint32_t* _out_indices,
+                                        uint32_t force_n_probes,
+                                        OutT forced_score)
 {
   /* Shared memory:
 
@@ -169,7 +175,9 @@ __device__ void compute_similarity_impl(uint32_t dim,
                                   inds_ptrs,
                                   bitset_ptr,
                                   bitset_len,
-                                  original_nbits);
+                                  original_nbits,
+                                  force_n_probes,
+                                  forced_score);
   }
 }
 
