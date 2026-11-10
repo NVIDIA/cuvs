@@ -31,7 +31,8 @@ results = orchestrator.run_benchmark(
 2. The orchestrator finds the config loader registered for the requested backend type.
 3. The config loader returns a `DatasetConfig` and one or more `BenchmarkConfig` objects.
 4. The orchestrator creates the backend registered for the same backend type.
-5. The backend runs `build(...)` and `search(...)`, then returns `BuildResult` and `SearchResult` objects.
+5. The backend runs `build(...)` and `search(...)`, then returns a `BuildResult`
+   and a list of `SearchResult` objects.
 
 The config loader decides what to run. The backend decides how to run it.
 
@@ -54,109 +55,113 @@ Each `IndexConfig` describes one index to benchmark:
 | `search_params` | Search parameter combinations to benchmark. |
 | `file` | Path or identifier where the backend stores the index. |
 
-The following minimal loader creates one dataset, one index, and one search configuration:
+`ConfigLoader.load()` owns dataset-configuration loading and parameter expansion. A backend
+loader implements the two template hooks below. This minimal network loader
+creates one index configuration for each requested algorithm and group:
 
 ```python
+from pathlib import Path
+
 from cuvs_bench.orchestrator.config_loaders import (
-    ConfigLoader,
-    DatasetConfig,
     BenchmarkConfig,
+    ConfigLoader,
     IndexConfig,
 )
 
 class MyConfigLoader(ConfigLoader):
+    def __init__(self, config_path=None):
+        self.config_path = str(
+            Path(config_path) if config_path else Path(__file__).parent / "config"
+        )
+
     @property
     def backend_type(self) -> str:
         return "my_backend"
 
-    def load(self, dataset, dataset_path, algorithms, count=10, batch_size=10000, **kwargs):
-        dataset_config = DatasetConfig(
-            name=dataset,
-            base_file=...,
-            query_file=...,
-            groundtruth_neighbors_file=...,
-            distance="euclidean",
-            dims=128,
-        )
-        index = IndexConfig(
-            name=f"{algorithms}.default",
-            algo=algorithms,
-            build_param={"nlist": 1024},
-            search_params=[{"nprobe": 10}],
-            file=...,
-        )
-        benchmark_config = BenchmarkConfig(
-            indexes=[index],
-            backend_config={
-                "host": ...,
-                "port": ...,
-                "index_name": ...,
-            },
-        )
-        return dataset_config, [benchmark_config]
+    def _discover_algo_groups(
+        self, dataset_conf, dataset, dataset_path, **kwargs
+    ):
+        algorithms = (kwargs.get("algorithms") or "my_algorithm").split(",")
+        groups = (kwargs.get("groups") or "default").split(",")
+        group_config = {
+            "build": {},
+            "search": {"ef_search": [100]},
+        }
+        return [
+            (algorithm.strip(), group.strip(), group_config, {})
+            for algorithm in algorithms
+            for group in groups
+        ]
+
+    def _build_benchmark_configs(
+        self,
+        dataset_config,
+        dataset_conf,
+        dataset,
+        dataset_path,
+        expanded_groups,
+        **kwargs,
+    ):
+        configurations = []
+        for (
+            algorithm,
+            group,
+            _group_config,
+            build_combinations,
+            search_combinations,
+            _group_metadata,
+        ) in expanded_groups:
+            indexes = [
+                IndexConfig(
+                    name=f"{algorithm}.{group}",
+                    algo=algorithm,
+                    build_param=build_parameters,
+                    search_params=search_combinations,
+                    file=str(
+                        Path(dataset_path)
+                        / dataset
+                        / "index"
+                        / f"{algorithm}.{group}"
+                    ),
+                )
+                for build_parameters in build_combinations
+            ]
+            configurations.append(
+                BenchmarkConfig(
+                    indexes=indexes,
+                    backend_config={
+                        "host": kwargs.get("host", "localhost"),
+                        "port": kwargs.get("port", 9200),
+                        "algo": algorithm,
+                    },
+                )
+            )
+        return configurations
 ```
 
 ## Adding a backend
 
 Add a new backend when cuVS Bench needs to drive a different execution path, such as a vector database, remote service, or custom benchmark runner.
 
-1. Implement a config loader by subclassing `ConfigLoader` from `cuvs_bench.orchestrator.config_loaders`. Its `load()` method should return `(DatasetConfig, List[BenchmarkConfig])`.
-2. Implement a backend by subclassing `BenchmarkBackend` from `cuvs_bench.backends.base`. Its `build()` method should return `BuildResult`; its `search()` method should return `SearchResult`.
+1. Implement a config loader by subclassing `ConfigLoader` and defining
+   `_discover_algo_groups()`, `_build_benchmark_configs()`, and `backend_type`.
+   The inherited `load()` method returns
+   `(DatasetConfig, List[BenchmarkConfig])`.
+2. Implement a backend by subclassing `BenchmarkBackend`. Its `build()` method
+   returns `BuildResult`; its `search()` method returns `List[SearchResult]`.
 3. Register both pieces with the same backend type name.
-4. Run benchmarks with `BenchmarkOrchestrator(backend_type="my_backend")`.
+4. Select an installed backend with a YAML `backend:` field passed through
+   `--backend-config`, or construct `BenchmarkOrchestrator` directly with its
+   `backend_type`.
 
-```python
-from cuvs_bench.orchestrator import register_config_loader
-from cuvs_bench.backends import get_registry
+The registration example below uses an idempotent function to register both pieces.
 
-register_config_loader("my_backend", MyConfigLoader)
-get_registry().register("my_backend", MyBackend)
-```
+## Example: network backend
 
-## Example: Elasticsearch backend
-
-This example shows the shape of a network backend. The loader creates the dataset and benchmark configs. The backend uses `backend_config` to connect to the service, build the index, run search, and return cuVS Bench result objects.
-
-```python
-from cuvs_bench.orchestrator.config_loaders import (
-    ConfigLoader,
-    DatasetConfig,
-    BenchmarkConfig,
-    IndexConfig,
-)
-
-class ElasticsearchConfigLoader(ConfigLoader):
-    @property
-    def backend_type(self) -> str:
-        return "elasticsearch"
-
-    def load(self, dataset, dataset_path, algorithms, count=10, batch_size=10000, **kwargs):
-        dataset_config = DatasetConfig(
-            name=dataset,
-            base_file=...,
-            query_file=...,
-            groundtruth_neighbors_file=...,
-            distance="euclidean",
-            dims=kwargs.get("dims", 128),
-        )
-        index = IndexConfig(
-            name=f"{algorithms}.es",
-            algo=algorithms,
-            build_param={},
-            search_params=[{"ef_search": 100}],
-            file=...,
-        )
-        benchmark_config = BenchmarkConfig(
-            indexes=[index],
-            backend_config={
-                "host": ...,
-                "port": ...,
-                "index_name": ...,
-                "algo": algorithms,
-            },
-        )
-        return dataset_config, [benchmark_config]
-```
+This is interface scaffolding, not a working benchmark. The zero-valued results
+below are fabricated placeholders: replace them with real service calls and
+measurements before use. The loader also needs a packaged
+`config/datasets/datasets.yaml` describing the datasets it accepts.
 
 ```python
 import numpy as np
@@ -166,10 +171,12 @@ from cuvs_bench.backends.base import (
     SearchResult,
 )
 
-class ElasticsearchBackend(BenchmarkBackend):
+class MyBackend(BenchmarkBackend):
+    default_algorithm = "my_algorithm"
+
     @property
     def algo(self) -> str:
-        return self.config.get("algo", "elasticsearch")
+        return self.config.get("algo", "my_algorithm")
 
     def build(self, dataset, indexes, force=False, dry_run=False):
         return BuildResult(
@@ -194,33 +201,74 @@ class ElasticsearchBackend(BenchmarkBackend):
         dry_run=False,
     ):
         n_queries = dataset.n_queries
-        return SearchResult(
-            neighbors=np.zeros((n_queries, k), dtype=np.int64),
-            distances=np.zeros((n_queries, k), dtype=np.float32),
-            search_time_ms=0.0,
-            queries_per_second=0.0,
-            recall=0.0,
-            algorithm=self.algo,
-            search_params=indexes[0].search_params if indexes else [],
-            success=True,
-        )
+        return [
+            SearchResult(
+                neighbors=np.zeros((n_queries, k), dtype=np.int64),
+                distances=np.zeros((n_queries, k), dtype=np.float32),
+                search_time_ms=0.0,
+                queries_per_second=0.0,
+                recall=0.0,
+                algorithm=self.algo,
+                search_params=indexes[0].search_params if indexes else [],
+                success=True,
+            )
+        ]
 ```
 
 ```python
-from cuvs_bench.orchestrator import register_config_loader
-from cuvs_bench.backends import get_registry
+from cuvs_bench.backends.registry import (
+    get_registry,
+    list_config_loaders,
+    register_backend,
+    register_config_loader,
+)
 
-register_config_loader("elasticsearch", ElasticsearchConfigLoader)
-get_registry().register("elasticsearch", ElasticsearchBackend)
+def register():
+    registry = get_registry()
+    if not registry.is_registered("my_backend"):
+        register_backend("my_backend", MyBackend)
+    if "my_backend" not in list_config_loaders():
+        register_config_loader("my_backend", MyConfigLoader)
 ```
+
+Installed plugins publish the same idempotent registration function in both
+entry-point groups:
+
+```toml
+[project.entry-points."cuvs_bench.backends"]
+my_backend = "my_package.backend:register"
+
+[project.entry-points."cuvs_bench.config_loaders"]
+my_backend = "my_package.backend:register"
+```
+
+Select the installed backend with a small YAML file:
+
+```yaml
+backend: my_backend
+host: localhost
+port: 9200
+```
+
+```bash
+python -m cuvs_bench.run --backend-config my-backend.yaml
+```
+
+`BenchmarkBackend.default_algorithm` supplies the CLI's algorithm default for
+the selected backend. The default value is `None`, which retains the cuVS Bench
+CLI default. A backend may also override `result_failure_message(results)` to
+return a message when failed result objects should make the CLI exit nonzero
+after export processing. Unsuccessful, skipped, and dry-run results are
+excluded from the CSV output and do not replace prior measurements. Returning
+`None` keeps the default nonfatal policy.
 
 ## Components at a glance
 
 | Component | Description |
 | --- | --- |
-| `ConfigLoader` | Abstract class whose `load(**kwargs)` method returns `(DatasetConfig, List[BenchmarkConfig])`. Register with `register_config_loader(backend_type, loader_class)`. |
-| `BenchmarkBackend` | Abstract class whose `build(...)` method returns `BuildResult` and whose `search(...)` method returns `SearchResult`. Register with `BackendRegistry.register(name, backend_class)`. |
-| `BackendRegistry` | Singleton registry returned by `get_registry()`. It maps backend type names to backend classes. |
+| `ConfigLoader` | Template base class whose `load(**kwargs)` method returns `(DatasetConfig, List[BenchmarkConfig])`; plugins implement its discovery/build hooks. Register with `register_config_loader(backend_type, loader_class)`. |
+| `BenchmarkBackend` | Abstract class whose `build(...)` method returns `BuildResult` and whose `search(...)` method returns `List[SearchResult]`. Its optional class hooks control the CLI algorithm default and fatal-result policy. |
+| `BackendRegistry` | Singleton registry returned by `get_registry()` that stores registered backend classes. The `get_backend_class()` and `get_config_loader()` helpers discover matching installed entry points on demand. |
 
 ## C++ Backend
 
