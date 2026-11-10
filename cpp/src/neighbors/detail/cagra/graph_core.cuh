@@ -998,6 +998,10 @@ void sort_knn_graph(
       metric == cuvs::distance::DistanceType::L1,
     "Unsupported metric. Only InnerProduct, CosineExpanded, L2Expanded, BitwiseHamming, L1 and "
     "BitwiseJaccard are supported");
+  RAFT_EXPECTS(metric != cuvs::distance::DistanceType::BitwiseJaccard ||
+                 (std::is_same_v<DataT, int8_t> || std::is_same_v<DataT, uint8_t>),
+               "BitwiseJaccard distance is only supported for int8_t and uint8_t data types. "
+               "Current data type is not supported.");
   const uint64_t dataset_size = dataset.extent(0);
   const uint64_t dataset_dim  = dataset.extent(1);
   const DataT* dataset_ptr    = dataset.data_handle();

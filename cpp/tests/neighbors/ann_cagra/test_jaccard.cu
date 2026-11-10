@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../../src/neighbors/detail/cagra/graph_core.cuh"
+
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 
@@ -357,6 +359,30 @@ TEST(CagraJaccard, PackedInputRequiresBytes)
   nn_params.metric = params.metric;
   EXPECT_THROW(nn_descent::build(res, nn_params, raft::make_const_mdspan(data.view())),
                raft::exception);
+}
+
+template <typename T>
+class CagraJaccardSortInvalidTypeTest : public ::testing::Test {};
+using InvalidJaccardTypes = ::testing::Types<float, half>;
+TYPED_TEST_SUITE(CagraJaccardSortInvalidTypeTest, InvalidJaccardTypes);
+
+TYPED_TEST(CagraJaccardSortInvalidTypeTest, RejectsHostAndDeviceDatasets)
+{
+  raft::device_resources res;
+  auto data = raft::make_host_matrix<TypeParam, int64_t>(3, 1);
+  std::fill_n(data.data_handle(), data.size(), TypeParam(0));
+  auto device_data = raft::make_device_matrix<TypeParam, int64_t>(res, 3, 1);
+  raft::copy(device_data.data_handle(), data.data_handle(), data.size(), res.get_stream());
+  auto graph = raft::make_host_matrix<uint32_t, int64_t>(3, 2);
+  std::fill_n(graph.data_handle(), graph.size(), uint32_t(0));
+  constexpr auto metric = cuvs::distance::DistanceType::BitwiseJaccard;
+  EXPECT_THROW(
+    detail::graph::sort_knn_graph(res, metric, raft::make_const_mdspan(data.view()), graph.view()),
+    raft::exception);
+  EXPECT_THROW(detail::graph::sort_knn_graph(
+                 res, metric, raft::make_const_mdspan(device_data.view()), graph.view()),
+               raft::exception);
+  res.sync_stream();
 }
 
 TEST(CagraJaccard, UnpackedMetricIsRejected)

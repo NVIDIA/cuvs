@@ -558,12 +558,14 @@ __device__ __forceinline__ void calculate_metric(float* s_distances,
           s_distances[i] += __popc(static_cast<uint32_t>(data_n1[d] ^ data_n2[d]) & 0xff);
         }
       } else if (metric == cuvs::distance::DistanceType::BitwiseJaccard) {
-        int n1                 = row_neighbors[row_id];
-        int n2                 = col_neighbors[col_id];
-        const uint8_t* data_n1 = reinterpret_cast<const uint8_t*>(data) + n1 * data_dim;
-        const uint8_t* data_n2 = reinterpret_cast<const uint8_t*>(data) + n2 * data_dim;
-        float differing        = 0.0f;
-        float set_union        = 0.0f;
+        int n1 = row_neighbors[row_id];
+        int n2 = col_neighbors[col_id];
+        const uint8_t* data_n1 =
+          reinterpret_cast<const uint8_t*>(data) + static_cast<size_t>(n1) * data_dim;
+        const uint8_t* data_n2 =
+          reinterpret_cast<const uint8_t*>(data) + static_cast<size_t>(n2) * data_dim;
+        float differing = 0.0f;
+        float set_union = 0.0f;
         for (int d = 0; d < data_dim; d++) {
           differing += __popc(data_n1[d] ^ data_n2[d]);
           set_union += __popc(data_n1[d] | data_n2[d]);

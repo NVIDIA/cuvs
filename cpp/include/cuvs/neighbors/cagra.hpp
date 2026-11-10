@@ -996,11 +996,6 @@ using cagra_index_t =
  * codebooks is built with iterative CAGRA search and must use L2Expanded, 8-bit PQ codes, and a
  * supported PQ subvector length.
  *
- * BitwiseJaccard accepts packed int8_t or uint8_t bitstrings. Each byte stores eight binary
- * features, and dataset/query dimensions are measured in bytes. Unused bits in the final byte
- * must be zero. Select NN-descent or iterative graph construction; ACE is supported only when
- * all partitions use NN-descent. Two empty bitstrings have distance zero.
- *
  * When `index_params.attach_dataset_on_build = true` (the default), a dense `dataset` view is
  * stored in the returned index as a **non-owning view** — no copy is made. The caller must keep the
  * underlying storage alive for the lifetime of the index. An index backed by a device view is then
