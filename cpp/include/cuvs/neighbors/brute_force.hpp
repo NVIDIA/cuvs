@@ -546,16 +546,11 @@ void search(raft::resources const& handle,
  * @param[out] neighbors a device pointer to the indices of the neighbors in the source dataset
  * [n_queries, k]
  * @param[out] distances a device pointer to the distances to the selected neighbors [n_queries, k]
- * @param[in] sample_filter An optional device filter that restricts which dataset elements should
- * be considered for each query.
+ * @param[in] sample_filter a device filter that restricts which dataset elements should be
+ * considered for each query.
  *
- * - Supports two types of filters:
- *   1. **Bitset Filter**: A shared filter where each bit corresponds to a dataset element.
- *      All queries share the same filter, with a logical shape of `[1, index->size()]`.
- *   2. **Bitmap Filter**: A per-query filter with a logical shape of `[n_queries, index->size()]`,
- *      where each bit indicates whether a specific dataset element should be considered for a
- *      particular query. (1 for inclusion, 0 for exclusion).
- *
+ * - Filtering isn't supported for col-major queries yet; only `none_sample_filter` is accepted.
+ *   Use row-major queries for filtered search.
  * - Use the overload without `sample_filter` to search without filtering.
  */
 void search(raft::resources const& handle,
@@ -637,16 +632,11 @@ void search(raft::resources const& handle,
  * @param[out] neighbors a device pointer to the indices of the neighbors in the source dataset
  * [n_queries, k]
  * @param[out] distances a device pointer to the distances to the selected neighbors [n_queries, k]
- * @param[in] sample_filter An optional device filter that restricts which dataset elements should
- * be considered for each query.
+ * @param[in] sample_filter a device filter that restricts which dataset elements should be
+ * considered for each query.
  *
- * - Supports two types of filters:
- *   1. **Bitset Filter**: A shared filter where each bit corresponds to a dataset element.
- *      All queries share the same filter, with a logical shape of `[1, index->size()]`.
- *   2. **Bitmap Filter**: A per-query filter with a logical shape of `[n_queries, index->size()]`,
- *      where each bit indicates whether a specific dataset element should be considered for a
- *      particular query. (1 for inclusion, 0 for exclusion).
- *
+ * - Filtering isn't supported for col-major queries yet; only `none_sample_filter` is accepted.
+ *   Use row-major queries for filtered search.
  * - Use the overload without `sample_filter` to search without filtering.
  */
 void search(raft::resources const& handle,

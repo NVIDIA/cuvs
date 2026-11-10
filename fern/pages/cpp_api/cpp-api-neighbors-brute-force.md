@@ -657,10 +657,7 @@ Note, this function requires a temporary buffer to store intermediate results be
 
 Usage example:
 
-- Supports two types of filters:
-1. **Bitset Filter**: A shared filter where each bit corresponds to a dataset element. All queries share the same filter, with a logical shape of `[1, index->size()]`.
-2. **Bitmap Filter**: A per-query filter with a logical shape of `[n_queries, index->size()]`, where each bit indicates whether a specific dataset element should be considered for a particular query. (1 for inclusion, 0 for exclusion).
-
+- Filtering isn't supported for col-major queries yet; only `none_sample_filter` is accepted. Use row-major queries for filtered search.
 - Use the overload without `sample_filter` to search without filtering.
 
 **Parameters**
@@ -673,7 +670,7 @@ Usage example:
 | `queries` | in | `raft::device_matrix_view<const float, int64_t, raft::col_major>` | a device pointer to a col-major matrix [n_queries, index-&gt;dim()] |
 | `neighbors` | out | `raft::device_matrix_view<int64_t, int64_t, raft::row_major>` | a device pointer to the indices of the neighbors in the source dataset [n_queries, k] |
 | `distances` | out | `raft::device_matrix_view<float, int64_t, raft::row_major>` | a device pointer to the distances to the selected neighbors [n_queries, k] |
-| `sample_filter` | in | `const cuvs::neighbors::filtering::base_filter&` | An optional device filter that restricts which dataset elements should be considered for each query. |
+| `sample_filter` | in | `const cuvs::neighbors::filtering::base_filter&` | a device filter that restricts which dataset elements should be considered for each query. |
 
 **Returns**
 
@@ -729,10 +726,7 @@ Note, this function requires a temporary buffer to store intermediate results be
 
 Usage example:
 
-- Supports two types of filters:
-1. **Bitset Filter**: A shared filter where each bit corresponds to a dataset element. All queries share the same filter, with a logical shape of `[1, index->size()]`.
-2. **Bitmap Filter**: A per-query filter with a logical shape of `[n_queries, index->size()]`, where each bit indicates whether a specific dataset element should be considered for a particular query. (1 for inclusion, 0 for exclusion).
-
+- Filtering isn't supported for col-major queries yet; only `none_sample_filter` is accepted. Use row-major queries for filtered search.
 - Use the overload without `sample_filter` to search without filtering.
 
 **Parameters**
@@ -745,7 +739,7 @@ Usage example:
 | `queries` | in | `raft::device_matrix_view<const half, int64_t, raft::col_major>` | a device pointer to a col-major matrix [n_queries, index-&gt;dim()] |
 | `neighbors` | out | `raft::device_matrix_view<int64_t, int64_t, raft::row_major>` | a device pointer to the indices of the neighbors in the source dataset [n_queries, k] |
 | `distances` | out | `raft::device_matrix_view<float, int64_t, raft::row_major>` | a device pointer to the distances to the selected neighbors [n_queries, k] |
-| `sample_filter` | in | `const cuvs::neighbors::filtering::base_filter&` | An optional device filter that restricts which dataset elements should be considered for each query. |
+| `sample_filter` | in | `const cuvs::neighbors::filtering::base_filter&` | a device filter that restricts which dataset elements should be considered for each query. |
 
 **Returns**
 
