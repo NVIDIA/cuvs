@@ -4,6 +4,7 @@
  */
 
 #include "../../src/cluster/detail/kmeans_batch_loader.cuh"
+#include "../../src/cluster/detail/kmeans_emeans.cuh"
 #include "../test_utils.cuh"
 #include "kmeans_test_blobs.cuh"
 
@@ -23,10 +24,237 @@
 
 #include <gtest/gtest.h>
 
+#include <limits>
 #include <optional>
 #include <vector>
 
 namespace cuvs {
+
+TEST(EMeans, Schedule)
+{
+  using namespace cuvs::cluster::kmeans;
+  emeans_params p;
+  p.epochs      = 2.5;
+  p.batch_size  = 4;
+  p.alpha0      = .8;
+  auto schedule = detail::resolve_emeans(p, 13, 2, 2);
+  EXPECT_EQ(schedule.epoch_rows, (std::vector<int64_t>{13, 6, 13}));
+  EXPECT_EQ(schedule.steps, 10);
+  EXPECT_DOUBLE_EQ(schedule.alpha(0), .8);
+  EXPECT_NEAR(schedule.alpha(schedule.steps), .08, 1e-15);
+  EXPECT_EQ(schedule.unused_threshold, 0);
+  p.epochs = .01;
+  EXPECT_THROW(detail::resolve_emeans(p, 13, 2, 2), raft::logic_error);
+  p.epochs = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(detail::resolve_emeans(p, 13, 2, 2), raft::logic_error);
+  p.epochs = 1;
+  p.alpha0 = 1.1;
+  EXPECT_THROW(detail::resolve_emeans(p, 13, 2, 2), raft::logic_error);
+}
+
+template <typename T, typename IdxT>
+void test_emeans_fit()
+{
+  // Both logical batches and fractional passes end in remainders. Physical host chunks of
+  // three rows cross five-row logical batches and must not change the optimizer trajectory.
+  constexpr IdxT n = 13, d = 2, k = 2;
+  std::vector<T> x(n * d);
+  const T positions[n] = {0, .25, 2.5, 5, 7.5, 8, 4.25, 3.75, 1, 7, 2, 6, 4};
+  for (IdxT i = 0; i < n; ++i) {
+    x[2 * i] = x[2 * i + 1] = positions[i];
+  }
+  std::vector<T> initial{0, 0, 8, 8}, expected(k * d, 0), counts(k, 0);
+  std::vector<T> running = initial, mass(k, T(0x1p-16));
+  auto nearest           = [&](IdxT row, const std::vector<T>& centers) {
+    T best     = std::numeric_limits<T>::max();
+    IdxT label = 0;
+    for (IdxT c = 0; c < k; ++c) {
+      T distance = 0;
+      for (IdxT j = 0; j < d; ++j) {
+        T delta = x[row * d + j] - centers[c * d + j];
+        distance += delta * delta;
+      }
+      if (distance < best) {
+        best  = distance;
+        label = c;
+      }
+    }
+    return label;
+  };
+  cluster::kmeans::emeans_params options;
+  options.epochs           = 1.5;
+  options.batch_size       = 5;
+  options.alpha0           = .5;
+  options.unused_threshold = 0;
+  auto schedule            = cluster::kmeans::detail::resolve_emeans(options, n, d, k);
+  uint64_t step            = 0;
+  for (size_t epoch = 0; epoch < schedule.epoch_rows.size(); ++epoch) {
+    for (int64_t offset = 0; offset < schedule.epoch_rows[epoch]; offset += schedule.batch_size) {
+      auto rows = std::min(schedule.batch_size, schedule.epoch_rows[epoch] - offset);
+      std::vector<T> sums(k * d, 0), batch_counts(k, 0);
+      for (IdxT i = offset; i < offset + rows; ++i) {
+        auto label = nearest(i, running);
+        batch_counts[label]++;
+        for (IdxT j = 0; j < d; ++j) {
+          sums[label * d + j] += x[i * d + j];
+        }
+      }
+      double alpha = schedule.alpha(step++);
+      for (IdxT c = 0; c < k; ++c) {
+        T incoming = T(alpha) * batch_counts[c], retained = T(1 - alpha) * mass[c];
+        mass[c] = incoming + retained;
+        for (IdxT j = 0; j < d; ++j) {
+          auto i = c * d + j;
+          if (batch_counts[c]) {
+            running[i] += incoming / mass[c] * (sums[i] / batch_counts[c] - running[i]);
+          }
+          if (epoch + 1 == schedule.epoch_rows.size()) { expected[i] += sums[i]; }
+        }
+        if (epoch + 1 == schedule.epoch_rows.size()) { counts[c] += batch_counts[c]; }
+      }
+    }
+  }
+  for (IdxT i = 0; i < k * d; ++i) {
+    expected[i] = counts[i / d] ? expected[i] / counts[i / d] : running[i];
+  }
+  T expected_inertia = 0;
+  for (IdxT i = 0; i < n; ++i) {
+    for (IdxT j = 0; j < d; ++j) {
+      T delta = x[i * d + j] - expected[nearest(i, expected) * d + j];
+      expected_inertia += delta * delta;
+    }
+  }
+  rmm::cuda_stream stream;
+  raft::resources handle;
+  raft::resource::set_cuda_stream(handle, stream.view());
+  auto device_x = raft::make_device_matrix<T, IdxT>(handle, n, d);
+  auto centers  = raft::make_device_matrix<T, IdxT>(handle, k, d);
+  raft::update_device(device_x.data_handle(), x.data(), x.size(), stream.view());
+  cluster::kmeans::params p;
+  p.init       = cluster::kmeans::params::Array;
+  p.n_clusters = k;
+  p.emeans     = options;
+  for (bool host : {false, true}) {
+    for (int64_t physical_rows : {3, 7, 13}) {
+      SCOPED_TRACE(host);
+      SCOPED_TRACE(physical_rows);
+      p.device_buffer_samples = physical_rows;
+      raft::update_device(centers.data_handle(), initial.data(), initial.size(), stream.view());
+      T inertia{};
+      IdxT iterations{};
+      if (host) {
+        // The existing public host overload uses int64 extents.
+        int64_t host_iterations{};
+        cluster::kmeans::fit(handle,
+                             p,
+                             raft::make_host_matrix_view<const T, int64_t>(x.data(), n, d),
+                             std::nullopt,
+                             raft::make_device_matrix_view<T, int64_t>(centers.data_handle(), k, d),
+                             raft::make_host_scalar_view(&inertia),
+                             raft::make_host_scalar_view(&host_iterations));
+        iterations = static_cast<IdxT>(host_iterations);
+      } else {
+        cluster::kmeans::fit(handle,
+                             p,
+                             raft::make_const_mdspan(device_x.view()),
+                             std::nullopt,
+                             centers.view(),
+                             raft::make_host_scalar_view(&inertia),
+                             raft::make_host_scalar_view(&iterations));
+      }
+      std::vector<T> actual(k * d);
+      raft::update_host(actual.data(), centers.data_handle(), actual.size(), stream.view());
+      raft::resource::sync_stream(handle);
+      EXPECT_EQ(iterations, 2);
+      EXPECT_NEAR(inertia, expected_inertia, 1e-4);
+      for (IdxT i = 0; i < k * d; ++i) {
+        EXPECT_NEAR(actual[i], expected[i], 1e-6);
+      }
+    }
+  }
+}
+
+TEST(EMeans, FitFloat) { test_emeans_fit<float, int64_t>(); }
+TEST(EMeans, FitDouble) { test_emeans_fit<double, int64_t>(); }
+TEST(EMeans, FitFloatInt) { test_emeans_fit<float, int>(); }
+TEST(EMeans, FitDoubleInt) { test_emeans_fit<double, int>(); }
+
+TEST(EMeans, Revival)
+{
+  rmm::cuda_stream stream;
+  raft::resources handle;
+  raft::resource::set_cuda_stream(handle, stream.view());
+  cluster::kmeans::emeans_params options;
+  options.epochs           = 1;
+  options.batch_size       = 1;
+  options.alpha0           = .5;
+  options.unused_threshold = .1;
+  cluster::kmeans::detail::emeans_state<float, int> state(
+    handle, cluster::kmeans::detail::resolve_emeans(options, 5, 3, 3), 3, 3);
+  auto centers = raft::make_device_matrix<float, int>(handle, 3, 3);
+  auto sums    = raft::make_device_matrix<float, int>(handle, 3, 3);
+  auto counts  = raft::make_device_vector<float, int>(handle, 3);
+  std::vector<float> sum{1, 2, 3, 0, 0, 0, 0, 0, 0}, count{1, 0, 0}, actual(9);
+  raft::matrix::fill(handle, centers.view(), 0.f);
+  raft::update_device(sums.data_handle(), sum.data(), sum.size(), stream.view());
+  raft::update_device(counts.data_handle(), count.data(), count.size(), stream.view());
+  for (int step = 0; step < 5; ++step) {
+    state.update(handle, centers.view(), sums.data_handle(), counts.data_handle(), false, 123);
+  }
+  raft::update_host(actual.data(), centers.data_handle(), actual.size(), stream.view());
+  raft::resource::sync_stream(handle);
+  EXPECT_NEAR(actual[0], 1, 1e-3);
+  EXPECT_NEAR(actual[3], 1, 1e-3);
+  EXPECT_NE(actual[0], actual[3]);
+  EXPECT_EQ(actual[6], 0);  // Only one live donor: no donor is reused within this revival.
+}
+
+TEST(EMeans, StepOneAndEmptyCluster)
+{
+  rmm::cuda_stream stream;
+  raft::resources handle;
+  raft::resource::set_cuda_stream(handle, stream.view());
+  auto centers = raft::make_device_matrix<float, int>(handle, 3, 2);
+  auto masses  = raft::make_device_vector<float, int>(handle, 3);
+  auto sums    = raft::make_device_matrix<float, int>(handle, 3, 2);
+  auto counts  = raft::make_device_vector<float, int>(handle, 3);
+  std::vector<float> initial{0, 0, 10, 10, 30, 30}, mass{2, 3, 4}, sum{4, 8, 0, 0, 20, 22},
+    count{2, 0, 1};
+  raft::update_device(sums.data_handle(), sum.data(), sum.size(), stream.view());
+  raft::update_device(counts.data_handle(), count.data(), count.size(), stream.view());
+  for (double alpha : {1., .25}) {
+    raft::update_device(centers.data_handle(), initial.data(), initial.size(), stream.view());
+    raft::update_device(masses.data_handle(), mass.data(), mass.size(), stream.view());
+    raft::launch_kernel(handle,
+                        3,
+                        256,
+                        cluster::kmeans::detail::emeans_update_kernel<float, int>,
+                        centers.data_handle(),
+                        masses.data_handle(),
+                        sums.data_handle(),
+                        counts.data_handle(),
+                        2,
+                        alpha,
+                        static_cast<float*>(nullptr),
+                        static_cast<uint64_t*>(nullptr));
+    std::vector<float> actual(6), actual_mass(3);
+    raft::update_host(actual.data(), centers.data_handle(), actual.size(), stream.view());
+    raft::update_host(actual_mass.data(), masses.data_handle(), actual_mass.size(), stream.view());
+    raft::resource::sync_stream(handle);
+    for (int c = 0; c < 3; ++c) {
+      float incoming = float(alpha) * count[c];
+      float retained = alpha == 1 ? (count[c] ? 0 : mass[c]) : float(1 - alpha) * mass[c];
+      EXPECT_FLOAT_EQ(actual_mass[c], incoming + retained);
+      for (int j = 0; j < 2; ++j) {
+        float expected = initial[2 * c + j];
+        if (count[c]) {
+          expected += incoming / (incoming + retained) * (sum[2 * c + j] / count[c] - expected);
+        }
+        EXPECT_FLOAT_EQ(actual[2 * c + j], expected);
+      }
+    }
+  }
+}
 
 template <typename T>
 struct KmeansInputs {

@@ -32,6 +32,22 @@ struct base_params {
  * @{
  */
 
+/** Optional e-means training parameters. Assignment uses the existing KMeans backends. */
+struct emeans_params {
+  /** Epoch budget, including fractional epochs. The final epoch is full when epochs >= 1. */
+  double epochs = 5;
+  /** Logical minibatch size, independent of assignment tiles and host transfer buffers.
+   * Zero selects the e-means dimension-dependent batch-size recipe.
+   */
+  int64_t batch_size = 0;
+  /** Initial EMA step in (0, 1]; zero selects the e-means recipe. Cosine decay ends at 10%. */
+  double alpha0 = 0;
+  /** Revival threshold relative to average EMA mass. -1 selects 0 for dimension <= 2,
+   * otherwise 0.1. Zero disables donor splitting, which otherwise runs every five updates.
+   */
+  double unused_threshold = -1;
+};
+
 /**
  * Simple object to specify hyper-parameters to the kmeans algorithm.
  */
@@ -166,6 +182,15 @@ struct params : base_params {
    * count. This is ignored by device-data overloads.
    */
   int64_t device_buffer_samples = 0;
+
+  /** Opt in to single-GPU, unweighted e-means using the existing float/double APIs.
+   * Initialization and n_init are unchanged; epochs replaces max_iter/tol, and n_iter reports
+   * completed (possibly fractional) passes. Training follows input order: shuffle rows beforehand
+   * if needed. Centroids are frozen across each logical minibatch, regardless of transfer tiling.
+   * Final centroids are means of the last pass's assignments; final inertia is evaluated against
+   * those centroids, not the last-pass assignments. Default nullopt preserves Lloyd training.
+   */
+  std::optional<emeans_params> emeans = std::nullopt;
 };
 
 /**

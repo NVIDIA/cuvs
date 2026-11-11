@@ -27,6 +27,29 @@ struct base_params {
 
 ## k-means hyperparameters
 
+<a id="cluster-kmeans-emeans-params"></a>
+### cluster::kmeans::emeans_params
+
+Optional e-means training parameters. Assignment uses the existing KMeans backends.
+
+```cpp
+struct emeans_params {
+  double epochs;
+  int64_t batch_size;
+  double alpha0;
+  double unused_threshold;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `epochs` | `double` | Epoch budget, including fractional epochs. The final epoch is full when epochs &gt;= 1. |
+| `batch_size` | `int64_t` | Logical minibatch size, independent of assignment tiles and host transfer buffers. Zero selects the e-means dimension-dependent batch-size recipe. |
+| `alpha0` | `double` | Initial EMA step in (0, 1]; zero selects the e-means recipe. Cosine decay ends at 10%. |
+| `unused_threshold` | `double` | Revival threshold relative to average EMA mass. -1 selects 0 for dimension &lt;= 2, otherwise 0.1. Zero disables donor splitting, which otherwise runs every five updates. |
+
 <a id="cluster-kmeans-params"></a>
 ### cluster::kmeans::params
 
@@ -46,6 +69,7 @@ struct params : base_params {
   int batch_centroids;
   int64_t init_size;
   int64_t device_buffer_samples;
+  std::optional<emeans_params> emeans;
 };
 ```
 
@@ -65,6 +89,7 @@ struct params : base_params {
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
 | `init_size` | `int64_t` | Number of samples to randomly draw for the KMeansPlusPlus initialization step. A random subset of this size is used for centroid seeding.<br /><br />Only applies when dataset is on host; for device data the full dataset is always used for seeding and this parameter is ignored.<br /><br />When set to 0 (default) with host data uses `min(3 * n_clusters, n_samples)` as a default.<br /><br />In Batched multi-GPU host-data fits, the effective KMeansPlusPlus initialization sample is materialized on device on every rank. Every rank must have enough GPU memory for this sample, and rank 0 must also have enough GPU memory for the seeding workspace.<br /><br />Default: 0. |
 | `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch when fitting with host data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path and ignored by device-data overloads.<br /><br />Default: 0. For a single host input matrix, this creates one full-dataset input buffer on the GPU, even when an auxiliary stream is configured. To stream that matrix in smaller batches, set a positive value less than n_samples.<br /><br />Inputs spanning multiple batches are double-buffered when the handle has an auxiliary stream, and use one buffer otherwise. No auxiliary stream pool is configured by<br />default, so transfers and compute are serialized. Configure a pool with at least one auxiliary stream to enable transfer/compute overlap. Budget about `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer, plus algorithm workspaces. Sample weights require the same number of additional buffers with `device_buffer_samples * sizeof(value_type)` bytes each. In these estimates, substitute n_samples for device_buffer_samples when it is 0.<br /><br />In multi-GPU mode this is a per-rank batch size: each rank processes up to this many local samples per batch, clamped to that rank's local sample count. This is ignored by device-data overloads. |
+| `emeans` | [`std::optional<emeans_params>`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-emeans-params) | Opt in to single-GPU, unweighted e-means using the existing float/double APIs. Initialization and n_init are unchanged; epochs replaces max_iter/tol, and n_iter reports completed (possibly fractional) passes. Training follows input order: shuffle rows beforehand if needed. Centroids are frozen across each logical minibatch, regardless of transfer tiling. Final centroids are means of the last pass's assignments; final inertia is evaluated against those centroids, not the last-pass assignments. Default nullopt preserves Lloyd training. |
 
 <a id="cluster-kmeans-balanced-donor-selection"></a>
 ### cluster::kmeans::balanced_donor_selection
