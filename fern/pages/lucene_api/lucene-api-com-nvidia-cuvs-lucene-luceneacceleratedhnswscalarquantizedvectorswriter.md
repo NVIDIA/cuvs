@@ -59,15 +59,15 @@ Build the indexes and writes it to the disk.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:232`_
 
-### mergeOneField
+### doMergeOneField
 
 ```java
-@Override public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
+@Override void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
 ```
 
-Write field for merging.
+Merges one field, building its graph from the merged vectors.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:320`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:318`_
 
 ### finish
 
@@ -77,7 +77,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Called once at the end before close.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:351`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:349`_
 
 ### close
 
@@ -87,7 +87,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Closes the resources.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:371`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:369`_
 
 ### ramBytesUsed
 
@@ -97,6 +97,6 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAccelerate
 
 Returns the memory usage of this object in bytes.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:380`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:378`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.java:57`_

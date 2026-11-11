@@ -1509,9 +1509,7 @@ void serialize_to_hnswlib_batched(raft::resources const& res,
 
       if (create_hierarchy && levels(i) > 0) {
         // position in query: position_by_row_id[i]-hist[0]
-        std::copy(data_row,
-                  data_row + dim,
-                  reinterpret_cast<char*>(&host_query_set(position_by_row_id(i) - hist[0], 0)));
+        std::copy(data_row, data_row + dim, &host_query_set(position_by_row_id(i) - hist[0], 0));
       }
 
       // assign original label
@@ -2128,9 +2126,8 @@ from_cagra(raft::resources const& res,
 #pragma omp parallel for num_threads(num_threads)
     for (auto i = start_idx; i < end_idx; i++) {
       auto pt_id = order[i];
-      std::copy(appr_algo->getDataByInternalId(pt_id),
-                appr_algo->getDataByInternalId(pt_id) + dim,
-                reinterpret_cast<char*>(&host_query_set(i - start_idx, 0)));
+      auto* src  = reinterpret_cast<const T*>(appr_algo->getDataByInternalId(pt_id));
+      std::copy(src, src + dim, &host_query_set(i - start_idx, 0));
     }
 
     // find neighbors of the query set
