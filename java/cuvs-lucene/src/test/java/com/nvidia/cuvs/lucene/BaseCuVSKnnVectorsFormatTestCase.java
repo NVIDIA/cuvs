@@ -64,4 +64,8 @@ public abstract class BaseCuVSKnnVectorsFormatTestCase extends BaseKnnVectorsFor
   @Ignore
   @Override
   public void testSortedIndexBytes() {}
+
+  // Added in Lucene 10.5, so it cannot be marked @Override.
+  @Ignore
+  public void testWriterByteVectorRamEstimate() {}
 }

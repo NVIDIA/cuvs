@@ -4,11 +4,18 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import java.io.IOException;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
+import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
 import org.apache.lucene.codecs.lucene101.Lucene101Codec;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter;
 import org.apache.lucene.codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
+import org.apache.lucene.index.SegmentReadState;
+import org.apache.lucene.index.SegmentWriteState;
+import org.apache.lucene.search.TaskExecutor;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.ReadAdvice;
 
@@ -44,12 +51,40 @@ final class LuceneCompat {
     return context.withReadAdvice(ReadAdvice.SEQUENTIAL);
   }
 
-  /** Returns Lucene 10.2's {@code Lucene101Codec}. */
+  /**
+   * Returns {@code state} for opening the flat vectors under an HNSW graph, which searches read at
+   * random. Before Lucene 10.6 the flat format says so itself, so {@code state} is returned as is.
+   */
+  static SegmentReadState flatReadState(SegmentReadState state) {
+    return state;
+  }
+
+  /**
+   * Returns Lucene's HNSW writer, which builds the graph on the CPU, over {@code flatWriter}, which
+   * {@code flatFormat} created. {@code flatFormat} is unused before Lucene 10.5, which reads the
+   * vectors of a merged segment back with it.
+   */
+  static KnnVectorsWriter hnswVectorsWriter(
+      SegmentWriteState state,
+      int maxConn,
+      int beamWidth,
+      FlatVectorsFormat flatFormat,
+      FlatVectorsWriter flatWriter,
+      int numMergeWorkers,
+      TaskExecutor mergeExec)
+      throws IOException {
+    return new Lucene99HnswVectorsWriter(
+        state, maxConn, beamWidth, flatWriter, numMergeWorkers, mergeExec);
+  }
+
+  /** Returns {@code Lucene101Codec}, the default codec of Lucene 10.2. */
   static Codec lucene101Codec() {
     return new Lucene101Codec();
   }
 
-  /** Returns the flat format that stores the vectors of the scalar-quantized codecs up to Lucene 10.3. */
+  /**
+   * Returns the flat format that stores the vectors of the scalar-quantized codecs up to Lucene 10.3.
+   */
   static FlatVectorsFormat lucene99ScalarQuantizedFlatFormat() {
     return new Lucene99ScalarQuantizedVectorsFormat();
   }

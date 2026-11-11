@@ -30,6 +30,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 import org.apache.lucene.codecs.CodecUtil;
+import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.ByteVectorValues;
@@ -74,7 +75,7 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
   private final FlatVectorsReader flatVectorsReader;
   private final FieldInfos fieldInfos;
   private final IntObjectHashMap<FieldEntry> fields;
-  // Loaded eagerly, or null if this reader was opened for a merge; see getCuVSIndex().
+  // Loaded eagerly, or null if the reader was opened with a merge IOContext; see getCuVSIndex().
   private final IntObjectHashMap<GPUIndex> cuvsIndices;
   // Private, so that code outside this class cannot take the lock held across a GPU load.
   private final Object lazyLoadLock = new Object();
@@ -86,6 +87,9 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
   private boolean closed;
   private final IndexInput cuvsIndexInput;
   private final FilterBitsetCache filterBitsetCache;
+  // The reader that owns the GPU indexes and the files: this one, unless withRawVectorsReader
+  // created it for a merge.
+  private final CuVS2510GPUVectorsReader original;
 
   /**
    * Initializes the {@link CuVS2510GPUVectorsReader}, checks and loads the index.
@@ -112,6 +116,7 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
       SegmentReadState state, FlatVectorsReader flatReader, FilterBitsetCache filterBitsetCache)
       throws IOException {
     super(flatReader);
+    this.original = this;
     this.flatVectorsReader = flatReader;
     this.filterBitsetCache = filterBitsetCache;
     this.fieldInfos = state.fieldInfos;
@@ -154,6 +159,31 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
         IOUtils.closeWhileHandlingException(this);
       }
     }
+  }
+
+  /** Creates a reader that shares everything with {@code original} but the raw vectors reader. */
+  private CuVS2510GPUVectorsReader(
+      CuVS2510GPUVectorsReader original, FlatVectorsReader flatReader) {
+    super(flatReader);
+    this.original = original;
+    this.flatVectorsReader = flatReader;
+    this.filterBitsetCache = original.filterBitsetCache;
+    this.fieldInfos = original.fieldInfos;
+    this.fields = original.fields;
+    this.cuvsIndices = original.cuvsIndices;
+    this.cuvsIndexInput = original.cuvsIndexInput;
+  }
+
+  /**
+   * Returns a reader for a merge that reads the raw vectors through {@code flatReader} and shares
+   * everything else with the reader this one was created from, which owns what they share: closing
+   * the returned reader does nothing.
+   *
+   * <p>Implements {@code CompatKnnVectorsReader.withRawVectorsReader}, which only the Lucene 10.6
+   * variant declares, so it is not marked {@code @Override}; earlier releases never call it.
+   */
+  KnnVectorsReader withRawVectorsReader(FlatVectorsReader flatReader) {
+    return new CuVS2510GPUVectorsReader(original, flatReader);
   }
 
   /**
@@ -384,6 +414,9 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
    * @throws IOException I/O exception
    */
   private GPUIndex getCuVSIndex(int fieldNumber) throws IOException {
+    if (original != this) {
+      return original.getCuVSIndex(fieldNumber);
+    }
     if (cuvsIndices != null) {
       return cuvsIndices.get(fieldNumber);
     }
@@ -410,7 +443,7 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
    * tests can check that loading is per field.
    */
   int lazilyLoadedIndexCount() {
-    return lazyIndices.size();
+    return original.lazyIndices.size();
   }
 
   /**
@@ -452,6 +485,10 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
    */
   @Override
   public void close() throws IOException {
+    if (original != this) {
+      // A merge instance; the reader it came from owns everything it reads.
+      return;
+    }
     synchronized (lazyLoadLock) {
       closed = true;
     }
@@ -838,7 +875,8 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
   /**
    * Gets the map of {@link GPUIndex} objects.
    *
-   * @return the map of GPU index objects, or {@code null} if this reader was opened for a merge
+   * @return the map of GPU index objects, or {@code null} if the reader was opened with a merge
+   *     {@link IOContext}
    */
   public IntObjectHashMap<GPUIndex> getCuvsIndexes() {
     return cuvsIndices;
