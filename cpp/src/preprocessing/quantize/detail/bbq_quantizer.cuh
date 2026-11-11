@@ -290,7 +290,7 @@ __device__ inline void write_code_group(uint8_t* code_row,
   }
 }
 
-/** The per-row arrays to fill a `bbq_dataset_owning_storage`, as raw pointers. */
+/** The per-row arrays one encoding of the rows is written to, as raw pointers. */
 struct quantizer_output {
   uint8_t* codes;
   uint32_t code_row_length;
@@ -435,89 +435,145 @@ inline void quantize_rows(raft::resources const& res,
 }
 
 /**
- * Computes the single centroid shared by every row, as Lucene and Elasticsearch do.
+ * Computes into @p quant the single centroid shared by every row, as Lucene and Elasticsearch do.
  */
-inline auto build(raft::resources const& res,
-                  raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
-  -> quantizer<float>
+inline void build(raft::resources const& res,
+                  raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+                  quantizer_view<float> quant)
 {
   using DataT       = float;
   const auto n_rows = dataset.extent(0);
   const auto dim    = dataset.extent(1);
   RAFT_EXPECTS(n_rows > 0 && dim > 0, "BBQ build needs a non-empty dataset");
+  RAFT_EXPECTS(dim == static_cast<int64_t>(quant.dim()),
+               "BBQ build: the dataset has %lld dimensions, the quantizer has room for %u",
+               static_cast<long long>(dim),
+               quant.dim());
 
-  quantizer<DataT> quant{res, static_cast<uint32_t>(dim)};
-  raft::stats::mean(res, dataset, quant.centroid.view());
+  raft::stats::mean(res, dataset, quant.centroid);
   raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
     res,
     raft::make_device_matrix_view<const DataT, int64_t>(quant.centroid.data_handle(), 1, dim),
     raft::make_device_vector_view<float, int64_t>(quant.centroid_norm_sq.data_handle(), 1));
-  return quant;
 }
 
 /**
- * Quantizes @p dataset against the centroid of @p quant in the document layout, and again in the
- * query layout when it differs, and returns the codes together with the per-row corrections search
- * needs.
+ * Allocates an uninitialized BBQ dataset of @p n_rows rows of @p dim components, according to
+ * @p params : the document encoding and, when the query layout differs, the query one.
  */
-inline auto transform(raft::resources const& res,
+inline auto make_dataset(raft::resources const& res,
+                         const cuvs::preprocessing::quantize::bbq::params& params,
+                         int64_t n_rows,
+                         uint32_t dim) -> cuvs::device_bbq_dataset<float, int64_t>
+{
+  RAFT_EXPECTS(n_rows >= 0 && dim > 0, "a BBQ dataset needs a non-negative row count and a dim");
+  using data_type = typename cuvs::device_bbq_dataset<float, int64_t>::data_type;
+  auto allocate   = [&](bbq_code_layout layout) {
+    return typename data_type::encoding_type{
+      raft::make_device_matrix<uint8_t, int64_t>(res, n_rows, get_encoded_row_length(dim, layout)),
+      raft::make_device_vector<float, int64_t>(res, n_rows),
+      raft::make_device_vector<float, int64_t>(res, n_rows),
+      raft::make_device_vector<float, int64_t>(res, n_rows),
+      raft::make_device_vector<int32_t, int64_t>(res, n_rows),
+      raft::make_device_vector<float, int64_t>(res, n_rows),
+      raft::make_device_vector<float, int64_t>(res, n_rows),
+      raft::make_device_vector<float, int64_t>(res, n_rows),
+      layout};
+  };
+  data_type data{params.metric, allocate(params.doc_layout), std::nullopt};
+  if (params.query_layout != params.doc_layout) { data.query = allocate(params.query_layout); }
+  return cuvs::device_bbq_dataset<float, int64_t>{std::move(data), quantizer<float>{res, dim}};
+}
+
+/** Checks that @p encoding holds @p n_rows rows of @p dim components encoded in @p layout. */
+template <typename EncodingT>
+void check_encoding_shape(
+  const EncodingT& encoding, bbq_code_layout layout, int64_t n_rows, uint32_t dim, const char* side)
+{
+  RAFT_EXPECTS(encoding.layout == layout,
+               "BBQ transform: the %s encoding of the output has layout %d, params ask for %d",
+               side,
+               static_cast<int>(encoding.layout),
+               static_cast<int>(layout));
+  RAFT_EXPECTS(encoding.codes.extent(0) == n_rows &&
+                 encoding.codes.extent(1) == get_encoded_row_length(dim, layout),
+               "BBQ transform: the %s codes of the output are not [%lld, %u]",
+               side,
+               static_cast<long long>(n_rows),
+               get_encoded_row_length(dim, layout));
+  RAFT_EXPECTS(
+    encoding.lower_intervals.extent(0) == n_rows && encoding.upper_intervals.extent(0) == n_rows &&
+      encoding.additional_corrections.extent(0) == n_rows &&
+      encoding.quantized_component_sums.extent(0) == n_rows &&
+      encoding.dequant_delta.extent(0) == n_rows &&
+      encoding.dequant_sum_delta.extent(0) == n_rows && encoding.row_norm.extent(0) == n_rows,
+    "BBQ transform: the %s per-row vectors of the output do not have %lld rows",
+    side,
+    static_cast<long long>(n_rows));
+}
+
+/**
+ * Quantizes @p dataset against the centroid in the manifest of @p out into @p out: in the document
+ * layout, and again in the query layout when the query side of @p out has an encoding of its own.
+ * Writes the codes together with the per-row corrections search needs.
+ */
+inline void transform(raft::resources const& res,
                       const cuvs::preprocessing::quantize::bbq::params& params,
-                      quantizer_view<float> quant,
-                      raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
-  -> cuvs::neighbors::device_bbq_dataset<float, int64_t>
+                      raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+                      cuvs::device_bbq_dataset<float, int64_t>::view_type out)
 {
   constexpr int64_t kMaxQuantizeRows =
     kQuantizeBlockSize * int64_t{std::numeric_limits<int32_t>::max()} / raft::WarpSize;
   const auto n_rows = dataset.extent(0);
   const auto dim    = dataset.extent(1);
   RAFT_EXPECTS(n_rows > 0 && dim > 0, "BBQ transform needs a non-empty dataset");
-  RAFT_EXPECTS(dim == static_cast<int64_t>(quant.dim()),
-               "BBQ transform: the dataset has %lld dimensions, the quantizer %u",
-               static_cast<long long>(dim),
-               quant.dim());
   RAFT_EXPECTS(n_rows <= kMaxQuantizeRows,
                "BBQ transform: at most %lld rows are supported, got %lld",
                static_cast<long long>(kMaxQuantizeRows),
                static_cast<long long>(n_rows));
 
-  const auto stream = raft::resource::get_cuda_stream(res).get();
-  quantizer<float> dataset_quantizer{res, quant.dim()};
-  raft::copy(
-    dataset_quantizer.centroid.data_handle(), quant.centroid.data_handle(), quant.dim(), stream);
-  raft::copy(dataset_quantizer.centroid_norm_sq.data_handle(),
-             quant.centroid_norm_sq.data_handle(),
-             1,
-             stream);
-  cuvs::neighbors::device_bbq_dataset<float, int64_t> encoded{std::move(dataset_quantizer)};
+  const auto data     = out.data_view();
+  const auto manifest = out.manifest_view();
+  RAFT_EXPECTS(dim == static_cast<int64_t>(manifest.dim()),
+               "BBQ transform: the dataset has %lld dimensions, the quantizer of the output %u",
+               static_cast<long long>(dim),
+               manifest.dim());
+  RAFT_EXPECTS(data.metric == params.metric,
+               "BBQ transform: the output was made for a different metric than params ask for");
+  // A symmetric output refers to the document encoding on both sides of a distance.
+  const bool symmetric = data.query.codes.data_handle() == data.document.codes.data_handle();
+  check_encoding_shape(data.document, params.doc_layout, n_rows, manifest.dim(), "document");
+  if (!symmetric) {
+    check_encoding_shape(data.query, params.query_layout, n_rows, manifest.dim(), "query");
+  } else {
+    RAFT_EXPECTS(params.query_layout == params.doc_layout,
+                 "BBQ transform: params ask for a separate query layout, the output has none");
+  }
 
-  auto encode = [&](bbq_code_layout layout) {
-    bbq_dataset_owning_storage<float, int64_t> storage{
-      res, encoded.quantizer.view(), n_rows, layout, params.metric};
-    RAFT_CUDA_TRY(cudaMemsetAsync(storage.codes.data_handle(), 0, storage.codes.size(), stream));
+  const auto stream = raft::resource::get_cuda_stream(res).get();
+  auto encode       = [&](const auto& encoding) {
+    RAFT_CUDA_TRY(cudaMemsetAsync(encoding.codes.data_handle(), 0, encoding.codes.size(), stream));
     quantize_rows(res,
                   params,
-                  layout,
+                  encoding.layout,
                   dataset,
-                  encoded.quantizer.centroid.data_handle(),
-                  quantizer_output{storage.codes.data_handle(),
-                                   storage.encoded_row_length(),
-                                   storage.lower_intervals.data_handle(),
-                                   storage.upper_intervals.data_handle(),
-                                   storage.additional_corrections.data_handle(),
-                                   storage.quantized_component_sums.data_handle(),
-                                   storage.row_norm.data_handle()});
-    helpers::resolve_dequant_factors(
-      res,
-      storage.dequant_delta.view(),
-      storage.dequant_sum_delta.view(),
-      raft::make_const_mdspan(storage.lower_intervals.view()),
-      raft::make_const_mdspan(storage.upper_intervals.view()),
-      raft::make_const_mdspan(storage.quantized_component_sums.view()),
-      layout);
-    encoded.add_storage(std::move(storage));
+                  manifest.centroid.data_handle(),
+                  quantizer_output{encoding.codes.data_handle(),
+                                   static_cast<uint32_t>(encoding.codes.extent(1)),
+                                   encoding.lower_intervals.data_handle(),
+                                   encoding.upper_intervals.data_handle(),
+                                   encoding.additional_corrections.data_handle(),
+                                   encoding.quantized_component_sums.data_handle(),
+                                   encoding.row_norm.data_handle()});
+    helpers::resolve_dequant_factors(res,
+                                     encoding.dequant_delta,
+                                     encoding.dequant_sum_delta,
+                                     raft::make_const_mdspan(encoding.lower_intervals),
+                                     raft::make_const_mdspan(encoding.upper_intervals),
+                                     raft::make_const_mdspan(encoding.quantized_component_sums),
+                                     encoding.layout);
   };
-  encode(params.doc_layout);
-  if (params.query_layout != params.doc_layout) { encode(params.query_layout); }
-  return encoded;
+  encode(data.document);
+  if (!symmetric) { encode(data.query); }
 }
 }  // namespace cuvs::preprocessing::quantize::bbq::detail

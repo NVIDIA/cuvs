@@ -397,13 +397,8 @@ static void with_dataset_view(cuvsDataset_t dataset, Fn&& fn)
   RAFT_EXPECTS(dataset->addr != 0, "null dataset storage");
   if (dataset->is_owning) {
     auto* owner = reinterpret_cast<OwnerT*>(dataset->addr);
-    if constexpr (cuvs::neighbors::is_bbq_dataset_v<OwnerT>) {
-      auto view = owner->view();
-      fn(view);
-    } else {
-      auto view = std::as_const(*owner).view();
-      fn(view);
-    }
+    auto view   = std::as_const(*owner).view();
+    fn(view);
   } else {
     fn(*reinterpret_cast<ViewT*>(dataset->addr));
   }
@@ -412,35 +407,36 @@ static void with_dataset_view(cuvsDataset_t dataset, Fn&& fn)
 template <typename T>
 void validate_bbq_layouts(cuvs::neighbors::device_bbq_dataset_view<T, int64_t> const& dataset)
 {
-  using layout_t = cuvs::preprocessing::quantize::bbq::bbq_code_layout;
-  if (dataset.storages.size() == 1) {
-    auto layout = dataset.storages.front().layout;
-    RAFT_EXPECTS(layout == layout_t::packed_1b || layout == layout_t::transposed_2b ||
-                   layout == layout_t::packed_4b || layout == layout_t::packed_7b ||
-                   layout == layout_t::packed_8b,
+  using layout_t       = cuvs::preprocessing::quantize::bbq::bbq_code_layout;
+  const auto data      = dataset.data_view();
+  const auto document  = data.document.layout;
+  const auto query     = data.query.layout;
+  const bool symmetric = data.query.codes.data_handle() == data.document.codes.data_handle();
+  if (symmetric) {
+    RAFT_EXPECTS(document == layout_t::packed_1b || document == layout_t::transposed_2b ||
+                   document == layout_t::packed_4b || document == layout_t::packed_7b ||
+                   document == layout_t::packed_8b,
                  "cuvsDatasetMakeBbqView: transposed_4b requires an asymmetric layout pair");
     return;
   }
 
-  const bool has_1b  = dataset.has_layout(layout_t::packed_1b);
-  const bool has_2bt = dataset.has_layout(layout_t::transposed_2b);
-  const bool has_4b  = dataset.has_layout(layout_t::packed_4b);
-  const bool has_4bt = dataset.has_layout(layout_t::transposed_4b);
-  RAFT_EXPECTS((has_1b && (has_4b || has_2bt || has_4bt)) || (has_2bt && has_4bt),
+  RAFT_EXPECTS((document == layout_t::packed_1b &&
+                (query == layout_t::packed_4b || query == layout_t::transposed_2b ||
+                 query == layout_t::transposed_4b)) ||
+                 (document == layout_t::transposed_2b && query == layout_t::transposed_4b),
                "cuvsDatasetMakeBbqView: unsupported asymmetric BBQ layout pair");
 }
 
 template <typename T>
 auto get_cpp_bbq_quantizer_view(cuvsBbqQuantizer_t quantizer)
-  -> cuvs::preprocessing::quantize::bbq::bbq_dataset_view_storage<T, int64_t>
+  -> cuvs::neighbors::device_bbq_dataset_view<T, int64_t>
 {
-  using view_t = cuvs::preprocessing::quantize::bbq::bbq_dataset_view_storage<T, int64_t>;
-  RAFT_EXPECTS(quantizer != nullptr && quantizer->addr != 0,
-               "cuvsDatasetMakeBbqView: null quantizer storage");
+  RAFT_EXPECTS(quantizer != nullptr, "cuvsDatasetMakeBbqView: quantizer is null");
+  RAFT_EXPECTS(quantizer->addr != 0, "cuvsDatasetMakeBbqView: null quantizer storage");
   RAFT_EXPECTS(!quantizer->is_owning,
                "cuvsDatasetMakeBbqView: a quantizer from cuvsBbqQuantizerBuild holds no encoded "
                "rows; encode a dataset with cuvsBbqQuantizerTransform instead");
-  return *reinterpret_cast<view_t*>(quantizer->addr);
+  return *reinterpret_cast<cuvs::neighbors::device_bbq_dataset_view<T, int64_t>*>(quantizer->addr);
 }
 
 template <typename T>
@@ -450,44 +446,27 @@ auto make_bbq_dataset_view(raft::resources const& res,
   -> std::unique_ptr<cuvs::neighbors::device_bbq_dataset_view<T, int64_t>>
 {
   using dataset_view_t = cuvs::neighbors::device_bbq_dataset_view<T, int64_t>;
-  auto dataset         = std::make_unique<dataset_view_t>();
-  int64_t expected_rows{-1};
-  uint32_t expected_dim{};
-  cuvs::distance::DistanceType expected_metric{};
-  float expected_centroid_norm_sq{};
 
-  for (std::size_t i = 0; i < num_quantizers; ++i) {
-    RAFT_EXPECTS(quantizers[i] != nullptr,
-                 "cuvsDatasetMakeBbqView: quantizer %zu is null",
-                 i);
-    auto quantizer = get_cpp_bbq_quantizer_view<T>(quantizers[i]);
-    float centroid_norm_sq{};
-    if (num_quantizers > 1) {
-      raft::copy(res,
-                 raft::make_host_scalar_view<float, int64_t>(&centroid_norm_sq),
-                 quantizer.quantizer.centroid_norm_sq);
-      raft::resource::sync_stream(res);
-    }
-    if (i == 0) {
-      expected_rows             = quantizer.n_rows();
-      expected_dim              = quantizer.dim();
-      expected_metric           = quantizer.metric;
-      expected_centroid_norm_sq = centroid_norm_sq;
-    } else {
-      RAFT_EXPECTS(quantizer.n_rows() == expected_rows && quantizer.dim() == expected_dim,
-                   "cuvsDatasetMakeBbqView: all quantizers must have the same shape");
-      RAFT_EXPECTS(quantizer.metric == expected_metric,
-                   "cuvsDatasetMakeBbqView: all quantizers must use the same metric");
-      // The storages share one centroid at search time, so codes encoded against a different
-      // centroid would be compared in the wrong space.
-      RAFT_EXPECTS(centroid_norm_sq == expected_centroid_norm_sq,
-                   "cuvsDatasetMakeBbqView: all quantizers must be encoded against the same "
-                   "centroid");
-    }
-    dataset->add_storage(quantizer);
-  }
+  auto first = get_cpp_bbq_quantizer_view<T>(quantizers[0]);
+  if (num_quantizers == 1) { return std::make_unique<dataset_view_t>(first); }
 
-  return dataset;
+  auto second = get_cpp_bbq_quantizer_view<T>(quantizers[1]);
+  RAFT_EXPECTS(second.n_rows() == first.n_rows() && second.dim() == first.dim(),
+               "cuvsDatasetMakeBbqView: all quantizers must have the same shape");
+  RAFT_EXPECTS(second.data_view().metric == first.data_view().metric,
+               "cuvsDatasetMakeBbqView: all quantizers must use the same metric");
+
+  // The coarser encoding is read on the document side of a distance, whichever order the
+  // quantizers come in.
+  const bool first_is_document =
+    cuvs::preprocessing::quantize::bbq::get_bit_width(first.data_view().document.layout) <=
+    cuvs::preprocessing::quantize::bbq::get_bit_width(second.data_view().document.layout);
+  const auto& document = first_is_document ? first : second;
+  const auto& query    = first_is_document ? second : first;
+  return std::make_unique<dataset_view_t>(
+    typename dataset_view_t::data_view_type{
+      document.data_view().metric, document.data_view().document, query.data_view().document},
+    document.manifest_view());
 }
 
 template <typename T>
@@ -499,7 +478,7 @@ void make_and_bind_bbq_dataset(raft::resources const& res,
 {
   using dataset_view_t = cuvs::neighbors::device_bbq_dataset_view<T, int64_t>;
   auto view            = make_bbq_dataset_view<T>(res, quantizers, num_quantizers);
-  validate_bbq_layouts(*view);
+  validate_bbq_layouts<T>(*view);
 
   auto handle          = std::make_unique<cuvsDataset>();
   handle->addr         = reinterpret_cast<uintptr_t>(view.release());

@@ -43,18 +43,26 @@ void resolve_dequant_factors(
 }
 }  // namespace helpers
 
-quantizer<float> build(raft::resources const& res,
-                       raft::device_matrix_view<const float, int64_t> dataset)
+void build(raft::resources const& res,
+           raft::device_matrix_view<const float, int64_t> dense_dataset,
+           quantizer_view<float> quantizer)
 {
-  return detail::build(res, dataset);
+  detail::build(res, dense_dataset, quantizer);
 }
 
-cuvs::neighbors::device_bbq_dataset<float, int64_t> transform(
-  raft::resources const& res,
-  const params params,
-  quantizer_view<float> quantizer,
-  raft::device_matrix_view<const float, int64_t> dataset)
+cuvs::device_bbq_dataset<float, int64_t> make_device_bbq_dataset(raft::resources const& res,
+                                                                 const params params,
+                                                                 int64_t n_rows,
+                                                                 uint32_t dim)
 {
-  return detail::transform(res, params, quantizer, dataset);
+  return detail::make_dataset(res, params, n_rows, dim);
 }
-}  // namespace cuvs::preprocessing::quantize::bbq 
+
+void transform(raft::resources const& res,
+               const params params,
+               raft::device_matrix_view<const float, int64_t> dense_dataset,
+               cuvs::device_bbq_dataset<float, int64_t>::view_type out)
+{
+  detail::transform(res, params, dense_dataset, out);
+}
+}  // namespace cuvs::preprocessing::quantize::bbq

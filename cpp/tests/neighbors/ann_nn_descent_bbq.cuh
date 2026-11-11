@@ -27,7 +27,6 @@
 namespace cuvs::neighbors::nn_descent {
 
 using cuvs::preprocessing::quantize::bbq::get_bit_width;
-using cuvs::preprocessing::quantize::bbq::detail::make_device_bbq_dataset;
 using cuvs::preprocessing::quantize::bbq::detail::quantize_to_device;
 
 struct AnnNNDescentBbqInputs : AnnNNDescentInputs {

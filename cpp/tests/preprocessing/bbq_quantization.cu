@@ -20,6 +20,10 @@
 
 namespace cuvs::preprocessing::quantize::bbq {
 
+/** One encoding of the rows, as a read-only BBQ dataset view holds it. */
+using encoding_view_t =
+  cuvs::device_bbq_dataset<float, int64_t>::const_view_type::data_view_type::encoding_type;
+
 struct BbqQuantizationInputs {
   int64_t rows;
   int64_t cols;
@@ -101,10 +105,8 @@ auto unpack_row(const uint8_t* row, int64_t dim, bbq_code_layout layout) -> std:
 }
 
 /** Every row of @p q decoded back to one code per component, row-major. */
-auto unpack_codes(raft::resources const& res,
-                  const bbq_dataset_owning_storage<float, int64_t>& q,
-                  int64_t n_rows,
-                  int64_t dim) -> std::vector<uint8_t>
+auto unpack_codes(raft::resources const& res, const encoding_view_t& q, int64_t n_rows, int64_t dim)
+  -> std::vector<uint8_t>
 {
   const auto packed     = to_host(res, q.codes.data_handle(), q.codes.size());
   const auto row_length = static_cast<size_t>(q.codes.extent(1));
@@ -123,13 +125,14 @@ auto unpack_codes(raft::resources const& res,
  * the code -- so this exercises the codes, the intervals and the derived step together.
  */
 auto relative_reconstruction_error(raft::resources const& res,
-                                   const bbq_dataset_owning_storage<float, int64_t>& q,
+                                   quantizer_view<const float> quantizer,
+                                   const encoding_view_t& q,
                                    const std::vector<uint8_t>& codes,
                                    const std::vector<float>& host_dataset,
                                    int64_t n_rows,
                                    int64_t dim) -> float
 {
-  const auto centroid = to_host(res, q.quantizer.centroid.data_handle(), dim);
+  const auto centroid = to_host(res, quantizer.centroid.data_handle(), dim);
   const auto lower    = to_host(res, q.lower_intervals.data_handle(), n_rows);
   const auto delta    = to_host(res, q.dequant_delta.data_handle(), n_rows);
 
@@ -163,52 +166,46 @@ class BbqQuantizationTest : public ::testing::TestWithParam<BbqQuantizationInput
       input_.data(), rows_, cols_);
 
     const params p{params_.doc_layout, params_.query_layout, params_.metric};
-    const auto quantizer = build(handle, dataset);
-    auto encoded         = transform(handle, p, quantizer.view(), dataset);
-    ASSERT_EQ(quantizer.dim(), cols_);
+    auto encoded = make_device_bbq_dataset(handle, p, rows_, static_cast<uint32_t>(cols_));
+    build(handle, dataset, encoded.manifest_view());
+    transform(handle, p, dataset, encoded.view());
+    ASSERT_EQ(encoded.n_rows(), rows_);
+    ASSERT_EQ(encoded.dim(), cols_);
 
-    std::vector<bbq_code_layout> layouts{params_.doc_layout};
-    if (params_.query_layout != params_.doc_layout) { layouts.push_back(params_.query_layout); }
-    ASSERT_EQ(encoded.storages.size(), layouts.size());
+    const auto data = encoded.data_const_view();
+    ASSERT_EQ(data.metric, params_.metric);
+    const bool symmetric = params_.query_layout == params_.doc_layout;
+    ASSERT_EQ(data.query.codes.data_handle() == data.document.codes.data_handle(), symmetric);
 
-    const auto encoded_view = encoded.view();
-    for (const auto layout : layouts) {
-      ASSERT_TRUE(encoded.has_layout(layout));
-      const auto expected =
-        detail::quantize(host_input_.data(), rows_, cols_, params_.metric, layout);
-      const auto actual = encoded_view.get_storage(layout);
-      checkStorage(expected, quantizer, encoded, actual);
+    const auto manifest = encoded.const_manifest_view();
+    checkEncoding(
+      detail::quantize(host_input_.data(), rows_, cols_, params_.metric, params_.doc_layout),
+      manifest,
+      data.document);
+    if (!symmetric) {
+      checkEncoding(
+        detail::quantize(host_input_.data(), rows_, cols_, params_.metric, params_.query_layout),
+        manifest,
+        data.query);
     }
   }
 
-  void checkStorage(const detail::host_quantizer_storage& expected,
-                    const quantizer<float>& quantizer,
-                    const cuvs::neighbors::device_bbq_dataset<float, int64_t>& encoded,
-                    const bbq_dataset_view_storage<float, int64_t>& actual)
+  void checkEncoding(const detail::host_encoding& expected,
+                     quantizer_view<const float> manifest,
+                     const encoding_view_t& actual)
   {
-    ASSERT_EQ(actual.n_rows(), rows_);
-    ASSERT_EQ(actual.dim(), cols_);
+    ASSERT_EQ(actual.codes.extent(0), rows_);
     ASSERT_EQ(actual.codes.extent(1), expected.codes.extent(1));
-    ASSERT_EQ(actual.quantizer.centroid.data_handle(), encoded.quantizer.centroid.data_handle());
     ASSERT_EQ(actual.layout, expected.layout);
-    ASSERT_EQ(actual.metric, expected.metric);
+    ASSERT_EQ(manifest.dim(), cols_);
 
     ASSERT_TRUE(devArrMatchHost(expected.centroid.data_handle(),
-                                quantizer.centroid.data_handle(),
+                                manifest.centroid.data_handle(),
                                 cols_,
                                 cuvs::Compare<float>(),
                                 stream));
-    ASSERT_TRUE(devArrMatchHost(expected.centroid.data_handle(),
-                                encoded.quantizer.centroid.data_handle(),
-                                cols_,
-                                cuvs::Compare<float>(),
-                                stream));
-    ASSERT_EQ(actual.quantizer.centroid_norm_sq.data_handle(),
-              encoded.quantizer.centroid_norm_sq.data_handle());
     ASSERT_FLOAT_EQ(expected.centroid_norm_sq,
-                    to_host(handle, quantizer.centroid_norm_sq.data_handle(), 1)[0]);
-    ASSERT_FLOAT_EQ(expected.centroid_norm_sq,
-                    to_host(handle, actual.quantizer.centroid_norm_sq.data_handle(), 1)[0]);
+                    to_host(handle, manifest.centroid_norm_sq.data_handle(), 1)[0]);
 
     // A row sitting on the threshold of interval search stop can end up with a different interval.
     // Check that at least 99.5% of the rows match within 1e-4 of the reference.
@@ -232,6 +229,12 @@ class BbqQuantizationTest : public ::testing::TestWithParam<BbqQuantizationInput
                                         compare_rows,
                                         kMinMatchFraction,
                                         stream));
+    ASSERT_TRUE(devArrMatchHostFraction(expected.quantized_component_sums.data_handle(),
+                                        actual.quantized_component_sums.data_handle(),
+                                        rows_,
+                                        cuvs::Compare<int32_t>(),
+                                        kMinMatchFraction,
+                                        stream));
     ASSERT_TRUE(devArrMatchHostFraction(expected.row_norm.data_handle(),
                                         actual.row_norm.data_handle(),
                                         rows_,
@@ -248,12 +251,6 @@ class BbqQuantizationTest : public ::testing::TestWithParam<BbqQuantizationInput
                                         actual.dequant_sum_delta.data_handle(),
                                         rows_,
                                         compare_rows,
-                                        kMinMatchFraction,
-                                        stream));
-    ASSERT_TRUE(devArrMatchHostFraction(expected.quantized_component_sums.data_handle(),
-                                        actual.quantized_component_sums.data_handle(),
-                                        rows_,
-                                        cuvs::Compare<int32_t>(),
                                         kMinMatchFraction,
                                         stream));
     const auto row_length = static_cast<size_t>(actual.codes.extent(1));
@@ -298,7 +295,7 @@ class BbqQuantizationTest : public ::testing::TestWithParam<BbqQuantizationInput
 using cuvs::distance::DistanceType;
 
 const std::vector<BbqQuantizationInputs> inputs = {
-  // Every layout on the same dimensionality, as a single storage.
+  // Every layout on the same dimensionality, as a single encoding.
   {512, 32, bbq_code_layout::packed_1b, bbq_code_layout::packed_1b, DistanceType::L2Expanded},
   {512,
    32,
@@ -313,7 +310,7 @@ const std::vector<BbqQuantizationInputs> inputs = {
   {512, 64, bbq_code_layout::packed_4b, bbq_code_layout::packed_4b, DistanceType::L2Expanded},
   {512, 32, bbq_code_layout::packed_7b, bbq_code_layout::packed_7b, DistanceType::L2Expanded},
   {512, 32, bbq_code_layout::packed_8b, bbq_code_layout::packed_8b, DistanceType::L2Expanded},
-  // The asymmetric (document, query) pairs search supports, as two storages.
+  // The asymmetric (document, query) pairs search supports, as two encodings.
   {512, 32, bbq_code_layout::packed_1b, bbq_code_layout::transposed_4b, DistanceType::L2Expanded},
   {512, 32, bbq_code_layout::packed_1b, bbq_code_layout::packed_4b, DistanceType::L2Expanded},
   {512, 32, bbq_code_layout::packed_1b, bbq_code_layout::transposed_2b, DistanceType::L2Expanded},
@@ -374,17 +371,28 @@ TEST(BbqQuantization, ReconstructsRowsWithinErrorBudget)
   raft::random::normal(res, rng, dataset.data_handle(), dataset.size(), 0.5f, 2.0f);
   const auto host_dataset = to_host(res, dataset.data_handle(), static_cast<size_t>(kRows * kDim));
 
-  const auto view      = raft::make_const_mdspan(dataset.view());
-  const auto quantizer = build(res, view);
+  const auto view   = raft::make_const_mdspan(dataset.view());
+  const auto stream = raft::resource::get_cuda_stream(res);
+  quantizer<float> quantizer{res, static_cast<uint32_t>(kDim)};
+  build(res, view, quantizer.view());
 
   std::vector<double> errors;
   std::vector<std::vector<uint8_t>> codes;
   for (const auto& [layout, budget] : budgets) {
-    const auto encoded = transform(res, params{layout, layout, kMetric}, quantizer.view(), view);
-    const auto& q      = encoded.storages[0];
+    const params p{layout, layout, kMetric};
+    auto encoded        = make_device_bbq_dataset(res, p, kRows, quantizer.dim());
+    const auto manifest = encoded.manifest_view();
+    raft::copy(manifest.centroid.data_handle(),
+               quantizer.centroid.data_handle(),
+               quantizer.centroid.size(),
+               stream);
+    raft::copy(
+      manifest.centroid_norm_sq.data_handle(), quantizer.centroid_norm_sq.data_handle(), 1, stream);
+    transform(res, p, view, encoded.view());
+    const auto q = encoded.data_const_view().document;
     codes.push_back(unpack_codes(res, q, kRows, kDim));
-    errors.push_back(
-      relative_reconstruction_error(res, q, codes.back(), host_dataset, kRows, kDim));
+    errors.push_back(relative_reconstruction_error(
+      res, encoded.const_manifest_view(), q, codes.back(), host_dataset, kRows, kDim));
     std::cout << "[ RECON    ] " << get_bit_width(layout) << " bits, layout "
               << static_cast<int>(layout) << ": " << errors.back() << std::endl;
     EXPECT_LT(errors.back(), budget)

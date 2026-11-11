@@ -37,8 +37,8 @@ struct AnnCagraBbqInputs {
   /** Query-side layout; the code width follows from it. */
   cuvs::preprocessing::quantize::bbq::bbq_code_layout layout;
   /**
-   * Document-side layout of a second, coarser storage. When set, the dataset carries two
-   * storages and the asymmetric NN-descent path is used.
+   * Document-side layout of a second, coarser encoding. When set, the dataset carries a document
+   * and a query encoding and the asymmetric NN-descent path is used.
    */
   std::optional<cuvs::preprocessing::quantize::bbq::bbq_code_layout> second_layout;
   /** Fraction of the full-precision build's recall that the BBQ build must retain. */
@@ -264,7 +264,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     ASSERT_EQ(restored.graph_degree(), graph_index.graph_degree());
     EXPECT_EQ(restored.metric(), graph_index.metric());
     EXPECT_EQ(restored.dataset().n_rows(), 0);
-    EXPECT_TRUE(restored.dataset().storages.empty());
+    EXPECT_EQ(restored.dataset().data_view().document.codes.data_handle(), nullptr);
 
     auto original   = cagra::update_dataset(handle_, std::move(graph_index), device_padded.view);
     auto reattached = cagra::update_dataset(handle_, std::move(restored), device_padded.view);
@@ -287,7 +287,7 @@ class AnnCagraBbqTest : public ::testing::TestWithParam<AnnCagraBbqInputs> {
     ASSERT_EQ(index.graph_size(), static_cast<uint32_t>(ps.n_rows));
     ASSERT_EQ(index.graph_degree(), static_cast<uint32_t>(ps.graph_degree));
     EXPECT_EQ(index.dataset().n_rows(), 0);
-    EXPECT_TRUE(index.dataset().storages.empty());
+    EXPECT_EQ(index.dataset().data_view().document.codes.data_handle(), nullptr);
   }
 
   /** Only NN-descent graph construction and the four BBQ metrics are accepted. */

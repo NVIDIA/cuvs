@@ -19,18 +19,22 @@
 
 namespace cuvs::preprocessing::quantize::bbq::detail {
 
+/** The read-only view of a BBQ dataset, as the algorithms take it. */
+template <typename DataT>
+using bbq_dataset_view_t = cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t>;
+/** One read-only encoding of the rows, as the kernels read it. */
+using bbq_encoding_view_t = typename bbq_dataset_view_t<float>::data_view_type::encoding_type;
+
 #ifdef __CUDACC__
 
 // --------------------------------------------------------------------------
 // Layout geometry
-// Encoded row length of a storage, and the bit planes its layout slices a row into.
+// Encoded row length of an encoding, and the bit planes its layout slices a row into.
 // --------------------------------------------------------------------------
 
-template <typename DataT, typename IdxT>
-_RAFT_HOST_DEVICE constexpr uint32_t get_encoded_row_length(
-  const bbq_dataset_view_storage<DataT, IdxT>& dataset)
+_RAFT_HOST_DEVICE constexpr uint32_t get_encoded_row_length(const bbq_encoding_view_t& encoding)
 {
-  return get_encoded_row_length(dataset.dim(), dataset.layout);
+  return static_cast<uint32_t>(encoding.codes.extent(1));
 }
 
 /**
@@ -45,6 +49,20 @@ _RAFT_HOST_DEVICE constexpr int get_code_planes(const bbq_code_layout layout)
     case bbq_code_layout::transposed_4b: return 4;
     default: return 1;
   }
+}
+
+/**
+ * The asymmetric (document, query) layout pairs the distance kernels compute: a packed_1b document
+ * against a packed_4b (tensor core), transposed_2b or transposed_4b query, and a transposed_2b
+ * document against a transposed_4b query (SIMT).
+ */
+constexpr auto is_asymmetric_layout_pair(bbq_code_layout document, bbq_code_layout query) noexcept
+  -> bool
+{
+  return (document == bbq_code_layout::packed_1b &&
+          (query == bbq_code_layout::packed_4b || query == bbq_code_layout::transposed_2b ||
+           query == bbq_code_layout::transposed_4b)) ||
+         (document == bbq_code_layout::transposed_2b && query == bbq_code_layout::transposed_4b);
 }
 
 // --------------------------------------------------------------------------
@@ -278,39 +296,38 @@ __device__ __forceinline__ uint32_t code_inner_product_1b_x_packed_4b(const uint
 
 /**
  * Integer inner product between a document row and a query row, each read through its own
- * storage. The two layouts may differ: the supported (document, query) pairs are the ones
+ * encoding. The two layouts may differ: the supported (document, query) pairs are the ones
  * nn-descent's local join dispatches on, and passing the same view twice is the symmetric case.
  */
-template <typename DataT, typename IdxT>
-__device__ __forceinline__ uint32_t
-code_inner_product(const bbq_dataset_view_storage<DataT, IdxT>& storage_document,
-                   const bbq_dataset_view_storage<DataT, IdxT>& storage_query,
-                   int64_t row_document,
-                   int64_t row_query)
+__device__ __forceinline__ uint32_t code_inner_product(const bbq_encoding_view_t& encoding_document,
+                                                       const bbq_encoding_view_t& encoding_query,
+                                                       int64_t row_document,
+                                                       int64_t row_query)
 {
-  const uint8_t* document = &storage_document.codes(row_document, 0);
-  const uint8_t* query    = &storage_query.codes(row_query, 0);
+  const uint8_t* document = &encoding_document.codes(row_document, 0);
+  const uint8_t* query    = &encoding_query.codes(row_query, 0);
 
-  if (storage_document.layout == storage_query.layout) {
+  if (encoding_document.layout == encoding_query.layout) {
     return code_inner_product(
-      document, query, storage_document.layout, get_encoded_row_length(storage_document));
+      document, query, encoding_document.layout, get_encoded_row_length(encoding_document));
   }
-  if (storage_document.layout == bbq_code_layout::packed_1b &&
-      storage_query.layout == bbq_code_layout::packed_4b) {
+  if (encoding_document.layout == bbq_code_layout::packed_1b &&
+      encoding_query.layout == bbq_code_layout::packed_4b) {
     return code_inner_product_1b_x_packed_4b(
-      document, query, get_encoded_row_length(storage_document));
+      document, query, get_encoded_row_length(encoding_document));
   }
   // Every remaining supported pair is bit-sliced on both sides: (packed_1b, transposed_2b),
   // (packed_1b, transposed_4b) and (transposed_2b, transposed_4b).
-  assert(storage_document.layout == bbq_code_layout::packed_1b ||
-         storage_document.layout == bbq_code_layout::transposed_2b);
-  assert(storage_query.layout == bbq_code_layout::transposed_2b ||
-         storage_query.layout == bbq_code_layout::transposed_4b);
+  assert(encoding_document.layout == bbq_code_layout::packed_1b ||
+         encoding_document.layout == bbq_code_layout::transposed_2b);
+  assert(encoding_query.layout == bbq_code_layout::transposed_2b ||
+         encoding_query.layout == bbq_code_layout::transposed_4b);
+  const int document_planes = get_code_planes(encoding_document.layout);
   return code_inner_product_planes(document,
-                                   get_code_planes(storage_document.layout),
+                                   document_planes,
                                    query,
-                                   get_code_planes(storage_query.layout),
-                                   (storage_document.dim() + 7) / 8);
+                                   get_code_planes(encoding_query.layout),
+                                   get_encoded_row_length(encoding_document) / document_planes);
 }
 
 // --------------------------------------------------------------------------
@@ -442,7 +459,7 @@ __device__ __forceinline__ void bbq_code_inner_product_2x1(const uint8_t* row_a0
 // --------------------------------------------------------------------------
 
 // Per-row dequantization terms needed by bbq_calculate_metric.
-// row_norm is read directly from the storage view instead,
+// row_norm is read directly from the encoding view instead,
 // since register pressure in the BBQ local-join kernels is already tight.
 struct bbq_dequant_factors {
   float lower;
@@ -451,14 +468,13 @@ struct bbq_dequant_factors {
   float corrections;
 };
 
-template <typename DataT, typename IdxT>
 __device__ __forceinline__ bbq_dequant_factors
-get_dequant_factors(const bbq_dataset_view_storage<DataT, IdxT>& storage, int64_t row)
+get_dequant_factors(const bbq_encoding_view_t& encoding, int64_t row)
 {
-  return bbq_dequant_factors{storage.lower_intervals(row),
-                             storage.dequant_delta(row),
-                             storage.dequant_sum_delta(row),
-                             storage.additional_corrections(row)};
+  return bbq_dequant_factors{encoding.lower_intervals(row),
+                             encoding.dequant_delta(row),
+                             encoding.dequant_sum_delta(row),
+                             encoding.additional_corrections(row)};
 }
 
 // Converts one raw BBQ dot product into a final (post-epilogue) float distance, given both
@@ -467,19 +483,19 @@ get_dequant_factors(const bbq_dataset_view_storage<DataT, IdxT>& storage, int64_
 // than being passed separately, since every caller reads them the same id-indexed way -- row_norm
 // is only read for CosineExpanded (skipped entirely otherwise).
 template <typename DataT, typename Index_t, typename DistEpilogue_t>
-__device__ __forceinline__ float bbq_calculate_metric(
-  uint32_t raw,
-  const bbq_dequant_factors& doc_factors,
-  const bbq_dequant_factors& query_factors,
-  const bbq_dataset_view_storage<DataT, int64_t>& storage_document,
-  const bbq_dataset_view_storage<DataT, int64_t>& storage_query,
-  cuvs::distance::DistanceType metric,
-  DistEpilogue_t dist_epilogue,
-  Index_t document_id,
-  Index_t query_id)
+__device__ __forceinline__ float bbq_calculate_metric(uint32_t raw,
+                                                      const bbq_dequant_factors& doc_factors,
+                                                      const bbq_dequant_factors& query_factors,
+                                                      const bbq_encoding_view_t& encoding_document,
+                                                      const bbq_encoding_view_t& encoding_query,
+                                                      const quantizer_view<const DataT>& quantizer,
+                                                      cuvs::distance::DistanceType metric,
+                                                      DistEpilogue_t dist_epilogue,
+                                                      Index_t document_id,
+                                                      Index_t query_id)
 {
   constexpr bool can_postprocess_dist = std::is_same_v<DistEpilogue_t, raft::identity_op>;
-  const float dim                     = static_cast<float>(storage_document.dim());
+  const float dim                     = static_cast<float>(quantizer.dim());
 
   const float centered = dim * doc_factors.lower * query_factors.lower +
                          query_factors.lower * doc_factors.sum_delta +
@@ -495,11 +511,11 @@ __device__ __forceinline__ float bbq_calculate_metric(
       d = sqrtf(d);
     }
   } else if (metric == cuvs::distance::DistanceType::InnerProduct) {
-    d = -(centered + corrections - storage_document.quantizer.centroid_norm_sq(0));
+    d = -(centered + corrections - quantizer.centroid_norm_sq(0));
   } else {  // CosineExpanded
     const float norm_product =
-      storage_document.row_norm(document_id) * storage_query.row_norm(query_id);
-    const float dot = centered + corrections - storage_document.quantizer.centroid_norm_sq(0);
+      encoding_document.row_norm(document_id) * encoding_query.row_norm(query_id);
+    const float dot = centered + corrections - quantizer.centroid_norm_sq(0);
     d               = norm_product > 0.0f ? 1.0f - dot / sqrtf(norm_product) : 0.0f;
   }
   return dist_epilogue(d, document_id, query_id);

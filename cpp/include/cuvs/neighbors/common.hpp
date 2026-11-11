@@ -25,6 +25,7 @@
 
 #include <cuvs/core/bitmap.hpp>
 #include <cuvs/core/bitset.hpp>
+#include <cuvs/core/dataset/bbq.hpp>
 #include <cuvs/core/dataset/dense.hpp>
 #include <cuvs/core/dataset/vpq.hpp>
 #include <cuvs/core/export.hpp>
@@ -312,6 +313,7 @@ template <typename T, typename IdxT, typename MathT = T>
 using device_vpq_dataset = cuvs::device_vpq_dataset<T, IdxT, MathT>;
 template <typename T, typename IdxT, typename MathT = T>
 using host_vpq_dataset = cuvs::host_vpq_dataset<T, IdxT, MathT>;
+using cuvs::device_bbq_dataset;
 
 /* The read-only views are the const views of the owning types. */
 template <typename T, typename IdxT>
@@ -326,6 +328,8 @@ template <typename T, typename IdxT, typename MathT = T>
 using device_vpq_dataset_view = typename device_vpq_dataset<T, IdxT, MathT>::const_view_type;
 template <typename T, typename IdxT, typename MathT = T>
 using host_vpq_dataset_view = typename host_vpq_dataset<T, IdxT, MathT>::const_view_type;
+template <typename T, typename IdxT>
+using device_bbq_dataset_view = typename device_bbq_dataset<T, IdxT>::const_view_type;
 
 // Maps a dataset view type to its owning (allocating) dataset counterpart.
 // Used by serialize/deserialize to type the out_dataset output parameter;
@@ -410,6 +414,11 @@ struct dataset_view_kind_of<DatasetT<DataT, IdxT, vpq_spec<MathT, BookPolicy, Co
     std::is_same_v<MathT, half> ? dataset_view_kind::vpq_f16 : dataset_view_kind::vpq_f32;
 };
 
+template <template <typename, typename, typename> class DatasetT, typename DataT, typename IdxT>
+struct dataset_view_kind_of<DatasetT<DataT, IdxT, bbq_spec>> {
+  static constexpr dataset_view_kind value = dataset_view_kind::bbq;
+};
+
 template <typename V>
 using dataset_view_type_t = std::remove_cvref_t<V>;
 
@@ -421,11 +430,20 @@ template <typename ContainerType, typename DataT, typename IdxT, typename Access
 struct dataset_view_is_device_accessible<dataset_view<ContainerType, DataT, IdxT, Accessor>>
   : std::bool_constant<Accessor::is_device_accessible> {};
 
+// A spec either states where its dataset lives itself (by the policy of its containers), or the
+// data view of the spec is an mdspan, which knows it.
+template <typename ViewT>
+struct spec_view_is_device_accessible
+  : std::bool_constant<ViewT::data_view_type::accessor_type::is_device_accessible> {};
+
+template <typename ViewT>
+  requires requires { ViewT::spec_type::is_device_accessible; }
+struct spec_view_is_device_accessible<ViewT>
+  : std::bool_constant<ViewT::spec_type::is_device_accessible> {};
+
 template <typename DataT, typename IdxT, typename SpecT>
 struct dataset_view_is_device_accessible<cuvs::dataset_view<DataT, IdxT, SpecT>>
-  : std::bool_constant<
-      cuvs::dataset_view<DataT, IdxT, SpecT>::data_view_type::accessor_type::is_device_accessible> {
-};
+  : spec_view_is_device_accessible<cuvs::dataset_view<DataT, IdxT, SpecT>> {};
 
 template <typename V>
 inline constexpr bool dataset_view_is_device_accessible_v =
@@ -519,6 +537,18 @@ inline constexpr bool is_host_vpq_dataset_view_v =
 template <typename V>
 inline constexpr bool is_vpq_dataset_view_v =
   is_device_vpq_dataset_view_v<V> || is_host_vpq_dataset_view_v<V>;
+
+template <typename V>
+inline constexpr bool is_device_bbq_dataset_view_v =
+  dataset_view_kind_v<V> == dataset_view_kind::bbq && dataset_view_is_device_accessible_v<V>;
+
+template <typename V>
+inline constexpr bool is_host_bbq_dataset_view_v =
+  dataset_view_kind_v<V> == dataset_view_kind::bbq && !dataset_view_is_device_accessible_v<V>;
+
+template <typename V>
+inline constexpr bool is_bbq_dataset_view_v =
+  is_device_bbq_dataset_view_v<V> || is_host_bbq_dataset_view_v<V>;
 
 /** True for any device-resident dataset view. */
 template <typename V>
