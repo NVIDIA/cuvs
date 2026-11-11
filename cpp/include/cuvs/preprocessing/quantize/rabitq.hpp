@@ -377,9 +377,9 @@ void rotate(raft::resources const& res,
  * is written per padded dimension; each holds an unsigned
  * `params::ex_bits + 1` bit value, so `codes` must be `n_rows x padded_dim`.
  *
- * Rows are processed in internal batches, so the temporary float buffer holding
- * the rotated residuals, allocated from the workspace resource, covers one batch
- * rather than the whole dataset (a pool workspace resource is recommended).
+ * Rows are processed in internal batches. A temporary float buffer is used 
+ * internally to store the rotated residuals. This is allocated from the workspace
+ * resource. (A pool workspace resource is recommended.)
  *
  * `dataset` may also be on host. Its rows are then copied to the device one
  * batch at a time into workspace buffers, and are no longer read once the call
