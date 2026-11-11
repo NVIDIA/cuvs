@@ -1339,8 +1339,7 @@ void kmeans_predict(raft::resources const& handle,
     raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
   }
 
-  auto l2normx_view =
-    raft::make_device_vector_view<const DataT, IndexT>(L2NormX.data_handle(), n_samples);
+  auto l2normx_view = raft::make_const_mdspan(L2NormX.view());
   const auto result = cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(
     handle,
     X,
@@ -1363,7 +1362,8 @@ void kmeans_predict(raft::resources const& handle,
   cuvs::cluster::kmeans::detail::weightAndComputeClusterCost(
     handle,
     result,
-    raft::make_device_vector_view<const DataT, IndexT>(weight_ptr, n_samples),
+    raft::make_device_vector_view<const DataT, IndexT>(weight_ptr,
+                                                       weight_ptr == nullptr ? 0 : n_samples),
     pams.metric,
     workspace,
     raft::make_device_scalar_view(clusterCostD.data()));
