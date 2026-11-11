@@ -51,9 +51,7 @@ template <typename T>
 auto calc_minibatch_size(const raft::resources& handle, int64_t n_rows) -> int64_t
 {
   std::size_t mem_per_row = pruned_nn::kCentroidBatchSize * sizeof(int64_t) + sizeof(int32_t);
-  if constexpr (!std::is_same_v<T, half>) {
-    mem_per_row += pruned_nn::kPartialDim * sizeof(half) + sizeof(float);
-  }
+  if constexpr (!std::is_same_v<T, half>) { mem_per_row += pruned_nn::kPartialDim * sizeof(half); }
   const auto pool_size    = raft::resource::is_stream_pool_initialized(handle)
                               ? static_cast<int64_t>(raft::resource::get_stream_pool_size(handle))
                               : 0;
@@ -129,7 +127,7 @@ void predict(const raft::resources& handle,
 
 /**
  * The pruned assignment (cuvs::distance::pruned_top_1_nn) and what it keeps across iterations: the
- * half rows' norms, the row order, and the workspace. Float filter rows are prepared per batch.
+ * row norms, the row order, and the workspace. Float filter rows are prepared per batch.
  * The centroids the 1-NN reads are T: for half rows, a half copy of the float centroids, which is
  * also the filter's.
  */
@@ -145,8 +143,7 @@ class pruned_assignment {
       dim_(X.extent(1)),
       n_clusters_(n_clusters),
       filter_dim_(std::is_same_v<T, half> ? dim_ : pruned_nn::kPartialDim),
-      row_norms_(
-        raft::make_device_vector<float, int64_t>(handle, std::is_same_v<T, half> ? n_rows_ : 0)),
+      row_norms_(raft::make_device_vector<float, int64_t>(handle, n_rows_)),
       centroid_norms_(raft::make_device_vector<float, int64_t>(handle, n_clusters)),
       dist_(raft::make_device_vector<float, int64_t>(handle, n_rows_)),
       row_order_(raft::make_device_vector<uint32_t, int64_t>(handle, n_rows_)),
@@ -157,10 +154,9 @@ class pruned_assignment {
         cuvs::distance::pruned_top_1_nn_workspace_size<T>(handle, n_rows_, params_.row_batch_size)))
   {
     auto stream = raft::resource::get_cuda_stream(handle).get();
-    if constexpr (std::is_same_v<T, half>) {
-      pruned_nn::squared_norms(
-        X.data_handle(), n_rows_, dim_, pruned_nn::kPartialDim, row_norms_.data_handle(), stream);
-    }
+    // The input rows do not change between iterations, so cache their filter norms once.
+    pruned_nn::squared_norms(
+      X.data_handle(), n_rows_, dim_, pruned_nn::kPartialDim, row_norms_.data_handle(), stream);
   }
 
   /**

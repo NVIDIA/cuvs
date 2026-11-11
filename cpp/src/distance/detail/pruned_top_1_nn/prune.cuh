@@ -109,7 +109,7 @@ void squared_norms(const T* rows,
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
-/** Each row's squared distance to its assigned centroid; optionally pack and norm its filter dims.
+/** Each row's squared distance to its assigned centroid; optionally pack its filter dims as FP16.
  */
 template <bool Copy, typename T, typename C>
 RAFT_KERNEL distance_to_assigned_and_copy_kernel(const T* __restrict__ rows,
@@ -118,34 +118,23 @@ RAFT_KERNEL distance_to_assigned_and_copy_kernel(const T* __restrict__ rows,
                                                  int64_t dim,
                                                  const uint32_t* __restrict__ labels,
                                                  float* __restrict__ dist,
-                                                 half* __restrict__ filter_rows,
-                                                 float* __restrict__ filter_norms)
+                                                 half* __restrict__ filter_rows)
 {
   const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / kWarpSize;
   if (row >= n) { return; }
   const T* a     = rows + row * dim;
   const C* b     = centroids + static_cast<int64_t>(labels[row]) * dim;
   float distance = 0.f;
-  float norm     = 0.f;
   for (int64_t j = threadIdx.x % kWarpSize; j < dim; j += kWarpSize) {
     const float value = static_cast<float>(a[j]);
     const float diff  = value - static_cast<float>(b[j]);
     distance += diff * diff;
     if constexpr (Copy) {
-      if (j < kPartialDim) {
-        const half h                       = static_cast<half>(value);
-        filter_rows[row * kPartialDim + j] = h;
-        const float f                      = __half2float(h);
-        norm += f * f;
-      }
+      if (j < kPartialDim) { filter_rows[row * kPartialDim + j] = static_cast<half>(value); }
     }
   }
   distance = raft::warpReduce(distance);
   if (threadIdx.x % kWarpSize == 0) { dist[row] = distance; }
-  if constexpr (Copy) {
-    norm = raft::warpReduce(norm);
-    if (threadIdx.x % kWarpSize == 0) { filter_norms[row] = norm; }
-  }
 }
 
 template <bool Copy = false, typename T, typename C>
@@ -156,13 +145,12 @@ void distance_to_assigned(const T* rows,
                           const uint32_t* labels,
                           float* dist,
                           cudaStream_t stream,
-                          half* filter_rows   = nullptr,
-                          float* filter_norms = nullptr)
+                          half* filter_rows = nullptr)
 {
   constexpr uint32_t kThreads = 256;
   const auto blocks           = raft::ceildiv<int64_t>(n * kWarpSize, kThreads);
-  distance_to_assigned_and_copy_kernel<Copy><<<blocks, kThreads, 0, stream>>>(
-    rows, n, centroids, dim, labels, dist, filter_rows, filter_norms);
+  distance_to_assigned_and_copy_kernel<Copy>
+    <<<blocks, kThreads, 0, stream>>>(rows, n, centroids, dim, labels, dist, filter_rows);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
