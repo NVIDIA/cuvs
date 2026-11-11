@@ -91,7 +91,9 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat {
     LuceneVersionGuard.ensureCompatible();
     assertIsSupported();
     return new CuVS2510GPUVectorsReader(
-        state, FLAT_VECTORS_FORMAT.fieldsReader(state), filterBitsetCache);
+        state,
+        FLAT_VECTORS_FORMAT.fieldsReader(LuceneCompat.flatReadState(state)),
+        filterBitsetCache);
   }
 
   /**
