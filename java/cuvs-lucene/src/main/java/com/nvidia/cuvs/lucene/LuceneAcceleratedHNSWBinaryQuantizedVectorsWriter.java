@@ -54,7 +54,7 @@ import org.apache.lucene.util.InfoStream;
  *
  * @since 26.02
  */
-public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVectorsWriter {
+public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends CompatKnnVectorsWriter {
 
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter.class);
@@ -314,11 +314,9 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsWriter extends KnnVector
     }
   }
 
-  /**
-   * Write field for merging.
-   */
+  /** Merges one field, building its graph from the merged vectors. */
   @Override
-  public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+  void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
     vectorBasedMerge(fieldInfo, mergeState);
   }

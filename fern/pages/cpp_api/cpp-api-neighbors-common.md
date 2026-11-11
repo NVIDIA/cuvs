@@ -6,47 +6,19 @@ slug: api-reference/cpp-api-neighbors-common
 
 _Source header: `cuvs/neighbors/common.hpp`_
 
-## Approximate Nearest Neighbors Types
+## Types
 
-<a id="neighbors-index"></a>
-### neighbors::index
+<a id="cluster-kmeans-kmeans-type"></a>
+### cluster::kmeans::kmeans_type
 
-The base for approximate KNN index structures.
+Type of k-means algorithm.
 
-```cpp
-struct index;
-```
-
-<a id="neighbors-index-params"></a>
-### neighbors::index_params
-
-The base for KNN index parameters.
+Defined here rather than in cluster/kmeans.hpp so that the neighbors headers do not depend on the k-means header, which itself depends on the CAGRA parameter types.
 
 ```cpp
-struct index_params {
-  cuvs::distance::DistanceType metric;
-  float metric_arg;
-};
-```
-
-**Fields**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | Distance type. |
-| `metric_arg` | `float` | The argument used by some distance metrics. |
-
-<a id="neighbors-mergestrategy"></a>
-### neighbors::MergeStrategy
-
-Strategy for merging indices.
-
-This enum is declared separately to avoid namespace pollution when including common.hpp. It provides a generic merge strategy that can be used across different index types.
-
-```cpp
-enum class MergeStrategy {
-  MERGE_STRATEGY_PHYSICAL = 0,
-  MERGE_STRATEGY_LOGICAL = 1
+enum class kmeans_type {
+  KMeans = 0,
+  KMeansBalanced = 1
 };
 ```
 
@@ -54,10 +26,8 @@ enum class MergeStrategy {
 
 | Name | Value |
 | --- | --- |
-| `MERGE_STRATEGY_PHYSICAL` | `0` |
-| `MERGE_STRATEGY_LOGICAL` | `1` |
-
-## Types
+| `KMeans` | `0` |
+| `KMeansBalanced` | `1` |
 
 <a id="neighbors-dataset"></a>
 ### neighbors::dataset
@@ -148,6 +118,57 @@ SizeT> {
 | `data` | [`raft::device_mdarray<value_type, list_extents, raft::row_major>`](/api-reference/cpp-api-neighbors-ivf-pq#list-extents) | Possibly encoded data; it's layout is defined by `SpecT`. |
 | `indices` | `raft::device_mdarray<index_type, raft::extent_1d<size_type>, raft::row_major>` | Source indices. |
 | `size` | `std::atomic<size_type>` | The actual size of the content. |
+
+## Approximate Nearest Neighbors Types
+
+<a id="neighbors-index"></a>
+### neighbors::index
+
+The base for approximate KNN index structures.
+
+```cpp
+struct index;
+```
+
+<a id="neighbors-index-params"></a>
+### neighbors::index_params
+
+The base for KNN index parameters.
+
+```cpp
+struct index_params {
+  cuvs::distance::DistanceType metric;
+  float metric_arg;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | Distance type. |
+| `metric_arg` | `float` | The argument used by some distance metrics. |
+
+<a id="neighbors-mergestrategy"></a>
+### neighbors::MergeStrategy
+
+Strategy for merging indices.
+
+This enum is declared separately to avoid namespace pollution when including common.hpp. It provides a generic merge strategy that can be used across different index types.
+
+```cpp
+enum class MergeStrategy {
+  MERGE_STRATEGY_PHYSICAL = 0,
+  MERGE_STRATEGY_LOGICAL = 1
+};
+```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `MERGE_STRATEGY_PHYSICAL` | `0` |
+| `MERGE_STRATEGY_LOGICAL` | `1` |
 
 ## Filtering for ANN Types
 
