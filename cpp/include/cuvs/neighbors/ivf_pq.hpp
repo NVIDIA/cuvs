@@ -3455,7 +3455,7 @@ struct ivf_pq_params {
 
     refinement_rate = 1;
     // A neighbor from another list connects the clusters of the dataset in the graph.
-    search_params.force_n_probes = std::min<uint32_t>({4, search_params.n_probes / 4});
+    search_params.force_n_probes = std::min<uint32_t>({4, search_params.n_probes / 2});
   }
 };
 }  // namespace graph_build_params
