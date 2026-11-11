@@ -50,6 +50,31 @@ struct emeans_params {
 | `alpha0` | `double` | Initial EMA step in (0, 1]; zero selects the e-means recipe. Cosine decay ends at 10%. |
 | `unused_threshold` | `double` | Revival threshold relative to average EMA mass. -1 selects 0 for dimension &lt;= 2, otherwise 0.1. Zero disables donor splitting, which otherwise runs every five updates. |
 
+<a id="cluster-kmeans-ann-assignment-params"></a>
+### cluster::kmeans::ann_assignment_params
+
+CAGRA settings for the optional approximate nearest-centroid assignment of Lloyd's k-means (see
+
+`params::use_ann_for_assignment`): the build parameters of the CAGRA index over the centroids and the search parameters used to find each point's nearest centroid.
+
+The defaults differ from CAGRA's own: the graph is built with NN-descent (`graph_build_params` holds `nn_descent_params`, which is faster than IVF-PQ for the small centroid sets built here, and is not left to CAGRA's heuristic), and `search_params::itopk_size` is 32 (CAGRA's default is 64), which keeps the centroid quality while making the search faster.
+
+The following `index_params` fields are always overridden, since the feature relies on them: `metric` is set to L2Expanded, `attach_dataset_on_build` to true, and `graph_degree` and `intermediate_graph_degree` are clamped to `n_clusters - 1` (an NN-descent `graph_degree` is aligned with the clamped `intermediate_graph_degree`). ACE graph build params (`ace_params`) are not supported for the centroid index: they log a warning and brute force is used.
+
+```cpp
+struct ann_assignment_params {
+  cuvs::neighbors::cagra::index_params index_params;
+  cuvs::neighbors::cagra::search_params search_params;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `index_params` | `cuvs::neighbors::cagra::index_params` | CAGRA index (build) parameters of the centroid index. |
+| `search_params` | `cuvs::neighbors::cagra::search_params` | CAGRA search parameters used to find each point's nearest centroid. |
+
 <a id="cluster-kmeans-params"></a>
 ### cluster::kmeans::params
 
@@ -70,6 +95,8 @@ struct params : base_params {
   int64_t init_size;
   int64_t device_buffer_samples;
   std::optional<emeans_params> emeans;
+  bool use_ann_for_assignment;
+  std::optional<ann_assignment_params> ann_params;
 };
 ```
 
@@ -89,7 +116,9 @@ struct params : base_params {
 | `batch_centroids` | `int` | if 0 then batch_centroids = n_clusters |
 | `init_size` | `int64_t` | Number of samples to randomly draw for the KMeansPlusPlus initialization step. A random subset of this size is used for centroid seeding.<br /><br />Only applies when dataset is on host; for device data the full dataset is always used for seeding and this parameter is ignored.<br /><br />When set to 0 (default) with host data uses `min(3 * n_clusters, n_samples)` as a default.<br /><br />In Batched multi-GPU host-data fits, the effective KMeansPlusPlus initialization sample is materialized on device on every rank. Every rank must have enough GPU memory for this sample, and rank 0 must also have enough GPU memory for the seeding workspace.<br /><br />Default: 0. |
 | `device_buffer_samples` | `int64_t` | Number of samples to process per GPU batch when fitting with host data. When set to 0, defaults to n_samples (process all at once). Only used by the batched (host-data) code path and ignored by device-data overloads.<br /><br />Default: 0. For a single host input matrix, this creates one full-dataset input buffer on the GPU, even when an auxiliary stream is configured. To stream that matrix in smaller batches, set a positive value less than n_samples.<br /><br />Inputs spanning multiple batches are double-buffered when the handle has an auxiliary stream, and use one buffer otherwise. No auxiliary stream pool is configured by<br />default, so transfers and compute are serialized. Configure a pool with at least one auxiliary stream to enable transfer/compute overlap. Budget about `device_buffer_samples * n_features * sizeof(value_type)` bytes per input buffer, plus algorithm workspaces. Sample weights require the same number of additional buffers with `device_buffer_samples * sizeof(value_type)` bytes each. In these estimates, substitute n_samples for device_buffer_samples when it is 0.<br /><br />In multi-GPU mode this is a per-rank batch size: each rank processes up to this many local samples per batch, clamped to that rank's local sample count. This is ignored by device-data overloads. |
-| `emeans` | [`std::optional<emeans_params>`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-emeans-params) | Opt in to single-GPU, unweighted e-means using the existing float/double APIs. Initialization and n_init are unchanged; epochs replaces max_iter/tol, and n_iter reports completed (possibly fractional) passes. Training follows input order: shuffle rows beforehand if needed. Centroids are frozen across each logical minibatch, regardless of transfer tiling. Final centroids are means of the last pass's assignments; final inertia is evaluated against those centroids, not the last-pass assignments. Default nullopt preserves Lloyd training. |
+| `emeans` | [`std::optional<emeans_params>`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-emeans-params) | Opt in to single-GPU, unweighted e-means using the existing float/double APIs. Initialization and n_init are unchanged; epochs replaces max_iter/tol, and n_iter reports completed (possibly fractional) passes. Training follows input order: shuffle rows beforehand if needed. Centroids are frozen across each logical minibatch, regardless of transfer tiling. Final centroids are means of the last pass's assignments; final inertia is evaluated against those centroids, not the last-pass assignments. Combining this mode with ANN assignment is not supported. Default nullopt preserves Lloyd training. |
+| `use_ann_for_assignment` | `bool` | Use approximate nearest neighbor search (a CAGRA index built over the centroids) instead of brute force for the nearest-centroid assignment (E-step) of `fit` and `predict`.<br /><br />ANN assignment only pays off when `n_clusters` is very large: for small `n_clusters` it is slower than brute force. There is no automatic threshold, so benchmark on your own data and hardware.<br /><br />In `fit` the ANN index is rebuilt over the current centroids on EVERY Lloyd iteration (the centroids move each iteration, so the index is never reused), and each point is assigned its approximate nearest centroid (top-1) from that fresh index. The CAGRA build and search settings come from `ann_params` (defaults, see `ann_assignment_params`, are used when it is `std::nullopt`); a larger `itopk_size` is more accurate and slower.<br /><br />Only `float` data is supported; other data types log a warning and use brute force (Lloyd's k-means itself already requires the L2Expanded or L2SqrtExpanded metric). When `n_features` is not a multiple of 4 (CAGRA row alignment), the centroids are copied into a zero-padded buffer for each index build. Ignored by the multi-GPU `fit`. The reported inertia of `fit` is always computed exactly.<br /><br />Default: false. |
+| `ann_params` | [`std::optional<ann_assignment_params>`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-ann-assignment-params) | CAGRA settings (index build and search parameters) for the ANN assignment. Only used when `use_ann_for_assignment` is true. When `std::nullopt`, a default-constructed `ann_assignment_params` is used (NN-descent graph build, `itopk_size = 32`).<br /><br />Held in a `std::optional`: the CAGRA params contain nested variants that are not worth constructing unless the feature is used. |
 
 <a id="cluster-kmeans-balanced-donor-selection"></a>
 ### cluster::kmeans::balanced_donor_selection
@@ -109,25 +138,6 @@ enum class balanced_donor_selection {
 | --- | --- |
 | `SizeSorted` | `0` |
 | `Random` | `1` |
-
-<a id="cluster-kmeans-kmeans-type"></a>
-### cluster::kmeans::kmeans_type
-
-Type of k-means algorithm.
-
-```cpp
-enum class kmeans_type {
-  KMeans = 0,
-  KMeansBalanced = 1
-};
-```
-
-**Values**
-
-| Name | Value |
-| --- | --- |
-| `KMeans` | `0` |
-| `KMeansBalanced` | `1` |
 
 ## k-means clustering APIs
 

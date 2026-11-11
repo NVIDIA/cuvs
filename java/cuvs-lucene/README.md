@@ -55,7 +55,7 @@ Lucene version your application uses. For Lucene 10.6, add the following depende
 <dependency>
   <groupId>com.nvidia.cuvs.lucene</groupId>
   <artifactId>cuvs-lucene-10.6</artifactId>
-  <version>26.12.0</version>
+  <version>27.02.0</version>
 </dependency>
 ```
 

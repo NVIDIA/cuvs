@@ -9,9 +9,11 @@
 #pragma once
 
 #include "detail/fused_distance_nn.cuh"
+#include "detail/top_1_nn_cagra.cuh"
 #include "fused_distance_nn_helpers.cuh"
 #include "top_1_nn.cuh"
 #include "unfused_distance_nn.cuh"
+#include <raft/core/device_mdspan.hpp>
 #include <raft/core/resource/device_properties.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/contractions.cuh>
@@ -753,6 +755,11 @@ std::size_t top_1_nn_workspace_size(IdxT m,
       return detail::checked_top_1_nn_workspace_multiply(rows, sizeof(int));
     case detail::Top1nnBackend::Unfused:
       return detail::make_unfused_top_1_nn_workspace_layout<DataT>(m, n, tuning).total_bytes;
+    case detail::Top1nnBackend::Cagra:
+      // Search-time scratch only: the uint32 neighbor ids the CAGRA search returns before they are
+      // converted to IdxT. The index itself (graph and, for unaligned candidates, the padded copy)
+      // is allocated by `top_1_nn_cagra_index::build`, outside this workspace.
+      return detail::checked_top_1_nn_workspace_multiply(rows, sizeof(uint32_t));
   }
   RAFT_FAIL("Unknown top_1_nn backend");
 }
@@ -807,6 +814,23 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
       resolved        = detail::legacy_top_1_nn_backend(prop.major, m, n, metric);
     }
     if (!detail::is_top_1_nn_backend_available(resolved, x, y, m, n, k, metric)) { return plan; }
+  } else if (resolved == detail::Top1nnBackend::Cagra) {
+    if constexpr (std::is_same_v<DataT, float>) {
+      RAFT_EXPECTS(detail::is_top_1_nn_metric_supported(resolved, metric),
+                   "The CAGRA top_1_nn backend supports L2Expanded and L2SqrtExpanded only");
+      RAFT_EXPECTS(store_indices, "The CAGRA top_1_nn backend always stores indices");
+      const auto* index = tuning.cagra.index;
+      RAFT_EXPECTS(
+        index != nullptr && index->built(),
+        "The CAGRA top_1_nn backend requires a built index in Top1nnTuning::cagra.index");
+      RAFT_EXPECTS(
+        index->size() == static_cast<int64_t>(n) && index->dim() == static_cast<int64_t>(k),
+        "The CAGRA index does not match the candidate set (n, k) of this invocation");
+      RAFT_EXPECTS(x != nullptr && y != nullptr && m > IdxT{0} && n > IdxT{0} && k > IdxT{0},
+                   "Requested top_1_nn backend is unavailable for this invocation");
+    } else {
+      RAFT_FAIL("The CAGRA top_1_nn backend requires float data");
+    }
   } else {
     RAFT_EXPECTS(detail::is_top_1_nn_backend_available(resolved, x, y, m, n, k, metric),
                  "Requested top_1_nn backend is unavailable for this invocation");
@@ -827,7 +851,7 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
       detail::checked_top_1_nn_workspace_add(label_bytes, plan.workspace_bytes);
     plan.workspace_alignment = std::max<std::size_t>(16, plan.workspace_alignment);
   }
-  if (resolved == detail::Top1nnBackend::Cutile) {
+  if (resolved == detail::Top1nnBackend::Cutile || resolved == detail::Top1nnBackend::Cagra) {
     using DistanceT                 = detail::top_1_nn_distance_t<DataT>;
     constexpr std::size_t alignment = 16;
     if (store_indices) {
@@ -845,8 +869,9 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
     plan.output_alignment = alignment;
     plan.output_layout    = detail::Top1nnOutputLayout::Separate;
     plan.norm_alignment   = alignment;
-    plan.norm_policy      = std::is_same_v<DataT, float> ? detail::Top1nnNormPolicy::Tf32
-                                                         : detail::Top1nnNormPolicy::Native;
+    plan.norm_policy = (resolved == detail::Top1nnBackend::Cutile && std::is_same_v<DataT, float>)
+                         ? detail::Top1nnNormPolicy::Tf32
+                         : detail::Top1nnNormPolicy::Native;
   } else {
     plan.output_bytes = detail::checked_top_1_nn_workspace_multiply(
       detail::checked_top_1_nn_extent(m), sizeof(raft::KeyValuePair<IdxT, DataT>));
@@ -879,16 +904,17 @@ void top_1_nn(raft::resources const& handle,
   RAFT_EXPECTS(plan.available, "top_1_nn requires an available plan");
   RAFT_EXPECTS(plan.x == x && plan.y == y && plan.m == m && plan.n == n && plan.k == k &&
                  plan.metric == metric && plan.tuning.unfused.row_tile == tuning.unfused.row_tile &&
-                 plan.tuning.unfused.candidate_tile == tuning.unfused.candidate_tile,
+                 plan.tuning.unfused.candidate_tile == tuning.unfused.candidate_tile &&
+                 plan.tuning.cagra.index == tuning.cagra.index,
                "top_1_nn plan does not match this invocation");
   RAFT_EXPECTS(is_row_major, "top_1_nn only supports row-major inputs");
   RAFT_EXPECTS(m > 0 && n > 0 && k > 0, "top_1_nn requires positive m, n, and k");
   RAFT_EXPECTS(detail::is_top_1_nn_metric_supported(plan.backend, metric),
                "Selected top_1_nn backend does not support the requested metric");
   RAFT_EXPECTS(x != nullptr && y != nullptr, "top_1_nn requires non-null input buffers");
-  RAFT_EXPECTS(
-    metric == cuvs::distance::DistanceType::InnerProduct || (xn != nullptr && yn != nullptr),
-    "top_1_nn requires non-null norm buffers for the requested metric");
+  RAFT_EXPECTS(metric == cuvs::distance::DistanceType::InnerProduct ||
+                 plan.backend == detail::Top1nnBackend::Cagra || (xn != nullptr && yn != nullptr),
+               "top_1_nn requires non-null norm buffers for the requested metric");
   using output_type = std::remove_cvref_t<OutputT>;
   constexpr bool is_separate_output =
     std::is_same_v<output_type, typename detail::Top1nnOutputTypes<DataT, IdxT>::separate>;
@@ -985,6 +1011,10 @@ void top_1_nn(raft::resources const& handle,
                                     is_row_major,
                                     metric,
                                     metric_arg);
+      return;
+    case detail::Top1nnBackend::Cagra:
+      detail::top_1_nn_cagra<DataT, IdxT>(
+        handle, output, x, m, workspace, sqrt, *plan.tuning.cagra.index);
       return;
     case detail::Top1nnBackend::Unfused:
       detail::top_1_nn_unfused(handle,
