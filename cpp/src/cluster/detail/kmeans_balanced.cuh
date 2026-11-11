@@ -731,28 +731,6 @@ void predict(const raft::resources& handle,
 
   // Buffers reused by every minibatch, instead of allocated per predict_core call.
   predict_core_workspace<MathT> core_scratch(stream, mem_res);
-  // When the 1-NN plan uses TF32 norms (cuTile), it computes them itself and never reads FP32
-  // norms, so predict skips computing FP32 norms.
-  bool tf32_norms_in_1nn = false;
-  if constexpr (kmeans_may_require_tf32_norms_v<MathT>) {
-    if (need_compute_norm) {
-      const auto plan = probe_kmeans_top_1_nn<MathT, IdxT>(
-        handle,
-        std::is_same_v<T, MathT> ? reinterpret_cast<const MathT*>(dataset) : cur_dataset.data(),
-        centers,
-        std::min(max_minibatch_size, n_rows),
-        n_clusters,
-        transformed_dim,
-        params.metric,
-        0,
-        0,
-        cuvs::distance::detail::Top1nnBackend::Auto,
-        false);
-      tf32_norms_in_1nn =
-        plan.available && plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32;
-    }
-  }
-
   for (IdxT offset = 0; offset < n_rows; offset += max_minibatch_size) {
     IdxT minibatch_size = std::min<IdxT>(max_minibatch_size, n_rows - offset);
 
@@ -790,6 +768,28 @@ void predict(const raft::resources& handle,
         mapping_op);
     }
 
+    // When this minibatch's 1-NN plan uses TF32 norms (cuTile), the 1-NN computes them itself and
+    // never reads FP32 norms. Probe per minibatch: cuTile needs aligned rows, and a minibatch below
+    // 64 rows can leave later minibatches unaligned.
+    bool tf32_norms_in_1nn = false;
+    if constexpr (kmeans_may_require_tf32_norms_v<MathT>) {
+      if (need_compute_norm) {
+        const auto plan =
+          probe_kmeans_top_1_nn<MathT, IdxT>(handle,
+                                             cur_dataset_ptr,
+                                             centers,
+                                             minibatch_size,
+                                             n_clusters,
+                                             transformed_dim,
+                                             params.metric,
+                                             0,
+                                             0,
+                                             cuvs::distance::detail::Top1nnBackend::Auto,
+                                             false);
+        tf32_norms_in_1nn =
+          plan.available && plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32;
+      }
+    }
     // Compute the norm now if it hasn't been pre-computed and the 1-NN needs it.
     if (need_compute_norm && !tf32_norms_in_1nn) {
       if (params.metric == cuvs::distance::DistanceType::CosineExpanded)

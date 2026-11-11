@@ -28,7 +28,8 @@ namespace detail {
 namespace {
 
 /** Rows per cuTile launch when the candidates do not fit in L2. */
-constexpr int64_t kFused1nnCutileL2RowBatch = 32768;  // must be a multiple of 64 (16-byte alignment)
+constexpr int64_t kFused1nnCutileL2RowBatch =
+  32768;  // must be a multiple of 64 (16-byte alignment)
 
 /**
  * Returns true when the problem dimensions exceed the per-arch high-dim crossover thresholds.
