@@ -30,7 +30,9 @@
 
 namespace cuvs::distance::detail::pruned_nn {
 
-// Dims between the survivors' re-filters, and d' of the first filter
+// Dims used by the first filter (d')
+constexpr uint32_t kPartialDim = 256;
+// Dims between the survivors' re-filters
 constexpr uint32_t kDimTileSize = 256;
 
 /** ADSampling's margin, the eps0 of adsampling_ratio. */
@@ -130,10 +132,10 @@ RAFT_KERNEL distance_to_assigned_and_copy_kernel(const T* __restrict__ rows,
     const float diff  = value - static_cast<float>(b[j]);
     distance += diff * diff;
     if constexpr (Copy) {
-      if (j < kDimTileSize) {
-        const half h                        = static_cast<half>(value);
-        filter_rows[row * kDimTileSize + j] = h;
-        const float f                       = __half2float(h);
+      if (j < kPartialDim) {
+        const half h                       = static_cast<half>(value);
+        filter_rows[row * kPartialDim + j] = h;
+        const float f                      = __half2float(h);
         norm += f * f;
       }
     }
@@ -176,12 +178,11 @@ struct first_filter_lists {
 };
 
 /**
- * One dim tile of a vector (16-byte aligned) into the warp's registers as floats, in 16-byte loads:
+ * One dim tile of a vector (16-byte aligned) into the warp's registers, in 16-byte loads:
  * lane l holds dims (32 j + l) * V + [0, V) at tile[j * V + [0, V)], V = 16 / sizeof(T).
  */
 template <uint32_t Dims, typename T>
-__device__ __forceinline__ void load_tile(const T* __restrict__ values,
-                                          float (&tile)[Dims / kWarpSize])
+__device__ __forceinline__ void load_tile(const T* __restrict__ values, T (&tile)[Dims / kWarpSize])
 {
   constexpr uint32_t kVec = 16 / sizeof(T);
   static_assert(Dims % (kWarpSize * kVec) == 0, "a dim tile is whole 16-byte loads per lane");
@@ -192,7 +193,7 @@ __device__ __forceinline__ void load_tile(const T* __restrict__ values,
     v.load(values, (j * kWarpSize + lane) * kVec);
 #pragma unroll
     for (uint32_t k = 0; k < kVec; k++) {
-      tile[j * kVec + k] = static_cast<float>(v.val.data[k]);
+      tile[j * kVec + k] = v.val.data[k];
     }
   }
 }
@@ -204,7 +205,7 @@ __device__ __forceinline__ void load_tile(const T* __restrict__ values,
  * back.
  */
 template <uint32_t Dims, uint32_t N, typename T>
-__device__ __forceinline__ void add_tile_distances(const float (&row_tile)[Dims / kWarpSize],
+__device__ __forceinline__ void add_tile_distances(const T (&row_tile)[Dims / kWarpSize],
                                                    const T* __restrict__ centroids,
                                                    uint32_t stride,
                                                    uint32_t ids,
@@ -217,12 +218,12 @@ __device__ __forceinline__ void add_tile_distances(const float (&row_tile)[Dims 
   for (uint32_t i = 0; i < N; i++) {
     const T* centroid =
       centroids + static_cast<int64_t>(__shfl_sync(kFullMask, ids, first + i)) * stride;
-    float centroid_tile[Dims / kWarpSize];
+    T centroid_tile[Dims / kWarpSize];
     load_tile<Dims>(centroid, centroid_tile);
     partial[i] = 0;
 #pragma unroll
     for (uint32_t j = 0; j < Dims / kWarpSize; j++) {
-      const float diff = row_tile[j] - centroid_tile[j];
+      const float diff = static_cast<float>(row_tile[j]) - static_cast<float>(centroid_tile[j]);
       partial[i]       = fmaf(diff, diff, partial[i]);
     }
   }
@@ -249,7 +250,7 @@ __device__ __forceinline__ int64_t pack_survivor(uint32_t id, float distance)
 
 /**
  * A warp per block and row, against one centroid batch: the row's first-filter survivors (partial
- * distances over the first partial_dim dims), the tail dims in dim tiles with a re-filter after
+ * distances over the first kPartialDim dims), the tail dims in dim tiles with a re-filter after
  * each but the last, then the argmin, kept if closer than the row's current centroid. Block b
  * handles row row_order[b] when given (heaviest rows first), and each row's first-filter survivors
  * are added to `survivors`.
@@ -264,7 +265,6 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
                          const T* __restrict__ centroids,
                          uint32_t centroid_offset,
                          uint32_t dim,
-                         uint32_t partial_dim,
                          first_filter_lists lists,
                          uint32_t* __restrict__ labels,
                          float* __restrict__ dist,
@@ -292,12 +292,12 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
     return;
   }
 
-  // One pass per dim tile (partial_dim < dim); the last one ends with the argmin
-  for (uint32_t d = partial_dim; n_left; d += kDimTileSize) {
+  // One pass per remaining dim tile; the last one ends with the argmin
+  for (uint32_t d = kPartialDim; n_left; d += kDimTileSize) {
     const bool last = d + kDimTileSize >= dim;
     // The re-filter's ratio
     const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, kAdsamplingEps0);
-    float row_tile[kDimTileSize / kWarpSize];
+    T row_tile[kDimTileSize / kWarpSize];
     load_tile<kDimTileSize>(row_values + d, row_tile);
     uint32_t kept = 0;
     for (uint32_t base = 0; base < n_left; base += kWarpSize) {
@@ -358,22 +358,21 @@ void prune(const T* rows,
            const T* centroids,
            uint32_t centroid_offset,
            int64_t dim,
-           uint32_t partial_dim,
            first_filter_lists lists,
            uint32_t* labels,
            float* dist,
            uint32_t* survivors,
            cudaStream_t stream)
 {
-  RAFT_EXPECTS(partial_dim < dim && (dim - partial_dim) % kDimTileSize == 0,
-               "Pruned 1-NN needs partial_dim < dim, dim - partial_dim a multiple of %u",
+  RAFT_EXPECTS(dim > kPartialDim && (dim - kPartialDim) % kDimTileSize == 0,
+               "Pruned 1-NN needs a positive tail after %u dims in tiles of %u",
+               kPartialDim,
                kDimTileSize);
   prune_kernel<<<n_rows, kWarpSize, 0, stream>>>(rows,
                                                  row_order,
                                                  centroids,
                                                  centroid_offset,
                                                  static_cast<uint32_t>(dim),
-                                                 partial_dim,
                                                  lists,
                                                  labels,
                                                  dist,

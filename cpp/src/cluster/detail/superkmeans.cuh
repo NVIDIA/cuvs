@@ -52,7 +52,7 @@ auto calc_minibatch_size(const raft::resources& handle, int64_t n_rows) -> int64
 {
   std::size_t mem_per_row = pruned_nn::kCentroidBatchSize * sizeof(int64_t) + sizeof(int32_t);
   if constexpr (!std::is_same_v<T, half>) {
-    mem_per_row += pruned_nn::kDimTileSize * sizeof(half) + sizeof(float);
+    mem_per_row += pruned_nn::kPartialDim * sizeof(half) + sizeof(float);
   }
   const auto pool_size    = raft::resource::is_stream_pool_initialized(handle)
                               ? static_cast<int64_t>(raft::resource::get_stream_pool_size(handle))
@@ -144,7 +144,7 @@ class pruned_assignment {
       n_rows_(X.extent(0)),
       dim_(X.extent(1)),
       n_clusters_(n_clusters),
-      filter_dim_(std::is_same_v<T, half> ? dim_ : pruned_nn::kDimTileSize),
+      filter_dim_(std::is_same_v<T, half> ? dim_ : pruned_nn::kPartialDim),
       row_norms_(
         raft::make_device_vector<float, int64_t>(handle, std::is_same_v<T, half> ? n_rows_ : 0)),
       centroid_norms_(raft::make_device_vector<float, int64_t>(handle, n_clusters)),
@@ -159,7 +159,7 @@ class pruned_assignment {
     auto stream = raft::resource::get_cuda_stream(handle).get();
     if constexpr (std::is_same_v<T, half>) {
       pruned_nn::squared_norms(
-        X.data_handle(), n_rows_, dim_, pruned_nn::kDimTileSize, row_norms_.data_handle(), stream);
+        X.data_handle(), n_rows_, dim_, pruned_nn::kPartialDim, row_norms_.data_handle(), stream);
     }
   }
 
@@ -174,7 +174,7 @@ class pruned_assignment {
     pruned_nn::squared_norms(centroids.data_handle(),
                              n_clusters_,
                              dim_,
-                             pruned_nn::kDimTileSize,
+                             pruned_nn::kPartialDim,
                              centroid_norms_.data_handle(),
                              raft::resource::get_cuda_stream(handle_).get(),
                              filter_centroids_.data_handle(),
@@ -238,9 +238,11 @@ void fit(const raft::resources& handle,
   const bool pruned = prunes(n_clusters, dim);
   if (pruned) {
     // Validate before sampling centroids or allocating scratch: eligible inputs must use pruning.
-    RAFT_EXPECTS(dim % pruned_nn::kDimTileSize == 0,
-                 "SuperKMeans pruning needs dim to be a multiple of %u",
-                 pruned_nn::kDimTileSize);
+    RAFT_EXPECTS(
+      dim > pruned_nn::kPartialDim && (dim - pruned_nn::kPartialDim) % pruned_nn::kDimTileSize == 0,
+      "SuperKMeans pruning needs a positive tail after %u dims in tiles of %u",
+      pruned_nn::kPartialDim,
+      pruned_nn::kDimTileSize);
     const auto aligned = [](const void* ptr) {
       return reinterpret_cast<uintptr_t>(ptr) % pruned_nn::kAlignment == 0;
     };

@@ -113,7 +113,7 @@ struct workspace_layout {
       packed.push_back(take(batch_rows * kCentroidBatchSize * sizeof(int64_t)));
       count.push_back(take(batch_rows * sizeof(int32_t)));
       if (copy_rows) {
-        filter_rows.push_back(take(batch_rows * kDimTileSize * sizeof(half)));
+        filter_rows.push_back(take(batch_rows * kPartialDim * sizeof(half)));
         filter_norms.push_back(take(batch_rows * sizeof(float)));
       }
     }
@@ -178,12 +178,13 @@ inline void order_rows_by_survivors(raft::resources const& handle,
 
 /**
  * Whether pruned_top_1_nn runs for k features on this build and device: it needs the fused
- * filter's cuTile kernel, and k a multiple of detail::pruned_nn::kDimTileSize above it (the first
- * filter's dims, with a tail left to prune on).
+ * filter's cuTile kernel, the first detail::pruned_nn::kPartialDim dims for filtering, and a
+ * positive tail in whole detail::pruned_nn::kDimTileSize tiles to prune on.
  */
 inline bool is_pruned_top_1_nn_available(int64_t k)
 {
-  return k > detail::pruned_nn::kDimTileSize && k % detail::pruned_nn::kDimTileSize == 0 &&
+  return k > detail::pruned_nn::kPartialDim &&
+         (k - detail::pruned_nn::kPartialDim) % detail::pruned_nn::kDimTileSize == 0 &&
          detail::pruned_nn::filter_tile().has_value();
 }
 
@@ -205,8 +206,8 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  * neighbor and ratio(i) = (i / k) * (1 + eps0 / sqrt(i))^2 (ADSampling's bound, see
  * detail::pruned_nn::adsampling_ratio):
  *
- *  1. a fused FP16 GEMM over the first detail::pruned_nn::kDimTileSize dims keeps the rows of y
- *     whose partial distance is under b * ratio(kDimTileSize);
+ *  1. a fused FP16 GEMM over the first detail::pruned_nn::kPartialDim dims keeps the rows of y
+ *     whose partial distance is under b * ratio(kPartialDim);
  *  2. the pruning kernel adds the survivors' remaining dims a tile at a time, keeping those under
  *     b * ratio(dims so far);
  *  3. the closest survivor over all k dims replaces the current neighbor, and b, if closer.
@@ -222,8 +223,8 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  *                    squared distance
  * @param x           [m, k] row-major
  * @param y           [n, k] row-major
- * @param y_fp16      [n, kDimTileSize]: y's first dims in FP16, for float; ignored for half
- * @param xn          [m] squared norms of half x over the first kDimTileSize dims; ignored for
+ * @param y_fp16      [n, kPartialDim]: y's first dims in FP16, for float; ignored for half
+ * @param xn          [m] squared norms of half x over the first kPartialDim dims; ignored for
  *                    float, whose filter rows and norms are prepared in the workspace per batch
  * @param yn          [n] the same for y
  * @param workspace   pruned_top_1_nn_workspace_size<DataT>(handle, m, params.row_batch_size) bytes,
@@ -250,7 +251,9 @@ void pruned_top_1_nn(raft::resources const& handle,
   using namespace detail::pruned_nn;
   constexpr bool kHalf = std::is_same_v<DataT, half>;
   RAFT_EXPECTS(is_pruned_top_1_nn_available(k),
-               "Pruned 1-NN needs the fused filter's cuTile kernel and k a multiple of %u above it",
+               "Pruned 1-NN needs the fused filter's cuTile kernel and a positive tail after %u "
+               "dims in tiles of %u",
+               kPartialDim,
                kDimTileSize);
   RAFT_EXPECTS(m > 0 && n > 0, "Pruned 1-NN needs rows in x and y");
   RAFT_EXPECTS(kHalf || y_fp16 != nullptr,
@@ -260,7 +263,7 @@ void pruned_top_1_nn(raft::resources const& handle,
   auto* ws = static_cast<char*>(workspace);
 
   // The filter reads FP16 rows: half data whole, float data's FP16 copies of its first dims
-  const int64_t filter_dim = kHalf ? k : kDimTileSize;
+  const int64_t filter_dim = kHalf ? k : kPartialDim;
   const half* y_filter     = nullptr;
   if constexpr (kHalf) {
     y_filter = y;
@@ -311,8 +314,8 @@ void pruned_top_1_nn(raft::resources const& handle,
                           row_norms,
                           yn + j,
                           row_dist,
-                          adsampling_ratio(kDimTileSize, static_cast<uint32_t>(k), kAdsamplingEps0),
-                          static_cast<int>(kDimTileSize),
+                          adsampling_ratio(kPartialDim, static_cast<uint32_t>(k), kAdsamplingEps0),
+                          static_cast<int>(kPartialDim),
                           packed,
                           count,
                           static_cast<int>(kCentroidBatchSize),
@@ -323,7 +326,6 @@ void pruned_top_1_nn(raft::resources const& handle,
             y + j * k,
             static_cast<uint32_t>(j),
             k,
-            kDimTileSize,
             first_filter_lists{packed, count, kCentroidBatchSize},
             row_labels,
             row_dist,
