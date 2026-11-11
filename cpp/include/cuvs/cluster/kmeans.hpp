@@ -260,6 +260,15 @@ struct balanced_params : base_params {
    *   - CosineExpanded is not supported.
    */
   bool is_packed_binary = false;
+
+  /** Opt in to balanced e-means, reusing the existing input types (including FP16) and mapping.
+   * Currently supports non-packed L2 input and whole epochs only. epochs sets a fixed budget for
+   * each hierarchical training phase instead of n_iters/adaptive repeats. Input order is unchanged.
+   * Real assignment counts drive the existing balancing policy, which replaces e-means donor
+   * splitting (unused_threshold is ignored). Relocation restarts EMA masses; centroid arithmetic
+   * and output remain in the existing MathT. Default nullopt preserves the original algorithm.
+   */
+  std::optional<emeans_params> emeans = std::nullopt;
 };
 
 /**

@@ -18,6 +18,7 @@
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <rmm/cuda_stream.hpp>
 #include <rmm/device_uvector.hpp>
 #include <rmm/mr/per_device_resource.hpp>
 
@@ -37,6 +38,81 @@
  */
 
 namespace cuvs {
+
+template <typename T>
+void test_balanced_emeans()
+{
+  constexpr int64_t n = 25, d = 32, k = 2;
+  rmm::cuda_stream stream;
+  raft::resources handle;
+  raft::resource::set_cuda_stream(handle, stream.view());
+  auto mr      = raft::resource::get_workspace_resource_ref(handle);
+  auto data    = raft::make_device_matrix<T, int64_t>(handle, n, d);
+  auto centers = raft::make_device_matrix<float, int64_t>(handle, k, d);
+  auto labels  = raft::make_device_vector<uint32_t, int64_t>(handle, n);
+  auto sizes   = raft::make_device_vector<uint32_t, int64_t>(handle, k);
+  std::vector<T> x(n * d);
+  std::vector<float> initial(k * d), expected(k * d, 0), actual(k * d);
+  std::vector<uint32_t> initial_labels(n), initial_sizes{13, 12}, actual_labels(n), actual_sizes(k);
+  for (int64_t i = 0; i < n; ++i) {
+    initial_labels[i] = i % 2;
+    for (int64_t j = 0; j < d; ++j) {
+      x[i * d + j] = T((i % 2 ? 2.f : -2.f) + .125f * (i % 3));
+      expected[(i % 2) * d + j] += float(x[i * d + j]) / initial_sizes[i % 2];
+    }
+  }
+  for (int64_t i = 0; i < k * d; ++i) {
+    initial[i] = i / d ? 2.f : -2.f;
+  }
+  raft::update_device(data.data_handle(), x.data(), x.size(), stream.view());
+  raft::update_device(centers.data_handle(), initial.data(), initial.size(), stream.view());
+  raft::update_device(
+    labels.data_handle(), initial_labels.data(), initial_labels.size(), stream.view());
+  raft::update_device(
+    sizes.data_handle(), initial_sizes.data(), initial_sizes.size(), stream.view());
+  cluster::kmeans::balanced_params p;
+  p.emeans.emplace();
+  p.emeans->epochs     = 2;
+  p.emeans->batch_size = 8;  // Native FP16 assignment plus a one-row remainder.
+  p.emeans->alpha0     = .6;
+  auto run             = [&] {
+    cluster::kmeans::detail::balancing_em_iters(handle,
+                                                p,
+                                                20,
+                                                d,
+                                                data.data_handle(),
+                                                static_cast<const float*>(nullptr),
+                                                n,
+                                                k,
+                                                centers.data_handle(),
+                                                labels.data_handle(),
+                                                sizes.data_handle(),
+                                                2,
+                                                .333f,
+                                                3.f,
+                                                raft::cast_op<float>{},
+                                                mr);
+  };
+  run();
+  raft::update_host(actual.data(), centers.data_handle(), actual.size(), stream.view());
+  raft::update_host(
+    actual_labels.data(), labels.data_handle(), actual_labels.size(), stream.view());
+  raft::update_host(actual_sizes.data(), sizes.data_handle(), actual_sizes.size(), stream.view());
+  raft::resource::sync_stream(handle);
+  EXPECT_EQ(actual_labels, initial_labels);
+  EXPECT_EQ(actual_sizes, initial_sizes);  // Actual integer counts, never decayed EMA masses.
+  for (int64_t i = 0; i < k * d; ++i) {
+    EXPECT_NEAR(actual[i], expected[i], 1e-5);
+  }
+  p.emeans->epochs = .5;
+  EXPECT_THROW(run(), raft::logic_error);
+  p.emeans->epochs = 2;
+  p.metric         = distance::DistanceType::InnerProduct;
+  EXPECT_THROW(run(), raft::logic_error);
+}
+
+TEST(EMeansBalanced, Float) { test_balanced_emeans<float>(); }
+TEST(EMeansBalanced, Half) { test_balanced_emeans<half>(); }
 
 template <typename MathT, typename IdxT>
 struct KmeansBalancedInputs {

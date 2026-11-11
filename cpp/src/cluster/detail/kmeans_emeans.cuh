@@ -212,6 +212,12 @@ class emeans_state {
 
   const emeans_schedule& schedule() const { return schedule_; }
 
+  // Balanced KMeans relocates centers using real assignment counts, not decayed EMA mass.
+  void reset_masses(raft::resources const& handle)
+  {
+    raft::matrix::fill(handle, mass_.view(), T(0x1p-16));
+  }
+
   void update(raft::resources const& handle,
               raft::device_matrix_view<T, IdxT> centers,
               const T* sums,
