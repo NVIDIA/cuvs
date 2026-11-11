@@ -52,7 +52,7 @@
 namespace cuvs::preprocessing::quantize::rabitq {
 
 /** Mirrors detail::padded_dim(): the working dimension is `dim` rounded up to 32. */
-constexpr int64_t expected_padded_dim(int64_t dim) { return ((dim + 31) / 32) * 32; }
+constexpr int64_t expected_padded_dim(int64_t dim) { return raft::ceildiv<int64_t>(dim, 32) * 32; }
 
 /** Mirrors detail::flip_bytes(): four sign-flip passes of `padded_dim` bits each. */
 constexpr int64_t expected_flip_bytes(int64_t padded_dim) { return 4 * padded_dim / 8; }
