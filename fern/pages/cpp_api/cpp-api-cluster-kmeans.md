@@ -143,25 +143,6 @@ struct superkmeans_params : base_params {
 | `n_iters` | `uint32_t` | Number of training iterations (default 10). |
 | `rng_state` | `raft::random::RngState` | Seed to the random number generator (the start rows); default seed 0. |
 
-<a id="cluster-kmeans-kmeans-type"></a>
-### cluster::kmeans::kmeans_type
-
-Type of k-means algorithm.
-
-```cpp
-enum class kmeans_type {
-  KMeans = 0,
-  KMeansBalanced = 1
-};
-```
-
-**Values**
-
-| Name | Value |
-| --- | --- |
-| `KMeans` | `0` |
-| `KMeansBalanced` | `1` |
-
 ## k-means clustering APIs
 
 <a id="cluster-kmeans-fit"></a>
