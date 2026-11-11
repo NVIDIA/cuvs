@@ -214,7 +214,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
   int batch_centroids,
   rmm::device_uvector<char>& workspace,
   std::optional<raft::device_vector_view<const DataT, IndexT>> Tf32NormX,
-  cuvs::distance::detail::Top1nnBackend backend)
+  cuvs::distance::detail::Top1nnBackend backend,
+  const cuvs::distance::detail::top_1_nn_cagra_index* ann_index)
 {
   auto stream       = raft::resource::get_cuda_stream(handle);
   auto n_samples    = X.extent(0);
@@ -232,7 +233,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
     tuning.unfused.candidate_tile =
       static_cast<std::size_t>(std::min(getCentroidsBatchSize(batch_centroids, n_clusters),
                                         static_cast<IndexT>(tuning.unfused.candidate_tile)));
-    plan = cuvs::distance::probe_top_1_nn(handle,
+    tuning.cagra.index = ann_index;  // only used by Top1nnBackend::Cagra
+    plan               = cuvs::distance::probe_top_1_nn(handle,
                                           X.data_handle(),
                                           centroids.data_handle(),
                                           n_samples,
@@ -276,7 +278,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
         }
       }
     }
-    if (y_norm == nullptr) {
+    // The CAGRA (ANN) backend does not use norms.
+    if (y_norm == nullptr && plan.backend != cuvs::distance::detail::Top1nnBackend::Cagra) {
       L2NormBuf_OR_DistBuf.resize(n_clusters, stream);
       auto centroids_norm =
         raft::make_device_vector_view<DataT, IndexT>(L2NormBuf_OR_DistBuf.data(), n_clusters);
@@ -402,7 +405,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
     int,                                                                                           \
     rmm::device_uvector<char>&,                                                                    \
     std::optional<raft::device_vector_view<const DataT, IndexT>>,                                  \
-    cuvs::distance::detail::Top1nnBackend);
+    cuvs::distance::detail::Top1nnBackend,                                                         \
+    const cuvs::distance::detail::top_1_nn_cagra_index*);
 
 INSTANTIATE_MIN_CLUSTER_AND_DISTANCE(float, int64_t)
 INSTANTIATE_MIN_CLUSTER_AND_DISTANCE(double, int64_t)
