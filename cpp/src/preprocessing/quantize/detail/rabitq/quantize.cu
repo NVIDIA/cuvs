@@ -4,8 +4,9 @@
  *
  * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged
  * except that the launchers request only the shared memory they use and opt in
- * to more than the default limit, and the full-factor launcher forwards the
- * rescale sample counts.
+ * to more than the default limit, the full-factor launcher forwards the
+ * rescale sample counts, and the block sums use cub::BlockReduce (a different
+ * summation order, so results can differ in the last bits).
  */
 
 //
@@ -101,7 +102,7 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
   float norm_sum[1] = {0.0f};
   for (int i = threadIdx.x; i < padded_dim; i += kBlockSize)
     norm_sum[0] += res[i] * res[i];
-  blockred::blockAllReduceSum(norm_sum);
+  norm_sum[0]    = blockred::blockAllReduceSum<kBlockSize>(norm_sum[0]);
   float inv_norm = rsqrtf(norm_sum[0] + 1e-30f);
 
   float t;
@@ -118,7 +119,7 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
       s_abs_norm[i] = val;
       local_max     = fmaxf(local_max, val);
     }
-    float max_o = blockred::blockAllReduceMax(local_max);
+    float max_o = blockred::blockAllReduceMax<kBlockSize>(local_max);
 
     if (max_o < kEps) {
       t = 1.0f;
@@ -231,7 +232,7 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
       sums[0] += u * u;
       sums[1] += r * u;
     }
-    blockred::blockReduceSum(sums);
+    blockred::blockReduceSum<kBlockSize>(sums);
     if (threadIdx.x == 0) {
       float norm_res = sqrtf(norm_sum[0]);
       float norm_ucb = sqrtf(sums[0]);
@@ -263,7 +264,7 @@ __global__ void sa_quantize_fused_kernel(const float* __restrict__ d_residual,
       sums[1] += d_centroid[i] * xu_cb;
       sums[2] += xu_cb * xu_cb;
     }
-    blockred::blockReduceSum(sums);
+    blockred::blockReduceSum<kBlockSize>(sums);
     if (threadIdx.x == 0) {
       constexpr float kEpsilon = 1.9f;
       float l2_sq              = norm_sum[0];

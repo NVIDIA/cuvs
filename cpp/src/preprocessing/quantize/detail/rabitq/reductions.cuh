@@ -1,131 +1,89 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
- *
- * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged;
- * only include paths, error macros and the enclosing namespace differ.
  */
 
 //
-// Warp/block reductions: warp shuffles + one shared-memory exchange and a
-// single __syncthreads() per block-level call. Naming follows the
-// cuVS/RAFT device-utility convention (camelCase; blockReduceSum leaves the
-// result in thread 0 like raft::blockReduce; the AllReduce variants deliver
-// it to every thread via butterfly shuffles, with no extra barrier).
+// Block reductions used by the RaBitQ quantizer kernels, built on cub::BlockReduce.
+// warpReduceSum and FloatSumN come from ivf_rabitq.
 //
 // Requirements / contract:
-//   - blockDim.x is a multiple of 32, at most 1024 threads.
-//   - Each block-level template instantiation owns one static shared scratch
-//     per kernel. Call an instantiation at most once per kernel launch (or
-//     separate repeated calls with a __syncthreads()): a back-to-back second
-//     call would overwrite the scratch while stragglers of the first still
-//     read it. Distinct N (and Sum vs Max, thread-0 vs AllReduce) use
-//     distinct scratches.
-//   - The internal __syncthreads() also orders all shared/global writes
-//     issued before the call ahead of anything after it.
+//   - blockDim.x == kBlockSize.
+//   - blockReduceSum leaves the result in thread 0 only, like cub::BlockReduce. Separate repeated
+//     calls of one instantiation with a __syncthreads() (cub's rule for reusing temp storage).
+//   - The AllReduce variants publish the result through shared memory behind a __syncthreads(),
+//     so every thread receives it, they may be called repeatedly, and the barrier also orders all
+//     shared/global writes issued before the call ahead of anything after it.
 //
 
 #ifndef RABITQ_GPU_BLOCK_REDUCE_CUH
 #define RABITQ_GPU_BLOCK_REDUCE_CUH
 
-#include <cuda_runtime.h>
+#include "../../../../neighbors/ivf_rabitq/utils/reductions.cuh"
+
+#include <cub/block/block_reduce.cuh>
+#include <cuda/functional>
 
 namespace cuvs::preprocessing::quantize::rabitq::detail {
 
 namespace blockred {
 
-/// Warp-level sum; the full warp sum lands in lane 0 (other lanes hold
-/// partials), matching raft::warpReduce.
-__device__ __forceinline__ float warpReduceSum(float val)
-{
-#pragma unroll
-  for (int off = 16; off > 0; off >>= 1)
-    val += __shfl_down_sync(0xffffffff, val, off);
-  return val;
-}
+using cuvs::neighbors::ivf_rabitq::detail::FloatSumN;
+using cuvs::neighbors::ivf_rabitq::detail::warpReduceSum;
 
 /// Sum-reduce N values across the block in one pass; on return vals[k] holds
-/// the full block sum in THREAD 0 only (other threads hold partials) — the
-/// same result contract as raft::blockReduce / cuVS blockReduceSum.
-template <int N>
+/// the full block sum in THREAD 0 only (other threads hold partials).
+template <int kBlockSize, int N>
 __device__ __forceinline__ void blockReduceSum(float (&vals)[N])
 {
-  __shared__ float sh[N][32];
-  const int lane = threadIdx.x & 31;
-  const int wid  = threadIdx.x >> 5;
-  const int nw   = blockDim.x >> 5;
+  using BlockReduce = cub::BlockReduce<FloatSumN<N>, kBlockSize>;
+  __shared__ typename BlockReduce::TempStorage tmp;
 
+  FloatSumN<N> s;
 #pragma unroll
-  for (int k = 0; k < N; ++k) {
-    float v = warpReduceSum(vals[k]);
-    if (lane == 0) sh[k][wid] = v;
-  }
-  __syncthreads();
-  if (wid == 0) {
+  for (int k = 0; k < N; ++k)
+    s.v[k] = vals[k];
+  s = BlockReduce(tmp).Sum(s);
 #pragma unroll
-    for (int k = 0; k < N; ++k) {
-      float v = (lane < nw) ? sh[k][lane] : 0.0f;
-      vals[k] = warpReduceSum(v);
-    }
-  }
+  for (int k = 0; k < N; ++k)
+    vals[k] = s.v[k];
 }
 
-/// Single-value convenience routed through the N = 1 instantiation.
+/// Single-value sum; the result is valid in thread 0 only.
+template <int kBlockSize>
 __device__ __forceinline__ float blockReduceSum(float val)
 {
-  float v[1] = {val};
-  blockReduceSum(v);
-  return v[0];
+  using BlockReduce = cub::BlockReduce<float, kBlockSize>;
+  __shared__ typename BlockReduce::TempStorage tmp;
+  return BlockReduce(tmp).Sum(val);
 }
 
-/// Sum-reduce N values across the block; on return vals[k] holds the full
-/// block sum in EVERY thread (butterfly all-reduce, no broadcast barrier).
-template <int N>
-__device__ __forceinline__ void blockAllReduceSum(float (&vals)[N])
+/// Sum-reduce one value across the block; every thread receives the result.
+template <int kBlockSize>
+__device__ __forceinline__ float blockAllReduceSum(float val)
 {
-  __shared__ float sh[N][32];
-  const int lane = threadIdx.x & 31;
-  const int wid  = threadIdx.x >> 5;
-  const int nw   = blockDim.x >> 5;
+  using BlockReduce = cub::BlockReduce<float, kBlockSize>;
+  __shared__ typename BlockReduce::TempStorage tmp;
+  __shared__ float result;
 
-#pragma unroll
-  for (int k = 0; k < N; ++k) {
-    float v = vals[k];
-#pragma unroll
-    for (int off = 16; off > 0; off >>= 1)
-      v += __shfl_xor_sync(0xffffffff, v, off);
-    if (lane == 0) sh[k][wid] = v;
-  }
+  float r = BlockReduce(tmp).Sum(val);
+  if (threadIdx.x == 0) result = r;
   __syncthreads();
-#pragma unroll
-  for (int k = 0; k < N; ++k) {
-    float v = (lane < nw) ? sh[k][lane] : 0.0f;
-#pragma unroll
-    for (int off = 16; off > 0; off >>= 1)
-      v += __shfl_xor_sync(0xffffffff, v, off);
-    vals[k] = v;  // every lane of every warp
-  }
+  return result;
 }
 
 /// Max-reduce one value across the block; every thread receives the result.
+template <int kBlockSize>
 __device__ __forceinline__ float blockAllReduceMax(float val)
 {
-  __shared__ float sh[32];
-  const int lane      = threadIdx.x & 31;
-  const int wid       = threadIdx.x >> 5;
-  const int nw        = blockDim.x >> 5;
-  const float kNegInf = __int_as_float(0xff800000);
+  using BlockReduce = cub::BlockReduce<float, kBlockSize>;
+  __shared__ typename BlockReduce::TempStorage tmp;
+  __shared__ float result;
 
-#pragma unroll
-  for (int off = 16; off > 0; off >>= 1)
-    val = fmaxf(val, __shfl_xor_sync(0xffffffff, val, off));
-  if (lane == 0) sh[wid] = val;
+  float r = BlockReduce(tmp).Reduce(val, cuda::maximum<>{});
+  if (threadIdx.x == 0) result = r;
   __syncthreads();
-  float v = (lane < nw) ? sh[lane] : kNegInf;
-#pragma unroll
-  for (int off = 16; off > 0; off >>= 1)
-    v = fmaxf(v, __shfl_xor_sync(0xffffffff, v, off));
-  return v;
+  return result;
 }
 
 }  // namespace blockred

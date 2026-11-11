@@ -4,7 +4,8 @@
  *
  * Imported from the standalone RaBitQ GPU quantizer. Behaviour unchanged
  * except that the kernel launch opts in to more than the default shared memory
- * limit.
+ * limit, and the norm of each sample row is summed with cub::BlockReduce (a
+ * different summation order, so results can differ in the last bits).
  */
 
 //
@@ -199,6 +200,7 @@ __device__ float compute_best_rescale_parallel(float* s_xp_norm,
 // Fully-fused kernel: generate a random Gaussian row, normalize, search for
 // the optimal rescale factor. One block = one sample row.
 // ---------------------------------------------------------------------------
+template <int BlockSize>
 __global__ void rabitq_rescale_sample_kernel(float* __restrict__ output_factors,
                                              int rows,
                                              int cols,
@@ -231,7 +233,7 @@ __global__ void rabitq_rescale_sample_kernel(float* __restrict__ output_factors,
     local_sum += val * val;
   }
 
-  float norm_squared = blockred::blockReduceSum(local_sum);
+  float norm_squared = blockred::blockReduceSum<BlockSize>(local_sum);
 
   __shared__ float inv_norm;
   if (tid == 0) inv_norm = rsqrtf(norm_squared);
@@ -246,6 +248,34 @@ __global__ void rabitq_rescale_sample_kernel(float* __restrict__ output_factors,
     row_data, cols, ex_bits, reuse_space, block_size, coarse_samples, fine_samples);
 
   if (tid == 0) output_factors[row_id] = rescale_factor;
+}
+
+// Keys the shared-memory state per block size: each instantiation is its own kernel.
+template <int BlockSize>
+struct rescale_smem_key {};
+
+template <int BlockSize>
+static void launch_rescale_sample_kernel(cudaStream_t stream,
+                                         size_t shared_mem_size,
+                                         float* d_factors,
+                                         int rows,
+                                         int dim,
+                                         int ex_bits,
+                                         uint64_t seed,
+                                         int coarse_samples,
+                                         int fine_samples)
+{
+  auto kernel = &rabitq_rescale_sample_kernel<BlockSize>;
+  cudaKernel_t cuda_kernel;
+  RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel)));
+  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<rescale_smem_key<BlockSize>>(
+    static_cast<std::uint32_t>(shared_mem_size),
+    [&]() {
+      kernel<<<rows, BlockSize, shared_mem_size, stream>>>(
+        d_factors, rows, dim, ex_bits, seed, coarse_samples, fine_samples);
+    },
+    cuda_kernel);
+  RAFT_CUDA_TRY(cudaGetLastError());
 }
 
 // ---------------------------------------------------------------------------
@@ -279,22 +309,19 @@ float get_const_scaling_factor(raft::resources const& res,
     shared_mem_size = (dim + 3 * block_size) * sizeof(float);
   }
 
-  auto kernel = &rabitq_rescale_sample_kernel;
-  cudaKernel_t cuda_kernel;
-  RAFT_CUDA_TRY(cudaGetKernel(&cuda_kernel, reinterpret_cast<const void*>(kernel)));
-  cuvs::neighbors::detail::safely_launch_kernel_with_smem_size<decltype(kernel)>(
-    static_cast<std::uint32_t>(shared_mem_size),
-    [&]() {
-      kernel<<<kConstNum, block_size, shared_mem_size, stream.get()>>>(d_factors.data(),
-                                                                       kConstNum,
-                                                                       static_cast<int>(dim),
-                                                                       static_cast<int>(ex_bits),
-                                                                       seed,
-                                                                       coarse_samples,
-                                                                       fine_samples);
-    },
-    cuda_kernel);
-  RAFT_CUDA_TRY(cudaGetLastError());
+  // cub::BlockReduce needs the block size at compile time.
+  const auto launch = block_size == 128   ? &launch_rescale_sample_kernel<128>
+                      : block_size == 256 ? &launch_rescale_sample_kernel<256>
+                                          : &launch_rescale_sample_kernel<512>;
+  launch(stream.get(),
+         shared_mem_size,
+         d_factors.data(),
+         kConstNum,
+         static_cast<int>(dim),
+         static_cast<int>(ex_bits),
+         seed,
+         coarse_samples,
+         fine_samples);
 
   size_t temp_storage_bytes = 0;
   RAFT_CUDA_TRY(cub::DeviceReduce::Sum(
