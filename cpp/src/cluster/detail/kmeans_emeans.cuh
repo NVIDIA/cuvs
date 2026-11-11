@@ -37,6 +37,8 @@ struct emeans_schedule {
   std::vector<int64_t> epoch_rows;
   uint64_t steps = 0;
 
+  // The cosine schedule makes early batches more responsive and late batches less disruptive.
+  // Its multiplier decreases from 1 toward 0.1, rather than decaying all the way to zero.
   double alpha(uint64_t step) const
   {
     constexpr double pi = 3.14159265358979323846;
@@ -61,6 +63,8 @@ inline emeans_schedule resolve_emeans(const emeans_params& p, int64_t n, int64_t
     auto lo = std::exp2(std::floor(std::log2(x)));
     return x / lo < 2 * lo / x ? lo : 2 * lo;
   };
+  // These fitted recipe constants choose optimizer hyperparameters, not GPU tile sizes.
+  // An explicit batch_size/alpha0 overrides the corresponding reference recipe.
   auto batch = p.batch_size;
   if (batch == 0) {
     double c        = d <= 16 ? .00439175 : .035134;
@@ -82,6 +86,9 @@ inline emeans_schedule resolve_emeans(const emeans_params& p, int64_t n, int64_t
     batch, alpha, p.unused_threshold < 0 ? (d <= 2 ? 0. : .1) : p.unused_threshold, {}};
   const auto whole     = int64_t(std::floor(p.epochs));
   const auto remainder = round_even((p.epochs - whole) * n);
+  // Put a fractional pass before the final full pass so last-pass means can see all rows.
+  // For example, 2.5 epochs becomes [n, round(0.5*n), n], not [n, n, round(0.5*n)].
+  // A budget below one epoch necessarily finalizes from that partial pass alone.
   result.epoch_rows.assign(std::max(int64_t{0}, whole - 1), n);
   if (remainder) { result.epoch_rows.push_back(remainder); }
   if (whole) { result.epoch_rows.push_back(n); }
@@ -95,6 +102,17 @@ inline emeans_schedule resolve_emeans(const emeans_params& p, int64_t n, int64_t
   return result;
 }
 
+/*
+ * One block updates one cluster after the complete logical minibatch has been assigned.
+ * Given old centroid C, effective mass M, batch sum s and batch count n:
+ *   M' = (1-alpha)*M + alpha*n
+ *   C' = ((1-alpha)*M*C + alpha*s) / M'
+ * We store C and M rather than a separate historical sum. The equivalent interpolation below
+ * weights the batch mean by alpha*n/M': clusters receiving few points move less strongly.
+ * Example: M=10, C=2, n=10, batch mean=6 and alpha=0.25 give M'=10 and C'=3.
+ * With no assigned points, keep C; decay its mass except at alpha=1, where retaining the old
+ * mass avoids erasing an empty cluster's history entirely.
+ */
 template <typename T, typename IdxT>
 RAFT_KERNEL emeans_update_kernel(T* centers,
                                  T* masses,
@@ -117,6 +135,7 @@ RAFT_KERNEL emeans_update_kernel(T* centers,
       T mean = sums[i] / count, weight = incoming / next;
       centers[i] = weight == T{1} ? mean : centers[i] + weight * (mean - centers[i]);
     }
+    // Final-pass statistics are ordinary sums/counts, independent of the EMA weights.
     if (closing_sums) { closing_sums[i] += sums[i]; }
   }
   if (threadIdx.x == 0) {
@@ -139,6 +158,10 @@ RAFT_KERNEL emeans_donor_keys(
 {
   int i = blockIdx.x * blockDim.x + threadIdx.x;
   if (i >= k) { return; }
+  // log(mass) + Gumbel noise gives a mass-weighted random donor ordering after sorting.
+  // This is not simply "pick the largest clusters": smaller active clusters can donate too.
+  // Sorting cluster IDs once samples without replacement, so two targets cannot share a donor.
+  // Ineligible clusters get -infinity and sort behind every eligible donor.
   // SplitMix64 counter keys give reproducible, weighted sampling without replacement.
   uint64_t x = seed + uint64_t(i) + 0x9e3779b97f4a7c15ULL;
   x          = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
@@ -158,6 +181,9 @@ RAFT_KERNEL emeans_split(T* centers,
                          int k,
                          IdxT dim)
 {
+  // Pair the selected target IDs with distinct donors from the sorted prefix. One block
+  // handles one pair; excess blocks return without reading either list. If targets outnumber
+  // donors, revive only as many as can be paired in this round.
   int slot = blockIdx.x;
   if (slot >= min(*unused_count, k - *unused_count)) { return; }
   int from = donors[slot], to = targets[slot];
@@ -165,6 +191,7 @@ RAFT_KERNEL emeans_split(T* centers,
   if (threadIdx.x == 0) { distinct = 0; }
   __syncthreads();
   for (IdxT j = threadIdx.x; j < dim; j += blockDim.x) {
+    // Split into two nearby centroids; alternating coordinate signs separates the children.
     T original = centers[int64_t(from) * dim + j];
     T delta    = j % 2 ? T(-1e-4) : T(1e-4);
     T donor = original * (T{1} - delta), child = original * (T{1} + delta);
@@ -183,6 +210,7 @@ RAFT_KERNEL emeans_split(T* centers,
         centers[i] = nextafter(centers[i], INFINITY);
       }
     }
+    // Preserve the donor's total effective mass across its two children.
     mass[from] = mass[to] = mass[from] * T{.5};
   }
 }
@@ -205,6 +233,8 @@ class emeans_state {
       total_(raft::make_device_scalar<T>(handle)),
       scratch_(0, raft::resource::get_cuda_stream(handle))
   {
+    // A tiny initial mass anchors the initialized centroids without overwhelming the first
+    // batch. Mass is a decayed effective count, not the integer number of assigned rows.
     raft::matrix::fill(handle, mass_.view(), T(0x1p-16));
     raft::matrix::fill(handle, closing_sums_.view(), T{0});
     raft::matrix::fill(handle, closing_counts_.view(), uint64_t{0});
@@ -234,6 +264,9 @@ class emeans_state {
     if (++step_ % 5 == 0 && schedule_.unused_threshold > 0) { revive(handle, centers, seed); }
   }
 
+  // Replace EMA centers with unweighted means of the assignments collected in the last pass.
+  // Those assignments used moving centroids: this is not a new assignment pass against the
+  // finalized centers. Keep the EMA center when that last pass assigned no points to a cluster.
   void finalize(raft::resources const& handle, raft::device_matrix_view<T, IdxT> centers)
   {
     auto sums   = closing_sums_.data_handle();
@@ -252,12 +285,24 @@ class emeans_state {
               raft::device_matrix_view<T, IdxT> centers,
               uint64_t seed)
   {
+    /*
+     * Revival is a device-side pipeline, separate from point assignment:
+     *   sum masses -> select underused IDs -> rank eligible donors -> split donor/target pairs.
+     * "Underused" means mass < unused_threshold * average mass, not necessarily zero mass.
+     * Example: masses=[80,18,1,1], threshold=0.1 => total=100, average=25, cutoff=2.5.
+     * Selection produces target IDs [2,3]. A possible randomized donor order is [1,0], giving
+     * pairs 1->2 and 0->3. Splitting produces masses [40,9,9,40] and nearby child centroids.
+     * All stages run in order on the caller's stream; no target count is copied to the host.
+     */
     int k       = int(centers.extent(0));
     auto stream = raft::resource::get_cuda_stream(handle).get();
     auto ids    = thrust::make_counting_iterator(0);
     emeans_unused<T> unused{
       mass_.data_handle(), total_.data_handle(), T(schedule_.unused_threshold), k};
     auto flags = thrust::make_transform_iterator(ids, unused);
+    // CUB has a two-call API: nullptr queries scratch bytes only; it does not reduce, select
+    // or sort data. Size one reusable buffer for the largest operation, since the three
+    // operations execute sequentially on the same stream and can share that storage.
     size_t a{}, b{}, c{};
     RAFT_CUDA_TRY(
       cub::DeviceReduce::Sum(nullptr, a, mass_.data_handle(), total_.data_handle(), k, stream));
@@ -275,10 +320,14 @@ class emeans_state {
                                                             stream));
     if (scratch_.size() < std::max({a, b, c})) { scratch_.resize(std::max({a, b, c}), stream); }
     a = b = c = scratch_.size();
+    // First produce total mass, then compact IDs whose mass is below the resulting cutoff.
+    // ids/flags are lazy iterators: [0,1,...,k-1] and the corresponding underused predicate.
     RAFT_CUDA_TRY(cub::DeviceReduce::Sum(
       scratch_.data(), a, mass_.data_handle(), total_.data_handle(), k, stream));
     RAFT_CUDA_TRY(cub::DeviceSelect::Flagged(
       scratch_.data(), b, ids, flags, unused_ids_.data(), unused_count_.data(), k, stream));
+    // Generate one random priority per cluster, then sort (priority, cluster ID) together.
+    // The eligible donor prefix is consumed by emeans_split; targets remain in unused_ids_.
     raft::launch_kernel(handle,
                         unsigned((int64_t(k) + 255) / 256),
                         256,
@@ -323,7 +372,12 @@ class emeans_state {
   rmm::device_uvector<char> scratch_;
 };
 
-/** Physical chunks only accumulate; updates happen exactly once per complete logical batch. */
+/*
+ * Logical batches define optimizer steps; loader chunks only define memory/transfer boundaries.
+ * Example: logical batch=10 rows, physical chunks=6 rows. Accumulate 6+4 with frozen centers,
+ * update once, then use the remaining 2 rows of the second chunk with the updated centers.
+ * A short batch at the end of a pass also updates once; it does not carry into the next pass.
+ */
 template <typename T, typename IdxT, typename Loader, typename Accumulate>
 void train_emeans(raft::resources const& handle,
                   emeans_state<T, IdxT>& state,
