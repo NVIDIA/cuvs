@@ -14,7 +14,7 @@ SPDX-License-Identifier: Apache-2.0
   <groupId>com.nvidia.cuvs.lucene</groupId>
   <artifactId>cuvs-lucene-parent</artifactId>
   <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
-  <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+  <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>27.02.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
   <name>cuvs-lucene-parent</name>
   <packaging>pom</packaging>
 
@@ -185,7 +185,7 @@ SPDX-License-Identifier: Apache-2.0
       <dependency>
         <groupId>com.nvidia.cuvs</groupId>
         <artifactId>cuvs-java</artifactId>
-        <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+        <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>27.02.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
       </dependency>
       <dependency>
         <groupId>commons-io</groupId>
