@@ -24,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <type_traits>
+#include <variant>
 
 namespace cuvs::distance::detail {
 
@@ -67,6 +68,13 @@ class top_1_nn_cagra_index {
     build_params.intermediate_graph_degree =
       std::min(build_params.intermediate_graph_degree, max_degree);
     build_params.attach_dataset_on_build = true;
+    // CAGRA requires the NN-descent graph degree to equal the intermediate graph degree (it warns
+    // and realigns otherwise), so keep it in step with the clamped value.
+    if (auto* nn_descent =
+          std::get_if<cuvs::neighbors::cagra::graph_build_params::nn_descent_params>(
+            &build_params.graph_build_params)) {
+      nn_descent->graph_degree = build_params.intermediate_graph_degree;
+    }
 
     search_params_ = search_params;
 

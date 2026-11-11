@@ -34,6 +34,36 @@ struct base_params {
  */
 
 /**
+ * CAGRA settings for the optional approximate nearest-centroid assignment of Lloyd's k-means (see
+ * `params::use_ann_for_assignment`): the build parameters of the CAGRA index over the centroids
+ * and the search parameters used to find each point's nearest centroid.
+ *
+ * The defaults differ from CAGRA's own: the graph is built with NN-descent
+ * (`graph_build_params` holds `nn_descent_params`, which is faster than IVF-PQ for the small
+ * centroid sets built here, and is not left to CAGRA's heuristic), and `search_params::itopk_size`
+ * is 32 (CAGRA's default is 64), which keeps the centroid quality while making the search faster.
+ *
+ * The following `index_params` fields are always overridden, since the feature relies on them:
+ * `metric` is set to L2Expanded, `attach_dataset_on_build` to true, and `graph_degree` and
+ * `intermediate_graph_degree` are clamped to `n_clusters - 1` (an NN-descent `graph_degree` is
+ * aligned with the clamped `intermediate_graph_degree`). ACE graph build params (`ace_params`) are
+ * not supported for the centroid index: they log a warning and brute force is used.
+ */
+struct ann_assignment_params {
+  /** CAGRA index (build) parameters of the centroid index. */
+  cuvs::neighbors::cagra::index_params index_params;
+  /** CAGRA search parameters used to find each point's nearest centroid. */
+  cuvs::neighbors::cagra::search_params search_params;
+
+  ann_assignment_params()
+  {
+    index_params.graph_build_params = cuvs::neighbors::cagra::graph_build_params::nn_descent_params(
+      index_params.intermediate_graph_degree);
+    search_params.itopk_size = 32;
+  }
+};
+
+/**
  * Simple object to specify hyper-parameters to the kmeans algorithm.
  */
 struct params : base_params {
@@ -179,7 +209,7 @@ struct params : base_params {
    * In `fit` the ANN index is rebuilt over the current centroids on EVERY Lloyd iteration (the
    * centroids move each iteration, so the index is never reused), and each point is assigned its
    * approximate nearest centroid (top-1) from that fresh index. The CAGRA build and search
-   * settings come from `ann_index_params` and `ann_search_params` (defaults are used when they are
+   * settings come from `ann_params` (defaults, see `ann_assignment_params`, are used when it is
    * `std::nullopt`); a larger `itopk_size` is more accurate and slower.
    *
    * Only `float` data is supported; other data types log a warning and use brute force (Lloyd's
@@ -193,28 +223,14 @@ struct params : base_params {
   bool use_ann_for_assignment = false;
 
   /**
-   * CAGRA index (build) parameters of the centroid index. Only used when
-   * `use_ann_for_assignment` is true. When `std::nullopt`, CAGRA's default `index_params` are
-   * used.
+   * CAGRA settings (index build and search parameters) for the ANN assignment. Only used when
+   * `use_ann_for_assignment` is true. When `std::nullopt`, a default-constructed
+   * `ann_assignment_params` is used (NN-descent graph build, `itopk_size = 32`).
    *
-   * ACE graph build params (`graph_build_params` holding `ace_params`) are not supported for the
-   * centroid index: they log a warning and brute force is used.
-   *
-   * The following are always overridden, since the feature relies on them: `metric` is set to
-   * L2Expanded, `attach_dataset_on_build` to true, and `graph_degree` and
-   * `intermediate_graph_degree` are clamped to `n_clusters - 1`.
-   *
-   * Held in a `std::optional` so that `kmeans::params` stays small when the feature is unused.
+   * Held in a `std::optional`: the CAGRA params contain nested variants that are not worth
+   * constructing unless the feature is used.
    */
-  std::optional<cuvs::neighbors::cagra::index_params> ann_index_params = std::nullopt;
-
-  /**
-   * CAGRA search parameters used to find each point's nearest centroid. Only used when
-   * `use_ann_for_assignment` is true. When `std::nullopt`, CAGRA's default `search_params` are
-   * used except `itopk_size`, which is 32 (CAGRA's own default is 64); this keeps the centroid
-   * quality while making the search faster.
-   */
-  std::optional<cuvs::neighbors::cagra::search_params> ann_search_params = std::nullopt;
+  std::optional<ann_assignment_params> ann_params = std::nullopt;
 };
 
 /**
