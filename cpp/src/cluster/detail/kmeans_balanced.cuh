@@ -1242,6 +1242,9 @@ void balancing_em_iters(const raft::resources& handle,
       default: break;
     }
     if (ema) {
+      // Each logical batch sees the centers produced by the previous batch. predict may tile
+      // internally, but it must finish assigning this batch before the single EMA update.
+      // Example: 25 rows with batch_size=8 produces updates after rows 8, 16, 24 and 25.
       raft::matrix::fill(handle,
                          raft::make_device_vector_view<CounterT, IdxT>(cluster_sizes, n_clusters),
                          CounterT{0});
@@ -1261,6 +1264,8 @@ void balancing_em_iters(const raft::resources& handle,
                 mapping_op,
                 device_memory,
                 dataset_norm ? dataset_norm + offset : nullptr);
+        // Return raw sums, not batch means: the EMA needs both sums and counts to weight the
+        // new points against its historical mass. Keep FP32 sums for the existing half path.
         calc_centers_and_sizes(handle,
                                batch_sums.data(),
                                batch_sizes.data(),
@@ -1285,6 +1290,8 @@ void balancing_em_iters(const raft::resources& handle,
                     batch_counts.data(),
                     iter + 1 == n_iters,
                     uint64_t{0});
+        // Balancing uses actual epoch assignment counts, never the decayed EMA masses.
+        // Keep the two separate even though both describe how populated a cluster is.
         raft::linalg::add(
           handle,
           raft::make_device_vector_view<const CounterT, IdxT>(cluster_sizes, n_clusters),
