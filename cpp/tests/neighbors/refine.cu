@@ -94,10 +94,12 @@ const std::vector<RefineInputs<int64_t>> inputs =
   raft::util::itertools::product<RefineInputs<int64_t>>(
     {static_cast<int64_t>(137)},
     {static_cast<int64_t>(1000)},
-    {static_cast<int64_t>(16)},
+    {static_cast<int64_t>(16), static_cast<int64_t>(97)},
     {static_cast<int64_t>(1), static_cast<int64_t>(10), static_cast<int64_t>(33)},
-    {static_cast<int64_t>(33)},
-    {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::InnerProduct},
+    {static_cast<int64_t>(33), static_cast<int64_t>(300)},
+    {cuvs::distance::DistanceType::L2Expanded,
+     cuvs::distance::DistanceType::InnerProduct,
+     cuvs::distance::DistanceType::CosineExpanded},
     {false, true});
 
 typedef RefineTest<float, float, std::int64_t> RefineTestF;
