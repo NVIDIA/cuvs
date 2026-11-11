@@ -1,0 +1,10 @@
+name: cuvs_kmeans_balanced
+groups:
+  base:
+    fit:
+      n_clusters: [1024, 4096, 8192]
+      n_iters: [20]
+  test:
+    fit:
+      n_clusters: [16]
+      n_iters: [20]

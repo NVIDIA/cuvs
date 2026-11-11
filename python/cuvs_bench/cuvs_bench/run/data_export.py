@@ -304,7 +304,7 @@ def write_csv(file, algo_name, df, extra_columns=None, skip_cols=None):
     write_data.to_csv(file.replace(".json", ".csv"), index=False)
 
 
-def convert_json_to_csv_build(dataset, dataset_path):
+def convert_json_to_csv_build(dataset, dataset_path, method="build"):
     """
     Convert build JSON files to CSV format.
 
@@ -314,8 +314,11 @@ def convert_json_to_csv_build(dataset, dataset_path):
         The name of the dataset.
     dataset_path : str
         The base path where datasets are stored.
+    method : str, optional
+        The result subdirectory to convert (default is "build"); the
+        clustering benchmark writes its fit results to "cluster".
     """
-    for file, algo_name, df in read_json_files(dataset, dataset_path, "build"):
+    for file, algo_name, df in read_json_files(dataset, dataset_path, method):
         try:
             algo_name = clean_algo_name(algo_name)
             write_csv(file, algo_name, df, skip_cols=skip_build_cols)

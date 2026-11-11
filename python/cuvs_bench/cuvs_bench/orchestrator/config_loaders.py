@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -399,7 +399,11 @@ class CppGBenchConfigLoader(ConfigLoader):
     All the C++ specific preprocessing logic from run.py is encapsulated here.
     """
 
-    def __init__(self, config_path: Optional[str] = None):
+    def __init__(
+        self,
+        config_path: Optional[str] = None,
+        executable_subdir: str = "ann",
+    ):
         """
         Initialize the config loader.
 
@@ -407,10 +411,15 @@ class CppGBenchConfigLoader(ConfigLoader):
         ----------
         config_path : Optional[str]
             Path to config directory. If None, uses default path.
+        executable_subdir : str
+            Benchmark family subdirectory in which executables are installed
+            (``bench/<subdir>`` in the devcontainer build and
+            ``$CONDA_PREFIX/bin/<subdir>``), e.g. ``"ann"`` or ``"cluster"``.
         """
         self.config_path = config_path or os.path.join(
             os.path.dirname(os.path.realpath(__file__)), "../config"
         )
+        self.executable_subdir = executable_subdir
         self._gpu_present: Optional[bool] = None
 
     @property
@@ -765,7 +774,9 @@ class CppGBenchConfigLoader(ConfigLoader):
                 print(f"-- Using cuVS bench from {build_path}.")
                 return build_path
 
-        devcontainer_path = "/home/coder/cuvs/cpp/build/latest/bench/ann"
+        devcontainer_path = (
+            f"/home/coder/cuvs/cpp/build/latest/bench/{self.executable_subdir}"
+        )
         if os.path.exists(devcontainer_path):
             devc_executable = os.path.join(devcontainer_path, executable)
             print(f"-- Detected devcontainer artifact {devc_executable}.")
@@ -783,7 +794,7 @@ class CppGBenchConfigLoader(ConfigLoader):
         conda_path = os.getenv("CONDA_PREFIX")
         if conda_path:
             conda_executable = os.path.join(
-                conda_path, "bin", "ann", executable
+                conda_path, "bin", self.executable_subdir, executable
             )
             if os.path.exists(conda_executable):
                 print("-- Using cuVS bench found in conda environment.")
