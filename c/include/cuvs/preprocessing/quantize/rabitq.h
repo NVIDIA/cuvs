@@ -303,9 +303,9 @@ CUVS_EXPORT cuvsError_t cuvsRabitqRotate(cuvsResources_t res,
  * `cuvsRabitqQuantizerParams::ex_bits + 1` bit value, so `codes` must be
  * `n_rows x padded_dim`.
  *
- * Rows are processed in internal batches, so the temporary float buffer holding
- * the rotated residuals, allocated from the workspace resource, covers one batch
- * rather than the whole dataset (a pool workspace resource is recommended).
+ * Rows are processed in internal batches. A temporary float buffer is used
+ * internally to store the rotated residuals. This is allocated from the workspace
+ * resource. (A pool workspace resource is recommended.)
  *
  * `dataset` may also be in host memory (kDLCPU). Its rows are then copied to the
  * device one batch at a time, and are no longer read once the call returns.
@@ -340,9 +340,9 @@ CUVS_EXPORT cuvsError_t cuvsRabitqTransform(cuvsResources_t res,
  * used for approximate-distance estimation during search:
  * `factors[i] = { f_add, f_rescale, f_error }`.
  *
- * Rows are processed in internal batches, so the temporary float buffer holding
- * the rotated residuals, allocated from the workspace resource, covers one batch
- * rather than the whole dataset (a pool workspace resource is recommended).
+ * Rows are processed in internal batches. A temporary float buffer is used
+ * internally to store the rotated residuals. This is allocated from the workspace
+ * resource. (A pool workspace resource is recommended.)
  * As for cuvsRabitqTransform, `dataset` may also be in host memory.
  *
  * The rotated centroid is an internal temporary as well. A search

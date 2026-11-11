@@ -21,10 +21,12 @@
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/util/cuda_dev_essentials.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
 
 #include <cublas_v2.h>
 
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -34,17 +36,6 @@
 namespace cuvs::preprocessing::quantize::rabitq::detail {
 
 namespace {
-
-inline int64_t rd_up(int64_t dim, int64_t mult) { return ((dim + mult - 1) / mult) * mult; }
-
-inline int64_t floor_log2(int64_t x)
-{
-  int64_t r = 0;
-  while (x >>= 1) {
-    ++r;
-  }
-  return r;
-}
 
 /// Derived fht_kac parameters. Recomputed on every launch from the PADDED
 /// dimension, matching the standalone rotator (see its commit "Derive the
@@ -60,7 +51,7 @@ struct fht_kac_derived {
 
 inline fht_kac_derived derive_fht_kac(int64_t D)
 {
-  const int64_t bottom_log = floor_log2(D);
+  const int64_t bottom_log = std::bit_width(static_cast<uint64_t>(D)) - 1;
   const int64_t trunc_dim  = int64_t{1} << bottom_log;
   return fht_kac_derived{
     trunc_dim, static_cast<int>(bottom_log), 1.0f / std::sqrt(static_cast<float>(trunc_dim))};
@@ -72,7 +63,7 @@ inline fht_kac_derived derive_fht_kac(int64_t D)
 // Sizes
 // ---------------------------------------------------------------------------
 
-int64_t padded_dim(int64_t dim) { return rd_up(dim, 32); }
+int64_t padded_dim(int64_t dim) { return raft::alignTo(dim, int64_t{32}); }
 
 int64_t flip_bytes(int64_t D) { return 4 * D / 8; }
 

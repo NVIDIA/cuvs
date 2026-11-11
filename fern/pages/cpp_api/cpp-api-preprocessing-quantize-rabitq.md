@@ -474,7 +474,7 @@ raft::device_vector_view<float, int64_t> vl);
 
 Performs the whole chain: zero-pad `dim -> padded_dim`, rotate, optionally subtract the rotated centroid, then quantize the residuals. One code element is written per padded dimension; each holds an unsigned `params::ex_bits + 1` bit value, so `codes` must be `n_rows x padded_dim`.
 
-Rows are processed in internal batches, so the temporary float buffer holding the rotated residuals, allocated from the workspace resource, covers one batch rather than the whole dataset (a pool workspace resource is recommended).
+Rows are processed in internal batches. A temporary float buffer is used internally to store the rotated residuals. This is allocated from the workspace resource. (A pool workspace resource is recommended.)
 
 `dataset` may also be on host. Its rows are then copied to the device one batch at a time into workspace buffers, and are no longer read once the call returns; `centroid` and the outputs are on device either way. Host input is bound by the host-to-device copy, which is about twice as fast from pinned memory (e.g. raft::make_pinned_matrix, passed as a raft::host_matrix_view) as from pageable memory. A stream pool on `res` (raft::resource::set_cuda_stream_pool) overlaps copying each batch with quantizing the previous one.
 
@@ -603,7 +603,7 @@ raft::device_matrix_view<float, int64_t, raft::row_major> factors);
 
 Same chain as the `(delta, vl)` overload, but the per-vector factors are the ones used for approximate-distance estimation during search: `factors[i] = { f_add, f_rescale, f_error }`.
 
-Rows are processed in internal batches, so the temporary float buffer holding the rotated residuals, allocated from the workspace resource, covers one batch rather than the whole dataset (a pool workspace resource is recommended). As for the `(delta, vl)` overload, `dataset` may also be on host.
+Rows are processed in internal batches. A temporary float buffer is used internally to store the rotated residuals. This is allocated from the workspace resource. (A pool workspace resource is recommended.) As for the `(delta, vl)` overload, `dataset` may also be on host.
 
 The rotated centroid is an internal temporary as well. A search implementation that needs it can reproduce it exactly by zero-padding `centroid` to `padded_dim` and calling rotate() with the same rotator.
 

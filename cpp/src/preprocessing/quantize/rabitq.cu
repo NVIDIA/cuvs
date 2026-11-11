@@ -126,7 +126,7 @@ void check_factors(int64_t n_rows,
 }
 
 /**
- * Rows per internal transform() batch.
+ * Calculate the number of rows per internal transform() batch.
  *
  * Every stage after the input read (pad, rotate, centroid subtraction, quantize)
  * sweeps the batch's `batch x padded_dim` residual scratch, so a batch whose
@@ -140,11 +140,11 @@ void check_factors(int64_t n_rows,
  * centroid, padding) and fragmentation. Host input adds `staging_row_bytes` per
  * row for the buffers its rows are copied into.
  */
-[[nodiscard]] auto transform_batch_rows(raft::resources const& res,
-                                        rabitq::encoder const& q,
-                                        rabitq::rotator<float> const& rot,
-                                        int64_t n_rows,
-                                        size_t staging_row_bytes) -> int64_t
+[[nodiscard]] auto get_transform_batch_size(raft::resources const& res,
+                                            rabitq::encoder const& q,
+                                            rabitq::rotator<float> const& rot,
+                                            int64_t n_rows,
+                                            size_t staging_row_bytes) -> int64_t
 {
   constexpr int64_t kMinL2Rows        = 2048;
   constexpr int64_t kMaxL2Rows        = 65536;
@@ -262,7 +262,7 @@ void transform_impl(raft::resources const& res,
   auto stream    = raft::resource::get_cuda_stream(res);
   auto workspace = raft::resource::get_workspace_resource_ref(res);
   const int64_t batch =
-    transform_batch_rows(res, q, rot, n_rows, staging_row_bytes<Accessor>(res, q.dim));
+    get_transform_batch_size(res, q, rot, n_rows, staging_row_bytes<Accessor>(res, q.dim));
   rmm::device_uvector<float> residuals(
     static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
   rmm::device_uvector<float> rotated_centroid(
@@ -314,7 +314,7 @@ void transform_full_impl(raft::resources const& res,
   auto stream    = raft::resource::get_cuda_stream(res);
   auto workspace = raft::resource::get_workspace_resource_ref(res);
   const int64_t batch =
-    transform_batch_rows(res, q, rot, n_rows, staging_row_bytes<Accessor>(res, q.dim));
+    get_transform_batch_size(res, q, rot, n_rows, staging_row_bytes<Accessor>(res, q.dim));
   rmm::device_uvector<float> residuals(
     static_cast<size_t>(batch) * static_cast<size_t>(q.padded_dim), stream, workspace);
   // The full-factor formula always reads the rotated centroid; the detail layer

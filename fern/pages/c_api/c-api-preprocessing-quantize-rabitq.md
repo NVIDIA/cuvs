@@ -404,7 +404,7 @@ DLManagedTensor* vl);
 
 Performs the whole chain: zero-pad `dim -> padded_dim`, rotate, optionally subtract the rotated centroid, then quantize the residuals. One code element is written per padded dimension; each holds an unsigned `cuvsRabitqQuantizerParams::ex_bits + 1` bit value, so `codes` must be `n_rows x padded_dim`.
 
-Rows are processed in internal batches, so the temporary float buffer holding the rotated residuals, allocated from the workspace resource, covers one batch rather than the whole dataset (a pool workspace resource is recommended).
+Rows are processed in internal batches. A temporary float buffer is used internally to store the rotated residuals. This is allocated from the workspace resource. (A pool workspace resource is recommended.)
 
 `dataset` may also be in host memory (kDLCPU). Its rows are then copied to the device one batch at a time, and are no longer read once the call returns. Pinned (kDLCUDAHost) and managed tensors are device-accessible and are read in place. `centroid` and the outputs must be on device.
 
@@ -442,7 +442,7 @@ DLManagedTensor* factors);
 
 Same chain as cuvsRabitqTransform, but the per-vector factors are the ones used for approximate-distance estimation during search: `factors[i] = { f_add, f_rescale, f_error }`.
 
-Rows are processed in internal batches, so the temporary float buffer holding the rotated residuals, allocated from the workspace resource, covers one batch rather than the whole dataset (a pool workspace resource is recommended). As for cuvsRabitqTransform, `dataset` may also be in host memory.
+Rows are processed in internal batches. A temporary float buffer is used internally to store the rotated residuals. This is allocated from the workspace resource. (A pool workspace resource is recommended.) As for cuvsRabitqTransform, `dataset` may also be in host memory.
 
 The rotated centroid is an internal temporary as well. A search implementation that needs it can reproduce it exactly by zero-padding `centroid` to `padded_dim` and calling cuvsRabitqRotate with the same rotator.
 
