@@ -194,7 +194,7 @@ Parameters to build index for CAGRA nearest neighbor search
 | `ivf_pq_search_params` | `cuvs.neighbors.ivf_pq.SearchParams, optional` | Parameters for IVF-PQ search. If provided, it will be used for searching the graph. |
 | `ace_params` | `AceParams, optional` | Parameters for ACE algorithm. If provided, it will be used for building the graph with ACE partitioning. |
 | `refinement_rate` | `float, default = 1.0` |  |
-| `guarantee_connectivity` | `bool, default = False` | Whether to ensure the optimized graph is connected. |
+| `guarantee_connectivity` | `bool, default = False` | Whether to use MST optimization to guarantee graph connectivity. |
 
 **Constructor**
 

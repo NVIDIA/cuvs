@@ -217,7 +217,7 @@ cdef class IndexParams:
         building the graph with ACE partitioning.
     refinement_rate: float, default = 1.0
     guarantee_connectivity: bool, default = False
-        Whether to ensure the optimized graph is connected.
+        Whether to use MST optimization to guarantee graph connectivity.
 
     """
 
