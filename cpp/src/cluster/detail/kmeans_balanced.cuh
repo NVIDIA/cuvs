@@ -96,6 +96,19 @@ auto make_bitwise_expanded_iterator(const uint8_t* packed_data)
   return thrust::make_transform_iterator(counting_iter, decoder);
 }
 
+/** Buffers for predict_core, reused across calls so each minibatch does not reallocate them. */
+template <typename MathT>
+struct predict_core_workspace {
+  predict_core_workspace(cuda::stream_ref stream, rmm::device_async_resource_ref mr)
+    : norms_or_distances(0, stream, mr), workspace(0, stream, mr), output(0, stream, mr)
+  {
+  }
+
+  rmm::device_uvector<MathT> norms_or_distances;
+  rmm::device_uvector<char> workspace;
+  rmm::device_uvector<char> output;
+};
+
 /**
  * @brief Predict labels for the dataset; floating-point types only.
  *
@@ -116,6 +129,7 @@ auto make_bitwise_expanded_iterator(const uint8_t* packed_data)
  * @param[in] n_rows Number samples in the `dataset`
  * @param[out] labels Output predictions [n_rows]
  * @param[inout] mr (optional) Memory resource to use for temporary allocations
+ * @param[inout] scratch Buffers reused across calls
  */
 template <typename MathT, typename IdxT, typename LabelT>
 inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
@@ -128,34 +142,30 @@ inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
   const MathT* dataset_norm,
   IdxT n_rows,
   LabelT* labels,
-  rmm::device_async_resource_ref mr)
+  rmm::device_async_resource_ref mr,
+  predict_core_workspace<MathT>& scratch)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
   switch (params.metric) {
     case cuvs::distance::DistanceType::L2Expanded:
     case cuvs::distance::DistanceType::L2SqrtExpanded:
     case cuvs::distance::DistanceType::CosineExpanded: {
-      rmm::device_uvector<MathT> L2NormBuf_OR_DistBuf(0, stream, mr);
-      rmm::device_uvector<char> workspace(0, stream, mr);
-
       auto X_view = raft::make_device_matrix_view<const MathT, IdxT>(dataset, n_rows, dim);
       auto centroids_view =
         raft::make_device_matrix_view<const MathT, IdxT>(centers, n_clusters, dim);
       auto X_norm_view = raft::make_device_vector_view<const MathT, IdxT>(dataset_norm, n_rows);
 
-      rmm::device_uvector<char> assignment_output(0, stream, mr);
-
       const auto result = cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<MathT, IdxT>(
         handle,
         X_view,
         centroids_view,
-        assignment_output,
+        scratch.output,
         X_norm_view,
-        L2NormBuf_OR_DistBuf,
+        scratch.norms_or_distances,
         params.metric,
         0,  // default top_1_nn row tuning
         0,  // default top_1_nn candidate tuning
-        workspace);
+        scratch.workspace);
 
       cuvs::cluster::kmeans::detail::copyClusterLabels(handle, result, labels);
       break;
@@ -718,6 +728,31 @@ void predict(const raft::resources& handle,
   const MathT* dataset_norm_ptr =
     need_norm && params.is_packed_binary ? cur_dataset_norm.data() : nullptr;
   auto cur_dataset_ptr = cur_dataset.data();
+
+  // Buffers reused by every minibatch, instead of allocated per predict_core call.
+  predict_core_workspace<MathT> core_scratch(stream, mem_res);
+  // When the 1-NN plan uses TF32 norms (cuTile), it computes them itself and never reads FP32
+  // norms, so predict skips computing FP32 norms.
+  bool tf32_norms_in_1nn = false;
+  if constexpr (kmeans_may_require_tf32_norms_v<MathT>) {
+    if (need_compute_norm) {
+      const auto plan = probe_kmeans_top_1_nn<MathT, IdxT>(
+        handle,
+        std::is_same_v<T, MathT> ? reinterpret_cast<const MathT*>(dataset) : cur_dataset.data(),
+        centers,
+        std::min(max_minibatch_size, n_rows),
+        n_clusters,
+        transformed_dim,
+        params.metric,
+        0,
+        0,
+        cuvs::distance::detail::Top1nnBackend::Auto,
+        false);
+      tf32_norms_in_1nn =
+        plan.available && plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32;
+    }
+  }
+
   for (IdxT offset = 0; offset < n_rows; offset += max_minibatch_size) {
     IdxT minibatch_size = std::min<IdxT>(max_minibatch_size, n_rows - offset);
 
@@ -755,8 +790,8 @@ void predict(const raft::resources& handle,
         mapping_op);
     }
 
-    // Compute the norm now if it hasn't been pre-computed.
-    if (need_compute_norm) {
+    // Compute the norm now if it hasn't been pre-computed and the 1-NN needs it.
+    if (need_compute_norm && !tf32_norms_in_1nn) {
       if (params.metric == cuvs::distance::DistanceType::CosineExpanded)
         compute_norm(handle,
                      cur_dataset_norm.data(),
@@ -789,7 +824,8 @@ void predict(const raft::resources& handle,
                  dataset_norm_ptr,
                  minibatch_size,
                  labels + offset,
-                 mem_res);
+                 mem_res,
+                 core_scratch);
   }
 }
 

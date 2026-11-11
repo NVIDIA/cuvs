@@ -110,13 +110,13 @@ struct CopyClusterLabelOp {
 template <bool SquareDistance, typename DataT, typename IndexT, typename DistanceIterator>
 struct WeightedDistanceOp {
   DistanceIterator distances;
-  const DataT* weights;
+  const DataT* weights;  // nullptr: every weight is effectively 1
 
   __device__ DataT operator()(IndexT offset) const
   {
     auto distance = static_cast<DataT>(distances[offset]);
     if constexpr (SquareDistance) { distance *= distance; }
-    return distance * weights[offset];
+    return weights == nullptr ? distance : distance * weights[offset];
   }
 };
 
