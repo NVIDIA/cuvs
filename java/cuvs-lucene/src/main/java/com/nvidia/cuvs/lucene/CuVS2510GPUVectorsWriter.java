@@ -242,28 +242,31 @@ public class CuVS2510GPUVectorsWriter extends CompatKnnVectorsWriter {
    * @throws Throwable
    */
   private void writeCagraIndex(OutputStream os, CuVSMatrix dataset) throws Throwable {
-    CagraIndexParams params =
-        CagraIndexParamsFactory.create(gpuSearchParams, dataset.size(), dataset.columns());
-    try (CagraIndex index =
-            CagraIndex.newBuilder(getCuVSResourcesInstance())
-                .fromDataset(dataset)
-                .withIndexParams(params)
-                .build();
-        var deviceVectors = dataset.toDevice(getCuVSResourcesInstance())) {
-      /*
-       * cuVS rejects makePaddedDataset for a device matrix whose rows already sit at the required
-       * stride, and asks for a view over that storage instead. Copying would be pointless there
-       * anyway, so pick the factory that matches the layout.
-       */
-      if (CagraIndex.isPaddedDataset(deviceVectors)) {
-        try (var indexDatasetView = index.makePaddedDatasetView(deviceVectors)) {
-          index.updateDataset(indexDatasetView);
-          index.serialize(os);
-        }
-      } else {
-        try (var indexDataset = index.makePaddedDataset(deviceVectors)) {
-          index.updateDataset(indexDataset);
-          index.serialize(os);
+    try (var owned = Utils.<CagraIndex>ownDataset(dataset)) {
+      CagraIndexParams params =
+          CagraIndexParamsFactory.create(gpuSearchParams, dataset.size(), dataset.columns());
+      CagraIndex index =
+          CagraIndex.newBuilder(getCuVSResourcesInstance())
+              .fromDataset(dataset)
+              .withIndexParams(params)
+              .build();
+      owned.transferTo(index);
+      try (var deviceVectors = dataset.toDevice(getCuVSResourcesInstance())) {
+        /*
+         * cuVS rejects makePaddedDataset for a device matrix whose rows already sit at the required
+         * stride, and asks for a view over that storage instead. Copying would be pointless there
+         * anyway, so pick the factory that matches the layout.
+         */
+        if (CagraIndex.isPaddedDataset(deviceVectors)) {
+          try (var indexDatasetView = index.makePaddedDatasetView(deviceVectors)) {
+            index.updateDataset(indexDatasetView);
+            index.serialize(os);
+          }
+        } else {
+          try (var indexDataset = index.makePaddedDataset(deviceVectors)) {
+            index.updateDataset(indexDataset);
+            index.serialize(os);
+          }
         }
       }
     }
@@ -277,17 +280,24 @@ public class CuVS2510GPUVectorsWriter extends CompatKnnVectorsWriter {
    * @throws Throwable
    */
   private void writeBruteForceIndex(OutputStream os, CuVSMatrix dataset) throws Throwable {
-    BruteForceIndexParams params =
-        new BruteForceIndexParams.Builder()
-            .withNumWriterThreads(gpuSearchParams.getWriterThreads())
-            .build();
-    var index =
-        BruteForceIndex.newBuilder(getCuVSResourcesInstance())
-            .withIndexParams(params)
-            .withDataset(dataset)
-            .build();
-    index.serialize(os);
-    index.close();
+    BruteForceIndex.Builder builder;
+    try {
+      BruteForceIndexParams params =
+          new BruteForceIndexParams.Builder()
+              .withNumWriterThreads(gpuSearchParams.getWriterThreads())
+              .build();
+      builder =
+          BruteForceIndex.newBuilder(getCuVSResourcesInstance())
+              .withIndexParams(params)
+              .withDataset(dataset);
+    } catch (Throwable failure) {
+      throw Utils.closeAll(failure, dataset);
+    }
+    // The built-in brute-force builder consumes the input even when build() fails.
+    // Unlike CAGRA, ownership must leave this method before construction succeeds.
+    try (var index = builder.build()) {
+      index.serialize(os);
+    }
   }
 
   /**
