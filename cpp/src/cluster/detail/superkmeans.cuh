@@ -76,13 +76,13 @@ auto inertia(const raft::resources& handle,
 {
   auto dist           = raft::make_device_vector<float, int64_t>(handle, X.extent(0));
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
-  pruned_nn::distance_to_assigned(X.data_handle(),
+  pruned_nn::distance_to_assigned(handle,
+                                  X.data_handle(),
                                   X.extent(0),
                                   centroids.data_handle(),
                                   X.extent(1),
                                   labels.data_handle(),
-                                  dist.data_handle(),
-                                  stream);
+                                  dist.data_handle());
   auto sum = raft::make_device_scalar<float>(handle, 0.0f);
   raft::linalg::mapThenSumReduce(
     sum.data_handle(), dist.size(), raft::identity_op{}, stream, dist.data_handle());
@@ -153,10 +153,9 @@ class pruned_assignment {
         handle,
         cuvs::distance::pruned_top_1_nn_workspace_size<T>(handle, n_rows_, params_.row_batch_size)))
   {
-    auto stream = raft::resource::get_cuda_stream(handle).get();
     // The input rows do not change between iterations, so cache their filter norms once.
     pruned_nn::squared_norms(
-      X.data_handle(), n_rows_, dim_, pruned_nn::kPartialDim, row_norms_.data_handle(), stream);
+      handle, X.data_handle(), n_rows_, dim_, pruned_nn::kPartialDim, row_norms_.data_handle());
   }
 
   /**
@@ -167,12 +166,12 @@ class pruned_assignment {
               raft::device_vector_view<uint32_t, int64_t> labels,
               bool order_next)
   {
-    pruned_nn::squared_norms(centroids.data_handle(),
+    pruned_nn::squared_norms(handle_,
+                             centroids.data_handle(),
                              n_clusters_,
                              dim_,
                              pruned_nn::kPartialDim,
                              centroid_norms_.data_handle(),
-                             raft::resource::get_cuda_stream(handle_).get(),
                              filter_centroids_.data_handle(),
                              filter_dim_);
     const T* kernel_centroids = nullptr;

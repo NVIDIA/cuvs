@@ -273,28 +273,35 @@ void pruned_top_1_nn(raft::resources const& handle,
   const bool pooled = layout.n_streams > 1;
   if (pooled) { raft::resource::wait_stream_pool_on_stream(handle); }
 
+  std::vector<raft::resources> stream_handles(layout.n_streams, handle);
+  for (int64_t s = 1; s < layout.n_streams; s++) {
+    raft::resource::set_cuda_stream(stream_handles[s],
+                                    raft::resource::get_stream_from_stream_pool(handle, s - 1));
+  }
+
   for (int64_t b = 0; b < layout.n_row_batches; b++) {
-    const int64_t i      = b * layout.row_batch_size;
-    const int64_t n_rows = std::min(layout.row_batch_size, m - i);
-    const int64_t s      = b % layout.n_streams;
-    cudaStream_t stream =
-      s > 0 ? raft::resource::get_stream_from_stream_pool(handle, s - 1).get() : main_stream;
-    const DataT* rows     = x + i * k;
-    uint32_t* row_labels  = output.nearest_idx + i;
-    float* row_dist       = output.nearest_dist + i;
-    const uint32_t* order = params.row_order != nullptr ? params.row_order + i : nullptr;
-    auto* packed          = reinterpret_cast<int64_t*>(ws + layout.packed[s]);
-    auto* count           = reinterpret_cast<int32_t*>(ws + layout.count[s]);
+    const int64_t i          = b * layout.row_batch_size;
+    const int64_t n_rows     = std::min(layout.row_batch_size, m - i);
+    const int64_t s          = b % layout.n_streams;
+    const auto& batch_handle = stream_handles[s];
+    auto stream              = raft::resource::get_cuda_stream(batch_handle).get();
+    const DataT* rows        = x + i * k;
+    uint32_t* row_labels     = output.nearest_idx + i;
+    float* row_dist          = output.nearest_dist + i;
+    const uint32_t* order    = params.row_order != nullptr ? params.row_order + i : nullptr;
+    auto* packed             = reinterpret_cast<int64_t*>(ws + layout.packed[s]);
+    auto* count              = reinterpret_cast<int32_t*>(ws + layout.count[s]);
     // Each row's bound: its distance to its current neighbor
     const half* x_filter;
     const float* row_norms = xn + i;
     if constexpr (kHalf) {
       x_filter = rows;
-      distance_to_assigned(rows, n_rows, y, k, row_labels, row_dist, stream);
+      distance_to_assigned(batch_handle, rows, n_rows, y, k, row_labels, row_dist);
     } else {
       // Each stream reuses its filter inputs only after its previous row batch finishes.
       auto* batch_rows = reinterpret_cast<half*>(ws + layout.filter_rows[s]);
-      distance_to_assigned<true>(rows, n_rows, y, k, row_labels, row_dist, stream, batch_rows);
+      distance_to_assigned<true>(
+        batch_handle, rows, n_rows, y, k, row_labels, row_dist, batch_rows);
       x_filter = batch_rows;
     }
     for (int64_t j = 0; j < n; j += kCentroidBatchSize) {
@@ -313,7 +320,8 @@ void pruned_top_1_nn(raft::resources const& handle,
                           count,
                           static_cast<int>(kCentroidBatchSize),
                           stream);
-      prune(rows,
+      prune(batch_handle,
+            rows,
             n_rows,
             order,
             y + j * k,
@@ -322,8 +330,7 @@ void pruned_top_1_nn(raft::resources const& handle,
             first_filter_lists{packed, count, kCentroidBatchSize},
             row_labels,
             row_dist,
-            survivors + i,
-            stream);
+            survivors + i);
     }
   }
   if (pooled) { raft::resource::sync_stream_pool(handle, std::vector<std::size_t>{0}); }

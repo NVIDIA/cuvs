@@ -16,6 +16,7 @@
 #include <raft/core/resources.hpp>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
+#include <raft/util/kernel_launch.hpp>
 #include <raft/util/reduction.cuh>
 #include <raft/util/vectorized.cuh>
 
@@ -93,20 +94,28 @@ RAFT_KERNEL squared_norms_kernel(const T* __restrict__ rows,
 }
 
 template <typename T, typename Copy = std::nullptr_t>
-void squared_norms(const T* rows,
+void squared_norms(const raft::resources& handle,
+                   const T* rows,
                    int64_t n,
                    int64_t stride,
                    int64_t cols,
                    float* out,
-                   cudaStream_t stream,
                    Copy copy         = nullptr,
                    int64_t copy_cols = 0)
 {
   constexpr uint32_t kThreads = 256;
   const auto blocks           = raft::ceildiv<int64_t>(n * kWarpSize, kThreads);
-  squared_norms_kernel<<<blocks, kThreads, 0, stream>>>(
-    rows, n, stride, cols, out, copy, copy_cols);
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::launch_kernel(handle,
+                      blocks,
+                      kThreads,
+                      squared_norms_kernel<T, Copy>,
+                      rows,
+                      n,
+                      stride,
+                      cols,
+                      out,
+                      copy,
+                      copy_cols);
 }
 
 /** Each row's squared distance to its assigned centroid; optionally pack its filter dims as FP16.
@@ -122,12 +131,12 @@ RAFT_KERNEL distance_to_assigned_and_copy_kernel(const T* __restrict__ rows,
 {
   const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / kWarpSize;
   if (row >= n) { return; }
-  const T* a     = rows + row * dim;
-  const C* b     = centroids + static_cast<int64_t>(labels[row]) * dim;
-  float distance = 0.f;
+  const T* row_data          = rows + row * dim;
+  const C* assigned_centroid = centroids + static_cast<int64_t>(labels[row]) * dim;
+  float distance             = 0.f;
   for (int64_t j = threadIdx.x % kWarpSize; j < dim; j += kWarpSize) {
-    const float value = static_cast<float>(a[j]);
-    const float diff  = value - static_cast<float>(b[j]);
+    const float value = static_cast<float>(row_data[j]);
+    const float diff  = value - static_cast<float>(assigned_centroid[j]);
     distance += diff * diff;
     if constexpr (Copy) {
       if (j < kPartialDim) { filter_rows[row * kPartialDim + j] = static_cast<half>(value); }
@@ -138,20 +147,28 @@ RAFT_KERNEL distance_to_assigned_and_copy_kernel(const T* __restrict__ rows,
 }
 
 template <bool Copy = false, typename T, typename C>
-void distance_to_assigned(const T* rows,
+void distance_to_assigned(const raft::resources& handle,
+                          const T* rows,
                           int64_t n,
                           const C* centroids,
                           int64_t dim,
                           const uint32_t* labels,
                           float* dist,
-                          cudaStream_t stream,
                           half* filter_rows = nullptr)
 {
   constexpr uint32_t kThreads = 256;
   const auto blocks           = raft::ceildiv<int64_t>(n * kWarpSize, kThreads);
-  distance_to_assigned_and_copy_kernel<Copy>
-    <<<blocks, kThreads, 0, stream>>>(rows, n, centroids, dim, labels, dist, filter_rows);
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::launch_kernel(handle,
+                      blocks,
+                      kThreads,
+                      distance_to_assigned_and_copy_kernel<Copy, T, C>,
+                      rows,
+                      n,
+                      centroids,
+                      dim,
+                      labels,
+                      dist,
+                      filter_rows);
 }
 
 /**
@@ -340,7 +357,8 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
  * gets each row's first-filter survivors added. row_order (optional): the rows' order.
  */
 template <typename T>
-void prune(const T* rows,
+void prune(const raft::resources& handle,
+           const T* rows,
            int64_t n_rows,
            const uint32_t* row_order,
            const T* centroids,
@@ -349,23 +367,25 @@ void prune(const T* rows,
            first_filter_lists lists,
            uint32_t* labels,
            float* dist,
-           uint32_t* survivors,
-           cudaStream_t stream)
+           uint32_t* survivors)
 {
   RAFT_EXPECTS(dim > kPartialDim && (dim - kPartialDim) % kDimTileSize == 0,
                "Pruned 1-NN needs a positive tail after %u dims in tiles of %u",
                kPartialDim,
                kDimTileSize);
-  prune_kernel<<<n_rows, kWarpSize, 0, stream>>>(rows,
-                                                 row_order,
-                                                 centroids,
-                                                 centroid_offset,
-                                                 static_cast<uint32_t>(dim),
-                                                 lists,
-                                                 labels,
-                                                 dist,
-                                                 survivors);
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  raft::launch_kernel(handle,
+                      n_rows,
+                      kWarpSize,
+                      prune_kernel<T>,
+                      rows,
+                      row_order,
+                      centroids,
+                      centroid_offset,
+                      static_cast<uint32_t>(dim),
+                      lists,
+                      labels,
+                      dist,
+                      survivors);
 }
 
 }  // namespace cuvs::distance::detail::pruned_nn
