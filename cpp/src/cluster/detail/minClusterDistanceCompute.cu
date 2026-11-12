@@ -6,7 +6,6 @@
 #include "../../distance/top_1_nn.cuh"
 #include "kmeans_common.cuh"
 
-#include <raft/linalg/coalesced_reduction.cuh>
 #include <raft/util/integer_utils.hpp>
 #include <raft/matrix/init.cuh>
 
@@ -39,49 +38,13 @@ void* reserve_aligned_workspace(rmm::device_uvector<char>& workspace,
   return reinterpret_cast<void*>(aligned);
 }
 
-struct tf32_square_op {
-  template <typename IndexT>
-  __device__ float operator()(float value, IndexT) const
-  {
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
-    value = nvcuda::wmma::__float_to_tf32(value);
-#endif
-    return value * value;
-  }
-};
-
-struct compensated_sum {
-  float sum;
-  float correction;
-
-  __device__ void add(float value)
-  {
-    const float next = sum + value;
-    correction += fabsf(sum) >= fabsf(value) ? (sum - next) + value : (value - next) + sum;
-    sum = next;
-  }
-
-  __device__ float value() const { return sum + correction; }
-};
-
-struct dual_norm_accumulator {
-  compensated_sum fp32;
-  compensated_sum tf32;
-};
-
-struct add_dual_norm_accumulators {
-  __device__ dual_norm_accumulator operator()(dual_norm_accumulator lhs,
-                                              dual_norm_accumulator rhs) const
-  {
-    lhs.fp32.add(rhs.fp32.sum);
-    lhs.fp32.add(rhs.fp32.correction);
-    lhs.tf32.add(rhs.tf32.sum);
-    lhs.tf32.add(rhs.tf32.correction);
-    return lhs;
-  }
-};
-
-template <typename IndexT, int ThreadsPerBlock>
+/**
+ * TF32-rounded (and with `Fp32`, also FP32) squared norms of each row in one pass over the input.
+ *
+ * `LanesPerRow` lanes reduce one row, so short rows do not leave most of a warp idle, and each
+ * lane group handles kRows rows at a time to keep more loads in flight.
+ */
+template <typename IndexT, int LanesPerRow, bool Fp32>
 __global__ void fp32_tf32_norms_kernel(const float* input,
                                        float* fp32_norms,
                                        float* tf32_norms,
@@ -89,45 +52,84 @@ __global__ void fp32_tf32_norms_kernel(const float* input,
                                        IndexT cols,
                                        bool take_sqrt)
 {
-  constexpr int warp_size       = 32;
-  constexpr int warps_per_block = ThreadsPerBlock / warp_size;
-  const int lane                = threadIdx.x % warp_size;
-  const int warp                = threadIdx.x / warp_size;
-  const auto row_stride = static_cast<IndexT>(gridDim.x) * static_cast<IndexT>(warps_per_block);
+  constexpr int kRows           = 2;
+  constexpr int groups_per_warp = raft::WarpSize / LanesPerRow;
+  const int lane                = threadIdx.x % raft::WarpSize;
+  const int sub                 = lane % LanesPerRow;
+  const auto warp =
+    (static_cast<IndexT>(blockIdx.x) * blockDim.x + threadIdx.x) / raft::WarpSize;
+  const auto stride =
+    static_cast<IndexT>(gridDim.x) * (blockDim.x / raft::WarpSize) * groups_per_warp * kRows;
 
-  for (IndexT row = static_cast<IndexT>(blockIdx.x) * static_cast<IndexT>(warps_per_block) +
-                    static_cast<IndexT>(warp);
-       row < rows;
-       row += row_stride) {
-    dual_norm_accumulator thread_sum{};
-    const auto row_offset = static_cast<std::size_t>(row) * static_cast<std::size_t>(cols);
-    for (IndexT col = static_cast<IndexT>(lane); col < cols;
-         col += static_cast<IndexT>(warp_size)) {
-      const float value = input[row_offset + static_cast<std::size_t>(col)];
+  for (IndexT base = warp * groups_per_warp * kRows; base < rows; base += stride) {
+    float fp32_sum[kRows]{};
+    float tf32_sum[kRows]{};
+    const IndexT first_row = base + lane / LanesPerRow;
+#pragma unroll
+    for (int r = 0; r < kRows; r++) {
+      const IndexT row = first_row + r * groups_per_warp;
+      if (row >= rows) { continue; }
+      auto add = [&](float value) {
+        if constexpr (Fp32) { fp32_sum[r] += value * value; }
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 800
-      const float tf32_value = nvcuda::wmma::__float_to_tf32(value);
-#else
-      const float tf32_value = value;
+        value = nvcuda::wmma::__float_to_tf32(value);
 #endif
-      thread_sum.fp32.add(value * value);
-      thread_sum.tf32.add(tf32_value * tf32_value);
+        tf32_sum[r] += value * value;
+      };
+      const float* row_ptr = input + static_cast<std::size_t>(row) * static_cast<std::size_t>(cols);
+      for (IndexT col = sub; col < cols; col += LanesPerRow) {
+        add(row_ptr[col]);
+      }
     }
-
-    for (int offset = warp_size / 2; offset > 0; offset /= 2) {
-      dual_norm_accumulator other{
-        {__shfl_down_sync(0xffffffff, thread_sum.fp32.sum, offset),
-         __shfl_down_sync(0xffffffff, thread_sum.fp32.correction, offset)},
-        {__shfl_down_sync(0xffffffff, thread_sum.tf32.sum, offset),
-         __shfl_down_sync(0xffffffff, thread_sum.tf32.correction, offset)}};
-      thread_sum = add_dual_norm_accumulators{}(thread_sum, other);
-    }
-    if (lane == 0) {
-      const float fp32_norm = thread_sum.fp32.value();
-      const float tf32_norm = thread_sum.tf32.value();
-      fp32_norms[row]       = take_sqrt ? sqrtf(fp32_norm) : fp32_norm;
-      tf32_norms[row]       = take_sqrt ? sqrtf(tf32_norm) : tf32_norm;
+#pragma unroll
+    for (int r = 0; r < kRows; r++) {
+      for (int offset = LanesPerRow / 2; offset > 0; offset /= 2) {
+        if constexpr (Fp32) { fp32_sum[r] += __shfl_xor_sync(0xffffffff, fp32_sum[r], offset); }
+        tf32_sum[r] += __shfl_xor_sync(0xffffffff, tf32_sum[r], offset);
+      }
+      const IndexT row = first_row + r * groups_per_warp;
+      if (sub == 0 && row < rows) {
+        if constexpr (Fp32) { fp32_norms[row] = take_sqrt ? sqrtf(fp32_sum[r]) : fp32_sum[r]; }
+        tf32_norms[row] = take_sqrt ? sqrtf(tf32_sum[r]) : tf32_sum[r];
+      }
     }
   }
+}
+
+/** Launches fp32_tf32_norms_kernel; `fp32_norms` is written only when `Fp32`. */
+template <bool Fp32, typename IndexT>
+void launch_row_norms(raft::resources const& handle,
+                      const float* x,
+                      float* fp32_norms,
+                      float* tf32_norms,
+                      IndexT rows,
+                      IndexT cols,
+                      bool take_sqrt)
+{
+  // About 8 elements of a row per lane: the largest power-of-two lane group up to a warp.
+  int lanes = 1;
+  while (lanes < raft::WarpSize && lanes * 2 * 8 <= cols) {
+    lanes *= 2;
+  }
+  constexpr int threads_per_block = 256;
+  auto launch                     = [&](auto lanes_per_row) {
+    constexpr int kLanes      = decltype(lanes_per_row)::value;
+    const auto rows_per_block = std::size_t{threads_per_block / kLanes * 2};
+    const auto blocks         = static_cast<unsigned int>(std::min<std::size_t>(
+      raft::ceildiv<std::size_t>(static_cast<std::size_t>(rows), rows_per_block), 65535));
+    fp32_tf32_norms_kernel<IndexT, kLanes, Fp32>
+      <<<blocks, threads_per_block, 0, raft::resource::get_cuda_stream(handle).get()>>>(
+        x, fp32_norms, tf32_norms, rows, cols, take_sqrt);
+  };
+  switch (lanes) {
+    case 1: launch(std::integral_constant<int, 1>{}); break;
+    case 2: launch(std::integral_constant<int, 2>{}); break;
+    case 4: launch(std::integral_constant<int, 4>{}); break;
+    case 8: launch(std::integral_constant<int, 8>{}); break;
+    case 16: launch(std::integral_constant<int, 16>{}); break;
+    default: launch(std::integral_constant<int, 32>{}); break;
+  }
+  RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
 template <typename IndexT>
@@ -138,15 +140,7 @@ void compute_tf32_norms(raft::resources const& handle,
                         IndexT cols,
                         bool take_sqrt)
 {
-  auto input  = raft::make_device_matrix_view<const float, IndexT>(matrix, rows, cols);
-  auto output = raft::make_device_vector_view<float, IndexT>(norms, rows);
-  if (take_sqrt) {
-    raft::linalg::coalesced_reduction(
-      handle, input, output, 0.0f, false, tf32_square_op{}, raft::add_op{}, raft::sqrt_op{});
-  } else {
-    raft::linalg::coalesced_reduction(
-      handle, input, output, 0.0f, false, tf32_square_op{}, raft::add_op{}, raft::identity_op{});
-  }
+  launch_row_norms<false>(handle, matrix, nullptr, norms, rows, cols, take_sqrt);
 }
 
 template <typename DataT, typename IndexT>
@@ -175,18 +169,13 @@ void compute_fp32_tf32_norms(raft::resources const& handle,
                "TF32 norm output must have one element per input row");
   if (input.extent(0) == 0) { return; }
 
-  constexpr int threads_per_block = 256;
-  constexpr int warps_per_block   = threads_per_block / 32;
-  const auto blocks               = static_cast<unsigned int>(std::min<std::size_t>(
-    raft::ceildiv<std::size_t>(static_cast<std::size_t>(input.extent(0)), warps_per_block), 65535));
-  fp32_tf32_norms_kernel<IndexT, threads_per_block>
-    <<<blocks, threads_per_block, 0, raft::resource::get_cuda_stream(handle).get()>>>(
-      input.data_handle(),
-      fp32_norms.data_handle(),
-      tf32_norms.data_handle(),
-      input.extent(0),
-      input.extent(1),
-      take_sqrt);
+  launch_row_norms<true>(handle,
+                         input.data_handle(),
+                         fp32_norms.data_handle(),
+                         tf32_norms.data_handle(),
+                         input.extent(0),
+                         input.extent(1),
+                         take_sqrt);
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
@@ -216,7 +205,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
   rmm::device_uvector<char>& workspace,
   std::optional<raft::device_vector_view<const DataT, IndexT>> Tf32NormX,
   cuvs::distance::detail::Top1nnBackend backend,
-  const cuvs::distance::detail::top_1_nn_cagra_index* ann_index)
+  const cuvs::distance::detail::top_1_nn_cagra_index* ann_index,
+  bool need_compute_distance)
 {
   auto stream       = raft::resource::get_cuda_stream(handle);
   auto n_samples    = X.extent(0);
@@ -283,7 +273,12 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
     switch (norm_policy) {
       case Top1nnNormPolicy::Tf32:
         if constexpr (std::is_same_v<DataT, float>) {
-          if (need_compute_x_norms) {
+          if (need_compute_x_norms && !need_compute_distance) {
+            RAFT_CUDA_TRY(cudaMemsetAsync(computed_x_norm,
+                                          0,
+                                          sizeof(DataT) * static_cast<std::size_t>(n_samples),
+                                          stream.get()));
+          } else if (need_compute_x_norms) {
             compute_tf32_norms(
               handle, X.data_handle(), computed_x_norm, n_samples, n_features, take_sqrt);
           } else {
@@ -296,8 +291,10 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
         }
         break;
       case Top1nnNormPolicy::Native: {
-        auto native_norms = [&](raft::device_matrix_view<const DataT, IndexT> rows, DataT* out) {
-          auto out_view = raft::make_device_vector_view<DataT, IndexT>(out, rows.extent(0));
+        auto native_norms = [&](raft::device_matrix_view<const DataT, IndexT> matrix, DataT* out) {
+          auto rows     = raft::make_device_matrix_view<const DataT, int64_t>(
+            matrix.data_handle(), matrix.extent(0), matrix.extent(1));
+          auto out_view = raft::make_device_vector_view<DataT, int64_t>(out, rows.extent(0));
           if (take_sqrt) {
             raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
               handle, rows, out_view, raft::sqrt_op{});
@@ -425,7 +422,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
     rmm::device_uvector<char>&,                                                                    \
     std::optional<raft::device_vector_view<const DataT, IndexT>>,                                  \
     cuvs::distance::detail::Top1nnBackend,                                                         \
-    const cuvs::distance::detail::top_1_nn_cagra_index*);
+    const cuvs::distance::detail::top_1_nn_cagra_index*,                                           \
+    bool);
 
 INSTANTIATE_MIN_CLUSTER_AND_DISTANCE(float, int64_t)
 INSTANTIATE_MIN_CLUSTER_AND_DISTANCE(double, int64_t)

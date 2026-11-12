@@ -71,7 +71,8 @@ void cluster_cost(
   rmm::device_uvector<char>& workspace,
   int batch_samples,
   int batch_centroids,
-  std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
+  std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt,
+  std::optional<raft::device_vector_view<const DataT, IndexT>> tf32_norms = std::nullopt)
 {
   auto n_samples = static_cast<IndexT>(X.extent(0));
   RAFT_EXPECTS(norms.extent(0) >= n_samples, "Cached norms must cover the input rows");
@@ -90,7 +91,7 @@ void cluster_cost(
     batch_samples,
     batch_centroids,
     workspace,
-    std::nullopt,
+    tf32_norms,
     /*accurate_distances=*/true);
 
   if (sample_weight.has_value()) {
@@ -1151,13 +1152,26 @@ void kmeans_fit(
 
         auto batch_data_view = raft::make_device_matrix_view<const DataT, IndexT>(
           data_batch.data(), cur_batch_size, n_features);
+        const bool batch_uses_tf32 =
+          data_on_device ? device_uses_tf32
+                         : assignment_uses_tf32(
+                             data_batch.data(), cur_batch_size, centroids_const.data_handle());
         if constexpr (!data_on_device) {
-          if (need_compute_norms) { compute_batch_norms(data_batch.data(), cur_batch_size, false); }
+          if (need_compute_norms) {
+            compute_batch_norms(data_batch.data(), cur_batch_size, batch_uses_tf32);
+          }
         }
         const auto l2_norm_offset =
           data_on_device ? static_cast<IndexT>(data_batch.offset()) : IndexT{0};
         auto l2_const_view = raft::make_device_vector_view<const DataT, IndexT>(
           L2NormBatch.data_handle() + l2_norm_offset, cur_batch_size);
+        std::optional<raft::device_vector_view<const DataT, IndexT>> tf32_const_view = std::nullopt;
+        if constexpr (kmeans_may_require_tf32_norms_v<DataT>) {
+          if (batch_uses_tf32) {
+            tf32_const_view = raft::make_device_vector_view<const DataT, IndexT>(
+              Tf32NormBatch.data_handle() + l2_norm_offset, cur_batch_size);
+          }
+        }
         std::optional<raft::device_vector_view<const DataT, IndexT>> batch_sw = std::nullopt;
         if (weight_ptr != nullptr) {
           batch_sw =
@@ -1178,7 +1192,8 @@ void kmeans_fit(
                                                     ws,
                                                     iter_params.batch_samples,
                                                     iter_params.batch_centroids,
-                                                    batch_sw);
+                                                    batch_sw,
+                                                    tf32_const_view);
         raft::linalg::add(clustering_cost.data_handle(),
                           clustering_cost.data_handle(),
                           batch_cost.data_handle(),

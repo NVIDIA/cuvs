@@ -498,7 +498,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
   std::optional<raft::device_vector_view<const DataT, IndexT>> Tf32NormX = std::nullopt,
   cuvs::distance::detail::Top1nnBackend backend = cuvs::distance::detail::Top1nnBackend::Auto,
   // Required (and only used) with Top1nnBackend::Cagra: index built over `centroids`.
-  const cuvs::distance::detail::top_1_nn_cagra_index* ann_index = nullptr);
+  const cuvs::distance::detail::top_1_nn_cagra_index* ann_index = nullptr,
+  bool need_compute_distance = true);
 
 #define EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(DataT, IndexT)   \
   extern template MinClusterAndDistanceResult<DataT, IndexT>      \
@@ -515,7 +516,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
     rmm::device_uvector<char>&,                                   \
     std::optional<raft::device_vector_view<const DataT, IndexT>>, \
     cuvs::distance::detail::Top1nnBackend,                        \
-    const cuvs::distance::detail::top_1_nn_cagra_index*);
+    const cuvs::distance::detail::top_1_nn_cagra_index*,          \
+    bool);
 
 EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(float, int64_t)
 EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(float, int)

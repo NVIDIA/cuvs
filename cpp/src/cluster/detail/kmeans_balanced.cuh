@@ -167,7 +167,11 @@ inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
         params.metric,
         0,  // default top_1_nn row tuning
         0,  // default top_1_nn candidate tuning
-        scratch.workspace);
+        scratch.workspace,
+        std::nullopt,
+        cuvs::distance::detail::Top1nnBackend::Auto,
+        nullptr,
+        /*need_compute_distance=*/false);
 
       cuvs::cluster::kmeans::detail::copyClusterLabels(handle, result, labels);
       break;
