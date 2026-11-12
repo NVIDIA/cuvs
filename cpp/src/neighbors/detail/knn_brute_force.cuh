@@ -15,7 +15,6 @@
 #include "./fused_l2_knn.cuh"
 #include "./haversine_distance.cuh"
 #include "./knn_utils.cuh"
-#include "./l2_expanded_scores.cuh"
 
 #include <raft/core/bitmap.cuh>
 #include <raft/core/copy.cuh>
@@ -26,6 +25,7 @@
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/gemm.cuh>
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/transpose.cuh>
@@ -180,9 +180,9 @@ void tiled_brute_force_knn(const raft::resources& handle,
 
   bool select_min = cuvs::distance::is_min_close(metric);
 
-  // Expanded L2 ranks a query's rows by |x|^2 - 2 q.x, which one cuBLASLt matmul writes with the
-  // index norms added in its epilogue (l2_expanded_scores), so no pass over the tile turns dot
-  // products into distances. |q|^2 is added after the selection, to the k kept per row.
+  // Expanded L2 ranks a query's rows by |x|^2 - 2 q.x, which one GEMM writes with the index norms
+  // added in its epilogue (raft::linalg::gemm's bias), so no pass over the tile turns dot products
+  // into distances. |q|^2 is added after the selection, to the k kept per row.
   constexpr bool l2_scores_supported =
     std::is_same_v<DistanceT, float> &&
     (std::is_same_v<ElementType, float> || std::is_same_v<ElementType, half>) &&
@@ -199,15 +199,28 @@ void tiled_brute_force_knn(const raft::resources& handle,
       if constexpr (l2_scores_supported) {
         if (metric == cuvs::distance::DistanceType::L2Expanded ||
             metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+          // Column-major, the row-major [queries x index rows] tile is index * search^T, and the
+          // bias adds one norm per index row.
           auto col_norms = precomputed_index_norms ? precomputed_index_norms : index_norms.data();
-          l2_scored      = l2_expanded_scores(handle,
-                                         search + i * d,
-                                         index + j * d,
-                                         current_query_size,
-                                         current_centroid_size,
-                                         d,
-                                         col_norms + j,
-                                         temp_distances.data());
+          DistanceT const alpha = -2;
+          DistanceT const beta  = 0;
+          raft::linalg::gemm(handle,
+                             /*trans_a=*/true,
+                             /*trans_b=*/false,
+                             static_cast<int>(current_centroid_size),
+                             static_cast<int>(current_query_size),
+                             static_cast<int>(d),
+                             &alpha,
+                             index + j * d,
+                             static_cast<int>(d),
+                             search + i * d,
+                             static_cast<int>(d),
+                             &beta,
+                             temp_distances.data(),
+                             static_cast<int>(current_centroid_size),
+                             stream.get(),
+                             col_norms + j);
+          l2_scored = true;
         }
       }
       if (!l2_scored) {
