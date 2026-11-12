@@ -3,6 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "detail/bbq_quantizer.cuh"
 #include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/device_mdarray.hpp>
@@ -10,8 +11,8 @@
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
 
-namespace cuvs::preprocessing::quantize::bbq::helpers {
-
+namespace cuvs::preprocessing::quantize::bbq {
+namespace helpers {
 void resolve_dequant_factors(
   raft::resources const& res,
   raft::device_vector_view<float, int64_t> dequant_delta,
@@ -40,4 +41,28 @@ void resolve_dequant_factors(
                              return delta;
                            });
 }
-}  // namespace cuvs::preprocessing::quantize::bbq::helpers
+}  // namespace helpers
+
+void build(raft::resources const& res,
+           raft::device_matrix_view<const float, int64_t> dense_dataset,
+           quantizer_view<float> quantizer)
+{
+  detail::build(res, dense_dataset, quantizer);
+}
+
+cuvs::device_bbq_dataset<float, int64_t> make_device_bbq_dataset(raft::resources const& res,
+                                                                 const params params,
+                                                                 int64_t n_rows,
+                                                                 uint32_t dim)
+{
+  return detail::make_dataset(res, params, n_rows, dim);
+}
+
+void transform(raft::resources const& res,
+               const params params,
+               raft::device_matrix_view<const float, int64_t> dense_dataset,
+               cuvs::device_bbq_dataset<float, int64_t>::view_type out)
+{
+  detail::transform(res, params, dense_dataset, out);
+}
+}  // namespace cuvs::preprocessing::quantize::bbq

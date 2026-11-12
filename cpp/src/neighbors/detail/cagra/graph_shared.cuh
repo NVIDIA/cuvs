@@ -6,7 +6,7 @@
 
 #include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
-#include <cuvs/preprocessing/quantize/bbq.hpp>
+#include <cuvs/neighbors/common.hpp>
 
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>

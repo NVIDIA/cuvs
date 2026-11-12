@@ -53,6 +53,7 @@ namespace cuvs::neighbors::nn_descent::detail {
 
 using cuvs::preprocessing::quantize::bbq::bbq_code_layout;
 using cuvs::preprocessing::quantize::bbq::quantizer_view;
+using cuvs::preprocessing::quantize::bbq::detail::bbq_encoding_view_t;
 
 template <typename Index_t>
 struct ResultItem;
@@ -1149,11 +1150,11 @@ using cuvs::preprocessing::quantize::bbq::detail::packed_1b_to_4b;
 // Stages one K-tile of `count` neighbor rows into SMEM. Shared skeleton: one warp per row,
 // lanes strided along native uint32 words, last-tile zero-pad so compute reads a full tile.
 //
-// stage_tile_simt copies native codes in storage layout (Planes > 1 gathers bit-sliced planes).
+// stage_tile_simt copies native codes in encoding layout (Planes > 1 gathers bit-sliced planes).
 // stage_promoted_tile expands packed_1b to u4 for int4 MMA (packed_4b is a plain copy).
-template <int Planes, int RowStride, typename DataT, typename Index_t>
+template <int Planes, int RowStride, typename Index_t>
 __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
-                                                const quantizer_view<DataT, int64_t>& quantizer,
+                                                const bbq_encoding_view_t& encoding,
                                                 const Index_t* neighbors,
                                                 const int count,
                                                 const size_t base,
@@ -1169,7 +1170,7 @@ __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
     const int idx = i * num_warps + warp_id;
     if (idx >= count) continue;
     auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
-    const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
+    const auto* src = reinterpret_cast<const uint32_t*>(&encoding.codes(neighbors[idx], base));
     for (int w = lane_id; w < num_load_u32; w += raft::warp_size()) {
 #pragma unroll
       for (int p = 0; p < Planes; ++p) {
@@ -1191,9 +1192,9 @@ __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
 // RowStride-independent: BBQ_ROW_BYTES / expansion native bytes promote to exactly BBQ_ROW_BYTES
 // promoted bytes, so a single n_tiles drives every operand regardless of how compact each one's
 // on-disk format is.
-template <bbq_code_layout Layout, int TileBytes, int RowStride, typename DataT, typename Index_t>
+template <bbq_code_layout Layout, int TileBytes, int RowStride, typename Index_t>
 __device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
-                                                    const quantizer_view<DataT, int64_t>& quantizer,
+                                                    const bbq_encoding_view_t& encoding,
                                                     const Index_t* neighbors,
                                                     const int count,
                                                     const int step,
@@ -1224,7 +1225,7 @@ __device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
     const int w   = threadIdx.x % native_tile_u32;
     if (idx >= count) continue;
     auto* s         = reinterpret_cast<uint32_t*>(dst[idx]);
-    const auto* src = reinterpret_cast<const uint32_t*>(&quantizer.codes(neighbors[idx], base));
+    const auto* src = reinterpret_cast<const uint32_t*>(&encoding.codes(neighbors[idx], base));
     if (w < num_load_u32) {
       if constexpr (expansion == 4) {
         reinterpret_cast<uint4*>(s)[w] = packed_1b_to_4b(src[w]);
@@ -1295,8 +1296,9 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              const Index_t* rev_graph_old,
                              const int2* sizes_old,
                              const int width,
-                             quantizer_view<DataT, int64_t> dataset_document,
-                             quantizer_view<DataT, int64_t> dataset_query,
+                             bbq_encoding_view_t dataset_document,
+                             bbq_encoding_view_t dataset_query,
+                             quantizer_view<const DataT> quantizer,
                              ID_t* graph,
                              DistData_t* dists,
                              int* locks,
@@ -1454,7 +1456,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
 
     // Query and document tiles cover the same dimension range per step (both tile at
     // query_plane_tile), so load the query tile once and run the dot product directly -- no
-    // per-step query sub-tile loop. Under SelfJoin phase 1 is new x new on a single quantizer,
+    // per-step query sub-tile loop. Under SelfJoin phase 1 is new x new on a single encoding,
     // so the document buffer already holds exactly what the query buffer would: skip the load
     // and point the B operand at s_doc_vec.
     if constexpr (!SelfJoin) {
@@ -1516,6 +1518,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                                                     my_col_factors,
                                                     dataset_document,
                                                     dataset_query,
+                                                    quantizer,
                                                     metric,
                                                     dist_epilogue,
                                                     doc_id0,
@@ -1529,6 +1532,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              my_col_factors,
                              dataset_document,
                              dataset_query,
+                             quantizer,
                              metric,
                              dist_epilogue,
                              doc_id1,
@@ -1632,6 +1636,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                                                     my_old_col_factors,
                                                     dataset_document,
                                                     dataset_query,
+                                                    quantizer,
                                                     metric,
                                                     dist_epilogue,
                                                     doc_id0,
@@ -1645,6 +1650,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              my_old_col_factors,
                              dataset_document,
                              dataset_query,
+                             quantizer,
                              metric,
                              dist_epilogue,
                              doc_id1,
@@ -1700,11 +1706,11 @@ __device__ __forceinline__ void select_packed_nibble(const FragT& src, FragT& ds
   }
 }
 
-// int4 tensor-core BBQ local join, covering both the symmetric (one quantizer, self-join) and
-// asymmetric (two quantizers) cases. Modeled on local_join_kernel_wmma: nvcuda::wmma fragments
-// (u4 x u4 -> s32, shape m8n8k32) replace the popc/dp4a inner product; the accumulator lives in
-// registers across the whole K reduction and is stored to s_distances once per (row-tile,
-// col-tile), not accumulated into shared memory every step like the scalar kernel.
+// int4 tensor-core BBQ local join, covering both the symmetric (one encoding, self-join) and
+// asymmetric (a document and a query encoding) cases. Modeled on local_join_kernel_wmma:
+// nvcuda::wmma fragments (u4 x u4 -> s32, shape m8n8k32) replace the popc/dp4a inner product; the
+// accumulator lives in registers across the whole K reduction and is stored to s_distances once per
+// (row-tile, col-tile), not accumulated into shared memory every step like the scalar kernel.
 //
 // Warp tiling: num_warps = BLOCK_SIZE/32 warps arranged as a WARPS_PER_DIM x WARPS_PER_DIM square
 // grid (WARPS_PER_DIM=4 so 4x4=16=num_warps), each warp owning a (MAX_NUM_BI_SAMPLES/WARPS_PER_DIM)
@@ -1727,8 +1733,9 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                              const Index_t* rev_graph_old,
                              const int2* sizes_old,
                              const int width,
-                             const quantizer_view<DataT, int64_t> dataset_document,
-                             const quantizer_view<DataT, int64_t> dataset_query,
+                             const bbq_encoding_view_t dataset_document,
+                             const bbq_encoding_view_t dataset_query,
+                             const quantizer_view<const DataT> quantizer,
                              ID_t* graph,
                              DistData_t* dists,
                              int* locks,
@@ -1774,8 +1781,8 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
 
   constexpr int MMA_STORE_STRIDE = SKEWED_MAX_NUM_BI_SAMPLES;
 
-  // s_row_vec is the A operand: always the `new` list, document quantizer. s_col_vec is the B
-  // operand: the `new` list in phase 1 and the `old` list in phase 2, query quantizer. Under
+  // s_row_vec is the A operand: always the `new` list, document encoding. s_col_vec is the B
+  // operand: the `new` list in phase 1 and the `old` list in phase 2, query encoding. Under
   // SelfJoin, phase 1 leaves s_col_vec untouched and both fragments read s_row_vec.
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
   __shared__ __align__(16) uint8_t s_row_vec[MAX_NUM_BI_SAMPLES][BBQ_ROW_BYTES + MMA_PAD];
@@ -1832,7 +1839,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
     cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_document));
   const int query_row_bytes = static_cast<int>(
     cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset_query));
-  const int promoted_row_bytes = static_cast<int>((dataset_query.dim() + 1) / 2);
+  const int promoted_row_bytes = static_cast<int>((quantizer.dim() + 1) / 2);
   const int n_tiles            = raft::ceildiv(promoted_row_bytes, BBQ_ROW_BYTES);
 
   const int warp_id_y = warp_id / WARPS_PER_DIM;
@@ -1953,6 +1960,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
                                                     my_col_factors,
                                                     dataset_document,
                                                     dataset_query,
+                                                    quantizer,
                                                     metric,
                                                     dist_epilogue,
                                                     doc_id,
@@ -2487,48 +2495,36 @@ void GNND<Data_t, Index_t>::local_join(
   raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
 
   // Both kernels take the same (document, query) pair, so there is no symmetric/asymmetric split
-  // here: a single quantizer just means the same one on both operands, which is exactly what
-  // SelfJoin encodes. Picking the two quantizers is all that differs.
-  const bool self_join = dataset.quantizers.size() == 1;
-  const bool has_1b    = dataset.has_layout(bbq_code_layout::packed_1b);
-  const bool has_4b    = dataset.has_layout(bbq_code_layout::packed_4b);
-  const bool has_2bt   = dataset.has_layout(bbq_code_layout::transposed_2b);
-  const bool has_4bt   = dataset.has_layout(bbq_code_layout::transposed_4b);
+  // here: a symmetric dataset reads its one encoding on both operands, which is exactly what
+  // SelfJoin encodes.
+  const auto data      = dataset.data_view();
+  const auto quantizer = dataset.manifest_view();
+  const bool self_join = data.document.layout == data.query.layout;
 
   // Asymmetric: a packed_4b query selects the tensor-core path, a transposed query the SIMT one.
   // Only packed_1b promotes to the tensor-core path; transposed_2b is SIMT-only (it would need
   // promoting from two bitplanes at once, which the int4 MMA staging doesn't support).
-  const bool tc_pair   = has_4b && has_1b;
-  const bool simt_pair = (has_4bt && (has_1b || has_2bt)) || (has_2bt && has_1b);
-  RAFT_EXPECTS(self_join || tc_pair || simt_pair,
+  RAFT_EXPECTS(self_join || cuvs::preprocessing::quantize::bbq::detail::is_asymmetric_layout_pair(
+                              data.document.layout, data.query.layout),
                "Unsupported BBQ layout pair for asymmetric local join. Supported: "
                "packed_1b x packed_4b (tensor core); packed_1b x transposed_2b, "
                "packed_1b x transposed_4b, transposed_2b x transposed_4b (SIMT).");
-  auto quantizer_query =
-    self_join ? dataset.quantizers[0]
-              : (tc_pair ? dataset.get_quantizer(bbq_code_layout::packed_4b)
-                         : (has_4bt ? dataset.get_quantizer(bbq_code_layout::transposed_4b)
-                                    : dataset.get_quantizer(bbq_code_layout::transposed_2b)));
-  auto quantizer_document = self_join ? dataset.quantizers[0]
-                            : has_1b  ? dataset.get_quantizer(bbq_code_layout::packed_1b)
-                                      : dataset.get_quantizer(bbq_code_layout::transposed_2b);
 
   // stage_tile_simt / stage_promoted_tile cast code buffers to uint32_t*, so every plane stride
   // must be 4-byte aligned.
-  {
-    const auto len =
-      cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(quantizer_query);
+  for (const auto& encoding : {data.document, data.query}) {
+    const auto len = cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(encoding);
     const int n_planes =
-      cuvs::preprocessing::quantize::bbq::detail::get_code_planes(quantizer_query.layout);
+      cuvs::preprocessing::quantize::bbq::detail::get_code_planes(encoding.layout);
     RAFT_EXPECTS(len % (4u * static_cast<uint32_t>(n_planes)) == 0,
                  "BBQ local join requires the encoded row length to be a multiple of 4*n_planes "
                  "for 32-bit aligned plane loads, got %u with n_planes = %d",
                  len,
                  n_planes);
-    RAFT_EXPECTS(quantizer_document.dim() % 32 == 0,
-                 "BBQ local join requires dataset dim to be a multiple of 32, got %lld",
-                 static_cast<long long>(quantizer_document.dim()));
   }
+  RAFT_EXPECTS(dataset.dim() % 32 == 0,
+               "BBQ local join requires dataset dim to be a multiple of 32, got %lld",
+               static_cast<long long>(dataset.dim()));
 
   // One launch site for both kernels: they take identical arguments, and the query's layout picks
   // the path -- packed_4b is the only layout the int4 tensor-core kernel is dispatched for.
@@ -2543,8 +2539,9 @@ void GNND<Data_t, Index_t>::local_join(
                                                h_rev_graph_old_.data_handle(),
                                                d_list_sizes_old_.data_handle(),
                                                NUM_SAMPLES,
-                                               quantizer_document,
-                                               quantizer_query,
+                                               data.document,
+                                               data.query,
+                                               quantizer,
                                                graph_buffer_.data_handle(),
                                                dists_buffer_.data_handle(),
                                                d_locks_.data_handle(),
@@ -2563,8 +2560,8 @@ void GNND<Data_t, Index_t>::local_join(
         local_join_kernel_bbq_simt<D, Q, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
     }
   };
-  const bbq_code_layout d = quantizer_document.layout;
-  const bbq_code_layout q = quantizer_query.layout;
+  const bbq_code_layout d = data.document.layout;
+  const bbq_code_layout q = data.query.layout;
   if (self_join) {
     switch (d) {
       case bbq_code_layout::packed_1b:
@@ -2984,26 +2981,27 @@ void build(raft::resources const& res,
            cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
            index<IdxT>& idx)
 {
-  RAFT_EXPECTS(dataset.quantizers.size() > 0, "BBQ dataset must not be empty.");
-  auto front_quantizer = dataset.quantizers[0];
+  RAFT_EXPECTS(dataset.n_rows() > 0, "BBQ dataset must not be empty.");
+  const auto data = dataset.data_view();
   cuvs::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "neighbors::nn_descent::detail::build-bbq(%zu, %zu, %zu, %zu, %zu)",
     size_t(dataset.n_rows()),
     size_t(dataset.dim()),
     size_t(idx.graph().extent(1)),
     size_t(idx.metric()),
-    size_t(cuvs::preprocessing::quantize::bbq::get_bit_width(front_quantizer.layout)));
+    size_t(cuvs::preprocessing::quantize::bbq::get_bit_width(data.document.layout)));
   RAFT_EXPECTS(idx.metric() == cuvs::distance::DistanceType::L2Expanded ||
                  idx.metric() == cuvs::distance::DistanceType::L2SqrtExpanded ||
                  idx.metric() == cuvs::distance::DistanceType::CosineExpanded ||
                  idx.metric() == cuvs::distance::DistanceType::InnerProduct,
                "BBQ NN-Descent supports L2Expanded, L2SqrtExpanded, CosineExpanded, and "
                "InnerProduct.");
-  RAFT_EXPECTS(idx.metric() == front_quantizer.metric,
+  RAFT_EXPECTS(idx.metric() == data.metric,
                "BBQ dataset metric does not match the NN-Descent metric.");
   // packed_4b is the only layout dispatched to local_join_kernel_bbq_wmma, and the int4 MMA that
   // kernel is built around only exists from sm_75 on.
-  if (dataset.has_layout(bbq_code_layout::packed_4b)) {
+  if (data.document.layout == bbq_code_layout::packed_4b ||
+      data.query.layout == bbq_code_layout::packed_4b) {
     auto kernel       = local_join_kernel_bbq_wmma<bbq_code_layout::packed_4b,
                                                    bbq_code_layout::packed_4b,
                                                    DataT,
