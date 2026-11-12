@@ -1,8 +1,8 @@
 # Maintaining cuvs-lucene across Lucene releases
 
 `cuvs-lucene` is published as one artifact per supported Lucene minor release (`cuvs-lucene-10.2` …
-`cuvs-lucene-10.5`), all built from the same sources. This page lists exactly what to change when Lucene
-publishes a new patch release (for example 10.3.3) or a new minor release (for example 10.6.0). For how
+`cuvs-lucene-10.6`), all built from the same sources. This page lists exactly what to change when Lucene
+publishes a new patch release (for example 10.3.3) or a new minor release (for example 10.7.0). For how
 the layout works, see [Supporting several Lucene releases](README.md#supporting-several-lucene-releases).
 
 All commands run from `java/cuvs-lucene/` unless stated otherwise, with `libcuvs` built and `cuvs-java`
@@ -24,25 +24,25 @@ makes the artifact depend on, and be tested against, it.
 
 Nothing else needs to change: no back-compat indexes, no codecs, no CI, no docs.
 
-## A new minor release (example: 10.6.0)
+## A new minor release (example: 10.7.0)
 
 Work through the steps in order. Steps 1–3 always apply; the others depend on what the release changed.
 
 ### 1. Create the module
 
-1. Copy the newest module: `cp -r lucene-10.5 lucene-10.6`, then `rm -rf lucene-10.6/target
-   lucene-10.6/src/since`. The `src/since/java` of the copied module belongs to that module only;
+1. Copy the newest module: `cp -r lucene-10.6 lucene-10.7`, then `rm -rf lucene-10.7/target
+   lucene-10.7/src/since`. The `src/since/java` of the copied module belongs to that module only;
    later modules compile it from there (below), and step 4 or 5 adds the new module's own if it needs one.
-2. In `lucene-10.6/pom.xml`:
-   - change `artifactId` and `name` to `cuvs-lucene-10.6`, and the version in `description`;
-   - set `<lucene.version>10.6.0</lucene.version>`;
+2. In `lucene-10.7/pom.xml`:
+   - change `artifactId` and `name` to `cuvs-lucene-10.7`, and the version in `description`;
+   - set `<lucene.version>10.7.0</lucene.version>`;
    - keep the `add-since-sources` list, but name the `src/since/java` directory of **every** earlier
      module that has one instead of its own (today `../lucene-10.3/src/since/java` and
      `../lucene-10.4/src/since/java`); step 4 or 5 adds its own if it gets one;
    - keep the `cuvs.lucene.compat.*` properties: the new release starts with the same variant of each
      Lucene API as the previous one (see [compat/README.md](compat/README.md)).
-3. In the parent `pom.xml`, add `<module>lucene-10.6</module>`.
-4. In `lucene-10.6/src/main/java/com/nvidia/cuvs/lucene/LuceneCompat.java`, set `LUCENE_MINOR = 6`
+3. In the parent `pom.xml`, add `<module>lucene-10.7</module>`.
+4. In `lucene-10.7/src/main/java/com/nvidia/cuvs/lucene/LuceneCompat.java`, set `LUCENE_MINOR = 7`
    and the Lucene version in the javadoc. Keep `LUCENE_MAJOR`/`LUCENE_MINOR` compile-time constants:
    the version check reads them without loading `LuceneCompat`.
 
@@ -53,21 +53,21 @@ the new module by itself.
 ### 2. Make it compile
 
 ```bash
-mvn -pl lucene-10.6 -am test-compile
+mvn -pl lucene-10.7 -am test-compile
 ```
 
 Fix every error without changing what the other modules compile:
 
 - calls whose signature or class location changed (a class moved to `org.apache.lucene.backward_codecs`,
   a constructor lost or gained parameters, an enum moved to another class): in
-  `lucene-10.6/src/main/java/.../LuceneCompat.java`;
+  `lucene-10.7/src/main/java/.../LuceneCompat.java`;
 - a Lucene class cuvs-lucene adapts in `compat/` changed (for example `KnnVectorsReader`): copy the
-  variant the module uses to `compat/<class>-106-<change>` (for example
-  `compat/knn-vectors-reader-106-<change>`), change it there, and point the module's property
+  variant the module uses to `compat/<class>-107-<change>` (for example
+  `compat/knn-vectors-reader-107-<change>`), change it there, and point the module's property
   (`cuvs.lucene.compat.knnVectorsReader`) at it. Do not edit a variant other modules still use;
 - a Lucene class with no variants yet changed (for example `KnnFieldVectorsWriter`): add a
   `Compat<Class>` base in two new variants, `<class>-102-<old shape>` for the existing modules and
-  `<class>-106-<change>`, each overriding the changed method and forwarding it to a `do*` method
+  `<class>-107-<change>`, each overriding the changed method and forwarding it to a `do*` method
   whose signature is the same in both, and have the shared classes that extend the Lucene class
   extend the base and implement the `do*` method instead (as `CompatKnnVectorsWriter` did for
   `mergeOneField` in 10.5). Then add a `cuvs.lucene.compat.<class>` property to every module and a
@@ -101,8 +101,8 @@ for cls in org.apache.lucene.codecs.FilterCodec org.apache.lucene.codecs.KnnVect
     org.apache.lucene.search.Weight org.apache.lucene.search.Scorer \
     org.apache.lucene.search.ScorerSupplier org.apache.lucene.search.DocIdSetIterator \
     'org.apache.lucene.util.hnsw.HnswGraph' 'org.apache.lucene.util.hnsw.HnswGraph$NodesIterator'; do
-  diff <(javap -protected -cp $M/10.5.2/lucene-core-10.5.2.jar "$cls" | grep -Ev ' (final|static) ' | sort) \
-       <(javap -protected -cp $M/10.6.0/lucene-core-10.6.0.jar "$cls" | grep -Ev ' (final|static) ' | sort) \
+  diff <(javap -protected -cp $M/10.6.0/lucene-core-10.6.0.jar "$cls" | grep -Ev ' (final|static) ' | sort) \
+       <(javap -protected -cp $M/10.7.0/lucene-core-10.7.0.jar "$cls" | grep -Ev ' (final|static) ' | sort) \
     | grep '^[<>]' && echo "^^^ $cls"
 done
 ```
@@ -111,7 +111,7 @@ For each new or changed method, decide whether Lucene's default is right for the
 If not, override it in the `Compat*` class of the variant the new release uses, creating a new variant
 if older releases share that one (see how `compat/knn-vectors-reader-103-acceptdocs` overrides
 `getOffHeapByteSize`). To refresh the class list, run `javap` on the classes in
-`lucene-10.6/target/classes/com/nvidia/cuvs/lucene` and collect their `org.apache.lucene` supertypes,
+`lucene-10.7/target/classes/com/nvidia/cuvs/lucene` and collect their `org.apache.lucene` supertypes,
 all the way up.
 
 Behaviour can also change without any signature changing. Read the source of the Lucene methods that call
@@ -127,9 +127,14 @@ searching the segment exactly; check that both still hold. Lucene 10.5 split mer
 cuvs-lucene writers build the graph while merging the field and return none, so a writer that starts
 deferring work has to override `mergeOneField` in the variants of `CompatKnnVectorsWriter` that return
 it, and `ObservedWriter` in `TestAcceleratedHNSWHostInputMemory`, which wraps the writers, has to pass
-that work on. Lucene 10.5 also stopped calling `KnnVectorsReader.finishMerge()`, so the sequential read
-hint that `getMergeInstance()` sets on the raw vectors stays after a merge, for Lucene's own formats as
-for cuvs-lucene's.
+that work on. Lucene 10.5 also stopped calling `KnnVectorsReader.finishMerge()`, so on 10.5 the
+sequential read hint that `getMergeInstance()` sets on the raw vectors stays after a merge, for Lucene's
+own formats as for cuvs-lucene's; Lucene 10.6 calls it again. Lucene 10.6 changed two more things: the
+flat format no longer asks for its vectors to be read at random, leaving that to the format that wraps
+it, as `LuceneCompat.flatReadState` does for the cuvs-lucene formats; and the merge instance of a flat
+reader reads the file through an input of its own instead of changing how searches read the shared one,
+so `CompatKnnVectorsReader` in `knn-vectors-reader-106-merge-instance` has merges read through a reader
+created around that instance.
 
 Also read Lucene's `CHANGES.txt` for the release, looking for:
 
@@ -142,36 +147,36 @@ Also read Lucene's `CHANGES.txt` for the release, looking for:
 
 ### 4. If Lucene's default codec changed
 
-Check which codec the release writes by default:
+Check which codec the release writes by default, the name `Codec.Holder` looks up:
 
 ```bash
-unzip -p ~/.m2/repository/org/apache/lucene/lucene-core/10.6.0/lucene-core-10.6.0.jar \
-  META-INF/services/org.apache.lucene.codecs.Codec
+javap -c -p -cp ~/.m2/repository/org/apache/lucene/lucene-core/10.7.0/lucene-core-10.7.0.jar \
+  'org.apache.lucene.codecs.Codec$Holder' | grep 'String Lucene'
 ```
 
-If it is still `Lucene104Codec`, skip this step (step 5 may still apply): the `Lucene104*` codecs keep writing on 10.6.
-If it is new, for example `Lucene106Codec`:
+If it is still `Lucene104`, skip this step (step 5 may still apply): the `Lucene104*` codecs keep writing on 10.7.
+If it is new, for example `Lucene107`:
 
-1. Create `lucene-10.6/src/since/java/com/nvidia/cuvs/lucene/` with the four codecs of the new
+1. Create `lucene-10.7/src/since/java/com/nvidia/cuvs/lucene/` with the four codecs of the new
    generation, copied from the four `Lucene104*Codec` classes in `lucene-10.4/src/since/java` and
-   renamed: `Lucene106AcceleratedHNSWCodec`, `Lucene106AcceleratedHNSWScalarQuantizedCodec`,
-   `Lucene106AcceleratedHNSWBinaryQuantizedCodec`, `Lucene106CuVSGPUSearchCodec`. Copy only the
+   renamed: `Lucene107AcceleratedHNSWCodec`, `Lucene107AcceleratedHNSWScalarQuantizedCodec`,
+   `Lucene107AcceleratedHNSWBinaryQuantizedCodec`, `Lucene107CuVSGPUSearchCodec`. Copy only the
    codecs: the formats there, such as `Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat`, stay
    where they are and the new codecs keep using them, unless step 5 replaces one. Each passes
-   generation `106` and `() -> LuceneCompat.lucene106Codec()` (a lambda, not a method reference) to
+   generation `107` and `() -> LuceneCompat.lucene107Codec()` (a lambda, not a method reference) to
    the `CuVSFilterCodec` constructor. The codec name is written into every segment, so never reuse or
    rename one once released.
-2. Add `src/since/java` to the `add-since-sources` list in `lucene-10.6/pom.xml` (and, later, in every
+2. Add `src/since/java` to the `add-since-sources` list in `lucene-10.7/pom.xml` (and, later, in every
    module after it).
-3. In `lucene-10.6/.../LuceneCompat.java`:
-   - add `lucene106Codec()` returning `new org.apache.lucene.codecs.lucene106.Lucene106Codec()`;
+3. In `lucene-10.7/.../LuceneCompat.java`:
+   - add `lucene107Codec()` returning `new org.apache.lucene.codecs.lucene107.Lucene107Codec()`;
    - point `lucene104Codec()` at `org.apache.lucene.backward_codecs.lucene104.Lucene104Codec`, where
      Lucene moves the old default codec;
-   - set `CURRENT_CODEC_GENERATION = 106`. The new codecs pass `106` as their generation to the
+   - set `CURRENT_CODEC_GENERATION = 107`. The new codecs pass `107` as their generation to the
      `CuVSFilterCodec` constructor, and the `Lucene104*` codecs, which pass `104`, become read-only;
    - make `acceleratedHNSWCodec`, `acceleratedHNSWScalarQuantizedCodec`,
-     `acceleratedHNSWBinaryQuantizedCodec` and `gpuSearchCodec` return the `Lucene106*` codecs.
-4. Register the four new codecs in `lucene-10.6/src/main/resources/META-INF/services/org.apache.lucene.codecs.Codec`,
+     `acceleratedHNSWBinaryQuantizedCodec` and `gpuSearchCodec` return the `Lucene107*` codecs.
+4. Register the four new codecs in `lucene-10.7/src/main/resources/META-INF/services/org.apache.lucene.codecs.Codec`,
    after the existing ones. List only cuvs-lucene classes in the services files: a Lucene class there
    breaks every codec or format lookup in the JVM once a later release moves it.
 5. Update the list of codecs per Lucene release in the class javadoc of `CuVSCodecs`.
@@ -182,7 +187,7 @@ Do this whether or not step 4 applied: Lucene can move a format its default code
 without changing the default codec. The formats wrapping the moved one can then no longer write on
 the new release:
 
-1. Add a new format in `lucene-10.6/src/since/java` (create it, and add it to `add-since-sources`, as in
+1. Add a new format in `lucene-10.7/src/since/java` (create it, and add it to `add-since-sources`, as in
    step 4 if step 4 did not), and register it in
    `META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat`.
 2. Add a `LuceneCompat` method returning the new flat format, and have the matching `LuceneCompat`
@@ -207,7 +212,7 @@ the replacement when something writes with it: the format writes only while it i
 ### 6. Make the tests pass
 
 ```bash
-mvn -pl lucene-10.6 -am verify
+mvn -pl lucene-10.7 -am verify
 ```
 
 - New abstract methods or new tests in Lucene's `BaseKnnVectorsFormatTestCase` are handled once, in
