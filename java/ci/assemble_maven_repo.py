@@ -8,7 +8,7 @@ import argparse
 import filecmp
 import re
 import shutil
-import xml.etree.ElementTree as ET  # nosec B405: DTDs are rejected below.
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
@@ -24,7 +24,7 @@ def read_pom(pom):
     text = pom.read_text()
     if "<!DOCTYPE" in text.upper() or "<!ENTITY" in text.upper():
         raise ValueError("POM entity declarations are unsupported")
-    return ET.fromstring(text)  # nosec B314: Entity declarations rejected.
+    return ET.fromstring(text)  # noqa: S314 - Entity declarations rejected.
 
 
 def read_coordinates(pom):
@@ -43,6 +43,8 @@ def assemble(module, tag, artifacts_dir, output_dir):
         raise ValueError("A registered module and release tag are required")
     major, minor, patch = match.groups()
     version = f"{major}.{minor}.{int(patch)}"
+    if module == "cuvs-lucene":
+        return assemble_lucene(version, artifacts_dir, output_dir)
     builds = []
     for path in artifacts_dir.iterdir():
         cuda = re.fullmatch(
@@ -58,25 +60,6 @@ def assemble(module, tag, artifacts_dir, output_dir):
         ):
             raise ValueError(f"POM does not match {module}:{version}")
         builds.append((cuda_version, path))
-        if module == "cuvs-lucene":
-            dependencies = [
-                dependency
-                for dependency in read_pom(path / "pom.xml").findall(
-                    "m:dependencies/m:dependency", NS
-                )
-                if dependency.findtext("m:groupId", namespaces=NS)
-                == GROUPS["cuvs-java"]
-                and dependency.findtext("m:artifactId", namespaces=NS)
-                == "cuvs-java"
-            ]
-            if (
-                len(dependencies) != 1
-                or dependencies[0].findtext("m:version", namespaces=NS)
-                != version
-            ):
-                raise ValueError(
-                    "Lucene must depend on the matching Java release"
-                )
     if not builds:
         raise ValueError("No module build artifacts were downloaded")
     # Keep the established higher-CUDA selection for the unclassified release
@@ -108,10 +91,6 @@ def assemble(module, tag, artifacts_dir, output_dir):
                     f"Conflicting native classifier: {native.name}"
                 )
             selected[native.name] = native
-    else:
-        assembled = primary / f"{module}-{version}-jar-with-dependencies.jar"
-        if assembled.is_file():
-            selected[assembled.name] = assembled
     for name, source in selected.items():
         if not source.is_file():
             raise ValueError(f"Missing release artifact: {source}")
@@ -131,6 +110,128 @@ def assemble(module, tag, artifacts_dir, output_dir):
     print(f"Primary build: {primary.name}")
     print(f"Assembled {GROUPS[module]}:{module}:{version}")
     return destination
+
+
+def assemble_lucene(version, artifacts_dir, output_dir):
+    """Publish the complete reactor, including parent and relocation POMs."""
+    group = GROUPS["cuvs-lucene"]
+    builds = []
+    for path in artifacts_dir.iterdir():
+        cuda = re.fullmatch(
+            r"cuvs-lucene-cuda([0-9]+(?:\.[0-9]+)*)", path.name
+        )
+        if not path.is_dir() or not cuda:
+            raise ValueError(f"Unexpected build artifact: {path.name}")
+        builds.append((tuple(map(int, cuda[1].split("."))), path))
+    if not builds:
+        raise ValueError("No module build artifacts were downloaded")
+    builds.sort(key=lambda entry: entry[0])
+    selected = {}
+    for _, build in builds:
+        # Flattened POMs omit the reactor list. Use the release source as
+        # the authoritative module inventory so a missing CI output fails.
+        modules = read_pom(
+            Path(__file__).resolve().parents[1] / "cuvs-lucene/pom.xml"
+        ).findall("m:modules/m:module", NS)
+        names = [element.text for element in modules]
+        if (
+            not names
+            or any(
+                name != "relocation"
+                and not re.fullmatch(r"lucene-[0-9]+\.[0-9]+", name or "")
+                for name in names
+            )
+            or len(set(names)) != len(names)
+        ):
+            raise ValueError("Invalid Lucene reactor modules")
+        inventory = {"cuvs-lucene-parent", "cuvs-lucene"} | {
+            f"cuvs-{name}" for name in names if name != "relocation"
+        }
+        if "relocation" not in names:
+            raise ValueError("Missing Lucene relocation module")
+        targets = [("cuvs-lucene-parent", build / "target")]
+        targets.extend(
+            (
+                "cuvs-lucene" if name == "relocation" else f"cuvs-{name}",
+                build / name / "target",
+            )
+            for name in names
+        )
+        current = {}
+        for artifact, target in targets:
+            pom = target / "pom.xml"
+            if read_coordinates(pom) != (group, artifact, version):
+                raise ValueError(f"POM does not match {artifact}:{version}")
+            root = read_pom(pom)
+            packaging = root.findtext(
+                "m:packaging", default="jar", namespaces=NS
+            )
+            files = {f"{artifact}-{version}.pom": pom}
+            if artifact in {"cuvs-lucene-parent", "cuvs-lucene"}:
+                if packaging != "pom":
+                    raise ValueError(f"Expected POM-only artifact: {artifact}")
+            else:
+                if packaging != "jar":
+                    raise ValueError(f"Expected JAR artifact: {artifact}")
+                for suffix in (".jar", "-sources.jar", "-javadoc.jar"):
+                    name = f"{artifact}-{version}{suffix}"
+                    files[name] = target / name
+                assembly = (
+                    target / f"{artifact}-{version}-jar-with-dependencies.jar"
+                )
+                if assembly.is_file():
+                    files[assembly.name] = assembly
+            if artifact != "cuvs-lucene":
+                dependencies = root.findall("m:dependencies/m:dependency", NS)
+                if not any(
+                    dependency.findtext("m:groupId", namespaces=NS)
+                    == GROUPS["cuvs-java"]
+                    and dependency.findtext("m:artifactId", namespaces=NS)
+                    == "cuvs-java"
+                    and dependency.findtext("m:version", namespaces=NS)
+                    == version
+                    for dependency in dependencies
+                ):
+                    raise ValueError(
+                        "Lucene must depend on the matching Java release"
+                    )
+            else:
+                relocation = root.find(
+                    "m:distributionManagement/m:relocation", NS
+                )
+                if relocation is None or (
+                    relocation.findtext("m:artifactId", namespaces=NS)
+                    not in inventory - {"cuvs-lucene", "cuvs-lucene-parent"}
+                    or relocation.findtext(
+                        "m:groupId", default=group, namespaces=NS
+                    )
+                    != group
+                    or relocation.findtext(
+                        "m:version", default=version, namespaces=NS
+                    )
+                    != version
+                ):
+                    raise ValueError("Invalid Lucene relocation target")
+            for name, source in files.items():
+                if not source.is_file():
+                    raise ValueError(f"Missing release artifact: {source}")
+                if name.endswith(".jar") and not zipfile.is_zipfile(source):
+                    raise ValueError(f"Invalid JAR: {source}")
+                current[
+                    Path(group.replace(".", "/")) / artifact / version / name
+                ] = source
+        selected = current
+    if output_dir.exists():
+        raise ValueError("Output directory must not already exist")
+    try:
+        for relative, source in selected.items():
+            destination = output_dir / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+    except Exception:
+        shutil.rmtree(output_dir)
+        raise
+    return output_dir / group.replace(".", "/")
 
 
 def main():

@@ -94,7 +94,6 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Keep CUDA builds separate; the release gather job retains their native classifiers.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -112,7 +111,6 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Build against the matching cuvs-java artifact from this workflow run.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -130,8 +128,7 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    # Keep CUDA builds separate; the release gather job retains their native classifiers.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
@@ -153,8 +150,7 @@ jobs:
       packages: read
       pull-requests: read
     uses: ./.github/workflows/matrix-job.yaml
-    # Artifacts are not published from these jobs, so it's safe to run for multiple CUDA versions.
-    # If these jobs start producing artifacts, the names will have to differentiate between CUDA versions.
+    # Build against the matching cuvs-java artifact from this workflow run.
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       branch: ${{ inputs.branch }}
