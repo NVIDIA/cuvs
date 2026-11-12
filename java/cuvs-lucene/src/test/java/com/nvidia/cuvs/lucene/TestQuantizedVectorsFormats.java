@@ -5,7 +5,6 @@
 package com.nvidia.cuvs.lucene;
 
 import static com.nvidia.cuvs.lucene.TestUtils.assertVectorsKeepTheirDocuments;
-import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupported;
 import static org.apache.lucene.index.VectorSimilarityFunction.COSINE;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
@@ -16,7 +15,9 @@ import java.util.List;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
+import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.lucene95.OrdToDocDISIReaderConfiguration;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.KnnFloatVectorField;
@@ -26,17 +27,17 @@ import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.LeafReaderContext;
-import org.apache.lucene.index.VectorEncoding;
+import org.apache.lucene.index.LogDocMergePolicy;
 import org.apache.lucene.store.ByteBuffersDirectory;
 import org.apache.lucene.store.Directory;
-import org.apache.lucene.tests.index.BaseKnnVectorsFormatTestCase;
+import org.apache.lucene.store.IOContext;
+import org.apache.lucene.store.IndexInput;
+import org.apache.lucene.store.IndexOutput;
 import org.apache.lucene.tests.util.LuceneTestCase.SuppressSysoutChecks;
 import org.apache.lucene.tests.util.TestUtil;
-import org.junit.BeforeClass;
-import org.junit.Ignore;
 
 @SuppressSysoutChecks(bugUrl = "")
-public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
+public class TestQuantizedVectorsFormats extends BaseCuVSKnnVectorsFormatTestCase {
 
   private static final Logger log = Logger.getLogger(TestQuantizedVectorsFormats.class.getName());
 
@@ -50,14 +51,89 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
   public static List<Object[]> parameters() {
     return Arrays.asList(
         new Object[][] {
-          {new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat()},
-          {new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat()}
+          {CuVSCodecs.acceleratedHNSWBinaryQuantizedFormat()},
+          {CuVSCodecs.acceleratedHNSWScalarQuantizedFormat()}
         });
   }
 
-  @BeforeClass
-  public static void beforeClass() {
-    assumeTrue("cuVS is not supported so skipping these tests", isSupported());
+  // Returning false skips testMergeStability, from BaseIndexFileFormatTestCase. Building an HNSW
+  // graph on the GPU is not deterministic, so merging the same segment again writes a graph of a
+  // different size. Lucene's suite skipped that test for every vectors format up to Lucene 10.5.
+  @Override
+  protected boolean mergeIsStable() {
+    return false;
+  }
+
+  /**
+   * Only the scalar-quantized formats keep a quantized copy to rebuild float vectors from; the
+   * binary-quantized format stores full-precision vectors only. Lucene calls this only since 10.4,
+   * where the scalar-quantized format of earlier releases can no longer write, and so is not tested
+   * here at all. Compared with the format CuVSCodecs returns, so that a later release's format is
+   * covered without changing this test.
+   */
+  @Override
+  protected boolean supportsFloatVectorFallback() {
+    return BaseAcceleratedHNSWScalarQuantizedVectorsFormat.currentFormatName()
+        .equals(knnVectorsFormat.getName());
+  }
+
+  /**
+   * Empties the raw vectors of the scalar-quantized format's flat storage, as Lucene's own
+   * TestLucene104ScalarQuantizedVectorsFormat does. Since Lucene 10.4; not marked @Override, so
+   * that it compiles against earlier releases.
+   */
+  protected void simulateEmptyRawVectors(Directory dir) throws Exception {
+    for (String file : dir.listAll()) {
+      if (file.endsWith(".vec")) {
+        replaceWithEmptyVectorFile(dir, file);
+      } else if (file.endsWith(".vemf")) {
+        updateVectorMetadataFile(dir, file);
+      }
+    }
+  }
+
+  /** Replaces a raw vector file with an empty one that has a valid header and footer. */
+  private static void replaceWithEmptyVectorFile(Directory dir, String fileName) throws Exception {
+    byte[] indexHeader;
+    try (IndexInput in = dir.openInput(fileName, IOContext.DEFAULT)) {
+      indexHeader = CodecUtil.readIndexHeader(in);
+    }
+    dir.deleteFile(fileName);
+    try (IndexOutput out = dir.createOutput(fileName, IOContext.DEFAULT)) {
+      out.writeBytes(indexHeader, 0, indexHeader.length);
+      CodecUtil.writeFooter(out);
+    }
+  }
+
+  /** Rewrites the flat vectors' metadata to describe no stored vectors. */
+  private static void updateVectorMetadataFile(Directory dir, String fileName) throws Exception {
+    byte[] indexHeader;
+    int fieldNumber, vectorEncoding, vectorSimilarityFunction, dimension;
+    long vectorStartPos;
+    try (IndexInput in = dir.openInput(fileName, IOContext.DEFAULT)) {
+      indexHeader = CodecUtil.readIndexHeader(in);
+      fieldNumber = in.readInt();
+      vectorEncoding = in.readInt();
+      vectorSimilarityFunction = in.readInt();
+      vectorStartPos = in.readVLong();
+      in.readVLong(); // the original vector length
+      dimension = in.readVInt();
+    }
+    dir.deleteFile(fileName);
+    try (IndexOutput out = dir.createOutput(fileName, IOContext.DEFAULT)) {
+      out.writeBytes(indexHeader, 0, indexHeader.length);
+      out.writeInt(fieldNumber);
+      out.writeInt(vectorEncoding);
+      out.writeInt(vectorSimilarityFunction);
+      out.writeVLong(vectorStartPos);
+      out.writeVLong(0); // no vector data
+      out.writeVInt(dimension);
+      out.writeInt(0); // no vectors
+      // Lucene99FlatVectorsFormat.DIRECT_MONOTONIC_BLOCK_SHIFT, which is package-private.
+      OrdToDocDISIReaderConfiguration.writeStoredMeta(16, out, null, 0, 0, null);
+      out.writeInt(-1); // end of fields
+      CodecUtil.writeFooter(out);
+    }
   }
 
   @Override
@@ -75,7 +151,9 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
     }
 
     try (Directory dir = newDirectory(new ByteBuffersDirectory());
-        IndexWriter w = new IndexWriter(dir, newIndexWriterConfig())) {
+        // A random merge policy could merge the two segments before they are checked.
+        IndexWriter w =
+            new IndexWriter(dir, newIndexWriterConfig().setMergePolicy(new LogDocMergePolicy()))) {
       for (int i = 0; i < R; i++) {
         Document doc = new Document();
         doc.add(new StringField("id", String.valueOf(i), Field.Store.YES));
@@ -159,39 +237,10 @@ public class TestQuantizedVectorsFormats extends BaseKnnVectorsFormatTestCase {
         assertEquals(R, values.size());
 
         float[] queryVector = randomVector(D);
-        var topDocs = r.searchNearestVectors(F, queryVector, 2, null, 10);
+        var topDocs = TestLuceneCompat.searchNearestVectors(r, F, queryVector, 2, null, 10);
         assertTrue("Should return at least one result", topDocs.scoreDocs.length > 0);
         assertTrue("Scores should be non-negative", topDocs.scoreDocs[0].score >= 0);
       }
     }
   }
-
-  @Override
-  protected VectorEncoding randomVectorEncoding() {
-    return VectorEncoding.FLOAT32;
-  }
-
-  @Ignore
-  @Override
-  public void testByteVectorScorerIteration() {}
-
-  @Ignore
-  @Override
-  public void testEmptyByteVectorData() {}
-
-  @Ignore
-  @Override
-  public void testMergingWithDifferentByteKnnFields() {}
-
-  @Ignore
-  @Override
-  public void testMismatchedFields() {}
-
-  @Ignore
-  @Override
-  public void testRandomBytes() {}
-
-  @Ignore
-  @Override
-  public void testSortedIndexBytes() {}
 }
