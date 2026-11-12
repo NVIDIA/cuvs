@@ -230,6 +230,7 @@ jobs:
       MAVEN_DEPLOY_TOKEN: ${{ secrets.MAVEN_DEPLOY_TOKEN }}
     with:
       artifact-name: cuvs-lucene_maven_repo
+      primary-artifact-id: cuvs-lucene
       source-git-sha: ${{ inputs.sha || github.sha }}
       profile-id: ${{ vars.MAVEN_STAGING_PROFILE_ID || 'com.nvidia.cuvs' }}
       docs-project: cuvs-lucene

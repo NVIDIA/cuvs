@@ -41,9 +41,10 @@ publication jobs run on release tags.
 
 Use the existing `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`, `MAVEN_DEPLOY_USERNAME`, and
 `MAVEN_DEPLOY_TOKEN` conventions. The Sonatype token must authorize the Java and
-Lucene namespaces, including every Lucene coordinate. The common staging profile defaults to `com.nvidia.cuvs`; set
-`MAVEN_STAGING_PROFILE_ID` to the actual verified parent namespace if different,
-for example `com.nvidia`. Confirm the namespace and account access during rollout.
+Lucene namespaces, including every Lucene coordinate. The Central Publisher Portal
+API checks account namespace access directly. The legacy
+`MAVEN_STAGING_PROFILE_ID` setting is accepted but unused. Confirm namespace and
+account access during rollout.
 
 App credentials remain in release-tracking's existing `release-dispatch`
 environment. Deploy the standalone docs dispatcher, `cuvs-java` and `cuvs-lucene`
@@ -53,20 +54,20 @@ coordinates for a release; retire the legacy manual publishing path at cutover.
 
 The shared publisher prerequisite is
 [shared-workflows #660](https://github.com/rapidsai/shared-workflows/pull/660).
-Before it can support this caller, extend its single-POM discovery, metadata,
-bundle validation, and Portal package-URL checks to accept the full Lucene
-coordinate set and POM-only packaging. Sign and checksum the parent and relocation
-POMs without requiring primary, sources, or javadoc JARs. Preserve the
-`deployment-state: PUBLISHED` output and one completed receipt for the Lucene
-release so documentation dispatch follows publication of the complete set.
+It adds a coordinate manifest, POM-only packaging, full Portal package-URL
+verification, and recovery tied to the complete publication set. The caller sets
+`primary-artifact-id: cuvs-lucene` to retain the docs dispatcher's existing receipt
+coordinate. The `deployment-state: PUBLISHED` output and completed receipt cover
+the entire Lucene set.
 
 Rollout order:
 
-1. Extend and merge the shared publisher, including tests for mixed JAR and
-   POM-only coordinates and resumed publication of that same deployment.
+1. Merge the shared publisher, including its mixed JAR/POM-only coordinate tests
+   and resumed-publication verification.
 2. Deploy and verify the docs dispatcher and both docs registrations if docs
-   automation is part of the cutover.
-3. Confirm signing credentials, Sonatype namespace access, and staging profile;
+   automation is part of the cutover. Lucene javadoc must come from a versioned
+   module such as `cuvs-lucene-10.2`, since the old coordinate is POM-only.
+3. Confirm signing credentials and Sonatype namespace access;
    validate the full CUDA matrix's uploaded layout and signed bundle in the
    release environment.
 4. Merge this caller and ensure it is present on the branch being tagged. Retire
