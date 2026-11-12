@@ -15,6 +15,7 @@
 #include "./fused_l2_knn.cuh"
 #include "./haversine_distance.cuh"
 #include "./knn_utils.cuh"
+#include "./l2_expanded_scores.cuh"
 
 #include <raft/core/bitmap.cuh>
 #include <raft/core/copy.cuh>
@@ -179,6 +180,14 @@ void tiled_brute_force_knn(const raft::resources& handle,
 
   bool select_min = cuvs::distance::is_min_close(metric);
 
+  // Expanded L2 ranks a query's rows by |x|^2 - 2 q.x, which one cuBLASLt matmul writes with the
+  // index norms added in its epilogue (l2_expanded_scores), so no pass over the tile turns dot
+  // products into distances. |q|^2 is added after the selection, to the k kept per row.
+  constexpr bool l2_scores_supported =
+    std::is_same_v<DistanceT, float> &&
+    (std::is_same_v<ElementType, float> || std::is_same_v<ElementType, half>) &&
+    std::is_same_v<DistanceEpilogue, raft::identity_op>;
+
   for (size_t i = 0; i < m; i += tile_rows) {
     size_t current_query_size = std::min(tile_rows, m - i);
 
@@ -186,21 +195,38 @@ void tiled_brute_force_knn(const raft::resources& handle,
       size_t current_centroid_size = std::min(tile_cols, n - j);
       size_t current_k             = std::min(current_centroid_size, k);
 
-      // calculate the top-k elements for the current tile, by calculating the
-      // full pairwise distance for the tile - and then selecting the top-k from that
-      cuvs::distance::pairwise_distance(
-        handle,
-        raft::make_device_matrix_view<const ElementType, int64_t>(
-          search + i * d, current_query_size, d),
-        raft::make_device_matrix_view<const ElementType, int64_t>(
-          index + j * d, current_centroid_size, d),
-        raft::make_device_matrix_view<DistanceT, int64_t>(
-          temp_distances.data(), current_query_size, current_centroid_size),
-        pairwise_metric,
-        metric_arg);
+      bool l2_scored = false;
+      if constexpr (l2_scores_supported) {
+        if (metric == cuvs::distance::DistanceType::L2Expanded ||
+            metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+          auto col_norms = precomputed_index_norms ? precomputed_index_norms : index_norms.data();
+          l2_scored      = l2_expanded_scores(handle,
+                                         search + i * d,
+                                         index + j * d,
+                                         current_query_size,
+                                         current_centroid_size,
+                                         d,
+                                         col_norms + j,
+                                         temp_distances.data());
+        }
+      }
+      if (!l2_scored) {
+        // calculate the top-k elements for the current tile, by calculating the
+        // full pairwise distance for the tile - and then selecting the top-k from that
+        cuvs::distance::pairwise_distance(
+          handle,
+          raft::make_device_matrix_view<const ElementType, int64_t>(
+            search + i * d, current_query_size, d),
+          raft::make_device_matrix_view<const ElementType, int64_t>(
+            index + j * d, current_centroid_size, d),
+          raft::make_device_matrix_view<DistanceT, int64_t>(
+            temp_distances.data(), current_query_size, current_centroid_size),
+          pairwise_metric,
+          metric_arg);
+      }
 
-      if (metric == cuvs::distance::DistanceType::L2Expanded ||
-          metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+      if (!l2_scored && (metric == cuvs::distance::DistanceType::L2Expanded ||
+                         metric == cuvs::distance::DistanceType::L2SqrtExpanded)) {
         auto row_norms = precomputed_search_norms ? precomputed_search_norms : search_norms.data();
         auto col_norms = precomputed_index_norms ? precomputed_index_norms : index_norms.data();
         auto dist      = temp_distances.data();
@@ -283,6 +309,25 @@ void tiled_brute_force_knn(const raft::resources& handle,
           indices + i * k, current_query_size, current_k),
         select_min,
         true);
+
+      if constexpr (l2_scores_supported) {
+        if (l2_scored && current_k > 0) {
+          // |q|^2 + (|x|^2 - 2 q.x) for the k kept per row, clamped and rooted as
+          // l2_exp_cutlass_op.
+          auto row_norms =
+            precomputed_search_norms ? precomputed_search_norms : search_norms.data();
+          auto kept = distances + i * k;
+          bool sqrt = metric == cuvs::distance::DistanceType::L2SqrtExpanded;
+          raft::linalg::map_offset(
+            handle,
+            raft::make_device_vector_view(kept, current_query_size * current_k),
+            [=] __device__(IndexType idx) {
+              DistanceT val = row_norms[i + idx / current_k] + kept[idx];
+              val           = val < DistanceT{0} ? DistanceT{0} : val;
+              return sqrt ? raft::sqrt(val) : val;
+            });
+        }
+      }
 
       // if we're tiling over columns, we need to do a couple things to fix up
       // the output of select_k
