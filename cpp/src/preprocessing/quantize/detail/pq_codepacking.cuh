@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -11,7 +11,7 @@
 
 #include <type_traits>
 
-namespace cuvs::preprocessing::quantize::detail {
+namespace cuvs::preprocessing::quantize::pq::detail {
 
 template <typename T>
 constexpr bool is_const_ptr_v = std::is_const_v<std::remove_pointer_t<T>>;
@@ -115,4 +115,4 @@ struct bitfield_view_t {
       raw + raft::Pow2<8>::div(bit_offset), raft::Pow2<8>::mod(bit_offset), bits};
   }
 };
-}  // namespace cuvs::preprocessing::quantize::detail
+}  // namespace cuvs::preprocessing::quantize::pq::detail

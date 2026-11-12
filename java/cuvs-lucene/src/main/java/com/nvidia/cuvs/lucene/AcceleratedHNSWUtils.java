@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.SortedSet;
 import java.util.TreeSet;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.FieldInfo;
 import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.store.IndexOutput;
@@ -37,17 +38,8 @@ public class AcceleratedHNSWUtils {
     NONE
   }
 
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 
   /**
    * Creates a dummy HNSW graph for a single vector.
@@ -321,7 +313,7 @@ public class AcceleratedHNSWUtils {
     try (Utils.OwnedIndex<CagraIndex> ownedIndex = Utils.ownDataset(subsetDataset)) {
       CagraIndex subsetIndex =
           CagraIndex.newBuilder(getCuVSResourcesInstance())
-              .withDataset(subsetDataset)
+              .fromDataset(subsetDataset)
               .withIndexParams(params)
               .build();
       ownedIndex.transferTo(subsetIndex);
@@ -336,7 +328,11 @@ public class AcceleratedHNSWUtils {
         for (int j = 0; j < degree && j < rv.size(); j++) {
           int subsetIndex1 = rv.getAsInt(j);
           // Map subset index to original node ID
-          if (subsetIndex1 >= 0 && subsetIndex1 < selectedNodes.length) {
+          if (subsetIndex1 == -1) {
+            // kInvalidNeighbor padding of a variable-degree graph: keep it as "no neighbor"
+            // (GPUBuiltHnswGraph skips negative entries) rather than inventing a self-loop.
+            remappedAdjacency[i][j] = -1;
+          } else if (subsetIndex1 >= 0 && subsetIndex1 < selectedNodes.length) {
             remappedAdjacency[i][j] = selectedNodes[subsetIndex1];
           } else {
             // Invalid index, use self-reference
@@ -348,6 +344,28 @@ public class AcceleratedHNSWUtils {
 
     // Build the returned matrix only after the subset index and its dataset have closed.
     return CuVSMatrix.ofArray(remappedAdjacency);
+  }
+
+  /**
+   * Returns the nodes of a graph level in ascending order. Lucene's own {@code
+   * NodesIterator.getSortedNodes} was removed in Lucene 10.4.
+   *
+   * @param nodesOnLevel iterates over the nodes of one level
+   * @return the sorted nodes
+   */
+  private static int[] getSortedNodes(NodesIterator nodesOnLevel) {
+    int[] sortedNodes = new int[nodesOnLevel.size()];
+    // One node at a time, as Lucene's helper did: consume() may return fewer nodes than asked for.
+    int n = 0;
+    while (nodesOnLevel.hasNext()) {
+      sortedNodes[n++] = nodesOnLevel.nextInt();
+    }
+    if (n != sortedNodes.length) {
+      throw new IllegalStateException(
+          "iterated " + n + " of the " + sortedNodes.length + " nodes on the level");
+    }
+    Arrays.sort(sortedNodes);
+    return sortedNodes;
   }
 
   /**
@@ -365,7 +383,7 @@ public class AcceleratedHNSWUtils {
     int[][] offsets = new int[graph.numLevels()][];
     int[] scratch = new int[graph.maxConn() * 2];
     for (int level = 0; level < graph.numLevels(); level++) {
-      int[] sortedNodes = NodesIterator.getSortedNodes(graph.getNodesOnLevel(level));
+      int[] sortedNodes = getSortedNodes(graph.getNodesOnLevel(level));
       offsets[level] = new int[sortedNodes.length];
       int nodeOffsetId = 0;
 
@@ -501,12 +519,10 @@ public class AcceleratedHNSWUtils {
         NodesIterator nodesOnLevel = graph.getNodesOnLevel(level);
         valueCount += nodesOnLevel.size();
         if (level > 0) {
-          int[] nol = new int[nodesOnLevel.size()];
-          int numberConsumed = nodesOnLevel.consume(nol);
-          Arrays.sort(nol);
-          assert numberConsumed == nodesOnLevel.size();
+          // Sorted the way writeGraph orders the nodes, which the offsets follow.
+          int[] nol = getSortedNodes(nodesOnLevel);
           meta.writeVInt(nol.length); // number of nodes on a level
-          for (int i = nodesOnLevel.size() - 1; i > 0; --i) {
+          for (int i = nol.length - 1; i > 0; --i) {
             nol[i] -= nol[i - 1];
           }
           for (int n : nol) {

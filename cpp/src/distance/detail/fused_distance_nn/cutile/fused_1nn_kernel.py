@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import cuda.tile as ct
 
 ConstInt = ct.Constant[int]
@@ -28,6 +30,27 @@ def _idx_dtype(index_type: str):
     raise ValueError(f"Unsupported index_type {index_type!r}")
 
 
+def _supports_rounding_mode() -> bool:
+    """cuda-tile >= 1.6 has RoundingMode.RA and astype(..., rounding_mode=...)."""
+    return hasattr(getattr(ct, "RoundingMode", None), "RA") and (
+        "rounding_mode" in inspect.signature(ct.astype).parameters
+    )
+
+
+def _mma_rounding_mode(gpu_code: str):
+    """Rounding of the operand conversion to the MMA dtype; None selects the cuTile default.
+
+    sm_8x has no hardware round-to-nearest-even float32 -> tfloat32 conversion, so the default
+    is emulated with integer code that nearly halves fused-1NN throughput on A100. Round to
+    nearest with ties away (RA) is much cheaper there, and it is also how compute_tf32_norms()
+    rounds the norms (cvt.rna). Casts that keep the dtype (half -> half) are unaffected. RA needs
+    tileiras >= 13.4; export_fused_1nn.py falls back to the default on older tileiras.
+    """
+    if gpu_code.startswith("sm_8") and _supports_rounding_mode():
+        return ct.RoundingMode.RA
+    return None
+
+
 def make_kernel(
     data_type: str,
     metric: str,
@@ -40,6 +63,7 @@ def make_kernel(
     matrix_layout: str = "strict",
     occupancy: int | None = None,
     num_ctas: int | None = None,
+    mma_rounding: bool = True,
 ):
     """Build the flat-reduction runtime-metric cuTile kernel."""
     if data_type not in ("half", "float"):
@@ -50,6 +74,17 @@ def make_kernel(
         raise ValueError(f"Unsupported index_type {index_type!r}")
     if matrix_layout not in ("strict", "relaxed", "high_dim"):
         raise ValueError(f"Unsupported matrix_layout {matrix_layout!r}")
+
+    mma_dtype = ct.tfloat32 if data_type == "float" else ct.float16
+    rmode = _mma_rounding_mode(gpu_code) if mma_rounding else None
+    if rmode is None:
+
+        def to_mma_dtype(tile):
+            return tile.astype(mma_dtype)
+    else:
+
+        def to_mma_dtype(tile):
+            return tile.astype(mma_dtype, rounding_mode=rmode)
 
     acc_dtype = ct.float32
     idx_dtype = _idx_dtype(index_type)
@@ -108,17 +143,23 @@ def make_kernel(
         for n in range(num_tiles_n):
             accumulator = ct.full((tm, tn), 0, dtype=acc_dtype)
             for k in range(num_tiles_k):
-                dtype = ct.tfloat32 if A.dtype == ct.float32 else A.dtype
-                a = ct.load(
-                    A, index=(bidm, k), shape=(tm, tk), padding_mode=zero_pad
-                ).astype(dtype)
-                b_T = ct.load(
-                    B,
-                    index=(k, n),
-                    shape=(tk, tn),
-                    padding_mode=zero_pad,
-                    order=(1, 0),
-                ).astype(dtype)
+                a = to_mma_dtype(
+                    ct.load(
+                        A,
+                        index=(bidm, k),
+                        shape=(tm, tk),
+                        padding_mode=zero_pad,
+                    )
+                )
+                b_T = to_mma_dtype(
+                    ct.load(
+                        B,
+                        index=(k, n),
+                        shape=(tk, tn),
+                        padding_mode=zero_pad,
+                        order=(1, 0),
+                    )
+                )
                 accumulator = ct.mma(a, b_T, accumulator)
 
             if metric_code == METRIC_INNER_PRODUCT:

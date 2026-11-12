@@ -35,6 +35,20 @@ concurrency:
 permissions: {}
 
 jobs:
+  checks:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/checks.yaml@main
+    with:
+      # Seed the default-branch pre-commit cache without running checks that only apply to PRs.
+      base-branch: main
+      enable_check_size: false
+      enable_check_generated_files: false
+      enable_check_pr_job_dependencies: false
+      enable_check_version_files_changed: false
+      enable_check_version_against_tag: false
   build-details:
     uses: rapidsai/shared-workflows/.github/workflows/compute-build-details.yaml@main
   cpp-build:
@@ -55,6 +69,7 @@ jobs:
       node_type: cpu16
       script: ci/build_cpp.sh
       sha: ${{ inputs.sha }}
+      matrix_type: nightly
 
   rocky8-clib-standalone-build:
     permissions:
@@ -69,6 +84,7 @@ jobs:
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
+      matrix_type: nightly
   rust-build:
     needs: cpp-build
     permissions:
@@ -86,6 +102,7 @@ jobs:
       sha: ${{ inputs.sha }}
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_rust.sh"
+      matrix_type: nightly
   go-build:
     needs: cpp-build
     permissions:
@@ -103,6 +120,7 @@ jobs:
       sha: ${{ inputs.sha }}
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_go.sh"
+      matrix_type: nightly
   java-build:
     needs: cpp-build
     permissions:
@@ -124,6 +142,7 @@ jobs:
       script: "ci/build_java.sh"
       artifact-name-prefix: "cuvs-java"
       file_to_upload: "java/cuvs-java/target/"
+      matrix_type: nightly
   lucene-build:
     # Depends on the Java job for the cuvs-java artifact that cuvs-lucene builds against.
     needs: java-build
@@ -145,7 +164,10 @@ jobs:
       matrix_filter: map(select(.ARCH == "amd64"))
       script: "ci/build_lucene.sh"
       artifact-name-prefix: "cuvs-lucene"
-      file_to_upload: "java/cuvs-lucene/target/"
+      file_to_upload: |
+        java/cuvs-lucene/target/
+        java/cuvs-lucene/*/target/
+      matrix_type: nightly
   java-maven-gather:
     if: ${{ github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
     needs: [java-build, lucene-build]
@@ -234,6 +256,7 @@ jobs:
       sha: ${{ inputs.sha }}
       # Build a conda package for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
+      matrix_type: nightly
   upload-conda:
     needs: [cpp-build, python-build]
     permissions:
@@ -266,6 +289,7 @@ jobs:
     with:
       build_type: ${{ inputs.build_type || 'branch' }}
       matrix_name: docs-build
+      matrix_type: nightly
   docs-build:
     needs: [docs-build-matrix]
     if: github.ref_type == 'branch'
@@ -284,7 +308,7 @@ jobs:
       arch: "${{ matrix.arch }}"
       branch: ${{ inputs.branch }}
       build_type: ${{ inputs.build_type || 'branch' }}
-      container_image: "rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
+      container_image: "rapidsai/ci-conda:27.02-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}"
       date: ${{ inputs.date }}
       node_type: "gpu-${{ matrix.GPU }}-${{ matrix.DRIVER }}-1"
       script: "ci/build_docs.sh"
@@ -311,6 +335,7 @@ jobs:
       matrix_filter: group_by([.ARCH, (.CUDA_VER|split(".")|map(tonumber)|.[0])]) | map(max_by(.PY_VER|split(".")|map(tonumber)))
       package-name: libcuvs
       package-type: cpp
+      matrix_type: nightly
   wheel-publish-libcuvs:
     needs: wheel-build-libcuvs
     permissions:
@@ -353,6 +378,7 @@ jobs:
       package-type: python
       # Build a wheel for each CUDA x ARCH x minimum supported Python version
       matrix_filter: group_by({CUDA_VER, ARCH}) | map(min_by(.PY_VER | split(".") | map(tonumber)))
+      matrix_type: nightly
   wheel-publish-cuvs:
     needs: wheel-build-cuvs
     permissions:
@@ -381,4 +407,4 @@ jobs:
       packages: write
     with:
       push: true
-      cuda: '["12.9", "13.3"]'
+      cuda: '["12.9", "13.4"]'
