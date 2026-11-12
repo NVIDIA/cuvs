@@ -7,6 +7,7 @@
 #include "kmeans_common.cuh"
 
 #include <raft/linalg/coalesced_reduction.cuh>
+#include <raft/util/integer_utils.hpp>
 #include <raft/matrix/init.cuh>
 
 #include <rmm/device_uvector.hpp>
@@ -245,55 +246,75 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
                                           backend);
     RAFT_EXPECTS(plan.available, "Requested top_1_nn backend is unavailable for KMeans assignment");
 
-    const DataT* x_norm  = L2NormX.data_handle();
-    const DataT* y_norm  = nullptr;
-    const bool take_sqrt = metric == cuvs::distance::DistanceType::CosineExpanded;
-    if constexpr (std::is_same_v<DataT, float>) {
-      if (plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32) {
-        if (Tf32NormX.has_value()) {
-          RAFT_EXPECTS(Tf32NormX->extent(0) == n_samples,
-                       "Cached TF32 norms must have one element per input row");
-          x_norm = Tf32NormX->data_handle();
-          L2NormBuf_OR_DistBuf.resize(n_clusters, stream);
-          auto* y_norm_output = L2NormBuf_OR_DistBuf.data();
-          y_norm              = y_norm_output;
+    // The plan's norm policy decides the norms of x and the centroids: TF32 (x from the cached
+    // `Tf32NormX` or computed here), Native (x from the caller's `L2NormX`, or computed here when it
+    // is empty) or None. One allocation holds the result and everything the 1-NN needs, so a call
+    // allocates once: [output | backend workspace | x norms | centroid norms].
+    using cuvs::distance::detail::Top1nnNormPolicy;
+    RAFT_EXPECTS(L2NormX.extent(0) == 0 || L2NormX.extent(0) == n_samples,
+                 "FP32 norms must be empty or have one element per input row");
+    const auto norm_policy = plan.norm_policy;
+    const bool take_sqrt   = metric == cuvs::distance::DistanceType::CosineExpanded;
+    const bool need_compute_x_norms = norm_policy == Top1nnNormPolicy::Tf32 ? !Tf32NormX.has_value()
+                                      : norm_policy == Top1nnNormPolicy::Native
+                                        ? L2NormX.extent(0) == 0
+                                        : false;
+    const bool need_y_norms = norm_policy != Top1nnNormPolicy::None;
+    const auto alignment    = std::max<std::size_t>({std::size_t{256},
+                                                     plan.output_alignment,
+                                                     plan.workspace_alignment,
+                                                     plan.norm_alignment});
+    const auto workspace_offset = raft::round_up_safe(plan.output_bytes, alignment);
+    const auto x_norm_offset =
+      raft::round_up_safe(workspace_offset + plan.workspace_bytes, alignment);
+    const auto y_norm_offset = raft::round_up_safe(
+      x_norm_offset +
+        (need_compute_x_norms ? sizeof(DataT) * static_cast<std::size_t>(n_samples) : 0),
+      alignment);
+    const auto storage_bytes =
+      y_norm_offset + (need_y_norms ? sizeof(DataT) * static_cast<std::size_t>(n_clusters) : 0);
+    auto* storage = static_cast<char*>(
+      reserve_aligned_workspace(output_storage, 0, storage_bytes, alignment, stream));
+    void* backend_workspace = plan.workspace_bytes == 0 ? nullptr : storage + workspace_offset;
+
+    auto* computed_x_norm = reinterpret_cast<DataT*>(storage + x_norm_offset);
+    const DataT* x_norm   = need_compute_x_norms ? computed_x_norm : L2NormX.data_handle();
+    DataT* y_norm = need_y_norms ? reinterpret_cast<DataT*>(storage + y_norm_offset) : nullptr;
+    switch (norm_policy) {
+      case Top1nnNormPolicy::Tf32:
+        if constexpr (std::is_same_v<DataT, float>) {
+          if (need_compute_x_norms) {
+            compute_tf32_norms(
+              handle, X.data_handle(), computed_x_norm, n_samples, n_features, take_sqrt);
+          } else {
+            RAFT_EXPECTS(Tf32NormX->extent(0) == n_samples,
+                         "Cached TF32 norms must have one element per input row");
+            x_norm = Tf32NormX->data_handle();
+          }
           compute_tf32_norms(
-            handle, centroids.data_handle(), y_norm_output, n_clusters, n_features, take_sqrt);
-        } else {
-          const auto x_norm_bytes = sizeof(DataT) * static_cast<std::size_t>(n_samples);
-          const auto y_norm_bytes_offset =
-            (x_norm_bytes + plan.norm_alignment - 1) / plan.norm_alignment * plan.norm_alignment;
-          const auto y_norm_offset = y_norm_bytes_offset / sizeof(DataT);
-          L2NormBuf_OR_DistBuf.resize(y_norm_offset + static_cast<std::size_t>(n_clusters), stream);
-          x_norm = L2NormBuf_OR_DistBuf.data();
-          y_norm = x_norm + y_norm_offset;
-          compute_tf32_norms(
-            handle, X.data_handle(), L2NormBuf_OR_DistBuf.data(), n_samples, n_features, take_sqrt);
-          compute_tf32_norms(handle,
-                             centroids.data_handle(),
-                             L2NormBuf_OR_DistBuf.data() + y_norm_offset,
-                             n_clusters,
-                             n_features,
-                             take_sqrt);
+            handle, centroids.data_handle(), y_norm, n_clusters, n_features, take_sqrt);
         }
+        break;
+      case Top1nnNormPolicy::Native: {
+        auto native_norms = [&](raft::device_matrix_view<const DataT, IndexT> rows, DataT* out) {
+          auto out_view = raft::make_device_vector_view<DataT, IndexT>(out, rows.extent(0));
+          if (take_sqrt) {
+            raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+              handle, rows, out_view, raft::sqrt_op{});
+          } else {
+            raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
+              handle, rows, out_view);
+          }
+        };
+        if (need_compute_x_norms) { native_norms(X, computed_x_norm); }
+        native_norms(centroids, y_norm);
+        break;
       }
-    }
-    // The CAGRA (ANN) backend does not use norms.
-    if (y_norm == nullptr && plan.backend != cuvs::distance::detail::Top1nnBackend::Cagra) {
-      L2NormBuf_OR_DistBuf.resize(n_clusters, stream);
-      auto centroids_norm =
-        raft::make_device_vector_view<DataT, IndexT>(L2NormBuf_OR_DistBuf.data(), n_clusters);
-      if (take_sqrt) {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
-          handle, centroids, centroids_norm, raft::sqrt_op{});
-      } else {
-        raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(
-          handle, centroids, centroids_norm);
-      }
-      y_norm = L2NormBuf_OR_DistBuf.data();
+      case Top1nnNormPolicy::None: break;
     }
 
-    auto result = make_native_result<DataT, IndexT>(plan, n_samples, output_storage, stream);
+    auto result =
+      cuvs::distance::bind_top_1_nn_result_view<DataT>(plan, n_samples, storage, plan.output_bytes);
 
     bool init_out_buffer = true;
     if (plan.output_layout == cuvs::distance::detail::Top1nnOutputLayout::KeyValuePair) {
@@ -304,8 +325,6 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
       init_out_buffer = false;
     }
 
-    auto* backend_workspace = reserve_aligned_workspace(
-      workspace, 0, plan.workspace_bytes, plan.workspace_alignment, stream);
     auto launch = [&](auto output) {
       cuvs::distance::top_1_nn<DataT, IndexT>(handle,
                                               output,

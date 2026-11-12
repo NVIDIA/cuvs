@@ -1280,7 +1280,6 @@ void kmeans_predict(raft::resources const& handle,
                "invalid parameter (centroids.extent(1) != n_features)");
 
   raft::default_logger().set_level(pams.verbosity);
-  auto metric = pams.metric;
 
   // Allocate memory
   // Device-accessible allocation of expandable storage used as temporary buffers
@@ -1314,38 +1313,12 @@ void kmeans_predict(raft::resources const& handle,
   rmm::device_uvector<char> assignment_output(0, stream);
   rmm::device_uvector<DataT> L2NormBuf_OR_DistBuf(0, stream);
 
-  // FP32 row norms are needed only by a 1-NN that reads them: the CAGRA assignment needs none, and
-  // under cuTile (TF32 norms) the 1-NN computes its norms itself.
-  bool needs_fp32_norms = !use_ann;
-  if constexpr (kmeans_may_require_tf32_norms_v<DataT>) {
-    if (needs_fp32_norms) {
-      const auto plan = probe_kmeans_top_1_nn(handle,
-                                              X.data_handle(),
-                                              centroids.data_handle(),
-                                              n_samples,
-                                              static_cast<IndexT>(centroids.extent(0)),
-                                              n_features,
-                                              metric,
-                                              pams.batch_samples,
-                                              pams.batch_centroids,
-                                              cuvs::distance::detail::Top1nnBackend::Auto);
-      needs_fp32_norms =
-        !(plan.available && plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32);
-    }
-  }
-  auto L2NormX =
-    raft::make_device_vector<DataT, IndexT>(handle, needs_fp32_norms ? n_samples : IndexT{0});
-  if (needs_fp32_norms) {
-    raft::linalg::norm<raft::linalg::L2Norm, raft::Apply::ALONG_ROWS>(handle, X, L2NormX.view());
-  }
-
-  auto l2normx_view = raft::make_const_mdspan(L2NormX.view());
   const auto result = cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<DataT, IndexT>(
     handle,
     X,
     centroids,
     assignment_output,
-    l2normx_view,
+    raft::make_device_vector_view<const DataT, IndexT>(nullptr, IndexT{0}),  // norms computed there
     L2NormBuf_OR_DistBuf,
     pams.metric,
     pams.batch_samples,

@@ -707,14 +707,15 @@ void predict(const raft::resources& handle,
   rmm::device_uvector<MathT> cur_dataset(
     std::is_same_v<T, MathT> ? 0 : max_minibatch_size * transformed_dim, stream, mem_res);
   constexpr bool native_half = std::is_same_v<T, half> && std::is_same_v<MathT, float>;
-  bool need_norm =
-    dataset_norm == nullptr && (params.metric == cuvs::distance::DistanceType::L2Expanded ||
-                                params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                                params.metric == cuvs::distance::DistanceType::CosineExpanded);
-  bool need_compute_norm = need_norm && !params.is_packed_binary;
+  // Packed binary rows decode to +/-1, so every row norm is the decoded dimension: filled once.
+  const bool packed_norms =
+    dataset_norm == nullptr && params.is_packed_binary &&
+    (params.metric == cuvs::distance::DistanceType::L2Expanded ||
+     params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+     params.metric == cuvs::distance::DistanceType::CosineExpanded);
   rmm::device_uvector<MathT> cur_dataset_norm(
-    need_norm || native_half ? max_minibatch_size : 0, stream, mem_res);
-  if (need_norm && params.is_packed_binary) {
+    packed_norms || native_half ? max_minibatch_size : 0, stream, mem_res);
+  if (packed_norms) {
     raft::matrix::fill(
       handle,
       raft::make_device_matrix_view<MathT, IdxT>(cur_dataset_norm.data(), max_minibatch_size, 1),
@@ -727,8 +728,6 @@ void predict(const raft::resources& handle,
     native_half_scratch.emplace(
       native_centers_size, n_clusters, max_minibatch_size, stream, mem_res);
   }
-  const MathT* dataset_norm_ptr =
-    need_norm && params.is_packed_binary ? cur_dataset_norm.data() : nullptr;
   auto cur_dataset_ptr = cur_dataset.data();
 
   // Buffers reused by every minibatch, instead of allocated per predict_core call.
@@ -770,53 +769,9 @@ void predict(const raft::resources& handle,
         mapping_op);
     }
 
-    // When this minibatch's 1-NN plan uses TF32 norms (cuTile), the 1-NN computes them itself and
-    // never reads FP32 norms. Probe per minibatch: cuTile needs aligned rows, and a minibatch below
-    // 64 rows can leave later minibatches unaligned.
-    bool tf32_norms_in_1nn = false;
-    if constexpr (kmeans_may_require_tf32_norms_v<MathT>) {
-      if (need_compute_norm) {
-        const auto plan =
-          probe_kmeans_top_1_nn<MathT, IdxT>(handle,
-                                             cur_dataset_ptr,
-                                             centers,
-                                             minibatch_size,
-                                             n_clusters,
-                                             transformed_dim,
-                                             params.metric,
-                                             0,
-                                             0,
-                                             cuvs::distance::detail::Top1nnBackend::Auto,
-                                             false);
-        tf32_norms_in_1nn =
-          plan.available && plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32;
-      }
-    }
-    // Compute the norm now if it hasn't been pre-computed and the 1-NN needs it.
-    if (need_compute_norm && !tf32_norms_in_1nn) {
-      if (params.metric == cuvs::distance::DistanceType::CosineExpanded)
-        compute_norm(handle,
-                     cur_dataset_norm.data(),
-                     cur_dataset_ptr,
-                     dim,
-                     minibatch_size,
-                     mapping_op,
-                     raft::sqrt_op{},
-                     mr);
-      else
-        compute_norm(handle,
-                     cur_dataset_norm.data(),
-                     cur_dataset_ptr,
-                     dim,
-                     minibatch_size,
-                     mapping_op,
-                     raft::identity_op{},
-                     mr);
-      dataset_norm_ptr = cur_dataset_norm.data();
-    } else if (dataset_norm != nullptr) {
-      dataset_norm_ptr = dataset_norm + offset;
-    }
-
+    const MathT* dataset_norm_ptr = dataset_norm != nullptr ? dataset_norm + offset
+                                    : packed_norms          ? cur_dataset_norm.data()
+                                                            : nullptr;
     predict_core(handle,
                  params,
                  centers,

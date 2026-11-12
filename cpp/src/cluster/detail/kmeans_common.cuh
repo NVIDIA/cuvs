@@ -489,7 +489,7 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
   raft::device_matrix_view<const DataT, IndexT> X,
   raft::device_matrix_view<const DataT, IndexT> centroids,
   rmm::device_uvector<char>& output_storage,
-  raft::device_vector_view<const DataT, IndexT> L2NormX,
+  raft::device_vector_view<const DataT, IndexT> L2NormX, // if empty, compute here
   rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
   cuvs::distance::DistanceType metric,
   int batch_samples,
