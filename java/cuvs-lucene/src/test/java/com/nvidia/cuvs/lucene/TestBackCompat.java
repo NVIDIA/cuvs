@@ -81,6 +81,50 @@ public class TestBackCompat {
   }
 
   @Test
+  public void testLucene99ScalarQuantizedFormatWritesOnlyWhereLuceneDoes() {
+    // Created by class on purpose: CuVSCodecs returns it only on releases that can write it.
+    BaseAcceleratedHNSWScalarQuantizedVectorsFormat format =
+        new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat();
+    // A codec built with a writable delegate of the caller's own still writes only where the
+    // format does.
+    Codec custom = new LuceneAcceleratedHNSWScalarQuantizedCodec("CustomCodec", Codec.getDefault());
+    KnnVectorsFormat customFormat = custom.knnVectorsFormat();
+    assertFalse(customFormat.toString(), CuVSFilterCodec.isReadOnlyFormat(customFormat));
+    // From the Lucene release, not from the rule the format applies, so that a module mapping
+    // CuVSCodecs to the wrong format fails here: Lucene 10.4 moved its flat format to the backward
+    // codecs.
+    boolean writes = LuceneCompat.LUCENE_MAJOR == 10 && LuceneCompat.LUCENE_MINOR < 4;
+    if (writes) {
+      assertNull(format.readOnlyReason());
+      assertNull(((BaseAcceleratedHNSWScalarQuantizedVectorsFormat) customFormat).readOnlyReason());
+    } else {
+      assertThrows(UnsupportedOperationException.class, () -> customFormat.fieldsWriter(null));
+      // Thrown before the write state is used, naming the format to write with instead.
+      UnsupportedOperationException e =
+          assertThrows(UnsupportedOperationException.class, () -> format.fieldsWriter(null));
+      assertTrue(e.getMessage(), e.getMessage().contains(format.getName()));
+      assertTrue(
+          e.getMessage(),
+          e.getMessage().contains("CuVSCodecs.acceleratedHNSWScalarQuantizedFormat"));
+      assertTrue(
+          e.getMessage(),
+          e.getMessage()
+              .contains(BaseAcceleratedHNSWScalarQuantizedVectorsFormat.currentFormatName()));
+    }
+    assertEquals(
+        writes ? format.getName() : "Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat",
+        CuVSCodecs.acceleratedHNSWScalarQuantizedFormat().getName());
+    assertEquals(
+        BaseAcceleratedHNSWScalarQuantizedVectorsFormat.currentFormatName(),
+        CuVSCodecs.acceleratedHNSWScalarQuantizedFormat().getName());
+    // The scalar-quantized format CuVSCodecs returns always writes.
+    assertNull(
+        ((BaseAcceleratedHNSWScalarQuantizedVectorsFormat)
+                CuVSCodecs.acceleratedHNSWScalarQuantizedFormat())
+            .readOnlyReason());
+  }
+
+  @Test
   public void testCallerChosenDelegateIsNeverReadOnly() {
     // Lucene101Codec is a read-only backward codec from Lucene 10.3 on, but a codec built with a
     // delegate chosen by the caller leaves that to the caller instead of guessing from the class.
@@ -122,9 +166,18 @@ public class TestBackCompat {
       CuVSFilterCodec current = (CuVSFilterCodec) CuVSCodecs.acceleratedHNSW();
       assertFalse(current.getName(), current.isReadOnly());
       current.setKnnVectorsFormat(old.knnVectorsFormat());
+      KnnVectorsFormat format = current.knnVectorsFormat();
       assertFalse(
           old.getName() + " made " + current.getName() + " read-only",
-          CuVSFilterCodec.isReadOnlyFormat(current.knnVectorsFormat()));
+          CuVSFilterCodec.isReadOnlyFormat(format));
+      // The codec no longer refuses to write, but a format Lucene can no longer write with still
+      // does, on its own.
+      if (format instanceof BaseAcceleratedHNSWScalarQuantizedVectorsFormat sq
+          && sq.readOnlyReason() != null) {
+        UnsupportedOperationException e =
+            assertThrows(UnsupportedOperationException.class, () -> format.fieldsWriter(null));
+        assertTrue(e.getMessage(), e.getMessage().contains(format.getName()));
+      }
     }
   }
 
