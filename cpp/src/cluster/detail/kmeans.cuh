@@ -72,7 +72,7 @@ void cluster_cost(
   int batch_samples,
   int batch_centroids,
   std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt,
-  std::optional<raft::device_vector_view<const DataT, IndexT>> tf32_norms = std::nullopt)
+  std::optional<raft::device_vector_view<const DataT, IndexT>> tf32_norms    = std::nullopt)
 {
   auto n_samples = static_cast<IndexT>(X.extent(0));
   RAFT_EXPECTS(norms.extent(0) >= n_samples, "Cached norms must cover the input rows");

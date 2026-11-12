@@ -712,11 +712,10 @@ void predict(const raft::resources& handle,
     std::is_same_v<T, MathT> ? 0 : max_minibatch_size * transformed_dim, stream, mem_res);
   constexpr bool native_half = std::is_same_v<T, half> && std::is_same_v<MathT, float>;
   // Packed binary rows decode to +/-1, so every row norm is the decoded dimension: filled once.
-  const bool packed_norms =
-    dataset_norm == nullptr && params.is_packed_binary &&
-    (params.metric == cuvs::distance::DistanceType::L2Expanded ||
-     params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-     params.metric == cuvs::distance::DistanceType::CosineExpanded);
+  const bool packed_norms = dataset_norm == nullptr && params.is_packed_binary &&
+                            (params.metric == cuvs::distance::DistanceType::L2Expanded ||
+                             params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                             params.metric == cuvs::distance::DistanceType::CosineExpanded);
   rmm::device_uvector<MathT> cur_dataset_norm(
     packed_norms || native_half ? max_minibatch_size : 0, stream, mem_res);
   if (packed_norms) {

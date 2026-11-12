@@ -28,8 +28,8 @@ namespace detail {
 namespace {
 
 /** Rows per cuTile launch when the candidates do not fit in L2.
-* cuTile requires each new batch to be 16-byte aligned.
-*/
+ * cuTile requires each new batch to be 16-byte aligned.
+ */
 constexpr int64_t kFused1nnCutileL2RowBatch = 32768;
 static_assert(kFused1nnCutileL2RowBatch % 16 == 0);
 

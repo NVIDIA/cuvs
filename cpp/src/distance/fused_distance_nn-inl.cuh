@@ -870,8 +870,8 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
     plan.output_layout    = detail::Top1nnOutputLayout::Separate;
     plan.norm_alignment   = alignment;
     plan.norm_policy = resolved == detail::Top1nnBackend::Cagra ? detail::Top1nnNormPolicy::None
-                       : std::is_same_v<DataT, float>         ? detail::Top1nnNormPolicy::Tf32
-                                                              : detail::Top1nnNormPolicy::Native;
+                       : std::is_same_v<DataT, float>           ? detail::Top1nnNormPolicy::Tf32
+                                                                : detail::Top1nnNormPolicy::Native;
   } else {
     plan.output_bytes = detail::checked_top_1_nn_workspace_multiply(
       detail::checked_top_1_nn_extent(m), sizeof(raft::KeyValuePair<IdxT, DataT>));

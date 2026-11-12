@@ -6,8 +6,8 @@
 #include "../../distance/top_1_nn.cuh"
 #include "kmeans_common.cuh"
 
-#include <raft/util/integer_utils.hpp>
 #include <raft/matrix/init.cuh>
+#include <raft/util/integer_utils.hpp>
 
 #include <rmm/device_uvector.hpp>
 
@@ -56,8 +56,7 @@ __global__ void fp32_tf32_norms_kernel(const float* input,
   constexpr int groups_per_warp = raft::WarpSize / LanesPerRow;
   const int lane                = threadIdx.x % raft::WarpSize;
   const int sub                 = lane % LanesPerRow;
-  const auto warp =
-    (static_cast<IndexT>(blockIdx.x) * blockDim.x + threadIdx.x) / raft::WarpSize;
+  const auto warp = (static_cast<IndexT>(blockIdx.x) * blockDim.x + threadIdx.x) / raft::WarpSize;
   const auto stride =
     static_cast<IndexT>(gridDim.x) * (blockDim.x / raft::WarpSize) * groups_per_warp * kRows;
 
@@ -237,23 +236,21 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
     RAFT_EXPECTS(plan.available, "Requested top_1_nn backend is unavailable for KMeans assignment");
 
     // The plan's norm policy decides the norms of x and the centroids: TF32 (x from the cached
-    // `Tf32NormX` or computed here), Native (x from the caller's `L2NormX`, or computed here when it
-    // is empty) or None. One allocation holds the result and everything the 1-NN needs, so a call
-    // allocates once: [output | backend workspace | x norms | centroid norms].
+    // `Tf32NormX` or computed here), Native (x from the caller's `L2NormX`, or computed here when
+    // it is empty) or None. One allocation holds the result and everything the 1-NN needs, so a
+    // call allocates once: [output | backend workspace | x norms | centroid norms].
     using cuvs::distance::detail::Top1nnNormPolicy;
     RAFT_EXPECTS(L2NormX.extent(0) == 0 || L2NormX.extent(0) == n_samples,
                  "FP32 norms must be empty or have one element per input row");
-    const auto norm_policy = plan.norm_policy;
-    const bool take_sqrt   = metric == cuvs::distance::DistanceType::CosineExpanded;
+    const auto norm_policy          = plan.norm_policy;
+    const bool take_sqrt            = metric == cuvs::distance::DistanceType::CosineExpanded;
     const bool need_compute_x_norms = norm_policy == Top1nnNormPolicy::Tf32 ? !Tf32NormX.has_value()
                                       : norm_policy == Top1nnNormPolicy::Native
                                         ? L2NormX.extent(0) == 0
                                         : false;
-    const bool need_y_norms = norm_policy != Top1nnNormPolicy::None;
-    const auto alignment    = std::max<std::size_t>({std::size_t{256},
-                                                     plan.output_alignment,
-                                                     plan.workspace_alignment,
-                                                     plan.norm_alignment});
+    const bool need_y_norms         = norm_policy != Top1nnNormPolicy::None;
+    const auto alignment            = std::max<std::size_t>(
+      {std::size_t{256}, plan.output_alignment, plan.workspace_alignment, plan.norm_alignment});
     const auto workspace_offset = raft::round_up_safe(plan.output_bytes, alignment);
     const auto x_norm_offset =
       raft::round_up_safe(workspace_offset + plan.workspace_bytes, alignment);
@@ -292,7 +289,7 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
         break;
       case Top1nnNormPolicy::Native: {
         auto native_norms = [&](raft::device_matrix_view<const DataT, IndexT> matrix, DataT* out) {
-          auto rows     = raft::make_device_matrix_view<const DataT, int64_t>(
+          auto rows = raft::make_device_matrix_view<const DataT, int64_t>(
             matrix.data_handle(), matrix.extent(0), matrix.extent(1));
           auto out_view = raft::make_device_vector_view<DataT, int64_t>(out, rows.extent(0));
           if (take_sqrt) {
