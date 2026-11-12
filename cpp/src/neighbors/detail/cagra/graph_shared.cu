@@ -176,12 +176,13 @@ __device__ __forceinline__ float bbq_row_distance(
   int64_t row_document,
   int64_t row_query)
 {
-  namespace bbq      = cuvs::preprocessing::quantize::bbq;
-  const uint32_t raw = bbq::code_inner_product(&quantizer_document.codes(row_document, 0),
-                                               quantizer_document.layout,
-                                               &quantizer_query.codes(row_query, 0),
-                                               quantizer_query.layout,
-                                               bbq::get_encoded_row_length(quantizer_document));
+  namespace bbq_detail = cuvs::preprocessing::quantize::bbq::detail;
+  const uint32_t raw =
+    bbq_detail::code_inner_product(&quantizer_document.codes(row_document, 0),
+                                   quantizer_document.layout,
+                                   &quantizer_query.codes(row_query, 0),
+                                   quantizer_query.layout,
+                                   bbq_detail::get_encoded_row_length(quantizer_document));
   return bbq_detail::bbq_calculate_metric(
     raw,
     bbq_detail::get_dequant_factors(quantizer_document, row_document),

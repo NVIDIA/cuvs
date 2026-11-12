@@ -1485,7 +1485,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
       } else {
         row_b = s_query_vec[col];
       }
-      acc[k] += cuvs::preprocessing::quantize::bbq::code_inner_product(
+      acc[k] += cuvs::preprocessing::quantize::bbq::detail::code_inner_product(
         s_doc_vec[row], DocumentLayout, row_b, QueryLayout, doc_row_bytes);
     }
     __syncthreads();
@@ -1579,7 +1579,7 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
       const int row = pair_idx / MAX_NUM_BI_SAMPLES;
       const int col = pair_idx % MAX_NUM_BI_SAMPLES;
       if (row >= new_size || col >= old_size) continue;
-      acc_old[k] += cuvs::preprocessing::quantize::bbq::code_inner_product(
+      acc_old[k] += cuvs::preprocessing::quantize::bbq::detail::code_inner_product(
         s_doc_vec[row], DocumentLayout, s_query_vec[col], QueryLayout, doc_row_bytes);
     }
     __syncthreads();
@@ -1703,7 +1703,7 @@ __launch_bounds__(BLOCK_SIZE)
   __shared__ __align__(16) DistData_t s_distances[MAX_NUM_BI_SAMPLES * MMA_STORE_STRIDE];
   static_assert(sizeof(s_distances) >= MAX_NUM_BI_SAMPLES * ROW_STRIDE,
                 "s_col_vec aliases s_distances's memory and must fit inside it");
-  auto(*s_col_vec)[ROW_STRIDE] = reinterpret_cast<uint8_t(*)[ROW_STRIDE]>(s_distances);
+  auto(*s_col_vec)[ROW_STRIDE] = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_distances);
   __shared__ int s_unique_counter[2];
   // Document-side (row axis) dequant factors -- see the identical buffer and full rationale in
   // local_join_kernel_bbq_simt. Staged once below, reused unchanged by both phases (rows are
