@@ -20,6 +20,15 @@ INDEX_TYPES = ("int32", "int64")
 METRIC_L2_EXPANDED = 0
 METRIC_COSINE_EXPANDED = 2
 METRIC_INNER_PRODUCT = 6
+METRIC_BITWISE_HAMMING = 20
+
+# ~FLT_MAX (cuTile has no float limits): larger than any score, so it marks "no candidate yet" and
+# the masked columns of the last tile in the argmin.
+FLT_MAX = 3.4e38
+
+# The binary variant needs block-scaled fp4 MMA, which Blackwell and later have (tcgen05 on
+# sm_100 / sm_107, warp-level mma on sm_120). Older GPUs keep the SIMT popc kernel.
+BINARY_GPU_CODES = ("sm_100", "sm_107", "sm_120")
 
 
 def _idx_dtype(index_type: str):
@@ -66,8 +75,12 @@ def make_kernel(
     mma_rounding: bool = True,
 ):
     """Build the flat-reduction runtime-metric cuTile kernel."""
-    if data_type not in ("half", "float"):
+    if data_type not in ("half", "float", "binary"):
         raise ValueError(f"Unsupported data_type {data_type!r}")
+    if data_type == "binary" and gpu_code not in BINARY_GPU_CODES:
+        raise ValueError(
+            f"The binary kernel needs block-scaled fp4 MMA; {gpu_code} is not supported"
+        )
     if metric not in METRICS:
         raise ValueError(f"Unsupported metric {metric!r}")
     if index_type not in INDEX_TYPES:
@@ -96,6 +109,9 @@ def make_kernel(
     if num_ctas is not None:
         kernel_options["num_ctas"] = ct.ByTarget(**{gpu_code: num_ctas})
 
+    if data_type == "binary":
+        return _make_binary_kernel(kernel_options, idx_dtype, tile_m)
+
     @ct.kernel(**kernel_options)
     def fused_1nn_kernel(
         A,
@@ -115,7 +131,7 @@ def make_kernel(
         tk: ConstInt,
     ):
         bidm = ct.bid(0)
-        best_dist = ct.full(best_shape, 3.4e38, acc_dtype)
+        best_dist = ct.full(best_shape, FLT_MAX, acc_dtype)
         best_idx = ct.zeros(best_shape, idx_dtype)
         num_tiles_k = ct.num_tiles(A, axis=1, shape=(tm, tk))
         num_tiles_n = ct.num_tiles(B, axis=0, shape=(tn, tk))
@@ -135,7 +151,7 @@ def make_kernel(
                 (dists, indices),
                 1,
                 red_op,
-                (3.4e38, -1),
+                (FLT_MAX, -1),
                 keepdims=True,
             )
 
@@ -182,7 +198,7 @@ def make_kernel(
 
             if n == num_tiles_n - 1:
                 col = ct.arange(tn, dtype=ct.int16)
-                score = ct.where((n * tn + col)[None, :] < N, score, 3.4e38)
+                score = ct.where((n * tn + col)[None, :] < N, score, FLT_MAX)
 
             curr_best, curr_idx = reduce_scores(
                 score.reshape(core_shape), local_indices
@@ -220,6 +236,90 @@ def make_kernel(
         )
 
     return fused_1nn_kernel
+
+
+def _make_binary_kernel(kernel_options, idx_dtype, tile_m):
+    """Bitwise-Hamming 1-NN on bit-packed rows, on the tensor core.
+
+    hamming(x, y) = popc(x) + popc(y) - 2 * <bits(x), bits(y)>, so the K loop is a 0/1 dot
+    product. The launcher promotes every bit to an e2m1 nibble beforehand (0x0 is 0.0, 0x2 is
+    1.0, both exact; bit i is nibble i), so A and B hold two bits per byte, rows padded with zero
+    nibbles to a 16-byte pitch, and tk counts those bytes. With unit block scales the dot product is
+    exact for any width that fits the fp32 accumulator. A_norm and B_norm are the per-row
+    popcounts. The query popcount is constant across centroids, so it is left out of the argmin.
+    """
+    best_shape = (tile_m, 1)
+
+    @ct.kernel(**kernel_options)
+    def fused_1nn_binary_kernel(
+        A,
+        B,
+        A_norm,
+        B_norm,
+        OutIdx,
+        OutDist,
+        M,
+        N,
+        K,
+        apply_sqrt,
+        store_idx,
+        metric_code,
+        tm: ConstInt,
+        tn: ConstInt,
+        tk: ConstInt,
+    ):
+        bidm = ct.bid(0)
+        zero_pad = ct.PaddingMode.ZERO
+        num_tiles_k = ct.num_tiles(A, axis=1, shape=(tm, tk))
+        num_tiles_n = ct.num_tiles(B, axis=0, shape=(tn, tk))
+        bits = 2 * tk
+        a_scale = ct.full((tm, bits // 32), 1.0, ct.float8_e8m0fnu)
+        b_scale = ct.full((bits // 32, tn), 1.0, ct.float8_e8m0fnu)
+
+        def as_e2m1(t, rows):
+            return ct.unpack_from_bytes(t.reshape((rows * tk,)), ct.float4_e2m1fn).reshape(
+                (rows, bits)
+            )
+
+        def red_op(a_score, a_idx, b_score, b_idx):
+            cond = (a_score < b_score) | ((a_score == b_score) & (a_idx < b_idx))
+            return ct.where(cond, a_score, b_score), ct.where(cond, a_idx, b_idx)
+
+        best_dist = ct.full(best_shape, FLT_MAX, ct.float32)
+        best_idx = ct.zeros(best_shape, idx_dtype)
+        local_indices = ct.arange(tn, dtype=ct.int16)[None, :]
+        for n in range(num_tiles_n):
+            accumulator = ct.full((tm, tn), 0, dtype=ct.float32)
+            for k in range(num_tiles_k):
+                a = ct.load(A, index=(bidm, k), shape=(tm, tk), padding_mode=zero_pad)
+                b = ct.load(B, index=(n, k), shape=(tn, tk), padding_mode=zero_pad)
+                accumulator = ct.mma_scaled(
+                    as_e2m1(a, tm),
+                    a_scale,
+                    ct.permute(as_e2m1(b, tn), (1, 0)),
+                    b_scale,
+                    accumulator,
+                )
+
+            b_popc = ct.load(B_norm, index=(n,), shape=(tn,), padding_mode=zero_pad)
+            score = b_popc[None, :] - 2.0 * accumulator
+            if n == num_tiles_n - 1:
+                col = ct.arange(tn, dtype=ct.int16)
+                score = ct.where((n * tn + col)[None, :] < N, score, FLT_MAX)
+
+            curr_best, curr_idx = ct.reduce(
+                (score, local_indices), 1, red_op, (FLT_MAX, -1), keepdims=True
+            )
+            update = curr_best < best_dist
+            best_dist = ct.where(update, curr_best, best_dist)
+            best_idx = ct.where(update, n * tn + curr_idx, best_idx)
+
+        a_popc = ct.load(A_norm, index=(bidm,), shape=(tm,), padding_mode=zero_pad)[:, None]
+        if store_idx != 0:
+            ct.store(OutIdx, index=(bidm,), tile=best_idx.reshape((tm,)))
+        ct.store(OutDist, index=(bidm,), tile=(a_popc + best_dist).reshape((tm,)))
+
+    return fused_1nn_binary_kernel
 
 
 def kernel_symbol(
