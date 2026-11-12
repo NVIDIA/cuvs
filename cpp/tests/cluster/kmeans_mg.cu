@@ -42,6 +42,7 @@ struct KmeansSNMGInputs {
   int n_init;
   cuvs::cluster::kmeans::params::InitMethod init = cuvs::cluster::kmeans::params::Array;
   int max_iter                                   = 20;
+  bool use_ann = false;  // CAGRA ANN nearest-centroid assignment in the SNMG fit (float only)
 };
 
 template <typename T>
@@ -109,13 +110,14 @@ class KmeansSNMGTest : public ::testing::TestWithParam<KmeansSNMGInputs<T>> {
     }
 
     cuvs::cluster::kmeans::params snmg_params;
-    snmg_params.n_clusters            = n_clusters;
-    snmg_params.tol                   = testparams_.tol;
-    snmg_params.max_iter              = testparams_.max_iter;
-    snmg_params.n_init                = testparams_.n_init;
-    snmg_params.rng_state.seed        = 42;
-    snmg_params.init                  = testparams_.init;
-    snmg_params.device_buffer_samples = testparams_.device_buffer_samples;
+    snmg_params.n_clusters             = n_clusters;
+    snmg_params.tol                    = testparams_.tol;
+    snmg_params.max_iter               = testparams_.max_iter;
+    snmg_params.n_init                 = testparams_.n_init;
+    snmg_params.rng_state.seed         = 42;
+    snmg_params.init                   = testparams_.init;
+    snmg_params.device_buffer_samples  = testparams_.device_buffer_samples;
+    snmg_params.use_ann_for_assignment = testparams_.use_ann;
 
     T snmg_inertia      = T{0};
     int64_t snmg_n_iter = 0;
@@ -140,6 +142,8 @@ class KmeansSNMGTest : public ::testing::TestWithParam<KmeansSNMGInputs<T>> {
     }
 
     cuvs::cluster::kmeans::params sg_params = snmg_params;
+    // The single-GPU reference is always exact (brute force).
+    sg_params.use_ann_for_assignment = false;
 
     T sg_inertia      = T{0};
     int64_t sg_n_iter = 0;
@@ -332,6 +336,39 @@ const std::vector<KmeansSNMGInputs<float>> snmg_inputsf = {
    1,
    cuvs::cluster::kmeans::params::Array,
    2},
+  // CAGRA ANN assignment (graph built on rank 0 and broadcast): aligned and unaligned n_col,
+  // weights, small batches, and fewer rows than GPUs (empty ranks must still join the broadcast)
+  {1000,
+   32,
+   5,
+   0.0001f,
+   kmeans_weight_mode::none,
+   1000,
+   1,
+   cuvs::cluster::kmeans::params::Array,
+   20,
+   true},
+  {1000,
+   10,
+   20,
+   0.0001f,
+   kmeans_weight_mode::uniform,
+   128,
+   1,
+   cuvs::cluster::kmeans::params::Array,
+   20,
+   true},
+  {10000,
+   16,
+   10,
+   0.0001f,
+   kmeans_weight_mode::mild_nonuniform,
+   500,
+   1,
+   cuvs::cluster::kmeans::params::Array,
+   20,
+   true},
+  {3, 4, 2, 0.001f, kmeans_weight_mode::none, 3, 1, cuvs::cluster::kmeans::params::Array, 20, true},
 };
 
 // ============================================================================

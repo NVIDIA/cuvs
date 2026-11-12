@@ -14,6 +14,7 @@
 #include "../../core/mnmg_comms.cuh"
 #include "../../core/omp_wrapper.hpp"
 #include "../../neighbors/detail/ann_utils.cuh"
+#include "kmeans_ann_assignment_core.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
@@ -265,6 +266,15 @@ void mnmg_fit(
       raft::make_const_mdspan(d_weight_scale.view()));
   }
 
+  // Optional CAGRA-based nearest-centroid assignment (float + L2 only). All ranks take the same
+  // decision from the same params. The graph is built once per iteration on the root rank and
+  // broadcast, so every rank searches an identical index over the (replicated) centroids.
+  const bool use_ann = cuvs::cluster::kmeans::detail::use_ann_assignment<DataT>(
+    params, static_cast<int64_t>(n_clusters), static_cast<int64_t>(n_features));
+  cuvs::distance::detail::top_1_nn_cagra_index ann_index;
+  const auto assignment_backend = use_ann ? cuvs::distance::detail::Top1nnBackend::Cagra
+                                          : cuvs::distance::detail::Top1nnBackend::Auto;
+
   auto n_init = params.n_init;
   if (params.init == cuvs::cluster::kmeans::params::InitMethod::Array && n_init != 1) {
     RAFT_LOG_DEBUG(
@@ -494,6 +504,21 @@ void mnmg_fit(
       raft::matrix::fill(dev_res, weight_per_cluster.view(), DataT{0});
       raft::matrix::fill(dev_res, clustering_cost.view(), DataT{0});
 
+      // The centroids change every iteration, so the index is rebuilt every iteration. Every rank
+      // takes part (even one without data): the graph is built on the root and broadcast.
+      if (use_ann) {
+        cuvs::cluster::kmeans::detail::build_ann_index_broadcast<DataT>(
+          dev_res,
+          iter_params,
+          comms,
+          rank,
+          CUVS_KMEANS_COMM_ROOT,
+          ann_index,
+          rank_centroids.data_handle(),
+          static_cast<int64_t>(n_clusters),
+          static_cast<int64_t>(n_features));
+      }
+
       data_batches.start();
       if (weight_batches.has_value()) { weight_batches->start(); }
       for (std::size_t batch_pos = 0; batch_pos < data_batches.num_batches(); ++batch_pos) {
@@ -574,7 +599,9 @@ void mnmg_fit(
           weight_per_cluster.view(),
           raft::make_device_scalar_view(clustering_cost.data_handle()),
           batch_workspace,
-          batch_cost.view());
+          batch_cost.view(),
+          assignment_backend,
+          use_ann ? &ann_index : nullptr);
 
         const auto next_batch_pos = (batch_pos + recycle_offset) % data_batches.num_batches();
         data_batches.recycle(data_batch, next_batch_pos);
