@@ -9,14 +9,19 @@
 #pragma once
 
 #include "detail/fused_distance_nn.cuh"
+#include "detail/top_1_nn_cagra.cuh"
 #include "fused_distance_nn_helpers.cuh"
 #include "top_1_nn.cuh"
 #include "unfused_distance_nn.cuh"
+#include <raft/core/device_mdspan.hpp>
 #include <raft/core/resource/device_properties.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/contractions.cuh>
 #include <raft/linalg/map.cuh>
+#include <raft/util/cuda_dev_essentials.cuh>
 #include <raft/util/cuda_utils.cuh>
+#include <raft/util/kernel_launch.hpp>
+#include <raft/util/reduction.cuh>
 
 #include <cub/util_type.cuh>
 
@@ -625,6 +630,98 @@ void top_1_nn_unfused(raft::resources const& handle,
   }
 }
 
+template <typename IdxT>
+__device__ inline IdxT nearest_index(IdxT v)
+{
+  return v;
+}
+template <typename IdxT, typename DistT>
+__device__ inline IdxT nearest_index(const raft::KeyValuePair<IdxT, DistT>& v)
+{
+  return v.key;
+}
+
+template <typename DistT>
+__device__ inline void store_distance(DistT& out, DistT d)
+{
+  out = d;
+}
+template <typename IdxT, typename DistT>
+__device__ inline void store_distance(raft::KeyValuePair<IdxT, DistT>& out, DistT d)
+{
+  out.value = d;
+}
+
+/**
+ * Compute L2-distance between each row of x and its nearest neighbor in y in fp32
+ */
+template <typename IdxT, typename NearestT, typename OutT>
+RAFT_KERNEL refine_distance_kernel(const float* x,
+                                   const float* y,
+                                   const NearestT* nearest,
+                                   OutT* distance,
+                                   IdxT m,
+                                   IdxT k,
+                                   bool sqrt)
+{
+  const auto row =
+    static_cast<int64_t>(blockIdx.x) * (blockDim.x / raft::WarpSize) + threadIdx.x / raft::WarpSize;
+  if (row >= static_cast<int64_t>(m)) { return; }
+  const int lane  = raft::laneId();
+  const float* xr = x + row * k;
+  const float* yr = y + static_cast<int64_t>(nearest_index(nearest[row])) * k;
+  float acc       = 0;
+  for (int64_t j = lane; j < k; j += raft::WarpSize) {
+    const float diff = xr[j] - yr[j];
+    acc              = fmaf(diff, diff, acc);
+  }
+  acc = raft::warpReduce(acc);
+  if (lane == 0) { store_distance(distance[row], sqrt ? sqrtf(acc) : acc); }
+}
+
+template <typename IdxT, typename NearestT, typename OutT>
+void refine_distance(raft::resources const& handle,
+                     const float* x,
+                     const float* y,
+                     const NearestT* nearest,
+                     OutT* distance,
+                     IdxT m,
+                     IdxT k,
+                     bool sqrt)
+{
+  constexpr int kRowsPerBlock = 8;  // one warp per row
+  const auto blocks           = static_cast<unsigned>(raft::ceildiv<int64_t>(m, kRowsPerBlock));
+  raft::launch_kernel(handle,
+                      blocks,
+                      raft::WarpSize * kRowsPerBlock,
+                      refine_distance_kernel<IdxT, NearestT, OutT>,
+                      x,
+                      y,
+                      nearest,
+                      distance,
+                      m,
+                      k,
+                      sqrt);
+}
+
+/**
+ * Workspace bytes in front of the backend workspace that hold the nearest candidates of a refined
+ * plan whose caller does not store indices: indices for cuTile, key-value pairs otherwise. Padded
+ * to 16 bytes, the largest alignment of the following backend workspace (and the vectorized
+ * key-value pair access of the unfused multi-tile merge).
+ */
+template <typename DataT, typename IdxT>
+std::size_t refine_label_bytes(const Top1nnPlan<IdxT>& plan)
+{
+  if (!plan.refine || plan.store_indices) { return 0; }
+  constexpr std::size_t alignment = 16;
+  const std::size_t label_size =
+    plan.backend == Top1nnBackend::Cutile ? sizeof(IdxT) : sizeof(raft::KeyValuePair<IdxT, DataT>);
+  const auto bytes =
+    checked_top_1_nn_workspace_multiply(checked_top_1_nn_extent(plan.m), label_size);
+  return checked_top_1_nn_workspace_add(bytes, alignment - 1) / alignment * alignment;
+}
+
 }  // namespace detail
 
 template <typename DataT, typename IdxT>
@@ -640,7 +737,6 @@ std::size_t top_1_nn_workspace_size(IdxT m,
   [[maybe_unused]] const auto features   = detail::checked_top_1_nn_extent(k);
   switch (backend) {
     case detail::Top1nnBackend::Auto:
-    case detail::Top1nnBackend::Stable:
       RAFT_FAIL("Automatic top_1_nn workspace selection requires probe_top_1_nn");
     case detail::Top1nnBackend::Cutile:
 #if CUVS_CUTILE_ENABLED
@@ -659,6 +755,11 @@ std::size_t top_1_nn_workspace_size(IdxT m,
       return detail::checked_top_1_nn_workspace_multiply(rows, sizeof(int));
     case detail::Top1nnBackend::Unfused:
       return detail::make_unfused_top_1_nn_workspace_layout<DataT>(m, n, tuning).total_bytes;
+    case detail::Top1nnBackend::Cagra:
+      // Search-time scratch only: the uint32 neighbor ids the CAGRA search returns before they are
+      // converted to IdxT. The index itself (graph and, for unaligned candidates, the padded copy)
+      // is allocated by `top_1_nn_cagra_index::build`, outside this workspace.
+      return detail::checked_top_1_nn_workspace_multiply(rows, sizeof(uint32_t));
   }
   RAFT_FAIL("Unknown top_1_nn backend");
 }
@@ -673,7 +774,8 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
                                         const detail::Top1nnTuning& tuning,
                                         DistanceType metric,
                                         detail::Top1nnBackend requested_backend,
-                                        bool store_indices)
+                                        bool store_indices,
+                                        bool accurate_distances)
 {
   detail::checked_top_1_nn_extent(m);
   detail::checked_top_1_nn_extent(n);
@@ -690,21 +792,45 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
   plan.tuning            = tuning;
   plan.store_indices     = store_indices;
 
+  if (accurate_distances) {
+    plan.refine = std::is_same_v<DataT, float> &&
+                  (metric == DistanceType::L2Expanded || metric == DistanceType::L2SqrtExpanded);
+    // TF32 labels are reliable from k >= 16 features; below that, TF32 mislabels near-ties.
+    constexpr IdxT kMinTf32Features = 16;
+    plan.tf32_assignment            = plan.refine && k >= kMinTf32Features;
+  }
+
   auto resolved = requested_backend;
-  if (requested_backend == detail::Top1nnBackend::Auto ||
-      requested_backend == detail::Top1nnBackend::Stable) {
+  if (requested_backend == detail::Top1nnBackend::Auto) {
+    bool use_cutile = false;
 #if CUDART_VERSION >= 13000
-    if (requested_backend == detail::Top1nnBackend::Auto &&
-        detail::is_top_1_nn_backend_available(
-          detail::Top1nnBackend::Cutile, x, y, m, n, k, metric)) {
-      resolved = detail::Top1nnBackend::Cutile;
-    } else
+    use_cutile = plan.tf32_assignment && detail::is_top_1_nn_backend_available(
+                                           detail::Top1nnBackend::Cutile, x, y, m, n, k, metric);
 #endif
-    {
+    if (use_cutile) {
+      resolved = detail::Top1nnBackend::Cutile;
+    } else {
       const auto prop = raft::resource::get_device_properties(handle);
       resolved        = detail::legacy_top_1_nn_backend(prop.major, m, n, metric);
     }
     if (!detail::is_top_1_nn_backend_available(resolved, x, y, m, n, k, metric)) { return plan; }
+  } else if (resolved == detail::Top1nnBackend::Cagra) {
+    if constexpr (std::is_same_v<DataT, float>) {
+      RAFT_EXPECTS(detail::is_top_1_nn_metric_supported(resolved, metric),
+                   "The CAGRA top_1_nn backend supports L2Expanded and L2SqrtExpanded only");
+      RAFT_EXPECTS(store_indices, "The CAGRA top_1_nn backend always stores indices");
+      const auto* index = tuning.cagra.index;
+      RAFT_EXPECTS(
+        index != nullptr && index->built(),
+        "The CAGRA top_1_nn backend requires a built index in Top1nnTuning::cagra.index");
+      RAFT_EXPECTS(
+        index->size() == static_cast<int64_t>(n) && index->dim() == static_cast<int64_t>(k),
+        "The CAGRA index does not match the candidate set (n, k) of this invocation");
+      RAFT_EXPECTS(x != nullptr && y != nullptr && m > IdxT{0} && n > IdxT{0} && k > IdxT{0},
+                   "Requested top_1_nn backend is unavailable for this invocation");
+    } else {
+      RAFT_FAIL("The CAGRA top_1_nn backend requires float data");
+    }
   } else {
     RAFT_EXPECTS(detail::is_top_1_nn_backend_available(resolved, x, y, m, n, k, metric),
                  "Requested top_1_nn backend is unavailable for this invocation");
@@ -713,14 +839,19 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
   plan.available = true;
   plan.backend   = resolved;
   plan.workspace_bytes =
-    top_1_nn_workspace_size<DataT, IdxT>(m, n, k, tuning, resolved, store_indices);
+    top_1_nn_workspace_size<DataT, IdxT>(m, n, k, tuning, resolved, store_indices || plan.refine);
   plan.workspace_alignment =
     resolved == detail::Top1nnBackend::Cutile
       ? std::size_t{16}
       : (resolved == detail::Top1nnBackend::Unfused
            ? std::max(alignof(DataT), alignof(raft::KeyValuePair<IdxT, DataT>))
            : alignof(int));
-  if (resolved == detail::Top1nnBackend::Cutile) {
+  if (const auto label_bytes = detail::refine_label_bytes<DataT>(plan); label_bytes > 0) {
+    plan.workspace_bytes =
+      detail::checked_top_1_nn_workspace_add(label_bytes, plan.workspace_bytes);
+    plan.workspace_alignment = std::max<std::size_t>(16, plan.workspace_alignment);
+  }
+  if (resolved == detail::Top1nnBackend::Cutile || resolved == detail::Top1nnBackend::Cagra) {
     using DistanceT                 = detail::top_1_nn_distance_t<DataT>;
     constexpr std::size_t alignment = 16;
     if (store_indices) {
@@ -738,8 +869,9 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
     plan.output_alignment = alignment;
     plan.output_layout    = detail::Top1nnOutputLayout::Separate;
     plan.norm_alignment   = alignment;
-    plan.norm_policy      = std::is_same_v<DataT, float> ? detail::Top1nnNormPolicy::Tf32
-                                                         : detail::Top1nnNormPolicy::Native;
+    plan.norm_policy = (resolved == detail::Top1nnBackend::Cutile && std::is_same_v<DataT, float>)
+                         ? detail::Top1nnNormPolicy::Tf32
+                         : detail::Top1nnNormPolicy::Native;
   } else {
     plan.output_bytes = detail::checked_top_1_nn_workspace_multiply(
       detail::checked_top_1_nn_extent(m), sizeof(raft::KeyValuePair<IdxT, DataT>));
@@ -772,16 +904,17 @@ void top_1_nn(raft::resources const& handle,
   RAFT_EXPECTS(plan.available, "top_1_nn requires an available plan");
   RAFT_EXPECTS(plan.x == x && plan.y == y && plan.m == m && plan.n == n && plan.k == k &&
                  plan.metric == metric && plan.tuning.unfused.row_tile == tuning.unfused.row_tile &&
-                 plan.tuning.unfused.candidate_tile == tuning.unfused.candidate_tile,
+                 plan.tuning.unfused.candidate_tile == tuning.unfused.candidate_tile &&
+                 plan.tuning.cagra.index == tuning.cagra.index,
                "top_1_nn plan does not match this invocation");
   RAFT_EXPECTS(is_row_major, "top_1_nn only supports row-major inputs");
   RAFT_EXPECTS(m > 0 && n > 0 && k > 0, "top_1_nn requires positive m, n, and k");
   RAFT_EXPECTS(detail::is_top_1_nn_metric_supported(plan.backend, metric),
                "Selected top_1_nn backend does not support the requested metric");
   RAFT_EXPECTS(x != nullptr && y != nullptr, "top_1_nn requires non-null input buffers");
-  RAFT_EXPECTS(
-    metric == cuvs::distance::DistanceType::InnerProduct || (xn != nullptr && yn != nullptr),
-    "top_1_nn requires non-null norm buffers for the requested metric");
+  RAFT_EXPECTS(metric == cuvs::distance::DistanceType::InnerProduct ||
+                 plan.backend == detail::Top1nnBackend::Cagra || (xn != nullptr && yn != nullptr),
+               "top_1_nn requires non-null norm buffers for the requested metric");
   using output_type = std::remove_cvref_t<OutputT>;
   constexpr bool is_separate_output =
     std::is_same_v<output_type, typename detail::Top1nnOutputTypes<DataT, IdxT>::separate>;
@@ -795,9 +928,64 @@ void top_1_nn(raft::resources const& handle,
                "top_1_nn requires a workspace buffer for the selected backend");
   RAFT_EXPECTS(workspace_bytes >= plan.workspace_bytes,
                "top_1_nn workspace is too small for the selected backend");
+  RAFT_EXPECTS((!plan.refine || std::is_same_v<DataT, float>),
+               "Accurate top_1_nn distances are currently refined only for float data");
+  if constexpr (std::is_same_v<DataT, float>) {
+    if (plan.refine) {
+      // The refinement overwrites every distance, so it cannot merge with an existing output.
+      RAFT_EXPECTS(init_out_buffer,
+                   "Accurate top_1_nn distances cannot accumulate into an initialized output");
+      using KeyValueT          = raft::KeyValuePair<IdxT, DataT>;
+      const auto label_bytes   = detail::refine_label_bytes<DataT>(plan);
+      auto label_plan          = plan;
+      label_plan.refine        = false;
+      label_plan.store_indices = true;
+      label_plan.workspace_bytes -= label_bytes;
+      auto* labels = workspace;
+      auto* label_workspace =
+        workspace == nullptr ? nullptr : static_cast<char*>(workspace) + label_bytes;
+      // The label pass: the plain 1-NN with indices, into label_output.
+      auto find_nearest = [&](auto label_output) {
+        top_1_nn(handle,
+                 label_output,
+                 x,
+                 y,
+                 xn,
+                 yn,
+                 m,
+                 n,
+                 k,
+                 tuning,
+                 label_workspace,
+                 workspace_bytes - label_bytes,
+                 sqrt,
+                 true,
+                 is_row_major,
+                 metric,
+                 metric_arg,
+                 label_plan);
+      };
+      if constexpr (is_separate_output) {
+        // Separate (cuTile): indices in the caller's array or the workspace; the TF32 distances in
+        // nearest_dist are overwritten by the refinement.
+        auto* indices = plan.store_indices ? output.nearest_idx : static_cast<IdxT*>(labels);
+        find_nearest(Top1nnOutput<IdxT, DataT>{indices, output.nearest_dist});
+        detail::refine_distance(handle, x, y, indices, output.nearest_dist, m, k, sqrt);
+      } else if constexpr (is_kvp_output) {
+        // Key-value pairs: the refinement reads each key and overwrites its value in place.
+        find_nearest(output);
+        detail::refine_distance(handle, x, y, output, output, m, k, sqrt);
+      } else {
+        // Scalar distances: the backend finds the candidates as key-value pairs in the workspace.
+        auto* pairs = static_cast<KeyValueT*>(labels);
+        find_nearest(pairs);
+        detail::refine_distance(handle, x, y, pairs, output, m, k, sqrt);
+      }
+      return;
+    }
+  }
   switch (plan.backend) {
     case detail::Top1nnBackend::Auto:
-    case detail::Top1nnBackend::Stable:
       RAFT_FAIL("top_1_nn plan did not resolve its automatic backend policy");
     case detail::Top1nnBackend::Cutile:
 #if CUVS_CUTILE_ENABLED
@@ -824,6 +1012,10 @@ void top_1_nn(raft::resources const& handle,
                                     metric,
                                     metric_arg);
       return;
+    case detail::Top1nnBackend::Cagra:
+      detail::top_1_nn_cagra<DataT, IdxT>(
+        handle, output, x, m, workspace, sqrt, *plan.tuning.cagra.index);
+      return;
     case detail::Top1nnBackend::Unfused:
       detail::top_1_nn_unfused(handle,
                                output,
@@ -842,7 +1034,7 @@ void top_1_nn(raft::resources const& handle,
                                is_row_major,
                                metric,
                                metric_arg,
-                               plan.requested_backend == detail::Top1nnBackend::Stable);
+                               !plan.tf32_assignment);
       return;
   }
   RAFT_FAIL("Unknown top_1_nn backend");

@@ -88,15 +88,16 @@ Creates the CAGRA and/or brute force indexes and writes them to the disk.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:295`_
 
-### mergeOneField
+### doMergeOneField
 
 ```java
-@Override public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
+@Override void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
 ```
 
-Write field for merging.
+Merges one field: merges the CAGRA indexes of the segments on the GPU when it can, and
+otherwise builds a new index from the merged vectors.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:668`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:669`_
 
 ### ramBytesUsed
 
@@ -106,7 +107,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Returns the memory usage of this object in bytes.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:679`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:680`_
 
 ### finish
 
@@ -116,7 +117,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Called once at the end before close.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:691`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:692`_
 
 ### close
 
@@ -126,6 +127,6 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 
 Close the applicable resources.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:711`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:712`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:60`_

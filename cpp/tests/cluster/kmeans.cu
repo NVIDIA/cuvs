@@ -122,6 +122,7 @@ struct KmeansInputs {
   int n_clusters;
   T tol;
   bool weighted;
+  bool use_ann = false;  // CAGRA ANN nearest-centroid assignment (float data only)
 };
 
 // template <typename DataT, typename IndexT>
@@ -314,13 +315,14 @@ class KmeansTest : public ::testing::TestWithParam<KmeansInputs<T>> {
   {
     testparams = ::testing::TestWithParam<KmeansInputs<T>>::GetParam();
 
-    int n_samples              = testparams.n_row;
-    int n_features             = testparams.n_col;
-    params.n_clusters          = testparams.n_clusters;
-    params.tol                 = testparams.tol;
-    params.n_init              = 5;
-    params.rng_state.seed      = 1;
-    params.oversampling_factor = 0;
+    int n_samples                 = testparams.n_row;
+    int n_features                = testparams.n_col;
+    params.n_clusters             = testparams.n_clusters;
+    params.tol                    = testparams.tol;
+    params.use_ann_for_assignment = testparams.use_ann;
+    params.n_init                 = 5;
+    params.rng_state.seed         = 1;
+    params.oversampling_factor    = 0;
 
     auto stream = raft::resource::get_cuda_stream(handle);
     auto bi     = make_kmeans_blob_inputs<T>(
@@ -401,7 +403,16 @@ const std::vector<KmeansInputs<float>> inputsf2 = {{1000, 32, 5, 0.0001f, true},
                                                    {10000, 100, 50, 0.0001f, true},
                                                    {10000, 100, 50, 0.0001f, false},
                                                    {10000, 500, 100, 0.0001f, true},
-                                                   {10000, 500, 100, 0.0001f, false}};
+                                                   {10000, 500, 100, 0.0001f, false},
+                                                   // CAGRA ANN assignment (aligned and unaligned
+                                                   // number of features)
+                                                   {1000, 32, 5, 0.0001f, true, true},
+                                                   {1000, 32, 5, 0.0001f, false, true},
+                                                   {1000, 10, 20, 0.0001f, false, true},
+                                                   {10000, 32, 10, 0.0001f, true, true},
+                                                   {10000, 100, 50, 0.0001f, false, true},
+                                                   {10000, 30, 100, 0.0001f, true, true},
+                                                   {10000, 500, 100, 0.0001f, false, true}};
 
 const std::vector<KmeansInputs<double>> inputsd2 = {{1000, 32, 5, 0.0001, true},
                                                     {1000, 32, 5, 0.0001, false},
@@ -432,6 +443,7 @@ struct KmeansBatchedInputs {
   T tol;
   bool weighted;
   int device_buffer_samples;
+  bool use_ann = false;  // CAGRA ANN nearest-centroid assignment (float data only)
 };
 
 template <typename T>
@@ -467,12 +479,13 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
 
   void fitBatchedTest()
   {
-    int n_samples              = testparams.n_row;
-    int n_features             = testparams.n_col;
-    params.n_clusters          = testparams.n_clusters;
-    params.tol                 = testparams.tol;
-    params.rng_state.seed      = 1;
-    params.oversampling_factor = 0;
+    int n_samples                 = testparams.n_row;
+    int n_features                = testparams.n_col;
+    params.n_clusters             = testparams.n_clusters;
+    params.tol                    = testparams.tol;
+    params.use_ann_for_assignment = testparams.use_ann;
+    params.rng_state.seed         = 1;
+    params.oversampling_factor    = 0;
 
     auto stream = raft::resource::get_cuda_stream(handle);
 
@@ -589,15 +602,16 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     auto stream    = raft::resource::get_cuda_stream(handle);
 
     cuvs::cluster::kmeans::params p;
-    p.n_clusters            = n_clusters;
-    p.tol                   = testparams.tol;
-    p.n_init                = 3;
-    p.init                  = cuvs::cluster::kmeans::params::KMeansPlusPlus;
-    p.max_iter              = 20;
-    p.rng_state.seed        = 1;
-    p.oversampling_factor   = 0;
-    p.device_buffer_samples = testparams.device_buffer_samples;
-    p.init_size             = init_size_value;
+    p.n_clusters             = n_clusters;
+    p.tol                    = testparams.tol;
+    p.use_ann_for_assignment = testparams.use_ann;
+    p.n_init                 = 3;
+    p.init                   = cuvs::cluster::kmeans::params::KMeansPlusPlus;
+    p.max_iter               = 20;
+    p.rng_state.seed         = 1;
+    p.oversampling_factor    = 0;
+    p.device_buffer_samples  = testparams.device_buffer_samples;
+    p.init_size              = init_size_value;
 
     auto d_centroids_buf = raft::make_device_matrix<T, int64_t>(handle, n_clusters, n_features);
     T inertia            = 0;
@@ -753,6 +767,10 @@ const std::vector<KmeansBatchedInputs<float>> batched_inputsf2 = {
   {1000, 10, 20, 0.0001f, false, 30},
   {10000, 16, 10, 0.00001f, true, 1000},
   {10000, 96, 10, 0.0001f, false, 10000},
+  // CAGRA ANN assignment (aligned and unaligned number of features)
+  {1000, 32, 5, 0.0001f, true, 256, true},
+  {1000, 10, 20, 0.0001f, false, 30, true},
+  {10000, 96, 10, 0.0001f, false, 1000, true},
 };
 
 const std::vector<KmeansBatchedInputs<double>> batched_inputsd2 = {

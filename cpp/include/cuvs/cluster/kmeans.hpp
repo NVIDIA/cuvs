@@ -4,6 +4,7 @@
  */
 #pragma once
 #include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/cagra.hpp>
 #include <raft/core/device_mdspan.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/logger.hpp>
@@ -31,6 +32,36 @@ struct base_params {
  * @defgroup kmeans_params k-means hyperparameters
  * @{
  */
+
+/**
+ * CAGRA settings for the optional approximate nearest-centroid assignment of Lloyd's k-means (see
+ * `params::use_ann_for_assignment`): the build parameters of the CAGRA index over the centroids
+ * and the search parameters used to find each point's nearest centroid.
+ *
+ * The defaults differ from CAGRA's own: the graph is built with NN-descent
+ * (`graph_build_params` holds `nn_descent_params`, which is faster than IVF-PQ for the small
+ * centroid sets built here, and is not left to CAGRA's heuristic), and `search_params::itopk_size`
+ * is 32 (CAGRA's default is 64), which keeps the centroid quality while making the search faster.
+ *
+ * The following `index_params` fields are always overridden, since the feature relies on them:
+ * `metric` is set to L2Expanded, `attach_dataset_on_build` to true, and `graph_degree` and
+ * `intermediate_graph_degree` are clamped to `n_clusters - 1` (an NN-descent `graph_degree` is
+ * aligned with the clamped `intermediate_graph_degree`). ACE graph build params (`ace_params`) are
+ * not supported for the centroid index: they log a warning and brute force is used.
+ */
+struct ann_assignment_params {
+  /** CAGRA index (build) parameters of the centroid index. */
+  cuvs::neighbors::cagra::index_params index_params;
+  /** CAGRA search parameters used to find each point's nearest centroid. */
+  cuvs::neighbors::cagra::search_params search_params;
+
+  ann_assignment_params()
+  {
+    index_params.graph_build_params = cuvs::neighbors::cagra::graph_build_params::nn_descent_params(
+      index_params.intermediate_graph_degree);
+    search_params.itopk_size = 32;
+  }
+};
 
 /**
  * Simple object to specify hyper-parameters to the kmeans algorithm.
@@ -166,6 +197,40 @@ struct params : base_params {
    * count. This is ignored by device-data overloads.
    */
   int64_t device_buffer_samples = 0;
+
+  /**
+   * Use approximate nearest neighbor search (a CAGRA index built over the centroids) instead of
+   * brute force for the nearest-centroid assignment (E-step) of `fit` and `predict`.
+   *
+   * ANN assignment only pays off when `n_clusters` is very large: for small `n_clusters` it is
+   * slower than brute force. There is no automatic threshold, so benchmark on your own data and
+   * hardware.
+   *
+   * In `fit` the ANN index is rebuilt over the current centroids on EVERY Lloyd iteration (the
+   * centroids move each iteration, so the index is never reused), and each point is assigned its
+   * approximate nearest centroid (top-1) from that fresh index. The CAGRA build and search
+   * settings come from `ann_params` (defaults, see `ann_assignment_params`, are used when it is
+   * `std::nullopt`); a larger `itopk_size` is more accurate and slower.
+   *
+   * Only `float` data is supported; other data types log a warning and use brute force (Lloyd's
+   * k-means itself already requires the L2Expanded or L2SqrtExpanded metric). When `n_features` is
+   * not a multiple of 4 (CAGRA row alignment), the centroids are copied into a zero-padded buffer
+   * for each index build.
+   * Ignored by the multi-GPU `fit`. The reported inertia of `fit` is always computed exactly.
+   *
+   * Default: false.
+   */
+  bool use_ann_for_assignment = false;
+
+  /**
+   * CAGRA settings (index build and search parameters) for the ANN assignment. Only used when
+   * `use_ann_for_assignment` is true. When `std::nullopt`, a default-constructed
+   * `ann_assignment_params` is used (NN-descent graph build, `itopk_size = 32`).
+   *
+   * Held in a `std::optional`: the CAGRA params contain nested variants that are not worth
+   * constructing unless the feature is used.
+   */
+  std::optional<ann_assignment_params> ann_params = std::nullopt;
 };
 
 /**
@@ -236,11 +301,6 @@ struct balanced_params : base_params {
    */
   bool is_packed_binary = false;
 };
-
-/**
- * @brief Type of k-means algorithm.
- */
-enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
 
 /**
  * @}

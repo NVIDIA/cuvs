@@ -25,6 +25,14 @@ import org.apache.lucene.tests.util.TestUtil;
 @SuppressSysoutChecks(bugUrl = "")
 public class TestLucene99AcceleratedHNSWVectorsFormat extends BaseCuVSKnnVectorsFormatTestCase {
 
+  // Returning false skips testMergeStability, from BaseIndexFileFormatTestCase. Building an HNSW
+  // graph on the GPU is not deterministic, so merging the same segment again writes a graph of a
+  // different size. Lucene's suite skipped that test for every vectors format up to Lucene 10.5.
+  @Override
+  protected boolean mergeIsStable() {
+    return false;
+  }
+
   @Override
   protected Codec getCodec() {
     return TestUtil.alwaysKnnVectorsFormat(new Lucene99AcceleratedHNSWVectorsFormat());
@@ -91,7 +99,8 @@ public class TestLucene99AcceleratedHNSWVectorsFormat extends BaseCuVSKnnVectors
         assertVectorsKeepTheirDocuments(r, "f2", f2);
 
         // opportunistically check boundary condition - search with a 0 topK
-        var topDocs = r.searchNearestVectors("f1", randomVector(384), 0, null, 10);
+        var topDocs =
+            TestLuceneCompat.searchNearestVectors(r, "f1", randomVector(384), 0, null, 10);
         assertEquals(0, topDocs.scoreDocs.length);
         assertEquals(0, topDocs.totalHits.value());
       }
