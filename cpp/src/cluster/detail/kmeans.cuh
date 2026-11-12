@@ -48,6 +48,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <ctime>
 #include <limits>
@@ -1401,18 +1402,20 @@ void kmeans_transform(raft::resources const& handle,
                       raft::device_matrix_view<DataT, IndexT> X_new)
 {
   RAFT_EXPECTS(pams.metric == cuvs::distance::DistanceType::L2Expanded ||
-                 pams.metric == cuvs::distance::DistanceType::L2SqrtExpanded,
-               "kmeans only supports L2Expanded or L2SqrtExpanded distance metrics.");
+                 pams.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                 pams.metric == cuvs::distance::DistanceType::L2Unexpanded ||
+                 pams.metric == cuvs::distance::DistanceType::L2SqrtUnexpanded,
+               "kmeans transform only supports L2Expanded, L2SqrtExpanded, L2Unexpanded or "
+               "L2SqrtUnexpanded distance metrics.");
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("kmeans_transform");
   raft::default_logger().set_level(pams.verbosity);
-  cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
-  auto n_samples      = X.extent(0);
-  auto n_features     = X.extent(1);
-  auto n_clusters     = pams.n_clusters;
-  auto metric         = pams.metric;
+  auto n_samples  = X.extent(0);
+  auto n_features = X.extent(1);
+  auto n_clusters = static_cast<IndexT>(pams.n_clusters);
+  if (n_samples == 0) { return; }
+  ASSERT(n_features == centroids.extent(1),
+         "# features in dataset and centroids are different (must be same)");
 
-  // Device-accessible allocation of expandable storage used as temporary buffers
-  rmm::device_uvector<char> workspace(0, stream);
   auto dataBatchSize = getDataBatchSize(pams.batch_samples, n_samples);
 
   // tile over the input data and calculate distance matrix [n_samples x
@@ -1424,16 +1427,16 @@ void kmeans_transform(raft::resources const& handle,
     // datasetView [ns x n_features] - view representing the current batch of
     // input dataset
     auto datasetView = raft::make_device_matrix_view<const DataT, IndexT>(
-      X.data_handle() + n_features * dIdx, ns, n_features);
+      X.data_handle() + static_cast<std::size_t>(n_features) * dIdx, ns, n_features);
 
     // pairwiseDistanceView [ns x n_clusters]
     auto pairwiseDistanceView = raft::make_device_matrix_view<DataT, IndexT>(
-      X_new.data_handle() + n_clusters * dIdx, ns, n_clusters);
+      X_new.data_handle() + static_cast<std::size_t>(n_clusters) * dIdx, ns, n_clusters);
 
     // calculate pairwise distance between cluster centroids and current batch
     // of input dataset
-    pairwise_distance_kmeans<DataT, IndexT>(
-      handle, datasetView, centroids, pairwiseDistanceView, metric);
+    cuvs::distance::pairwise_distance(
+      handle, datasetView, centroids, pairwiseDistanceView, pams.metric);
   }
 }
 }  // namespace cuvs::cluster::kmeans::detail

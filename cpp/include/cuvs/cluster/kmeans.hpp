@@ -1600,6 +1600,11 @@ void fit_predict(const raft::resources& handle,
 /**
  * @brief Transform X to a cluster-distance space.
  *
+ * Supports L2Expanded, L2SqrtExpanded, L2Unexpanded and L2SqrtUnexpanded through
+ * `params.metric`. The unexpanded metrics compute distances directly from
+ * coordinate differences, avoiding cancellation for points close to centroids.
+ * Input rows are processed in batches controlled by `params.batch_samples`.
+ *
  * @param[in]     handle        The raft handle.
  * @param[in]     params        Parameters for KMeans model.
  * @param[in]     X             Training instances to cluster. The data must
@@ -1608,7 +1613,7 @@ void fit_predict(const raft::resources& handle,
  * @param[in]     centroids     Cluster centroids. The data must be in row-major format.
  *                              [dim = n_clusters x n_features]
  * @param[out]    X_new         X transformed in the new space.
- *                              [dim = n_samples x n_features]
+ *                              [dim = n_samples x n_clusters]
  */
 void transform(raft::resources const& handle,
                const kmeans::params& params,
@@ -1619,6 +1624,11 @@ void transform(raft::resources const& handle,
 /**
  * @brief Transform X to a cluster-distance space.
  *
+ * Supports L2Expanded, L2SqrtExpanded, L2Unexpanded and L2SqrtUnexpanded through
+ * `params.metric`. The unexpanded metrics compute distances directly from
+ * coordinate differences, avoiding cancellation for points close to centroids.
+ * Input rows are processed in batches controlled by `params.batch_samples`.
+ *
  * @param[in]     handle        The raft handle.
  * @param[in]     params        Parameters for KMeans model.
  * @param[in]     X             Training instances to cluster. The data must
@@ -1627,7 +1637,7 @@ void transform(raft::resources const& handle,
  * @param[in]     centroids     Cluster centroids. The data must be in row-major format.
  *                              [dim = n_clusters x n_features]
  * @param[out]    X_new         X transformed in the new space.
- *                              [dim = n_samples x n_features]
+ *                              [dim = n_samples x n_clusters]
  */
 void transform(raft::resources const& handle,
                const kmeans::params& params,

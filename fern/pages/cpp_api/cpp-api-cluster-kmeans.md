@@ -920,6 +920,8 @@ raft::device_matrix_view<const float, int> centroids,
 raft::device_matrix_view<float, int> X_new);
 ```
 
+Supports L2Expanded, L2SqrtExpanded, L2Unexpanded and L2SqrtUnexpanded through `params.metric`. The unexpanded metrics compute distances directly from coordinate differences, avoiding cancellation for points close to centroids. Input rows are processed in batches controlled by `params.batch_samples`.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
@@ -928,7 +930,7 @@ raft::device_matrix_view<float, int> X_new);
 | `params` | in | [`const kmeans::params&`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-params) | Parameters for KMeans model. |
 | `X` | in | `raft::device_matrix_view<const float, int>` | Training instances to cluster. The data must be in row-major format [dim = n_samples x n_features] |
 | `centroids` | in | `raft::device_matrix_view<const float, int>` | Cluster centroids. The data must be in row-major format. [dim = n_clusters x n_features] |
-| `X_new` | out | `raft::device_matrix_view<float, int>` | X transformed in the new space. [dim = n_samples x n_features] |
+| `X_new` | out | `raft::device_matrix_view<float, int>` | X transformed in the new space. [dim = n_samples x n_clusters] |
 
 **Returns**
 
@@ -946,6 +948,8 @@ raft::device_matrix_view<const double, int> centroids,
 raft::device_matrix_view<double, int> X_new);
 ```
 
+Supports L2Expanded, L2SqrtExpanded, L2Unexpanded and L2SqrtUnexpanded through `params.metric`. The unexpanded metrics compute distances directly from coordinate differences, avoiding cancellation for points close to centroids. Input rows are processed in batches controlled by `params.batch_samples`.
+
 **Parameters**
 
 | Name | Direction | Type | Description |
@@ -954,7 +958,7 @@ raft::device_matrix_view<double, int> X_new);
 | `params` | in | [`const kmeans::params&`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-params) | Parameters for KMeans model. |
 | `X` | in | `raft::device_matrix_view<const double, int>` | Training instances to cluster. The data must be in row-major format [dim = n_samples x n_features] |
 | `centroids` | in | `raft::device_matrix_view<const double, int>` | Cluster centroids. The data must be in row-major format. [dim = n_clusters x n_features] |
-| `X_new` | out | `raft::device_matrix_view<double, int>` | X transformed in the new space. [dim = n_samples x n_features] |
+| `X_new` | out | `raft::device_matrix_view<double, int>` | X transformed in the new space. [dim = n_samples x n_clusters] |
 
 **Returns**
 
