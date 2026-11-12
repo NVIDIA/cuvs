@@ -35,6 +35,9 @@ namespace distance {
 
 namespace detail {
 
+/** Index of the approximate `Top1nnBackend::Cagra` backend (see top_1_nn_cagra.cuh). */
+class top_1_nn_cagra_index;
+
 /** Implementation or automatic selection policy for the top-1 nearest-neighbor primitive. */
 enum class Top1nnBackend : std::uint8_t {
   Auto,
@@ -42,6 +45,13 @@ enum class Top1nnBackend : std::uint8_t {
   /** Legacy fused dispatcher: CUTLASS on SM80+, with its existing SIMT path before SM80. */
   Cutlass,
   Unfused,
+  /**
+   * Approximate top-1 using a CAGRA graph search over a prebuilt index of `y`, passed through
+   * `Top1nnTuning::cagra.index`. Never selected by Auto/Stable. float data with L2Expanded or
+   * L2SqrtExpanded only; norms are not used. The choice of neighbor is approximate; the returned
+   * distance is exact for the chosen neighbor.
+   */
+  Cagra,
 };
 
 /** Tuning used only by the bounded-workspace unfused backend. */
@@ -50,8 +60,14 @@ struct UnfusedTop1nnTuning {
   std::size_t candidate_tile = 8192;
 };
 
+/** Input of the CAGRA backend: the prebuilt index over `y` (not owned). */
+struct CagraTop1nnTuning {
+  const top_1_nn_cagra_index* index = nullptr;
+};
+
 struct Top1nnTuning {
   UnfusedTop1nnTuning unfused{};
+  CagraTop1nnTuning cagra{};
 };
 
 /** Native result representation required by the resolved top-1 NN backend. */
@@ -115,6 +131,8 @@ inline constexpr bool is_top_1_nn_metric_supported(Top1nnBackend backend, Distan
     case Top1nnBackend::Unfused:
       return metric == DistanceType::L2Expanded || metric == DistanceType::L2SqrtExpanded ||
              metric == DistanceType::CosineExpanded;
+    case Top1nnBackend::Cagra:
+      return metric == DistanceType::L2Expanded || metric == DistanceType::L2SqrtExpanded;
   }
   return false;
 }
