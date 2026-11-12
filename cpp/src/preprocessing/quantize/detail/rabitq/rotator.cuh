@@ -29,6 +29,8 @@
 #include <cstdint>
 
 #include <cuda_runtime.h>
+#include <cuvs/preprocessing/quantize/rabitq.hpp>
+#include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 
 namespace cuvs::preprocessing::quantize::rabitq::detail {
@@ -49,14 +51,18 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 // State generation. Writes into device buffers provided by the caller.
 // ---------------------------------------------------------------------------
 
-/// Fill `d_P_out` (D * D floats, row-major) with a random orthogonal matrix,
+/// Fill `P_out` (D x D, row-major) with a random orthogonal matrix,
 /// drawn on the device with the preprocessing helper IVF-PQ uses too.
-void init_state_matmul(raft::resources const& res, uint64_t seed, int64_t D, float* d_P_out);
+void init_state_matmul(raft::resources const& res,
+                       uint64_t seed,
+                       raft::device_matrix_view<float, int64_t, raft::row_major> P_out);
 
-/// Fill `d_flip_out` (`flip_bytes(D)` bytes) with the Kac's-walk sign bits.
+/// Fill `flip_out` (`flip_bytes(D)` bytes) with the Kac's-walk sign bits.
 /// The draw happens on the host (std::mt19937, identical to the standalone
 /// code), so this stages through host memory and synchronizes `stream`.
-void init_state_fht_kac(cudaStream_t stream, uint64_t seed, int64_t D, uint8_t* d_flip_out);
+void init_state_fht_kac(cudaStream_t stream,
+                        uint64_t seed,
+                        raft::device_vector_view<uint8_t, int64_t> flip_out);
 
 // ---------------------------------------------------------------------------
 // Launchers. `in` and `out` are N x D row-major float matrices.
@@ -64,45 +70,40 @@ void init_state_fht_kac(cudaStream_t stream, uint64_t seed, int64_t D, uint8_t* 
 // ---------------------------------------------------------------------------
 
 /// out = P * in, computed with the cuBLAS handle carried by `res` (which is
-/// bound to `res`'s stream). `d_P` is D * D floats, row-major.
-void rotate_matmul(
-  raft::resources const& res, const float* d_P, const float* in, float* out, int64_t N, int64_t D);
+/// bound to `res`'s stream). `P` is D x D, row-major.
+void rotate_matmul(raft::resources const& res,
+                   raft::device_matrix_view<const float, int64_t, raft::row_major> P,
+                   raft::device_matrix_view<const float, int64_t, raft::row_major> in,
+                   raft::device_matrix_view<float, int64_t, raft::row_major> out);
 
-/// Fused FHT + Kac's-walk rotation. `d_flip` is `flip_bytes(D)` bytes.
+/// Fused FHT + Kac's-walk rotation. `flip` holds `flip_bytes(D)` bytes.
 ///
 /// `D` is the padded row width, and the truncated-FHT segment size is derived
 /// from it (trunc_dim = 2^floor_log2(D)) — the padded width is what the flip bits
 /// and the kernels operate on. The transform therefore depends only on `D`; the
 /// original unpadded dimension is not needed here.
-void rotate_fht_kac(
-  cudaStream_t stream, const uint8_t* d_flip, const float* in, float* out, int64_t N, int64_t D);
+void rotate_fht_kac(cudaStream_t stream,
+                    raft::device_vector_view<const uint8_t, int64_t> flip,
+                    raft::device_matrix_view<const float, int64_t, raft::row_major> in,
+                    raft::device_matrix_view<float, int64_t, raft::row_major> out);
 
 // ---------------------------------------------------------------------------
-// Non-owning shim over the two kinds, for internal callers (the pipeline)
-// that are kind-agnostic. It only *borrows* the caller's state; the kind tag
-// stays a plain bool here so that the detail layer does not have to duplicate
-// the public `rabitq::rotator_kind` enum.
+// Kind-agnostic entry points for internal callers (the pipeline). They only
+// borrow the caller's state through the public non-owning `rotator_view`.
 // ---------------------------------------------------------------------------
-struct rotator_ref {
-  /// Padded row width; must equal padded_dim(dim) of the owning rotator. Both
-  /// kinds are fully determined by this width plus the state pointers below.
-  int64_t padded_dim = 0;
-  /// true -> fht_kac (uses `flip_bits`), false -> matmul (uses `rotation_matrix`).
-  bool use_fht_kac             = true;
-  const float* rotation_matrix = nullptr;
-  const uint8_t* flip_bits     = nullptr;
-};
 
 /// Only fht_kac can rotate a buffer onto itself.
-[[nodiscard]] inline bool supports_inplace_rotate(rotator_ref const& rot)
+[[nodiscard]] inline bool supports_inplace_rotate(rotator_view<const float> rot)
 {
-  return rot.use_fht_kac;
+  return rot.kind == rotator_kind::fht_kac;
 }
 
-/// Dispatch to rotate_fht_kac / rotate_matmul according to `rot.use_fht_kac`.
+/// Dispatch to rotate_fht_kac / rotate_matmul according to `rot.kind`.
 /// Runs on `raft::resource::get_cuda_stream(res)` in both cases.
-void rotate(
-  raft::resources const& res, rotator_ref const& rot, const float* in, float* out, int64_t N);
+void rotate(raft::resources const& res,
+            rotator_view<const float> rot,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> in,
+            raft::device_matrix_view<float, int64_t, raft::row_major> out);
 
 }  // namespace cuvs::preprocessing::quantize::rabitq::detail
 

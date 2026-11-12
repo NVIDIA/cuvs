@@ -24,7 +24,7 @@
 // input it would cost a full extra N x D copy, while a 1-row rotate is a
 // single tiny launch.
 //
-// The rotator state is NOT owned here: callers pass a non-owning rotator_ref
+// The rotator state is NOT owned here: callers pass a non-owning rotator_view
 // that borrows the buffers held by the public `rabitq::rotator` struct.
 //
 
@@ -33,7 +33,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
+#include <raft/core/device_mdspan.hpp>
 #include <raft/core/resources.hpp>
 
 #include "rotator.cuh"
@@ -43,85 +45,77 @@ namespace cuvs::preprocessing::quantize::rabitq::detail {
 /// Quantize raw (unrotated, unpadded) vectors end to end, emitting per-vector
 /// scalar factors (delta, vl).
 ///
-/// d_data              N x dim on device.
-/// d_centroid          optional (nullable) dim floats on device, UNrotated.
-///                     When non-null, residuals = rotate(pad(data)) -
-///                     rotate(pad(centroid)) and d_rotated_centroid must be
-///                     non-null (receives the rotated centroid, D floats).
-///                     When null, residuals = rotate(pad(data)) and
-///                     d_rotated_centroid may be null.
-/// d_residuals         N x D output (D = rotator.padded_dim): the rotated
+/// data                N x dim on device.
+/// centroid            optional dim floats on device, UNrotated.
+///                     When given, residuals = rotate(pad(data)) -
+///                     rotate(pad(centroid)) and rotated_centroid receives the
+///                     rotated centroid (D floats).
+///                     When absent, residuals = rotate(pad(data)) and
+///                     rotated_centroid is not used (it may be empty).
+/// residuals           N x D output (D = rotator.padded_dim): the rotated
 ///                     residuals that the emitted codes refer to.
 /// Remaining parameters mirror quantize_fused_on_residuals.
 void quantize_data(raft::resources const& res,
-                   const float* d_data,
-                   size_t N,
-                   size_t dim,
-                   rotator_ref const& rotator,
-                   const float* d_centroid,
-                   float* d_rotated_centroid,
+                   raft::device_matrix_view<const float, int64_t, raft::row_major> data,
+                   rotator_view<const float> rotator,
+                   std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+                   raft::device_vector_view<float, int64_t> rotated_centroid,
                    size_t ex_bits,
                    float const_scaling_factor,
                    bool use_fast,
-                   uint16_t* d_total_code,
-                   float* d_delta,
-                   float* d_vl,
-                   float* d_residuals,
+                   raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+                   raft::device_vector_view<float, int64_t> delta,
+                   raft::device_vector_view<float, int64_t> vl,
+                   raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
                    int delta_mode     = 0,
                    int coarse_samples = 64,
                    int fine_samples   = 64);
 
 void quantize_data(raft::resources const& res,
-                   const float* d_data,
-                   size_t N,
-                   size_t dim,
-                   rotator_ref const& rotator,
-                   const float* d_centroid,
-                   float* d_rotated_centroid,
+                   raft::device_matrix_view<const float, int64_t, raft::row_major> data,
+                   rotator_view<const float> rotator,
+                   std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+                   raft::device_vector_view<float, int64_t> rotated_centroid,
                    size_t ex_bits,
                    float const_scaling_factor,
                    bool use_fast,
-                   uint8_t* d_total_code,
-                   float* d_delta,
-                   float* d_vl,
-                   float* d_residuals,
+                   raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+                   raft::device_vector_view<float, int64_t> delta,
+                   raft::device_vector_view<float, int64_t> vl,
+                   raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
                    int delta_mode     = 0,
                    int coarse_samples = 64,
                    int fine_samples   = 64);
 
 /// Full-factor variant: emits the (f_add, f_rescale, f_error) triplet used
-/// for approximate-distance estimation. d_rotated_centroid (D floats) is
+/// for approximate-distance estimation. rotated_centroid (D floats) is
 /// always required here — it participates in the factor computation — and is
-/// zero-filled when d_centroid is null.
+/// zero-filled when there is no centroid.
 void quantize_data_full(raft::resources const& res,
-                        const float* d_data,
-                        size_t N,
-                        size_t dim,
-                        rotator_ref const& rotator,
-                        const float* d_centroid,
-                        float* d_rotated_centroid,
+                        raft::device_matrix_view<const float, int64_t, raft::row_major> data,
+                        rotator_view<const float> rotator,
+                        std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+                        raft::device_vector_view<float, int64_t> rotated_centroid,
                         size_t ex_bits,
                         float const_scaling_factor,
                         bool use_fast,
-                        uint16_t* d_total_code,
-                        float* d_factors,
-                        float* d_residuals,
+                        raft::device_matrix_view<uint16_t, int64_t, raft::row_major> codes,
+                        raft::device_matrix_view<float, int64_t, raft::row_major> factors,
+                        raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
                         int coarse_samples,
                         int fine_samples);
 
 void quantize_data_full(raft::resources const& res,
-                        const float* d_data,
-                        size_t N,
-                        size_t dim,
-                        rotator_ref const& rotator,
-                        const float* d_centroid,
-                        float* d_rotated_centroid,
+                        raft::device_matrix_view<const float, int64_t, raft::row_major> data,
+                        rotator_view<const float> rotator,
+                        std::optional<raft::device_vector_view<const float, int64_t>> centroid,
+                        raft::device_vector_view<float, int64_t> rotated_centroid,
                         size_t ex_bits,
                         float const_scaling_factor,
                         bool use_fast,
-                        uint8_t* d_total_code,
-                        float* d_factors,
-                        float* d_residuals,
+                        raft::device_matrix_view<uint8_t, int64_t, raft::row_major> codes,
+                        raft::device_matrix_view<float, int64_t, raft::row_major> factors,
+                        raft::device_matrix_view<float, int64_t, raft::row_major> residuals,
                         int coarse_samples,
                         int fine_samples);
 

@@ -39,17 +39,6 @@ constexpr uint32_t kMaxExBits = 8;
 /** Number of per-vector factors in the full-factor output mode. */
 constexpr int64_t kNumFactors = 3;
 
-/** Borrow the public rotator's buffers for the detail launchers. */
-[[nodiscard]] auto as_ref(rabitq::rotator<float> const& rot) -> detail::rotator_ref
-{
-  detail::rotator_ref ref;
-  ref.padded_dim      = rot.padded_dim;
-  ref.use_fht_kac     = rot.kind == rotator_kind::fht_kac;
-  ref.rotation_matrix = ref.use_fht_kac ? nullptr : rot.rotation_matrix.data_handle();
-  ref.flip_bits       = ref.use_fht_kac ? rot.flip_bits.data_handle() : nullptr;
-  return ref;
-}
-
 void check_params(params const& p)
 {
   RAFT_EXPECTS(p.ex_bits <= kMaxExBits, "rabitq: params.ex_bits must be in [0, 8]");
@@ -270,23 +259,24 @@ void transform_impl(raft::resources const& res,
 
   // Rows are quantized independently, so batching only bounds the scratch.
   for_each_batch(res, dataset, batch, [&](const float* rows, int64_t r0, int64_t n) {
-    detail::quantize_data(res,
-                          rows,
-                          static_cast<size_t>(n),
-                          static_cast<size_t>(q.dim),
-                          as_ref(rot),
-                          centroid.has_value() ? centroid->data_handle() : nullptr,
-                          centroid.has_value() ? rotated_centroid.data() : nullptr,
-                          static_cast<size_t>(q.params_quantizer.ex_bits),
-                          q.const_scaling_factor,
-                          q.params_quantizer.use_fast,
-                          codes.data_handle() + r0 * q.padded_dim,
-                          delta.data_handle() + r0,
-                          vl.data_handle() + r0,
-                          residuals.data(),
-                          static_cast<int>(q.params_quantizer.delta_mode),
-                          static_cast<int>(q.params_quantizer.coarse_samples),
-                          static_cast<int>(q.params_quantizer.fine_samples));
+    detail::quantize_data(
+      res,
+      raft::make_device_matrix_view<const float, int64_t>(rows, n, q.dim),
+      rot.view(),
+      centroid,
+      raft::make_device_vector_view<float, int64_t>(rotated_centroid.data(),
+                                                    static_cast<int64_t>(rotated_centroid.size())),
+      static_cast<size_t>(q.params_quantizer.ex_bits),
+      q.const_scaling_factor,
+      q.params_quantizer.use_fast,
+      raft::make_device_matrix_view<CodeT, int64_t>(
+        codes.data_handle() + r0 * q.padded_dim, n, q.padded_dim),
+      raft::make_device_vector_view<float, int64_t>(delta.data_handle() + r0, n),
+      raft::make_device_vector_view<float, int64_t>(vl.data_handle() + r0, n),
+      raft::make_device_matrix_view<float, int64_t>(residuals.data(), n, q.padded_dim),
+      static_cast<int>(q.params_quantizer.delta_mode),
+      static_cast<int>(q.params_quantizer.coarse_samples),
+      static_cast<int>(q.params_quantizer.fine_samples));
   });
 }
 
@@ -323,21 +313,22 @@ void transform_full_impl(raft::resources const& res,
 
   // Rows are quantized independently, so batching only bounds the scratch.
   for_each_batch(res, dataset, batch, [&](const float* rows, int64_t r0, int64_t n) {
-    detail::quantize_data_full(res,
-                               rows,
-                               static_cast<size_t>(n),
-                               static_cast<size_t>(q.dim),
-                               as_ref(rot),
-                               centroid.has_value() ? centroid->data_handle() : nullptr,
-                               rotated_centroid.data(),
-                               static_cast<size_t>(q.params_quantizer.ex_bits),
-                               q.const_scaling_factor,
-                               q.params_quantizer.use_fast,
-                               codes.data_handle() + r0 * q.padded_dim,
-                               factors.data_handle() + r0 * kNumFactors,
-                               residuals.data(),
-                               static_cast<int>(q.params_quantizer.coarse_samples),
-                               static_cast<int>(q.params_quantizer.fine_samples));
+    detail::quantize_data_full(
+      res,
+      raft::make_device_matrix_view<const float, int64_t>(rows, n, q.dim),
+      rot.view(),
+      centroid,
+      raft::make_device_vector_view<float, int64_t>(rotated_centroid.data(), q.padded_dim),
+      static_cast<size_t>(q.params_quantizer.ex_bits),
+      q.const_scaling_factor,
+      q.params_quantizer.use_fast,
+      raft::make_device_matrix_view<CodeT, int64_t>(
+        codes.data_handle() + r0 * q.padded_dim, n, q.padded_dim),
+      raft::make_device_matrix_view<float, int64_t>(
+        factors.data_handle() + r0 * kNumFactors, n, kNumFactors),
+      raft::make_device_matrix_view<float, int64_t>(residuals.data(), n, q.padded_dim),
+      static_cast<int>(q.params_quantizer.coarse_samples),
+      static_cast<int>(q.params_quantizer.fine_samples));
   });
 }
 
@@ -360,15 +351,13 @@ void transform_residuals_impl(
   if (n_rows == 0) { return; }
 
   detail::quantize_fused_on_residuals(raft::resource::get_cuda_stream(res).get(),
-                                      residuals.data_handle(),
-                                      static_cast<size_t>(n_rows),
-                                      static_cast<size_t>(q.padded_dim),
+                                      residuals,
                                       static_cast<size_t>(q.params_quantizer.ex_bits),
                                       q.const_scaling_factor,
                                       q.params_quantizer.use_fast,
-                                      codes.data_handle(),
-                                      delta.data_handle(),
-                                      vl.data_handle(),
+                                      codes,
+                                      delta,
+                                      vl,
                                       static_cast<int>(q.params_quantizer.delta_mode),
                                       static_cast<int>(q.params_quantizer.coarse_samples),
                                       static_cast<int>(q.params_quantizer.fine_samples));
@@ -411,18 +400,17 @@ void transform_residuals_full_impl(
     d_centroid = zero_centroid.data();
   }
 
-  detail::quantize_full_on_residuals(stream.get(),
-                                     residuals.data_handle(),
-                                     d_centroid,
-                                     static_cast<size_t>(n_rows),
-                                     static_cast<size_t>(q.padded_dim),
-                                     static_cast<size_t>(q.params_quantizer.ex_bits),
-                                     q.const_scaling_factor,
-                                     q.params_quantizer.use_fast,
-                                     codes.data_handle(),
-                                     factors.data_handle(),
-                                     static_cast<int>(q.params_quantizer.coarse_samples),
-                                     static_cast<int>(q.params_quantizer.fine_samples));
+  detail::quantize_full_on_residuals(
+    stream.get(),
+    residuals,
+    raft::make_device_vector_view<const float, int64_t>(d_centroid, q.padded_dim),
+    static_cast<size_t>(q.params_quantizer.ex_bits),
+    q.const_scaling_factor,
+    q.params_quantizer.use_fast,
+    codes,
+    factors,
+    static_cast<int>(q.params_quantizer.coarse_samples),
+    static_cast<int>(q.params_quantizer.fine_samples));
 }
 
 }  // namespace
@@ -441,12 +429,11 @@ auto make_rotator(raft::resources const& res, params const& params, int64_t dim)
   if (rot.kind == rotator_kind::matmul) {
     rot.rotation_matrix =
       raft::make_device_matrix<T, int64_t, raft::row_major>(res, rot.padded_dim, rot.padded_dim);
-    detail::init_state_matmul(res, params.seed, rot.padded_dim, rot.rotation_matrix.data_handle());
+    detail::init_state_matmul(res, params.seed, rot.rotation_matrix.view());
   } else {
     rot.flip_bits =
       raft::make_device_vector<uint8_t, int64_t>(res, detail::flip_bytes(rot.padded_dim));
-    detail::init_state_fht_kac(
-      stream.get(), params.seed, rot.padded_dim, rot.flip_bits.data_handle());
+    detail::init_state_fht_kac(stream.get(), params.seed, rot.flip_bits.view());
   }
   return rot;
 }
@@ -504,11 +491,11 @@ void rotate(raft::resources const& res,
   RAFT_EXPECTS(in.extent(1) == rotator.padded_dim && out.extent(1) == rotator.padded_dim,
                "rabitq::rotate: in and out must be n_rows x rotator.padded_dim (pad the rows "
                "yourself; rotate() does not pad)");
-  auto ref = as_ref(rotator);
-  RAFT_EXPECTS(in.data_handle() != out.data_handle() || detail::supports_inplace_rotate(ref),
+  auto view = rotator.view();
+  RAFT_EXPECTS(in.data_handle() != out.data_handle() || detail::supports_inplace_rotate(view),
                "rabitq::rotate: in-place rotation is only supported by rotator_kind::fht_kac");
   if (n_rows == 0) { return; }
-  detail::rotate(res, ref, in.data_handle(), out.data_handle(), n_rows);
+  detail::rotate(res, view, in, out);
 }
 
 void transform(raft::resources const& res,
