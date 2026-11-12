@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <cuvs/core/export.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <cuvs/preprocessing/quantize/bbq.hpp>
@@ -18,8 +17,7 @@
 #include <cstdint>
 #include <type_traits>
 
-namespace CUVS_EXPORT cuvs {
-namespace preprocessing::quantize::bbq {
+namespace cuvs::preprocessing::quantize::bbq::detail {
 
 #ifdef __CUDACC__
 
@@ -313,5 +311,4 @@ __device__ __forceinline__ float bbq_calculate_metric(
 
 #endif  // __CUDACC__
 
-}  // namespace preprocessing::quantize::bbq
-}  // namespace CUVS_EXPORT cuvs
+}  // namespace cuvs::preprocessing::quantize::bbq::detail
