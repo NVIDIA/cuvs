@@ -52,7 +52,7 @@ struct index_params : cuvs::neighbors::index_params {
 | `leaf_degree` | `uint32_t` | Neighbours kept per member of each leaf self-join. At most 32.<br /><br />This is what bounds the candidate supply, and therefore whether the reservoir has more members than the output has slots. Peak memory during the leaf phase is linear in it.<br /><br />The paper uses 2; 4 gives a better recall-for-build-time trade. |
 | `hash_bits` | `uint32_t` | Number of LSH hyperplanes used for HashPrune residual hashing. At most 16.<br /><br />More bits mean finer direction buckets and therefore less pruning. The paper uses 12; recall is still rising at 14 for a minimal build-time cost. |
 | `max_leaf_size` | `uint32_t` | Target maximum leaf size. Leaves are guaranteed not to exceed this. |
-| `min_leaf_size` | `uint32_t` | Leaves smaller than this are merged with adjacent leaves from the same parent bucket. |
+| `min_leaf_size` | `uint32_t` | Leaves smaller than this are merged with adjacent leaves from the same top-level bucket. A merge never crosses between buckets, so the last leaf of a bucket may stay below it. |
 | `leader_fraction` | `float` | Fraction of a subproblem sampled as leaders, capped by `max_leaders`. |
 | `max_leaders` | `uint32_t` | Hard cap on the number of leaders sampled per subproblem. |
 | `fanout_level0` | `uint32_t` | Number of nearest leaders each point is assigned to at the top level. At most 32. |

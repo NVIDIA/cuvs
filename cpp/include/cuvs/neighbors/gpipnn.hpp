@@ -83,7 +83,10 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t hash_bits = 14;
   /** Target maximum leaf size. Leaves are guaranteed not to exceed this. */
   uint32_t max_leaf_size = 1024;
-  /** Leaves smaller than this are merged with adjacent leaves from the same parent bucket. */
+  /**
+   * Leaves smaller than this are merged with adjacent leaves from the same top-level bucket.
+   * A merge never crosses between buckets, so the last leaf of a bucket may stay below it.
+   */
   uint32_t min_leaf_size = 64;
   /** Fraction of a subproblem sampled as leaders, capped by `max_leaders`. */
   float leader_fraction = 0.02f;

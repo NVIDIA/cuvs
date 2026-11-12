@@ -33,11 +33,14 @@ inline constexpr int kFusedSmemPadH = 8;
 inline constexpr int kFusedThreads = 1024;
 
 /**
- * Neighbours the fused leaf join selects per row.
+ * Neighbours the fused leaf join selects per row, and the largest `k` it accepts.
  *
  * Fixed rather than a template parameter: the per-lane register lists make a larger value a
- * register-pressure question, and every leaf round asks for 4. `plan_fused_segments` sends any
- * other `k` to the batched path, so no other value can reach the kernel.
+ * register-pressure question. A smaller `k` still runs here, selecting `kFusedK` per row and
+ * emitting the leading `k` of them. That carries a wider register list and a longer drain than the
+ * request needs, but the mainloop is the bulk of the kernel and its cost does not depend on `k` at
+ * all, so truncating still beats handing the segment to the batched path.
+ * `plan_fused_segments` sends anything above this there instead.
  */
 inline constexpr int kFusedK = 4;
 
@@ -419,6 +422,8 @@ RAFT_KERNEL __launch_bounds__(kFusedThreads)
         fused_insert_sorted(fin, sPart[(r * Geom::kColGroups + c) * kFusedK + j]);
       }
     }
+    // `fin` holds `kFusedK` ranks; `plan_fused_segments` guarantees `k` is no larger, and the
+    // surplus is dropped here rather than never computed. See `kFusedK`.
     for (int64_t j = 0; j < k; j++) {
       emit_rank(fin[j],
                 sSalt[r],
@@ -499,7 +504,7 @@ inline auto gpipnn_arch_problem() -> std::string
  *  - `same_ids`, since the kernel reads one id array as both operands. Only the pointers have to
  *    match call-wide; whether a given segment scores one range against itself is a per-segment
  *    question, asked below, so one chunked leaf does not cost its neighbours the fused path;
- *  - `k == kFusedK`, the only instantiation;
+ *  - `k <= kFusedK`, since the kernel always selects `kFusedK` and can only drop from that;
  *  - `dim` a multiple of 16, since the mainloop steps the mma k-dimension by 16 and the chunk
  *    copy moves 8 halves at a time;
  *  - `dataset` 16-byte aligned, since the chunk copy reaches it through `cp.async` at a 16-byte
@@ -535,7 +540,7 @@ inline auto plan_fused_segments(const half* dataset,
   // pointer has to be aligned for.
   constexpr auto kAlign = static_cast<uintptr_t>(sizeof(uint4));
   const bool usable =
-    same_ids && k == kFusedK && dim % 16 == 0 && reinterpret_cast<uintptr_t>(dataset) % kAlign == 0;
+    same_ids && k <= kFusedK && dim % 16 == 0 && reinterpret_cast<uintptr_t>(dataset) % kAlign == 0;
   plan.block_m = usable ? fused_leaf_tile_m(dim) : 0;
 
   for (size_t i = 0; i < segments.size(); i++) {

@@ -185,6 +185,14 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
       ASSERT_LE(leaves.size_of(i), ps.max_leaf_size) << "oversized leaf " << i;
     }
 
+    // Every leaf belongs to one top-level bucket, and a bucket's leaves are contiguous. Merging
+    // is the only step that could violate either, and an out-of-core build handing one bucket to
+    // one worker needs both.
+    ASSERT_EQ(static_cast<int64_t>(leaves.h_bucket.size()), leaves.count());
+    for (int64_t i = 1; i < leaves.count(); i++) {
+      ASSERT_LE(leaves.h_bucket[i - 1], leaves.h_bucket[i]) << "bucket ids not ordered at " << i;
+    }
+
     std::vector<detail::id_t> members(leaves.total());
     raft::update_host(members.data(), leaves.members.data(), leaves.total(), stream_);
     raft::resource::sync_stream(handle_);

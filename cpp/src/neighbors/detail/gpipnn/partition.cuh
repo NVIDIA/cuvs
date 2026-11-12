@@ -27,6 +27,7 @@
 #include <thrust/sequence.h>
 
 #include <algorithm>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -43,6 +44,19 @@ struct runs {
   rmm::device_uvector<id_t> members;
   rmm::device_uvector<int64_t> offsets;
   std::vector<int64_t> h_offsets;
+  /**
+   * Top-level bucket each run descends from, one entry per run.
+   *
+   * Round 0's runs are the top-level buckets by definition; every later round copies a parent's
+   * entry down to the runs it subdivides into, so a leaf's entry names the one bucket its points
+   * were drawn from. Slots are allocated in input-run order, which keeps a bucket's runs
+   * contiguous and these ids non-decreasing.
+   *
+   * Host-only: nothing on the device needs it. It exists so `merge_undersized` can stop at
+   * bucket boundaries, since a leaf fused from two buckets could not be rebuilt from either one
+   * alone.
+   */
+  std::vector<int64_t> h_bucket;
 
   explicit runs(cuda::stream_ref stream) : members(0, stream), offsets(0, stream) {}
 
@@ -63,16 +77,27 @@ struct carve_stats {
 };
 
 /**
- * Replaces the host-side offsets and pushes them to the device.
+ * Replaces the host-side run layout and pushes the offsets to the device.
+ *
+ * Offsets and bucket ids travel together so a step that rewrites one cannot forget the other;
+ * they are the two halves of the same description of where each run sits and where it came from.
  *
  * The sync is what lets the next call move a fresh vector into `h_offsets`: the copy reads
  * pageable host memory, so the old buffer has to survive until it completes. It costs one stream
  * sync per carve round against a round that is otherwise several GEMMs long.
  */
-inline void set_offsets(raft::resources const& res, runs& r, std::vector<int64_t>&& offsets)
+inline void set_layout(raft::resources const& res,
+                       runs& r,
+                       std::vector<int64_t>&& offsets,
+                       std::vector<int64_t>&& bucket)
 {
+  RAFT_EXPECTS(bucket.size() + 1 == offsets.size(),
+               "gpipnn: %zu run offsets do not describe %zu buckets",
+               offsets.size(),
+               bucket.size());
   auto stream = raft::resource::get_cuda_stream(res).get();
   r.h_offsets = std::move(offsets);
+  r.h_bucket  = std::move(bucket);
   r.offsets.resize(r.h_offsets.size(), stream);
   raft::update_device(
     r.offsets.data(), r.h_offsets.data(), static_cast<int64_t>(r.h_offsets.size()), stream);
@@ -172,6 +197,9 @@ RAFT_KERNEL emit_pairs_kernel(const id_t* __restrict__ members,
  * Sorts the first `n_total` (slot, point) pairs by slot, then derives run offsets from the
  * equal-slot runs among the first `n_valid` of them.
  *
+ * `slot_bucket` names the top-level bucket behind each slot, one entry per slot, and the runs
+ * that come out inherit it.
+ *
  * CUB's radix sort is stable, so identical keys keep their emission order and the resulting
  * partition is reproducible across runs.
  */
@@ -180,13 +208,14 @@ inline void group_pairs_into_runs(raft::resources const& res,
                                   rmm::device_uvector<id_t>& vals,
                                   int64_t n_total,
                                   int64_t n_valid,
-                                  int64_t n_slots,
+                                  const std::vector<int64_t>& slot_bucket,
                                   runs& out)
 {
-  auto stream = raft::resource::get_cuda_stream(res).get();
+  auto stream           = raft::resource::get_cuda_stream(res).get();
+  const int64_t n_slots = static_cast<int64_t>(slot_bucket.size());
   if (n_valid == 0) {
     out.members.resize(0, stream);
-    set_offsets(res, out, std::vector<int64_t>{0});
+    set_layout(res, out, std::vector<int64_t>{0}, {});
     return;
   }
 
@@ -211,14 +240,18 @@ inline void group_pairs_into_runs(raft::resources const& res,
   // Runs in increasing slot order, skipping empty slots. Empty slots are zero wide, so the
   // non-empty ones are adjacent and the boundaries are just their start offsets.
   std::vector<int64_t> h_offsets;
+  std::vector<int64_t> h_bucket;
   for (int64_t s = 0; s < n_slots; s++) {
-    if (h_slot_begin[s + 1] > h_slot_begin[s]) { h_offsets.push_back(h_slot_begin[s]); }
+    if (h_slot_begin[s + 1] > h_slot_begin[s]) {
+      h_offsets.push_back(h_slot_begin[s]);
+      h_bucket.push_back(slot_bucket[s]);
+    }
   }
   h_offsets.push_back(n_valid);
 
   vals.resize(n_valid, stream);
   out.members = std::move(vals);
-  set_offsets(res, out, std::move(h_offsets));
+  set_layout(res, out, std::move(h_offsets), std::move(h_bucket));
 }
 
 /** How one assign-then-sort round chooses its leader counts. */
@@ -244,7 +277,8 @@ struct round_config {
  * the oversized tail is brought under the size bound.
  *
  * Slot ids are allocated in input-run order, so the sorted output keeps runs descending from
- * the same parent adjacent. Undersized-run merging depends on that.
+ * the same parent adjacent and leaves `runs::h_bucket` non-decreasing. Undersized-run merging
+ * depends on both.
  */
 inline void assign_then_sort_round(
   raft::resources const& res,
@@ -260,12 +294,15 @@ inline void assign_then_sort_round(
   const int64_t fanout = cfg.fanout;
   const int64_t n_rows = in.total();
   if (n_runs == 0) {
-    set_offsets(res, out, std::vector<int64_t>{0});
+    set_layout(res, out, std::vector<int64_t>{0}, {});
     return;
   }
 
-  // Reserve slots: one per pass-through run, `n_sub` per run being subdivided.
+  // Reserve slots: one per pass-through run, `n_sub` per run being subdivided. A slot inherits
+  // its run's bucket, which is how the top-level grouping survives a round.
   std::vector<run_plan> h_plan(n_runs);
+  std::vector<int64_t> slot_bucket;
+  slot_bucket.reserve(n_runs);
   int64_t total_slots = 0;
   for (int64_t r = 0; r < n_runs; r++) {
     const int64_t size = in.size_of(r);
@@ -279,6 +316,7 @@ inline void assign_then_sort_round(
     if (size <= cfg.split_above || max_sub < fanout) {
       p.is_split   = false;
       p.slot_count = 1;
+      slot_bucket.push_back(in.h_bucket[r]);
       total_slots += 1;
       continue;
     }
@@ -287,6 +325,7 @@ inline void assign_then_sort_round(
     n_sub         = std::clamp<int64_t>(n_sub, fanout, max_sub);
     p.is_split    = true;
     p.slot_count  = n_sub;
+    slot_bucket.insert(slot_bucket.end(), static_cast<size_t>(n_sub), in.h_bucket[r]);
     total_slots += n_sub;
   }
   RAFT_EXPECTS(total_slots < static_cast<int64_t>(kInvalidId),
@@ -358,44 +397,60 @@ inline void assign_then_sort_round(
 
   const int64_t n_invalid = thrust::count(
     raft::resource::get_thrust_policy(res), keys.data(), keys.data() + n_total, kInvalidId);
-  group_pairs_into_runs(res, keys, vals, n_total, n_total - n_invalid, total_slots, out);
+  group_pairs_into_runs(res, keys, vals, n_total, n_total - n_invalid, slot_bucket, out);
 }
 
 /** Slices runs still above `max_size` into fixed-size chunks. */
 inline void chop_oversized(raft::resources const& res, runs& r, int64_t max_size, int64_t& chopped)
 {
   std::vector<int64_t> fixed;
+  std::vector<int64_t> bucket;
   fixed.reserve(r.h_offsets.size());
+  bucket.reserve(r.h_bucket.size());
   fixed.push_back(0);
   for (int64_t i = 0; i < r.count(); i++) {
     const int64_t begin = r.h_offsets[i];
     const int64_t size  = r.size_of(i);
     if (size <= max_size) {
       fixed.push_back(begin + size);
+      bucket.push_back(r.h_bucket[i]);
       continue;
     }
     chopped++;
     for (int64_t o = 0; o < size; o += max_size) {
       fixed.push_back(begin + std::min(o + max_size, size));
+      // Chunks are subsets of the run they came from, so they stay in its bucket.
+      bucket.push_back(r.h_bucket[i]);
     }
   }
-  set_offsets(res, r, std::move(fixed));
+  set_layout(res, r, std::move(fixed), std::move(bucket));
 }
 
 /**
  * Merges consecutive runs below `min_size` into their neighbours, up to `max_size`.
+ *
+ * A merge never reaches across a top-level bucket, so every leaf still draws its points from
+ * exactly one of them. That is the property an out-of-core or multi-GPU build would rely on to
+ * hand a bucket to one worker and have it produce the same leaves the single-GPU build does; a
+ * leaf stitched from two buckets could not be rebuilt from either one. Each bucket's last run
+ * may be left under `min_size` as a result, which is at most one undersized leaf per bucket
+ * against the tens to hundreds of leaves a bucket holds.
  */
 inline void merge_undersized(
   raft::resources const& res, runs& r, int64_t min_size, int64_t max_size, int64_t& merged)
 {
   std::vector<int64_t> fixed;
+  std::vector<int64_t> bucket;
   fixed.reserve(r.h_offsets.size());
+  bucket.reserve(r.h_bucket.size());
   fixed.push_back(0);
   int64_t i = 0;
   while (i < r.count()) {
-    int64_t end  = i;
-    int64_t size = 0;
-    while (end < r.count() && size < min_size && size + r.size_of(end) <= max_size) {
+    const int64_t b = r.h_bucket[i];
+    int64_t end     = i;
+    int64_t size    = 0;
+    while (end < r.count() && r.h_bucket[end] == b && size < min_size &&
+           size + r.size_of(end) <= max_size) {
       size += r.size_of(end);
       end++;
     }
@@ -404,9 +459,10 @@ inline void merge_undersized(
     }
     if (end > i + 1) { merged += end - i; }
     fixed.push_back(r.h_offsets[end]);
+    bucket.push_back(b);
     i = end;
   }
-  set_offsets(res, r, std::move(fixed));
+  set_layout(res, r, std::move(fixed), std::move(bucket));
 }
 
 /**
@@ -435,7 +491,7 @@ inline auto ball_carve(raft::resources const& res,
                    cur.members.data(),
                    cur.members.data() + n_rows,
                    id_t{0});
-  set_offsets(res, cur, std::vector<int64_t>{0, n_rows});
+  set_layout(res, cur, std::vector<int64_t>{0, n_rows}, std::vector<int64_t>{0});
 
   // A dataset that already fits in one leaf needs no carving.
   if (n_rows <= max_leaf) { return cur; }
@@ -457,7 +513,10 @@ inline auto ball_carve(raft::resources const& res,
                  /* max_leaders */ n_leaders},
     params.seed,
     r0);
-  cur              = std::move(r0);
+  cur = std::move(r0);
+  // Round 0's runs are the top-level buckets, so each becomes its own; the rounds after this one
+  // only carry these ids down. Host-side only, so there is nothing to push to the device.
+  std::iota(cur.h_bucket.begin(), cur.h_bucket.end(), int64_t{0});
   stats.rounds_run = 1;
 
   // Round 1: bucket-local sub-leaders, sized to land the resulting leaves near `target`.
