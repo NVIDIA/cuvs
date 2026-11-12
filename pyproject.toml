@@ -8,13 +8,14 @@ exclude = [
 ]
 
 [tool.ruff.lint]
-extend-select = ["B"]
+extend-select = ["B", "S"]
 ignore = [
     # whitespace before :
     "E203",
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"**/test_*.py" = ["S"]
 "*.ipynb" = [
     # unused imports
     "F401",
