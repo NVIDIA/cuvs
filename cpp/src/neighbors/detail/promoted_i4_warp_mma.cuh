@@ -18,6 +18,9 @@
 
 namespace cuvs::neighbors::nn_descent::detail {
 
+// Older architectures have incomplete INT8 fragments even when this template is not instantiated.
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 750)
+
 // Masks one nibble half of a packed-i4 fragment into `dst`, normalised to 0..15. The high half is
 // shifted down so both halves reach the MMA at the same scale and can share one accumulator.
 template <bool High, typename FragT>
@@ -125,5 +128,7 @@ struct i4_warp_mma_u8 {
     }
   }
 };
+
+#endif
 
 }  // namespace cuvs::neighbors::nn_descent::detail
