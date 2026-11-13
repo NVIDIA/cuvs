@@ -618,7 +618,9 @@ def test_run_with_invalid_backend_config(tmp_path):
             "/nonexistent/config.yaml",
         ],
     )
-    assert result.exit_code != 0
+    assert result.exit_code == 2, result.output
+    assert "Invalid value for --backend-config" in result.output
+    assert "/nonexistent/config.yaml" in result.output
 
 
 def test_run_with_n_trials_flag(temp_datasets_dir):
