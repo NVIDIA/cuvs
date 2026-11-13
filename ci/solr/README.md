@@ -10,7 +10,9 @@ also be dispatched manually. Like cuDF's `velox-cudf` workflow, it accepts a
 downstream repository/ref and initially allows compatibility failures without
 failing the nightly workflow. A CPU job builds the full Solr distribution and
 compiles the integration tests. A separate GPU job runs the precompiled
-`TestCuVSCodecSupportIT` on one amd64 configuration from the cuVS build matrix.
+`TestCuVSCodecSupportIT`. Both jobs use a fixed amd64 configuration: CUDA 13.4.3,
+Rocky Linux 8, and Python 3.12, with the shared
+`rapidsai/ci-conda:26.12-cuda13.4.3-rockylinux8-py3.12` image. No matrix job is needed.
 
 The workflow consumes **existing artifacts**, rather than rebuilding cuVS. It
 resolves one completed `build.yaml` run for the selected cuVS commit, then takes

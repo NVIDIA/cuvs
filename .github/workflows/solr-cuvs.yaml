@@ -46,23 +46,7 @@ on:
 permissions: {}
 
 jobs:
-  compute-matrix:
-    permissions:
-      contents: read
-    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
-    with:
-      build_type: nightly
-      matrix_type: nightly
-      matrix_name: conda-cpp-build
-      # Test one configuration that also produces native, Java, and Lucene artifacts.
-      matrix_filter: >-
-        map(select(.ARCH == "amd64")) |
-        sort_by([(.CUDA_VER | split(".") | map(tonumber)), (.PY_VER | split(".") | map(tonumber))]) |
-        .[-1:]
   solr-build:
-    needs: compute-matrix
-    strategy:
-      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
     runs-on: linux-amd64-cpu16
     continue-on-error: ${{ inputs.continue_on_error }}
     timeout-minutes: 120
@@ -72,11 +56,11 @@ jobs:
     outputs:
       bundle_ready: ${{ steps.upload-bundle.outputs.artifact-id != '' }}
     container:
-      image: &solr_image rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}
+      image: &solr_image rapidsai/ci-conda:26.12-cuda13.4.3-rockylinux8-py3.12
     env: &solr_env
       GH_TOKEN: ${{ github.token }}
       RAPIDS_BUILD_TYPE: nightly
-      RAPIDS_CUDA_VERSION: ${{ matrix.CUDA_VER }}
+      RAPIDS_CUDA_VERSION: "13.4.3"
       RAPIDS_REPOSITORY: ${{ github.repository }}
       RAPIDS_REF_NAME: ${{ inputs.branch }}
       SOLR_BUILD_RUN_ID: ${{ inputs.build_run_id }}
@@ -116,7 +100,7 @@ jobs:
         id: upload-bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: solr-cuvs-bundle-cuda${{ matrix.CUDA_VER }}
+          name: solr-cuvs-bundle-cuda${{ env.RAPIDS_CUDA_VERSION }}
           path: solr-work/solr-test-bundle.tar.gz
           compression-level: 0
           if-no-files-found: error
@@ -129,15 +113,13 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: solr-cuvs-build-cuda${{ matrix.CUDA_VER }}
+          name: solr-cuvs-build-cuda${{ env.RAPIDS_CUDA_VERSION }}
           path: artifacts/solr/
           if-no-files-found: warn
   solr-test:
-    needs: [compute-matrix, solr-build]
+    needs: solr-build
     # An allowed CPU failure must not start a GPU job without a complete bundle.
     if: ${{ needs.solr-build.outputs.bundle_ready == 'true' }}
-    strategy:
-      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
     runs-on: linux-amd64-gpu-rtxpro6000-latest-1
     continue-on-error: ${{ inputs.continue_on_error }}
     timeout-minutes: 60
@@ -168,6 +150,6 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: solr-cuvs-cuda${{ matrix.CUDA_VER }}
+          name: solr-cuvs-cuda${{ env.RAPIDS_CUDA_VERSION }}
           path: artifacts/solr/
           if-no-files-found: warn
