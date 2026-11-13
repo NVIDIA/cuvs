@@ -77,7 +77,7 @@ uint32_t max_train_points_per_vq_cluster = 1024);
 | `use_vq` |  | `bool` |  |
 | `vq_n_centers` |  | `uint32_t` |  |
 | `kmeans_n_iters` |  | `uint32_t` |  |
-| `pq_kmeans_type` |  | [`cuvs::cluster::kmeans::kmeans_type`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-kmeans-type) | Default: `cuvs::cluster::kmeans::kmeans_type::KMeansBalanced`. |
+| `pq_kmeans_type` |  | [`cuvs::cluster::kmeans::kmeans_type`](/api-reference/cpp-api-neighbors-common#cluster-kmeans-kmeans-type) | Default: `cuvs::cluster::kmeans::kmeans_type::KMeansBalanced`. |
 | `max_train_points_per_pq_code` |  | `uint32_t` | Default: `256`. |
 | `max_train_points_per_vq_cluster` |  | `uint32_t` | Default: `1024`. |
 

@@ -14,7 +14,7 @@ SPDX-License-Identifier: Apache-2.0
   <groupId>com.nvidia.cuvs.lucene</groupId>
   <artifactId>cuvs-lucene-parent</artifactId>
   <!-- NOTE: The version automatically gets updated when ci/release/update-version.sh is invoked. -->
-  <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+  <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>27.02.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
   <name>cuvs-lucene-parent</name>
   <packaging>pom</packaging>
 
@@ -61,6 +61,9 @@ SPDX-License-Identifier: Apache-2.0
   <modules>
     <module>lucene-10.2</module>
     <module>lucene-10.3</module>
+    <module>lucene-10.4</module>
+    <module>lucene-10.5</module>
+    <module>lucene-10.6</module>
     <!-- Relocates the pre-26.12 com.nvidia.cuvs.lucene:cuvs-lucene coordinates to cuvs-lucene-10.2. -->
     <module>relocation</module>
   </modules>
@@ -182,7 +185,7 @@ SPDX-License-Identifier: Apache-2.0
       <dependency>
         <groupId>com.nvidia.cuvs</groupId>
         <artifactId>cuvs-java</artifactId>
-        <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>26.12.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
+        <!--CUVS_JAVA#VERSION_UPDATE_MARKER_START--><version>27.02.0</version><!--CUVS_JAVA#VERSION_UPDATE_MARKER_END-->
       </dependency>
       <dependency>
         <groupId>commons-io</groupId>
@@ -218,6 +221,7 @@ SPDX-License-Identifier: Apache-2.0
                   <!-- The variant of each adapted Lucene class the module's release needs; see compat/. -->
                   <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnVectorsReader}/src/main/java</source>
                   <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnFloatVectorQuery}/src/main/java</source>
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnVectorsWriter}/src/main/java</source>
                 </sources>
               </configuration>
             </execution>
@@ -245,6 +249,7 @@ SPDX-License-Identifier: Apache-2.0
                 <sources>
                   <source>${cuvs.lucene.shared.dir}/test/java</source>
                   <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.leafReader}/src/test/java</source>
+                  <source>${cuvs.lucene.compat.dir}/${cuvs.lucene.compat.knnFloatVectorQuery}/src/test/java</source>
                 </sources>
               </configuration>
             </execution>

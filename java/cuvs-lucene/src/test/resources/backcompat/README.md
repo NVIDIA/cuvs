@@ -14,9 +14,10 @@ anywhere else, so that it can't go unread.
 
 Released versions only cover the Lucene releases they supported. To also check upgrades between Lucene
 releases that no released version supports yet, `TestBackCompatIndices` in every module writes the same
-documents with its own codecs to `target/backcompat/<lucene major.minor>/<codec>.zip` (the parent `pom.xml`
-sets the directory), and reads and upgrades the indexes that the modules for earlier Lucene releases wrote
-there. Maven tests the modules from the oldest Lucene release up, so `mvn test` checks every such upgrade
+documents with its own codecs to `target/backcompat/<lucene major.minor>/<codec>.zip`, and with Lucene's own
+codec and each of its vectors formats set per field to `target/backcompat/<lucene major.minor>/<format>.zip`
+(the parent `pom.xml` sets the directory). It reads and upgrades the indexes that the modules for earlier
+Lucene releases wrote there: per-field ones with Lucene's current codec and the format that replaces theirs. Maven tests the modules from the oldest Lucene release up, so `mvn test` checks every such upgrade
 with the code being tested. Nothing is committed for these.
 
 ## Written by released cuvs-lucene versions
