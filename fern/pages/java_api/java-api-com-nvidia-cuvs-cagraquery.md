@@ -215,23 +215,23 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraQuery.java:199`_
 public Builder withPrefilter(BitSet prefilter, int numDocs)
 ```
 
-Sets a global prefilter for all queries in this `CagraQuery`.
-The `prefilter` array must contain exactly one `BitSet`,
-which is applied to all queries. A bit value of `1` includes the
-corresponding dataset vector; `0` excludes it.
+Sets a prefilter shared by all queries in this `CagraQuery`. Bit `i` set
+includes dataset vector `i` in the results; bit `i` clear excludes it. A
+`BitSet` with no bits set excludes every vector, so the search returns no results,
+while a `null` prefilter applies no filtering.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
-| `prefilter` | an array with the global filter BitSet |
-| `numDocs` | total number of vectors in the dataset (for alignment) |
+| `prefilter` | the filter, or `null` for no filtering |
+| `numDocs` | the number of vectors the filter covers. The search throws `IllegalArgumentException` if it is smaller than the number of vectors in the index. Bits at or beyond `numDocs` are ignored. |
 
 **Returns**
 
 this `Builder` instance
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraQuery.java:214`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraQuery.java:216`_
 
 ### build
 
@@ -245,6 +245,6 @@ Builds an instance of CuVSQuery.
 
 an instance of CuVSQuery
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraQuery.java:225`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraQuery.java:227`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/CagraQuery.java:21`_

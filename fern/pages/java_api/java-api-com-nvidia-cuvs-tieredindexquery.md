@@ -277,20 +277,27 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexQuery.java:226
 public Builder withPrefilter(BitSet prefilter, int numDocs)
 ```
 
-Sets a BitSet to use as prefilter while searching.
+Sets a prefilter shared by all queries. Bit `i` set includes dataset vector `i`
+in the results; bit `i` clear excludes it. A `BitSet` with no bits set excludes
+every vector, so the search returns no results, while a `null` prefilter applies no
+filtering.
+
+Known limitation: a filtered search of an index that holds both vectors in its CAGRA
+index and vectors added by `extend` that have not been indexed yet can return wrong
+results: cuVS filters the latter by the wrong bits, and can return wrong ids and distances.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
-| `prefilter` | the BitSet to use as prefilter |
-| `numDocs` | Total number of dataset vectors; used to align the prefilter correctly |
+| `prefilter` | the filter, or `null` for no filtering |
+| `numDocs` | the number of vectors in the index at the time of the search, including any added by `extend`. cuVS reads one bit per vector, so a smaller value leaves it reading past the end of the filter. Bits at or beyond `numDocs` are ignored. |
 
 **Returns**
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexQuery.java:239`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexQuery.java:247`_
 
 ### build
 
@@ -310,6 +317,6 @@ an instance of TieredIndexQuery
 | --- | --- |
 | `IllegalStateException` | if required parameters are missing |
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexQuery.java:251`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexQuery.java:259`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/TieredIndexQuery.java:23`_

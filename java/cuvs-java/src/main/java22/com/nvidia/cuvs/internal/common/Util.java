@@ -25,7 +25,6 @@ import java.lang.foreign.MemorySegment;
 import java.lang.foreign.SymbolLookup;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.VarHandle;
-import java.util.BitSet;
 import java.util.logging.Logger;
 
 public class Util {
@@ -344,21 +343,6 @@ public class Util {
     for (int r = 0; r < rows; r++) {
       MemorySegment.copy(data[r], 0, memorySegment, C_CHAR, (r * cols * C_CHAR.byteSize()), cols);
     }
-  }
-
-  public static BitSet concatenate(BitSet[] arr, int maxSizeOfEachBitSet) {
-    BitSet ret = new BitSet(maxSizeOfEachBitSet * arr.length);
-    for (int i = 0; i < arr.length; i++) {
-      BitSet b = arr[i];
-      if (b == null || b.length() == 0) {
-        ret.set(i * maxSizeOfEachBitSet, (i + 1) * maxSizeOfEachBitSet);
-      } else {
-        for (int j = 0; j < maxSizeOfEachBitSet; j++) {
-          ret.set(i * maxSizeOfEachBitSet + j, b.get(j));
-        }
-      }
-    }
-    return ret;
   }
 
   /**

@@ -8,22 +8,19 @@ import static com.nvidia.cuvs.internal.CuVSParamsHelper.createTieredIndexParams;
 import static com.nvidia.cuvs.internal.common.CloseableRMMAllocation.allocateRMMSegment;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_FLOAT_BYTE_SIZE;
-import static com.nvidia.cuvs.internal.common.LinkerHelper.C_INT_BYTE_SIZE;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_LONG_BYTE_SIZE;
 import static com.nvidia.cuvs.internal.common.LinkerHelper.C_POINTER;
 import static com.nvidia.cuvs.internal.common.Util.CudaMemcpyKind.*;
-import static com.nvidia.cuvs.internal.common.Util.buildMemorySegment;
 import static com.nvidia.cuvs.internal.common.Util.checkCuVSError;
 import static com.nvidia.cuvs.internal.common.Util.checkCudaError;
-import static com.nvidia.cuvs.internal.common.Util.concatenate;
 import static com.nvidia.cuvs.internal.common.Util.prepareTensor;
 import static com.nvidia.cuvs.internal.panama.headers_h.*;
 
 import com.nvidia.cuvs.*;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.internal.common.CloseableHandle;
-import com.nvidia.cuvs.internal.common.CloseableRMMAllocation;
+import com.nvidia.cuvs.internal.common.Prefilters;
 import com.nvidia.cuvs.internal.common.Util;
 import com.nvidia.cuvs.internal.panama.cuvsCagraIndexParams;
 import com.nvidia.cuvs.internal.panama.cuvsCagraSearchParams;
@@ -155,8 +152,6 @@ public class TieredIndexImpl implements TieredIndex {
     }
   }
 
-  private static final BitSet[] EMPTY_PREFILTER_BITSET = new BitSet[0];
-
   /**
    * Translates C search_tiered_index function to Java
    * Invokes the native search_tiered_index via the Panama API for searching a
@@ -189,25 +184,19 @@ public class TieredIndexImpl implements TieredIndex {
       final long queriesBytes = C_FLOAT_BYTE_SIZE * numQueries * vectorDimension;
       final long neighborsBytes = C_LONG_BYTE_SIZE * numQueries * topK; // 64-bit for tiered index
       final long distancesBytes = C_FLOAT_BYTE_SIZE * numQueries * topK;
-      final boolean hasPreFilter = query.getPrefilter() != null;
       final BitSet[] prefilters =
-          hasPreFilter ? new BitSet[] {query.getPrefilter()} : EMPTY_PREFILTER_BITSET;
-      final long prefilterDataLength = hasPreFilter ? query.getNumDocs() * prefilters.length : 0;
-      final long prefilterLen = hasPreFilter ? (prefilterDataLength + 31) / 32 : 0;
-      // TODO: is this correct? prefilters is a LONG array
-      final long prefilterBytes = C_INT_BYTE_SIZE * prefilterLen;
+          query.getPrefilter() != null ? new BitSet[] {query.getPrefilter()} : null;
 
       try (var resourceAccess = query.getResources().access()) {
         long cuvsRes = resourceAccess.handle();
 
+        MemorySegment prefilter = cuvsFilter.allocate(localArena);
         // Allocate DEVICE memory for all data
         try (var queriesDP = allocateRMMSegment(cuvsRes, queriesBytes);
             var neighborsDP = allocateRMMSegment(cuvsRes, neighborsBytes);
             var distancesDP = allocateRMMSegment(cuvsRes, distancesBytes);
             var prefilterDP =
-                hasPreFilter
-                    ? allocateRMMSegment(cuvsRes, prefilterBytes)
-                    : CloseableRMMAllocation.EMPTY) {
+                Prefilters.fill(cuvsRes, localArena, prefilter, prefilters, query.getNumDocs())) {
 
           // Copy queries from host to device
           var returnValue =
@@ -234,40 +223,15 @@ public class TieredIndexImpl implements TieredIndex {
               prepareTensor(
                   localArena, distancesDP.handle(), distancesShape, kDLFloat(), 32, kDLCUDA());
 
-          // Sync before prefilter setup
+          // The brute-force part of the search can leave result slots unwritten when fewer than
+          // topK rows pass the filter, so mark every slot empty first.
+          checkCudaError(
+              cudaMemsetAsync(neighborsDP.handle(), -1, neighborsBytes, Util.getStream(cuvsRes)),
+              "cudaMemsetAsync");
+
+          // Sync before search
           returnValue = cuvsStreamSync(cuvsRes);
           checkCuVSError(returnValue, "cuvsStreamSync");
-
-          // Handle prefilter
-          MemorySegment prefilter = cuvsFilter.allocate(localArena);
-
-          if (hasPreFilter) {
-            BitSet concatenatedFilters = concatenate(prefilters, (int) query.getNumDocs());
-            long[] filters = concatenatedFilters.toLongArray();
-            MemorySegment hostPrefilterSeg =
-                buildMemorySegment(localArena, filters, (prefilterDataLength + 63) / 64);
-
-            long[] prefilterShape = {prefilterLen};
-
-            // Copy prefilter to device
-            checkCudaError(
-                cudaMemcpy(
-                    prefilterDP.handle(),
-                    hostPrefilterSeg,
-                    prefilterBytes,
-                    cudaMemcpyHostToDevice()),
-                "cudaMemcpy");
-
-            MemorySegment prefilterTensor =
-                prepareTensor(
-                    localArena, prefilterDP.handle(), prefilterShape, kDLUInt(), 32, kDLCUDA());
-
-            cuvsFilter.type(prefilter, 1); // BITSET
-            cuvsFilter.addr(prefilter, prefilterTensor.address());
-          } else {
-            cuvsFilter.type(prefilter, 0); // NO_FILTER
-            cuvsFilter.addr(prefilter, 0);
-          }
 
           // Perform search
           returnValue =
