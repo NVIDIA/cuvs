@@ -45,15 +45,19 @@ CPython 3.12-3.14 with development headers and `venv` support, GNU Make, a C/C++
 compiler, `awk`, `curl`, `flock`, `gzip`, `patch`, `tar`, GNU coreutils, and GNU
 findutils. CUDA and a supported NVIDIA GPU are required for GPU execution.
 
-For native cuVS integrations, start at the repository root and, before
-activating the isolated PyLucene environment, build matching native cuVS,
-base `cuvs-java`, and thin `cuvs-lucene` artifacts. Standalone CPU PyLucene does
-not need native cuVS or either JAR, so CPU-only users can skip this command and
-the native-library setup below, but should retain the documented cuVS build
-environment for the editable install.
+Start at the repository root and select JDK 22 for both CPU and GPU runs:
 
 ```bash
 export JAVA_HOME=/absolute/path/to/jdk-22
+```
+
+For native cuVS integrations, build matching native cuVS, base `cuvs-java`,
+and thin `cuvs-lucene` artifacts before activating the isolated PyLucene
+environment. Standalone CPU PyLucene does not need native cuVS or either JAR,
+so CPU-only users can skip this command and the native-library setup below,
+but should retain the documented cuVS build environment for the editable install.
+
+```bash
 ./build.sh libcuvs java lucene
 ```
 
