@@ -124,7 +124,7 @@ if [ "${PHASE}" = patch ]; then
   cp -a "${CI_ROOT}/ci/solr/patches" "${SOLR_RESULTS_DIR}/"
   git -C "${SOLR_SOURCE_DIR}" rev-parse HEAD > "${SOLR_RESULTS_DIR}/solr-base-sha.txt"
   PATCH_EXITCODE=0
-  cmake -S "${CI_ROOT}/ci/solr" -B "${SOLR_WORK_DIR}/patch-build" \
+  cmake -G Ninja -S "${CI_ROOT}/ci/solr" -B "${SOLR_WORK_DIR}/patch-build" \
     -DSOLR_SOURCE_DIR="${SOLR_SOURCE_DIR}" || PATCH_EXITCODE=$?
   if [ -d "${SOLR_WORK_DIR}/patch-build/rapids-cmake/patches/solr" ]; then
     mkdir -p "${SOLR_RESULTS_DIR}/patch-status"

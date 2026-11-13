@@ -127,7 +127,8 @@ boundary when known (`fixed_in`), and marks whether application must succeed
 is known; add the upstream issue/PR link to `issue` when one is available.
 
 The `patch` phase configures this directory's CMake project with no compiler or
-CUDA detection. It uses cuVS's existing RAPIDS CMake bootstrap, registers the
+CUDA detection. It explicitly uses Ninja, supplied by the Java environment's
+`rapids_build` dependencies. It uses cuVS's existing RAPIDS CMake bootstrap, registers the
 manifest with `rapids_cpm_package_override`, and executes the generated patch
 command against the Solr checkout on the CPU runner. Gradle performs the CPU
 build and exports the test configuration used by the GPU runner.
@@ -148,7 +149,7 @@ logs, and resulting source diff. This records the modifications alongside the
 base revision even when a patch fails. To validate patching alone:
 
 ```sh
-cmake -S ci/solr -B /tmp/solr-patches -DSOLR_SOURCE_DIR=/absolute/path/to/solr
+cmake -G Ninja -S ci/solr -B /tmp/solr-patches -DSOLR_SOURCE_DIR=/absolute/path/to/solr
 ```
 
 ## GPU checks
