@@ -102,6 +102,20 @@ void tiled_brute_force_knn(const raft::resources& handle,
   // tile_cols must be at least k items
   tile_cols = std::max(tile_cols, k);
 
+  // Expanded L2 ranks a query's rows by |x|^2 - 2 q.x, which one GEMM writes with the index norms
+  // added in its epilogue (raft::linalg::gemm's bias), so no pass over the tile turns dot products
+  // into distances. |q|^2 is added after the selection, to the k kept per row.
+  constexpr bool l2_scores_supported =
+    std::is_same_v<DistanceT, float> &&
+    (std::is_same_v<ElementType, float> || std::is_same_v<ElementType, half>) &&
+    std::is_same_v<DistanceEpilogue, raft::identity_op>;
+  bool const l2_scored =
+    l2_scores_supported && (metric == cuvs::distance::DistanceType::L2Expanded ||
+                            metric == cuvs::distance::DistanceType::L2SqrtExpanded);
+  // cuBLASLt's fast kernels need the tile's rows and the bias (the norms at norms + j) 16-byte
+  // aligned, so column tiles span multiples of 4 index rows.
+  if (l2_scored && tile_cols < n) { tile_cols = std::max(tile_cols - tile_cols % 4, k); }
+
   // stores pairwise distances for the current tile
   rmm::device_uvector<DistanceT> temp_distances(tile_rows * tile_cols, stream);
 
@@ -149,6 +163,14 @@ void tiled_brute_force_knn(const raft::resources& handle,
     }
     pairwise_metric = cuvs::distance::DistanceType::InnerProduct;
   }
+  // Precomputed norms that aren't 16-byte aligned, such as a slice of a larger vector, would make
+  // every tile's bias misaligned, so they are copied to an aligned buffer once per search.
+  if (l2_scored && precomputed_index_norms != nullptr &&
+      reinterpret_cast<uintptr_t>(precomputed_index_norms) % 16 != 0) {
+    index_norms.resize(n, stream);
+    raft::copy(index_norms.data(), precomputed_index_norms, n, stream);
+    precomputed_index_norms = index_norms.data();
+  }
 
   // if we're tiling over columns, we need additional buffers for temporary output
   // distances/indices
@@ -180,14 +202,6 @@ void tiled_brute_force_knn(const raft::resources& handle,
 
   bool select_min = cuvs::distance::is_min_close(metric);
 
-  // Expanded L2 ranks a query's rows by |x|^2 - 2 q.x, which one GEMM writes with the index norms
-  // added in its epilogue (raft::linalg::gemm's bias), so no pass over the tile turns dot products
-  // into distances. |q|^2 is added after the selection, to the k kept per row.
-  constexpr bool l2_scores_supported =
-    std::is_same_v<DistanceT, float> &&
-    (std::is_same_v<ElementType, float> || std::is_same_v<ElementType, half>) &&
-    std::is_same_v<DistanceEpilogue, raft::identity_op>;
-
   for (size_t i = 0; i < m; i += tile_rows) {
     size_t current_query_size = std::min(tile_rows, m - i);
 
@@ -195,10 +209,8 @@ void tiled_brute_force_knn(const raft::resources& handle,
       size_t current_centroid_size = std::min(tile_cols, n - j);
       size_t current_k             = std::min(current_centroid_size, k);
 
-      bool l2_scored = false;
       if constexpr (l2_scores_supported) {
-        if (metric == cuvs::distance::DistanceType::L2Expanded ||
-            metric == cuvs::distance::DistanceType::L2SqrtExpanded) {
+        if (l2_scored) {
           // Column-major, the row-major [queries x index rows] tile is index * search^T, and the
           // bias adds one norm per index row.
           auto col_norms = precomputed_index_norms ? precomputed_index_norms : index_norms.data();
@@ -220,7 +232,6 @@ void tiled_brute_force_knn(const raft::resources& handle,
                              static_cast<int>(current_centroid_size),
                              stream.get(),
                              col_norms + j);
-          l2_scored = true;
         }
       }
       if (!l2_scored) {
