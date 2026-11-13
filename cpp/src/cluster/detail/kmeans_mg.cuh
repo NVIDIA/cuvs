@@ -605,7 +605,8 @@ void mnmg_fit(
         dev_res,
         rank_centroids_const,
         raft::make_const_mdspan(new_centroids.view()),
-        sqrd_norm_error_dev.view());
+        sqrd_norm_error_dev.view(),
+        workspace);
 
       raft::copy(
         rank_centroids.data_handle(), new_centroids.data_handle(), n_clusters * n_features, stream);
