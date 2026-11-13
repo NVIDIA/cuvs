@@ -98,7 +98,9 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t fanout_level1 = 4;
   /** Maximum number of levels of the partition tree (assign-then-sort rounds). */
   uint32_t max_rounds = 4;
-  /** Alpha parameter of the DirectEdgePrune occlusion rule. Larger retains more edges. */
+  /** Alpha parameter of the DirectEdgePrune occlusion rule. Larger retains more edges.
+   * Pruning starts at 1.0 and increases in steps of `kAlphaRampStep=1.2` until this is reached.
+   */
   float alpha = 1.2f;
   /**
    * Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves

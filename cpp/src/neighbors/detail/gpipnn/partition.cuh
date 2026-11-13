@@ -52,9 +52,10 @@ struct runs {
    * were drawn from. Slots are allocated in input-run order, which keeps a bucket's runs
    * contiguous and these ids non-decreasing.
    *
-   * Host-only: nothing on the device needs it. It exists so `merge_undersized` can stop at
-   * bucket boundaries, since a leaf fused from two buckets could not be rebuilt from either one
-   * alone.
+   * Host-only: nothing on the device needs it. Two things read it, both to keep a bucket's
+   * subtree reproducible on its own: `merge_undersized` stops at bucket boundaries, since a leaf
+   * fused from two buckets could not be rebuilt from either one alone, and `run_sampling_seed`
+   * names runs by it so that carving a bucket in isolation samples the same leaders.
    */
   std::vector<int64_t> h_bucket;
 
@@ -117,7 +118,33 @@ struct run_plan {
   int64_t slot_begin;
   int64_t slot_count;
   bool is_split;
+  /** Where this run starts sampling leaders; see `run_sampling_seed`. */
+  uint64_t seed;
 };
+
+/**
+ * The seed run `rank` of bucket `bucket` samples its leaders from, in a round seeded `round_seed`.
+ *
+ * Addressing the run by the bucket it descends from and its rank within that bucket, rather than
+ * by its position in the round's flattened run array, is what lets a bucket be carved on its own
+ * and reach the same partition it would have reached as part of the whole dataset. The array
+ * position shifts when other buckets are absent; neither of these does, because slots are
+ * allocated in input-run order and so a bucket's runs stay contiguous and in a stable order.
+ * A build that splits buckets across workers has to keep naming them by their global ids for
+ * that to hold, since relabelling a bucket reseeds its whole subtree.
+ *
+ * A splitmix64 finalizer over the two mixed in on distinct odd constants; sampling only needs
+ * decorrelation across runs, not stream quality.
+ */
+inline auto run_sampling_seed(uint64_t round_seed, int64_t bucket, int64_t rank) -> uint64_t
+{
+  uint64_t h = round_seed ^ (static_cast<uint64_t>(bucket) * 0x9e3779b97f4a7c15ULL) ^
+               (static_cast<uint64_t>(rank) * 0xc2b2ae3d27d4eb4fULL);
+  h ^= h >> 30;
+  h *= 0xbf58476d1ce4e5b9ULL;
+  h ^= h >> 27;
+  return h;
+}
 
 /**
  * Picks `plan[r].slot_count` leaders out of run `r` by striding through it from a random offset.
@@ -128,7 +155,6 @@ struct run_plan {
 RAFT_KERNEL sample_leaders_kernel(const id_t* __restrict__ members,
                                   const run_plan* __restrict__ plan,
                                   int64_t n_runs,
-                                  uint64_t seed,
                                   id_t* __restrict__ leaders)
 {
   const int64_t r = blockIdx.x;
@@ -138,12 +164,7 @@ RAFT_KERNEL sample_leaders_kernel(const id_t* __restrict__ members,
   const int64_t count = p.slot_count;
   if (count <= 0 || size <= 0) { return; }
 
-  // A splitmix64 finalizer; sampling only needs decorrelation across runs, not stream quality.
-  uint64_t h = seed ^ (static_cast<uint64_t>(r) * 0x9e3779b97f4a7c15ULL);
-  h ^= h >> 30;
-  h *= 0xbf58476d1ce4e5b9ULL;
-  h ^= h >> 27;
-  const int64_t offset = static_cast<int64_t>(h % static_cast<uint64_t>(size));
+  const int64_t offset = static_cast<int64_t>(p.seed % static_cast<uint64_t>(size));
   const int64_t stride = size / count > 0 ? size / count : 1;
 
   for (int64_t j = threadIdx.x; j < count; j += blockDim.x) {
@@ -304,19 +325,26 @@ inline void assign_then_sort_round(
   std::vector<int64_t> slot_bucket;
   slot_bucket.reserve(n_runs);
   int64_t total_slots = 0;
+  // `h_bucket` is non-decreasing, so a run's rank within its bucket is a running count that
+  // resets at each boundary.
+  int64_t rank_in_bucket = 0;
   for (int64_t r = 0; r < n_runs; r++) {
+    const int64_t bucket = in.h_bucket[r];
+    if (r > 0 && bucket != in.h_bucket[r - 1]) { rank_in_bucket = 0; }
     const int64_t size = in.size_of(r);
     run_plan& p        = h_plan[r];
     p.member_begin     = in.h_offsets[r];
     p.member_count     = size;
     p.slot_begin       = total_slots;
+    p.seed             = run_sampling_seed(seed, bucket, rank_in_bucket);
+    rank_in_bucket++;
     // A run must offer at least `fanout` leaders, so
     // one too small to do that passes through even if it exceeds the size threshold.
     const int64_t max_sub = std::min(cfg.max_leaders, size);
     if (size <= cfg.split_above || max_sub < fanout) {
       p.is_split   = false;
       p.slot_count = 1;
-      slot_bucket.push_back(in.h_bucket[r]);
+      slot_bucket.push_back(bucket);
       total_slots += 1;
       continue;
     }
@@ -325,7 +353,7 @@ inline void assign_then_sort_round(
     n_sub         = std::clamp<int64_t>(n_sub, fanout, max_sub);
     p.is_split    = true;
     p.slot_count  = n_sub;
-    slot_bucket.insert(slot_bucket.end(), static_cast<size_t>(n_sub), in.h_bucket[r]);
+    slot_bucket.insert(slot_bucket.end(), static_cast<size_t>(n_sub), bucket);
     total_slots += n_sub;
   }
   RAFT_EXPECTS(total_slots < static_cast<int64_t>(kInvalidId),
@@ -336,7 +364,7 @@ inline void assign_then_sort_round(
 
   rmm::device_uvector<id_t> leaders(total_slots, stream);
   sample_leaders_kernel<<<n_runs, 128, 0, stream>>>(
-    in.members.data(), d_plan.data(), n_runs, seed, leaders.data());
+    in.members.data(), d_plan.data(), n_runs, leaders.data());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
   // Chunk each run's queries so no segment's working set overruns the L2 cache budget. All chunks
