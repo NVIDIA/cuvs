@@ -249,7 +249,7 @@ EXTERN_TEMPLATE_BUILD_CLUSTERS(
  * In other words, the updated cluster centers are a weighted average of the existing cluster
  * center, and the coordinates of the points labeled with i. _This allows calling this function
  * multiple times with different datasets with the same effect as if calling this function once
- * on the combined dataset_.
+ * on the combined dataset_. A cluster with `|S_i| + w_i == 0` keeps its center.
  *
  * @code{.cpp}
  *   #include <raft/core/handle.hpp>
@@ -272,7 +272,8 @@ EXTERN_TEMPLATE_BUILD_CLUSTERS(
  * @param[in]  X              Dataset for which to calculate cluster centers. The data must be in
  *                            row-major format. [dim = n_samples x n_features]
  * @param[in]  labels         The input labels [dim = n_samples]
- * @param[out] centroids      The output centroids
+ * @param[inout] centroids    The output centroids; read if `reset_counters` is false or for
+ *                            clusters without points
  *                            [dim = n_clusters x
  *                            (is_packed_binary ? 8 * n_features : n_features)]
  * @param[out] cluster_sizes  Size of each cluster [dim = n_clusters]
