@@ -8,6 +8,7 @@
 
 #include <raft/matrix/init.cuh>
 #include <raft/util/integer_utils.hpp>
+#include <raft/util/kernel_launch.hpp>
 
 #include <rmm/device_uvector.hpp>
 
@@ -56,17 +57,19 @@ __global__ void fp32_tf32_norms_kernel(const float* input,
   constexpr int groups_per_warp = raft::WarpSize / LanesPerRow;
   const int lane                = threadIdx.x % raft::WarpSize;
   const int sub                 = lane % LanesPerRow;
-  const auto warp = (static_cast<IndexT>(blockIdx.x) * blockDim.x + threadIdx.x) / raft::WarpSize;
+  // Rows are counted in 64 bits: with a 32-bit IndexT, base + stride can pass INT_MAX.
+  const auto warp =
+    (static_cast<std::int64_t>(blockIdx.x) * blockDim.x + threadIdx.x) / raft::WarpSize;
   const auto stride =
-    static_cast<IndexT>(gridDim.x) * (blockDim.x / raft::WarpSize) * groups_per_warp * kRows;
+    static_cast<std::int64_t>(gridDim.x) * (blockDim.x / raft::WarpSize) * groups_per_warp * kRows;
 
-  for (IndexT base = warp * groups_per_warp * kRows; base < rows; base += stride) {
+  for (std::int64_t base = warp * groups_per_warp * kRows; base < rows; base += stride) {
     float fp32_sum[kRows]{};
     float tf32_sum[kRows]{};
-    const IndexT first_row = base + lane / LanesPerRow;
+    const std::int64_t first_row = base + lane / LanesPerRow;
 #pragma unroll
     for (int r = 0; r < kRows; r++) {
-      const IndexT row = first_row + r * groups_per_warp;
+      const std::int64_t row = first_row + r * groups_per_warp;
       if (row >= rows) { continue; }
       auto add = [&](float value) {
         if constexpr (Fp32) { fp32_sum[r] += value * value; }
@@ -75,7 +78,7 @@ __global__ void fp32_tf32_norms_kernel(const float* input,
 #endif
         tf32_sum[r] += value * value;
       };
-      const float* row_ptr = input + static_cast<std::size_t>(row) * static_cast<std::size_t>(cols);
+      const float* row_ptr = input + row * static_cast<std::int64_t>(cols);
       for (IndexT col = sub; col < cols; col += LanesPerRow) {
         add(row_ptr[col]);
       }
@@ -86,7 +89,7 @@ __global__ void fp32_tf32_norms_kernel(const float* input,
         if constexpr (Fp32) { fp32_sum[r] += __shfl_xor_sync(0xffffffff, fp32_sum[r], offset); }
         tf32_sum[r] += __shfl_xor_sync(0xffffffff, tf32_sum[r], offset);
       }
-      const IndexT row = first_row + r * groups_per_warp;
+      const std::int64_t row = first_row + r * groups_per_warp;
       if (sub == 0 && row < rows) {
         if constexpr (Fp32) { fp32_norms[row] = take_sqrt ? sqrtf(fp32_sum[r]) : fp32_sum[r]; }
         tf32_norms[row] = take_sqrt ? sqrtf(tf32_sum[r]) : tf32_sum[r];
@@ -116,9 +119,16 @@ void launch_row_norms(raft::resources const& handle,
     const auto rows_per_block = std::size_t{threads_per_block / kLanes * 2};
     const auto blocks         = static_cast<unsigned int>(std::min<std::size_t>(
       raft::ceildiv<std::size_t>(static_cast<std::size_t>(rows), rows_per_block), 65535));
-    fp32_tf32_norms_kernel<IndexT, kLanes, Fp32>
-      <<<blocks, threads_per_block, 0, raft::resource::get_cuda_stream(handle).get()>>>(
-        x, fp32_norms, tf32_norms, rows, cols, take_sqrt);
+    raft::launch_kernel(handle,
+                        blocks,
+                        threads_per_block,
+                        fp32_tf32_norms_kernel<IndexT, kLanes, Fp32>,
+                        x,
+                        fp32_norms,
+                        tf32_norms,
+                        rows,
+                        cols,
+                        take_sqrt);
   };
   switch (lanes) {
     case 1: launch(std::integral_constant<int, 1>{}); break;
@@ -128,7 +138,6 @@ void launch_row_norms(raft::resources const& handle,
     case 16: launch(std::integral_constant<int, 16>{}); break;
     default: launch(std::integral_constant<int, 32>{}); break;
   }
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
 template <typename IndexT>
@@ -175,7 +184,6 @@ void compute_fp32_tf32_norms(raft::resources const& handle,
                          input.extent(0),
                          input.extent(1),
                          take_sqrt);
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
 }
 
 template void compute_fp32_tf32_norms<int>(raft::resources const&,
@@ -271,10 +279,10 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
       case Top1nnNormPolicy::Tf32:
         if constexpr (std::is_same_v<DataT, float>) {
           if (need_compute_x_norms && !need_compute_distance) {
-            RAFT_CUDA_TRY(cudaMemsetAsync(computed_x_norm,
-                                          0,
-                                          sizeof(DataT) * static_cast<std::size_t>(n_samples),
-                                          stream.get()));
+            raft::matrix::fill(
+              handle,
+              raft::make_device_vector_view<DataT, IndexT>(computed_x_norm, n_samples),
+              DataT{0});
           } else if (need_compute_x_norms) {
             compute_tf32_norms(
               handle, X.data_handle(), computed_x_norm, n_samples, n_features, take_sqrt);
