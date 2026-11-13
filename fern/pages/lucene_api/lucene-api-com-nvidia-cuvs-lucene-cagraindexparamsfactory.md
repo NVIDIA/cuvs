@@ -15,7 +15,7 @@ classes based on the chosen strategy.
 
 For the `HEURISTIC` strategy the build heuristics are delegated to cuVS.
 
-## Public Members
+## Public and Protected Members
 
 ### create
 

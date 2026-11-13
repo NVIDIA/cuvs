@@ -12,7 +12,7 @@ public class GPUBuiltHnswGraph extends HnswGraph
 
 This class holds the in-memory representation of the HNSW graph
 
-## Public Members
+## Public and Protected Members
 
 ### GPUBuiltHnswGraph
 

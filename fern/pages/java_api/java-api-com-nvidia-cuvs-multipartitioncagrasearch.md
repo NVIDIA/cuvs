@@ -18,7 +18,7 @@ merge, and the post-processing internally, then returns the merged results.
 As with `CagraIndex#search(CagraQuery)`, the query vectors may be either host- or
 device-resident; host-resident query matrices are uploaded to the device internally.
 
-## Public Members
+## Public and Protected Members
 
 ### search
 

@@ -17,7 +17,7 @@ based indexing when used on a machine without a GPU and/or cuVS.
 This codec wraps `Lucene101Codec`, the default codec of Lucene 10.2. On later Lucene
 releases it can only read existing indexes; use `CuVSCodecs#acceleratedHNSW` to write.
 
-## Public Members
+## Public and Protected Members
 
 ### Lucene101AcceleratedHNSWCodec
 

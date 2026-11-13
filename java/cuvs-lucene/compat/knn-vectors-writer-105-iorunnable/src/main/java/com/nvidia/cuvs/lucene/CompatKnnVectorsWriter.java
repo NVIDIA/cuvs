@@ -24,7 +24,8 @@ abstract class CompatKnnVectorsWriter extends KnnVectorsWriter {
 
   /**
    * Merges one field, building its index as it does, and returns {@code null}: nothing is left
-   * for Lucene to run once every field has been merged.
+   * for Lucene to run once every field has been merged. On Lucene 10.2 to 10.4, it returns nothing
+   * ({@code void}).
    */
   @Override
   public IORunnable mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {

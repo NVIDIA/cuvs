@@ -1,6 +1,6 @@
 # Lucene API Documentation
 
-These pages are generated from the Java source files in `java/cuvs-lucene/src/main` and `java/cuvs-lucene/lucene-*/src/since`.
+These pages are generated from the Java source files in `java/cuvs-lucene/src/main` and `java/cuvs-lucene/lucene-*/src/since`. Members that classes inherit from the package-private bases in `java/cuvs-lucene/compat` are shown as they are on Lucene 10.6, the newest supported release; their signatures can differ on earlier releases.
 
 For an introduction to the codecs, configuration, and tuning, see the [Lucene Integration](/user-guide/lucene) guide.
 

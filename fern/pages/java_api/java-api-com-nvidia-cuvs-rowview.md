@@ -12,7 +12,7 @@ public interface RowView
 
 Represent a contiguous list of elements backed by off-heap memory.
 
-## Public Members
+## Public and Protected Members
 
 ### getAsInt
 

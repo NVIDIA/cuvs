@@ -20,7 +20,7 @@ flat format normalizes the vectors of COSINE fields when it flushes them, so the
 flushed segment is built from normalized vectors, and that of a merged segment from the vectors
 as indexed. Without a GPU, Lucene builds the graph on the CPU, scoring with the stored encoding.
 
-## Public Members
+## Public and Protected Members
 
 ### Lucene104AcceleratedHNSWScalarQuantizedVectorsFormat
 

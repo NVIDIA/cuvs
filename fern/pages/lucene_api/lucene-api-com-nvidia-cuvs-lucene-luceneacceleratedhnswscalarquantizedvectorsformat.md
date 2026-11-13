@@ -16,7 +16,7 @@ Stores the vectors with Lucene's `Lucene99ScalarQuantizedVectorsFormat`, which L
 10.4 moved to its backward codecs. On Lucene 10.4 and later this format can only read existing
 indexes; use `CuVSCodecs#acceleratedHNSWScalarQuantizedFormat` to write.
 
-## Public Members
+## Public and Protected Members
 
 ### LuceneAcceleratedHNSWScalarQuantizedVectorsFormat
 

@@ -12,7 +12,7 @@ public class ThreadLocalCuVSResourcesProvider
 
 Provides a mechanism to create ThreadLocal based CuVSResource instances.
 
-## Public Members
+## Public and Protected Members
 
 ### getCuVSResourcesInstance
 

@@ -16,7 +16,7 @@ Lucene's HNSW format so that they are searched on the CPU. See `LuceneAccelerate
 This codec wraps `Lucene103Codec`, the default codec of Lucene 10.3. Once a later Lucene
 release replaces that default, this codec can only read existing indexes; use `CuVSCodecs#acceleratedHNSWBinaryQuantized` to write.
 
-## Public Members
+## Public and Protected Members
 
 ### Lucene103AcceleratedHNSWBinaryQuantizedCodec
 

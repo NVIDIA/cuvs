@@ -3038,7 +3038,11 @@ def generate_lucene_api_pages() -> None:
         title="Lucene API Documentation",
         intro=(
             "These pages are generated from the Java source files in "
-            "`java/cuvs-lucene/src/main` and `java/cuvs-lucene/lucene-*/src/since`.\n\n"
+            "`java/cuvs-lucene/src/main` and `java/cuvs-lucene/lucene-*/src/since`. "
+            "Members that classes inherit from the package-private bases in "
+            "`java/cuvs-lucene/compat` are shown as they are on "
+            f"Lucene {newest_lucene_version()}, the newest supported release; "
+            "their signatures can differ on earlier releases.\n\n"
             "For an introduction to the codecs, configuration, and tuning, see the "
             "[Lucene Integration](/user-guide/lucene) guide."
         ),
@@ -3090,7 +3094,7 @@ def generate_jvm_api_pages(
         if klass.doc.summary:
             lines.append("")
         if klass.members:
-            lines.extend(["## Public Members", ""])
+            lines.extend(["## Public and Protected Members", ""])
             for member in klass.members:
                 lines.extend(
                     [
@@ -3194,20 +3198,33 @@ def java_hidden_base_path(klass: JavaClass, roots: list[Path]) -> Path:
     )
 
 
-def newest_lucene_compat_dirs() -> list[Path]:
-    lucene_dir = REPO_DIR / "java" / "cuvs-lucene"
+def newest_lucene_pom() -> Path | None:
+    """Returns the pom of the module for the newest supported Lucene release."""
     poms = sorted(
-        lucene_dir.glob("lucene-*/pom.xml"),
+        (REPO_DIR / "java" / "cuvs-lucene").glob("lucene-*/pom.xml"),
         key=lambda pom: tuple(
             int(part)
             for part in pom.parent.name.removeprefix("lucene-").split(".")
         ),
     )
-    if not poms:
+    return poms[-1] if poms else None
+
+
+def newest_lucene_version() -> str:
+    pom = newest_lucene_pom()
+    if pom is None:
+        raise SystemExit("cannot find any java/cuvs-lucene/lucene-* module")
+    return pom.parent.name.removeprefix("lucene-")
+
+
+def newest_lucene_compat_dirs() -> list[Path]:
+    pom = newest_lucene_pom()
+    if pom is None:
         return []
+    lucene_dir = pom.parent.parent
     variants = re.findall(
         r"<cuvs\.lucene\.compat\.\w+>([^<]+)</",
-        poms[-1].read_text(encoding="utf-8"),
+        pom.read_text(encoding="utf-8"),
     )
     return [
         lucene_dir / "compat" / variant / "src" / "main" / "java"
@@ -3365,7 +3382,7 @@ def java_member_is_visible(
 ) -> bool:
     """Returns whether readers can use a member declared at ``position``.
 
-    The pages advertise "Public Members". In an interface, a member with no
+    The pages advertise "Public and Protected Members". In an interface, a member with no
     modifier is implicitly public, so only private ones are dropped, and enum
     constants are always public (an enum constructor never is); any other
     member of a class, enum or record must be public, or protected for

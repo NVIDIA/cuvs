@@ -47,7 +47,7 @@ Lucene expects from the segment, which can exceed `k`. A segment with only a CAG
 returns at most 1024 hits, or 512 with SINGLE_CTA; when Lucene expects more, the segment is
 searched exactly on the CPU instead, which a brute force index avoids.
 
-## Public Members
+## Public and Protected Members
 
 ### GPUKnnFloatVectorQuery
 

@@ -21,7 +21,7 @@ the raw CAGRA distance (`#getDistance(int)`)
 
 The caller is responsible for mapping ordinals to its own global identifiers.
 
-## Public Members
+## Public and Protected Members
 
 ### count
 

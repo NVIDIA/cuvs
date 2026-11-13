@@ -16,7 +16,7 @@ Thread Safety: Each BruteForceQuery instance should use its own
 CuVSResources object that is not shared with other threads. Sharing CuVSResources
 between threads can lead to memory allocation errors or JVM crashes.
 
-## Public Members
+## Public and Protected Members
 
 ### BruteForceQuery
 

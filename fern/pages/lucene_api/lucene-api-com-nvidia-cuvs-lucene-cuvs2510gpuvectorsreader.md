@@ -12,7 +12,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader
 
 KnnVectorsReader instance associated with cuVS format for reading vectors from an index.
 
-## Public Members
+## Public and Protected Members
 
 ### CuVS2510GPUVectorsReader
 

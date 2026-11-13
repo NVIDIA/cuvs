@@ -13,7 +13,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter
 This class extends upon the KnnVectorsWriter to
 enable the creation of GPU-based accelerated HNSW based vector search.
 
-## Public Members
+## Public and Protected Members
 
 ### Lucene99AcceleratedHNSWVectorsWriter
 
@@ -96,8 +96,9 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 ```
 
 Merges one field, building its index as it does, and returns `null`: nothing is left
-for Lucene to run once every field has been merged.
+for Lucene to run once every field has been merged. On Lucene 10.2 to 10.4, it returns nothing
+(`void`).
 
-_Source: `java/cuvs-lucene/compat/knn-vectors-writer-105-iorunnable/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsWriter.java:28`_
+_Source: `java/cuvs-lucene/compat/knn-vectors-writer-105-iorunnable/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsWriter.java:29`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:56`_
