@@ -1,0 +1,85 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import java.security.MessageDigest
+
+// Applied only to the disposable downstream checkout, never to a developer's Gradle home.
+def configPath = System.getenv('CUVS_SOLR_CONFIG')
+if (!configPath) {
+    throw new GradleException('CUVS_SOLR_CONFIG must name the staged nightly artifact manifest')
+}
+def config = new JsonSlurper().parse(new File(configPath))
+def cuvsGroups = ['com.nvidia.cuvs', 'com.nvidia.cuvs.lucene']
+
+gradle.beforeProject { project ->
+    project.repositories.exclusiveContent {
+        forRepository {
+            project.repositories.maven {
+                name = 'cuvsNightly'
+                url = new File(config.repository).toURI()
+            }
+        }
+        filter {
+            cuvsGroups.each { includeGroup(it) }
+        }
+    }
+    // Keep Solr's locks for everything except the two deliberately replaced dependencies.
+    project.dependencyLocking.ignoredDependencies.addAll(cuvsGroups.collect { "${it}:*" })
+    def configureNightly = { configuration ->
+        configuration.resolutionStrategy.dependencySubstitution { substitutions ->
+            [
+                'com.nvidia.cuvs:cuvs-java': config.java.coordinate,
+                'com.nvidia.cuvs.lucene:cuvs-lucene': config.lucene.coordinate,
+                (config.lucene.coordinate.split(':')[0..1].join(':')): config.lucene.coordinate,
+            ].each { source, target ->
+                substitutions.substitute(substitutions.module(source)).using(substitutions.module(target))
+            }
+        }
+        configuration.incoming.afterResolve {
+            def artifacts = configuration.resolvedConfiguration.resolvedArtifacts.findAll {
+                cuvsGroups.contains(it.moduleVersion.id.group)
+            }
+            if (!artifacts.empty) {
+                def resolved = artifacts.collect { artifact ->
+                    def coordinate = artifact.moduleVersion.id.toString()
+                    def expected = [config.java, config.lucene].find { it.coordinate == coordinate }
+                    def digest = MessageDigest.getInstance('SHA-256').digest(artifact.file.bytes).encodeHex().toString()
+                    if (!expected || digest != expected.sha256) {
+                        throw new GradleException("Unexpected cuVS artifact in ${project.path}:${configuration.name}: ${coordinate}")
+                    }
+                    [coordinate: coordinate, file: artifact.file.absolutePath, sha256: digest]
+                }
+                def report = new File(config.reports, "dependencies${project.path.replace(':', '_')}_${configuration.name}.json")
+                report.parentFile.mkdirs()
+                report.text = JsonOutput.prettyPrint(JsonOutput.toJson(resolved)) + '\n'
+            }
+        }
+    }
+    project.configurations.configureEach { configureNightly(it) }
+    project.afterEvaluate {
+        // Solr packaging resolves detached copyRecursive configurations. Gradle does not
+        // copy substitution rules, and these copies are outside project.configurations.
+        if (project.extensions.extraProperties.has('pinCopyToSource')) {
+            def pinCopyToSource = project.extensions.extraProperties.get('pinCopyToSource')
+            project.extensions.extraProperties.set('pinCopyToSource', { copy, source ->
+                pinCopyToSource.call(copy, source)
+                configureNightly(copy)
+            })
+        }
+    }
+    project.plugins.withId('java') {
+        project.tasks.withType(Test).configureEach {
+            // Solr consumes explicit test options; set this directly on the forked JVM as well.
+            systemProperty 'solr.tests.cuvs.required', 'true'
+        }
+    }
+    if (project.path == ':solr:packaging') {
+        project.tasks.matching { it.name == 'installFullDist' }.configureEach { task ->
+            task.doLast {
+                new File(config.reports, 'distribution-path.txt').text = task.destinationDir.absolutePath + '\n'
+            }
+        }
+    }
+}

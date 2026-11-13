@@ -1,0 +1,126 @@
+# SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+name: solr-cuvs
+
+on:
+  workflow_dispatch:
+    inputs:
+      cuvs_commit: &cuvs_commit
+        description: cuVS commit SHA or branch with existing build.yaml artifacts
+        type: string
+        default: main
+      branch: &branch
+        description: cuVS build branch
+        type: string
+        default: main
+      date: &date
+        description: Nightly build date (YYYY-MM-DD)
+        type: string
+        default: ''
+      build_run_id: &build_run_id
+        description: Optional build.yaml run ID (otherwise resolve from cuVS SHA)
+        type: string
+        default: ''
+      solr_repository: &solr_repository
+        description: Solr repository
+        type: string
+        default: apache/solr
+      solr_commit: &solr_commit
+        description: Solr commit SHA or branch
+        type: string
+        default: main
+      continue_on_error: &continue_on_error
+        description: Report compatibility failures without failing nightly CI
+        type: boolean
+        default: true
+  workflow_call:
+    inputs:
+      cuvs_commit: *cuvs_commit
+      branch: *branch
+      date: *date
+      build_run_id: *build_run_id
+      solr_repository: *solr_repository
+      solr_commit: *solr_commit
+      continue_on_error: *continue_on_error
+
+permissions: {}
+
+jobs:
+  compute-matrix:
+    permissions:
+      contents: read
+    uses: rapidsai/shared-workflows/.github/workflows/compute-matrix.yaml@main
+    with:
+      build_type: nightly
+      matrix_type: nightly
+      matrix_name: conda-cpp-build
+      # Test one configuration that also produces native, Java, and Lucene artifacts.
+      matrix_filter: >-
+        map(select(.ARCH == "amd64")) |
+        sort_by([(.CUDA_VER | split(".") | map(tonumber)), (.PY_VER | split(".") | map(tonumber))]) |
+        .[-1:]
+  solr-cuvs:
+    needs: compute-matrix
+    strategy:
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
+    runs-on: linux-amd64-gpu-rtxpro6000-latest-1
+    continue-on-error: ${{ inputs.continue_on_error }}
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+    container:
+      image: rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}
+      env:
+        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RAPIDS_BUILD_TYPE: nightly
+      RAPIDS_CUDA_VERSION: ${{ matrix.CUDA_VER }}
+      RAPIDS_REPOSITORY: ${{ github.repository }}
+      RAPIDS_REF_NAME: ${{ inputs.branch }}
+      SOLR_BUILD_RUN_ID: ${{ inputs.build_run_id }}
+      CUVS_SOURCE_DIR: ${{ github.workspace }}/cuvs-local
+      SOLR_SOURCE_DIR: ${{ github.workspace }}/solr-local
+      SOLR_RESULTS_DIR: ${{ github.workspace }}/artifacts/solr
+      SOLR_WORK_DIR: ${{ github.workspace }}/solr-work
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Keep the CI implementation from this workflow revision when replaying an older build.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.cuvs_commit }}
+          path: cuvs-local
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ inputs.solr_repository }}
+          ref: ${{ inputs.solr_commit }}
+          path: solr-local
+          persist-credentials: false
+      - name: Standardize repository information
+        uses: rapidsai/shared-actions/rapids-github-info@main
+        with:
+          branch: ${{ inputs.branch }}
+          date: ${{ inputs.date }}
+          sha: ${{ inputs.cuvs_commit }}
+      - name: Install nightly cuVS artifacts
+        run: ci/test_solr.sh setup
+      - name: Apply temporary Solr compatibility patches
+        run: ci/test_solr.sh patch
+      - name: Build Solr distribution
+        run: ci/test_solr.sh build
+      - name: Test Solr GPU indexing
+        run: ci/test_solr.sh test
+      - name: Collect results
+        if: ${{ always() }}
+        run: ci/test_solr.sh report
+      - name: Upload results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: solr-cuvs-cuda${{ matrix.CUDA_VER }}
+          path: artifacts/solr/
+          if-no-files-found: warn
