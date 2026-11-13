@@ -9,21 +9,22 @@ CUVS_DIR=${CUVS_SOURCE_DIR:-${CI_ROOT}}
 SOLR_SOURCE_DIR=${SOLR_SOURCE_DIR:-${CI_ROOT}/solr-local}
 SOLR_WORK_DIR=${SOLR_WORK_DIR:-${CI_ROOT}/solr-work}
 SOLR_RESULTS_DIR=${SOLR_RESULTS_DIR:-${CI_ROOT}/artifacts/solr}
+export SOLR_RESULTS_DIR
+export SOLR_TEST_BUNDLE="${SOLR_WORK_DIR}/bundle"
 export CUVS_SOLR_CONFIG="${SOLR_WORK_DIR}/nightly.json"
 mkdir -p "${SOLR_WORK_DIR}" "${SOLR_RESULTS_DIR}"
 
-PHASE=${1:?Usage: test_solr.sh setup|patch|build|test|report}
-case "${PHASE}" in setup|patch|build|test|report) ;; *) echo "Unknown phase: ${PHASE}" >&2; exit 1 ;; esac
+PHASE=${1:?Usage: test_solr.sh setup|patch|build|restore|test|report}
+case "${PHASE}" in setup|patch|build|restore|test|report) ;; *) echo "Unknown phase: ${PHASE}" >&2; exit 1 ;; esac
 exec > >(tee -a "${SOLR_RESULTS_DIR}/${PHASE}.log") 2>&1
 
 if [ "${PHASE}" = report ]; then
-  if [ -d "${SOLR_SOURCE_DIR}/solr/modules/cuvs/build/test-results" ]; then
-    cp -a "${SOLR_SOURCE_DIR}/solr/modules/cuvs/build/test-results" "${SOLR_RESULTS_DIR}/"
-  fi
   if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
     {
       echo '### Solr / nightly cuVS compatibility'
-      if [ -f "${SOLR_RESULTS_DIR}/success.json" ]; then
+      if [ "${SOLR_REPORT_STAGE:-test}" = build ] && [ -f "${SOLR_RESULTS_DIR}/build-success.json" ]; then
+        echo 'Solr distribution and integration-test bundle built on CPU. See the GPU job for test results.'
+      elif [ -f "${SOLR_RESULTS_DIR}/success.json" ]; then
         echo 'Solr distribution built and GPU indexing test passed.'
       else
         echo '**Compatibility check did not pass.** See the solr-cuvs artifact for phase logs and test reports.'
@@ -43,7 +44,7 @@ if [ -e /opt/conda/etc/profile.d/conda.sh ]; then
 fi
 
 if [ "${PHASE}" = setup ]; then
-  rm -f "${SOLR_RESULTS_DIR}/success.json"
+  rm -f "${SOLR_RESULTS_DIR}/success.json" "${SOLR_RESULTS_DIR}/build-success.json"
   export RAPIDS_SHA
   RAPIDS_SHA=$(git -C "${CUVS_DIR}" rev-parse HEAD)
   BUILD_RUN_ID=${SOLR_BUILD_RUN_ID:-$(rapids-github-run-id)}
@@ -81,8 +82,30 @@ if [ "${PHASE}" = setup ]; then
     --prepend-channel "${CPP_CHANNEL}" \
     --matrix "cuda=${RAPIDS_CUDA_VERSION%.*};arch=$(arch)" \
     | tee "${SOLR_RESULTS_DIR}/environment.yaml"
-  rapids-mamba-retry env create --yes --prefix "${SOLR_WORK_DIR}/env" \
+  CONDA_OVERRIDE_CUDA="${RAPIDS_CUDA_VERSION%.*}" rapids-mamba-retry env create --yes --prefix "${SOLR_WORK_DIR}/env" \
     -f "${SOLR_RESULTS_DIR}/environment.yaml"
+fi
+
+if [ "${PHASE}" = restore ]; then
+  mkdir -p "${SOLR_TEST_BUNDLE}" "${SOLR_WORK_DIR}/native"
+  tar -xzf "${SOLR_WORK_DIR}/solr-test-bundle.tar.gz" -C "${SOLR_TEST_BUNDLE}"
+  cp -a "${SOLR_TEST_BUNDLE}/provenance/." "${SOLR_RESULTS_DIR}/"
+  cp "${SOLR_TEST_BUNDLE}/nightly.json" "${CUVS_SOLR_CONFIG}"
+  BUILD_RUN_ID=$(jq -r '.build_run_id' "${SOLR_RESULTS_DIR}/revisions.json")
+  jq -e --arg cuda "${RAPIDS_CUDA_VERSION}" '.cuda == $cuda' "${SOLR_RESULTS_DIR}/revisions.json" > /dev/null
+  # Reuse the CPU job's frozen producer and exact environment, even if main moves.
+  gh run download "${BUILD_RUN_ID}" --repo "${RAPIDS_REPOSITORY}" \
+    --name "$(rapids-artifact-name conda_cpp libcuvs cuvs --cuda "${RAPIDS_CUDA_VERSION}")" \
+    --dir "${SOLR_WORK_DIR}/native"
+  python - "${SOLR_TEST_BUNDLE}" "${SOLR_WORK_DIR}/native" > "${SOLR_RESULTS_DIR}/gpu-environment.txt" <<'PYTHON'
+from pathlib import Path
+import sys
+bundle, native = map(Path, sys.argv[1:])
+spec = (bundle / 'environment.txt').read_text()
+print(spec.replace('@CUVS_NATIVE_CHANNEL@', native.resolve().as_uri()), end='')
+PYTHON
+  rapids-mamba-retry create --yes --prefix "${SOLR_WORK_DIR}/env" \
+    --file "${SOLR_RESULTS_DIR}/gpu-environment.txt"
 fi
 
 set +u
@@ -113,7 +136,6 @@ if [ "${PHASE}" = patch ]; then
 fi
 
 if [ "${PHASE}" = setup ]; then
-  nvidia-smi
   java -version
   conda list --explicit > "${SOLR_RESULTS_DIR}/conda-explicit.txt"
   # Channel priority alone is insufficient if the build artifact is incomplete.
@@ -131,25 +153,53 @@ PY
     --java "${JAVA_DIR}" --lucene "${LUCENE_DIR}" \
     --repository "${SOLR_WORK_DIR}/maven" --reports "${SOLR_RESULTS_DIR}" > "${CUVS_SOLR_CONFIG}"
   cp "${CUVS_SOLR_CONFIG}" "${SOLR_RESULTS_DIR}/nightly.json"
-  java --enable-native-access=ALL-UNNAMED \
-    --class-path "$(jq -r '.java.jar' "${CUVS_SOLR_CONFIG}")" "${CI_ROOT}/ci/solr/CheckGpu.java"
   exit 0
 fi
 
-cd "${SOLR_SOURCE_DIR}"
-GRADLE_ARGS=(--no-daemon --console=plain --stacktrace --init-script "${CI_ROOT}/ci/solr/nightly.init.gradle")
+if [ "${PHASE}" = restore ]; then
+  python "${CI_ROOT}/ci/solr/artifacts.py" verify-distribution "${CUVS_SOLR_CONFIG}" "${SOLR_TEST_BUNDLE}/distribution"
+  python "${CI_ROOT}/ci/solr/artifacts.py" verify-distribution "${CUVS_SOLR_CONFIG}" "${SOLR_TEST_BUNDLE}/classpath"
+  exit 0
+fi
+
 if [ "${PHASE}" = build ]; then
-  ./gradlew "${GRADLE_ARGS[@]}" :solr:packaging:installFullDist
+  cd "${SOLR_SOURCE_DIR}"
+  ./gradlew --no-daemon --console=plain --stacktrace \
+    --init-script "${CI_ROOT}/ci/solr/nightly.init.gradle" \
+    --init-script "${CI_ROOT}/ci/solr/export-tests.init.gradle" \
+    -Ptests.jvms=1 -Ptests.useSecurityManager=false \
+    :solr:packaging:installFullDist :solr:modules:cuvs:prepareCuVSGpuTest
   # The packaging task owns the version-dependent output path.
-  python "${CI_ROOT}/ci/solr/artifacts.py" verify-distribution "${CUVS_SOLR_CONFIG}" \
-    "$(cat "${SOLR_RESULTS_DIR}/distribution-path.txt")"
+  DISTRIBUTION=$(cat "${SOLR_RESULTS_DIR}/distribution-path.txt")
+  python "${CI_ROOT}/ci/solr/artifacts.py" verify-distribution "${CUVS_SOLR_CONFIG}" "${DISTRIBUTION}"
+  python "${CI_ROOT}/ci/solr/artifacts.py" verify-distribution "${CUVS_SOLR_CONFIG}" "${SOLR_TEST_BUNDLE}/classpath"
+  mkdir -p "${SOLR_TEST_BUNDLE}/distribution" "${SOLR_TEST_BUNDLE}/provenance" "${SOLR_TEST_BUNDLE}/probe"
+  cp -a "${DISTRIBUTION}/." "${SOLR_TEST_BUNDLE}/distribution/"
+  cp "${CI_ROOT}/ci/solr/gpu-test.gradle" "${SOLR_TEST_BUNDLE}/build.gradle"
+  echo "rootProject.name = 'solr-cuvs-gpu-test'" > "${SOLR_TEST_BUNDLE}/settings.gradle"
+  cp "${CUVS_SOLR_CONFIG}" "${SOLR_TEST_BUNDLE}/nightly.json"
+  cp "${SOLR_RESULTS_DIR}/revisions.json" "${SOLR_RESULTS_DIR}/build-run.json" "${SOLR_TEST_BUNDLE}/provenance/"
+  javac --class-path "$(jq -r '.java.jar' "${CUVS_SOLR_CONFIG}")" \
+    -d "${SOLR_TEST_BUNDLE}/probe" "${CI_ROOT}/ci/solr/CheckGpu.java"
+  python - "${SOLR_WORK_DIR}/native" "${SOLR_RESULTS_DIR}/conda-explicit.txt" \
+    > "${SOLR_TEST_BUNDLE}/environment.txt" <<'PYTHON'
+from pathlib import Path
+import sys
+native, spec = map(Path, sys.argv[1:])
+print(spec.read_text().replace(native.resolve().as_uri(), '@CUVS_NATIVE_CHANNEL@'), end='')
+PYTHON
+  tar -czf "${SOLR_WORK_DIR}/solr-test-bundle.tar.gz" -C "${SOLR_TEST_BUNDLE}" .
+  echo '{"distribution_built": true, "tests_compiled": true}' > "${SOLR_RESULTS_DIR}/build-success.json"
 else
   rm -f "${SOLR_RESULTS_DIR}/success.json"
-  rm -rf "${SOLR_SOURCE_DIR}/solr/modules/cuvs/build/test-results/test"
-  ./gradlew "${GRADLE_ARGS[@]}" :solr:modules:cuvs:test \
-    --tests org.apache.solr.cuvs.TestCuVSCodecSupportIT \
-    -Ptests.jvms=1 -Ptests.neverUpToDate=true -Ptests.useSecurityManager=false
+  rm -rf "${SOLR_RESULTS_DIR}/test-results"
+  nvidia-smi
+  JAVA_JAR=$(find "${SOLR_TEST_BUNDLE}/classpath" -name "$(basename "$(jq -r '.java.jar' "${CUVS_SOLR_CONFIG}")")")
+  java --enable-native-access=ALL-UNNAMED --class-path "${SOLR_TEST_BUNDLE}/probe:${JAVA_JAR}" CheckGpu
+  # The standalone project only executes precompiled tests; it cannot rebuild Solr.
+  bash "${SOLR_TEST_BUNDLE}/gradle/bin/gradle" -p "${SOLR_TEST_BUNDLE}" \
+    --offline --no-daemon --console=plain --stacktrace test
   python "${CI_ROOT}/ci/solr/artifacts.py" verify-tests \
-    "${SOLR_SOURCE_DIR}/solr/modules/cuvs/build/test-results/test" > "${SOLR_RESULTS_DIR}/success.json.tmp"
+    "${SOLR_RESULTS_DIR}/test-results" > "${SOLR_RESULTS_DIR}/success.json.tmp"
   mv "${SOLR_RESULTS_DIR}/success.json.tmp" "${SOLR_RESULTS_DIR}/success.json"
 fi

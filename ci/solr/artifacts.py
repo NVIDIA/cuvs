@@ -80,6 +80,8 @@ def verify_tests(results):
             or root.find(".//error") is not None
         ):
             raise ValueError(f"Failing Solr test report: {path}")
+        if "GPU based indexing not supported" in "".join(root.itertext()):
+            raise ValueError(f"Solr used CPU fallback: {path}")
         cases.extend(
             case
             for case in root.iter("testcase")
