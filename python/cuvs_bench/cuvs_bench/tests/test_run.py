@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -9,6 +9,7 @@ import os
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
+from cuvs_bench.backends._utils import get_index_filename
 from cuvs_bench.run.run import (
     find_executable,
     gather_algorithm_configs,
@@ -179,13 +180,8 @@ def test_prepare_indexes_valid(
     for index in indexes:
         assert index["algo"] == algo
 
-        expected_filename = (
-            index["name"]
-            if len(index["name"]) < 128
-            else str(hash(index["name"]))
-        )
         expected_file = os.path.join(
-            dataset_path, dataset, "index", expected_filename
+            dataset_path, dataset, "index", get_index_filename(index["name"])
         )
         assert index["file"] == expected_file
         # Verify that our dummy search parameters were set.
