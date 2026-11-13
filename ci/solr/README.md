@@ -43,26 +43,18 @@ unsuccessful checks even when failure is allowed.
 
 ## Testing the initial PR
 
-The job is nightly-only: `pr.yaml` does not call it, and a `test.yaml` dispatch
-with `build_type=pull-request` skips it. Manual dispatch of a newly introduced
-workflow also has a [default-branch registration requirement](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+For initial validation, `pr.yaml` temporarily calls this workflow through
+`solr-cuvs-validation`, with failures enabled and the job included in the required
+`pr-builder` aggregate. It is pinned to the successful
+[2026-11-13 main nightly](https://github.com/NVIDIA/cuvs/actions/runs/43373472245):
 
-For the initial PR, temporarily append this caller under `jobs` in `pr.yaml`,
-replacing the placeholders before pushing through the normal PR CI process:
+* cuVS SHA: `a93bbfad1f9c26efa113bc6f1b1427bfbb23c9ed`
+* Build run ID: `43373472245`
+* Build date: `2026-11-13`
 
-```yaml
-  solr-cuvs-validation:
-    needs: checks
-    permissions:
-      actions: read
-      contents: read
-    uses: ./.github/workflows/solr-cuvs.yaml
-    with:
-      cuvs_commit: <full SHA of the selected nightly build>
-      branch: main
-      build_run_id: '<completed build.yaml run ID>'
-      continue_on_error: false
-```
+The native, Java, and Lucene artifacts were verified available for CUDA 13.4.3.
+The production `test.yaml` caller remains nightly-only. Manual dispatch of a
+newly introduced workflow also has a [default-branch registration requirement](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
 
 The existing PR workflow runs on the repository's `pull-request/<number>` push
 branches. The local reusable-workflow reference and root checkout use that PR
@@ -74,10 +66,8 @@ built by the PR.
 
 Check the GPU job and its `solr-cuvs-cuda...` result artifact: setup, distribution
 build, and GPU indexing must all pass. `continue_on_error: false` exposes failures
-in the workflow result. To include this temporary job in the existing required
-`pr-builder` aggregate, also add `solr-cuvs-validation` to that job's `needs`.
-Remove the temporary caller and aggregate dependency before merging if the
-intended policy remains nightly-only.
+in the workflow result and the `pr-builder` aggregate. Remove the temporary
+caller and aggregate dependency before merging the nightly-only integration.
 
 A PR's own run ID is not accepted as `build_run_id`: the downloader deliberately
 requires a completed `build.yaml` producer with the selected cuVS SHA. Testing PR
