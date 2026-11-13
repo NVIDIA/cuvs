@@ -18,12 +18,12 @@
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/cuda_stream_pool.hpp>
+#include <raft/core/resource/device_properties.hpp>
 #include <raft/core/resources.hpp>
-#include <raft/linalg/map.cuh>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 
-#include <cub/device/device_segmented_radix_sort.cuh>
+#include <cub/block/block_radix_sort.cuh>
 
 #include <cuda_fp16.h>
 
@@ -35,17 +35,6 @@
 #include <vector>
 
 namespace cuvs::distance {
-
-/** The pruned 1-NN's bounds, and the order its pruning kernel takes the rows in. */
-struct PrunedTop1nnParams {
-  /** Rows per batch; keep fixed between workspace sizing and calls that reuse row_order. */
-  int64_t row_batch_size = 0;
-  /** [m], optional: each row batch's rows in the order to prune them, heaviest first. */
-  const uint32_t* row_order = nullptr;
-  /** [m], optional: the order for the next call, from this call's first-filter survivors. May be
-   * row_order. */
-  uint32_t* next_row_order = nullptr;
-};
 
 namespace detail::pruned_nn {
 
@@ -67,13 +56,14 @@ struct workspace_layout {
   int64_t n_row_batches;
   int64_t n_streams;
   int64_t row_batch_size;
-  std::size_t survivors, sorted_keys, local_ids, batch_offsets, sort_temp, sort_temp_bytes;
-  std::vector<std::size_t> packed, count, filter_rows;
+  int max_blocks_per_sm;
+  std::vector<std::size_t> packed, count, filter_rows, row_order;
   std::size_t total_bytes;
 
   workspace_layout(raft::resources const& handle, int64_t m, bool copy_rows, int64_t batch_size)
     : row_batch_size(batch_size)
   {
+    max_blocks_per_sm = raft::resource::get_device_properties(handle).maxBlocksPerMultiProcessor;
     RAFT_EXPECTS(filter_tile().has_value(), "Pruned 1-NN needs the fused filter's cuTile kernel");
     RAFT_EXPECTS(row_batch_size > 0 &&
                    (row_batch_size >= m || row_batch_size % (kAlignment / sizeof(float)) == 0),
@@ -90,85 +80,89 @@ struct workspace_layout {
       end                      = offset + bytes;
       return offset;
     };
-    survivors     = take(m * sizeof(uint32_t));
-    sorted_keys   = take(m * sizeof(uint32_t));
-    local_ids     = take(m * sizeof(uint32_t));
-    batch_offsets = take((n_row_batches + 1) * sizeof(int64_t));
-    RAFT_CUDA_TRY(
-      cub::DeviceSegmentedRadixSort::SortPairsDescending(nullptr,
-                                                         sort_temp_bytes,
-                                                         static_cast<const uint32_t*>(nullptr),
-                                                         static_cast<uint32_t*>(nullptr),
-                                                         static_cast<const uint32_t*>(nullptr),
-                                                         static_cast<uint32_t*>(nullptr),
-                                                         m,
-                                                         n_row_batches,
-                                                         static_cast<const int64_t*>(nullptr),
-                                                         static_cast<const int64_t*>(nullptr)));
-    sort_temp = take(sort_temp_bytes);
-    // The first filter's survivor lists, one pair per stream: a region of a whole centroid batch
-    // per row of a row batch
     const int64_t batch_rows = std::min(m, row_batch_size);
+    // Streams reuse their buffers only after the previous row batch finishes.
     for (int64_t s = 0; s < n_streams; s++) {
       packed.push_back(take(batch_rows * kCentroidBatchSize * sizeof(int64_t)));
       count.push_back(take(batch_rows * sizeof(int32_t)));
+      row_order.push_back(take(batch_rows * sizeof(uint32_t)));
       if (copy_rows) { filter_rows.push_back(take(batch_rows * kPartialDim * sizeof(half))); }
     }
     total_bytes = end;
   }
 };
 
-/** Each row's id within its row batch, and the row batches' bounds (n_row_batches + 1). */
-inline void row_batch_layout(raft::resources const& handle,
-                             int64_t m,
-                             int64_t row_batch_size,
-                             raft::device_vector_view<uint32_t, int64_t> local_ids,
-                             raft::device_vector_view<int64_t, int64_t> batch_offsets)
+/**
+ * Order the rows of one row batch for pruning against the current centroid batch. count[r] is
+ * the number of centroids that survived the fused first filter for row r. Each sorting block
+ * sorts (count, row id) pairs within one balanced, contiguous segment, largest counts first.
+ * Only row ids are written; the counts and input data stay in their original positions.
+ *
+ * Interleave the sorted segments by rank to submit heavier rows from every segment early:
+ *
+ *   sorted segment 0: a(12), b(10), c(8)   // row ids, with counts in parentheses
+ *   sorted segment 1: d(7),  e(4),  f(1)
+ *   row_order:        a, d, b, e, c, f
+ *
+ * This approximates longest-processing-time-first (LPT) scheduling without a device-wide sort.
+ * LPT applies across pruning blocks; similar-cost rows should share a block when multiple
+ * row-processing warps are grouped together. Prune currently launches one warp (one row) per
+ * block, with block b processing row_order[b], so there is no within-block row grouping.
+ */
+template <int BlockSize, int ItemsPerThread>
+RAFT_KERNEL order_rows_by_survivors_kernel(const int32_t* __restrict__ count,
+                                           uint32_t* __restrict__ row_order,
+                                           int64_t n_rows)
 {
-  raft::linalg::map_offset(handle, local_ids, [row_batch_size] __device__(int64_t i) {
-    return static_cast<uint32_t>(i % row_batch_size);
-  });
-  raft::linalg::map_offset(handle, batch_offsets, [m, row_batch_size] __device__(int64_t b) {
-    return b * row_batch_size < m ? b * row_batch_size : m;
-  });
+  using Sort = cub::BlockRadixSort<uint32_t, BlockSize, ItemsPerThread, uint32_t>;
+  __shared__ typename Sort::TempStorage scratch;
+  const int64_t n_segments       = gridDim.x;
+  const int64_t rows_per_segment = n_rows / n_segments;
+  const int64_t extra_rows       = n_rows % n_segments;
+  const int64_t base         = blockIdx.x * rows_per_segment + min(int64_t{blockIdx.x}, extra_rows);
+  const int64_t segment_rows = rows_per_segment + (blockIdx.x < extra_rows);
+  uint32_t keys[ItemsPerThread];
+  uint32_t ids[ItemsPerThread];
+#pragma unroll
+  for (int j = 0; j < ItemsPerThread; j++) {
+    const int64_t rank = threadIdx.x * ItemsPerThread + j;
+    const int64_t row  = base + rank;
+    ids[j]             = static_cast<uint32_t>(row);
+    // Zero is reserved for padding, so it follows valid rows with no survivors.
+    keys[j] = rank < segment_rows ? static_cast<uint32_t>(count[row]) + 1 : 0;
+  }
+  constexpr int kCountBits = std::bit_width(kCentroidBatchSize + 1);
+  Sort(scratch).SortDescendingBlockedToStriped(keys, ids, 0, kCountBits);
+#pragma unroll
+  for (int j = 0; j < ItemsPerThread; j++) {
+    const int64_t rank = threadIdx.x + j * BlockSize;
+    // Longer segments come first, so the final partial rank leaves no holes.
+    if (rank < segment_rows) { row_order[rank * n_segments + blockIdx.x] = ids[j]; }
+  }
 }
 
-/**
- * Each row batch's local row ids ordered by survivor count, descending, into `row_order`.
- * Approximate: one radix pass over the counts' top 8 significant bits (the counts are at most n),
- * rows of a bucket keeping their order.
- */
 inline void order_rows_by_survivors(raft::resources const& handle,
-                                    const workspace_layout& layout,
-                                    char* workspace,
-                                    int64_t m,
-                                    int64_t n,
-                                    uint32_t* row_order)
+                                    const int32_t* count,
+                                    uint32_t* row_order,
+                                    int64_t n_rows,
+                                    int max_blocks_per_sm)
 {
-  auto* local_ids     = reinterpret_cast<uint32_t*>(workspace + layout.local_ids);
-  auto* batch_offsets = reinterpret_cast<int64_t*>(workspace + layout.batch_offsets);
-  row_batch_layout(handle,
-                   m,
-                   layout.row_batch_size,
-                   raft::make_device_vector_view(local_ids, m),
-                   raft::make_device_vector_view(batch_offsets, layout.n_row_batches + 1));
-  const int end_bit     = std::clamp(std::bit_width(static_cast<uint64_t>(n)), 1, 32);
-  const int begin_bit   = std::max(0, end_bit - 8);
-  std::size_t temp_size = layout.sort_temp_bytes;
-  RAFT_CUDA_TRY(cub::DeviceSegmentedRadixSort::SortPairsDescending(
-    workspace + layout.sort_temp,
-    temp_size,
-    reinterpret_cast<const uint32_t*>(workspace + layout.survivors),
-    reinterpret_cast<uint32_t*>(workspace + layout.sorted_keys),
-    local_ids,
-    row_order,
-    m,
-    layout.n_row_batches,
-    batch_offsets,
-    batch_offsets + 1,
-    begin_bit,
-    end_bit,
-    raft::resource::get_cuda_stream(handle).get()));
+  constexpr int64_t kMaxSegmentRows = 256 * 32;
+  // Use the resident-block limit as the interleaved rank width, adding segments only when
+  // needed to keep each segment within one sorting block's capacity.
+  const int64_t n_segments =
+    std::min(n_rows, std::max(int64_t{max_blocks_per_sm}, raft::ceildiv(n_rows, kMaxSegmentRows)));
+  const int64_t segment_rows = raft::ceildiv(n_rows, n_segments);
+  // CUB requires both sizes at compile time. Keep a compact 2048-entry variant to avoid
+  // excessive padding on short segments; the 8192-entry variant uses more threads to limit
+  // per-thread storage for larger segments.
+  if (segment_rows <= 128 * 16) {
+    raft::launch_kernel(
+      handle, n_segments, 128, order_rows_by_survivors_kernel<128, 16>, count, row_order, n_rows);
+  } else {
+    raft::launch_kernel(
+      handle, n_segments, 256, order_rows_by_survivors_kernel<256, 32>, count, row_order, n_rows);
+  }
 }
 
 }  // namespace detail::pruned_nn
@@ -211,7 +205,11 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  *
  * Not exact: a neighbor pruned away on a partial distance is missed.
  *
- * Rows go in batches of params.row_batch_size against batches of kCentroidBatchSize rows of y, each
+ * Each first-filter tile orders its rows by the newly produced survivor counts before pruning.
+ * Counts are sorted within segments and their ranks interleaved, approximating heavy-first order.
+ * The row order and survivor lists are scratch buffers private to each stream.
+ *
+ * Rows go in batches of row_batch_size against batches of kCentroidBatchSize rows of y, each
  * centroid batch tightening b for the next. The row batches round-robin over the main stream and,
  * with a stream pool on the handle, its first stream, which waits on and is synchronized with the
  * main stream.
@@ -223,7 +221,8 @@ inline std::size_t pruned_top_1_nn_workspace_size(raft::resources const& handle,
  * @param y_fp16      [n, kPartialDim]: y's first dims in FP16, for float; ignored for half
  * @param xn          [m] squared norms of the original x over the first kPartialDim dims
  * @param yn          [n] squared norms of the FP16 filter centroids over the first kPartialDim dims
- * @param workspace   pruned_top_1_nn_workspace_size<DataT>(handle, m, params.row_batch_size) bytes,
+ * @param row_batch_size rows per batch, matching workspace sizing
+ * @param workspace   pruned_top_1_nn_workspace_size<DataT>(handle, m, row_batch_size) bytes,
  *                    16-byte aligned
  */
 template <typename DataT>
@@ -237,7 +236,7 @@ void pruned_top_1_nn(raft::resources const& handle,
                      int64_t m,
                      int64_t n,
                      int64_t k,
-                     const PrunedTop1nnParams& params,
+                     int64_t row_batch_size,
                      void* workspace,
                      std::size_t workspace_bytes)
 {
@@ -255,7 +254,7 @@ void pruned_top_1_nn(raft::resources const& handle,
   RAFT_EXPECTS(kHalf || y_fp16 != nullptr,
                "Pruned 1-NN on float needs an FP16 copy of y's first dims");
   RAFT_EXPECTS(xn != nullptr && yn != nullptr, "Pruned 1-NN needs row and centroid norms");
-  const workspace_layout layout(handle, m, !kHalf, params.row_batch_size);
+  const workspace_layout layout(handle, m, !kHalf, row_batch_size);
   RAFT_EXPECTS(workspace_bytes >= layout.total_bytes, "Pruned 1-NN's workspace is too small");
   auto* ws = static_cast<char*>(workspace);
 
@@ -267,9 +266,6 @@ void pruned_top_1_nn(raft::resources const& handle,
   } else {
     y_filter = y_fp16;
   }
-  auto main_stream = raft::resource::get_cuda_stream(handle).get();
-  auto* survivors  = reinterpret_cast<uint32_t*>(ws + layout.survivors);
-  RAFT_CUDA_TRY(cudaMemsetAsync(survivors, 0, m * sizeof(uint32_t), main_stream));
   const bool pooled = layout.n_streams > 1;
   if (pooled) { raft::resource::wait_stream_pool_on_stream(handle); }
 
@@ -288,7 +284,7 @@ void pruned_top_1_nn(raft::resources const& handle,
     const DataT* rows        = x + i * k;
     uint32_t* row_labels     = output.nearest_idx + i;
     float* row_dist          = output.nearest_dist + i;
-    const uint32_t* order    = params.row_order != nullptr ? params.row_order + i : nullptr;
+    auto* order              = reinterpret_cast<uint32_t*>(ws + layout.row_order[s]);
     auto* packed             = reinterpret_cast<int64_t*>(ws + layout.packed[s]);
     auto* count              = reinterpret_cast<int32_t*>(ws + layout.count[s]);
     // Each row's bound: its distance to its current neighbor
@@ -320,6 +316,7 @@ void pruned_top_1_nn(raft::resources const& handle,
                           count,
                           static_cast<int>(kCentroidBatchSize),
                           stream);
+      order_rows_by_survivors(batch_handle, count, order, n_rows, layout.max_blocks_per_sm);
       prune(batch_handle,
             rows,
             n_rows,
@@ -329,14 +326,10 @@ void pruned_top_1_nn(raft::resources const& handle,
             k,
             first_filter_lists{packed, count, kCentroidBatchSize},
             row_labels,
-            row_dist,
-            survivors + i);
+            row_dist);
     }
   }
   if (pooled) { raft::resource::sync_stream_pool(handle, std::vector<std::size_t>{0}); }
-  if (params.next_row_order != nullptr) {
-    order_rows_by_survivors(handle, layout, ws, m, n, params.next_row_order);
-  }
 #else
   RAFT_FAIL("Pruned 1-NN needs a build with cuTile");
 #endif

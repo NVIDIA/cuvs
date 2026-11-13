@@ -257,8 +257,7 @@ __device__ __forceinline__ int64_t pack_survivor(uint32_t id, float distance)
  * A warp per block and row, against one centroid batch: the row's first-filter survivors (partial
  * distances over the first kPartialDim dims), the tail dims in dim tiles with a re-filter after
  * each but the last, then the argmin, kept if closer than the row's current centroid. Block b
- * handles row row_order[b] when given (heaviest rows first), and each row's first-filter survivors
- * are added to `survivors`.
+ * handles row row_order[b], ordered using this tile's first-filter survivor counts.
  *
  * The survivor list stays in the row's region of `lists`, but for its first kWarpSize entries,
  * copied to shared memory; the warp reads it a window of kWarpSize entries at a time, lane l
@@ -272,25 +271,23 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
                          uint32_t dim,
                          first_filter_lists lists,
                          uint32_t* __restrict__ labels,
-                         float* __restrict__ dist,
-                         uint32_t* __restrict__ survivors)
+                         float* __restrict__ dist)
 {
   __shared__ int64_t head[kWarpSize];
   const uint32_t lane        = threadIdx.x;
   const uint32_t lanes_below = (1u << lane) - 1;
-  const int64_t row          = row_order != nullptr ? row_order[blockIdx.x] : blockIdx.x;
+  const int64_t row          = row_order[blockIdx.x];
   uint32_t n_left            = static_cast<uint32_t>(lists.count[row]);
   // Nothing survived: nothing else to read or write
   if (n_left == 0) { return; }
   const T* row_values = rows + row * dim;
-  uint32_t best_index = labels[row];
+  uint32_t best_index = UINT32_MAX;  // No improving candidate yet.
   // The row's distance to its current centroid until the last tile's argmin
   float best = dist[row];
 
   int64_t* list = lists.packed + row * lists.row_stride;
   if (lane < n_left) { head[lane] = list[lane]; }
   __syncwarp();
-  if (lane == 0) { survivors[row] += n_left; }
 
   // One pass per remaining dim tile; the last one ends with the argmin
   uint32_t d = kPartialDim;
@@ -340,7 +337,7 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
     const int64_t entry    = head[0];
     const auto centroid_id = static_cast<uint32_t>(entry >> kSurvivorIdShift);
     // The assigned centroid's full distance is already known.
-    if (centroid_offset + centroid_id == best_index) { return; }
+    if (centroid_offset + centroid_id == labels[row]) { return; }
     float distance    = __int_as_float(static_cast<int32_t>(entry));
     const T* centroid = centroids + static_cast<int64_t>(centroid_id) * dim;
     for (; d < dim; d += kDimTileSize) {
@@ -375,7 +372,7 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
       best_index = other_index;
     }
   }
-  if (lane == 0) {
+  if (lane == 0 && best_index != UINT32_MAX) {
     labels[row] = best_index;
     dist[row]   = best;
   }
@@ -384,8 +381,8 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
 /**
  * The pruning kernel for n_rows rows against one centroid batch (its first centroid
  * centroid_offset), after the fused first filter wrote `lists`. `labels` and `dist` hold each
- * row's current centroid and distance, and get the closer survivor if there is one; `survivors`
- * gets each row's first-filter survivors added. row_order (optional): the rows' order.
+ * row's current centroid and distance, and get the closer survivor if there is one.
+ * row_order: the rows' order.
  */
 template <typename T>
 void prune(const raft::resources& handle,
@@ -397,8 +394,7 @@ void prune(const raft::resources& handle,
            int64_t dim,
            first_filter_lists lists,
            uint32_t* labels,
-           float* dist,
-           uint32_t* survivors)
+           float* dist)
 {
   RAFT_EXPECTS(dim > kPartialDim && (dim - kPartialDim) % kDimTileSize == 0,
                "Pruned 1-NN needs a positive tail after %u dims in tiles of %u",
@@ -415,8 +411,7 @@ void prune(const raft::resources& handle,
                       static_cast<uint32_t>(dim),
                       lists,
                       labels,
-                      dist,
-                      survivors);
+                      dist);
 }
 
 }  // namespace cuvs::distance::detail::pruned_nn

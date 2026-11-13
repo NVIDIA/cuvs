@@ -46,11 +46,12 @@ inline bool prunes(int64_t n_clusters, int64_t dim)
   return dim > kMinPrunedDim && n_clusters > kMinPrunedK;
 }
 
-/** Budget the per-stream survivor lists and filter inputs together, as in balanced prediction. */
+/** Budget the per-stream survivor lists, counts, row order, and optional FP16 filter rows. */
 template <typename T>
 auto calc_minibatch_size(const raft::resources& handle, int64_t n_rows) -> int64_t
 {
-  std::size_t mem_per_row = pruned_nn::kCentroidBatchSize * sizeof(int64_t) + sizeof(int32_t);
+  std::size_t mem_per_row =
+    pruned_nn::kCentroidBatchSize * sizeof(int64_t) + sizeof(int32_t) + sizeof(uint32_t);
   if constexpr (!std::is_same_v<T, half>) { mem_per_row += pruned_nn::kPartialDim * sizeof(half); }
   const auto pool_size    = raft::resource::is_stream_pool_initialized(handle)
                               ? static_cast<int64_t>(raft::resource::get_stream_pool_size(handle))
@@ -127,7 +128,7 @@ void predict(const raft::resources& handle,
 
 /**
  * The pruned assignment (cuvs::distance::pruned_top_1_nn) and what it keeps across iterations: the
- * row norms, the row order, and the workspace. Float filter rows are prepared per batch.
+ * row norms and the workspace. Float filter rows are prepared per batch.
  * The centroids the 1-NN reads are T: for half rows, a half copy of the float centroids, which is
  * also the filter's.
  */
@@ -146,12 +147,11 @@ class pruned_assignment {
       row_norms_(raft::make_device_vector<float, int64_t>(handle, n_rows_)),
       centroid_norms_(raft::make_device_vector<float, int64_t>(handle, n_clusters)),
       dist_(raft::make_device_vector<float, int64_t>(handle, n_rows_)),
-      row_order_(raft::make_device_vector<uint32_t, int64_t>(handle, n_rows_)),
       filter_centroids_(raft::make_device_matrix<half, int64_t>(handle, n_clusters, filter_dim_)),
-      params_{.row_batch_size = calc_minibatch_size<T>(handle, n_rows_)},
+      row_batch_size_(calc_minibatch_size<T>(handle, n_rows_)),
       workspace_(raft::make_device_vector<char, int64_t>(
         handle,
-        cuvs::distance::pruned_top_1_nn_workspace_size<T>(handle, n_rows_, params_.row_batch_size)))
+        cuvs::distance::pruned_top_1_nn_workspace_size<T>(handle, n_rows_, row_batch_size_)))
   {
     // The input rows do not change between iterations, so cache their filter norms once.
     pruned_nn::squared_norms(
@@ -160,11 +160,9 @@ class pruned_assignment {
 
   /**
    * Updates `labels`, each row's centroid from the previous assignment, for `centroids`.
-   * `order_next`: another call follows, so order the rows for it.
    */
   void assign(raft::device_matrix_view<const float, int64_t> centroids,
-              raft::device_vector_view<uint32_t, int64_t> labels,
-              bool order_next)
+              raft::device_vector_view<uint32_t, int64_t> labels)
   {
     pruned_nn::squared_norms(handle_,
                              centroids.data_handle(),
@@ -180,7 +178,6 @@ class pruned_assignment {
     } else {
       kernel_centroids = centroids.data_handle();
     }
-    params_.next_row_order = order_next ? row_order_.data_handle() : nullptr;
     cuvs::distance::pruned_top_1_nn<T>(handle_,
                                        {labels.data_handle(), dist_.data_handle()},
                                        X_.data_handle(),
@@ -191,10 +188,9 @@ class pruned_assignment {
                                        n_rows_,
                                        n_clusters_,
                                        dim_,
-                                       params_,
+                                       row_batch_size_,
                                        workspace_.data_handle(),
                                        workspace_.size());
-    if (order_next) { params_.row_order = row_order_.data_handle(); }
   }
 
  private:
@@ -202,9 +198,8 @@ class pruned_assignment {
   raft::device_matrix_view<const T, int64_t> X_;
   int64_t n_rows_, dim_, n_clusters_, filter_dim_;
   raft::device_vector<float, int64_t> row_norms_, centroid_norms_, dist_;
-  raft::device_vector<uint32_t, int64_t> row_order_;
   raft::device_matrix<half, int64_t> filter_centroids_;
-  cuvs::distance::PrunedTop1nnParams params_;
+  int64_t row_batch_size_;
   raft::device_vector<char, int64_t> workspace_;
 };
 
@@ -272,9 +267,7 @@ void fit(const raft::resources& handle,
 
   for (uint32_t iter = 0; iter < params.n_iters; iter++) {
     if (pruned_assign.has_value() && iter > 0) {
-      // The last pruned call orders no rows: the final labels come from a full assignment
-      pruned_assign->assign(
-        raft::make_const_mdspan(centroids), assigned.view(), iter + 1 < params.n_iters);
+      pruned_assign->assign(raft::make_const_mdspan(centroids), assigned.view());
     } else {
       assign();
     }
