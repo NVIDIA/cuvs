@@ -9,6 +9,7 @@ import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.isSupporte
 import static com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider.setCuVSResourcesInstance;
 import static org.apache.lucene.index.VectorSimilarityFunction.EUCLIDEAN;
 
+import com.nvidia.cuvs.CagraIndexParams.CagraGraphBuildAlgo;
 import com.nvidia.cuvs.CagraIndexParams.CuvsDistanceType;
 import com.nvidia.cuvs.CuVSMatrix;
 import com.nvidia.cuvs.CuVSResources;
@@ -67,6 +68,8 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
     assertNoWorkspaceLeak(
         resources -> {
           float[] expected = {1f, 2f, 3f, 4f};
+          // createFloatMatrix has already closed its builder; the returned matrix must remain
+          // usable.
           try (CuVSMatrix matrix =
               Utils.createFloatMatrix(List.of(expected), expected.length, resources)) {
             float[][] actual = new float[1][expected.length];
@@ -83,14 +86,15 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
     GPUSearchParams params =
         new GPUSearchParams.Builder()
             .withStrategy(GPUSearchParams.Strategy.CUSTOM)
+            .withCagraGraphBuildAlgo(CagraGraphBuildAlgo.NN_DESCENT)
             .withCuvsDistanceType(CuvsDistanceType.Linf)
             .build();
     float[][] vectors = deterministicVectors();
-    ByteArrayOutputStream messages = new ByteArrayOutputStream();
+    ByteArrayOutputStream buildFailureLog = new ByteArrayOutputStream();
     assertNoWorkspaceLeak(
         resources -> {
           try (Directory directory = new ByteBuffersDirectory();
-              PrintStream info = new PrintStream(messages, true, StandardCharsets.UTF_8)) {
+              PrintStream info = new PrintStream(buildFailureLog, true, StandardCharsets.UTF_8)) {
             IndexWriterConfig config =
                 singleSegmentConfig(vectors.length, params).setInfoStream(info);
             try (IndexWriter writer = new IndexWriter(directory, config)) {
@@ -98,67 +102,36 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
               writer.commit();
             }
             assertTrue(
-                "the intended native build failure did not occur: " + messages,
-                messages.toString(StandardCharsets.UTF_8).contains("The metric for NN Descent"));
+                "the intended native build failure did not occur: " + buildFailureLog,
+                buildFailureLog
+                    .toString(StandardCharsets.UTF_8)
+                    .contains("The metric for NN Descent"));
             // Closing the writer removes its thread-local wrapper, not the outer tracker.
             setCuVSResourcesInstance(new NonClosingResources(resources));
-            try (DirectoryReader reader = DirectoryReader.open(directory)) {
-              LeafReader leaf = getOnlyLeafReader(reader);
-              var vectorField = leaf.getFieldInfos().fieldInfo(VECTOR_FIELD);
-              assertNotNull("segment is missing the vector field", vectorField);
-              GPUIndex index = gpuReader(leaf).getCuvsIndexes().get(vectorField.number);
-              assertNotNull("segment is missing its GPU index", index);
-              assertNull("the rejected CAGRA build must not be persisted", index.getCagraIndex());
-              assertNotNull("expected the brute-force fallback", index.getBruteforceIndex());
-              TopKnnCollector collector = new TopKnnCollector(TOP_K, Integer.MAX_VALUE);
-              leaf.searchNearestVectors(VECTOR_FIELD, vectors[QUERY_DOCUMENT], collector, null);
-              assertCorrectResults(collector.topDocs().scoreDocs);
-            }
+            assertPersistedBruteForceFallbackSearchesCorrectly(directory, vectors[QUERY_DOCUMENT]);
           }
         });
   }
 
   @Test
   public void testBruteForceSerializationFailureReleasesBuiltIndex() throws Throwable {
+    BruteForceSerializationFailure outputFailure = new BruteForceSerializationFailure();
+    GPUSearchParams bruteForceParams =
+        new GPUSearchParams.Builder()
+            .withIndexType(CuVS2510GPUVectorsWriter.IndexType.BRUTE_FORCE)
+            .build();
     assertNoWorkspaceLeak(
         resources -> {
-          IOException diskFailure = new IOException("injected index-output failure");
-          boolean[] failureInjected = {false};
           try (MockDirectoryWrapper directory =
               new MockDirectoryWrapper(random(), new ByteBuffersDirectory())) {
-            directory.failOn(
-                new MockDirectoryWrapper.Failure() {
-                  @Override
-                  public void eval(MockDirectoryWrapper ignored) throws IOException {
-                    // Fail only after the real GPU index exists, while its bytes reach Lucene.
-                    boolean serializingIndex =
-                        StackWalker.getInstance()
-                            .walk(
-                                frames ->
-                                    frames.anyMatch(
-                                        frame ->
-                                            frame
-                                                    .getClassName()
-                                                    .equals(
-                                                        CuVS2510GPUVectorsWriter.class.getName())
-                                                && frame
-                                                    .getMethodName()
-                                                    .equals("writeBruteForceIndex")));
-                    if (serializingIndex && failureInjected[0] == false) {
-                      failureInjected[0] = true;
-                      throw diskFailure;
-                    }
-                  }
-                });
-            GPUSearchParams params =
-                new GPUSearchParams.Builder()
-                    .withIndexType(CuVS2510GPUVectorsWriter.IndexType.BRUTE_FORCE)
-                    .build();
+            directory.failOn(outputFailure);
             try (IndexWriter writer =
-                new IndexWriter(directory, singleSegmentConfig(DOCUMENT_COUNT, params))) {
+                new IndexWriter(directory, singleSegmentConfig(DOCUMENT_COUNT, bruteForceParams))) {
               addVectors(writer, deterministicVectors());
-              assertSame(diskFailure, expectThrows(IOException.class, writer::commit));
-              assertTrue("serialization failure was not exercised", failureInjected[0]);
+              IOException thrown = expectThrows(IOException.class, writer::commit);
+              assertSame(
+                  "commit must preserve the output failure", outputFailure.exception, thrown);
+              assertTrue("serialization failure was not exercised", outputFailure.triggered);
               writer.rollback();
             }
           }
@@ -206,6 +179,47 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
     }
   }
 
+  /** The index is genuinely built; only writing its bytes to Lucene is made to fail. */
+  private static final class BruteForceSerializationFailure extends MockDirectoryWrapper.Failure {
+    private final IOException exception = new IOException("injected index-output failure");
+    private boolean triggered;
+
+    @Override
+    public void eval(MockDirectoryWrapper ignored) throws IOException {
+      if (triggered == false && isSerializingBruteForceIndex()) {
+        triggered = true;
+        throw exception;
+      }
+    }
+
+    private static boolean isSerializingBruteForceIndex() {
+      return StackWalker.getInstance()
+          .walk(
+              frames ->
+                  frames.anyMatch(
+                      frame ->
+                          frame.getClassName().equals(CuVS2510GPUVectorsWriter.class.getName())
+                              && frame.getMethodName().equals("writeBruteForceIndex")));
+    }
+  }
+
+  private static void assertPersistedBruteForceFallbackSearchesCorrectly(
+      Directory directory, float[] queryVector) throws IOException {
+    try (DirectoryReader reader = DirectoryReader.open(directory)) {
+      LeafReader leaf = getOnlyLeafReader(reader);
+      var vectorField = leaf.getFieldInfos().fieldInfo(VECTOR_FIELD);
+      assertNotNull("segment is missing the vector field", vectorField);
+      GPUIndex index = gpuReader(leaf).getCuvsIndexes().get(vectorField.number);
+      assertNotNull("segment is missing its GPU index", index);
+      assertNull("the rejected CAGRA build must not be persisted", index.getCagraIndex());
+      assertNotNull("expected the brute-force fallback", index.getBruteforceIndex());
+
+      TopKnnCollector collector = new TopKnnCollector(TOP_K, Integer.MAX_VALUE);
+      leaf.searchNearestVectors(VECTOR_FIELD, queryVector, collector, null);
+      assertSelfMatchAndUniqueResults(collector.topDocs().scoreDocs);
+    }
+  }
+
   @FunctionalInterface
   private interface TrackedOperation {
     void run(CuVSResources resources) throws Throwable;
@@ -221,6 +235,7 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
       try {
         operation.run(resources);
       } finally {
+        // Avoid creating a new resources handle after the writer/reader removes its wrapper.
         setCuVSResourcesInstance(null);
         closeCuVSResourcesInstance();
       }
@@ -230,12 +245,12 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
 
   private static void assertWorkspaceReleased(Path csv) throws Exception {
     MemoryTotals workspace = finalMemoryTotals(csv, "workspace");
-    assertTrue("the tracker did not observe workspace allocations", workspace.allocated() > 0);
-    assertEquals("operation retained workspace memory", 0, workspace.current());
+    assertTrue("the tracker did not observe workspace allocations", workspace.allocatedBytes() > 0);
+    assertEquals("operation retained workspace memory", 0, workspace.currentBytes());
     assertEquals(
         "workspace allocations and deallocations are unbalanced",
-        workspace.allocated(),
-        workspace.freed());
+        workspace.allocatedBytes(),
+        workspace.freedBytes());
   }
 
   private static void runRepeatedQueriesWithMemoryTracking(
@@ -249,7 +264,7 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
         for (int i = 0; i < QUERY_REPETITIONS; i++) {
           TopKnnCollector collector = new TopKnnCollector(TOP_K, Integer.MAX_VALUE);
           leaf.searchNearestVectors(VECTOR_FIELD, queryVector, collector, null);
-          assertCorrectResults(collector.topDocs().scoreDocs);
+          assertSelfMatchAndUniqueResults(collector.topDocs().scoreDocs);
         }
       } finally {
         // DirectoryReader closes the provider's wrapper. Remove any value left by an early failure
@@ -274,7 +289,7 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
     return (CuVS2510GPUVectorsReader) vectorReader;
   }
 
-  private static void assertCorrectResults(ScoreDoc[] hits) {
+  private static void assertSelfMatchAndUniqueResults(ScoreDoc[] hits) {
     assertEquals("unexpected result count", TOP_K, hits.length);
     assertEquals("the queried document must rank first", QUERY_DOCUMENT, hits[0].doc);
     HashSet<Integer> uniqueDocIds = new HashSet<>();
@@ -284,10 +299,16 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
   }
 
   private static float[][] deterministicVectors() {
+    // This prime exceeds DOCUMENT_COUNT, giving each row a distinct first coordinate.
+    // Normalizing the modular pattern keeps every component in [0, 1).
+    long patternModulus = 1031L;
     float[][] vectors = new float[DOCUMENT_COUNT][DIMENSIONS];
     for (int row = 0; row < DOCUMENT_COUNT; row++) {
       for (int column = 0; column < DIMENSIONS; column++) {
-        vectors[row][column] = ((row + 1L) * (column + 3L) % 1031L) / 1031.0f;
+        long rowMultiplier = row + 1L;
+        long columnMultiplier = column + 3L;
+        long patternValue = rowMultiplier * columnMultiplier % patternModulus;
+        vectors[row][column] = patternValue / (float) patternModulus;
       }
     }
     return vectors;
@@ -314,7 +335,7 @@ public class TestCuVSMatrixLifecycle extends LuceneTestCase {
     throw new AssertionError("unreachable");
   }
 
-  private record MemoryTotals(long current, long allocated, long freed) {}
+  private record MemoryTotals(long currentBytes, long allocatedBytes, long freedBytes) {}
 
   /**
    * Lets the reader close its indexes without stopping the memory tracker. The outer try-with-resources

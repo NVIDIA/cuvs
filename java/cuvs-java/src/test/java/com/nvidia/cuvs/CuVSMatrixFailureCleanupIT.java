@@ -16,10 +16,18 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import org.junit.Before;
 import org.junit.Test;
 
 public class CuVSMatrixFailureCleanupIT extends CuVSTestCase {
+
+  // JDKProvider uses a buffered builder when one row fits in its pinned buffer;
+  // larger rows use a direct-copy builder. Both have contiguous and strided constructors.
+  private static final int PINNED_BUFFER_BYTES = 8 * 1024 * 1024;
+  private static final int BUFFERED_ROW_COLUMNS = 4;
+  private static final int DIRECT_COPY_ROW_COLUMNS = PINNED_BUFFER_BYTES / Float.BYTES + 1;
+  private static final int DEFAULT_COLUMN_STRIDE = -1;
 
   @Before
   public void setup() {
@@ -29,95 +37,83 @@ public class CuVSMatrixFailureCleanupIT extends CuVSTestCase {
   @Test
   public void testFailedHostToDeviceCopyReleasesDestination() throws Throwable {
     RuntimeException copyFailure = new IllegalStateException("injected device-copy failure");
-    AtomicReference<CuVSMatrix> destination = new AtomicReference<>();
-    CuVSHostMatrix source = fakeFailingCopySource(CuVSHostMatrix.class, destination, copyFailure);
+    AtomicReference<CuVSMatrix> allocatedDestination = new AtomicReference<>();
+    CuVSHostMatrix fakeHostSource =
+        fakeFailingCopySource(CuVSHostMatrix.class, allocatedDestination, copyFailure);
     assertWorkspaceReleased(
         resources -> {
-          assertSame(
-              copyFailure,
-              assertThrows(IllegalStateException.class, () -> source.toDevice(resources)));
-          assertNotNull("copy did not reach an allocated destination", destination.get());
+          var thrown =
+              assertThrows(IllegalStateException.class, () -> fakeHostSource.toDevice(resources));
+          assertSame("conversion must preserve the copy failure", copyFailure, thrown);
+          assertNotNull("copy did not reach an allocated destination", allocatedDestination.get());
         });
   }
 
   @Test
   public void testFailedDeviceToHostCopyClosesDestinationArena() {
     RuntimeException copyFailure = new IllegalStateException("injected host-copy failure");
-    AtomicReference<CuVSMatrix> destination = new AtomicReference<>();
-    CuVSDeviceMatrix source =
-        fakeFailingCopySource(CuVSDeviceMatrix.class, destination, copyFailure);
+    AtomicReference<CuVSMatrix> allocatedDestination = new AtomicReference<>();
+    CuVSDeviceMatrix fakeDeviceSource =
+        fakeFailingCopySource(CuVSDeviceMatrix.class, allocatedDestination, copyFailure);
 
-    assertSame(copyFailure, assertThrows(IllegalStateException.class, source::toHost));
-    assertNotNull("copy did not reach an allocated destination", destination.get());
-    try (CuVSMatrix allocatedDestination = destination.get()) {
+    var thrown = assertThrows(IllegalStateException.class, fakeDeviceSource::toHost);
+    assertSame("conversion must preserve the copy failure", copyFailure, thrown);
+    assertNotNull("copy did not reach an allocated destination", allocatedDestination.get());
+    // A closed host arena rejects reads. The outer close also prevents a test leak if this fails.
+    try (CuVSMatrix hostDestination = allocatedDestination.get()) {
       assertThrows(
           "the failed conversion retained its host arena",
           IllegalStateException.class,
-          () -> allocatedDestination.getRow(0).getAsFloat(0));
+          () -> hostDestination.getRow(0).getAsFloat(0));
     }
   }
 
   @Test
-  public void testFailedDeviceBuilderInitializationReleasesMatrix() throws Throwable {
-    // JDKProvider uses direct copies for rows larger than its 8 MiB pinned buffer.
-    int bufferedRowByteLimit = 8 * 1024 * 1024;
-    int directCopyColumns = bufferedRowByteLimit / Float.BYTES + 1;
-    for (int columns : new int[] {4, directCopyColumns}) {
-      assertFailedBuilderReleasesMatrix(columns, false);
-      assertFailedBuilderReleasesMatrix(columns, true);
-    }
-  }
-
-  private static void assertFailedBuilderReleasesMatrix(int columns, boolean strided)
-      throws Throwable {
-    RuntimeException streamFailure = new IllegalStateException("injected stream-lookup failure");
-    assertWorkspaceReleased(
-        resources -> {
-          CuVSResources failingResources =
-              (CuVSResources)
-                  Proxy.newProxyInstance(
-                      CuVSResources.class.getClassLoader(),
-                      new Class<?>[] {CuVSResources.class},
-                      (proxy, method, arguments) -> {
-                        // Allocation succeeds first; fail only in the subsequent stream lookup.
-                        boolean lookingUpStream =
-                            StackWalker.getInstance()
-                                .walk(
-                                    frames ->
-                                        frames.anyMatch(
-                                            frame ->
-                                                frame
-                                                        .getClassName()
-                                                        .equals(
-                                                            "com.nvidia.cuvs.internal.common.Util")
-                                                    && frame.getMethodName().equals("getStream")));
-                        if (method.getName().equals("access") && lookingUpStream) {
-                          throw streamFailure;
-                        }
-                        try {
-                          return method.invoke(resources, arguments);
-                        } catch (InvocationTargetException failure) {
-                          throw failure.getCause();
-                        }
-                      });
-          assertSame(
-              streamFailure,
-              assertThrows(
-                  IllegalStateException.class,
-                  () -> {
-                    if (strided) {
-                      CuVSMatrix.deviceBuilder(
-                          failingResources, 1, columns, columns + 1, -1, CuVSMatrix.DataType.FLOAT);
-                    } else {
-                      CuVSMatrix.deviceBuilder(
-                          failingResources, 1, columns, CuVSMatrix.DataType.FLOAT);
-                    }
-                  }));
-        });
+  public void testBufferedBuilderReleasesMatrixWhenStreamLookupFails() throws Throwable {
+    assertFailedBuilderReleasesMatrix(
+        resources ->
+            CuVSMatrix.deviceBuilder(
+                resources, 1, BUFFERED_ROW_COLUMNS, CuVSMatrix.DataType.FLOAT));
   }
 
   @Test
-  public void testArrayFactoriesKeepExistingShortRowErrors() {
+  public void testStridedBufferedBuilderReleasesMatrixWhenStreamLookupFails() throws Throwable {
+    int rowStrideWithOnePaddingElement = BUFFERED_ROW_COLUMNS + 1;
+    assertFailedBuilderReleasesMatrix(
+        resources ->
+            CuVSMatrix.deviceBuilder(
+                resources,
+                1,
+                BUFFERED_ROW_COLUMNS,
+                rowStrideWithOnePaddingElement,
+                DEFAULT_COLUMN_STRIDE,
+                CuVSMatrix.DataType.FLOAT));
+  }
+
+  @Test
+  public void testDirectCopyBuilderReleasesMatrixWhenStreamLookupFails() throws Throwable {
+    assertFailedBuilderReleasesMatrix(
+        resources ->
+            CuVSMatrix.deviceBuilder(
+                resources, 1, DIRECT_COPY_ROW_COLUMNS, CuVSMatrix.DataType.FLOAT));
+  }
+
+  @Test
+  public void testStridedDirectCopyBuilderReleasesMatrixWhenStreamLookupFails() throws Throwable {
+    int rowStrideWithOnePaddingElement = DIRECT_COPY_ROW_COLUMNS + 1;
+    assertFailedBuilderReleasesMatrix(
+        resources ->
+            CuVSMatrix.deviceBuilder(
+                resources,
+                1,
+                DIRECT_COPY_ROW_COLUMNS,
+                rowStrideWithOnePaddingElement,
+                DEFAULT_COLUMN_STRIDE,
+                CuVSMatrix.DataType.FLOAT));
+  }
+
+  @Test
+  public void testArrayFactoriesRejectRowsShorterThanTheFirstRow() {
     // Cleanup must not change the error reported by the existing bulk-copy implementation.
     assertThrows(
         IndexOutOfBoundsException.class, () -> CuVSMatrix.ofArray(new float[][] {{1, 2}, {3}}));
@@ -128,7 +124,7 @@ public class CuVSMatrixFailureCleanupIT extends CuVSTestCase {
   }
 
   @Test
-  public void testArrayFactoriesKeepTheFirstRowsWidth() {
+  public void testArrayFactoriesIgnoreExtraColumnsInLaterRows() {
     // ofArray historically copies only the first row's width, unlike builder.addVector.
     try (CuVSMatrix matrix = CuVSMatrix.ofArray(new float[][] {{1, 2}, {3, 4, 5}})) {
       float[][] copied = new float[2][2];
@@ -148,16 +144,80 @@ public class CuVSMatrixFailureCleanupIT extends CuVSTestCase {
   }
 
   @Test
-  public void testHostBuilderKeepsStrideValidationErrors() {
+  public void testHostBuilderRejectsRowStrideShorterThanTheRow() {
+    int columns = 4;
+    int rowStrideShorterThanRow = columns - 1;
     assertThrows(
         IllegalArgumentException.class,
-        () -> CuVSMatrix.hostBuilder(2, 4, 3, -1, CuVSMatrix.DataType.FLOAT));
-    assertThrows(
-        UnsupportedOperationException.class,
-        () -> CuVSMatrix.hostBuilder(2, 4, -1, 2, CuVSMatrix.DataType.FLOAT));
+        () ->
+            CuVSMatrix.hostBuilder(
+                2,
+                columns,
+                rowStrideShorterThanRow,
+                DEFAULT_COLUMN_STRIDE,
+                CuVSMatrix.DataType.FLOAT));
   }
 
-  /** Real default conversion and destination allocation, with only the source copy made to fail. */
+  @Test
+  public void testHostBuilderRejectsUnsupportedColumnStride() {
+    int defaultRowStride = -1;
+    int unsupportedColumnStride = 2;
+    assertThrows(
+        UnsupportedOperationException.class,
+        () ->
+            CuVSMatrix.hostBuilder(
+                2, 4, defaultRowStride, unsupportedColumnStride, CuVSMatrix.DataType.FLOAT));
+  }
+
+  private static void assertFailedBuilderReleasesMatrix(
+      Function<CuVSResources, CuVSMatrix.Builder<CuVSDeviceMatrix>> createBuilder)
+      throws Throwable {
+    RuntimeException streamFailure = new IllegalStateException("injected stream-lookup failure");
+    assertWorkspaceReleased(
+        resources -> {
+          CuVSResources failingResources = resourcesFailingStreamLookup(resources, streamFailure);
+          var thrown =
+              assertThrows(
+                  IllegalStateException.class, () -> createBuilder.apply(failingResources));
+          assertSame("constructor must preserve the stream failure", streamFailure, thrown);
+        });
+  }
+
+  /** Allow real allocation, then fail stream lookup during builder initialization. */
+  private static CuVSResources resourcesFailingStreamLookup(
+      CuVSResources realResources, RuntimeException streamFailure) {
+    return (CuVSResources)
+        Proxy.newProxyInstance(
+            CuVSResources.class.getClassLoader(),
+            new Class<?>[] {CuVSResources.class},
+            (proxy, method, arguments) -> {
+              if (method.getName().equals("access") && isLookingUpCudaStream()) {
+                throw streamFailure;
+              }
+              try {
+                return method.invoke(realResources, arguments);
+              } catch (InvocationTargetException failure) {
+                throw failure.getCause();
+              }
+            });
+  }
+
+  private static boolean isLookingUpCudaStream() {
+    // access() is also used for allocation; only Util.getStream must fail.
+    return StackWalker.getInstance()
+        .walk(
+            frames ->
+                frames.anyMatch(
+                    frame ->
+                        frame.getClassName().equals("com.nvidia.cuvs.internal.common.Util")
+                            && frame.getMethodName().equals("getStream")));
+  }
+
+  /**
+   * Fake source metadata and copying, but real default conversion and destination allocation.
+   * invokeDefault runs toHost()/toDevice(resources), which allocates the destination before
+   * calling the copy overload intercepted below. Capturing that destination proves copying was reached.
+   */
   private static <T extends CuVSMatrix> T fakeFailingCopySource(
       Class<T> type, AtomicReference<CuVSMatrix> destination, RuntimeException failure) {
     return type.cast(
@@ -197,13 +257,12 @@ public class CuVSMatrixFailureCleanupIT extends CuVSTestCase {
       assertTrue("memory tracker did not write a sample", lines.size() >= 2);
       List<String> header = List.of(lines.getFirst().split(",", -1));
       String[] lastSample = lines.getLast().split(",", -1);
-      long allocated = csvLong(header, lastSample, "workspace_total_alloc");
-      assertTrue("the test did not allocate device memory", allocated > 0);
-      assertEquals(
-          "failed operation retained device memory",
-          0,
-          csvLong(header, lastSample, "workspace_current"));
-      assertEquals(allocated, csvLong(header, lastSample, "workspace_total_freed"));
+      long allocatedBytes = csvLong(header, lastSample, "workspace_total_alloc");
+      long remainingBytes = csvLong(header, lastSample, "workspace_current");
+      long freedBytes = csvLong(header, lastSample, "workspace_total_freed");
+      assertTrue("the test did not allocate device memory", allocatedBytes > 0);
+      assertEquals("failed operation retained device memory", 0, remainingBytes);
+      assertEquals("every allocated byte must be freed", allocatedBytes, freedBytes);
     } finally {
       Files.deleteIfExists(csv);
     }
