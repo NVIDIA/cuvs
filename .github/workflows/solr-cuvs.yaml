@@ -59,21 +59,21 @@ jobs:
         map(select(.ARCH == "amd64")) |
         sort_by([(.CUDA_VER | split(".") | map(tonumber)), (.PY_VER | split(".") | map(tonumber))]) |
         .[-1:]
-  solr-cuvs:
+  solr-build:
     needs: compute-matrix
     strategy:
       matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
-    runs-on: linux-amd64-gpu-rtxpro6000-latest-1
+    runs-on: linux-amd64-cpu16
     continue-on-error: ${{ inputs.continue_on_error }}
     timeout-minutes: 120
     permissions:
       actions: read
       contents: read
+    outputs:
+      bundle_ready: ${{ steps.upload-bundle.outputs.artifact-id != '' }}
     container:
-      image: rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}
-      env:
-        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
-    env:
+      image: &solr_image rapidsai/ci-conda:26.12-cuda${{ matrix.CUDA_VER }}-${{ matrix.LINUX_VER }}-py${{ matrix.PY_VER }}
+    env: &solr_env
       GH_TOKEN: ${{ github.token }}
       RAPIDS_BUILD_TYPE: nightly
       RAPIDS_CUDA_VERSION: ${{ matrix.CUDA_VER }}
@@ -110,8 +110,55 @@ jobs:
         run: ci/test_solr.sh setup
       - name: Apply temporary Solr compatibility patches
         run: ci/test_solr.sh patch
-      - name: Build Solr distribution
+      - name: Build Solr distribution and compile integration tests
         run: ci/test_solr.sh build
+      - name: Upload prebuilt Solr test bundle
+        id: upload-bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: solr-cuvs-bundle-cuda${{ matrix.CUDA_VER }}
+          path: solr-work/solr-test-bundle.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+      - name: Collect results
+        if: ${{ always() }}
+        env:
+          SOLR_REPORT_STAGE: build
+        run: ci/test_solr.sh report
+      - name: Upload results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: solr-cuvs-build-cuda${{ matrix.CUDA_VER }}
+          path: artifacts/solr/
+          if-no-files-found: warn
+  solr-test:
+    needs: [compute-matrix, solr-build]
+    # An allowed CPU failure must not start a GPU job without a complete bundle.
+    if: ${{ needs.solr-build.outputs.bundle_ready == 'true' }}
+    strategy:
+      matrix: ${{ fromJSON(needs.compute-matrix.outputs.matrix) }}
+    runs-on: linux-amd64-gpu-rtxpro6000-latest-1
+    continue-on-error: ${{ inputs.continue_on_error }}
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    container:
+      image: *solr_image
+      env:
+        NVIDIA_VISIBLE_DEVICES: ${{ env.NVIDIA_VISIBLE_DEVICES }}
+    env: *solr_env
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Download prebuilt Solr test bundle
+        run: |
+          gh run download "${GITHUB_RUN_ID}" --repo "${RAPIDS_REPOSITORY}" \
+            --name "solr-cuvs-bundle-cuda${RAPIDS_CUDA_VERSION}" --dir "${SOLR_WORK_DIR}"
+      - name: Restore pinned native runtime and prebuilt Solr
+        run: ci/test_solr.sh restore
       - name: Test Solr GPU indexing
         run: ci/test_solr.sh test
       - name: Collect results

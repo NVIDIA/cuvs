@@ -1,0 +1,69 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+import groovy.json.JsonOutput
+
+// Export the configured Solr Test task, without running it on the CPU builder.
+gradle.projectsEvaluated {
+    def project = gradle.rootProject.findProject(':solr:modules:cuvs')
+    if (project == null) {
+        return // Included builds such as build-infra have no Solr test task.
+    }
+    def testTask = project.tasks.named('test', Test).get()
+    project.tasks.register('prepareCuVSGpuTest') {
+        dependsOn project.tasks.named('testClasses')
+        dependsOn testTask.classpath
+        doLast {
+            def destination = System.getenv('SOLR_TEST_BUNDLE')
+            if (!destination) {
+                throw new GradleException('SOLR_TEST_BUNDLE must name the output directory')
+            }
+            def bundle = new File(destination)
+            project.delete(bundle)
+            bundle.mkdirs()
+            def classpath = []
+            def locations = [:]
+            testTask.classpath.files.findAll { it.exists() }.eachWithIndex { entry, index ->
+                def relative = "classpath/${index}/${entry.name}"
+                def target = new File(bundle, relative)
+                project.copy {
+                    from entry
+                    into entry.directory ? target : target.parentFile
+                }
+                classpath.add(relative)
+                locations[entry.canonicalPath] = relative
+            }
+            def testClasses = testTask.testClassesDirs.files.findAll { it.exists() }.collect {
+                def relative = locations[it.canonicalPath]
+                if (!relative) {
+                    throw new GradleException("Test classes missing from runtime classpath: ${it}")
+                }
+                relative
+            }
+            if (testClasses.empty) {
+                throw new GradleException('No compiled Solr test classes to export')
+            }
+            // Preserve test data and logging configuration referenced outside the classpath.
+            project.copy {
+                from gradle.rootProject.projectDir
+                into new File(bundle, 'source')
+                exclude '.git', '**/.git/**', '**/.gradle/**', '**/build/**', '**/node_modules/**'
+            }
+            // Carry the exact Gradle distribution so GPU testing needs no plugin downloads.
+            project.copy {
+                from gradle.gradleHomeDir
+                into new File(bundle, 'gradle')
+            }
+            def root = gradle.rootProject.projectDir.absolutePath
+            def portable = { value -> value.toString().replace(root, '@SOLR_SOURCE@') }
+            def settings = [
+                classpath: classpath,
+                test_classes: testClasses,
+                jvm_args: testTask.allJvmArgs.collect(portable),
+                working_dir: portable(testTask.workingDir),
+                temp_dir: portable(project.testsTmpDir),
+            ]
+            new File(bundle, 'test-config.json').text = JsonOutput.prettyPrint(JsonOutput.toJson(settings)) + '\n'
+        }
+    }
+}

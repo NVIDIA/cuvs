@@ -8,9 +8,9 @@ SPDX-License-Identifier: Apache-2.0
 `.github/workflows/solr-cuvs.yaml` is callable from nightly `test.yaml` and can
 also be dispatched manually. Like cuDF's `velox-cudf` workflow, it accepts a
 downstream repository/ref and initially allows compatibility failures without
-failing the nightly workflow. It builds a full Solr distribution and runs
-`TestCuVSCodecSupportIT` on one amd64 GPU configuration selected from the existing
-cuVS build matrix.
+failing the nightly workflow. A CPU job builds the full Solr distribution and
+compiles the integration tests. A separate GPU job runs the precompiled
+`TestCuVSCodecSupportIT` on one amd64 configuration from the cuVS build matrix.
 
 The workflow consumes **existing artifacts**, rather than rebuilding cuVS. It
 resolves one completed `build.yaml` run for the selected cuVS commit, then takes
@@ -22,6 +22,33 @@ The CI scripts come from the workflow revision. The cuVS checkout selected by
 `cuvs_commit` supplies the dependency specification and artifact identity, so an
 older build can be replayed without requiring it to contain this workflow.
 
+## CPU build and GPU test jobs
+
+`solr-build` runs on `linux-amd64-cpu16`. It installs the selected nightly
+artifacts, applies the temporary Solr patches, builds the distribution, and
+compiles the test classes. Setup does not require a GPU; CUDA's virtual package
+version is supplied to Conda for dependency resolution on the CPU runner.
+
+`export-tests.init.gradle` exports the configured Solr test task's runtime
+classpath, compiled classes, JVM options (including its random seed), and test
+resources into a portable bundle. The bundle also contains the Solr distribution,
+the exact Gradle distribution, the compiled native-library probe, and an explicit
+Conda package specification. It excludes build caches and the native package
+channel, which the GPU job downloads from the original cuVS producer run.
+
+`solr-test` starts on the GPU runner only after that bundle is uploaded. It
+restores the same package versions, relocates the local native-channel URLs, and
+verifies the cuVS JAR checksums in both the distribution and test classpath.
+It then initializes CUDA and runs `gpu-test.gradle` offline. This standalone
+project only has a test task: it has no Solr compilation tasks, source sets, or
+remote dependency repositories. The GPU job does not re-checkout a moving Solr
+branch or regenerate dependency versions.
+
+Build diagnostics are uploaded as `solr-cuvs-build-cuda...`, the transfer archive
+as `solr-cuvs-bundle-cuda...`, and GPU results as `solr-cuvs-cuda...`. An allowed
+CPU failure does not schedule GPU work without an uploaded bundle. Set
+`continue_on_error=false` to make failures in either job fail the caller.
+
 ## Manual runs
 
 Once the workflow is available on the default branch, dispatch `solr-cuvs.yaml`
@@ -31,7 +58,7 @@ ref (`gh workflow run ... --ref <branch>`). Set:
 * `cuvs_commit`: the SHA of a completed cuVS build (or a branch to resolve).
 * `branch`: the producer's branch, normally `main`.
 * `build_run_id`: optional, useful when reproducing a particular nightly.
-* `solr_repository` / `solr_commit`: `apache/solr` and `main` by default, or an
+* `solr_repository` / `solr_commit`: `apache/solr` and `main` by default, or
   another ref to reproduce a downstream change. CI applies the temporary patches
   listed in `patches/solr.json` to the selected checkout.
 * `continue_on_error`: set to `false` for a hard-failing manual validation run.
@@ -100,7 +127,8 @@ is known; add the upstream issue/PR link to `issue` when one is available.
 The `patch` phase configures this directory's CMake project with no compiler or
 CUDA detection. It uses cuVS's existing RAPIDS CMake bootstrap, registers the
 manifest with `rapids_cpm_package_override`, and executes the generated patch
-command against the Solr checkout. Gradle still performs the build and tests.
+command against the Solr checkout on the CPU runner. Gradle performs the CPU
+build and exports the test configuration used by the GPU runner.
 RAPIDS CMake recognizes already-applied `.diff` files; required patches that
 cannot apply fail the phase. Upstream drift therefore requires reviewing or
 retiring the patch, rather than silently proceeding without the fix.
@@ -123,13 +151,14 @@ cmake -S ci/solr -B /tmp/solr-patches -DSOLR_SOURCE_DIR=/absolute/path/to/solr
 
 ## GPU checks
 
-Setup requires `nvidia-smi` and runs `CheckGpu.java` against the downloaded Java
-JAR and native library. The integration test must execute `testIndexAndSearch`
+The GPU test phase requires `nvidia-smi` and runs the CPU-compiled `CheckGpu`
+class against the downloaded Java JAR and native library. The integration test must execute `testIndexAndSearch`
 successfully: absent, skipped, failing, or CPU-fallback results are errors.
 The test runs with one fork, native access enabled by Solr's test configuration,
 and its Java SecurityManager disabled for this native-library integration.
 
-The init script sets `solr.tests.cuvs.required=true` on test JVMs. A Solr test
+The exported test configuration and GPU runner set
+`solr.tests.cuvs.required=true` on test JVMs. A Solr test
 supporting this option should assert GPU availability instead of skipping. The
 JUnit validator additionally rejects skipped tests, including older Solr tests
 that do not recognize the option.
@@ -142,9 +171,14 @@ Run the helper's regression tests without Java, CUDA, or network access:
 python -m unittest discover -s ci/solr/tests -v
 ```
 
-For the complete job, use a RAPIDS CI container with a GPU and the tools used
-by the existing Java/Lucene jobs. Set `CUVS_SOURCE_DIR`, `SOLR_SOURCE_DIR`,
-`SOLR_WORK_DIR`, `SOLR_RESULTS_DIR`, `RAPIDS_REPOSITORY`, `RAPIDS_REF_NAME`,
-`RAPIDS_CUDA_VERSION`, `RAPIDS_BUILD_TYPE=nightly`, and optionally
-`SOLR_BUILD_RUN_ID`, then run the `setup`, `patch`, `build`, `test`, and `report`
-phases of `ci/test_solr.sh`. Use fresh work and results directories for each run.
+For the CPU job, use a RAPIDS CI container with the tools used by the existing
+Java/Lucene jobs. Set `CUVS_SOURCE_DIR`, `SOLR_SOURCE_DIR`, `SOLR_WORK_DIR`,
+`SOLR_RESULTS_DIR`, `RAPIDS_REPOSITORY`, `RAPIDS_REF_NAME`, `RAPIDS_CUDA_VERSION`,
+`RAPIDS_BUILD_TYPE=nightly`, and optionally `SOLR_BUILD_RUN_ID`. Run `setup`,
+`patch`, and `build`, followed by `SOLR_REPORT_STAGE=build ci/test_solr.sh report`.
+
+Transfer `SOLR_WORK_DIR/solr-test-bundle.tar.gz` to a fresh GPU job's work directory
+using the same CUDA/OS container configuration. Run `restore`, `test`, and `report`
+with that job's work/results directories. The GPU job only needs the CI checkout
+and bundle; it does not need cuVS or Solr source checkouts. Use fresh work and
+results directories for each job.

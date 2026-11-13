@@ -107,6 +107,18 @@ class ArtifactsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "CPU fallback"):
             artifacts.verify_tests(self.results)
 
+    def test_cpu_fallback_in_junit_output_fails(self):
+        self.report()
+        report = self.results / "TEST-cuvs.xml"
+        report.write_text(
+            report.read_text().replace(
+                "</testsuite>",
+                "<system-out>GPU based indexing not supported</system-out></testsuite>",
+            )
+        )
+        with self.assertRaisesRegex(ValueError, "CPU fallback"):
+            artifacts.verify_tests(self.results)
+
     def test_distribution_rejects_missing_extra_or_stale_jars(self):
         config = self.stage()
         distribution = self.root / "distribution"
