@@ -25,8 +25,9 @@ namespace cuvs::neighbors::cagra::detail::graph {
 namespace {
 
 template <class DATA_T, int numElementsPerThread>
-__global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, dataset_dim]
+__global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, dataset_stride]
                           const uint32_t dataset_dim,
+                          const uint32_t dataset_stride,
                           uint32_t* const knn_graph,  // [graph_chunk_size, graph_degree]
                           const uint32_t graph_size,
                           const uint32_t graph_degree,
@@ -49,9 +50,9 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
         metric == cuvs::distance::DistanceType::CosineExpanded) {
       for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
         auto elem_b = cuvs::spatial::knn::detail::utils::mapping<float>{}(
-          dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
+          dataset[d + static_cast<uint64_t>(dataset_stride) * dstNode]);
         dist -= cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                  dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]) *
+                  dataset[d + static_cast<uint64_t>(dataset_stride) * srcNode]) *
                 elem_b;
 
         if (metric == cuvs::distance::DistanceType::CosineExpanded) {
@@ -61,25 +62,25 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
     } else if (metric == cuvs::distance::DistanceType::L2Expanded) {
       for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
         float diff = cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]) -
+                       dataset[d + static_cast<uint64_t>(dataset_stride) * srcNode]) -
                      cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
+                       dataset[d + static_cast<uint64_t>(dataset_stride) * dstNode]);
         dist += diff * diff;
       }
     } else if (metric == cuvs::distance::DistanceType::L1) {
       for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
         float diff = cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]) -
+                       dataset[d + static_cast<uint64_t>(dataset_stride) * srcNode]) -
                      cuvs::spatial::knn::detail::utils::mapping<float>{}(
-                       dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
+                       dataset[d + static_cast<uint64_t>(dataset_stride) * dstNode]);
         dist += raft::abs(diff);
       }
     } else if (metric == cuvs::distance::DistanceType::BitwiseHamming) {
       if constexpr (std::is_integral_v<DATA_T>) {
         for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
           dist += __popc(
-            static_cast<uint32_t>(dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode] ^
-                                  dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]) &
+            static_cast<uint32_t>(dataset[d + static_cast<uint64_t>(dataset_stride) * srcNode] ^
+                                  dataset[d + static_cast<uint64_t>(dataset_stride) * dstNode]) &
             0xffu);
         }
       }
@@ -124,8 +125,8 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
 constexpr int kMaxSortElementsPerThread = 32;
 
 template <typename DataT>
-using sort_kernel_type =
-  void (*)(DataT const*, uint32_t, uint32_t*, uint32_t, uint32_t, cuvs::distance::DistanceType);
+using sort_kernel_type = void (*)(
+  DataT const*, uint32_t, uint32_t, uint32_t*, uint32_t, uint32_t, cuvs::distance::DistanceType);
 
 template <typename DataT>
 auto select_sort_kernel(uint32_t degree) -> sort_kernel_type<DataT>
@@ -148,6 +149,7 @@ void launch_sort_knn_graph_impl(raft::resources const& res,
                                 DataT const* dataset,
                                 uint32_t dataset_size,
                                 uint32_t dataset_dim,
+                                uint32_t dataset_stride,
                                 uint32_t* knn_graph,
                                 uint32_t graph_degree)
 {
@@ -157,7 +159,7 @@ void launch_sort_knn_graph_impl(raft::resources const& res,
   auto const warps              = block_size / raft::WarpSize;
   auto const blocks             = (dataset_size + warps - 1) / warps;
   kernel<<<blocks, block_size, 0, raft::resource::get_cuda_stream(res).get()>>>(
-    dataset, dataset_dim, knn_graph, dataset_size, graph_degree, metric);
+    dataset, dataset_dim, dataset_stride, knn_graph, dataset_size, graph_degree, metric);
   RAFT_CUDA_TRY(cudaGetLastError());
 }
 
@@ -348,17 +350,18 @@ void sort_knn_graph_bbq_impl(raft::resources const& res,
 
 }  // namespace
 
-#define CUVS_DEFINE_CAGRA_GRAPH_SORT(DataT)                                      \
-  void launch_sort_knn_graph(raft::resources const& res,                         \
-                             cuvs::distance::DistanceType metric,                \
-                             DataT const* dataset,                               \
-                             uint32_t dataset_size,                              \
-                             uint32_t dataset_dim,                               \
-                             uint32_t* knn_graph,                                \
-                             uint32_t graph_degree)                              \
-  {                                                                              \
-    launch_sort_knn_graph_impl(                                                  \
-      res, metric, dataset, dataset_size, dataset_dim, knn_graph, graph_degree); \
+#define CUVS_DEFINE_CAGRA_GRAPH_SORT(DataT)                                                      \
+  void launch_sort_knn_graph(raft::resources const& res,                                         \
+                             cuvs::distance::DistanceType metric,                                \
+                             DataT const* dataset,                                               \
+                             uint32_t dataset_size,                                              \
+                             uint32_t dataset_dim,                                               \
+                             uint32_t dataset_stride,                                            \
+                             uint32_t* knn_graph,                                                \
+                             uint32_t graph_degree)                                              \
+  {                                                                                              \
+    launch_sort_knn_graph_impl(                                                                  \
+      res, metric, dataset, dataset_size, dataset_dim, dataset_stride, knn_graph, graph_degree); \
   }
 
 CUVS_DEFINE_CAGRA_GRAPH_SORT(float)

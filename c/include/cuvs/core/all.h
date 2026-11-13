@@ -12,6 +12,7 @@
 #include <cuvs/core/export.h>
 #include <cuvs/core/c_api.h>
 #include <cuvs/core/dataset.h>
+#include <cuvs/core/filter.h>
 
 #include <cuvs/cluster/kmeans.h>
 
