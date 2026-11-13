@@ -110,13 +110,13 @@ struct CopyClusterLabelOp {
 template <bool SquareDistance, typename DataT, typename IndexT, typename DistanceIterator>
 struct WeightedDistanceOp {
   DistanceIterator distances;
-  const DataT* weights;
+  const DataT* weights;  // nullptr: every weight is effectively 1
 
   __device__ DataT operator()(IndexT offset) const
   {
     auto distance = static_cast<DataT>(distances[offset]);
     if constexpr (SquareDistance) { distance *= distance; }
-    return distance * weights[offset];
+    return weights == nullptr ? distance : distance * weights[offset];
   }
 };
 
@@ -489,7 +489,7 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
   raft::device_matrix_view<const DataT, IndexT> X,
   raft::device_matrix_view<const DataT, IndexT> centroids,
   rmm::device_uvector<char>& output_storage,
-  raft::device_vector_view<const DataT, IndexT> L2NormX,
+  raft::device_vector_view<const DataT, IndexT> L2NormX,  // if empty, compute here
   rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
   cuvs::distance::DistanceType metric,
   int batch_samples,
@@ -498,7 +498,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
   std::optional<raft::device_vector_view<const DataT, IndexT>> Tf32NormX = std::nullopt,
   cuvs::distance::detail::Top1nnBackend backend = cuvs::distance::detail::Top1nnBackend::Auto,
   // Required (and only used) with Top1nnBackend::Cagra: index built over `centroids`.
-  const cuvs::distance::detail::top_1_nn_cagra_index* ann_index = nullptr);
+  const cuvs::distance::detail::top_1_nn_cagra_index* ann_index = nullptr,
+  bool need_compute_distance                                    = true);
 
 #define EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(DataT, IndexT)   \
   extern template MinClusterAndDistanceResult<DataT, IndexT>      \
@@ -515,7 +516,8 @@ MinClusterAndDistanceResult<DataT, IndexT> minClusterAndDistanceCompute(
     rmm::device_uvector<char>&,                                   \
     std::optional<raft::device_vector_view<const DataT, IndexT>>, \
     cuvs::distance::detail::Top1nnBackend,                        \
-    const cuvs::distance::detail::top_1_nn_cagra_index*);
+    const cuvs::distance::detail::top_1_nn_cagra_index*,          \
+    bool);
 
 EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(float, int64_t)
 EXTERN_TEMPLATE_MIN_CLUSTER_AND_DISTANCE(float, int)

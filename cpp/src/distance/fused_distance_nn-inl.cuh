@@ -869,9 +869,9 @@ detail::Top1nnPlan<IdxT> probe_top_1_nn(raft::resources const& handle,
     plan.output_alignment = alignment;
     plan.output_layout    = detail::Top1nnOutputLayout::Separate;
     plan.norm_alignment   = alignment;
-    plan.norm_policy = (resolved == detail::Top1nnBackend::Cutile && std::is_same_v<DataT, float>)
-                         ? detail::Top1nnNormPolicy::Tf32
-                         : detail::Top1nnNormPolicy::Native;
+    plan.norm_policy = resolved == detail::Top1nnBackend::Cagra ? detail::Top1nnNormPolicy::None
+                       : std::is_same_v<DataT, float>           ? detail::Top1nnNormPolicy::Tf32
+                                                                : detail::Top1nnNormPolicy::Native;
   } else {
     plan.output_bytes = detail::checked_top_1_nn_workspace_multiply(
       detail::checked_top_1_nn_extent(m), sizeof(raft::KeyValuePair<IdxT, DataT>));
@@ -913,7 +913,8 @@ void top_1_nn(raft::resources const& handle,
                "Selected top_1_nn backend does not support the requested metric");
   RAFT_EXPECTS(x != nullptr && y != nullptr, "top_1_nn requires non-null input buffers");
   RAFT_EXPECTS(metric == cuvs::distance::DistanceType::InnerProduct ||
-                 plan.backend == detail::Top1nnBackend::Cagra || (xn != nullptr && yn != nullptr),
+                 plan.norm_policy == detail::Top1nnNormPolicy::None ||
+                 (xn != nullptr && yn != nullptr),
                "top_1_nn requires non-null norm buffers for the requested metric");
   using output_type = std::remove_cvref_t<OutputT>;
   constexpr bool is_separate_output =

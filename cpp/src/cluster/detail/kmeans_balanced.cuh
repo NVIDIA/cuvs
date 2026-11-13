@@ -97,6 +97,19 @@ auto make_bitwise_expanded_iterator(const uint8_t* packed_data)
   return thrust::make_transform_iterator(counting_iter, decoder);
 }
 
+/** Buffers for predict_core, reused across calls so each minibatch does not reallocate them. */
+template <typename MathT>
+struct predict_core_workspace {
+  predict_core_workspace(cuda::stream_ref stream, rmm::device_async_resource_ref mr)
+    : norms_or_distances(0, stream, mr), workspace(0, stream, mr), output(0, stream, mr)
+  {
+  }
+
+  rmm::device_uvector<MathT> norms_or_distances;
+  rmm::device_uvector<char> workspace;
+  rmm::device_uvector<char> output;
+};
+
 /**
  * @brief Predict labels for the dataset; floating-point types only.
  *
@@ -117,6 +130,7 @@ auto make_bitwise_expanded_iterator(const uint8_t* packed_data)
  * @param[in] n_rows Number samples in the `dataset`
  * @param[out] labels Output predictions [n_rows]
  * @param[inout] mr (optional) Memory resource to use for temporary allocations
+ * @param[inout] scratch Buffers reused across calls
  */
 template <typename MathT, typename IdxT, typename LabelT>
 inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
@@ -129,34 +143,35 @@ inline std::enable_if_t<std::is_floating_point_v<MathT>> predict_core(
   const MathT* dataset_norm,
   IdxT n_rows,
   LabelT* labels,
-  rmm::device_async_resource_ref mr)
+  rmm::device_async_resource_ref mr,
+  predict_core_workspace<MathT>& scratch)
 {
   auto stream = raft::resource::get_cuda_stream(handle);
   switch (params.metric) {
     case cuvs::distance::DistanceType::L2Expanded:
     case cuvs::distance::DistanceType::L2SqrtExpanded:
     case cuvs::distance::DistanceType::CosineExpanded: {
-      rmm::device_uvector<MathT> L2NormBuf_OR_DistBuf(0, stream, mr);
-      rmm::device_uvector<char> workspace(0, stream, mr);
-
       auto X_view = raft::make_device_matrix_view<const MathT, IdxT>(dataset, n_rows, dim);
       auto centroids_view =
         raft::make_device_matrix_view<const MathT, IdxT>(centers, n_clusters, dim);
-      auto X_norm_view = raft::make_device_vector_view<const MathT, IdxT>(dataset_norm, n_rows);
-
-      rmm::device_uvector<char> assignment_output(0, stream, mr);
+      auto X_norm_view = raft::make_device_vector_view<const MathT, IdxT>(
+        dataset_norm, dataset_norm == nullptr ? IdxT{0} : n_rows);
 
       const auto result = cuvs::cluster::kmeans::detail::minClusterAndDistanceCompute<MathT, IdxT>(
         handle,
         X_view,
         centroids_view,
-        assignment_output,
+        scratch.output,
         X_norm_view,
-        L2NormBuf_OR_DistBuf,
+        scratch.norms_or_distances,
         params.metric,
         0,  // default top_1_nn row tuning
         0,  // default top_1_nn candidate tuning
-        workspace);
+        scratch.workspace,
+        std::nullopt,
+        cuvs::distance::detail::Top1nnBackend::Auto,
+        nullptr,
+        /*need_compute_distance=*/false);
 
       cuvs::cluster::kmeans::detail::copyClusterLabels(handle, result, labels);
       break;
@@ -693,14 +708,14 @@ void predict(const raft::resources& handle,
   rmm::device_uvector<MathT> cur_dataset(
     std::is_same_v<T, MathT> ? 0 : max_minibatch_size * transformed_dim, stream, mem_res);
   constexpr bool native_half = std::is_same_v<T, half> && std::is_same_v<MathT, float>;
-  bool need_norm =
-    dataset_norm == nullptr && (params.metric == cuvs::distance::DistanceType::L2Expanded ||
-                                params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
-                                params.metric == cuvs::distance::DistanceType::CosineExpanded);
-  bool need_compute_norm = need_norm && !params.is_packed_binary;
+  // Packed binary rows decode to +/-1, so every row norm is the decoded dimension: filled once.
+  const bool packed_norms = dataset_norm == nullptr && params.is_packed_binary &&
+                            (params.metric == cuvs::distance::DistanceType::L2Expanded ||
+                             params.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                             params.metric == cuvs::distance::DistanceType::CosineExpanded);
   rmm::device_uvector<MathT> cur_dataset_norm(
-    need_norm || native_half ? max_minibatch_size : 0, stream, mem_res);
-  if (need_norm && params.is_packed_binary) {
+    packed_norms || native_half ? max_minibatch_size : 0, stream, mem_res);
+  if (packed_norms) {
     raft::matrix::fill(
       handle,
       raft::make_device_matrix_view<MathT, IdxT>(cur_dataset_norm.data(), max_minibatch_size, 1),
@@ -713,9 +728,10 @@ void predict(const raft::resources& handle,
     native_half_scratch.emplace(
       native_centers_size, n_clusters, max_minibatch_size, stream, mem_res);
   }
-  const MathT* dataset_norm_ptr =
-    need_norm && params.is_packed_binary ? cur_dataset_norm.data() : nullptr;
   auto cur_dataset_ptr = cur_dataset.data();
+
+  // Buffers reused by every minibatch, instead of allocated per predict_core call.
+  predict_core_workspace<MathT> core_scratch(stream, mem_res);
   for (IdxT offset = 0; offset < n_rows; offset += max_minibatch_size) {
     IdxT minibatch_size = std::min<IdxT>(max_minibatch_size, n_rows - offset);
 
@@ -753,31 +769,9 @@ void predict(const raft::resources& handle,
         mapping_op);
     }
 
-    // Compute the norm now if it hasn't been pre-computed.
-    if (need_compute_norm) {
-      if (params.metric == cuvs::distance::DistanceType::CosineExpanded)
-        compute_norm(handle,
-                     cur_dataset_norm.data(),
-                     cur_dataset_ptr,
-                     dim,
-                     minibatch_size,
-                     mapping_op,
-                     raft::sqrt_op{},
-                     mr);
-      else
-        compute_norm(handle,
-                     cur_dataset_norm.data(),
-                     cur_dataset_ptr,
-                     dim,
-                     minibatch_size,
-                     mapping_op,
-                     raft::identity_op{},
-                     mr);
-      dataset_norm_ptr = cur_dataset_norm.data();
-    } else if (dataset_norm != nullptr) {
-      dataset_norm_ptr = dataset_norm + offset;
-    }
-
+    const MathT* dataset_norm_ptr = dataset_norm != nullptr ? dataset_norm + offset
+                                    : packed_norms          ? cur_dataset_norm.data()
+                                                            : nullptr;
     predict_core(handle,
                  params,
                  centers,
@@ -787,7 +781,8 @@ void predict(const raft::resources& handle,
                  dataset_norm_ptr,
                  minibatch_size,
                  labels + offset,
-                 mem_res);
+                 mem_res,
+                 core_scratch);
   }
 }
 
