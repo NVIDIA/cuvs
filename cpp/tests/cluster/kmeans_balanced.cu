@@ -666,4 +666,76 @@ TEST(KmeansBalancedBinary, IncrementalCentersMatchSinglePass)
   }
 }
 
+/*
+ * Identical rows get the same label, so 4 distinct rows leave at least 12 of the 16 clusters empty.
+ * Every center must stay within the data (all coordinates in [1, 4]): a zero center attracts the
+ * rows near the origin.
+ */
+TEST(KmeansBalancedEmptyClusters, FitKeepsTheCenters)
+{
+  raft::resources handle;
+  auto stream                  = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_rows     = 4096;
+  constexpr int64_t dim        = 8;
+  constexpr int64_t n_clusters = 16;
+  constexpr int64_t n_points   = 4;
+  std::vector<float> h_data(n_rows * dim);
+  for (int64_t i = 0; i < n_rows * dim; i++) {
+    h_data[i] = static_cast<float>(1 + (i / dim) % n_points);
+  }
+  auto X = raft::make_device_matrix<float, int64_t>(handle, n_rows, dim);
+  auto C = raft::make_device_matrix<float, int64_t>(handle, n_clusters, dim);
+  raft::update_device(X.data_handle(), h_data.data(), h_data.size(), stream);
+  cuvs::cluster::kmeans::balanced_params params;
+  cuvs::cluster::kmeans::fit(handle, params, raft::make_const_mdspan(X.view()), C.view());
+  std::vector<float> h_centers(n_clusters * dim);
+  raft::update_host(h_centers.data(), C.data_handle(), h_centers.size(), stream);
+  raft::resource::sync_stream(handle);
+  for (int64_t i = 0; i < n_clusters * dim; i++) {
+    ASSERT_TRUE(h_centers[i] >= 0.999f && h_centers[i] <= n_points + 0.001f)
+      << "cluster " << i / dim << " has the center coordinate " << h_centers[i];
+  }
+}
+
+/* IVF-Flat updates its centers this way when it extends an index with adaptive centers. */
+TEST(KmeansBalancedEmptyClusters, IncrementalUpdateKeepsTheCenters)
+{
+  raft::resources handle;
+  auto stream                  = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_rows     = 4;
+  constexpr int64_t dim        = 2;
+  constexpr int64_t n_clusters = 2;
+  std::vector<float> h_data(n_rows * dim, 1.0f);
+  std::vector<float> h_centers{1.0f, 1.0f, 5.0f, 5.0f};
+  std::vector<uint32_t> h_labels(n_rows, 0);
+  std::vector<uint32_t> h_sizes(n_clusters, 0);
+  auto X     = raft::make_device_matrix<float, int64_t>(handle, n_rows, dim);
+  auto C     = raft::make_device_matrix<float, int64_t>(handle, n_clusters, dim);
+  auto L     = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
+  auto sizes = raft::make_device_vector<uint32_t, int64_t>(handle, n_clusters);
+  raft::update_device(X.data_handle(), h_data.data(), h_data.size(), stream);
+  raft::update_device(C.data_handle(), h_centers.data(), h_centers.size(), stream);
+  raft::update_device(L.data_handle(), h_labels.data(), h_labels.size(), stream);
+  raft::update_device(sizes.data_handle(), h_sizes.data(), h_sizes.size(), stream);
+  cuvs::cluster::kmeans::detail::calc_centers_and_sizes(
+    handle,
+    C.data_handle(),
+    sizes.data_handle(),
+    n_clusters,
+    dim,
+    X.data_handle(),
+    n_rows,
+    L.data_handle(),
+    /*reset_counters=*/false,
+    /*is_packed_binary=*/false,
+    raft::identity_op{},
+    raft::resource::get_workspace_resource_ref(handle));
+  std::vector<float> actual(n_clusters * dim);
+  raft::update_host(actual.data(), C.data_handle(), actual.size(), stream);
+  raft::update_host(h_sizes.data(), sizes.data_handle(), h_sizes.size(), stream);
+  raft::resource::sync_stream(handle);
+  EXPECT_EQ(h_sizes, (std::vector<uint32_t>{4, 0}));
+  EXPECT_EQ(actual, h_centers);
+}
+
 }  // namespace cuvs
