@@ -155,3 +155,13 @@ jobs:
       sha: ${{ inputs.sha }}
       script: ci/test_wheel_cuvs.sh
       matrix_type: nightly
+  solr-cuvs:
+    if: ${{ inputs.build_type == 'nightly' }}
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/solr-cuvs.yaml
+    with:
+      cuvs_commit: ${{ inputs.sha }}
+      branch: ${{ inputs.branch }}
+      date: ${{ inputs.date }}

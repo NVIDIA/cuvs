@@ -1,0 +1,14 @@
+{
+  "packages": {
+    "solr": {
+      "patches": [
+        {
+          "file": "${current_json_dir}/nightly-cuvs-api.diff",
+          "issue": "Adapt the codec and GPU test to nightly cuVS APIs, require GPU execution in CI, and match the Lucene 10.4 codec name. Pending upstream Solr integration.",
+          "fixed_in": "",
+          "required": true
+        }
+      ]
+    }
+  }
+}
