@@ -1,0 +1,43 @@
+// SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+
+import groovy.json.JsonSlurper
+
+plugins { id 'java-base' }
+
+def config = new JsonSlurper().parse(file('test-config.json'))
+def relocate = { value -> value.replace('@SOLR_SOURCE@', file('source').absolutePath) }
+def results = System.getenv('SOLR_RESULTS_DIR')
+if (!results) {
+    throw new GradleException('SOLR_RESULTS_DIR must name the test results directory')
+}
+
+// This project has no source sets, compilation tasks, or remote dependencies.
+tasks.register('test', Test) {
+    useJUnit()
+    classpath = files(config.classpath)
+    testClassesDirs = files(config.test_classes)
+    setAllJvmArgs(config.jvm_args.collect(relocate))
+    systemProperty 'solr.tests.cuvs.required', 'true'
+    workingDir = file(relocate(config.working_dir))
+    maxParallelForks = 1
+    filter { includeTestsMatching 'org.apache.solr.cuvs.TestCuVSCodecSupportIT' }
+    outputs.upToDateWhen { false }
+    reports.junitXml.outputLocation = file("${results}/test-results")
+    reports.html.required = false
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+    afterSuite { suite, result ->
+        if (suite.parent == null) {
+            logger.lifecycle("Solr GPU integration tests: ${result.testCount} run, " +
+                "${result.successfulTestCount} passed, ${result.failedTestCount} failed, " +
+                "${result.skippedTestCount} skipped")
+        }
+    }
+    doFirst {
+        workingDir.mkdirs()
+        file(relocate(config.temp_dir)).mkdirs()
+    }
+}

@@ -1,0 +1,76 @@
+diff --git a/solr/modules/cuvs/src/java/org/apache/solr/cuvs/CuVSCodec.java b/solr/modules/cuvs/src/java/org/apache/solr/cuvs/CuVSCodec.java
+index 7f6e76f..66e3ae7 100644
+--- a/solr/modules/cuvs/src/java/org/apache/solr/cuvs/CuVSCodec.java
++++ b/solr/modules/cuvs/src/java/org/apache/solr/cuvs/CuVSCodec.java
+@@ -16,6 +16,7 @@
+  */
+ package org.apache.solr.cuvs;
+ 
++import com.nvidia.cuvs.lucene.AcceleratedHNSWParams;
+ import com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat;
+ import java.lang.invoke.MethodHandles;
+ import org.apache.lucene.codecs.FilterCodec;
+@@ -92,12 +93,14 @@ public class CuVSCodec extends FilterCodec {
+                     cuvsHnswEfConstruction);
+               }
+               return new Lucene99AcceleratedHNSWVectorsFormat(
+-                  cuvsWriterThreads,
+-                  cuvsIntGraphDegree,
+-                  cuvsGraphDegree,
+-                  cuvsHnswLayers,
+-                  cuvsHnswM,
+-                  cuvsHnswEfConstruction);
++                  new AcceleratedHNSWParams.Builder()
++                      .withWriterThreads(cuvsWriterThreads)
++                      .withIntermediateGraphDegree(cuvsIntGraphDegree)
++                      .withGraphDegree(cuvsGraphDegree)
++                      .withHNSWLayer(cuvsHnswLayers)
++                      .withMaxConn(cuvsHnswM)
++                      .withBeamWidth(cuvsHnswEfConstruction)
++                      .build());
+             } else if (DenseVectorField.HNSW_ALGORITHM.equals(knnAlgorithm)) {
+               return fallbackCodec.getKnnVectorsFormatForField(field);
+             } else {
+diff --git a/solr/modules/cuvs/src/test/org/apache/solr/cuvs/TestCuVSCodecSupportIT.java b/solr/modules/cuvs/src/test/org/apache/solr/cuvs/TestCuVSCodecSupportIT.java
+index 18ff0e5..cf810de 100644
+--- a/solr/modules/cuvs/src/test/org/apache/solr/cuvs/TestCuVSCodecSupportIT.java
++++ b/solr/modules/cuvs/src/test/org/apache/solr/cuvs/TestCuVSCodecSupportIT.java
+@@ -16,7 +16,7 @@
+  */
+ package org.apache.solr.cuvs;
+ 
+-import com.nvidia.cuvs.lucene.Lucene99AcceleratedHNSWVectorsFormat;
++import com.nvidia.cuvs.lucene.ThreadLocalCuVSResourcesProvider;
+ import java.io.IOException;
+ import java.lang.invoke.MethodHandles;
+ import java.nio.file.Files;
+@@ -34,6 +34,7 @@ import org.apache.lucene.search.TopDocs;
+ import org.apache.lucene.tests.mockfile.FilterPath;
+ import org.apache.solr.SolrTestCaseJ4;
+ import org.apache.solr.common.SolrInputDocument;
++import org.apache.solr.common.util.EnvUtils;
+ import org.apache.solr.core.SolrConfig;
+ import org.apache.solr.core.SolrCore;
+ import org.apache.solr.search.SolrIndexSearcher;
+@@ -68,7 +69,11 @@ public class TestCuVSCodecSupportIT extends SolrTestCaseJ4 {
+ 
+   @BeforeClass
+   public static void beforeClass() throws Exception {
+-    assumeTrue("Skipping cuvs tests", Lucene99AcceleratedHNSWVectorsFormat.supported());
++    boolean supported = ThreadLocalCuVSResourcesProvider.isSupported();
++    if (EnvUtils.getPropertyAsBool("solr.tests.cuvs.required", false)) {
++      assertTrue("cuVS GPU support is required for this test run", supported);
++    }
++    assumeTrue("Skipping cuvs tests", supported);
+     Path tmpSolrHome = createTempDir();
+     Path tmpConfDir = FilterPath.unwrap(tmpSolrHome.resolve(CONF_DIR));
+     Path testHomeConfDir = TEST_HOME().resolve(CONF_DIR);
+@@ -91,7 +96,7 @@ public class TestCuVSCodecSupportIT extends SolrTestCaseJ4 {
+         "Unexpected solrconfig codec factory",
+         "org.apache.solr.cuvs.CuVSCodecFactory",
+         codecFactory);
+-    assertEquals("Unexpected core codec", "Lucene103", solrCore.getCodec().getName());
++    assertEquals("Unexpected core codec", "Lucene104", solrCore.getCodec().getName());
+ 
+     // Index documents
+     for (int i = 0; i < DATASET_SIZE; i++) {
