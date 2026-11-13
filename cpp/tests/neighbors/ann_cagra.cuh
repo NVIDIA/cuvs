@@ -2491,15 +2491,15 @@ inline std::vector<AnnCagraMpInputs> generate_mp_inputs()
                              split,
                              graph_build_algo::NN_DESCENT,
                              algo,
-                             /*itopk_size*/ 64,
+                             // With a single 10000-row partition, itopk_size=64 leaves
+                             // the recall of the fp16/int8/uint8 datasets at ~0.98, with
+                             // a tail below 0.97 since the NN-descent graph differs from
+                             // build to build. 128 puts every case near 1.0 (minimum
+                             // ~0.994 over thousands of builds), so the single-index
+                             // 0.985 convention applies.
+                             /*itopk_size*/ 128,
                              metric,
-                             // Lower than the single-index 0.985 convention. These
-                             // low-redundancy single-partition / skewed configs dip
-                             // further under filtering, where removing rows thins the
-                             // survivors' graph connectivity, so leave headroom for run-to-run
-                             // jitter while still catching real regressions. MULTI_CTA gets extra
-                             // headroom because its automatic iteration limit is shallower.
-                             /*min_recall*/ algo == search_algo::MULTI_CTA ? 0.95 : 0.97});
+                             /*min_recall*/ 0.985});
         }
       }
     }
