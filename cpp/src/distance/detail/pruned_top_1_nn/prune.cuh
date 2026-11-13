@@ -291,14 +291,10 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
   if (lane < n_left) { head[lane] = list[lane]; }
   __syncwarp();
   if (lane == 0) { survivors[row] += n_left; }
-  // Only the current centroid survived
-  if (n_left == 1 &&
-      centroid_offset + static_cast<uint32_t>(head[0] >> kSurvivorIdShift) == best_index) {
-    return;
-  }
 
   // One pass per remaining dim tile; the last one ends with the argmin
-  for (uint32_t d = kPartialDim; n_left; d += kDimTileSize) {
+  uint32_t d = kPartialDim;
+  for (; n_left > 1; d += kDimTileSize) {
     const bool last = d + kDimTileSize >= dim;
     // The re-filter's ratio
     const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, kAdsamplingEps0);
@@ -332,8 +328,43 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
         best_index = centroid_offset + ids;
       }
     }
+    // The final tile leaves lane-local full distances for the warp argmin.
+    if (last) { break; }
     __syncwarp();  // the compacted list is visible to the warp
-    n_left = last ? 0 : kept;
+    n_left = kept;
+  }
+  if (n_left == 0) { return; }
+
+  // A single survivor needs no windows or list compaction, but still gets re-filtered per tile.
+  if (n_left == 1) {
+    const int64_t entry    = head[0];
+    const auto centroid_id = static_cast<uint32_t>(entry >> kSurvivorIdShift);
+    // The assigned centroid's full distance is already known.
+    if (centroid_offset + centroid_id == best_index) { return; }
+    float distance    = __int_as_float(static_cast<int32_t>(entry));
+    const T* centroid = centroids + static_cast<int64_t>(centroid_id) * dim;
+    for (; d < dim; d += kDimTileSize) {
+      const bool last   = d + kDimTileSize >= dim;
+      const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, kAdsamplingEps0);
+      T row_tile[kDimTileSize / kWarpSize];
+      T centroid_tile[kDimTileSize / kWarpSize];
+      load_tile<kDimTileSize>(row_values + d, row_tile);
+      load_tile<kDimTileSize>(centroid + d, centroid_tile);
+      float partial = 0.f;
+#pragma unroll
+      for (uint32_t j = 0; j < kDimTileSize / kWarpSize; j++) {
+        const float diff = static_cast<float>(row_tile[j]) - static_cast<float>(centroid_tile[j]);
+        partial          = fmaf(diff, diff, partial);
+      }
+      distance += raft::warpReduce(partial);
+      if (!last) {
+        if (!(distance < best * ratio)) { break; }
+      } else if (lane == 0 && distance < best) {
+        labels[row] = centroid_offset + centroid_id;
+        dist[row]   = distance;
+      }
+    }
+    return;
   }
 
   for (int offset = kWarpSize / 2; offset > 0; offset >>= 1) {
