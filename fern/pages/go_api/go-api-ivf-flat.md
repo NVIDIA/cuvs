@@ -99,7 +99,7 @@ _Source: `go/ivf_flat/search_params.go:15`_
 func GetCenters[T any](index *IvfFlatIndex, centers *cuvs.Tensor[T]) error
 ```
 
-_Source: `go/ivf_flat/ivf_flat.go:108`_
+_Source: `go/ivf_flat/ivf_flat.go:135`_
 
 ### GetDim
 
@@ -107,7 +107,7 @@ _Source: `go/ivf_flat/ivf_flat.go:108`_
 func GetDim(index *IvfFlatIndex) (dim int64, err error)
 ```
 
-_Source: `go/ivf_flat/ivf_flat.go:93`_
+_Source: `go/ivf_flat/ivf_flat.go:117`_
 
 ### GetNLists
 
@@ -115,7 +115,7 @@ _Source: `go/ivf_flat/ivf_flat.go:93`_
 func GetNLists(index *IvfFlatIndex) (nlist int64, err error)
 ```
 
-_Source: `go/ivf_flat/ivf_flat.go:78`_
+_Source: `go/ivf_flat/ivf_flat.go:99`_
 
 ### SearchIndex
 
@@ -134,7 +134,7 @@ Perform a Approximate Nearest Neighbors search on the Index
 * `neighbors` - Tensor in device memory that receives the indices of the nearest neighbors
 * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 
-_Source: `go/ivf_flat/ivf_flat.go:66`_
+_Source: `go/ivf_flat/ivf_flat.go:81`_
 
 ## Methods
 
@@ -221,7 +221,7 @@ func (index *IvfFlatIndex) Close() error
 
 Destroys the IvfFlatIndex
 
-_Source: `go/ivf_flat/ivf_flat.go:48`_
+_Source: `go/ivf_flat/ivf_flat.go:54`_
 
 ### SearchParams.Close
 

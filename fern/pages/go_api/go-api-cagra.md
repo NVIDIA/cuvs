@@ -184,7 +184,12 @@ Builds a new Index from the dataset for efficient search.
 * `dataset` - A row-major Tensor on either the host or device to index
 * `index` - CagraIndex to build
 
-_Source: `go/cagra/cagra.go:226`_
+#### Errors
+
+* "index is closed" - `index` is nil or has been closed
+* "index params are closed" - `params` is nil or has been closed
+
+_Source: `go/cagra/cagra.go:234`_
 
 ### CreateExtendParams
 
@@ -204,7 +209,7 @@ func CreateIndex() (*CagraIndex, error)
 
 Creates a new empty Cagra Index
 
-_Source: `go/cagra/cagra.go:208`_
+_Source: `go/cagra/cagra.go:211`_
 
 ### CreateIndexParams
 
@@ -242,7 +247,12 @@ Extends the index with a caller-owned pre-concatenated padded dataset.
 * `newStartRow` - Row index where the additional vectors begin (must equal current index size)
 * `index` - CagraIndex to extend
 
-_Source: `go/cagra/cagra.go:277`_
+#### Errors
+
+* "index is closed" - `index` is nil or has been closed
+* "extend params are closed" - `params` is nil or has been closed
+
+_Source: `go/cagra/cagra.go:296`_
 
 ### MakePaddedDataset
 
@@ -294,7 +304,12 @@ Perform a Approximate Nearest Neighbors search on the Index
 * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 * `allowList` - List of indices to allow in the search, if nil, no filtering is applied
 
-_Source: `go/cagra/cagra.go:317`_
+#### Errors
+
+* "index is closed" - `index` is nil or has been closed
+* "search params are closed" - `params` is nil or has been closed
+
+_Source: `go/cagra/cagra.go:356`_
 
 ### UpdateDataset
 
@@ -317,7 +332,7 @@ func (index *CagraIndex) Close() error
 
 Destroys the Cagra Index
 
-_Source: `go/cagra/cagra.go:299`_
+_Source: `go/cagra/cagra.go:324`_
 
 ### ExtendParams.Close
 

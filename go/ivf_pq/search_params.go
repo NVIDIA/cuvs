@@ -99,9 +99,13 @@ func (p *SearchParams) SetInternalDistanceDtype(internal_distance_dtype internal
 
 // Destroys SearchParams
 func (p *SearchParams) Close() error {
+	if p == nil || p.params == nil {
+		return nil
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsIvfPqSearchParamsDestroy(p.params)))
 	if err != nil {
 		return err
 	}
+	p.params = nil
 	return nil
 }

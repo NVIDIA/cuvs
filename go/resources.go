@@ -47,11 +47,18 @@ func (r Resource) GetCudaStream() (C.cudaStream_t, error) {
 	return stream, nil
 }
 
-func (r Resource) Close() error {
+// Destroys the Resource. Calling Close more than once is a no-op.
+// Copies of a Resource share the same underlying handle and must not be used
+// after any of them has been closed.
+func (r *Resource) Close() error {
+	if r == nil || r.Resource == 0 {
+		return nil
+	}
 	err := CheckCuvs(CuvsError(C.cuvsResourcesDestroy(r.Resource)))
 	if err != nil {
 		return err
 	}
+	r.Resource = 0
 
 	return nil
 }

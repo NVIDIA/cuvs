@@ -37,6 +37,12 @@ func CreateIndex(params *IndexParams, dataset *cuvs.Tensor[float32]) (*IvfPqInde
 // * `dataset` - A row-major Tensor on either the host or device to index
 // * `index` - IvfPqIndex to build
 func BuildIndex[T any](Resources cuvs.Resource, params *IndexParams, dataset *cuvs.Tensor[T], index *IvfPqIndex) error {
+	if index.closed() {
+		return errors.New("index is closed")
+	}
+	if params == nil || params.params == nil {
+		return errors.New("index params are closed")
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsIvfPqBuild(C.ulong(Resources.Resource), params.params, (*C.DLManagedTensor)(unsafe.Pointer(dataset.C_tensor)), index.index)))
 	if err != nil {
 		return err
@@ -47,11 +53,20 @@ func BuildIndex[T any](Resources cuvs.Resource, params *IndexParams, dataset *cu
 
 // Destroys the IvfPqIndex
 func (index *IvfPqIndex) Close() error {
+	if index == nil || index.index == nil {
+		return nil
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsIvfPqIndexDestroy(index.index)))
 	if err != nil {
 		return err
 	}
+	index.index = nil
+	index.trained = false
 	return nil
+}
+
+func (index *IvfPqIndex) closed() bool {
+	return index == nil || index.index == nil
 }
 
 // Perform a Approximate Nearest Neighbors search on the Index
@@ -65,6 +80,12 @@ func (index *IvfPqIndex) Close() error {
 // * `neighbors` - Tensor in device memory that receives the indices of the nearest neighbors
 // * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 func SearchIndex[T any](Resources cuvs.Resource, params *SearchParams, index *IvfPqIndex, queries *cuvs.Tensor[T], neighbors *cuvs.Tensor[int64], distances *cuvs.Tensor[T]) error {
+	if index.closed() {
+		return errors.New("index is closed")
+	}
+	if params == nil || params.params == nil {
+		return errors.New("search params are closed")
+	}
 	if !index.trained {
 		return errors.New("index needs to be built before calling search")
 	}
