@@ -16,6 +16,7 @@
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/mdspan.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/reduce.cuh>
 #include <raft/matrix/init.cuh>
@@ -39,9 +40,12 @@
 #include <cooperative_groups.h>
 #include <cooperative_groups/reduce.h>
 
+#include <algorithm>
 #include <climits>
 #include <iostream>
 #include <memory>
+#include <new>
+#include <optional>
 #include <random>
 #include <type_traits>
 
@@ -943,33 +947,62 @@ void make_reverse_graph_gpu(
   raft::matrix::fill(res, d_rev_graph, kInvalidNeighbor<IdxT>);
   raft::matrix::fill(res, d_rev_graph_count, uint32_t(0));
 
+  // Reverse edges are added one column at a time: all of column k before any of column k + 1.
+  // When a node has more than `output_graph_degree` incoming edges, this order decides which of
+  // them are kept, so every path below launches one kernel per column, in order, on one stream.
+  const auto stream      = raft::resource::get_cuda_stream(res);
+  auto add_reverse_edges = [&](auto graph_view, uint64_t n_cols) {
+    const dim3 threads(256, 1, 1);
+    const dim3 blocks(1024, 1, 1);
+    for (uint64_t k = 0; k < n_cols; k++) {
+      kern_make_rev_graph_k<<<blocks, threads, 0, stream.get()>>>(
+        graph_view, d_rev_graph, d_rev_graph_count, k);
+    }
+  };
+
   if constexpr (AccessorOutputGraph::is_device_accessible) {
     // output graph is fully device accessible, so we need no copy to device
-    dim3 threads(256, 1, 1);
-    dim3 blocks(1024, 1, 1);
-    for (uint64_t k = 0; k < output_graph_degree; k++) {
-      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-        output_graph, d_rev_graph, d_rev_graph_count, k);
-    }
+    add_reverse_edges(output_graph, output_graph_degree);
   } else {
-    // Host variant: the output graph is host-only, so we extract one column at a time into a
-    // device vector and hand that to the kernel.
-    auto d_dest_nodes = raft::make_device_vector<IdxT, int64_t>(res, graph_size);
-    auto dest_nodes   = raft::make_host_vector<IdxT, int64_t>(res, graph_size);
+    // The output graph is in host memory. Copy it to the device in as few transfers as possible
+    // and add the columns as in the device path, instead of doing a host gather, an H2D copy, a
+    // kernel and a stream sync for every column.
+    const auto h_graph = raft::make_host_matrix_view<const IdxT, int64_t>(
+      output_graph.data_handle(), graph_size, output_graph_degree);
 
-    for (uint64_t k = 0; k < output_graph_degree; k++) {
+    // Preferred: copy the whole (contiguous) graph at once. It needs as much memory as d_rev_graph,
+    // from the same resource; prune_graph_gpu stages a whole host kNN graph, which is at least as
+    // wide, in this resource too.
+    std::optional<raft::device_matrix<IdxT, int64_t>> d_graph;
+    try {
+      d_graph.emplace(raft::make_device_mdarray<IdxT>(
+        res,
+        raft::resource::get_large_workspace_resource_ref(res),
+        raft::make_extents<int64_t>(graph_size, output_graph_degree)));
+    } catch (const std::bad_alloc& e) {
+      RAFT_LOG_DEBUG(
+        "# Making reverse graph: the graph does not fit in device memory (%s), copying it in "
+        "one column at a time",
+        e.what());
+    }
+
+    if (d_graph.has_value()) {
+      raft::copy(res, d_graph->view(), h_graph);
+      add_reverse_edges(d_graph->view(), output_graph_degree);
+    } else {
+      // Fallback: stage one column at a time, as in the original host path.
+      auto d_dest_nodes = raft::make_device_vector<IdxT, int64_t>(res, graph_size);
+      auto dest_nodes   = raft::make_host_vector<IdxT, int64_t>(res, graph_size);
+      for (uint64_t k = 0; k < output_graph_degree; k++) {
 #pragma omp parallel for
-      for (uint64_t i = 0; i < graph_size; i++) {
-        dest_nodes(i) = output_graph(i, k);
+        for (uint64_t i = 0; i < graph_size; i++) {
+          dest_nodes(i) = output_graph(i, k);
+        }
+        raft::copy(res, d_dest_nodes.view(), raft::make_const_mdspan(dest_nodes.view()));
+        add_reverse_edges(d_dest_nodes.view(), 1);
+        raft::resource::sync_stream(res);
+        RAFT_LOG_DEBUG("# Making reverse graph on GPUs: %lu / %lu    \r", k, output_graph_degree);
       }
-      raft::copy(res, d_dest_nodes.view(), raft::make_const_mdspan(dest_nodes.view()));
-
-      dim3 threads(256, 1, 1);
-      dim3 blocks(1024, 1, 1);
-      kern_make_rev_graph_k<<<blocks, threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
-        d_dest_nodes.view(), d_rev_graph, d_rev_graph_count, k);
-      raft::resource::sync_stream(res);
-      RAFT_LOG_DEBUG("# Making reverse graph on GPUs: %lu / %u    \r", k, output_graph_degree);
     }
   }
 }
