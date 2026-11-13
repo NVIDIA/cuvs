@@ -1,6 +1,6 @@
 [package]
 name = "cuvs"
-description = "RAPIDS vector search library"
+description = "NVIDIA cuVS vector search library"
 version.workspace = true
 edition.workspace = true
 repository.workspace = true

@@ -10,11 +10,13 @@ Install the native libraries first:
 
 ```bash
 # CUDA 13
-conda install -c rapidsai -c conda-forge libcuvs cuda-version=13.3
+conda install -c rapidsai -c conda-forge libcuvs cuda-version=13.4
 
 # CUDA 12
 conda install -c rapidsai -c conda-forge libcuvs cuda-version=12.9
 ```
+
+The Rust bindings require Rust 1.85 or newer. Regenerating the bindings with `bindgen` also requires `libclang`.
 
 When building examples or working on the Rust bindings from source, use the centralized [build environment guidance](/installation#create-a-build-environment). A Rust-specific environment YAML file is also available in `conda/environments` when you want a narrower development environment.
 

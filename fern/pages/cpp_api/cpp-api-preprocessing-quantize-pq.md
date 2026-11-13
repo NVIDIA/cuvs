@@ -77,7 +77,7 @@ uint32_t max_train_points_per_vq_cluster = 1024);
 | `use_vq` |  | `bool` |  |
 | `vq_n_centers` |  | `uint32_t` |  |
 | `kmeans_n_iters` |  | `uint32_t` |  |
-| `pq_kmeans_type` |  | [`cuvs::cluster::kmeans::kmeans_type`](/api-reference/cpp-api-cluster-kmeans#cluster-kmeans-kmeans-type) | Default: `cuvs::cluster::kmeans::kmeans_type::KMeansBalanced`. |
+| `pq_kmeans_type` |  | [`cuvs::cluster::kmeans::kmeans_type`](/api-reference/cpp-api-neighbors-common#cluster-kmeans-kmeans-type) | Default: `cuvs::cluster::kmeans::kmeans_type::KMeansBalanced`. |
 | `max_train_points_per_pq_code` |  | `uint32_t` | Default: `256`. |
 | `max_train_points_per_vq_cluster` |  | `uint32_t` | Default: `1024`. |
 
@@ -267,7 +267,7 @@ SrcT const& src)
 -> cuvs::neighbors::device_vpq_dataset<half, int64_t>;
 ```
 
-Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset view exposing `view`, `dim` and `stride`, in which case the logical `dim()` is quantized and the row padding is skipped. The rows may be device-accessible or host-resident. Device-accessible rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension) are passed through to training as they are; a wider row pitch triggers a contiguous dense copy first. Host-resident rows are subsampled for training and encoded in bounded batches, so the dense dataset is never staged on the device in full; they must be tightly packed. Empty sources are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
+Accepts either a row-major mdspan with `value_type`, `extent`, `stride`, and `data_handle` (same pattern as `cuvs::neighbors::make_device_padded_dataset`), or any cuVS dense dataset / dataset view exposing `data_const_view`, in which case the logical `dim()` is quantized and the row padding is skipped. The rows may be device-accessible or host-resident. Device-accessible rows (device, managed or pinned) with tight row-major storage (logical stride equals dimension) are passed through to training as they are; a wider row pitch triggers a contiguous dense copy first. Host-resident rows are subsampled for training and encoded in bounded batches, so the dense dataset is never staged on the device in full; they must be tightly packed. Empty sources are rejected. The element type must be `float`, `half`, `int8_t` or `uint8_t`.
 
 Typical **CAGRA-Q** usage: compress the source rows, then build the graph directly from the VPQ dataset (the metric must be `L2Expanded`). Keep the `device_vpq_dataset` alive because the index holds a non-owning view of it.
 

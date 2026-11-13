@@ -266,7 +266,7 @@ struct index : cuvs::neighbors::index {
  private:
   /**
    * TODO: in theory, we can lift this to the template parameter and keep it at hardware maximum
-   * possible value by padding the `dim` of the data https://github.com/rapidsai/raft/issues/711
+   * possible value by padding the `dim` of the data https://github.com/NVIDIA/raft/issues/711
    */
   uint32_t veclen_;
   cuvs::distance::DistanceType metric_;
@@ -285,7 +285,7 @@ struct index : cuvs::neighbors::index {
   static auto calculate_veclen(uint32_t dim) -> uint32_t
   {
     // TODO: consider padding the dimensions and fixing veclen to its maximum possible value as a
-    // template parameter (https://github.com/rapidsai/raft/issues/711)
+    // template parameter (https://github.com/NVIDIA/raft/issues/711)
 
     // NOTE: keep this consistent with the select_interleaved_scan_kernel logic
     // in detail/ivf_flat_interleaved_scan-inl.cuh.

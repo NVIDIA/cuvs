@@ -286,22 +286,21 @@ void cluster_cost(raft::resources const& handle,
  * @param[in]  batch_samples        batch size for input data samples
  * @param[in]  batch_centroids      batch size for input centroids
  * @param[in]  workspace            Temporary workspace buffer which can get resized
- * @param[in]  backend              Requested top-1 NN backend
+ * @param[in]  accurate_distances   Computed distance will have DataT-accurate precision.
  *
  */
 template <typename DataT, typename IndexT>
-void min_cluster_distance(
-  raft::resources const& handle,
-  raft::device_matrix_view<const DataT, IndexT> X,
-  raft::device_matrix_view<DataT, IndexT> centroids,
-  raft::device_vector_view<DataT, IndexT> minClusterDistance,
-  raft::device_vector_view<DataT, IndexT> L2NormX,
-  rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
-  cuvs::distance::DistanceType metric,
-  int batch_samples,
-  int batch_centroids,
-  rmm::device_uvector<char>& workspace,
-  cuvs::distance::detail::Top1nnBackend backend = cuvs::distance::detail::Top1nnBackend::Auto)
+void min_cluster_distance(raft::resources const& handle,
+                          raft::device_matrix_view<const DataT, IndexT> X,
+                          raft::device_matrix_view<DataT, IndexT> centroids,
+                          raft::device_vector_view<DataT, IndexT> minClusterDistance,
+                          raft::device_vector_view<DataT, IndexT> L2NormX,
+                          rmm::device_uvector<DataT>& L2NormBuf_OR_DistBuf,
+                          cuvs::distance::DistanceType metric,
+                          int batch_samples,
+                          int batch_centroids,
+                          rmm::device_uvector<char>& workspace,
+                          bool accurate_distances = false)
 {
   cuvs::cluster::kmeans::detail::minClusterDistanceCompute<DataT, IndexT>(handle,
                                                                           X,
@@ -313,7 +312,8 @@ void min_cluster_distance(
                                                                           batch_samples,
                                                                           batch_centroids,
                                                                           workspace,
-                                                                          backend);
+                                                                          std::nullopt,
+                                                                          accurate_distances);
 }
 
 /**
@@ -336,6 +336,7 @@ void cluster_cost(
   raft::device_scalar_view<DataT> cost,
   std::optional<raft::device_vector_view<const DataT, IndexT>> sample_weight = std::nullopt)
 {
+  raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("kmeans::cluster_cost");
   auto stream     = raft::resource::get_cuda_stream(handle);
   auto n_clusters = centroids.extent(0);
   auto n_samples  = X.extent(0);
@@ -363,7 +364,7 @@ void cluster_cost(
     n_samples,
     n_clusters,
     workspace,
-    cuvs::distance::detail::Top1nnBackend::Stable);
+    /*accurate_distances=*/true);
 
   if (sample_weight.has_value()) {
     raft::linalg::map(handle,

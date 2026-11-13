@@ -39,9 +39,9 @@ rmm.mr.set_current_device_resource(pool)
 
 ## Resource management
 
-NVIDIA cuVS uses an API from the [RAFT](https://github.com/rapidsai/raft) library of ML and data mining primitives to centralize and reuse expensive resources, such as memory management. The below code examples demonstrate how to create these resources for use throughout this guide.
+NVIDIA cuVS uses an API from the [RAFT](https://github.com/NVIDIA/raft) library of ML and data mining primitives to centralize and reuse expensive resources, such as memory management. The below code examples demonstrate how to create these resources for use throughout this guide.
 
-See RAFT's [resource API documentation](https://docs.rapids.ai/api/raft/nightly/cpp_api/core_resources/) for more information.
+See RAFT's [resource API documentation](https://docs.nvidia.com/raft/latest/cpp_api/core_resources/) for more information.
 
 C
 ^
