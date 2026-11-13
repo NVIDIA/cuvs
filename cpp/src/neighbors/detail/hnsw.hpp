@@ -2470,9 +2470,12 @@ void get_search_knn_results(hnswlib::HierarchicalNSW<typename hnsw_dist_t<T>::ty
                             float* distances)
 {
   auto result = idx->searchKnn(query, k);
-  assert(result.size() >= static_cast<size_t>(k));
+  // searchKnn returns fewer than k results when it reaches fewer than k elements.
+  auto const found = static_cast<int>(result.size());
+  std::fill(indices + found, indices + k, std::numeric_limits<uint64_t>::max());
+  std::fill(distances + found, distances + k, std::numeric_limits<float>::max());
 
-  for (int i = k - 1; i >= 0; --i) {
+  for (int i = found - 1; i >= 0; --i) {
     indices[i]   = result.top().second;
     distances[i] = result.top().first;
     result.pop();
