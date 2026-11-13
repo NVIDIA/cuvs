@@ -36,6 +36,7 @@ jobs:
       - wheel-build-cuvs
       - wheel-tests-cuvs
       - devcontainer
+      - solr-cuvs-validation
     uses: rapidsai/shared-workflows/.github/workflows/pr-builder.yaml@main
     permissions:
       contents: read
@@ -819,3 +820,17 @@ jobs:
         sccache --zero-stats;
         build-all -j0 --verbose;
         sccache --show-adv-stats;
+  # Temporary validation of this workflow against the successful 2026-11-13 main nightly.
+  # Remove this job and its pr-builder dependency before merging the nightly-only integration.
+  solr-cuvs-validation:
+    needs: checks
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/solr-cuvs.yaml
+    with:
+      cuvs_commit: a93bbfad1f9c26efa113bc6f1b1427bfbb23c9ed
+      branch: main
+      date: '2026-11-13'
+      build_run_id: '43373472245'
+      continue_on_error: false
