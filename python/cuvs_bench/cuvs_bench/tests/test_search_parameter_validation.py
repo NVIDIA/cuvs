@@ -32,11 +32,11 @@ def _fake_config(name="fake-index", search_params=None):
     return BenchmarkConfig(
         indexes=[
             IndexConfig(
-                name,
-                "fake-algorithm",
-                {},
-                [{}] if search_params is None else search_params,
-                name,
+                name=name,
+                algo="fake-algorithm",
+                build_param={},
+                search_params=[{}] if search_params is None else search_params,
+                file=name,
             )
         ],
         backend_config={"name": name, "group": "base"},
@@ -180,6 +180,38 @@ def _raw_search_results(tmp_path):
     )
 
 
+def _write_historical_tuning_measurements(tmp_path):
+    """Seed both CSVs so an aborted tuning run must retain existing evidence."""
+    previous_build = BuildResult(
+        index_path="historical-only",
+        build_time_seconds=2.0,
+        index_size_bytes=0,
+        algorithm="fake-algorithm",
+        build_params={},
+        metadata={"group": "base", "index_name": "historical-only"},
+    )
+    previous_search = _fake_result("historical-only", [{}], recall=0.5)
+    write_results_to_csv(
+        [previous_build, previous_search], "fake-data", str(tmp_path), 2, 2
+    )
+
+
+def _invoke_tune_cli(
+    tmp_path, *extra, n_trials=2, backend_type="fake_backend"
+):
+    return _invoke_cli(
+        tmp_path,
+        "--mode",
+        "tune",
+        "--n-trials",
+        str(n_trials),
+        "--constraints",
+        '{"recall": "maximize"}',
+        *extra,
+        backend_type=backend_type,
+    )
+
+
 def test_invalid_backend_plan_keeps_good_measurements_and_fails_cli(
     fake_backend, tmp_path
 ):
@@ -220,78 +252,62 @@ def test_invalid_backend_plan_keeps_good_measurements_and_fails_cli(
         assert "_search_params_identity" not in frontier
 
 
-@pytest.mark.parametrize("invalid_source", ["loaded-plan", "returned-plan"])
 @pytest.mark.parametrize(
-    "config_has_group",
-    [True, False],
-    ids=["config-group", "result-only-group"],
+    ("invalid_source", "expected_started_indexes"),
+    [
+        pytest.param("loaded-plan", ["first-trial"], id="reject-before-build"),
+        pytest.param(
+            "returned-plan",
+            ["first-trial", "second-trial"],
+            id="reject-after-search",
+        ),
+    ],
 )
-def test_tune_retains_completed_trial_when_next_plan_is_invalid(
-    fake_backend, tmp_path, invalid_source, config_has_group
+@pytest.mark.parametrize(
+    "group_source", ["backend-config", "result-metadata-only"]
+)
+def test_invalid_second_tuning_trial_preserves_previous_exports_and_fails_cli(
+    fake_backend,
+    tmp_path,
+    invalid_source,
+    expected_started_indexes,
+    group_source,
 ):
     pytest.importorskip("optuna", reason="tune mode requires optional Optuna")
     # Optuna is real; its parameter space is empty so trial ordering and the
     # fabricated results do not depend on sampling or measured wall time.
-    fake_backend.configurations = [
-        [_fake_config("first-trial")],
-        [_fake_config("second-trial")],
-    ]
-    if not config_has_group:
-        for configs in fake_backend.configurations:
-            del configs[0].backend_config["group"]
+    first_trial = _fake_config("first-trial")
+    second_trial = _fake_config("second-trial")
+    if invalid_source == "loaded-plan":
+        second_trial.indexes[0].search_params = [{"value": object()}]
+    if group_source == "result-metadata-only":
+        del first_trial.backend_config["group"]
+        del second_trial.backend_config["group"]
+    fake_backend.configurations = [[first_trial], [second_trial]]
     fake_backend.returned_batches = [
         [_fake_result("first-trial", [{}])],
         [_fake_result("second-trial", [{"value": object()}])],
     ]
-    if invalid_source == "loaded-plan":
-        fake_backend.configurations[1][0].indexes[0].search_params = [
-            {"value": object()}
-        ]
-    previous_build = BuildResult(
-        index_path="historical-only",
-        build_time_seconds=2.0,
-        index_size_bytes=0,
-        algorithm="fake-algorithm",
-        build_params={},
-        metadata={"group": "base", "index_name": "historical-only"},
-    )
-    write_results_to_csv(
-        [previous_build, _fake_result("historical-only", [{}], recall=0.5)],
-        "fake-data",
-        str(tmp_path),
-        2,
-        2,
-    )
+    _write_historical_tuning_measurements(tmp_path)
 
-    outcome = _invoke_cli(
-        tmp_path,
-        "--mode",
-        "tune",
-        "--n-trials",
-        "2",
-        "--constraints",
-        '{"recall": "maximize"}',
-    )
+    outcome = _invoke_tune_cli(tmp_path)
 
-    assert _raw_search_results(tmp_path).set_index("index_name")[
-        "recall"
-    ].to_dict() == {
+    exported_searches = _raw_search_results(tmp_path)
+    assert exported_searches.set_index("index_name")["recall"].to_dict() == {
         "historical-only": 0.5,
         "first-trial": 0.75,
     }
-    initialized = [
+    initialized_indexes = [
         name for event, name in fake_backend.events if event == "initialize"
     ]
-    expected = (
-        ["first-trial"]
-        if invalid_source == "loaded-plan"
-        else ["first-trial", "second-trial"]
-    )
-    assert initialized == expected
-    builds = pd.read_csv(
+    assert initialized_indexes == expected_started_indexes
+    exported_builds = pd.read_csv(
         tmp_path / "fake-data/result/build/fake-algorithm,base.csv"
     )
-    assert builds["index_name"].tolist() == ["historical-only", *expected]
+    assert exported_builds["index_name"].tolist() == [
+        "historical-only",
+        *expected_started_indexes,
+    ]
     assert outcome.exit_code == 1, outcome.output
     assert "Unsupported search parameter type" in outcome.output
 
@@ -318,15 +334,10 @@ def test_invalid_tune_plan_is_fatal_on_every_cli_route(
         [_fake_config("invalid-trial", [{"value": object()}])]
     ]
 
-    outcome = _invoke_cli(
+    outcome = _invoke_tune_cli(
         tmp_path,
-        "--mode",
-        "tune",
-        "--n-trials",
-        "1",
-        "--constraints",
-        '{"recall": "maximize"}',
         *(["--dry-run"] if dry_run else []),
+        n_trials=1,
         backend_type=backend_type,
     )
 

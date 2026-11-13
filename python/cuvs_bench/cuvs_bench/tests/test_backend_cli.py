@@ -18,7 +18,7 @@ from cuvs_bench.orchestrator import orchestrator as orchestrator_module
 from cuvs_bench.run.__main__ import main as run_main
 
 
-class _PluginBackend:
+class _FakePluginBackend:
     default_algorithm = "plugin_default"
 
     @classmethod
@@ -62,8 +62,9 @@ def _invoke_run(
     input_text: str = "",
     run_results=None,
     dry_run: bool = True,
-    plugin_backend=_PluginBackend,
+    plugin_backend=_FakePluginBackend,
 ):
+    """Exercise the real CLI with a fake orchestrator and an export spy."""
     captured = {}
     backend_classes = {
         "cpp_gbench": CppGoogleBenchmarkBackend,
@@ -71,7 +72,7 @@ def _invoke_run(
         "third_party": plugin_backend,
     }
 
-    class RecordingOrchestrator:
+    class FakeRecordingOrchestrator:
         def __init__(self, backend_type):
             captured["backend_type"] = backend_type
             self.backend_class = backend_classes[backend_type]
@@ -94,7 +95,7 @@ def _invoke_run(
         ),
         patch(
             "cuvs_bench.run.__main__.BenchmarkOrchestrator",
-            RecordingOrchestrator,
+            FakeRecordingOrchestrator,
         ),
         patch("cuvs_bench.run.__main__.write_results_to_csv") as write_results,
     ):
@@ -155,7 +156,7 @@ def test_backend_default_and_dispatch_share_one_config_snapshot(
 
 
 def test_backend_without_a_default_keeps_the_cli_default(tmp_path: Path):
-    class BackendWithoutDefault(_PluginBackend):
+    class FakeBackendWithoutDefault(_FakePluginBackend):
         default_algorithm = None
 
     backend_config = _write_backend_config(tmp_path, "third_party")
@@ -165,7 +166,7 @@ def test_backend_without_a_default_keeps_the_cli_default(tmp_path: Path):
         "--backend-config",
         str(backend_config),
         input_text="\n",
-        plugin_backend=BackendWithoutDefault,
+        plugin_backend=FakeBackendWithoutDefault,
     )
 
     assert result.exit_code == 0, result.output
@@ -205,7 +206,7 @@ def test_backend_config_keeps_selecting_the_backend(tmp_path: Path):
     assert captured["run_kwargs"]["host"] == "search.example"
 
 
-def test_cli_invokes_export_before_reporting_backend_failure(tmp_path: Path):
+def test_cli_exports_results_and_reports_backend_failure(tmp_path: Path):
     reported_failure = "i-am-fake-backend-failure"
     failed = BuildResult(
         index_path="",
@@ -436,7 +437,7 @@ def test_missing_builtin_algorithm_default_remains_an_internal_error(
 def test_orchestrator_delegates_failure_policy_to_selected_backend():
     reported_failure = "i-am-fake-backend-failure"
     orchestrator = BenchmarkOrchestrator.__new__(BenchmarkOrchestrator)
-    orchestrator.backend_class = _PluginBackend
+    orchestrator.backend_class = _FakePluginBackend
     failed = BuildResult(
         index_path="",
         build_time_seconds=0.0,
