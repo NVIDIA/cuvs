@@ -652,31 +652,24 @@ public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
         }
         CagraIndex cagraIndex = cuvsIndex.getCagraIndex();
         assert cagraIndex != null;
-        CagraQuery query = null;
 
-        CuVSMatrix.Builder<?> builder =
+        try (CuVSMatrix.Builder<?> builder =
             CuVSMatrix.deviceBuilder(
-                getCuVSResourcesInstance(), 1, target.length, CuVSMatrix.DataType.FLOAT);
-        builder.addVector(target);
-        CuVSMatrix queryVector = builder.build();
-
-        if (acceptDocs != null) {
-          query =
-              new CagraQuery.Builder(getCuVSResourcesInstance())
-                  .withTopK(topK)
-                  .withSearchParams(searchParams)
-                  .withQueryVectors(queryVector)
-                  .withPrefilter(mask[0], maskLength)
-                  .build();
-        } else {
-          query =
-              new CagraQuery.Builder(getCuVSResourcesInstance())
-                  .withTopK(topK)
-                  .withSearchParams(searchParams)
-                  .withQueryVectors(queryVector)
-                  .build();
+                getCuVSResourcesInstance(), 1, target.length, CuVSMatrix.DataType.FLOAT)) {
+          builder.addVector(target);
+          // CAGRA borrows this device matrix; close it after the results are materialized.
+          try (CuVSMatrix queryVector = builder.build()) {
+            CagraQuery.Builder queryBuilder =
+                new CagraQuery.Builder(getCuVSResourcesInstance())
+                    .withTopK(topK)
+                    .withSearchParams(searchParams)
+                    .withQueryVectors(queryVector);
+            if (acceptDocs != null) {
+              queryBuilder.withPrefilter(mask[0], maskLength);
+            }
+            searchResult = cagraIndex.search(queryBuilder.build()).getResults();
+          }
         }
-        searchResult = cagraIndex.search(query).getResults();
       } else {
         BruteForceIndex bruteforceIndex = cuvsIndex.getBruteforceIndex();
         assert bruteforceIndex != null;

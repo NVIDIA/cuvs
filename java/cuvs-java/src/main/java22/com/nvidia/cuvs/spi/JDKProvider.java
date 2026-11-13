@@ -595,8 +595,14 @@ final class JDKProvider implements CuVSProvider {
     int columns = vectors[0].length;
 
     var dataset = new CuVSHostMatrixArenaImpl(size, columns, CuVSMatrix.DataType.FLOAT);
-    Util.copy(dataset.memorySegment(), vectors);
-    return dataset;
+    try {
+      Util.copy(dataset.memorySegment(), vectors);
+      return dataset;
+    } catch (RuntimeException | Error failure) {
+      try (dataset) {
+        throw failure;
+      }
+    }
   }
 
   @Override
@@ -609,8 +615,14 @@ final class JDKProvider implements CuVSProvider {
     int columns = vectors[0].length;
 
     var dataset = new CuVSHostMatrixArenaImpl(size, columns, CuVSMatrix.DataType.INT);
-    Util.copy(dataset.memorySegment(), vectors);
-    return dataset;
+    try {
+      Util.copy(dataset.memorySegment(), vectors);
+      return dataset;
+    } catch (RuntimeException | Error failure) {
+      try (dataset) {
+        throw failure;
+      }
+    }
   }
 
   @Override
@@ -623,8 +635,14 @@ final class JDKProvider implements CuVSProvider {
     int columns = vectors[0].length;
 
     var dataset = new CuVSHostMatrixArenaImpl(size, columns, CuVSMatrix.DataType.BYTE);
-    Util.copy(dataset.memorySegment(), vectors);
-    return dataset;
+    try {
+      Util.copy(dataset.memorySegment(), vectors);
+      return dataset;
+    } catch (RuntimeException | Error failure) {
+      try (dataset) {
+        throw failure;
+      }
+    }
   }
 
   private abstract static class MatrixBuilder<T extends CuVSMatrixInternal>
@@ -742,11 +760,17 @@ final class JDKProvider implements CuVSProvider {
     private BufferedDeviceMatrixBuilder(
         CuVSResources resources, long size, long columns, CuVSMatrix.DataType dataType) {
       super(CuVSDeviceMatrixRMMImpl.create(resources, size, columns, dataType), size, columns);
-      this.stream = Util.getStream(resources);
-      this.resources = resources;
+      try {
+        this.stream = Util.getStream(resources);
+        this.resources = resources;
 
-      this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
-      this.currentBufferRow = 0;
+        this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
+        this.currentBufferRow = 0;
+      } catch (RuntimeException | Error failure) {
+        try (matrix) {
+          throw failure;
+        }
+      }
     }
 
     private BufferedDeviceMatrixBuilder(
@@ -763,11 +787,17 @@ final class JDKProvider implements CuVSProvider {
           columns,
           rowStride);
 
-      this.stream = Util.getStream(resources);
-      this.resources = resources;
+      try {
+        this.stream = Util.getStream(resources);
+        this.resources = resources;
 
-      this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
-      this.currentBufferRow = 0;
+        this.bufferRowCount = Math.min((PinnedMemoryBuffer.CHUNK_BYTES / rowBytes), size);
+        this.currentBufferRow = 0;
+      } catch (RuntimeException | Error failure) {
+        try (matrix) {
+          throw failure;
+        }
+      }
     }
 
     @Override
@@ -834,8 +864,14 @@ final class JDKProvider implements CuVSProvider {
     private DirectDeviceMatrixBuilder(
         CuVSResources resources, long size, long columns, CuVSMatrix.DataType dataType) {
       super(CuVSDeviceMatrixRMMImpl.create(resources, size, columns, dataType), size, columns);
-      this.stream = Util.getStream(resources);
-      this.currentRow = 0;
+      try {
+        this.stream = Util.getStream(resources);
+        this.currentRow = 0;
+      } catch (RuntimeException | Error failure) {
+        try (matrix) {
+          throw failure;
+        }
+      }
     }
 
     private DirectDeviceMatrixBuilder(
@@ -852,8 +888,14 @@ final class JDKProvider implements CuVSProvider {
           columns,
           rowStride);
 
-      this.stream = Util.getStream(resources);
-      this.currentRow = 0;
+      try {
+        this.stream = Util.getStream(resources);
+        this.currentRow = 0;
+      } catch (RuntimeException | Error failure) {
+        try (matrix) {
+          throw failure;
+        }
+      }
     }
 
     @Override
