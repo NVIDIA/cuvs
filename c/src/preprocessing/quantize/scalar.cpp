@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -23,6 +23,7 @@ void _train(cuvsResources_t res,
 {
   auto dataset = dataset_tensor->dl_tensor;
 
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   auto quantizer_params     = cuvs::preprocessing::quantize::scalar::params();
@@ -52,6 +53,7 @@ void _transform(cuvsResources_t res,
                 DLManagedTensor* dataset_tensor,
                 DLManagedTensor* out_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   cuvs::preprocessing::quantize::scalar::quantizer<T> quantizer;
@@ -89,6 +91,7 @@ void _inverse_transform(cuvsResources_t res,
                         DLManagedTensor* dataset_tensor,
                         DLManagedTensor* out_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   cuvs::preprocessing::quantize::scalar::quantizer<OutputT> quantizer;

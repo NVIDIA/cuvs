@@ -48,6 +48,7 @@ namespace {
 template <typename T, typename IdxT>
 void* _build(cuvsResources_t res, cuvsIvfFlatIndexParams params, DLManagedTensor* dataset_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   auto build_params = cuvs::neighbors::ivf_flat::index_params();
@@ -75,6 +76,7 @@ void _search(cuvsResources_t res,
              DLManagedTensor* distances_tensor,
              cuvsFilter filter)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_flat::index<T, IdxT>*>(index.addr);
 
@@ -114,6 +116,7 @@ void _search(cuvsResources_t res,
 template <typename T, typename IdxT>
 void _serialize(cuvsResources_t res, const char* filename, cuvsIvfFlatIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_flat::index<T, IdxT>*>(index.addr);
   cuvs::neighbors::ivf_flat::serialize(*res_ptr, std::string(filename), *index_ptr);
@@ -122,6 +125,7 @@ void _serialize(cuvsResources_t res, const char* filename, cuvsIvfFlatIndex inde
 template <typename T, typename IdxT>
 void* _deserialize(cuvsResources_t res, const char* filename)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto index   = new cuvs::neighbors::ivf_flat::index<T, IdxT>(*res_ptr);
   cuvs::neighbors::ivf_flat::deserialize(*res_ptr, std::string(filename), index);
@@ -134,6 +138,7 @@ void _extend(cuvsResources_t res,
              DLManagedTensor* new_indices,
              cuvsIvfFlatIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::ivf_flat::index<T, IdxT>*>(index.addr);
   using vectors_mdspan_type = raft::device_matrix_view<T const, IdxT, raft::row_major>;
@@ -161,6 +166,7 @@ extern "C" cuvsError_t cuvsIvfFlatIndexCreate(cuvsIvfFlatIndex_t* index)
 extern "C" cuvsError_t cuvsIvfFlatIndexDestroy(cuvsIvfFlatIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (index_c_ptr == nullptr) { return; }
     auto index = *index_c_ptr;
 
     if (index.dtype.code == kDLFloat && index.dtype.bits == 32) {
@@ -190,6 +196,7 @@ extern "C" cuvsError_t cuvsIvfFlatBuild(cuvsResources_t res,
                                         cuvsIvfFlatIndex_t index)
 {
   return cuvs::core::translate_exceptions([=] {
+    cuvs::core::validate_dlpack_tensor(dataset_tensor, 2);
     auto dataset = dataset_tensor->dl_tensor;
 
     index->dtype = dataset.dtype;

@@ -128,6 +128,7 @@ void convert_c_index_params(cuvsTieredIndexParams params,
 template <typename T>
 void* _build(cuvsResources_t res, cuvsTieredIndexParams params, DLManagedTensor* dataset_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr      = reinterpret_cast<raft::resources*>(res);
   using mdspan_type = raft::device_matrix_view<const T, int64_t, raft::row_major>;
   auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
@@ -179,6 +180,7 @@ void _search(cuvsResources_t res,
              DLManagedTensor* distances_tensor,
              cuvsFilter filter)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = require_typed_tiered_index<UpstreamT>(
     index, index.algo, "_search: null index handle", "_search: index algorithm mismatch");
@@ -234,6 +236,7 @@ void _search(cuvsResources_t res,
 template <typename UpstreamT>
 void _extend(cuvsResources_t res, DLManagedTensor* new_vectors, cuvsTieredIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr              = reinterpret_cast<raft::resources*>(res);
   auto index_ptr            = require_typed_tiered_index<UpstreamT>(
     index, index.algo, "_extend: null index handle", "_extend: index algorithm mismatch");
@@ -251,6 +254,7 @@ void _merge(cuvsResources_t res,
             size_t num_indices,
             cuvsTieredIndex_t output_index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
   std::vector<cuvs::neighbors::tiered_index::index<UpstreamT>*> cpp_indices;
@@ -313,6 +317,7 @@ extern "C" cuvsError_t cuvsTieredIndexCreate(cuvsTieredIndex_t* index)
 extern "C" cuvsError_t cuvsTieredIndexDestroy(cuvsTieredIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (index_c_ptr == nullptr) { return; }
     auto index = *index_c_ptr;
     auto* box  = reinterpret_cast<tiered_c_api_index_box*>(index.addr);
     if (box != nullptr) {

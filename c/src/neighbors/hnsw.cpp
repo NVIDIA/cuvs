@@ -30,6 +30,7 @@ void _build(cuvsResources_t res,
             DLManagedTensor* dataset_tensor,
             cuvsHnswIndex_t hnsw_index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr    = reinterpret_cast<raft::resources*>(res);
   auto cpp_params = cuvs::neighbors::hnsw::index_params();
   cpp_params.hierarchy                 = static_cast<cuvs::neighbors::hnsw::HnswHierarchy>(params->hierarchy);
@@ -65,6 +66,7 @@ void _from_cagra(cuvsResources_t res,
                  cuvsHnswIndex_t hnsw_index,
                  std::optional<DLManagedTensor*> dataset_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto cpp_params            = cuvs::neighbors::hnsw::index_params();
   cpp_params.hierarchy       = static_cast<cuvs::neighbors::hnsw::HnswHierarchy>(params->hierarchy);
@@ -114,6 +116,7 @@ void _extend(cuvsResources_t res,
              DLManagedTensor* additional_dataset,
              cuvsHnswIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr           = reinterpret_cast<raft::resources*>(res);
   auto index_ptr         = reinterpret_cast<cuvs::neighbors::hnsw::index<T>*>(index.addr);
   auto cpp_params        = cuvs::neighbors::hnsw::extend_params();
@@ -133,6 +136,7 @@ void _search(cuvsResources_t res,
              DLManagedTensor* neighbors_tensor,
              DLManagedTensor* distances_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::hnsw::index<T>*>(index.addr);
 
@@ -153,6 +157,7 @@ void _search(cuvsResources_t res,
 template <typename T>
 void _serialize(cuvsResources_t res, const char* filename, cuvsHnswIndex index)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr   = reinterpret_cast<raft::resources*>(res);
   auto index_ptr = reinterpret_cast<cuvs::neighbors::hnsw::index<T>*>(index.addr);
   cuvs::neighbors::hnsw::serialize(*res_ptr, std::string(filename), *index_ptr);
@@ -165,6 +170,7 @@ void* _deserialize(cuvsResources_t res,
                    int dim,
                    cuvsDistanceType metric)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr                           = reinterpret_cast<raft::resources*>(res);
   cuvs::neighbors::hnsw::index<T>* index = nullptr;
   auto cpp_params                        = cuvs::neighbors::hnsw::index_params();
@@ -216,6 +222,7 @@ extern "C" cuvsError_t cuvsHnswIndexCreate(cuvsHnswIndex_t* index)
 extern "C" cuvsError_t cuvsHnswIndexDestroy(cuvsHnswIndex_t index_c_ptr)
 {
   return cuvs::core::translate_exceptions([=] {
+    if (index_c_ptr == nullptr) { return; }
     auto index = *index_c_ptr;
 
     if (index.dtype.code == kDLFloat && index.dtype.bits == 32) {

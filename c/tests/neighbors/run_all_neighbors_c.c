@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -32,7 +32,7 @@ void run_all_neighbors(int64_t n_rows,
   params->n_clusters     = 1;
 
   // create dataset DLTensor
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor = {0};
   dataset_tensor.dl_tensor.data               = dataset_data;
   dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
   dataset_tensor.dl_tensor.device.device_id   = 0;
@@ -48,7 +48,7 @@ void run_all_neighbors(int64_t n_rows,
   dataset_tensor.deleter                      = NULL;
 
   // create indices DLTensor
-  DLManagedTensor indices_tensor;
+  DLManagedTensor indices_tensor = {0};
   indices_tensor.dl_tensor.data               = (void*)indices_data;
   indices_tensor.dl_tensor.device.device_type = kDLCUDA;
   indices_tensor.dl_tensor.device.device_id   = 0;
@@ -65,7 +65,7 @@ void run_all_neighbors(int64_t n_rows,
 
   // create distances DLTensor (optional)
   DLManagedTensor* distances_ptr = NULL;
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor = {0};
   int64_t distances_shape[2] = {n_rows, k};  // Moved outside if block
   if (distances_data != NULL) {
     distances_tensor.dl_tensor.data               = (void*)distances_data;
@@ -85,7 +85,7 @@ void run_all_neighbors(int64_t n_rows,
 
   // create core_distances DLTensor (optional)
   DLManagedTensor* core_distances_ptr = NULL;
-  DLManagedTensor core_distances_tensor;
+  DLManagedTensor core_distances_tensor = {0};
   int64_t core_distances_shape[1] = {n_rows};  // Moved outside if block
   if (core_distances_data != NULL) {
     core_distances_tensor.dl_tensor.data               = (void*)core_distances_data;

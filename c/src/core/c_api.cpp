@@ -30,6 +30,7 @@
 #include <cuda/stream>
 
 #include "../core/exceptions.hpp"
+#include "../core/interop.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -141,6 +142,7 @@ extern "C" cuvsError_t cuvsResourcesSetMemoryPool(cuvsResources_t res,
                                                    int percent_of_free_memory)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = dynamic_cast<single_gpu_resources*>(reinterpret_cast<raft::resources*>(res));
     RAFT_EXPECTS(res_ptr != nullptr,
                  "memory pools are not supported on memory-tracking resources");
@@ -162,6 +164,7 @@ extern "C" cuvsError_t cuvsResourcesSetStreamPool(cuvsResources_t res, size_t nu
 extern "C" cuvsError_t cuvsResourcesSetWorkspacePool(cuvsResources_t res, size_t initial_size_bytes)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
     // Create an uncapped pool: pre-warms with initial_size_bytes to avoid cudaMalloc on every
     // query, but can grow beyond that if an allocation exceeds the initial reservation.
@@ -213,6 +216,7 @@ extern "C" cuvsError_t cuvsMultiGpuResourcesCreateWithDeviceIds(cuvsResources_t*
     if (device_ids == nullptr || device_ids->dl_tensor.data == nullptr) {
       throw std::invalid_argument("device_ids cannot be null");
     }
+    cuvs::core::validate_dlpack_tensor(device_ids, 1);
 
     // Check data type is int32
     if (device_ids->dl_tensor.dtype.code != kDLInt || device_ids->dl_tensor.dtype.bits != 32) {
@@ -268,6 +272,7 @@ extern "C" cuvsError_t cuvsMultiGpuResourcesSetStreamPool(cuvsResources_t res,
 extern "C" cuvsError_t cuvsStreamSet(cuvsResources_t res, cudaStream_t stream)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
     raft::resource::set_cuda_stream(*res_ptr, static_cast<cuda::stream_ref>(stream));
   });
@@ -276,6 +281,7 @@ extern "C" cuvsError_t cuvsStreamSet(cuvsResources_t res, cudaStream_t stream)
 extern "C" cuvsError_t cuvsStreamGet(cuvsResources_t res, cudaStream_t* stream)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
     *stream      = raft::resource::get_cuda_stream(*res_ptr).get();
   });
@@ -284,6 +290,7 @@ extern "C" cuvsError_t cuvsStreamGet(cuvsResources_t res, cudaStream_t* stream)
 extern "C" cuvsError_t cuvsStreamSync(cuvsResources_t res)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
     raft::resource::sync_stream(*res_ptr);
   });
@@ -292,6 +299,7 @@ extern "C" cuvsError_t cuvsStreamSync(cuvsResources_t res)
 extern "C" cuvsError_t cuvsDeviceIdGet(cuvsResources_t res, int* device_id)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
     *device_id   = raft::resource::get_device_id(*res_ptr);
   });
@@ -300,6 +308,7 @@ extern "C" cuvsError_t cuvsDeviceIdGet(cuvsResources_t res, int* device_id)
 extern "C" cuvsError_t cuvsRMMAlloc(cuvsResources_t res, void** ptr, size_t bytes)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
     auto stream  = raft::resource::get_cuda_stream(*res_ptr);
     *ptr         = raft::resource::get_workspace_resource_ref(*res_ptr).allocate(stream, bytes);
@@ -309,6 +318,7 @@ extern "C" cuvsError_t cuvsRMMAlloc(cuvsResources_t res, void** ptr, size_t byte
 extern "C" cuvsError_t cuvsRMMFree(cuvsResources_t res, void* ptr, size_t bytes)
 {
   return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(res != 0, "res must not be NULL");
     auto res_ptr = reinterpret_cast<raft::resources*>(res);
     auto stream  = raft::resource::get_cuda_stream(*res_ptr);
     raft::resource::get_workspace_resource_ref(*res_ptr).deallocate(stream, ptr, bytes);
@@ -418,6 +428,7 @@ namespace {
 template <typename T>
 void _copy_matrix(cuvsResources_t res, DLManagedTensor* src_managed, DLManagedTensor* dst_managed)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   DLTensor& src = src_managed->dl_tensor;
   DLTensor& dst = dst_managed->dl_tensor;
   auto res_ptr  = reinterpret_cast<raft::resources*>(res);
@@ -426,6 +437,11 @@ void _copy_matrix(cuvsResources_t res, DLManagedTensor* src_managed, DLManagedTe
   if (src.ndim == 2) {
     // use raft::copy_matrix for 2D tensors - this will handle copying from strided to non-strided
     // views well
+    for (auto const* t : {&src, &dst}) {
+      RAFT_EXPECTS(t->strides == nullptr || (t->strides[1] == 1 && t->strides[0] >= t->shape[1]),
+                   "cuvsMatrixCopy only supports 2D tensors with unit column stride and a row "
+                   "stride of at least the number of columns");
+    }
     int64_t src_row_stride = src.strides == nullptr ? src.shape[1] : src.strides[0];
     int64_t dst_row_stride = dst.strides == nullptr ? dst.shape[1] : dst.strides[0];
 
@@ -455,6 +471,8 @@ extern "C" cuvsError_t cuvsMatrixCopy(cuvsResources_t res,
                                       DLManagedTensor* dst_managed)
 {
   return cuvs::core::translate_exceptions([=] {
+    cuvs::core::validate_dlpack_tensor(src_managed);
+    cuvs::core::validate_dlpack_tensor(dst_managed);
     DLTensor& src = src_managed->dl_tensor;
     DLTensor& dst = dst_managed->dl_tensor;
 
@@ -519,10 +537,16 @@ extern "C" cuvsError_t cuvsMatrixSliceRows(cuvsResources_t res,
   return cuvs::core::translate_exceptions([=] {
     RAFT_EXPECTS(end >= start, "end index must be greater than start index");
 
+    cuvs::core::validate_dlpack_tensor(src_managed);
+    RAFT_EXPECTS(dst_managed != nullptr, "dst tensor must not be NULL");
     DLTensor& src = src_managed->dl_tensor;
     DLTensor& dst = dst_managed->dl_tensor;
-    RAFT_EXPECTS(src.ndim <= 2, "src should be a 1 or 2 dimensional tensor");
-    RAFT_EXPECTS(src.shape != nullptr, "shape should be initialized in the src tensor");
+    RAFT_EXPECTS(src.ndim == 1 || src.ndim == 2, "src should be a 1 or 2 dimensional tensor");
+    RAFT_EXPECTS(start >= 0 && end <= src.shape[0],
+                 "row range [%lld, %lld) is out of bounds for a tensor with %lld rows",
+                 static_cast<long long>(start),
+                 static_cast<long long>(end),
+                 static_cast<long long>(src.shape[0]));
 
     dst.dtype    = src.dtype;
     dst.device   = src.device;
