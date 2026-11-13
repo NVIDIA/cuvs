@@ -39,6 +39,7 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t max_rounds;
   float alpha;
   uint32_t leaf_batch_mib;
+  float dataset_max_abs;
   uint64_t seed;
 };
 ```
@@ -60,6 +61,7 @@ struct index_params : cuvs::neighbors::index_params {
 | `max_rounds` | `uint32_t` | Maximum number of levels of the partition tree (assign-then-sort rounds). |
 | `alpha` | `float` | Alpha parameter of the DirectEdgePrune occlusion rule. Larger retains more edges. |
 | `leaf_batch_mib` | `uint32_t` | Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves are processed per batch. Affects only peak memory and build time, not graph quality. 0 selects an automatic budget of 256 bytes per row, clamped to 512 MiB-6 GiB. |
+| `dataset_max_abs` | `float` | Largest absolute value the dataset contains, or 0 to measure it.<br /><br />Read only for `float` input under L2: `int8` and `uint8` are bounded by 255, `half` is representable by definition, and cosine normalizes each row to unit norm instead.<br /><br />Scoring runs on half operands, so a float dataset peaking outside the range half holds usefully is first rescaled by one shared power of two, which leaves the neighbour ordering unchanged. Measuring the peak is one streaming pass over the dataset, a fraction of a percent of the build, so speed is rarely the reason to set this. Splitting a build across partitions is: the rescale preserves ordering only because a single factor applies to the whole dataset, so every partition has to be given the same value rather than deriving one from its own shard.<br /><br />A value below the true peak is rejected rather than tolerated -- the conversion would turn the elements above half's range into infinities and every distance touching them into a NaN. Overestimating is safe and costs some precision, since the factor places the stated peak just below the top of the range. |
 | `seed` | `uint64_t` | Seed for leader sampling and LSH hyperplane generation. |
 
 ## GPiPNN graph build

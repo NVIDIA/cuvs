@@ -107,6 +107,10 @@ void build_graph(raft::resources const& res,
   }
   if (scoring_data == nullptr) {
     half_storage.resize(n_rows * dim, stream);
+    // Non-empty only on the float path below, and only when the peak was asserted rather than
+    // measured, which is the one case where it can be wrong. A measured peak cannot overflow by
+    // construction, since `half_cast_scale` lands it just under the top of the range.
+    rmm::device_uvector<int> overflowed(0, stream);
     if (normalize) {
       normalize_rows_to_half_kernel<<<n_rows, 256, 0, stream>>>(
         dataset.data_handle(), half_storage.data(), n_rows, dim);
@@ -115,8 +119,14 @@ void build_graph(raft::resources const& res,
       // 255, and a half input is representable by definition.
       float scale = 1.0f;
       if constexpr (std::is_same_v<DataT, float>) {
-        const float max_abs = finite_max_abs(dataset.data_handle(), n_rows * dim, stream);
-        scale               = half_cast_scale(max_abs);
+        float max_abs = params.dataset_max_abs;
+        if (max_abs > 0.0f) {
+          overflowed.resize(1, stream);
+          RAFT_CUDA_TRY(cudaMemsetAsync(overflowed.data(), 0, sizeof(int), stream));
+        } else {
+          max_abs = finite_max_abs(dataset.data_handle(), n_rows * dim, stream);
+        }
+        scale = half_cast_scale(max_abs);
         if (scale != 1.0f) {
           RAFT_LOG_DEBUG(
             "gpipnn: dataset magnitudes peak at %g, outside the range half holds usefully; "
@@ -128,9 +138,26 @@ void build_graph(raft::resources const& res,
       const int64_t threads = 256;
       const int64_t blocks  = (n_rows * dim + threads - 1) / threads;
       cast_to_half_kernel<<<blocks, threads, 0, stream>>>(
-        dataset.data_handle(), half_storage.data(), n_rows * dim, scale);
+        dataset.data_handle(),
+        half_storage.data(),
+        n_rows * dim,
+        scale,
+        overflowed.is_empty() ? nullptr : overflowed.data());
     }
     RAFT_CUDA_TRY(cudaPeekAtLastError());
+    if (!overflowed.is_empty()) {
+      // Costs a sync, but only on the path that skipped the one `finite_max_abs` does, so
+      // asserting the peak still removes a pass over the dataset rather than trading for it.
+      int flag = 0;
+      RAFT_CUDA_TRY(
+        cudaMemcpyAsync(&flag, overflowed.data(), sizeof(int), cudaMemcpyDeviceToHost, stream));
+      RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+      RAFT_EXPECTS(flag == 0,
+                   "gpipnn: dataset_max_abs (%g) is below the dataset's actual peak, so the "
+                   "conversion to half overflowed; every distance touching those elements would "
+                   "be NaN. Raise it, or leave it at 0 to have the build measure it",
+                   static_cast<double>(params.dataset_max_abs));
+    }
     scoring_data = half_storage.data();
   }
   auto scoring_view =

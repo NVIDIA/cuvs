@@ -232,15 +232,28 @@ inline auto half_cast_scale(float max_abs) -> float
  *
  * `scale` comes from `half_cast_scale`. Multiplying by the default of 1 is exact for every
  * input, so callers that do not need rescaling get the plain conversion.
+ *
+ * When `overflowed` is given, it is raised if a finite input lands outside half, which means
+ * `scale` was derived from a peak lower than the data's own. Inputs that arrive non-finite are
+ * not counted: `finite_max_abs_op` drops them from the peak deliberately, so they are the
+ * caller's to begin with and the conversion is not what lost them.
  */
 template <typename T>
 RAFT_KERNEL cast_to_half_kernel(const T* __restrict__ src,
                                 half* __restrict__ dst,
                                 int64_t n,
-                                float scale = 1.0f)
+                                float scale                  = 1.0f,
+                                int* __restrict__ overflowed = nullptr)
 {
   const int64_t i = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
-  if (i < n) { dst[i] = __float2half(static_cast<float>(src[i]) * scale); }
+  if (i < n) {
+    const float v = static_cast<float>(src[i]) * scale;
+    const half h  = __float2half(v);
+    dst[i]        = h;
+    if (overflowed != nullptr && isfinite(v) && !isfinite(__half2float(h))) {
+      atomicOr(overflowed, 1);
+    }
+  }
 }
 
 /**
@@ -431,6 +444,11 @@ inline void check_params(const index_params& params, int64_t n_rows, int64_t dim
   RAFT_EXPECTS(params.hash_bits > 0 && params.hash_bits <= 16,
                "gpipnn: hash_bits must be in [1, 16] (got %u)",
                params.hash_bits);
+  // Whether it matches the data is checked during the conversion, which is where a value too
+  // small for it becomes visible.
+  RAFT_EXPECTS(params.dataset_max_abs >= 0.0f && std::isfinite(params.dataset_max_abs),
+               "gpipnn: dataset_max_abs must be finite and non-negative (got %g)",
+               static_cast<double>(params.dataset_max_abs));
   RAFT_EXPECTS(params.min_leaf_size <= params.max_leaf_size,
                "gpipnn: min_leaf_size (%u) must be <= max_leaf_size (%u)",
                params.min_leaf_size,

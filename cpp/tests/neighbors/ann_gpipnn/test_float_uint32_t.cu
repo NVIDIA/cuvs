@@ -7,6 +7,7 @@
 
 #include "../ann_gpipnn.cuh"
 
+#include <limits>
 #include <random>
 #include <tuple>
 
@@ -232,6 +233,70 @@ TEST(AnnGpipnnFusedLeaf, MatchesBatchedPathAtEveryFusedK)
       }
     }
   }
+}
+
+/**
+ * An asserted `dataset_max_abs` must reproduce the measured build exactly when it is right, and
+ * be rejected when it is too low rather than silently yielding NaN distances.
+ *
+ * The data peaks well past half's top so the rescale is actually exercised; inside the band
+ * `half_cast_scale` returns 1 and every value of the parameter would agree trivially.
+ */
+TEST(AnnGpipnnMaxAbs, HintMatchesMeasurementAndRejectsUnderestimate)
+{
+  if (!is_supported()) { GTEST_SKIP(); }
+  raft::resources res;
+  auto stream = raft::resource::get_cuda_stream(res);
+
+  constexpr int64_t kRows = 2048;
+  constexpr int64_t kDim  = 32;
+
+  std::vector<float> h_data(kRows * kDim);
+  std::mt19937 rng(7);
+  std::normal_distribution<float> gauss(0.0f, 1.0e5f);
+  float peak = 0.0f;
+  for (auto& v : h_data) {
+    v    = gauss(rng);
+    peak = std::max(peak, std::abs(v));
+  }
+  ASSERT_GT(peak, 65504.0f) << "the data has to leave half's range for this to test anything";
+
+  auto data = raft::make_device_matrix<float, int64_t>(res, kRows, kDim);
+  raft::update_device(data.data_handle(), h_data.data(), h_data.size(), stream);
+  auto view = raft::make_const_mdspan(data.view());
+
+  index_params params;
+  params.graph_degree   = 32;
+  params.max_candidates = 64;
+
+  auto build_with = [&](float max_abs) {
+    auto p            = params;
+    p.dataset_max_abs = max_abs;
+    auto graph        = raft::make_device_matrix<uint32_t, int64_t>(res, kRows, p.graph_degree);
+    build_graph(res, p, view, graph.view());
+    std::vector<uint32_t> h(kRows * p.graph_degree);
+    raft::update_host(h.data(), graph.data_handle(), h.size(), stream);
+    raft::resource::sync_stream(res);
+    return h;
+  };
+
+  // Naming the peak exactly has to land on the same power of two the measurement does.
+  EXPECT_EQ(build_with(peak), build_with(0.0f)) << "the asserted peak changed the graph";
+
+  auto graph   = raft::make_device_matrix<uint32_t, int64_t>(res, kRows, params.graph_degree);
+  auto rejects = [&](float max_abs) {
+    auto p            = params;
+    p.dataset_max_abs = max_abs;
+    EXPECT_THROW(build_graph(res, p, view, graph.view()), raft::exception)
+      << "dataset_max_abs " << max_abs << " was accepted";
+  };
+
+  // Too low to hold the data: those elements convert to infinity and their distances to NaN.
+  rejects(1.0f);
+  // Rejected by `check_params` before any work, since neither can describe a peak.
+  rejects(-1.0f);
+  rejects(std::numeric_limits<float>::infinity());
+  rejects(std::numeric_limits<float>::quiet_NaN());
 }
 
 TEST(AnnGpipnnValidation, RejectsOddDimension)
