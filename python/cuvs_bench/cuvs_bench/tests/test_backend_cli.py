@@ -268,6 +268,18 @@ def test_backend_failure_policy_is_opt_in():
             id="unknown-backend",
         ),
         pytest.param("backend: [", "Cannot read", id="malformed-yaml"),
+        *[
+            pytest.param(
+                f"backend: {value}", "'backend' must be a string", id=name
+            )
+            for value, name in (
+                ("[]", "list-backend"),
+                ("{}", "mapping-backend"),
+                ("null", "null-backend"),
+                ("42", "numeric-backend"),
+                ("true", "boolean-backend"),
+            )
+        ],
         pytest.param(None, "No such file or directory", id="missing-file"),
     ],
 )

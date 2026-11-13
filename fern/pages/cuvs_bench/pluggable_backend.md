@@ -111,12 +111,14 @@ class MyConfigLoader(ConfigLoader):
             search_combinations,
             _group_metadata,
         ) in expanded_groups:
+            build_parameters, = build_combinations
+            search_parameters, = search_combinations
             indexes = [
                 IndexConfig(
                     name=f"{algorithm}.{group}",
                     algo=algorithm,
                     build_param=build_parameters,
-                    search_params=search_combinations,
+                    search_params=[search_parameters],
                     file=str(
                         Path(dataset_path)
                         / dataset
@@ -124,7 +126,6 @@ class MyConfigLoader(ConfigLoader):
                         / f"{algorithm}.{group}"
                     ),
                 )
-                for build_parameters in build_combinations
             ]
             configurations.append(
                 BenchmarkConfig(
@@ -133,6 +134,7 @@ class MyConfigLoader(ConfigLoader):
                         "host": kwargs.get("host", "localhost"),
                         "port": kwargs.get("port", 9200),
                         "algo": algorithm,
+                        "group": group,
                     },
                 )
             )
@@ -160,7 +162,11 @@ The registration example below uses an idempotent function to register both piec
 
 This is interface scaffolding, not a working benchmark. The zero-valued results
 below are fabricated placeholders: replace them with real service calls and
-measurements before use. The loader also needs a packaged
+measurements before use, and remove `skipped=True` only then. The example accepts
+one build and one search combination per algorithm/group; singleton unpacking
+makes that assumption explicit. A sweep extension must use distinct index
+identities and return one result per independently measured search point.
+The loader also needs a packaged
 `config/datasets/datasets.yaml` describing the datasets it accepts.
 
 ```python
@@ -179,13 +185,19 @@ class MyBackend(BenchmarkBackend):
         return self.config.get("algo", "my_algorithm")
 
     def build(self, dataset, indexes, force=False, dry_run=False):
+        index, = indexes
         return BuildResult(
-            index_path=indexes[0].file if indexes else "",
+            index_path=index.file,
             build_time_seconds=0.0,
             index_size_bytes=0,
             algorithm=self.algo,
-            build_params=indexes[0].build_param if indexes else {},
-            metadata={},
+            build_params=index.build_param,
+            metadata={
+                "group": self.config["group"],
+                "index_name": index.name,
+                "skipped": True,
+                "dry_run": dry_run,
+            },
             success=True,
         )
 
@@ -200,19 +212,32 @@ class MyBackend(BenchmarkBackend):
         search_threads=None,
         dry_run=False,
     ):
-        n_queries = dataset.n_queries
+        index, = indexes
+        search_parameters, = index.search_params
         return [
             SearchResult(
-                neighbors=np.zeros((n_queries, k), dtype=np.int64),
-                distances=np.zeros((n_queries, k), dtype=np.float32),
+                neighbors=np.empty((0, k), dtype=np.int64),
+                distances=np.empty((0, k), dtype=np.float32),
                 search_time_ms=0.0,
                 queries_per_second=0.0,
                 recall=0.0,
                 algorithm=self.algo,
-                search_params=indexes[0].search_params if indexes else [],
+                search_params=[search_parameters],
+                metadata={
+                    "group": self.config["group"],
+                    "index_name": index.name,
+                    "skipped": True,
+                    "dry_run": dry_run,
+                },
                 success=True,
             )
         ]
+
+    @classmethod
+    def result_failure_message(cls, results):
+        if any(not result.success for result in results):
+            return "One or more benchmark operations failed"
+        return None
 ```
 
 ```python
@@ -256,11 +281,29 @@ python -m cuvs_bench.run --backend-config my-backend.yaml
 
 `BenchmarkBackend.default_algorithm` supplies the CLI's algorithm default for
 the selected backend. The default value is `None`, which retains the cuVS Bench
-CLI default. A backend may also override `result_failure_message(results)` to
+CLI default. A backend may also override the class method
+`result_failure_message(cls, results)`, as shown above, to
 return a message when failed result objects should make the CLI exit nonzero
-after export processing. Unsuccessful, skipped, and dry-run results are
-excluded from the CSV output and do not replace prior measurements. Returning
-`None` keeps the default nonfatal policy.
+after export processing. Returning `None` keeps the default nonfatal policy for
+backend-reported failures.
+
+For non-C++ CSV export, both result types require `metadata["group"]`.
+Search results also require `metadata["index_name"]`; build results can fall
+back to `index_path`. Use the same index name for build and search so exported
+search rows can include the corresponding build time. Results with
+`success=False`, `metadata["skipped"]=True`, or `metadata["dry_run"]=True`
+are excluded from CSV output and do not replace prior measurements.
+
+Search parameters must be JSON-serializable; NumPy boolean, integer, and
+native-width floating scalars are also supported, including nested values.
+The orchestrator validates configured plans before starting a sweep or trial
+and validates measured plans when a backend returns them. Unexportable
+measured plans become failed results so valid measurements can still be
+exported; the CLI then reports the validation error with a nonzero exit.
+Invalid tuning-trial plans are handled similarly, retaining earlier trials.
+On these validation failures, export conservatively retains unmatched historical
+build and search rows, even when the failed plan's result group is unknown.
+This handling does not recover results from unrelated backend exceptions.
 
 ## Components at a glance
 

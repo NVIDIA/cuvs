@@ -8,10 +8,13 @@ import os
 import traceback
 from collections import defaultdict
 
-import numpy as np
 import pandas as pd
 
 from ..backends.base import BuildResult, SearchResult
+from ..backends._search_params import (
+    search_parameter_failure_message,
+    search_params_identity,
+)
 
 skip_build_cols = set(
     [
@@ -60,6 +63,10 @@ def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
     """Write Python-backend results using the existing plotting CSV schema."""
     grouped = defaultdict(list)
     failed_build_groups = set()
+    # A rejected configuration has no authoritative backend result group.
+    # Keep unmatched historical rows conservatively, including build rows,
+    # while still replacing identities that were successfully measured.
+    incomplete_run = search_parameter_failure_message(results) is not None
     for result in results:
         if result.metadata.get("dry_run"):
             continue
@@ -78,7 +85,12 @@ def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
     for (method, algorithm, group), group_results in grouped.items():
         if method == "build":
             _write_build_results(
-                group_results, algorithm, group, dataset, dataset_path
+                group_results,
+                algorithm,
+                group,
+                dataset,
+                dataset_path,
+                incomplete_run=incomplete_run,
             )
         else:
             _write_search_results(
@@ -89,11 +101,14 @@ def write_results_to_csv(results, dataset, dataset_path, count, batch_size):
                 dataset_path,
                 count,
                 batch_size,
-                has_failed_build=(algorithm, group) in failed_build_groups,
+                incomplete_run=incomplete_run
+                or (algorithm, group) in failed_build_groups,
             )
 
 
-def _write_build_results(results, algorithm, group, dataset, dataset_path):
+def _write_build_results(
+    results, algorithm, group, dataset, dataset_path, *, incomplete_run=False
+):
     algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
 
     rows = []
@@ -127,7 +142,7 @@ def _write_build_results(results, algorithm, group, dataset, dataset_path):
     dataframe = pd.DataFrame(rows)
     build_file = os.path.join(output_dir, f"{algorithm},{group}.csv")
 
-    complete_run = all(
+    complete_run = not incomplete_run and all(
         result.success and not result.metadata.get("skipped")
         for result in results
         if not result.metadata.get("dry_run")
@@ -155,7 +170,7 @@ def _write_search_results(
     count,
     batch_size,
     *,
-    has_failed_build=False,
+    incomplete_run=False,
 ):
     algo_name = algorithm if group == "base" else f"{algorithm}_{group}"
 
@@ -182,7 +197,7 @@ def _write_search_results(
                 "latency": result.metadata.get(
                     "latency_seconds", result.search_time_ms / 1000.0
                 ),
-                _SEARCH_PARAMS_IDENTITY_COLUMN: _search_params_identity(
+                _SEARCH_PARAMS_IDENTITY_COLUMN: search_params_identity(
                     result.search_params
                 ),
             }
@@ -228,7 +243,7 @@ def _write_search_results(
 
     stem = f"{algorithm},{group},k{count},bs{batch_size}"
     raw_file = os.path.join(output_dir, f"{stem},raw.csv")
-    complete_run = not has_failed_build and all(
+    complete_run = not incomplete_run and all(
         result.success and not result.metadata.get("skipped")
         for result in results
     )
@@ -258,29 +273,6 @@ def _write_search_results(
     frontier_data = dataframe.drop(columns=[_SEARCH_PARAMS_IDENTITY_COLUMN])
     write_frontier(frontier_file, frontier_data, "throughput")
     write_frontier(frontier_file, frontier_data, "latency")
-
-
-def _search_params_identity(search_params):
-    """Return a stable key for the parameter plans represented by one row."""
-    return json.dumps(
-        search_params,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=_numpy_parameter_as_python_scalar,
-    )
-
-
-def _numpy_parameter_as_python_scalar(value):
-    """Convert NumPy booleans, integers and native-width floats for JSON."""
-    if isinstance(value, np.generic) and value.dtype.kind in "biuf":
-        native_value = value.item()
-        # Extended floats cannot be converted losslessly; time values are
-        # excluded by dtype kind even though timedelta64 subclasses integer.
-        if type(native_value) in (bool, int, float):
-            return native_value
-    raise TypeError(
-        f"Unsupported search parameter type: {type(value).__name__}"
-    )
 
 
 def _read_results_csv(path):

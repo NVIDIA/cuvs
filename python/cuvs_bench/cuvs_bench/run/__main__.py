@@ -12,6 +12,7 @@ import click
 import yaml
 
 from ..backends.base import BenchmarkBackend
+from ..backends._search_params import search_parameter_failure_message
 from ..backends.registry import _BackendNotFoundError, get_backend_class
 from ..orchestrator import BenchmarkOrchestrator
 from .data_export import (
@@ -26,6 +27,7 @@ _BACKEND_CONFIG_CACHE_KEY = "cuvs_bench.backend_config"
 
 
 def _read_backend_config(path: str) -> dict[str, Any]:
+    """Read a backend mapping and report malformed selectors as CLI errors."""
     try:
         with open(path, "r") as stream:
             config = yaml.safe_load(stream)
@@ -41,6 +43,12 @@ def _read_backend_config(path: str) -> dict[str, Any]:
     if "backend" not in config:
         raise click.BadParameter(
             f"{path!r} must include a 'backend' field",
+            param_hint="--backend-config",
+        )
+    if not isinstance(config["backend"], str):
+        raise click.BadParameter(
+            f"{path!r}: 'backend' must be a string, "
+            f"got {type(config['backend']).__name__}",
             param_hint="--backend-config",
         )
     return dict(config)
@@ -373,6 +381,8 @@ def main(
     )
 
     if dry_run:
+        if failure_message := search_parameter_failure_message(results):
+            raise click.ClickException(failure_message)
         return
 
     if backend_type == "cpp_gbench":
@@ -380,10 +390,12 @@ def main(
             convert_json_to_csv_build(dataset, dataset_path)
         if search:
             convert_json_to_csv_search(dataset, dataset_path)
+        failure_message = search_parameter_failure_message(results)
     else:
         write_results_to_csv(results, dataset, dataset_path, count, batch_size)
-        if failure_message := orchestrator.result_failure_message(results):
-            raise click.ClickException(failure_message)
+        failure_message = orchestrator.result_failure_message(results)
+    if failure_message:
+        raise click.ClickException(failure_message)
 
 
 if __name__ == "__main__":

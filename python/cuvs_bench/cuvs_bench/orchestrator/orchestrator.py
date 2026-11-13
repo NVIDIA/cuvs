@@ -21,6 +21,12 @@ from ..backends.registry import (
     list_backends,
 )
 from ..backends._utils import compute_recall
+from ..backends._search_params import (
+    SEARCH_PARAMETER_ERROR,
+    SearchParameterError,
+    search_parameter_failure_message,
+    search_params_identity,
+)
 from .config_loaders import DatasetConfig
 
 
@@ -91,6 +97,8 @@ class BenchmarkOrchestrator:
         self, results: List[Union[BuildResult, SearchResult]]
     ) -> Optional[str]:
         """Return the selected backend's fatal result summary, if any."""
+        if message := search_parameter_failure_message(results):
+            return message
         return self.backend_class.result_failure_message(results)
 
     def run_benchmark(
@@ -225,6 +233,8 @@ class BenchmarkOrchestrator:
         dataset_config, benchmark_configs = self.config_loader.load(
             count=count, batch_size=batch_size, **loader_kwargs
         )
+        if search:
+            self._validate_configured_search_params(benchmark_configs)
 
         # Create Dataset object from config
         bench_dataset = self._create_dataset(dataset_config)
@@ -513,10 +523,11 @@ class BenchmarkOrchestrator:
             print(f"Best params: {study.best_params}")
             print(f"Best {optimize_metric}: {study.best_value:.4f}")
         except ValueError:
-            print(
-                f"\n⚠️ All {n_trials} trials were pruned (constraints not met)"
-            )
-            print(f"   Consider relaxing constraints: {hard_constraints}")
+            print(f"\n⚠️ All {n_trials} trials were pruned")
+            if message := search_parameter_failure_message(all_results):
+                print(f"   Search parameter validation failed: {message}")
+            else:
+                print(f"   Consider relaxing constraints: {hard_constraints}")
 
         return all_results
 
@@ -562,6 +573,27 @@ class BenchmarkOrchestrator:
         dataset_config, benchmark_configs = self.config_loader.load(
             count=count, batch_size=batch_size, **tune_kwargs
         )
+        if search:
+            try:
+                self._validate_configured_search_params(benchmark_configs)
+            except SearchParameterError as error:
+                # A later trial must not discard measurements from earlier
+                # trials. Return this narrow validation failure for export and
+                # fatal reporting, just like an invalid backend search result.
+                return [
+                    SearchResult(
+                        neighbors=np.empty((0, count), dtype=np.int64),
+                        distances=np.empty((0, count), dtype=np.float32),
+                        search_time_ms=0.0,
+                        queries_per_second=0.0,
+                        recall=0.0,
+                        algorithm=algorithm,
+                        search_params=[],
+                        success=False,
+                        error_message=str(error),
+                        metadata={SEARCH_PARAMETER_ERROR: str(error)},
+                    )
+                ]
 
         # Create dataset
         bench_dataset = self._create_dataset(dataset_config)
@@ -630,11 +662,35 @@ class BenchmarkOrchestrator:
         finally:
             backend.cleanup()
 
-    @staticmethod
+    def _validate_configured_search_params(self, configs) -> None:
+        """Reject unexportable plans before any backend starts work."""
+        for config in configs:
+            for index in config.indexes:
+                search_params_identity(
+                    index.search_params,
+                    context=f"Backend {self.backend_type!r}, "
+                    f"index {index.name!r}: configured search_params",
+                )
+
     def _finalize_search_result(
-        result: SearchResult, dataset: Dataset, k: int
+        self, result: SearchResult, dataset: Dataset, k: int
     ) -> None:
-        """Compute recall for backends that return neighbor arrays."""
+        """Validate measured plans before computing recall or exporting them."""
+        if result.success and not (
+            result.metadata.get("skipped") or result.metadata.get("dry_run")
+        ):
+            try:
+                search_params_identity(
+                    result.search_params,
+                    context=f"Backend {self.backend_type!r}, "
+                    f"algorithm {result.algorithm!r}, "
+                    f"index {result.metadata.get('index_name')!r}: "
+                    "returned search_params",
+                )
+            except SearchParameterError as error:
+                result.success = False
+                result.error_message = str(error)
+                result.metadata[SEARCH_PARAMETER_ERROR] = str(error)
         if _should_compute_recall(result):
             groundtruth = dataset.groundtruth_neighbors
             if groundtruth is not None:
