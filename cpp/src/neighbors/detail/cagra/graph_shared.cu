@@ -4,6 +4,7 @@
  */
 
 #include "graph_core.cuh"
+
 #include "graph_shared.cuh"
 #include "utils.hpp"
 
@@ -45,6 +46,7 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
     const uint32_t dstNode = knn_graph[k + static_cast<uint64_t>(graph_degree) * srcNode];
     float dist             = 0;
     float norm2_dst        = 0;
+    float set_union        = 0;
     if (metric == cuvs::distance::DistanceType::InnerProduct ||
         metric == cuvs::distance::DistanceType::CosineExpanded) {
       for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
@@ -83,6 +85,15 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
             0xffu);
         }
       }
+    } else if (metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+      if constexpr (std::is_integral_v<DATA_T>) {
+        for (int d = lane_id; d < dataset_dim; d += raft::WarpSize) {
+          auto a = static_cast<uint8_t>(dataset[d + static_cast<uint64_t>(dataset_dim) * srcNode]);
+          auto b = static_cast<uint8_t>(dataset[d + static_cast<uint64_t>(dataset_dim) * dstNode]);
+          dist += __popc(a ^ b);
+          set_union += __popc(a | b);
+        }
+      }
     }
     dist += __shfl_xor_sync(0xffffffff, dist, 1);
     dist += __shfl_xor_sync(0xffffffff, dist, 2);
@@ -97,6 +108,13 @@ __global__ void kern_sort(const DATA_T* const dataset,  // [dataset_chunk_size, 
       norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 8);
       norm2_dst += __shfl_xor_sync(0xffffffff, norm2_dst, 16);
       if (lane_id == (k % raft::WarpSize)) { dist /= sqrt(norm2_dst); }
+    }
+
+    if (metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+      for (int offset = 1; offset < raft::WarpSize; offset *= 2) {
+        set_union += __shfl_xor_sync(0xffffffff, set_union, offset);
+      }
+      dist = set_union > 0.0f ? dist / set_union : 0.0f;
     }
 
     if (lane_id == (k % raft::WarpSize)) {

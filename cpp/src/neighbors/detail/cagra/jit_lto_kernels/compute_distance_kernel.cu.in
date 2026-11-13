@@ -12,6 +12,7 @@ constexpr uint32_t k_dataset_block_dim = @dataset_block_dim@u;
 constexpr uint32_t k_pq_bits           = @pq_bits@u;
 constexpr uint32_t k_pq_len            = @pq_len@u;
 constexpr auto k_smem_dtype            = @smem_dtype@;
+constexpr bool k_is_jaccard            = @is_jaccard@;
 
 using data_t     = @data_type@;
 using index_t    = @index_type@;
@@ -40,7 +41,8 @@ __device__ distance_t compute_distance<data_t, index_t, distance_t>(const args_t
                                                   index_t,
                                                   distance_t,
                                                   query_t,
-                                                  k_smem_dtype>(args, dataset_index)
+                                                  k_smem_dtype,
+                                                  k_is_jaccard>(args, dataset_index)
                           : distance_t{};
   return device::team_sum(per_thread, team_size_bits);
 }
@@ -58,7 +60,8 @@ compute_distance_per_thread<data_t, index_t, distance_t>(const args_t args, inde
                                index_t,
                                distance_t,
                                query_t,
-                               k_smem_dtype>(args, dataset_index);
+                               k_smem_dtype,
+                               k_is_jaccard>(args, dataset_index);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

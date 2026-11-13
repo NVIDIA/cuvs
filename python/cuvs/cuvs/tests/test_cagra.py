@@ -12,6 +12,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.preprocessing import normalize
 
 from cuvs.common import make_device_padded_dataset
+from cuvs.common.exceptions import CuvsException
 from cuvs.neighbors import cagra, ivf_pq
 from cuvs.tests.ann_utils import (
     calc_recall,
@@ -358,3 +359,125 @@ def test_cagra_ivf_pq(
     recall = calc_recall(out_idx, skl_idx)
 
     assert recall > 0.9
+
+
+@pytest.mark.parametrize("dtype", [np.int8, np.uint8])
+@pytest.mark.parametrize("algo", ["single_cta", "multi_cta", "multi_kernel"])
+@pytest.mark.parametrize(
+    "build_algo", ["nn_descent", "iterative_cagra_search", "ace"]
+)
+def test_cagra_bitwise_jaccard(dtype, algo, build_algo, tmp_path):
+    from scipy.spatial.distance import cdist
+
+    rng = np.random.default_rng(1158)
+    # Keep ACE partitions below the IVF-PQ threshold, while exercising overlap
+    # across more than two partitions.
+    n_rows = 4096 if build_algo == "ace" else 512
+    dataset = (rng.random((n_rows, 65)) < 0.25).astype(dtype)
+    dataset[:2] = 0
+    dataset[2:4] = 1
+    queries = np.concatenate((dataset[:4], dataset[32:44]))
+    expected = cdist(queries.astype(bool), dataset.astype(bool), "jaccard")
+    # 65 features occupy 9 bytes, including a partially filled final byte.
+    # Viewing the same bytes as int8 also exercises the sign bit.
+    dataset = np.packbits(dataset, axis=1).view(dtype)
+    queries = np.packbits(queries, axis=1).view(dtype)
+    index = cagra.build(
+        cagra.IndexParams(
+            metric="bitwise_jaccard",
+            build_algo=build_algo,
+            graph_degree=32,
+            intermediate_graph_degree=64,
+            ace_params=cagra.AceParams(npartitions=4)
+            if build_algo == "ace"
+            else None,
+        ),
+        dataset if build_algo == "ace" else device_ndarray(dataset),
+    )
+    if build_algo == "ace":
+        # ACE builds from host data; attach a device dataset for CAGRA search.
+        padded_dataset = make_device_padded_dataset(device_ndarray(dataset))
+        cagra.update_dataset(index, padded_dataset)
+    if algo == "single_cta":
+        filename = str(tmp_path / "packed-jaccard.bin")
+        cagra.save(filename, index)
+        index = cagra.Index()
+        out_dataset = cagra.Dataset()
+        cagra.load(index, filename, out_dataset=out_dataset)
+    distances, neighbors = cagra.search(
+        cagra.SearchParams(algo=algo, itopk_size=128),
+        index,
+        device_ndarray(queries),
+        10,
+    )
+    distances = cp.asnumpy(cp.asarray(distances))
+    neighbors = cp.asnumpy(cp.asarray(neighbors))
+    np.testing.assert_allclose(
+        distances, np.take_along_axis(expected, neighbors, axis=1), atol=1e-6
+    )
+    assert np.all(np.diff(distances, axis=1) >= 0)
+    for ids in neighbors:
+        assert len(np.unique(ids)) == len(ids)
+
+    # Count all strictly closer neighbors, allowing any IDs tied at the boundary.
+    k = neighbors.shape[1]
+    cutoff = np.partition(expected, k - 1, axis=1)[:, k - 1, None]
+    returned = np.take_along_axis(expected, neighbors, axis=1)
+    strict_count = np.sum(expected < cutoff, axis=1)
+    strict_hits = np.sum(returned < cutoff, axis=1)
+    boundary_hits = np.minimum(
+        np.sum(returned == cutoff, axis=1), k - strict_count
+    )
+    assert np.mean((strict_hits + boundary_hits) / k) >= 0.9
+
+
+def test_cagra_bitwise_jaccard_unsupported_builder():
+    with pytest.raises(ValueError, match='Jaccard.*build_algo="nn_descent"'):
+        cagra.IndexParams(metric="bitwise_jaccard", build_algo="ivf_pq")
+
+
+def test_cagra_bitwise_jaccard_default_builder():
+    with pytest.raises(ValueError, match='Jaccard.*build_algo="nn_descent"'):
+        cagra.IndexParams(metric="bitwise_jaccard")
+
+
+@pytest.mark.parametrize(
+    "build_algo", ["nn_descent", "iterative_cagra_search", "ace"]
+)
+def test_cagra_bitwise_jaccard_supported_builder_params(build_algo):
+    params = cagra.IndexParams(
+        metric="bitwise_jaccard", build_algo=build_algo, nn_descent_niter=7
+    )
+    assert params.metric == "bitwise_jaccard"
+    expected = cagra.IndexParams(build_algo=build_algo)
+    assert params.build_algo == expected.build_algo
+    assert params.nn_descent_niter == 7
+
+
+@pytest.mark.parametrize("dtype", [np.float32, np.float16])
+def test_cagra_bitwise_jaccard_rejects_float(dtype):
+    dataset = device_ndarray(np.zeros((512, 9), dtype=dtype))
+    params = cagra.IndexParams(
+        metric="bitwise_jaccard", build_algo="nn_descent"
+    )
+    with pytest.raises(CuvsException, match="BitwiseJaccard.*int8"):
+        cagra.build(params, dataset)
+
+
+@pytest.mark.parametrize(
+    "build_algo", ["nn_descent", "iterative_cagra_search"]
+)
+def test_cagra_unpacked_jaccard_is_unsupported(build_algo):
+    # The shared metric name still exists, but CAGRA only implements packed Jaccard.
+    dataset = device_ndarray(np.ones((512, 65), dtype=np.uint8))
+    params = cagra.IndexParams(metric="jaccard", build_algo=build_algo)
+    with pytest.raises(CuvsException):
+        cagra.build(params, dataset)
+
+
+@pytest.mark.parametrize("metric", ["sqeuclidean", "inner_product", "cosine"])
+def test_cagra_default_builder(metric):
+    params = cagra.IndexParams(metric=metric)
+    assert params.metric == metric
+    expected = cagra.IndexParams(build_algo="ivf_pq")
+    assert params.build_algo == expected.build_algo

@@ -45,8 +45,12 @@ cdef class IndexParams:
     metric : str, default = "sqeuclidean"
         String denoting the metric type.
         Supported metrics are `l2`, `euclidean`, `sqeuclidean`,
-        `inner_product`, `cosine`, and `bitwise_hamming`
+        `inner_product`, `cosine`, `bitwise_hamming`, and `bitwise_jaccard`
         (`bitwise_hamming` is for int8 and uint8 data types only)
+        `bitwise_jaccard` accepts packed int8 and uint8 bitstrings, with eight
+        binary features per byte. Dimensions are in bytes; unused bits in the
+        last byte must be zero. Use ``numpy.packbits(..., axis=1)`` to pack binary
+        vectors. Two empty bitstrings have distance zero.
     graph_degree :  int
         For an input dataset of dimensions (N, D), determines the final
         dimensions of the all-neighbors knn graph which turns out to be of
