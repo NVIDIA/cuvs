@@ -29,7 +29,7 @@
 #include "scann_quantize.cuh"
 #include "scann_soar.cuh"
 
-namespace cuvs::neighbors::experimental::scann::detail {
+namespace cuvs::neighbors::scann::detail {
 using namespace cuvs::spatial::knn::detail;  // NOLINT
 
 /* @defgroup scann_build_detail scann build
@@ -87,12 +87,18 @@ void train_kmeans(
 
   raft::matrix::sample_rows(res, random_state, dataset, trainset.view());
 
+  // kmeans is trained on a float trainset (with the standard integer scaling).
+  auto trainset_f =
+    raft::make_device_matrix<float, int64_t>(res, trainset.extent(0), trainset.extent(1));
+  raft::linalg::map(
+    res, trainset_f.view(), utils::mapping<float>{}, raft::make_const_mdspan(trainset.view()));
+
   if (type == cuvs::cluster::kmeans::kmeans_type::KMeansBalanced) {
     cuvs::cluster::kmeans::balanced_params kmeans_params;
     kmeans_params.n_iters = n_iters;
 
     cuvs::cluster::kmeans::fit(
-      res, kmeans_params, raft::make_const_mdspan(trainset.view()), centers);
+      res, kmeans_params, raft::make_const_mdspan(trainset_f.view()), centers);
   } else {
     cuvs::cluster::kmeans::params kmeans_params;
     kmeans_params.max_iter   = n_iters;
@@ -105,7 +111,7 @@ void train_kmeans(
 
     cuvs::cluster::kmeans::fit(res,
                                kmeans_params,
-                               raft::make_const_mdspan(trainset.view()),
+                               raft::make_const_mdspan(trainset_f.view()),
                                std::nullopt,
                                centers,
                                inertia.view(),
@@ -264,18 +270,18 @@ index<T, IdxT> build(
               params.partitioning_eta,
               copy_stream);
 
-    auto residuals = compute_residuals<T, uint32_t>(res,
-                                                    raft::make_const_mdspan(centers_view),
-                                                    raft::make_const_mdspan(coarse_centers),
-                                                    coarse_labels);
+    auto residuals = compute_residuals<float, uint32_t>(res,
+                                                        raft::make_const_mdspan(centers_view),
+                                                        raft::make_const_mdspan(coarse_centers),
+                                                        coarse_labels);
 
-    compute_soar_labels<T, uint32_t>(res,
-                                     raft::make_const_mdspan(centers_view),
-                                     raft::make_const_mdspan(residuals.view()),
-                                     coarse_centers,
-                                     coarse_labels,
-                                     idx.coarse_soar_labels(),
-                                     params.soar_lambda);
+    compute_soar_labels<float, uint32_t>(res,
+                                         raft::make_const_mdspan(centers_view),
+                                         raft::make_const_mdspan(residuals.view()),
+                                         coarse_centers,
+                                         coarse_labels,
+                                         idx.coarse_soar_labels(),
+                                         params.soar_lambda);
   }
 
   raft::device_vector_view<uint32_t, int64_t> soar_labels_view = idx.soar_labels();
@@ -461,4 +467,4 @@ index<T, IdxT> build(
  * @}
  */
 
-}  // namespace cuvs::neighbors::experimental::scann::detail
+}  // namespace cuvs::neighbors::scann::detail

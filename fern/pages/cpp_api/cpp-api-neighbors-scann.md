@@ -8,8 +8,8 @@ _Source header: `cuvs/neighbors/scann.hpp`_
 
 ## ScaNN index build parameters
 
-<a id="neighbors-experimental-scann-index-params"></a>
-### neighbors::experimental::scann::index_params
+<a id="neighbors-scann-index-params"></a>
+### neighbors::scann::index_params
 
 ANN parameters used by ScaNN to build index
 
@@ -49,8 +49,8 @@ struct index_params : cuvs::neighbors::index_params {
 
 ## ScaNN index type
 
-<a id="neighbors-experimental-scann-index"></a>
-### neighbors::experimental::scann::index
+<a id="neighbors-scann-index"></a>
+### neighbors::scann::index
 
 ScaNN index.
 
@@ -61,8 +61,8 @@ template <typename T, typename IdxT>
 struct index;
 ```
 
-<a id="neighbors-experimental-scann-index-metric"></a>
-### neighbors::experimental::scann::index::metric
+<a id="neighbors-scann-index-metric"></a>
+### neighbors::scann::index::metric
 
 Distance metric used for clustering.
 
@@ -74,8 +74,8 @@ Distance metric used for clustering.
 
 [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype)
 
-<a id="neighbors-experimental-scann-index-size"></a>
-### neighbors::experimental::scann::index::size
+<a id="neighbors-scann-index-size"></a>
+### neighbors::scann::index::size
 
 Total length of the index (number of vectors).
 
@@ -87,8 +87,8 @@ IdxT size() const noexcept;
 
 `IdxT`
 
-<a id="neighbors-experimental-scann-index-dim"></a>
-### neighbors::experimental::scann::index::dim
+<a id="neighbors-scann-index-dim"></a>
+### neighbors::scann::index::dim
 
 Dimensionality of the data.
 
@@ -100,8 +100,8 @@ Dimensionality of the data.
 
 `uint32_t`
 
-<a id="neighbors-experimental-scann-index-centers"></a>
-### neighbors::experimental::scann::index::centers
+<a id="neighbors-scann-index-centers"></a>
+### neighbors::scann::index::centers
 
 The leaf node centers
 
@@ -113,7 +113,7 @@ raft::device_matrix_view<float, IdxT> centers() noexcept;
 
 `raft::device_matrix_view<float, IdxT>`
 
-**Additional overload:** `neighbors::experimental::scann::index::centers`
+**Additional overload:** `neighbors::scann::index::centers`
 
 The const leaf node centers
 
@@ -125,8 +125,8 @@ raft::device_matrix_view<const float, IdxT> centers() const noexcept;
 
 `raft::device_matrix_view<const float, IdxT>`
 
-<a id="neighbors-experimental-scann-index-labels"></a>
-### neighbors::experimental::scann::index::labels
+<a id="neighbors-scann-index-labels"></a>
+### neighbors::scann::index::labels
 
 The assignment of dataset vectors to the nearest leaf center
 
@@ -138,7 +138,7 @@ raft::device_vector_view<uint32_t, IdxT> labels() noexcept;
 
 `raft::device_vector_view<uint32_t, IdxT>`
 
-**Additional overload:** `neighbors::experimental::scann::index::labels`
+**Additional overload:** `neighbors::scann::index::labels`
 
 the const assignment of dataset vectors to the nearest leaf center
 
@@ -150,8 +150,8 @@ raft::device_vector_view<const uint32_t, IdxT> labels() const noexcept;
 
 `raft::device_vector_view<const uint32_t, IdxT>`
 
-<a id="neighbors-experimental-scann-index-soar-labels"></a>
-### neighbors::experimental::scann::index::soar_labels
+<a id="neighbors-scann-index-soar-labels"></a>
+### neighbors::scann::index::soar_labels
 
 Spilled assignment of dataset vectors to nearest leaf center by
 
@@ -165,7 +165,7 @@ minimizing SOAR loss
 
 `raft::device_vector_view<uint32_t, IdxT>`
 
-**Additional overload:** `neighbors::experimental::scann::index::soar_labels`
+**Additional overload:** `neighbors::scann::index::soar_labels`
 
 const spilled assignment of dataset vectors to nearest leaf center by
 
@@ -179,8 +179,8 @@ minimizing SOAR loss
 
 `raft::device_vector_view<const uint32_t, IdxT>`
 
-<a id="neighbors-experimental-scann-index-coarse-centers"></a>
-### neighbors::experimental::scann::index::coarse_centers
+<a id="neighbors-scann-index-coarse-centers"></a>
+### neighbors::scann::index::coarse_centers
 
 coarse kmeans centers for two-level trees
 
@@ -192,7 +192,7 @@ raft::device_matrix_view<float, IdxT> coarse_centers() noexcept;
 
 `raft::device_matrix_view<float, IdxT>`
 
-**Additional overload:** `neighbors::experimental::scann::index::coarse_centers`
+**Additional overload:** `neighbors::scann::index::coarse_centers`
 
 const coarse kmeans centers for two-level trees
 
@@ -204,8 +204,8 @@ raft::device_matrix_view<const float, IdxT> coarse_centers() const noexcept;
 
 `raft::device_matrix_view<const float, IdxT>`
 
-<a id="neighbors-experimental-scann-index-coarse-labels"></a>
-### neighbors::experimental::scann::index::coarse_labels
+<a id="neighbors-scann-index-coarse-labels"></a>
+### neighbors::scann::index::coarse_labels
 
 assignment of leaf centers to coarse centers in two-level tree
 
@@ -217,7 +217,7 @@ raft::device_vector_view<uint32_t, IdxT> coarse_labels() noexcept;
 
 `raft::device_vector_view<uint32_t, IdxT>`
 
-**Additional overload:** `neighbors::experimental::scann::index::coarse_labels`
+**Additional overload:** `neighbors::scann::index::coarse_labels`
 
 const assignment of leaf centers to coarse centers in two-level tree
 
@@ -229,8 +229,8 @@ raft::device_vector_view<const uint32_t, IdxT> coarse_labels() const noexcept;
 
 `raft::device_vector_view<const uint32_t, IdxT>`
 
-<a id="neighbors-experimental-scann-index-coarse-soar-labels"></a>
-### neighbors::experimental::scann::index::coarse_soar_labels
+<a id="neighbors-scann-index-coarse-soar-labels"></a>
+### neighbors::scann::index::coarse_soar_labels
 
 spilled assignment of leaf centers to coarse centers by minimizing
 
@@ -244,7 +244,7 @@ SOAR loss in two-level tree
 
 `raft::device_vector_view<uint32_t, IdxT>`
 
-**Additional overload:** `neighbors::experimental::scann::index::coarse_soar_labels`
+**Additional overload:** `neighbors::scann::index::coarse_soar_labels`
 
 const spilled assighment of leaf centers to coarse centers by minimizing
 
@@ -258,8 +258,8 @@ SOAR loss in two-level tree
 
 `raft::device_vector_view<const uint32_t, IdxT>`
 
-<a id="neighbors-experimental-scann-index-n-rows"></a>
-### neighbors::experimental::scann::index::n_rows
+<a id="neighbors-scann-index-n-rows"></a>
+### neighbors::scann::index::n_rows
 
 number of rows in dataset
 
@@ -271,8 +271,8 @@ uint32_t n_rows() const noexcept;
 
 `uint32_t`
 
-<a id="neighbors-experimental-scann-index-n-leaves"></a>
-### neighbors::experimental::scann::index::n_leaves
+<a id="neighbors-scann-index-n-leaves"></a>
+### neighbors::scann::index::n_leaves
 
 number of leaf nodes in kmeans tree
 
@@ -284,8 +284,8 @@ uint32_t n_leaves() const noexcept;
 
 `uint32_t`
 
-<a id="neighbors-experimental-scann-index-pq-dim"></a>
-### neighbors::experimental::scann::index::pq_dim
+<a id="neighbors-scann-index-pq-dim"></a>
+### neighbors::scann::index::pq_dim
 
 dimension of pq subspaces
 
@@ -297,8 +297,8 @@ uint32_t pq_dim() const noexcept;
 
 `uint32_t`
 
-<a id="neighbors-experimental-scann-index-pq-codebook"></a>
-### neighbors::experimental::scann::index::pq_codebook
+<a id="neighbors-scann-index-pq-codebook"></a>
+### neighbors::scann::index::pq_codebook
 
 const codebook for pq quanization
 
@@ -310,7 +310,7 @@ raft::device_matrix_view<const float, uint32_t, raft::row_major> pq_codebook() c
 
 `raft::device_matrix_view<const float, uint32_t, raft::row_major>`
 
-**Additional overload:** `neighbors::experimental::scann::index::pq_codebook`
+**Additional overload:** `neighbors::scann::index::pq_codebook`
 
 codebook for pq quantization
 
@@ -322,8 +322,8 @@ raft::device_matrix_view<float, uint32_t, raft::row_major> pq_codebook() noexcep
 
 `raft::device_matrix_view<float, uint32_t, raft::row_major>`
 
-<a id="neighbors-experimental-scann-index-quantized-residuals"></a>
-### neighbors::experimental::scann::index::quantized_residuals
+<a id="neighbors-scann-index-quantized-residuals"></a>
+### neighbors::scann::index::quantized_residuals
 
 const pq quantized residuals of dataset vectors
 
@@ -335,7 +335,7 @@ raft::host_matrix_view<const uint8_t, IdxT, raft::row_major> quantized_residuals
 
 `raft::host_matrix_view<const uint8_t, IdxT, raft::row_major>`
 
-**Additional overload:** `neighbors::experimental::scann::index::quantized_residuals`
+**Additional overload:** `neighbors::scann::index::quantized_residuals`
 
 pq quanntized residuals of dataset vectors
 
@@ -347,8 +347,8 @@ raft::host_matrix_view<uint8_t, IdxT, raft::row_major> quantized_residuals() noe
 
 `raft::host_matrix_view<uint8_t, IdxT, raft::row_major>`
 
-<a id="neighbors-experimental-scann-index-quantized-soar-residuals"></a>
-### neighbors::experimental::scann::index::quantized_soar_residuals
+<a id="neighbors-scann-index-quantized-soar-residuals"></a>
+### neighbors::scann::index::quantized_soar_residuals
 
 pq quantized residuals of dataset vectors using SOAR assignment
 
@@ -361,7 +361,7 @@ const noexcept;
 
 `raft::host_matrix_view<const uint8_t, IdxT, raft::row_major>`
 
-**Additional overload:** `neighbors::experimental::scann::index::quantized_soar_residuals`
+**Additional overload:** `neighbors::scann::index::quantized_soar_residuals`
 
 const pq quantized residuals of dataset vectors using SOAR assignment
 
@@ -373,8 +373,8 @@ raft::host_matrix_view<uint8_t, IdxT, raft::row_major> quantized_soar_residuals(
 
 `raft::host_matrix_view<uint8_t, IdxT, raft::row_major>`
 
-<a id="neighbors-experimental-scann-index-bf16-dataset"></a>
-### neighbors::experimental::scann::index::bf16_dataset
+<a id="neighbors-scann-index-bf16-dataset"></a>
+### neighbors::scann::index::bf16_dataset
 
 bf16 quantized dataset
 
@@ -386,7 +386,7 @@ raft::host_matrix_view<int16_t, IdxT, raft::row_major> bf16_dataset() noexcept;
 
 `raft::host_matrix_view<int16_t, IdxT, raft::row_major>`
 
-**Additional overload:** `neighbors::experimental::scann::index::bf16_dataset`
+**Additional overload:** `neighbors::scann::index::bf16_dataset`
 
 const bf16 quantized dataset
 
@@ -400,16 +400,16 @@ raft::host_matrix_view<const int16_t, IdxT, raft::row_major> bf16_dataset() cons
 
 ## ScaNN index build functions
 
-<a id="neighbors-experimental-scann-build"></a>
-### neighbors::experimental::scann::build
+<a id="neighbors-scann-build"></a>
+### neighbors::scann::build
 
 Build the index from the dataset for efficient search.
 
 ```cpp
 auto build(raft::resources const& handle,
-const cuvs::neighbors::experimental::scann::index_params& params,
+const cuvs::neighbors::scann::index_params& params,
 raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
--> cuvs::neighbors::experimental::scann::index<float, int64_t>;
+-> cuvs::neighbors::scann::index<float, int64_t>;
 ```
 
 **Parameters**
@@ -417,22 +417,91 @@ raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `handle` |  | `raft::resources const&` |  |
-| `params` |  | [`const cuvs::neighbors::experimental::scann::index_params&`](/api-reference/cpp-api-neighbors-scann#neighbors-experimental-scann-index-params) |  |
+| `params` |  | [`const cuvs::neighbors::scann::index_params&`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index-params) |  |
 | `dataset` |  | `raft::device_matrix_view<const float, int64_t, raft::row_major>` |  |
 
 **Returns**
 
-[`cuvs::neighbors::experimental::scann::index<float, int64_t>`](/api-reference/cpp-api-neighbors-scann#neighbors-experimental-scann-index)
+[`cuvs::neighbors::scann::index<float, int64_t>`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index)
 
-<a id="neighbors-experimental-scann-serialize"></a>
-### neighbors::experimental::scann::serialize
+**Additional overload:** `neighbors::scann::build`
+
+Build the index from the dataset for efficient search.
+
+```cpp
+auto build(raft::resources const& handle,
+const cuvs::neighbors::scann::index_params& params,
+raft::device_matrix_view<const half, int64_t, raft::row_major> dataset)
+-> cuvs::neighbors::scann::index<half, int64_t>;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `params` |  | [`const cuvs::neighbors::scann::index_params&`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index-params) |  |
+| `dataset` |  | `raft::device_matrix_view<const half, int64_t, raft::row_major>` |  |
+
+**Returns**
+
+[`cuvs::neighbors::scann::index<half, int64_t>`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index)
+
+**Additional overload:** `neighbors::scann::build`
+
+Build the index from the dataset for efficient search.
+
+```cpp
+auto build(raft::resources const& handle,
+const cuvs::neighbors::scann::index_params& params,
+raft::device_matrix_view<const int8_t, int64_t, raft::row_major> dataset)
+-> cuvs::neighbors::scann::index<int8_t, int64_t>;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `params` |  | [`const cuvs::neighbors::scann::index_params&`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index-params) |  |
+| `dataset` |  | `raft::device_matrix_view<const int8_t, int64_t, raft::row_major>` |  |
+
+**Returns**
+
+[`cuvs::neighbors::scann::index<int8_t, int64_t>`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index)
+
+**Additional overload:** `neighbors::scann::build`
+
+Build the index from the dataset for efficient search.
+
+```cpp
+auto build(raft::resources const& handle,
+const cuvs::neighbors::scann::index_params& params,
+raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> dataset)
+-> cuvs::neighbors::scann::index<uint8_t, int64_t>;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `handle` |  | `raft::resources const&` |  |
+| `params` |  | [`const cuvs::neighbors::scann::index_params&`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index-params) |  |
+| `dataset` |  | `raft::device_matrix_view<const uint8_t, int64_t, raft::row_major>` |  |
+
+**Returns**
+
+[`cuvs::neighbors::scann::index<uint8_t, int64_t>`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index)
+
+<a id="neighbors-scann-serialize"></a>
+### neighbors::scann::serialize
 
 Save the index to files in a directory
 
 ```cpp
 void serialize(raft::resources const& handle,
 const std::string& file_prefix,
-const cuvs::neighbors::experimental::scann::index<float, int64_t>& index);
+const cuvs::neighbors::scann::index<float, int64_t>& index);
 ```
 
 This serializes the index into a list of files for integration into OSS ScaNN for use with search
@@ -445,7 +514,7 @@ NOTE: the implementation of ScaNN index build is EXPERIMENTAL and currently not 
 | --- | --- | --- | --- |
 | `handle` |  | `raft::resources const&` |  |
 | `file_prefix` |  | `const std::string&` |  |
-| `index` |  | [`const cuvs::neighbors::experimental::scann::index<float, int64_t>&`](/api-reference/cpp-api-neighbors-scann#neighbors-experimental-scann-index) |  |
+| `index` |  | [`const cuvs::neighbors::scann::index<float, int64_t>&`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index) |  |
 
 **Returns**
 
@@ -453,14 +522,14 @@ NOTE: the implementation of ScaNN index build is EXPERIMENTAL and currently not 
 
 ## ScaNN serialize functions
 
-**Additional overload:** `neighbors::experimental::scann::serialize`
+**Additional overload:** `neighbors::scann::serialize`
 
 Save the index to files in a directory
 
 ```cpp
 void serialize(raft::resources const& handle,
 const std::string& file_prefix,
-const cuvs::neighbors::experimental::scann::index<float, int64_t>& index);
+const cuvs::neighbors::scann::index<float, int64_t>& index);
 ```
 
 This serializes the index into a list of files for integration into OSS ScaNN for use with search
@@ -473,7 +542,7 @@ NOTE: the implementation of ScaNN index build is EXPERIMENTAL and currently not 
 | --- | --- | --- | --- |
 | `handle` |  | `raft::resources const&` |  |
 | `file_prefix` |  | `const std::string&` |  |
-| `index` |  | [`const cuvs::neighbors::experimental::scann::index<float, int64_t>&`](/api-reference/cpp-api-neighbors-scann#neighbors-experimental-scann-index) |  |
+| `index` |  | [`const cuvs::neighbors::scann::index<float, int64_t>&`](/api-reference/cpp-api-neighbors-scann#neighbors-scann-index) |  |
 
 **Returns**
 

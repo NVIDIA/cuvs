@@ -30,9 +30,10 @@
 #include <raft/matrix/diagonal.cuh>
 #include <raft/matrix/init.cuh>
 
+#include "../../detail/ann_utils.cuh"
 #include "scann_common.cuh"
 
-namespace cuvs::neighbors::experimental::scann::detail {
+namespace cuvs::neighbors::scann::detail {
 
 namespace {
 
@@ -509,7 +510,7 @@ class cluster_loader {
       cluster_ids_.data_handle() + h_cluster_offsets_(cluster_idx), size);
 
     auto cluster_vectors =
-      raft::make_device_matrix_view<float, int64_t>(d_cluster_copy_buf_.data_handle(), size, dim_);
+      raft::make_device_matrix_view<T, int64_t>(d_cluster_copy_buf_.data_handle(), size, dim_);
 
     if (needs_copy_) {
       // For prefetching to overlap with other gpu work
@@ -575,7 +576,7 @@ template <typename T,
             raft::host_device_accessor<cuda::std::default_accessor<T>, raft::memory_type::host>>
 void apply_avq(raft::resources const& res,
                raft::mdspan<const T, raft::matrix_extent<IdxT>, raft::row_major, Accessor> dataset,
-               raft::device_matrix_view<T, IdxT> centroids_view,
+               raft::device_matrix_view<float, IdxT> centroids_view,
                raft::device_vector_view<const LabelT, IdxT> labels_view,
                float eta,
                cuda::stream_ref copy_stream)
@@ -611,15 +612,31 @@ void apply_avq(raft::resources const& res,
   RAFT_LOG_DEBUG("Compute AVQ centroids\n");
 
   for (int i = 0; i < h_cluster_offsets.extent(0); i++) {
-    auto cluster_vectors = loader.load_cluster(res, i);
+    // cluster_vectors_raw holds the cluster's vectors in the dataset's native
+    // type T. compute_avq_centroid runs in float, so for non-float input types
+    // we first convert to float (float input is used as-is). The AVQ centroids
+    // are always float.
+    auto cluster_vectors_raw = loader.load_cluster(res, i);
 
     auto avq_centroid = raft::make_device_vector_view<float, int64_t>(
       centroids_view.data_handle() + i * dataset.extent(1), dataset.extent(1));
     auto rescale_num_view   = raft::make_device_scalar_view<float>(rescale_num.data_handle() + i);
     auto rescale_denom_view = raft::make_device_scalar_view<float>(rescale_denom.data_handle() + i);
 
-    compute_avq_centroid(
-      res, cluster_vectors, avq_centroid, rescale_num_view, rescale_denom_view, eta);
+    if constexpr (std::is_same_v<T, float>) {
+      compute_avq_centroid(
+        res, cluster_vectors_raw, avq_centroid, rescale_num_view, rescale_denom_view, eta);
+    } else {
+      // Convert the cluster vectors to float (with the standard integer scaling).
+      auto cluster_vectors = raft::make_device_matrix<float, int64_t>(
+        res, cluster_vectors_raw.extent(0), cluster_vectors_raw.extent(1));
+      raft::linalg::map(res,
+                        cluster_vectors.view(),
+                        cuvs::spatial::knn::detail::utils::mapping<float>{},
+                        raft::make_const_mdspan(cluster_vectors_raw));
+      compute_avq_centroid(
+        res, cluster_vectors.view(), avq_centroid, rescale_num_view, rescale_denom_view, eta);
+    }
 
     loader.prefetch_cluster(res, i + 1);
 
@@ -635,4 +652,4 @@ void apply_avq(raft::resources const& res,
                         dataset.extent(0));
   raft::resource::sync_stream(res);
 }
-}  // namespace cuvs::neighbors::experimental::scann::detail
+}  // namespace cuvs::neighbors::scann::detail

@@ -11,10 +11,11 @@
 #include <raft/matrix/gather.cuh>
 #include <raft/matrix/init.cuh>
 
+#include "../../detail/ann_utils.cuh"
 #include "scann_common.cuh"
 using namespace cuvs::neighbors;
 
-namespace cuvs::neighbors::experimental::scann::detail {
+namespace cuvs::neighbors::scann::detail {
 
 /** Fix the internal indexing type to avoid integer underflows/overflows */
 using ix_t = int64_t;
@@ -36,19 +37,20 @@ using ix_t = int64_t;
 template <typename T, typename LabelT>
 auto compute_residuals(raft::resources const& res,
                        raft::device_matrix_view<const T, int64_t> dataset,
-                       raft::device_matrix_view<const T, int64_t> centers,
+                       raft::device_matrix_view<const float, int64_t> centers,
                        raft::device_vector_view<const LabelT, int64_t> labels)
-  -> raft::device_matrix<T, int64_t, raft::row_major>
+  -> raft::device_matrix<float, int64_t, raft::row_major>
 {
   auto dim       = dataset.extent(1);
-  auto residuals = raft::make_device_matrix<T, int64_t>(res, labels.extent(0), dim);
+  auto residuals = raft::make_device_matrix<float, int64_t>(res, labels.extent(0), dim);
 
+  cuvs::spatial::knn::detail::utils::mapping<float> mapping{};
   // compute residuals for AVQ assignments
   raft::linalg::map_offset(
-    res, residuals.view(), [dataset, centers, labels, dim] __device__(size_t i) {
+    res, residuals.view(), [dataset, centers, labels, dim, mapping] __device__(size_t i) {
       int row_idx = i / dim;
       int el_idx  = i % dim;
-      return dataset(row_idx, el_idx) - centers(labels(row_idx), el_idx);
+      return mapping(dataset(row_idx, el_idx)) - centers(labels(row_idx), el_idx);
     });
 
   return residuals;
@@ -318,22 +320,32 @@ void quantize_bfloat16_noise_shaped(raft::resources const& res,
  * @param bf16_dataset the quantized dataset (device only) size [n_rows, dim]
  * @param noise_shaping_threshold the threshold for AVQ (nan when not using AVQ)
  */
-template <typename IdxT>
+template <typename T, typename IdxT>
 void quantize_bfloat16(raft::resources const& res,
-                       raft::device_matrix_view<const float, IdxT> dataset,
+                       raft::device_matrix_view<const T, IdxT> dataset,
                        raft::device_matrix_view<int16_t, IdxT> bf16_dataset,
                        float noise_shaping_threshold)
 {
-  if (!std::isnan(noise_shaping_threshold)) {
-    quantize_bfloat16_noise_shaped(res, dataset, bf16_dataset, noise_shaping_threshold);
+  if constexpr (std::is_same_v<T, float>) {
+    if (!std::isnan(noise_shaping_threshold)) {
+      quantize_bfloat16_noise_shaped(res, dataset, bf16_dataset, noise_shaping_threshold);
+    } else {
+      raft::linalg::map(
+        res,
+        raft::make_device_vector_view<int16_t, int64_t>(bf16_dataset.data_handle(),
+                                                        (int64_t)bf16_dataset.size()),
+        [] __device__(float x) { return float_to_bfloat16(x); },
+        raft::make_const_mdspan(raft::make_device_vector_view<const float, int64_t>(
+          dataset.data_handle(), (int64_t)dataset.size())));
+    }
   } else {
+    // Transform the dataset into floats, then quantize as usual.
+    auto dataset_f =
+      raft::make_device_matrix<float, IdxT>(res, dataset.extent(0), dataset.extent(1));
     raft::linalg::map(
-      res,
-      raft::make_device_vector_view<int16_t, int64_t>(bf16_dataset.data_handle(),
-                                                      (int64_t)bf16_dataset.size()),
-      [] __device__(float x) { return float_to_bfloat16(x); },
-      raft::make_const_mdspan(raft::make_device_vector_view<const float, int64_t>(
-        dataset.data_handle(), (int64_t)dataset.size())));
+      res, dataset_f.view(), cuvs::spatial::knn::detail::utils::mapping<float>{}, dataset);
+    quantize_bfloat16<float, IdxT>(
+      res, raft::make_const_mdspan(dataset_f.view()), bf16_dataset, noise_shaping_threshold);
   }
 }
 
@@ -359,9 +371,9 @@ auto sample_training_residuals(
   raft::resources const& res,
   random::RngState random_state,
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
-  raft::device_matrix_view<const T, int64_t> centroids,
+  raft::device_matrix_view<const float, int64_t> centroids,
   raft::device_vector_view<const LabelT, int64_t> labels,
-  int64_t n_samples) -> raft::device_matrix<T, int64_t, raft::row_major>
+  int64_t n_samples) -> raft::device_matrix<float, int64_t, raft::row_major>
 {
   int64_t n_dim = dataset.extent(1);
 
@@ -392,4 +404,4 @@ auto sample_training_residuals(
     raft::make_device_vector_view<const LabelT, int64_t>(trainset_labels.data_handle(), n_samples));
 }
 
-}  // namespace cuvs::neighbors::experimental::scann::detail
+}  // namespace cuvs::neighbors::scann::detail

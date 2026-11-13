@@ -21,7 +21,7 @@
 #include <filesystem>
 #include <type_traits>
 
-namespace cuvs::neighbors::experimental::scann::detail {
+namespace cuvs::neighbors::scann::detail {
 
 constexpr int kSerializationVersion = 1;
 
@@ -141,4 +141,4 @@ void serialize(raft::resources const& res,
   }
 }
 
-}  // namespace cuvs::neighbors::experimental::scann::detail
+}  // namespace cuvs::neighbors::scann::detail

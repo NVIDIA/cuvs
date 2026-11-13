@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/common.hpp>
 #include <raft/core/device_mdarray.hpp>
@@ -25,7 +26,6 @@
 
 namespace CUVS_EXPORT cuvs {
 namespace neighbors {
-namespace experimental {
 namespace scann {
 /**
  * @defgroup scann_cpp_index_params ScaNN index build parameters
@@ -370,14 +370,56 @@ struct index : cuvs::neighbors::index {
  *
  */
 auto build(raft::resources const& handle,
-           const cuvs::neighbors::experimental::scann::index_params& params,
+           const cuvs::neighbors::scann::index_params& params,
            raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
-  -> cuvs::neighbors::experimental::scann::index<float, int64_t>;
+  -> cuvs::neighbors::scann::index<float, int64_t>;
 
 auto build(raft::resources const& handle,
-           const cuvs::neighbors::experimental::scann::index_params& params,
+           const cuvs::neighbors::scann::index_params& params,
            raft::host_matrix_view<const float, int64_t, raft::row_major> dataset)
-  -> cuvs::neighbors::experimental::scann::index<float, int64_t>;
+  -> cuvs::neighbors::scann::index<float, int64_t>;
+
+/**
+ * @brief Build the index from the dataset for efficient search.
+ *
+ */
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::scann::index_params& params,
+           raft::device_matrix_view<const half, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::scann::index<half, int64_t>;
+
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::scann::index_params& params,
+           raft::host_matrix_view<const half, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::scann::index<half, int64_t>;
+
+/**
+ * @brief Build the index from the dataset for efficient search.
+ *
+ */
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::scann::index_params& params,
+           raft::device_matrix_view<const int8_t, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::scann::index<int8_t, int64_t>;
+
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::scann::index_params& params,
+           raft::host_matrix_view<const int8_t, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::scann::index<int8_t, int64_t>;
+
+/**
+ * @brief Build the index from the dataset for efficient search.
+ *
+ */
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::scann::index_params& params,
+           raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::scann::index<uint8_t, int64_t>;
+
+auto build(raft::resources const& handle,
+           const cuvs::neighbors::scann::index_params& params,
+           raft::host_matrix_view<const uint8_t, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::scann::index<uint8_t, int64_t>;
 /**
  * @defgroup scann_cpp_serialize ScaNN serialize functions
  * @{
@@ -396,13 +438,82 @@ auto build(raft::resources const& handle,
 
 void serialize(raft::resources const& handle,
                const std::string& file_prefix,
-               const cuvs::neighbors::experimental::scann::index<float, int64_t>& index);
+               const cuvs::neighbors::scann::index<float, int64_t>& index);
+
+void serialize(raft::resources const& handle,
+               const std::string& file_prefix,
+               const cuvs::neighbors::scann::index<half, int64_t>& index);
+
+void serialize(raft::resources const& handle,
+               const std::string& file_prefix,
+               const cuvs::neighbors::scann::index<int8_t, int64_t>& index);
+
+void serialize(raft::resources const& handle,
+               const std::string& file_prefix,
+               const cuvs::neighbors::scann::index<uint8_t, int64_t>& index);
 
 /**
  * @}
  */
 
 }  // namespace scann
+
+/**
+ * @defgroup scann_cpp_deprecated Deprecated experimental ScaNN aliases
+ * @{
+ */
+
+/**
+ * @brief Backward-compatibility for the former experimental ScaNN namespace.
+ *
+ * ScaNN has graduated from `cuvs::neighbors::experimental::scann` to the
+ * conventional `cuvs::neighbors::scann` namespace. The aliases and forwarding
+ * functions below keep existing `experimental::scann` code compiling for one
+ * release and will be removed afterwards. Please migrate to
+ * `cuvs::neighbors::scann`.
+ */
+namespace experimental {
+namespace scann {
+
+using index_params [[deprecated("Use cuvs::neighbors::scann::index_params instead")]] =
+  cuvs::neighbors::scann::index_params;
+
+template <typename T, typename IdxT>
+using index [[deprecated("Use cuvs::neighbors::scann::index instead")]] =
+  cuvs::neighbors::scann::index<T, IdxT>;
+
+[[deprecated("Use cuvs::neighbors::scann::build instead")]] inline auto build(
+  raft::resources const& handle,
+  const cuvs::neighbors::scann::index_params& params,
+  raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::scann::index<float, int64_t>
+{
+  return cuvs::neighbors::scann::build(handle, params, dataset);
+}
+
+[[deprecated("Use cuvs::neighbors::scann::build instead")]] inline auto build(
+  raft::resources const& handle,
+  const cuvs::neighbors::scann::index_params& params,
+  raft::host_matrix_view<const float, int64_t, raft::row_major> dataset)
+  -> cuvs::neighbors::scann::index<float, int64_t>
+{
+  return cuvs::neighbors::scann::build(handle, params, dataset);
+}
+
+[[deprecated("Use cuvs::neighbors::scann::serialize instead")]] inline void serialize(
+  raft::resources const& handle,
+  const std::string& file_prefix,
+  const cuvs::neighbors::scann::index<float, int64_t>& index)
+{
+  cuvs::neighbors::scann::serialize(handle, file_prefix, index);
+}
+
+}  // namespace scann
 }  // namespace experimental
+
+/**
+ * @}
+ */
+
 }  // namespace neighbors
 }  // namespace CUVS_EXPORT cuvs

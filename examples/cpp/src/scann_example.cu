@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -19,7 +19,7 @@ template <typename T>
 void scann_build_and_write(raft::device_resources const& dev_resources,
                            raft::device_matrix_view<const T, int64_t> dataset)
 {
-  using namespace cuvs::neighbors::experimental;
+  using namespace cuvs::neighbors;
 
   // use default index parameters
   scann::index_params index_params;
