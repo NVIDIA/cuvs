@@ -25,7 +25,17 @@ tasks.register('test', Test) {
     outputs.upToDateWhen { false }
     reports.junitXml.outputLocation = file("${results}/test-results")
     reports.html.required = false
-    testLogging { exceptionFormat = 'full' }
+    testLogging {
+        events 'passed', 'skipped', 'failed'
+        exceptionFormat = 'full'
+    }
+    afterSuite { suite, result ->
+        if (suite.parent == null) {
+            logger.lifecycle("Solr GPU integration tests: ${result.testCount} run, " +
+                "${result.successfulTestCount} passed, ${result.failedTestCount} failed, " +
+                "${result.skippedTestCount} skipped")
+        }
+    }
     doFirst {
         workingDir.mkdirs()
         file(relocate(config.temp_dir)).mkdirs()
