@@ -62,6 +62,8 @@ pub enum DistanceType {
     DiceExpanded,
     /// Bitwise Hamming distance.
     BitwiseHamming,
+    /// Jaccard distance between packed bitstrings.
+    BitwiseJaccard,
     /// Precomputed distance matrix.
     Precomputed,
 }
@@ -102,6 +104,7 @@ impl From<DistanceType> for ffi::cuvsDistanceType {
             RusselRaoExpanded => Self::RusselRaoExpanded,
             DiceExpanded => Self::DiceExpanded,
             BitwiseHamming => Self::BitwiseHamming,
+            BitwiseJaccard => Self::BitwiseJaccard,
             Precomputed => Self::Precomputed,
         }
     }
@@ -132,6 +135,7 @@ impl From<ffi::cuvsDistanceType> for DistanceType {
             RusselRaoExpanded => Self::RusselRaoExpanded,
             DiceExpanded => Self::DiceExpanded,
             BitwiseHamming => Self::BitwiseHamming,
+            BitwiseJaccard => Self::BitwiseJaccard,
             Precomputed => Self::Precomputed,
         }
     }

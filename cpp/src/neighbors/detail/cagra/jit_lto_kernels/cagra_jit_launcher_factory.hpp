@@ -370,6 +370,25 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_single_cta_jit_launcher(
       persistent,
       std::move(sample_filter_udf_fragment));
   }
+  if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+    using QueryTag = query_type_tag_standard_jaccard_t<DataTag>;
+    return cagra_jit_launcher_factory_detail::build_single_cta_launcher<DataTag,
+                                                                        IndexTag,
+                                                                        DistTag,
+                                                                        SourceTag,
+                                                                        QueryTag,
+                                                                        CodebookTag,
+                                                                        SampleFilterJitTag,
+                                                                        DataT,
+                                                                        IndexT,
+                                                                        DistanceT,
+                                                                        SourceIndexT>(
+      dataset_desc,
+      topk_by_bitonic_sort,
+      bitonic_sort_and_merge_multi_warps,
+      persistent,
+      std::move(sample_filter_udf_fragment));
+  }
   using QueryTag = query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::L2Expanded>;
   return cagra_jit_launcher_factory_detail::build_single_cta_launcher<DataTag,
                                                                       IndexTag,
@@ -424,6 +443,21 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_multi_cta_jit_launcher(
   if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseHamming) {
     using QueryTag =
       query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::BitwiseHamming>;
+    return cagra_jit_launcher_factory_detail::build_multi_cta_launcher<DataTag,
+                                                                       IndexTag,
+                                                                       DistTag,
+                                                                       SourceTag,
+                                                                       QueryTag,
+                                                                       CodebookTag,
+                                                                       SampleFilterJitTag,
+                                                                       DataT,
+                                                                       IndexT,
+                                                                       DistanceT,
+                                                                       SourceIndexT>(
+      dataset_desc, std::move(sample_filter_udf_fragment));
+  }
+  if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+    using QueryTag = query_type_tag_standard_jaccard_t<DataTag>;
     return cagra_jit_launcher_factory_detail::build_multi_cta_launcher<DataTag,
                                                                        IndexTag,
                                                                        DistTag,
@@ -501,6 +535,21 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_single_cta_mp_jit_launcher(
                                                                            SourceIndexT>(
       dataset_desc, topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps);
   }
+  if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+    using QueryTag = query_type_tag_standard_jaccard_t<DataTag>;
+    return cagra_jit_launcher_factory_detail::build_single_cta_mp_launcher<DataTag,
+                                                                           IndexTag,
+                                                                           DistTag,
+                                                                           SourceTag,
+                                                                           QueryTag,
+                                                                           CodebookTag,
+                                                                           SampleFilterJitTag,
+                                                                           DataT,
+                                                                           IndexT,
+                                                                           DistanceT,
+                                                                           SourceIndexT>(
+      dataset_desc, topk_by_bitonic_sort, bitonic_sort_and_merge_multi_warps);
+  }
   using QueryTag = query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::L2Expanded>;
   return cagra_jit_launcher_factory_detail::build_single_cta_mp_launcher<DataTag,
                                                                          IndexTag,
@@ -550,6 +599,21 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_multi_cta_mp_jit_launcher(
   if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseHamming) {
     using QueryTag =
       query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::BitwiseHamming>;
+    return cagra_jit_launcher_factory_detail::build_multi_cta_mp_launcher<DataTag,
+                                                                          IndexTag,
+                                                                          DistTag,
+                                                                          SourceTag,
+                                                                          QueryTag,
+                                                                          CodebookTag,
+                                                                          SampleFilterJitTag,
+                                                                          DataT,
+                                                                          IndexT,
+                                                                          DistanceT,
+                                                                          SourceIndexT>(
+      dataset_desc);
+  }
+  if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+    using QueryTag = query_type_tag_standard_jaccard_t<DataTag>;
     return cagra_jit_launcher_factory_detail::build_multi_cta_mp_launcher<DataTag,
                                                                           IndexTag,
                                                                           DistTag,
@@ -631,6 +695,21 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_multi_kernel_jit_launcher(
                                                                           SourceIndexT>(
       dataset_desc, linked_kernel_name, std::move(sample_filter_udf_fragment));
   }
+  if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+    using QueryTag = query_type_tag_standard_jaccard_t<DataTag>;
+    return cagra_jit_launcher_factory_detail::build_multi_kernel_launcher<DataTag,
+                                                                          IndexTag,
+                                                                          DistTag,
+                                                                          SourceTag,
+                                                                          QueryTag,
+                                                                          CodebookTag,
+                                                                          SampleFilterJitTag,
+                                                                          DataT,
+                                                                          IndexT,
+                                                                          DistanceT,
+                                                                          SourceIndexT>(
+      dataset_desc, linked_kernel_name, std::move(sample_filter_udf_fragment));
+  }
   using QueryTag = query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::L2Expanded>;
   return cagra_jit_launcher_factory_detail::build_multi_kernel_launcher<DataTag,
                                                                         IndexTag,
@@ -684,6 +763,21 @@ std::shared_ptr<rtcx::algorithm_launcher> make_cagra_apply_filter_jit_launcher(
   if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseHamming) {
     using QueryTag =
       query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::BitwiseHamming>;
+    return cagra_jit_launcher_factory_detail::build_apply_filter_only_launcher<DataTag,
+                                                                               IndexTag,
+                                                                               DistTag,
+                                                                               SourceTag,
+                                                                               QueryTag,
+                                                                               CodebookTag,
+                                                                               SampleFilterJitTag,
+                                                                               DataT,
+                                                                               IndexT,
+                                                                               DistanceT,
+                                                                               SourceIndexT>(
+      std::move(sample_filter_udf_fragment));
+  }
+  if (dataset_desc.metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+    using QueryTag = query_type_tag_standard_jaccard_t<DataTag>;
     return cagra_jit_launcher_factory_detail::build_apply_filter_only_launcher<DataTag,
                                                                                IndexTag,
                                                                                DistTag,

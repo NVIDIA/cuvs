@@ -36,6 +36,7 @@ enum class DistanceType : int {
   RusselRaoExpanded = 18,
   DiceExpanded = 19,
   BitwiseHamming = 20,
+  BitwiseJaccard = 21,
   Precomputed = 100,
   CustomUDF = 101
 };
@@ -66,6 +67,7 @@ enum class DistanceType : int {
 | `RusselRaoExpanded` | `18` |
 | `DiceExpanded` | `19` |
 | `BitwiseHamming` | `20` |
+| `BitwiseJaccard` | `21` |
 | `Precomputed` | `100` |
 | `CustomUDF` | `101` |
 

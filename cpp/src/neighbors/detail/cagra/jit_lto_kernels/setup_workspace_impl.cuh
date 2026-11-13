@@ -54,7 +54,12 @@ _RAFT_DEVICE __noinline__ auto setup_workspace_standard_impl(
   for (unsigned i = threadIdx.x; i < buf_len; i += blockDim.x) {
     unsigned j = device::swizzling<kDatasetBlockDim, vlen * kTeamSize>(i);
     if (i < dim) {
-      buf[j] = cuvs::spatial::knn::detail::utils::mapping<QUERY_T>{}(queries_ptr[i]);
+      if constexpr (std::is_same_v<DATA_T, int8_t> && std::is_same_v<QUERY_T, uint8_t>) {
+        // Packed queries preserve the byte's bits, including signed int8 input.
+        buf[j] = static_cast<QUERY_T>(queries_ptr[i]);
+      } else {
+        buf[j] = cuvs::spatial::knn::detail::utils::mapping<QUERY_T>{}(queries_ptr[i]);
+      }
     } else {
       buf[j] = 0;
     }

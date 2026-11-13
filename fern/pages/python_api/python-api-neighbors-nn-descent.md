@@ -54,7 +54,7 @@ Parameters to build NN-Descent Index
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `metric` | `str, default = "sqeuclidean"` | String denoting the metric type. Supported metrics are `l2`, `euclidean`, `sqeuclidean`, `inner_product`, `cosine`, and `bitwise_hamming` (`bitwise_hamming` is for int8 and uint8 data types only) |
+| `metric` | `str, default = "sqeuclidean"` | String denoting the metric type. Supported metrics are `l2`, `euclidean`, `sqeuclidean`, `inner_product`, `cosine`, `bitwise_hamming`, and `bitwise_jaccard` (`bitwise_hamming` is for int8 and uint8 data types only) `bitwise_jaccard` accepts packed int8 and uint8 bitstrings, with eight binary features per byte. Dimensions are in bytes; unused bits in the last byte must be zero. Use ``numpy.packbits(..., axis=1)`` to pack binary vectors. Two empty bitstrings have distance zero. |
 | `graph_degree` | `int` | For an input dataset of dimensions (N, D), determines the final dimensions of the all-neighbors knn graph which turns out to be of dimensions (N, graph_degree) |
 | `intermediate_graph_degree` | `int` | Internally, nn-descent builds an all-neighbors knn graph of dimensions (N, intermediate_graph_degree) before selecting the final `graph_degree` neighbors. It's recommended that `intermediate_graph_degree` &gt;= 1.5 * graph_degree |
 | `max_iterations` | `int` | The number of iterations that nn-descent will refine the graph for. More iterations produce a better quality graph at cost of performance |

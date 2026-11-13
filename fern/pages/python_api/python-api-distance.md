@@ -36,7 +36,8 @@ DISTANCE_TYPES = {
 "minkowski": cuvsDistanceType.LpUnexpanded,
 "russellrao": cuvsDistanceType.RusselRaoExpanded,
 "dice": cuvsDistanceType.DiceExpanded,
-"bitwise_hamming": cuvsDistanceType.BitwiseHamming
+"bitwise_hamming": cuvsDistanceType.BitwiseHamming,
+"bitwise_jaccard": cuvsDistanceType.BitwiseJaccard
 }
 ```
 

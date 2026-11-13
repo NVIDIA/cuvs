@@ -186,7 +186,7 @@ Parameters to build index for CAGRA nearest neighbor search
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `metric` | `str, default = "sqeuclidean"` | String denoting the metric type,<br />valid values for metric are ["sqeuclidean", "inner_product", "cosine"], where:<br /><br />- sqeuclidean is the euclidean distance without the square root operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2<br />- inner_product distance is defined as distance(a, b) = \\sum_i a_i * b_i.<br />- cosine distance is defined as distance(a, b) = 1 - \\sum_i a_i * b_i / ( \|\|a\|\|_2 * \|\|b\|\|_2). |
+| `metric` | `str, default = "sqeuclidean"` | String denoting the metric type,<br />valid values for metric are ["sqeuclidean", "inner_product", "cosine", "bitwise_jaccard"], where:<br /><br />- sqeuclidean is the euclidean distance without the square root operation, i.e.: distance(a,b) = \\sum_i (a_i - b_i)^2<br />- inner_product distance is defined as distance(a, b) = \\sum_i a_i * b_i.<br />- cosine distance is defined as distance(a, b) = 1 - \\sum_i a_i * b_i / ( \|\|a\|\|_2 * \|\|b\|\|_2).<br /><br />- bitwise_jaccard computes Jaccard distance on packed int8 or uint8 bitstrings: distance(a, b) = 1 - intersection(a, b) / union(a, b). Two empty bitstrings have distance zero. Each byte stores eight binary features; dimensions are in bytes and unused trailing bits must be zero. Pack dataset and queries with ``numpy.packbits(..., axis=1)``. Use build_algo="nn_descent" or build_algo="iterative_cagra_search". With build_algo="ace", all partitions must use NN-descent; partitions using IVF-PQ are rejected. |
 | `intermediate_graph_degree` | `int, default = 128` |  |
 | `graph_degree` | `int, default = 64` |  |
 | `build_algo` | `str, default = "ivf_pq"` | string denoting the graph building algorithm to use.<br />Valid values for algo: ["ivf_pq", "nn_descent", "iterative_cagra_search", "ace"], where<br /><br />- ivf_pq will use the IVF-PQ algorithm for building the knn graph<br />- nn_descent (experimental) will use the NN-Descent algorithm for building the knn graph. It is expected to be generally faster than ivf_pq.<br />- iterative_cagra_search will iteratively build the knn graph using CAGRA's search() and optimize()<br />- ace will use ACE (Augmented Core Extraction) for building indices for datasets too large to fit in GPU memory |
@@ -418,6 +418,7 @@ The following distance metrics are supported:
 - L2
 - InnerProduct
 - Cosine
+- BitwiseJaccard (packed int8/uint8 bitstrings)
 
 **Parameters**
 

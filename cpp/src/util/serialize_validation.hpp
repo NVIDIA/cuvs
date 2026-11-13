@@ -76,6 +76,7 @@ inline bool is_valid_distance_type(cuvs::distance::DistanceType m)
     case DistanceType::RusselRaoExpanded:
     case DistanceType::DiceExpanded:
     case DistanceType::BitwiseHamming:
+    case DistanceType::BitwiseJaccard:
     case DistanceType::Precomputed:
     case DistanceType::CustomUDF: return true;
     default: return false;
