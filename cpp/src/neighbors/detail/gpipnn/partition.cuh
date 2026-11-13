@@ -465,6 +465,16 @@ inline void merge_undersized(
   set_layout(res, r, std::move(fixed), std::move(bucket));
 }
 
+/** Runs still above the size bound. */
+inline auto count_oversized(const runs& r, int64_t max_size) -> int64_t
+{
+  int64_t n = 0;
+  for (int64_t i = 0; i < r.count(); i++) {
+    if (r.size_of(i) > max_size) { n++; }
+  }
+  return n;
+}
+
 /**
  * Partitions the dataset into small overlapping leaves by flattened randomized ball carving.
  *
@@ -496,69 +506,60 @@ inline auto ball_carve(raft::resources const& res,
   // A dataset that already fits in one leaf needs no carving.
   if (n_rows <= max_leaf) { return cur; }
 
-  // Round 0: a global leader sample, sized by rate and capped
+  // Round 0's leader count: sized by rate, floored at the fanout and capped by `max_leaders`.
+  // The cap is what keeps the top level from widening, since round 0 scores every point against
+  // every leader and so costs `n_rows * n_leaders * dim`.
   const int64_t n_leaders =
     std::clamp<int64_t>(static_cast<int64_t>(params.leader_fraction * static_cast<float>(n_rows)),
                         params.fanout_level0,
                         std::min<int64_t>(params.max_leaders, n_rows));
-  runs r0(stream);
-  assign_then_sort_round(
-    res,
-    dataset,
-    norms,
-    cur,
-    round_config{static_cast<int64_t>(params.fanout_level0),
-                 /* split_above */ max_leaf,
-                 /* target_size */ std::max<int64_t>(1, n_rows * params.fanout_level0 / n_leaders),
-                 /* max_leaders */ n_leaders},
-    params.seed,
-    r0);
-  cur = std::move(r0);
-  // Round 0's runs are the top-level buckets, so each becomes its own; the rounds after this one
-  // only carry these ids down. Host-side only, so there is nothing to push to the device.
-  std::iota(cur.h_bucket.begin(), cur.h_bucket.end(), int64_t{0});
-  stats.rounds_run = 1;
 
-  // Round 1: bucket-local sub-leaders, sized to land the resulting leaves near `target`.
-  runs r1(stream);
-  assign_then_sort_round(res,
-                         dataset,
-                         norms,
-                         cur,
-                         round_config{static_cast<int64_t>(params.fanout_level1),
-                                      /* split_above */ target,
-                                      /* target_size */ target,
-                                      /* max_leaders */ params.max_leaders},
-                         params.seed + 1,
-                         r1);
-  cur              = std::move(r1);
-  stats.rounds_run = 2;
-
-  // Size-driven subdivision of whatever is still oversized. Fanout 1 so it only subdivides.
-  while (stats.rounds_run < static_cast<int64_t>(params.max_rounds)) {
-    int64_t oversized = 0;
-    for (int64_t i = 0; i < cur.count(); i++) {
-      if (cur.size_of(i) > max_leaf) { oversized++; }
+  auto config_for = [&](int64_t round) -> round_config {
+    switch (round) {
+      case 0:  // A global leader sample, carving the dataset into the top-level buckets.
+        return round_config{
+          static_cast<int64_t>(params.fanout_level0),
+          /* split_above */ max_leaf,
+          /* target_size */ std::max<int64_t>(1, n_rows * params.fanout_level0 / n_leaders),
+          /* max_leaders */ n_leaders};
+      case 1:  // Bucket-local sub-leaders, sized to land the resulting leaves near `target`.
+        return round_config{static_cast<int64_t>(params.fanout_level1),
+                            /* split_above */ target,
+                            /* target_size */ target,
+                            /* max_leaders */ params.max_leaders};
+      default:  // Size-driven subdivision. Fanout 1, so it only subdivides and adds no overlap.
+        return round_config{/* fanout */ 1,
+                            /* split_above */ max_leaf,
+                            /* target_size */ target,
+                            /* max_leaders */ params.max_leaders};
     }
-    if (oversized == 0) { break; }
-    runs extra(stream);
-    assign_then_sort_round(res,
-                           dataset,
-                           norms,
-                           cur,
-                           round_config{/* fanout */ 1,
-                                        /* split_above */ max_leaf,
-                                        /* target_size */ target,
-                                        /* max_leaders */ params.max_leaders},
-                           params.seed + 2 + static_cast<uint64_t>(stats.rounds_run),
-                           extra);
-    cur = std::move(extra);
-    stats.rounds_run++;
+  };
+
+  // Rounds 2 and up draw from `seed + 2 + <rounds already run>`, which was 2 by the time the
+  // first of them ran, so the sequence is seed, seed+1, seed+4, seed+5 and so on. The gap is an
+  // accident of how the counter was spelled, kept because closing it would reseed every build
+  // that needs more than two rounds.
+  auto seed_for = [&](int64_t round) -> uint64_t {
+    return params.seed + static_cast<uint64_t>(round < 2 ? round : round + 2);
+  };
+
+  // The two overlap-creating rounds are unconditional; `max_rounds` bounds only the subdivision
+  // rounds after them, and those stop as soon as nothing is oversized.
+  const int64_t n_rounds = std::max<int64_t>(2, static_cast<int64_t>(params.max_rounds));
+  for (int64_t round = 0; round < n_rounds; round++) {
+    if (round >= 2 && count_oversized(cur, max_leaf) == 0) { break; }
+    runs next(stream);
+    assign_then_sort_round(res, dataset, norms, cur, config_for(round), seed_for(round), next);
+    cur = std::move(next);
+    if (round == 0) {
+      // Round 0's runs are the top-level buckets, so each becomes its own; the rounds after this
+      // one only carry these ids down. Host-side only, so there is nothing to push to the device.
+      std::iota(cur.h_bucket.begin(), cur.h_bucket.end(), int64_t{0});
+    }
+    stats.rounds_run = round + 1;
   }
 
-  for (int64_t i = 0; i < cur.count(); i++) {
-    if (cur.size_of(i) > max_leaf) { stats.oversized_left++; }
-  }
+  stats.oversized_left = count_oversized(cur, max_leaf);
   chop_oversized(res, cur, max_leaf, stats.chopped_runs);
   merge_undersized(res, cur, params.min_leaf_size, max_leaf, stats.merged_runs);
   return cur;
