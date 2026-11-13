@@ -5,9 +5,7 @@
 #pragma once
 
 #include "../../../core/nvtx.hpp"
-#include "../../../util/kvikio_io.hpp"
 #include "../../ivf_pq/ivf_pq_fp16_overflow.cuh"
-#include "cagra_ace.cuh"
 #include "cagra_search.cuh"
 #include "graph_core.cuh"
 #include <cuvs/preprocessing/quantize/pq.hpp>
@@ -27,34 +25,25 @@
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/integer_utils.hpp>
 
-#include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/ivf_pq.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 #include <cuvs/neighbors/refine.hpp>
 #include <cuvs/util/file_io.hpp>
-#include <cuvs/util/host_memory.hpp>
-
-#include <kvikio/file_handle.hpp>
 
 // TODO: This shouldn't be calling spatial/knn APIs
 #include "../ann_utils.cuh"
 
 #include <rmm/resource_ref.hpp>
 
-#include <algorithm>
-#include <array>
-#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstring>
-#include <exception>
-#include <filesystem>
+#include <limits>
 #include <omp.h>
 #include <optional>
 #include <type_traits>
-#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -86,6 +75,13 @@ void check_graph_degree(size_t& intermediate_degree, size_t& graph_degree, size_
     graph_degree = intermediate_degree;
   }
 }
+
+template <typename DataT, typename IdxT, typename accessor>
+void build_knn_graph(
+  raft::resources const& res,
+  raft::mdspan<const DataT, raft::matrix_extent<int64_t>, raft::row_major, accessor> dataset,
+  raft::host_matrix_view<IdxT, int64_t, raft::row_major> knn_graph,
+  cuvs::neighbors::cagra::graph_build_params::ivf_pq_params pq);
 
 template <typename IdxT>
 void write_to_graph(raft::host_matrix_view<IdxT, int64_t, raft::row_major> knn_graph,
