@@ -12,7 +12,7 @@ public class ThreadLocalCuVSResourcesProvider
 
 Provides a mechanism to create ThreadLocal based CuVSResource instances.
 
-## Public Members
+## Public and Protected Members
 
 ### getCuVSResourcesInstance
 
@@ -43,18 +43,6 @@ Sets the instance of CuVSResources
 | `resources` | the instance of CuVSResources to set |
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/ThreadLocalCuVSResourcesProvider.java:39`_
-
-### resolveWorkspacePoolBytes
-
-```java
-static long resolveWorkspacePoolBytes(String raw)
-```
-
-Resolves a raw workspace-pool property value to a 256-byte-aligned size. Zero or an absent
-value disables the per-resources pool. Invalid, negative, or unalignable values warn and also
-disable it.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/ThreadLocalCuVSResourcesProvider.java:80`_
 
 ### closeCuVSResourcesInstance
 

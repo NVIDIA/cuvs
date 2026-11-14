@@ -12,7 +12,7 @@ public class CagraIndexParams
 
 Supplemental parameters to build CAGRA Index.
 
-## Public Members
+## Public and Protected Members
 
 ### AUTO_SELECT
 

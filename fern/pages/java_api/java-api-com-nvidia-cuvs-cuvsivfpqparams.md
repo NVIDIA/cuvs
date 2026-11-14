@@ -10,7 +10,7 @@ _Java package: `com.nvidia.cuvs`_
 public class CuVSIvfPqParams
 ```
 
-## Public Members
+## Public and Protected Members
 
 ### getIndexParams
 

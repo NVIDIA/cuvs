@@ -10,7 +10,7 @@ _Java package: `com.nvidia.cuvs.lucene`_
 public class GPUSearchParams
 ```
 
-## Public Members
+## Public and Protected Members
 
 ### getWriterThreads
 

@@ -12,7 +12,7 @@ public class HnswIndexParams
 
 Supplemental parameters to build HNSW index.
 
-## Public Members
+## Public and Protected Members
 
 ### NONE
 

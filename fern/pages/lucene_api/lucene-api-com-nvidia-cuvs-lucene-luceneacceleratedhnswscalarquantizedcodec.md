@@ -15,7 +15,7 @@ CuVS based codec for GPU based vector search
 This codec, named `Lucene101AcceleratedHNSWScalarQuantizedCodec`, wraps `Lucene101Codec`, the default codec of Lucene 10.2. On later Lucene releases it can only read
 existing indexes; use `CuVSCodecs#acceleratedHNSWScalarQuantized` to write.
 
-## Public Members
+## Public and Protected Members
 
 ### LuceneAcceleratedHNSWScalarQuantizedCodec
 

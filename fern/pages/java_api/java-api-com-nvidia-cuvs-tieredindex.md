@@ -13,7 +13,7 @@ public interface TieredIndex extends AutoCloseable
 `TieredIndex` encapsulates a Tiered index, along with methods to
 interact with it.
 
-## Public Members
+## Public and Protected Members
 
 ### close
 

@@ -13,7 +13,7 @@ public interface BruteForceIndex extends AutoCloseable
 `BruteForceIndex` encapsulates a BRUTEFORCE index, along with methods
 to interact with it.
 
-## Public Members
+## Public and Protected Members
 
 ### close
 

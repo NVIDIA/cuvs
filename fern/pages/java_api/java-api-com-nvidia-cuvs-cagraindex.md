@@ -19,7 +19,7 @@ build and query performance for both small and large-batch sized search. Know
 more about this algorithm
 here
 
-## Public Members
+## Public and Protected Members
 
 ### setDelegate
 
