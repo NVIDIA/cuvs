@@ -65,6 +65,7 @@ elastic = "cuvs_bench.backends.elasticsearch:register"
 
 [tool.pytest.ini_options]
 markers = [
+    "lucene_e2e: live PyLucene/Java tests, with cuVS/CUDA required by GPU cases (opt in with --run-lucene-e2e)",
     "opensearch: tests that require a live OpenSearch node (run with '-m opensearch')",
 ]
 
