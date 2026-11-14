@@ -21,8 +21,11 @@
 
 #include <cuvs/cluster/kmeans.hpp>
 
+#include <raft/core/device_mdarray.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/util/cudart_utils.hpp>
 
 #include <optional>
 #include <type_traits>
@@ -80,6 +83,70 @@ void build_ann_index(raft::resources const& handle,
       params.ann_params.value_or(cuvs::cluster::kmeans::ann_assignment_params{});
     ann_index.build(
       handle, ann_params.index_params, ann_params.search_params, centroids, n_clusters, n_features);
+  } else {
+    RAFT_FAIL("ANN centroid assignment only supports float data");
+  }
+}
+
+/**
+ * @brief Multi-GPU counterpart of build_ann_index: every rank ends up with the same CAGRA index
+ * over the (identical on all ranks) `n_clusters` x `n_features` centroids, but the graph is built
+ * only once.
+ *
+ * @p root builds the graph and broadcasts it through @p comms (`mnmg_comms`-like: `bcast(T*,
+ * count, root)`); every other rank attaches the received graph to its own copy of the centroids.
+ * The CAGRA graph is the only part of the index that is expensive to produce. All ranks must call
+ * this together, with identical centroids and params, even ranks that hold no data.
+ */
+template <typename DataT, typename CommsT>
+void build_ann_index_broadcast(raft::resources const& handle,
+                               cuvs::cluster::kmeans::params const& params,
+                               CommsT const& comms,
+                               int rank,
+                               int root,
+                               cuvs::distance::detail::top_1_nn_cagra_index& ann_index,
+                               const DataT* centroids,
+                               int64_t n_clusters,
+                               int64_t n_features)
+{
+  if constexpr (std::is_same_v<DataT, float>) {
+    const auto ann_params =
+      params.ann_params.value_or(cuvs::cluster::kmeans::ann_assignment_params{});
+    auto stream = raft::resource::get_cuda_stream(handle);
+
+    // The graph degree is only known to the rank that built the graph (it depends on the CAGRA
+    // build params), so it is broadcast ahead of the graph itself.
+    auto degree_dev = raft::make_device_scalar<int>(handle, 0);
+    if (rank == root) {
+      ann_index.build(handle,
+                      ann_params.index_params,
+                      ann_params.search_params,
+                      centroids,
+                      n_clusters,
+                      n_features);
+      int degree = static_cast<int>(ann_index.graph().extent(1));
+      raft::copy(degree_dev.data_handle(), &degree, 1, stream);
+    }
+    comms.bcast(degree_dev.data_handle(), std::size_t{1}, root);
+    int degree = 0;
+    raft::copy(&degree, degree_dev.data_handle(), 1, stream);
+    raft::resource::sync_stream(handle);
+
+    // The collectives have no uint32 type; the graph is broadcast as same-sized int32.
+    if (rank == root) {
+      auto* graph = const_cast<uint32_t*>(ann_index.graph().data_handle());
+      comms.bcast(reinterpret_cast<int*>(graph),
+                  static_cast<std::size_t>(n_clusters) * static_cast<std::size_t>(degree),
+                  root);
+    } else {
+      auto graph = raft::make_device_matrix<uint32_t, int64_t>(handle, n_clusters, degree);
+      comms.bcast(reinterpret_cast<int*>(graph.data_handle()),
+                  static_cast<std::size_t>(n_clusters) * static_cast<std::size_t>(degree),
+                  root);
+      ann_index.attach_graph(
+        handle, ann_params.search_params, centroids, n_clusters, n_features, std::move(graph));
+    }
+    raft::resource::sync_stream(handle);
   } else {
     RAFT_FAIL("ANN centroid assignment only supports float data");
   }

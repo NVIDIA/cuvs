@@ -60,6 +60,53 @@ class top_1_nn_cagra_index {
              int64_t n,
              int64_t dim)
   {
+    const auto build_params = make_build_params(index_params, n);
+    reset_(search_params, n, dim);
+    // CAGRA indexes rows with a padded stride. Aligned candidates are viewed in place; otherwise
+    // they are copied into a padded buffer (zero padding leaves the L2 distances unchanged) that
+    // lives as long as the index.
+    index_.emplace(cuvs::neighbors::cagra::build(
+      handle, build_params, dataset_view_(handle, candidates, n, dim)));
+  }
+
+  /**
+   * Adopt a graph that was built elsewhere (by `build` on another rank) over the same candidates,
+   * instead of building one. `graph` is an owned `n x graph_degree` device matrix, typically
+   * received by a broadcast; the index keeps it alive. The candidates must be identical to the ones
+   * the graph was built over.
+   */
+  void attach_graph(raft::resources const& handle,
+                    cuvs::neighbors::cagra::search_params const& search_params,
+                    const float* candidates,
+                    int64_t n,
+                    int64_t dim,
+                    raft::device_matrix<uint32_t, int64_t, raft::row_major>&& graph)
+  {
+    RAFT_EXPECTS(graph.extent(0) == n, "attach_graph: graph must have one row per candidate");
+    reset_(search_params, n, dim);
+    graph_copy_ = std::move(graph);
+    index_.emplace(handle,
+                   cuvs::distance::DistanceType::L2Expanded,
+                   dataset_view_(handle, candidates, n, dim),
+                   raft::make_device_matrix_view<const uint32_t, int64_t, raft::row_major>(
+                     graph_copy_->data_handle(), graph_copy_->extent(0), graph_copy_->extent(1)));
+  }
+
+  /** The built graph (`n x graph_degree`), e.g. to broadcast it. Requires `built()`. */
+  raft::device_matrix_view<const uint32_t, int64_t, raft::row_major> graph() const
+  {
+    RAFT_EXPECTS(index_.has_value(), "top_1_nn_cagra_index::graph called before build");
+    return index_->graph();
+  }
+
+  /**
+   * The index parameters `build` actually uses for `n` candidates: the metric is L2Expanded
+   * (squared L2 distances), the dataset is attached on build, and the graph degrees are clamped to
+   * `n - 1`.
+   */
+  static cuvs::neighbors::cagra::index_params make_build_params(
+    cuvs::neighbors::cagra::index_params const& index_params, int64_t n)
+  {
     const std::size_t max_degree = static_cast<std::size_t>(std::max<int64_t>(1, n - 1));
 
     cuvs::neighbors::cagra::index_params build_params = index_params;
@@ -75,29 +122,7 @@ class top_1_nn_cagra_index {
             &build_params.graph_build_params)) {
       nn_descent->graph_degree = build_params.intermediate_graph_degree;
     }
-
-    search_params_ = search_params;
-
-    index_.reset();  // drop the old index (and its view) before building the new one
-    padded_copy_.reset();
-    n_   = n;
-    dim_ = dim;
-
-    auto candidates_view =
-      raft::make_device_matrix_view<const float, int64_t, raft::row_major>(candidates, n, dim);
-    // CAGRA indexes rows with a padded stride. Aligned candidates are viewed in place; otherwise
-    // they are copied into a padded buffer (zero padding leaves the L2 distances unchanged) that
-    // lives as long as the index.
-    if (cuvs::neighbors::cagra_required_row_width<float>(static_cast<uint32_t>(dim)) ==
-        static_cast<uint32_t>(dim)) {
-      index_.emplace(cuvs::neighbors::cagra::build(
-        handle,
-        build_params,
-        cuvs::neighbors::make_device_padded_dataset_view(handle, candidates_view)));
-    } else {
-      padded_copy_ = cuvs::neighbors::make_device_padded_dataset(handle, candidates_view);
-      index_.emplace(cuvs::neighbors::cagra::build(handle, build_params, padded_copy_->view()));
-    }
+    return build_params;
   }
 
   /**
@@ -126,7 +151,35 @@ class top_1_nn_cagra_index {
   int64_t dim() const { return dim_; }
 
  private:
+  using dataset_view_type = cuvs::neighbors::device_padded_dataset_view<float, int64_t>;
+
+  void reset_(cuvs::neighbors::cagra::search_params const& search_params, int64_t n, int64_t dim)
+  {
+    search_params_ = search_params;
+    index_.reset();  // drop the old index (and its views) before the storage it views
+    padded_copy_.reset();
+    graph_copy_.reset();
+    n_   = n;
+    dim_ = dim;
+  }
+
+  dataset_view_type dataset_view_(raft::resources const& handle,
+                                  const float* candidates,
+                                  int64_t n,
+                                  int64_t dim)
+  {
+    auto candidates_view =
+      raft::make_device_matrix_view<const float, int64_t, raft::row_major>(candidates, n, dim);
+    if (cuvs::neighbors::cagra_required_row_width<float>(static_cast<uint32_t>(dim)) ==
+        static_cast<uint32_t>(dim)) {
+      return cuvs::neighbors::make_device_padded_dataset_view(handle, candidates_view);
+    }
+    padded_copy_ = cuvs::neighbors::make_device_padded_dataset(handle, candidates_view);
+    return padded_copy_->view();
+  }
+
   cuvs::neighbors::cagra::search_params search_params_;
+  std::optional<raft::device_matrix<uint32_t, int64_t, raft::row_major>> graph_copy_;
   std::unique_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>> padded_copy_;
   std::optional<index_type> index_;
   int64_t n_   = 0;
