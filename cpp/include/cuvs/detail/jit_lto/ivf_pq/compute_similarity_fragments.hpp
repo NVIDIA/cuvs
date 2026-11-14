@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -38,6 +38,9 @@ struct fragment_tag_create_lut {};
 
 template <typename OutTag, typename LutTag, int Capacity>
 struct fragment_tag_compute_distances {};
+
+template <typename OutTag, typename LutTag, int Capacity>
+struct fragment_tag_compute_distances_stable {};
 
 template <typename OutTag, typename MetricTag>
 struct fragment_tag_get_early_stop_limit {};
