@@ -223,6 +223,11 @@ void build_knn_graph(
   gpu_top_k              = std::min<IdxT>(std::max(gpu_top_k, top_k), dataset.extent(0));
   const auto num_queries = dataset.extent(0);
 
+  // The results come from several probes to connect the clusters of the dataset (see
+  // `ivf_pq::search_params::force_n_probes`). The refinement would re-rank them among the other
+  // candidates and mostly drop the extra ones, hence it is not combined with the forced probes.
+  pq.search_params.force_n_probes = top_k == gpu_top_k ? pq.search_params.force_n_probes : 0;
+
   // Use the same maximum batch size as the ivf_pq::search to avoid allocating more than needed.
   uint32_t max_queries = pq.search_params.max_internal_batch_size;
 

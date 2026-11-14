@@ -41,6 +41,8 @@ template void cuvs::neighbors::ivf_pq::detail::compute_similarity_run<out_t, lut
   int64_t original_nbits,
   lut_t* lut_scores,
   out_t* _out_scores,
-  uint32_t* _out_indices);
+  uint32_t* _out_indices,
+  uint32_t force_n_probes,
+  out_t forced_score);
 
 }  // namespace cuvs::neighbors::ivf_pq::detail

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -210,6 +210,16 @@ struct search_params : cuvs::neighbors::search_params {
    * Set the internal batch size to improve GPU utilization at the cost of larger memory footprint.
    */
   uint32_t max_internal_batch_size = 4096;
+  /**
+   * [Internal] The minimum number of different probes (lists) the `k` results of each query should
+   * come from; zero (default) is the usual search.
+   *
+   * If a value above zero is requested, the best sample of `force_n_probes` probes of each query
+   * is always kept in the results, so these results come from different probes.
+   * The distances of such samples are not meaningful.
+   * This is useful for generating neighbor graphs with improved connectivity.
+   */
+  uint32_t force_n_probes = 0;
 };
 /**
  * @}
@@ -3444,6 +3454,8 @@ struct ivf_pq_params {
     search_params.max_internal_batch_size = 128 * 1024;
 
     refinement_rate = 1;
+    // A neighbor from another list connects the clusters of the dataset in the graph.
+    search_params.force_n_probes = std::min<uint32_t>({4, search_params.n_probes / 2});
   }
 };
 }  // namespace graph_build_params
