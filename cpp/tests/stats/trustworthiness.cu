@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,6 +12,9 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <vector>
 
@@ -341,5 +344,51 @@ class TrustworthinessScoreTest : public ::testing::Test {
 
 typedef TrustworthinessScoreTest TrustworthinessScoreTestF;
 TEST_F(TrustworthinessScoreTestF, Result) { ASSERT_TRUE(0.9375 < score && score < 0.9379); }
+
+TEST(TrustworthinessScore, DeviceSortFallback)
+{
+  // float/int block sorting supports at most 12,288 columns. Larger rows use CUB's
+  // segmented device radix sort when the batch contains more than one row.
+  constexpr int n_samples  = 12290;
+  constexpr int batch_size = 64;  // The final batch also contains two rows.
+  constexpr int half       = n_samples / 2;
+  std::vector<float> X(n_samples);
+  std::vector<float> X_embedded(n_samples);
+  for (int i = 0; i < n_samples; ++i) {
+    // Unequal gaps give each embedded point exactly one nearest neighbor: its
+    // partner half a dataset away in the original ordering.
+    X[i]          = 4 * (i / 2) + i % 2;
+    X_embedded[i] = 4 * (i % half) + i / half;
+  }
+
+  // Independently count the original points strictly closer than each partner.
+  // The partner distances have no ties, so this gives their exact one-based ranks.
+  std::int64_t rank_penalty = 0;
+  for (int i = 0; i < n_samples; ++i) {
+    const int partner = (i + half) % n_samples;
+    const float delta = std::abs(X[partner] - X[i]);
+    const auto first  = std::upper_bound(X.begin(), X.end(), X[i] - delta);
+    const auto last   = std::lower_bound(X.begin(), X.end(), X[i] + delta);
+    const auto rank   = last - first;  // Includes the query itself, which has rank zero.
+    rank_penalty += rank - 1;
+  }
+  const double expected = 1.0 - 2.0 * rank_penalty / (double(n_samples) * (2.0 * n_samples - 4.0));
+  ASSERT_DOUBLE_EQ(expected, 0.25);
+
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+  rmm::device_uvector<float> d_X(n_samples, stream);
+  rmm::device_uvector<float> d_X_embedded(n_samples, stream);
+  raft::update_device(d_X.data(), X.data(), X.size(), stream);
+  raft::update_device(d_X_embedded.data(), X_embedded.data(), X_embedded.size(), stream);
+  const double score = cuvs::stats::trustworthiness_score(
+    handle,
+    raft::make_device_matrix_view<const float, int64_t>(d_X.data(), n_samples, 1),
+    raft::make_device_matrix_view<const float, int64_t>(d_X_embedded.data(), n_samples, 1),
+    1,
+    cuvs::distance::DistanceType::L2Unexpanded,
+    batch_size);
+  ASSERT_NEAR(score, expected, 1e-12);
+}
 };  // namespace stats
 };  // namespace cuvs
