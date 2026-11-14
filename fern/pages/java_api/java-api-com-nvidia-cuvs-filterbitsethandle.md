@@ -35,7 +35,7 @@ use with `#tryIncRef()` / `#decRef()`. The shared device allocation is released 
 when the last reference is dropped, so a concurrent `#close()` cannot free memory that is
 still in use.
 
-## Public Members
+## Public and Protected Members
 
 ### tryIncRef
 

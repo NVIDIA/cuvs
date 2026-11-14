@@ -12,7 +12,7 @@ public interface CuVSDeviceMatrix extends CuVSMatrix
 
 A Dataset implementation backed by device (GPU) memory.
 
-## Public Members
+## Public and Protected Members
 
 ### toHost
 

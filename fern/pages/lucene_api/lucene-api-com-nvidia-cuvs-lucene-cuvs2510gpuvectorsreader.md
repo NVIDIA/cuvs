@@ -12,7 +12,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader
 
 KnnVectorsReader instance associated with cuVS format for reading vectors from an index.
 
-## Public Members
+## Public and Protected Members
 
 ### CuVS2510GPUVectorsReader
 
@@ -36,162 +36,6 @@ Initializes the `CuVS2510GPUVectorsReader`, checks and loads the index.
 | `IOException` | I/O exception |
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:101`_
-
-### CuVS2510GPUVectorsReader
-
-```java
-CuVS2510GPUVectorsReader( SegmentReadState state, FlatVectorsReader flatReader, FilterBitsetCache filterBitsetCache) throws IOException
-```
-
-Initializes the reader with the cache owned by its vectors format.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `state` | instance of the SegmentReadState |
-| `flatReader` | instance of the FlatVectorsReader |
-| `filterBitsetCache` | filter cache shared by readers from the same vectors format |
-
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `IOException` | I/O exception |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:114`_
-
-### withRawVectorsReader
-
-```java
-KnnVectorsReader withRawVectorsReader(FlatVectorsReader flatReader)
-```
-
-Returns a reader for a merge that reads the raw vectors through `flatReader` and shares
-everything else with the reader this one was created from, which owns what they share: closing
-the returned reader does nothing.
-
-Implements `CompatKnnVectorsReader.withRawVectorsReader`, which only the Lucene 10.6
-variant declares, so it is not marked `@Override`; earlier releases never call it.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:184`_
-
-### readSimilarityFunction
-
-```java
-static VectorSimilarityFunction readSimilarityFunction(DataInput input) throws IOException
-```
-
-Checks the distance function validity and returns it.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `input` | instance of DataInput |
-
-**Returns**
-
-an instance of VectorSimilarityFunction
-
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `IOException` |  |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:267`_
-
-### readVectorEncoding
-
-```java
-static VectorEncoding readVectorEncoding(DataInput input) throws IOException
-```
-
-Reads the vector encoding (The numeric data type of the vector values) from the DataInput.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `input` | instance of DataInput |
-
-**Returns**
-
-the vector encoding
-
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `IOException` |  |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:282`_
-
-### getFieldEntry
-
-```java
-FieldEntry getFieldEntry(String field)
-```
-
-Gets the FieldEntry for the given field name, or `null` when this segment holds no
-cuVS index for it.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `field` | name of the field |
-
-**Returns**
-
-the meta information for the field, or `null`
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:345`_
-
-### openCagraIndexForMerge
-
-```java
-CagraIndex openCagraIndexForMerge(String field) throws IOException
-```
-
-Deserializes the CAGRA index of a single field onto the GPU, bypassing the `GPUIndex`
-cache. This is how `CuVS2510GPUVectorsWriter` obtains the inputs for the cuVS merge API:
-a reader opened with `Context#MERGE` caches no indexes until it is first searched, and
-a cached index belongs to the `com.nvidia.cuvs.CuVSResources` of whichever thread opened
-the reader (or first searched it, for a merge-opened reader), while the merge API requires
-every input to share one resources instance - the merging thread's.
-
-The returned index is owned by the caller and must be closed by it.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `field` | name of the field |
-
-**Returns**
-
-a freshly loaded CAGRA index, or `null` if this segment has none for the field
-
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `IOException` | I/O exception |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:364`_
-
-### lazilyLoadedIndexCount
-
-```java
-int lazilyLoadedIndexCount()
-```
-
-Returns the number of indexes a merge-opened reader has loaded so far. Package-private so that
-tests can check that loading is per field.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:444`_
 
 ### close
 
@@ -257,52 +101,6 @@ This is not supported.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:739`_
 
-### readEntry
-
-```java
-static FieldEntry readEntry( IndexInput input, VectorEncoding vectorEncoding, VectorSimilarityFunction similarityFunction) throws IOException
-```
-
-Returns an instance of FieldEntry.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `input` | instance of IndexInput |
-| `vectorEncoding` | The numeric data type of the vector values |
-| `similarityFunction` | Vector similarity function; used in search to return top K most similar vectors to a target vector |
-
-**Returns**
-
-an instance of FieldEntry
-
-**Throws**
-
-| Type | Description |
-| --- | --- |
-| `IOException` | I/O Exceptions |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:767`_
-
-### maxHits
-
-```java
-int maxHits(String field, CagraSearchParams.SearchAlgo searchAlgo)
-```
-
-Returns the most hits a search of the given field in this segment returns, or `Integer#MAX_VALUE` if it has no such limit. A segment with a brute force index has none, and
-one with only a CAGRA index returns at most `#MAX_CAGRA_K` hits, or `GPUKnnFloatVectorQuery#MAX_SINGLE_CTA_ITOPK` with SINGLE_CTA. Unlike `#getCagraIndexForField`, this never loads an index onto the GPU.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `field` | the vector field name |
-| `searchAlgo` | the CAGRA search algorithm the search runs with |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:822`_
-
 ### getCagraIndexForField
 
 ```java
@@ -333,16 +131,6 @@ the CAGRA index, or `null`
 | `IOException` | I/O exception |
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:852`_
-
-### getFilterBitsetCache
-
-```java
-FilterBitsetCache getFilterBitsetCache()
-```
-
-Returns the filter cache owned by the vectors format that created this reader.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:861`_
 
 ### getFieldInfos
 
@@ -385,5 +173,58 @@ Gets the map of FieldEntry objects that hold the meta information for the field.
 the map of FieldEntry objects
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:889`_
+
+### getOffHeapByteSize
+
+```java
+@Override public Map<String, Long> getOffHeapByteSize(FieldInfo fieldInfo)
+```
+
+Reports only the raw vectors. Lucene asks for the memory that searches need to avoid page
+faults; searches read the raw vectors from their file, but search the cuVS indexes on the GPU.
+The file holding the cuVS indexes is only read to load them onto the GPU, so it is left out,
+even though it stays open.
+
+_Source: `java/cuvs-lucene/compat/knn-vectors-reader-106-merge-instance/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsReader.java:48`_
+
+### getMergeInstance
+
+```java
+@Override public KnnVectorsReader getMergeInstance() throws IOException
+```
+
+Returns a reader that reads the raw vectors through their reader's merge instance.
+
+_Source: `java/cuvs-lucene/compat/knn-vectors-reader-106-merge-instance/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsReader.java:54`_
+
+### finishMerge
+
+```java
+@Override public void finishMerge() throws IOException
+```
+
+Lets the raw vectors reader release what it held for the merge.
+
+_Source: `java/cuvs-lucene/compat/knn-vectors-reader-106-merge-instance/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsReader.java:61`_
+
+### getFloatVectorValues
+
+```java
+@Override public FloatVectorValues getFloatVectorValues(String field, DataAccessHint access) throws IOException
+```
+
+Reads the raw vectors, which are the float vectors of the fields, as `access` says.
+
+_Source: `java/cuvs-lucene/compat/knn-vectors-reader-106-merge-instance/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsReader.java:67`_
+
+### getVectorCount
+
+```java
+@Override public int getVectorCount(FieldInfo fieldInfo) throws IOException
+```
+
+Reads the number of vectors from the metadata of the raw vectors.
+
+_Source: `java/cuvs-lucene/compat/knn-vectors-reader-106-merge-instance/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsReader.java:74`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsReader.java:62`_

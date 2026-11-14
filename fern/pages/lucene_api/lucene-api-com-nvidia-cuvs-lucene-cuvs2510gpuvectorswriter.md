@@ -12,7 +12,7 @@ public class CuVS2510GPUVectorsWriter extends KnnVectorsWriter
 
 extends upon KnnVectorsWriter and has implementation for critical methods like flush, merge etc.
 
-## Public Members
+## Public and Protected Members
 
 ### CAGRA
 
@@ -88,17 +88,6 @@ Creates the CAGRA and/or brute force indexes and writes them to the disk.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:295`_
 
-### doMergeOneField
-
-```java
-@Override void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
-```
-
-Merges one field: merges the CAGRA indexes of the segments on the GPU when it can, and
-otherwise builds a new index from the merged vectors.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:669`_
-
 ### ramBytesUsed
 
 ```java
@@ -128,5 +117,17 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVecto
 Close the applicable resources.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:712`_
+
+### mergeOneField
+
+```java
+@Override public IORunnable mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
+```
+
+Merges one field, building its index as it does, and returns `null`: nothing is left
+for Lucene to run once every field has been merged. On Lucene 10.2 to 10.4, it returns nothing
+(`void`).
+
+_Source: `java/cuvs-lucene/compat/knn-vectors-writer-105-iorunnable/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsWriter.java:29`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CuVS2510GPUVectorsWriter.java:60`_

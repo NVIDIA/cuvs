@@ -15,7 +15,7 @@ The purpose is to allow a caller to place the vectors into native memory
 directly, instead of requiring the caller to load all the vectors into the heap
 (e.g. with a float[][]).
 
-## Public Members
+## Public and Protected Members
 
 ### ofArray
 

@@ -15,7 +15,7 @@ Caller-owned tensors describing one encoded BBQ dataset representation.
 The index stores views over these matrices rather than copying them, so they must stay open
 for as long as any index built from them is in use.
 
-## Public Members
+## Public and Protected Members
 
 ### withCentroidNormSq
 

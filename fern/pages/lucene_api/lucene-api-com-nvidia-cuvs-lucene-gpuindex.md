@@ -12,7 +12,7 @@ public class GPUIndex implements Closeable
 
 This class holds references to the cuVS Index (Cagra, Brute force, etc.)
 
-## Public Members
+## Public and Protected Members
 
 ### GPUIndex
 

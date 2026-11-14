@@ -13,7 +13,7 @@ public interface HnswIndex extends AutoCloseable
 `HnswIndex` encapsulates a HNSW index, along with methods to interact
 with it.
 
-## Public Members
+## Public and Protected Members
 
 ### close
 
