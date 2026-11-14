@@ -219,6 +219,17 @@ constexpr int WMMA_M                    = 16;
 constexpr int WMMA_N                    = 16;
 constexpr int WMMA_K                    = 16;
 
+// Arches on which the local-join kernels are built with __launch_bounds__(BLOCK_SIZE, 4): four
+// 512-thread blocks per SM, which caps them at 32 registers per thread. local_join_kernel_wmma
+// keeps its two-phase form there, because holding both WMMA accumulators across the fused pass
+// over the features does not fit in 32 registers and spills. Only meaningful in device code.
+#if defined(__CUDA_ARCH__) && ((__CUDA_ARCH__) == 700 || (__CUDA_ARCH__) == 800 || \
+                               (__CUDA_ARCH__) == 900 || (__CUDA_ARCH__) == 1000)
+#define CUVS_NN_DESCENT_MIN_BLOCKS_4 1
+#else
+#define CUVS_NN_DESCENT_MIN_BLOCKS_4 0
+#endif
+
 template <typename Data_t>
 __device__ __forceinline__ void load_vec(Data_t* vec_buffer,
                                          const Data_t* d_vec,
@@ -606,8 +617,7 @@ template <typename Data_t,
 RAFT_KERNEL
 #ifdef __CUDA_ARCH__
 // Use minBlocksPerMultiprocessor = 4 on specific arches
-#if (__CUDA_ARCH__) == 700 || (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || \
-  (__CUDA_ARCH__) == 1000
+#if CUVS_NN_DESCENT_MIN_BLOCKS_4
 __launch_bounds__(BLOCK_SIZE, 4)
 #else
 __launch_bounds__(BLOCK_SIZE)
@@ -870,8 +880,7 @@ template <typename Data_t,
 RAFT_KERNEL
 #ifdef __CUDA_ARCH__
 // Use minBlocksPerMultiprocessor = 4 on specific arches
-#if (__CUDA_ARCH__) == 700 || (__CUDA_ARCH__) == 800 || (__CUDA_ARCH__) == 900 || \
-  (__CUDA_ARCH__) == 1000
+#if CUVS_NN_DESCENT_MIN_BLOCKS_4
 __launch_bounds__(BLOCK_SIZE, 4)
 #else
 __launch_bounds__(BLOCK_SIZE)
@@ -897,6 +906,21 @@ __launch_bounds__(BLOCK_SIZE)
   using namespace nvcuda;
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
 
+#if CUVS_NN_DESCENT_MIN_BLOCKS_4
+  // Two-phase path (see CUVS_NN_DESCENT_MIN_BLOCKS_4): new x new, then new x old, each with a
+  // single accumulator, so it fits the 32-register budget of __launch_bounds__(BLOCK_SIZE, 4).
+  constexpr int APAD           = 8;
+  constexpr int BPAD           = 8;
+  constexpr int TILE_COL_WIDTH = 128;
+  __shared__ __half s_nv[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + APAD];  // New vectors
+  __shared__ __half s_ov[MAX_NUM_BI_SAMPLES][TILE_COL_WIDTH + BPAD];  // Old vectors
+  static_assert(sizeof(float) * MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES <=
+                sizeof(__half) * MAX_NUM_BI_SAMPLES * (TILE_COL_WIDTH + BPAD));
+  // s_distances: MAX_NUM_BI_SAMPLES x SKEWED_MAX_NUM_BI_SAMPLES, reuse the space of s_ov
+  float* s_distances    = (float*)&s_ov[0][0];
+  int* s_unique_counter = (int*)&s_ov[0][0];
+#else
+  // Fused path: new x new and new x old in one pass over the features.
   constexpr int APAD           = 8;
   constexpr int BPAD           = 8;
   constexpr int TILE_COL_WIDTH = 128;
@@ -910,6 +934,7 @@ __launch_bounds__(BLOCK_SIZE)
   auto s_ov          = reinterpret_cast<__half(*)[TILE_COL_WIDTH + BPAD]>(s_arena + TILE_BYTES);
   float* s_distances = reinterpret_cast<float*>(s_arena);
   __shared__ int s_unique_counter[2];
+#endif  // CUVS_NN_DESCENT_MIN_BLOCKS_4
 
   if (threadIdx.x == 0) {
     s_unique_counter[0] = 0;
@@ -966,6 +991,58 @@ __launch_bounds__(BLOCK_SIZE)
   int warp_id_y = warp_id / 4;
   int warp_id_x = warp_id % 4;
 
+#if CUVS_NN_DESCENT_MIN_BLOCKS_4
+  // Two-phase path, phase 1: new x new.
+  wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
+  wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> b_frag;
+  wmma::fragment<wmma::accumulator, WMMA_M, WMMA_N, WMMA_K, float> c_frag;
+  // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
+  // starts past either extent only produces cells calculate_metric discards -- skip its MMA and
+  // its store. Staging is cooperative, so this must not skip the barriers.
+  const bool warp_active = warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_new_size;
+  if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
+    wmma::fill_fragment(c_frag, 0.0);
+
+    for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
+      int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
+                             ? data_dim - step * TILE_COL_WIDTH
+                             : TILE_COL_WIDTH;
+#pragma unroll
+      for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
+        int idx = i * num_warps + warp_id;
+        if (idx < list_new_size) {
+          size_t neighbor_id = new_neighbors[idx];
+          size_t idx_in_data = neighbor_id * data_dim;
+          // converted to fp16 on-the-fly while loading
+          load_vec(s_nv[idx],
+                   data + idx_in_data + step * TILE_COL_WIDTH,
+                   num_load_elems,
+                   TILE_COL_WIDTH,
+                   lane_id);
+        }
+      }
+      __syncthreads();
+
+      for (int i = 0; warp_active && i < TILE_COL_WIDTH / WMMA_K; i++) {
+        wmma::load_matrix_sync(
+          a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
+        wmma::load_matrix_sync(
+          b_frag, s_nv[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
+        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+      }
+      __syncthreads();
+    }
+
+    if (warp_active) {
+      wmma::store_matrix_sync(
+        s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
+        c_frag,
+        SKEWED_MAX_NUM_BI_SAMPLES,
+        wmma::mem_row_major);
+    }
+  }
+#else
+  // Fused path: both products.
   wmma::fragment<wmma::matrix_a, WMMA_M, WMMA_N, WMMA_K, half, wmma::row_major> a_frag;
   wmma::fragment<wmma::matrix_b, WMMA_M, WMMA_N, WMMA_K, half, wmma::col_major> b_frag;
   // c_nn: new x new (phase 1), c_no: new x old (phase 2). Both phases share one pass over the
@@ -1048,6 +1125,7 @@ __launch_bounds__(BLOCK_SIZE)
         wmma::mem_row_major);
     }
   }
+#endif  // CUVS_NN_DESCENT_MIN_BLOCKS_4
   __syncthreads();
 
   calculate_metric(s_distances,
@@ -1071,6 +1149,74 @@ __launch_bounds__(BLOCK_SIZE)
     }
   }
 
+#if CUVS_NN_DESCENT_MIN_BLOCKS_4
+  // Two-phase path, phase 2: new x old, with its own pass over the features.
+  if (!list_old_size) return;
+
+  __syncthreads();
+
+  // Lists are usually much shorter than MAX_NUM_BI_SAMPLES, so a warp whose whole 16x16 block
+  // starts past either extent only produces cells calculate_metric discards
+  const bool warp_active_2 =
+    warp_id_y * WMMA_M < list_new_size && warp_id_x * WMMA_N < list_old_size;
+  if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
+    wmma::fill_fragment(c_frag, 0.0);
+    for (int step = 0; step < raft::ceildiv(data_dim, TILE_COL_WIDTH); step++) {
+      int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
+                             ? data_dim - step * TILE_COL_WIDTH
+                             : TILE_COL_WIDTH;
+      if (TILE_COL_WIDTH < data_dim) {
+#pragma unroll
+        for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
+          int idx = i * num_warps + warp_id;
+          if (idx < list_new_size) {
+            size_t neighbor_id = new_neighbors[idx];
+            size_t idx_in_data = neighbor_id * data_dim;
+            load_vec(s_nv[idx],
+                     data + idx_in_data + step * TILE_COL_WIDTH,
+                     num_load_elems,
+                     TILE_COL_WIDTH,
+                     lane_id);
+          }
+        }
+      }
+#pragma unroll
+      for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
+        int idx = i * num_warps + warp_id;
+        if (idx < list_old_size) {
+          size_t neighbor_id = old_neighbors[idx];
+          size_t idx_in_data = neighbor_id * data_dim;
+          load_vec(s_ov[idx],
+                   data + idx_in_data + step * TILE_COL_WIDTH,
+                   num_load_elems,
+                   TILE_COL_WIDTH,
+                   lane_id);
+        }
+      }
+      __syncthreads();
+
+      for (int i = 0; warp_active_2 && i < TILE_COL_WIDTH / WMMA_K; i++) {
+        wmma::load_matrix_sync(
+          a_frag, s_nv[warp_id_y * WMMA_M] + i * WMMA_K, TILE_COL_WIDTH + APAD);
+        wmma::load_matrix_sync(
+          b_frag, s_ov[warp_id_x * WMMA_N] + i * WMMA_K, TILE_COL_WIDTH + BPAD);
+        wmma::mma_sync(c_frag, a_frag, b_frag, c_frag);
+      }
+      __syncthreads();
+    }
+
+    if (warp_active_2) {
+      wmma::store_matrix_sync(
+        s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
+        c_frag,
+        SKEWED_MAX_NUM_BI_SAMPLES,
+        wmma::mem_row_major);
+    }
+    __syncthreads();
+  }
+
+#else
+  // Fused path: the new x old block is already in c_no.
   if (!has_old) return;
 
   __syncthreads();
@@ -1086,6 +1232,7 @@ __launch_bounds__(BLOCK_SIZE)
     __syncthreads();
   }
 
+#endif  // CUVS_NN_DESCENT_MIN_BLOCKS_4
   calculate_metric(s_distances,
                    new_neighbors,
                    list_new_size,
