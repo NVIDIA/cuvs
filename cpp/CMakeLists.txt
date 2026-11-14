@@ -1491,6 +1491,7 @@ if(NOT BUILD_CPU_ONLY)
     src/neighbors/ball_cover/detail/ball_cover/registers_pass_one.cu
     src/neighbors/ball_cover/detail/ball_cover/registers_pass_two.cu
     src/neighbors/brute_force.cu
+    src/neighbors/brute_force_filtered.cu
     src/neighbors/brute_force_serialize.cu
     src/neighbors/cagra.cpp
     ${cagra_build_inst_files}

@@ -373,7 +373,7 @@ auto build(raft::resources const& handle,
  *      where each bit indicates whether a specific dataset element should be considered for a
  *      particular query. (1 for inclusion, 0 for exclusion).
  *
- * - The default value is `none_sample_filter`, which applies no filtering.
+ * - Use the overload without `sample_filter` to search without filtering.
  */
 void search(raft::resources const& handle,
             const cuvs::neighbors::brute_force::search_params& params,
@@ -381,16 +381,40 @@ void search(raft::resources const& handle,
             raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+            const cuvs::neighbors::filtering::base_filter& sample_filter);
+
+/**
+ * @brief Search ANN using the constructed index, without filtering.
+ *
+ * Unlike the filtered overload, this does not depend on cuSPARSE.
+ *
+ * @param[in] handle
+ * @param[in] params parameters configuring the search
+ * @param[in] index brute-force constructed index
+ * @param[in] queries a device pointer to a row-major matrix [n_queries, index->dim()]
+ * @param[out] neighbors a device pointer to the indices of the neighbors in the source dataset
+ * [n_queries, k]
+ * @param[out] distances a device pointer to the distances to the selected neighbors [n_queries, k]
+ */
+void search(raft::resources const& handle,
+            const cuvs::neighbors::brute_force::search_params& params,
+            const cuvs::neighbors::brute_force::index<float, float>& index,
+            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances);
+
+[[deprecated]] void search(raft::resources const& handle,
+                           const cuvs::neighbors::brute_force::index<float, float>& index,
+                           raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
+                           raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+                           raft::device_matrix_view<float, int64_t, raft::row_major> distances);
 
 [[deprecated]] void search(raft::resources const& handle,
                            const cuvs::neighbors::brute_force::index<float, float>& index,
                            raft::device_matrix_view<const float, int64_t, raft::row_major> queries,
                            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
                            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-                           const cuvs::neighbors::filtering::base_filter& sample_filter =
-                             cuvs::neighbors::filtering::none_sample_filter{});
+                           const cuvs::neighbors::filtering::base_filter& sample_filter);
 
 /**
  * @brief Search ANN using the constructed index.
@@ -441,7 +465,7 @@ void search(raft::resources const& handle,
  *      where each bit indicates whether a specific dataset element should be considered for a
  *      particular query. (1 for inclusion, 0 for exclusion).
  *
- * - The default value is `none_sample_filter`, which applies no filtering.
+ * - Use the overload without `sample_filter` to search without filtering.
  */
 void search(raft::resources const& handle,
             const cuvs::neighbors::brute_force::search_params& params,
@@ -449,16 +473,40 @@ void search(raft::resources const& handle,
             raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+            const cuvs::neighbors::filtering::base_filter& sample_filter);
+
+/**
+ * @brief Search ANN using the constructed index, without filtering.
+ *
+ * Unlike the filtered overload, this does not depend on cuSPARSE.
+ *
+ * @param[in] handle
+ * @param[in] params parameters configuring the search
+ * @param[in] index brute-force constructed index
+ * @param[in] queries a device pointer to a row-major matrix [n_queries, index->dim()]
+ * @param[out] neighbors a device pointer to the indices of the neighbors in the source dataset
+ * [n_queries, k]
+ * @param[out] distances a device pointer to the distances to the selected neighbors [n_queries, k]
+ */
+void search(raft::resources const& handle,
+            const cuvs::neighbors::brute_force::search_params& params,
+            const cuvs::neighbors::brute_force::index<half, float>& index,
+            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances);
+
+[[deprecated]] void search(raft::resources const& handle,
+                           const cuvs::neighbors::brute_force::index<half, float>& index,
+                           raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
+                           raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+                           raft::device_matrix_view<float, int64_t, raft::row_major> distances);
 
 [[deprecated]] void search(raft::resources const& handle,
                            const cuvs::neighbors::brute_force::index<half, float>& index,
                            raft::device_matrix_view<const half, int64_t, raft::row_major> queries,
                            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
                            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-                           const cuvs::neighbors::filtering::base_filter& sample_filter =
-                             cuvs::neighbors::filtering::none_sample_filter{});
+                           const cuvs::neighbors::filtering::base_filter& sample_filter);
 /**
  * @brief Search ANN using the constructed index.
  *
@@ -480,14 +528,10 @@ void search(raft::resources const& handle,
  *   auto index = brute_force::build(handle, index_params, dataset);
  *   // use default search parameters
  *   brute_force::search_params search_params;
- *   // create a bitset to filter the search
- *   auto removed_indices = raft::make_device_vector<int64_t, int64_t>(res, n_removed_indices);
- *   raft::core::bitset<std::uint32_t, int64_t> removed_indices_bitset(
- *     res, removed_indices.view(), dataset.extent(0));
- *   // search K nearest neighbours according to a bitset
+ *   // search K nearest neighbours; col-major queries only accept none_sample_filter
  *   auto neighbors = raft::make_device_matrix<uint32_t>(res, n_queries, k);
  *   auto distances = raft::make_device_matrix<float>(res, n_queries, k);
- *   auto filter    = filtering::bitset_filter(removed_indices_bitset.view());
+ *   auto filter    = filtering::none_sample_filter{};
  *   brute_force::search(res, search_params, index, queries, neighbors, distances, filter);
  * @endcode
  *
@@ -498,17 +542,12 @@ void search(raft::resources const& handle,
  * @param[out] neighbors a device pointer to the indices of the neighbors in the source dataset
  * [n_queries, k]
  * @param[out] distances a device pointer to the distances to the selected neighbors [n_queries, k]
- * @param[in] sample_filter An optional device filter that restricts which dataset elements should
- * be considered for each query.
+ * @param[in] sample_filter a device filter that restricts which dataset elements should be
+ * considered for each query.
  *
- * - Supports two types of filters:
- *   1. **Bitset Filter**: A shared filter where each bit corresponds to a dataset element.
- *      All queries share the same filter, with a logical shape of `[1, index->size()]`.
- *   2. **Bitmap Filter**: A per-query filter with a logical shape of `[n_queries, index->size()]`,
- *      where each bit indicates whether a specific dataset element should be considered for a
- *      particular query. (1 for inclusion, 0 for exclusion).
- *
- * - The default value is `none_sample_filter`, which applies no filtering.
+ * - Filtering isn't supported for col-major queries yet; only `none_sample_filter` is accepted.
+ *   Use row-major queries for filtered search.
+ * - Use the overload without `sample_filter` to search without filtering.
  */
 void search(raft::resources const& handle,
             const cuvs::neighbors::brute_force::search_params& params,
@@ -516,16 +555,40 @@ void search(raft::resources const& handle,
             raft::device_matrix_view<const float, int64_t, raft::col_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+            const cuvs::neighbors::filtering::base_filter& sample_filter);
+
+/**
+ * @brief Search ANN using the constructed index, without filtering.
+ *
+ * Unlike the filtered overload, this does not depend on cuSPARSE.
+ *
+ * @param[in] handle
+ * @param[in] params parameters configuring the search
+ * @param[in] index brute-force constructed index
+ * @param[in] queries a device pointer to a col-major matrix [n_queries, index->dim()]
+ * @param[out] neighbors a device pointer to the indices of the neighbors in the source dataset
+ * [n_queries, k]
+ * @param[out] distances a device pointer to the distances to the selected neighbors [n_queries, k]
+ */
+void search(raft::resources const& handle,
+            const cuvs::neighbors::brute_force::search_params& params,
+            const cuvs::neighbors::brute_force::index<float, float>& index,
+            raft::device_matrix_view<const float, int64_t, raft::col_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances);
+
+[[deprecated]] void search(raft::resources const& handle,
+                           const cuvs::neighbors::brute_force::index<float, float>& index,
+                           raft::device_matrix_view<const float, int64_t, raft::col_major> queries,
+                           raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+                           raft::device_matrix_view<float, int64_t, raft::row_major> distances);
 
 [[deprecated]] void search(raft::resources const& handle,
                            const cuvs::neighbors::brute_force::index<float, float>& index,
                            raft::device_matrix_view<const float, int64_t, raft::col_major> queries,
                            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
                            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-                           const cuvs::neighbors::filtering::base_filter& sample_filter =
-                             cuvs::neighbors::filtering::none_sample_filter{});
+                           const cuvs::neighbors::filtering::base_filter& sample_filter);
 /**
  * @brief Search ANN using the constructed index.
  *
@@ -547,14 +610,10 @@ void search(raft::resources const& handle,
  *   auto index = brute_force::build(handle, index_params, dataset);
  *   // use default search parameters
  *   brute_force::search_params search_params;
- *   // create a bitset to filter the search
- *   auto removed_indices = raft::make_device_vector<int64_t, int64_t>(res, n_removed_indices);
- *   raft::core::bitset<std::uint32_t, int64_t> removed_indices_bitset(
- *     res, removed_indices.view(), dataset.extent(0));
- *   // search K nearest neighbours according to a bitset
+ *   // search K nearest neighbours; col-major queries only accept none_sample_filter
  *   auto neighbors = raft::make_device_matrix<uint32_t>(res, n_queries, k);
  *   auto distances = raft::make_device_matrix<half>(res, n_queries, k);
- *   auto filter    = filtering::bitset_filter(removed_indices_bitset.view());
+ *   auto filter    = filtering::none_sample_filter{};
  *   brute_force::search(res, search_params, index, queries, neighbors, distances, filter);
  * @endcode
  *
@@ -565,17 +624,12 @@ void search(raft::resources const& handle,
  * @param[out] neighbors a device pointer to the indices of the neighbors in the source dataset
  * [n_queries, k]
  * @param[out] distances a device pointer to the distances to the selected neighbors [n_queries, k]
- * @param[in] sample_filter An optional device filter that restricts which dataset elements should
- * be considered for each query.
+ * @param[in] sample_filter a device filter that restricts which dataset elements should be
+ * considered for each query.
  *
- * - Supports two types of filters:
- *   1. **Bitset Filter**: A shared filter where each bit corresponds to a dataset element.
- *      All queries share the same filter, with a logical shape of `[1, index->size()]`.
- *   2. **Bitmap Filter**: A per-query filter with a logical shape of `[n_queries, index->size()]`,
- *      where each bit indicates whether a specific dataset element should be considered for a
- *      particular query. (1 for inclusion, 0 for exclusion).
- *
- * - The default value is `none_sample_filter`, which applies no filtering.
+ * - Filtering isn't supported for col-major queries yet; only `none_sample_filter` is accepted.
+ *   Use row-major queries for filtered search.
+ * - Use the overload without `sample_filter` to search without filtering.
  */
 void search(raft::resources const& handle,
             const cuvs::neighbors::brute_force::search_params& params,
@@ -583,16 +637,40 @@ void search(raft::resources const& handle,
             raft::device_matrix_view<const half, int64_t, raft::col_major> queries,
             raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
             raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-            const cuvs::neighbors::filtering::base_filter& sample_filter =
-              cuvs::neighbors::filtering::none_sample_filter{});
+            const cuvs::neighbors::filtering::base_filter& sample_filter);
+
+/**
+ * @brief Search ANN using the constructed index, without filtering.
+ *
+ * Unlike the filtered overload, this does not depend on cuSPARSE.
+ *
+ * @param[in] handle
+ * @param[in] params parameters configuring the search
+ * @param[in] index brute-force constructed index
+ * @param[in] queries a device pointer to a col-major matrix [n_queries, index->dim()]
+ * @param[out] neighbors a device pointer to the indices of the neighbors in the source dataset
+ * [n_queries, k]
+ * @param[out] distances a device pointer to the distances to the selected neighbors [n_queries, k]
+ */
+void search(raft::resources const& handle,
+            const cuvs::neighbors::brute_force::search_params& params,
+            const cuvs::neighbors::brute_force::index<half, float>& index,
+            raft::device_matrix_view<const half, int64_t, raft::col_major> queries,
+            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+            raft::device_matrix_view<float, int64_t, raft::row_major> distances);
+
+[[deprecated]] void search(raft::resources const& handle,
+                           const cuvs::neighbors::brute_force::index<half, float>& index,
+                           raft::device_matrix_view<const half, int64_t, raft::col_major> queries,
+                           raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
+                           raft::device_matrix_view<float, int64_t, raft::row_major> distances);
 
 [[deprecated]] void search(raft::resources const& handle,
                            const cuvs::neighbors::brute_force::index<half, float>& index,
                            raft::device_matrix_view<const half, int64_t, raft::col_major> queries,
                            raft::device_matrix_view<int64_t, int64_t, raft::row_major> neighbors,
                            raft::device_matrix_view<float, int64_t, raft::row_major> distances,
-                           const cuvs::neighbors::filtering::base_filter& sample_filter =
-                             cuvs::neighbors::filtering::none_sample_filter{});
+                           const cuvs::neighbors::filtering::base_filter& sample_filter);
 /**
  * @}
  */

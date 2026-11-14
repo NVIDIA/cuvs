@@ -74,8 +74,7 @@ void _search(cuvsResources_t res,
                                          *index_ptr,
                                          queries_mds,
                                          neighbors_mds,
-                                         distances_mds,
-                                         cuvs::neighbors::filtering::none_sample_filter{});
+                                         distances_mds);
   } else if (prefilter.type == BITMAP) {
     using prefilter_bmp_type = cuvs::core::bitmap_view<uint32_t, int64_t>;
     auto prefilter_ptr       = reinterpret_cast<DLManagedTensor*>(prefilter.addr);
