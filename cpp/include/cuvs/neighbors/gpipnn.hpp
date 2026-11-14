@@ -1,0 +1,250 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#pragma once
+
+#include <cuvs/core/cuda_fp16.hpp>
+#include <cuvs/core/export.hpp>
+#include <cuvs/distance/distance.hpp>
+#include <cuvs/neighbors/common.hpp>
+
+#include <raft/core/device_mdspan.hpp>
+#include <raft/core/resources.hpp>
+
+#include <cstdint>
+
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace experimental {
+namespace gpipnn {
+
+/**
+ * @defgroup gpipnn_cpp_index_params GPiPNN graph build parameters
+ * @{
+ */
+
+/**
+ * @brief Largest `index_params::max_candidates` the builder accepts.
+ *
+ * DirectEdgePrune and HashPrune stage a full reservoir row in shared memory at the default
+ * 48 KiB dynamic limit, which is what sets the ceiling.
+ */
+inline constexpr uint32_t kMaxCandidates = 1024;
+
+/**
+ * @brief Parameters for the GPiPNN proximity graph builder.
+ *
+ * GPiPNN builds a navigable proximity graph without performing any graph search during
+ * construction. It partitions the dataset into small overlapping leaves via flattened
+ * randomized ball carving, computes a bi-directed 2-NN graph inside each leaf, streams the
+ * resulting candidate edges into a bounded per-point reservoir (HashPrune), and sparsifies
+ * the resulting reservoirs with DirectEdgePrune.
+ *
+ * This is a prototype: scoring runs in fp16 with fp32 accumulation, and a single partition round
+ * is performed (no replication). It ships under `cuvs::neighbors::experimental` for its first
+ * release, so the parameter set and the entry points may change.
+ *
+ * Metrics supported:
+ * - L2Expanded
+ * - CosineExpanded (note: the parameter defaults are tuned for L2Expanded and may not be optimal
+ * here)
+ *
+ * Requires a GPU of compute capability 8.0 (Ampere) or newer.
+ */
+struct index_params : cuvs::neighbors::index_params {
+  /** Degree of the output graph. */
+  uint32_t graph_degree = 64;
+  /**
+   * Capacity of the per-point HashPrune reservoir. Must be at least `graph_degree` and at most
+   * `kMaxCandidates`, which is 1024.
+   *
+   * Setting this equal to `graph_degree` disables DirectEdgePrune. The default of 128 is twice
+   * the default `graph_degree`, which is an empirically good value. It is not derived from
+   * `graph_degree`, so it should be updated when `graph_degree` changes.
+   */
+  uint32_t max_candidates = 128;
+  /**
+   * Neighbours kept per member of each leaf self-join. At most 32.
+   *
+   * This is what bounds the candidate supply, and therefore whether the reservoir has more
+   * members than the output has slots. Peak memory during the leaf phase is linear in it.
+   *
+   * The paper uses 2; 4 gives a better recall-for-build-time trade.
+   */
+  uint32_t leaf_degree = 4;
+  /**
+   * Number of LSH hyperplanes used for HashPrune residual hashing. At most 16.
+   *
+   * More bits mean finer direction buckets and therefore less pruning. The paper uses 12; recall
+   * is still rising at 14 for a minimal build-time cost.
+   */
+  uint32_t hash_bits = 14;
+  /** Target maximum leaf size. Leaves are guaranteed not to exceed this. */
+  uint32_t max_leaf_size = 1024;
+  /**
+   * Leaves smaller than this are merged with adjacent leaves from the same top-level bucket.
+   * A merge never crosses between buckets, so the last leaf of a bucket may stay below it.
+   */
+  uint32_t min_leaf_size = 64;
+  /** Fraction of a subproblem sampled as leaders, capped by `max_leaders`. */
+  float leader_fraction = 0.02f;
+  /** Hard cap on the number of leaders sampled per subproblem. */
+  uint32_t max_leaders = 1000;
+  /** Number of nearest leaders each point is assigned to at the top level. At most 32. */
+  uint32_t fanout_level0 = 8;
+  /** Number of nearest sub-leaders each point is assigned to at the second level. At most 32. */
+  uint32_t fanout_level1 = 4;
+  /** Maximum number of levels of the partition tree (assign-then-sort rounds). */
+  uint32_t max_rounds = 4;
+  /** Alpha parameter of the DirectEdgePrune occlusion rule. Larger retains more edges.
+   * Pruning starts at 1.0 and increases in steps of `kAlphaRampStep=1.2` until this is reached.
+   */
+  float alpha = 1.2f;
+  /**
+   * Device memory, in MiB, the candidate buffer can occupy. This dictates how many leaves
+   * are processed per batch. Affects only peak memory and build time, not graph quality.
+   * 0 selects an automatic budget of 256 bytes per row, clamped to 512 MiB-6 GiB.
+   */
+  uint32_t leaf_batch_mib = 0;
+  /**
+   * Largest absolute value the dataset contains, or 0 to measure it.
+   *
+   * Read only for `float` input under L2: `int8` and `uint8` are bounded by 255, `half` is
+   * representable by definition, and cosine normalizes each row to unit norm instead.
+   *
+   * Scoring runs on half operands, so a float dataset peaking outside the range half holds
+   * usefully is first rescaled by one shared power of two, which leaves the neighbour ordering
+   * unchanged. Measuring the peak is one streaming pass over the dataset, a fraction of a percent
+   * of the build, so speed is rarely the reason to set this. Splitting a build across partitions
+   * is: the rescale preserves ordering only because a single factor applies to the whole dataset,
+   * so every partition has to be given the same value rather than deriving one from its own shard.
+   *
+   * A value below the true peak is rejected rather than tolerated -- the conversion would turn
+   * the elements above half's range into infinities and every distance touching them into a NaN.
+   * Overestimating is safe and costs some precision, since the factor places the stated peak just
+   * below the top of the range.
+   */
+  float dataset_max_abs = 0.0f;
+  /** Seed for leader sampling and LSH hyperplane generation. */
+  uint64_t seed = 137ULL;
+};
+
+static_assert(std::is_aggregate_v<index_params>);
+
+/**
+ * @}
+ */
+
+/**
+ * @defgroup gpipnn_cpp_build GPiPNN graph build
+ * @{
+ */
+
+/**
+ * @brief Whether this build of the library can run GPiPNN on the current device.
+ *
+ * False when the device predates compute capability 8.0, and also when the device is new enough
+ * but libcuvs was compiled without an sm_80-or-newer image for the leaf join kernel.
+ */
+auto is_supported() -> bool;
+
+/**
+ * @brief Build a GPiPNN proximity graph over `dataset`.
+ *
+ * The output graph is a fully populated `[n_rows, graph_degree]` adjacency matrix. Wrap it with
+ * `raft::make_const_mdspan` and hand it to a CAGRA index to search it.
+ *
+ * Usage example:
+ * @code{.cpp}
+ *   namespace gpipnn = cuvs::neighbors::experimental::gpipnn;
+ *
+ *   gpipnn::index_params params;
+ *   auto graph = raft::make_device_matrix<uint32_t, int64_t>(res, n_rows, params.graph_degree);
+ *   gpipnn::build_graph(res, params, dataset, graph.view());
+ *
+ *   namespace cagra = cuvs::neighbors::cagra;
+ *   cagra::index<float, uint32_t> index(res,
+ *                                      cuvs::distance::DistanceType::L2Expanded,
+ *                                      dataset,
+ *                                      raft::make_const_mdspan(graph.view()));
+ * @endcode
+ *
+ * @param[in] res raft resources
+ * @param[in] params build parameters
+ * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
+ * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
+ */
+void build_graph(raft::resources const& res,
+                 const index_params& params,
+                 raft::device_matrix_view<const float, int64_t, raft::row_major> dataset,
+                 raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
+
+/**
+ * @brief Build a GPiPNN proximity graph over a half `dataset`.
+ *
+ * Used directly as the scoring operand, so this overload avoids the fp16 conversion copy.
+ *
+ * @param[in] res raft resources
+ * @param[in] params build parameters
+ * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
+ * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
+ */
+void build_graph(raft::resources const& res,
+                 const index_params& params,
+                 raft::device_matrix_view<const half, int64_t, raft::row_major> dataset,
+                 raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
+
+/**
+ * @brief Build a GPiPNN proximity graph over an int8 `dataset`.
+ *
+ * Converted to fp16 for scoring, exactly: half represents every integer up to 2048.
+ *
+ * @param[in] res raft resources
+ * @param[in] params build parameters
+ * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
+ * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
+ */
+void build_graph(raft::resources const& res,
+                 const index_params& params,
+                 raft::device_matrix_view<const int8_t, int64_t, raft::row_major> dataset,
+                 raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
+
+/**
+ * @brief Build a GPiPNN proximity graph over a uint8 `dataset`.
+ *
+ * Converted to fp16 for scoring, exactly, same as the int8 overload.
+ *
+ * @param[in] res raft resources
+ * @param[in] params build parameters
+ * @param[in] dataset row-major device matrix [n_rows, dim]; `dim` must be even
+ * @param[out] graph row-major device matrix [n_rows, params.graph_degree]
+ */
+void build_graph(raft::resources const& res,
+                 const index_params& params,
+                 raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> dataset,
+                 raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph);
+
+/**
+ * @}
+ */
+
+}  // namespace gpipnn
+}  // namespace experimental
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs
+namespace CUVS_EXPORT cuvs {
+namespace neighbors {
+namespace graph_build_params {
+// Named here, beside CAGRA's other graph-build parameter types, which are not in `experimental`.
+/**
+ * @brief Parameters for a standalone GPiPNN build, spelled without the `experimental` namespace.
+ * Despite the enclosing namespace, CAGRA does not accept this type: it is absent from
+ * `cagra::graph_build_params_t`, so a GPiPNN graph is built on its own via
+ * `experimental::gpipnn::build_graph` and handed to a CAGRA index as a prebuilt graph.
+ */
+using gpipnn_params = cuvs::neighbors::experimental::gpipnn::index_params;
+}  // namespace graph_build_params
+}  // namespace neighbors
+}  // namespace CUVS_EXPORT cuvs
