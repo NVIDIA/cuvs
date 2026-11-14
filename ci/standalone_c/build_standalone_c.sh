@@ -23,7 +23,7 @@ source rapids-install-sccache
 source rapids-configure-sccache
 
 PIP_PACKAGES=(
-  'cmake>=4.0'
+  'cmake>=4.0,<4.5'
   'git+https://github.com/rapidsai/spdx-license-builder.git'
   'ninja>=1.13'
 )
