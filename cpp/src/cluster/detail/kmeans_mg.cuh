@@ -117,6 +117,7 @@ void mnmg_fit(
   raft::host_scalar_view<DataT> inertia,
   raft::host_scalar_view<IndexT> n_iter)
 {
+  RAFT_EXPECTS(!params.emeans.has_value(), "e-means currently supports single-GPU training only");
   using data_part_view_t =
     raft::mdspan<const DataT, raft::matrix_extent<IndexT>, raft::row_major, Accessor>;
   constexpr bool data_on_device = raft::is_device_mdspan_v<data_part_view_t>;
@@ -757,6 +758,7 @@ void batched_fit_omp(const raft::resources& clique,
                      raft::host_scalar_view<DataT> inertia,
                      raft::host_scalar_view<IndexT> n_iter)
 {
+  RAFT_EXPECTS(!params.emeans.has_value(), "e-means currently supports single-GPU training only");
   RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded ||
                  params.metric == cuvs::distance::DistanceType::L2SqrtExpanded,
                "kmeans only supports L2Expanded or L2SqrtExpanded distance metrics.");
