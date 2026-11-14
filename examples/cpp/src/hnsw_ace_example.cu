@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -47,12 +47,11 @@ void hnsw_build_search_ace(raft::device_resources const& dev_resources,
   // sizeof(T). 2 is because of the core and augmented vectors. Please account for imbalance in the
   // partition sizes (up to 3x in our tests).
   ace_params.npartitions = 4;
-  // Set the directory to store the ACE build artifacts. This should be the fastest disk in the
-  // system and hold enough space for twice the dataset, final graph, and label mapping.
-  ace_params.build_dir = "/tmp/hnsw_ace_build";
-  // Set whether to use disk-based storage for ACE build. When true, enables disk-based operations
-  // for memory-efficient graph construction. If not set, the index will be built in memory if the
-  // graph fits in host and GPU memory, and on disk otherwise.
+  // Directory for the final HNSW index and private partition staging. Use fast disk with room
+  // for the index plus the staging high-water mark. ACE writes hnsw_index.bin here and does not
+  // write a full CAGRA graph or dataset mapping. Failed builds remove the private staging
+  // directory and do not leave hnsw_index.bin.
+  ace_params.build_dir           = "/tmp/hnsw_ace_build";
   ace_params.use_disk            = true;
   hnsw_params.graph_build_params = ace_params;
   // Set M parameter to control the graph degree (graph_degree = m * 2, intermediate_graph_degree =
