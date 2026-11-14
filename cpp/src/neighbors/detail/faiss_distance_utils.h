@@ -1,6 +1,6 @@
 /*
  * SPDX-FileCopyrightText: Copyright (c) Facebook, Inc. and its affiliates.
- * SPDX-FileCopyrightText: Copyright (c) 2024-2025, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0 AND MIT
  */
 
@@ -42,6 +42,9 @@ inline void chooseTileSize(size_t numQueries,
   size_t targetUsage = 512 * 1024 * 1024;
   if (tileRows * numCentroids * elementSize * 2 <= targetUsage) {
     tileCols = numCentroids;
+    // The whole index fits in one column tile, so spend the rest of the target on query rows.
+    tileRows =
+      std::min(targetUsage / (2 * elementSize * std::max<size_t>(numCentroids, 1)), numQueries);
   } else {
     // only query total memory in case it potentially impacts tilesize
     size_t totalMem = rmm::available_device_memory().second;
