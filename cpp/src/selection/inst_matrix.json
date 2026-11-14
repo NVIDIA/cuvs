@@ -1,0 +1,9 @@
+{
+  "inst_matrix": [
+    {
+      "matrix": "select_k_matrix.json",
+      "input": "select_k_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/selection/select_k_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    }
+  ]
+}
