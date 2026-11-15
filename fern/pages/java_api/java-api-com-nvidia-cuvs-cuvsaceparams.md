@@ -17,7 +17,7 @@ partitions using balanced k-means.
 2. Building sub-indexes for each partition independently
 3. Concatenating sub-graphs into a final unified index
 
-## Public Members
+## Public and Protected Members
 
 ### getNpartitions
 

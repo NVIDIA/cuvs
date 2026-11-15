@@ -15,6 +15,7 @@
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/matrix/init.cuh>
+#include <raft/util/integer_utils.hpp>
 
 #include <gtest/gtest.h>
 
@@ -22,17 +23,15 @@
 #include <optional>
 #include <random>
 #include <sstream>
+#include <type_traits>
+#include <utility>
+#include <variant>
 #include <vector>
 
 namespace cuvs::neighbors::ivf_binary {
 namespace {
 
 namespace binary = cuvs::preprocessing::quantize::binary;
-
-auto zero_threshold() -> binary_dictionary_view<float>
-{
-  return {raft::make_device_vector_view<const float, int64_t>(nullptr, 0)};
-}
 
 template <typename T>
 auto to_device(raft::resources const& handle,
@@ -59,7 +58,9 @@ auto to_host(raft::resources const& handle, const T* device, size_t n)
 auto zero_threshold_dataset(const raft::device_matrix<uint8_t, int64_t>& codes)
   -> device_binary_dataset_view<float, int64_t>
 {
-  return {raft::make_const_mdspan(codes.view()), zero_threshold(), uint32_t(codes.extent(1) * 8)};
+  // The zero threshold is implied by the dimension alone
+  return {raft::make_const_mdspan(codes.view()),
+          binary::quantizer_view<const float>{uint32_t(codes.extent(1) * 8)}};
 }
 
 auto hamming(const uint8_t* a, const uint8_t* b, int64_t n_bytes) -> float
@@ -109,8 +110,9 @@ TEST(IvfBinary, ExhaustiveSearchMatchesBruteForce)
       auto codes       = raft::make_device_matrix<uint8_t, int64_t>(handle, n_rows, n_bytes);
       auto query_codes = raft::make_device_matrix<uint8_t, int64_t>(handle, n_queries, n_bytes);
       binary::transform(handle, quantizer, raft::make_const_mdspan(data_dev.view()), codes.view());
-      auto dataset = make_device_binary_dataset_view<int64_t>(
-        raft::make_const_mdspan(codes.view()), quantizer, dim);
+      ASSERT_EQ(quantizer.dim(), dim);
+      const device_binary_dataset_view<float, int64_t> dataset{
+        raft::make_const_mdspan(codes.view()), quantizer.view()};
 
       auto params = small_params(16);
       auto idx    = build(handle, params, dataset);
@@ -199,7 +201,7 @@ TEST(IvfBinary, SerializationRoundTrip)
   auto codes       = to_device(handle, data, n_rows, n_bytes);
   auto query_codes = to_device(handle, queries, n_queries, n_bytes);
   const device_binary_dataset_view<float, int64_t> dataset{
-    raft::make_const_mdspan(codes.view()), zero_threshold(), dim};
+    raft::make_const_mdspan(codes.view()), binary::quantizer_view<const float>{dim}};
   auto encoded_queries = raft::make_const_mdspan(query_codes.view());
 
   auto params             = small_params(8);
@@ -309,13 +311,14 @@ TEST(IvfBinary, RejectsMismatchedInputs)
   auto dist = raft::make_device_matrix<float, int64_t>(handle, 1, 1);
 
   // The row length of the codes must match the dimension
-  EXPECT_THROW((device_binary_dataset_view<float, int64_t>{
-                 raft::make_const_mdspan(data.view()), zero_threshold(), 17}),
-               raft::logic_error);
+  const device_binary_dataset_view<float, int64_t> bad_row_length{
+    raft::make_const_mdspan(data.view()), binary::quantizer_view<const float>{17}};
+  EXPECT_THROW(build(handle, small_params(1), bad_row_length), raft::logic_error);
+  EXPECT_THROW(extend(handle, bad_row_length, std::nullopt, &idx), raft::logic_error);
 
   // Reject a different logical dimension, even when the encoded byte width matches.
   const device_binary_dataset_view<float, int64_t> other_dim{
-    raft::make_const_mdspan(data.view()), zero_threshold(), 7};
+    raft::make_const_mdspan(data.view()), binary::quantizer_view<const float>{7}};
   EXPECT_THROW(extend(handle, other_dim, std::nullopt, &idx), raft::logic_error);
 
   // Query width is measured in packed bytes.
@@ -337,8 +340,7 @@ TEST(IvfBinary, ExtendAcceptsDifferentThresholds)
   raft::matrix::fill(handle, build_threshold.view(), 0.0f);
   const device_binary_dataset_view<float, int64_t> dataset{
     raft::make_const_mdspan(data.view()),
-    binary_dictionary_view<float>{raft::make_const_mdspan(build_threshold.view())},
-    8};
+    binary::quantizer_view<const float>{raft::make_const_mdspan(build_threshold.view())}};
   auto params             = small_params(1);
   params.adaptive_centers = true;
   auto idx                = build(handle, params, dataset);
@@ -348,8 +350,7 @@ TEST(IvfBinary, ExtendAcceptsDifferentThresholds)
   raft::matrix::fill(handle, new_threshold.view(), 1.0f);
   const device_binary_dataset_view<float, int64_t> new_vectors{
     raft::make_const_mdspan(more.view()),
-    binary_dictionary_view<float>{raft::make_const_mdspan(new_threshold.view())},
-    8};
+    binary::quantizer_view<const float>{raft::make_const_mdspan(new_threshold.view())}};
   auto new_ids = to_device(handle, std::vector<int64_t>{2}, 1, 1);
   extend(handle,
          new_vectors,
@@ -360,7 +361,8 @@ TEST(IvfBinary, ExtendAcceptsDifferentThresholds)
   EXPECT_EQ(to_host(handle, idx.center_counts().data_handle(), 8),
             (std::vector<uint32_t>{2, 1, 0, 0, 1, 1, 1, 1}));
   // Extending does not replace the quantizer metadata captured at build time.
-  EXPECT_EQ(to_host(handle, idx.quantizer().threshold.data_handle(), 8),
+  ASSERT_EQ(idx.quantizer().dim(), 8);
+  EXPECT_EQ(to_host(handle, std::get<1>(idx.quantizer().value).data_handle(), 8),
             std::vector<float>(8, 0.0f));
 
   auto ids       = raft::make_device_matrix<int64_t, int64_t>(handle, 1, 3);
@@ -436,6 +438,58 @@ TEST(IvfBinary, SearchHonorsSampleFilter)
     ASSERT_EQ(distances[j], expected[j]);
   }
 }
+
+TEST(IvfBinary, OwningDatasetViews)
+{
+  raft::resources handle;
+  constexpr int64_t n_rows  = 64;
+  constexpr uint32_t dim    = 100;
+  constexpr int64_t n_bytes = raft::div_rounding_up_safe<uint32_t>(dim, 8);
+  using dataset_type        = device_binary_dataset<float, int64_t>;
+
+  auto codes = to_device(handle, std::vector<uint8_t>(n_rows * n_bytes, 0x5a), n_rows, n_bytes);
+  // The zero threshold is the dimension alone
+  dataset_type dataset{std::move(codes), dataset_type::manifest_type{dim}};
+  const auto& const_dataset = dataset;
+
+  // The dimension is the number of bits, not the padded byte width
+  ASSERT_EQ(const_dataset.n_rows(), n_rows);
+  ASSERT_EQ(const_dataset.dim(), dim);
+  ASSERT_EQ(const_dataset.data_const_view().extent(1), n_bytes);
+
+  // A mutable view decays to the read-only one the API takes
+  device_binary_dataset_view<float, int64_t> view = dataset.view();
+  ASSERT_EQ(view.n_rows(), n_rows);
+  ASSERT_EQ(view.dim(), dim);
+  ASSERT_TRUE(std::holds_alternative<uint32_t>(view.const_manifest_view().value));
+
+  auto idx = build(handle, small_params(4), const_dataset.view());
+  ASSERT_EQ(idx.dim(), dim);
+  ASSERT_EQ(idx.size(), n_rows);
+
+  // With the thresholds, the dimension is their number
+  dataset_type with_threshold{
+    to_device(handle, std::vector<uint8_t>(n_rows * n_bytes, 0x5a), n_rows, n_bytes),
+    dataset_type::manifest_type{raft::make_device_vector<float, int64_t>(handle, dim)}};
+  ASSERT_EQ(with_threshold.dim(), dim);
+  auto idx_with_threshold = build(handle, small_params(4), with_threshold.view());
+  ASSERT_EQ(idx_with_threshold.dim(), dim);
+  ASSERT_NE(std::get_if<1>(&idx_with_threshold.quantizer().value), nullptr);
+}
+
+// The views have the constness semantics of an mdspan
+static_assert(
+  std::is_convertible_v<binary::quantizer_view<float>, binary::quantizer_view<const float>>);
+static_assert(
+  !std::is_convertible_v<binary::quantizer_view<const float>, binary::quantizer_view<float>>);
+static_assert(std::is_same_v<decltype(std::declval<const device_binary_dataset<float, int64_t>&>()
+                                        .view()
+                                        .const_manifest_view()),
+                             binary::quantizer_view<const float>>);
+static_assert(
+  std::is_same_v<
+    decltype(std::declval<device_binary_dataset<float, int64_t>&>().view().manifest_view()),
+    binary::quantizer_view<float>>);
 
 }  // namespace
 }  // namespace cuvs::neighbors::ivf_binary

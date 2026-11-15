@@ -15,6 +15,9 @@ First build `cuvs-lucene` and install it into your local Maven repository, as de
 ./build.sh libcuvs java lucene
 ```
 
+The examples use Lucene 10.2 and the matching `cuvs-lucene-10.2` artifact, set by the `lucene.version` and
+`cuvs.lucene.artifactId` properties in `pom.xml`.
+
 Then return to this directory:
 
 ```sh

@@ -32,7 +32,7 @@ jobs:
       id-token: write
       packages: read
       pull-requests: read
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-post-build-checks.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-post-build-checks.yaml@release/26.12
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
@@ -48,7 +48,7 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/conda-cpp-tests.yaml@release/26.12
     # Split the C++ tests across several jobs for each CUDA/GPU configuration
     strategy:
       fail-fast: false
@@ -92,6 +92,7 @@ jobs:
       cache-read-only: ${{ inputs.branch != 'main' }}
       cache-environment: |
         CUDA_CACHE_PATH=.cache/cuda-jit
+      matrix_type: nightly
   conda-python-tests:
     permissions:
       actions: read
@@ -100,13 +101,14 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/conda-python-tests.yaml@release/26.12
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       script: ci/test_python.sh
       sha: ${{ inputs.sha }}
+      matrix_type: nightly
   conda-java-tests:
     permissions:
       actions: read
@@ -121,6 +123,7 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: "ci/test_java.sh"
+      matrix_type: nightly
   conda-lucene-tests:
     permissions:
       actions: read
@@ -135,6 +138,7 @@ jobs:
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: "ci/test_lucene.sh"
+      matrix_type: nightly
   wheel-tests-cuvs:
     permissions:
       actions: read
@@ -143,10 +147,11 @@ jobs:
       packages: read
       pull-requests: read
     secrets: inherit # zizmor: ignore[secrets-inherit]
-    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@main
+    uses: rapidsai/shared-workflows/.github/workflows/wheels-test.yaml@release/26.12
     with:
       build_type: ${{ inputs.build_type }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
       sha: ${{ inputs.sha }}
       script: ci/test_wheel_cuvs.sh
+      matrix_type: nightly
