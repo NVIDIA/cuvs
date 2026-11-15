@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -67,6 +67,11 @@ void pairwise_matrix_dispatch(OpT distance_op,
   instantiate_cuvs_distance_detail_pairwise_matrix_dispatch(                                 \
     OpT, half, float, float, FinOpT<float>, IdxT);
 
+#define instantiate_cuvs_distance_detail_pairwise_matrix_dispatch_by_algo_bitwise_hamming(OpT,  \
+                                                                                          IdxT) \
+  instantiate_cuvs_distance_detail_pairwise_matrix_dispatch(                                    \
+    OpT, uint8_t, uint32_t, uint32_t, raft::identity_op, IdxT);
+
 /*
  * Hierarchy of instantiations:
  *
@@ -112,5 +117,9 @@ instantiate_cuvs_distance_detail_pairwise_matrix_dispatch_by_algo(
 instantiate_cuvs_distance_detail_pairwise_matrix_dispatch_by_algo_default(
   cuvs::distance::detail::ops::l2_exp_distance_op, int64_t);
 
+instantiate_cuvs_distance_detail_pairwise_matrix_dispatch_by_algo_bitwise_hamming(
+  cuvs::distance::detail::ops::bitwise_hamming_distance_op, int64_t);
+
+#undef instantiate_cuvs_distance_detail_pairwise_matrix_dispatch_by_algo_bitwise_hamming
 #undef instantiate_cuvs_distance_detail_pairwise_matrix_dispatch_by_algo
 #undef instantiate_cuvs_distance_detail_pairwise_matrix_dispatch

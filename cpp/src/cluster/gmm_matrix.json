@@ -1,0 +1,12 @@
+{
+  "_data": [
+    {
+      "data_type": "float",
+      "data_abbrev": "f"
+    },
+    {
+      "data_type": "double",
+      "data_abbrev": "d"
+    }
+  ]
+}

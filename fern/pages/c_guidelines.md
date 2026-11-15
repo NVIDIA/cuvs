@@ -189,7 +189,7 @@ Use `#include <cuvs/...>` for public NVIDIA cuVS C headers. Keep public C header
 
 ### Copyright
 
-RAPIDS pre-commit hooks check copyright headers on modified tracked files. To run that check manually:
+Pre-commit hooks check copyright headers on modified tracked files. To run that check manually:
 
 ```bash
 pre-commit run -a verify-copyright

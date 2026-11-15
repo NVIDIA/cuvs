@@ -16,6 +16,11 @@ import java.util.HashSet;
 import java.util.Random;
 import java.util.Set;
 import java.util.stream.IntStream;
+import org.apache.lucene.codecs.KnnVectorsReader;
+import org.apache.lucene.codecs.hnsw.HnswGraphProvider;
+import org.apache.lucene.codecs.perfield.PerFieldKnnVectorsFormat;
+import org.apache.lucene.index.CodecReader;
+import org.apache.lucene.index.FilterLeafReader;
 import org.apache.lucene.index.FloatVectorValues;
 import org.apache.lucene.index.LeafReader;
 import org.apache.lucene.index.StoredFields;
@@ -23,8 +28,23 @@ import org.apache.lucene.index.VectorSimilarityFunction;
 import org.apache.lucene.search.IndexSearcher;
 import org.apache.lucene.search.KnnFloatVectorQuery;
 import org.apache.lucene.search.TopDocs;
+import org.apache.lucene.util.hnsw.HnswGraph;
 
 public class TestUtils {
+
+  /** Returns the vectors reader of the format that wrote {@code field} in {@code leaf}. */
+  static KnnVectorsReader vectorsReader(LeafReader leaf, String field) {
+    KnnVectorsReader reader = ((CodecReader) FilterLeafReader.unwrap(leaf)).getVectorReader();
+    if (reader instanceof PerFieldKnnVectorsFormat.FieldsReader fieldsReader) {
+      reader = fieldsReader.getFieldReader(field);
+    }
+    return reader;
+  }
+
+  /** Returns the HNSW graph of {@code field} in {@code leaf}, which an HNSW format wrote. */
+  static HnswGraph graphOf(LeafReader leaf, String field) throws IOException {
+    return ((HnswGraphProvider) vectorsReader(leaf, field)).getGraph(field);
+  }
 
   /**
    * Asserts that every vector in {@code field} is still paired with the document that indexed it,
@@ -90,6 +110,38 @@ public class TestUtils {
       int topK,
       int allowedMisses)
       throws IOException {
+    assertSearchFindsNearestNeighbors(
+        searcher, vectorField, idField, dataset, null, queries, topK, allowedMisses);
+  }
+
+  /**
+   * Like {@link #assertSearchFindsNearestNeighbors(IndexSearcher, String, String, float[][],
+   * float[][], int, int)}, for an index where only some rows of {@code dataset} were indexed with a
+   * vector: {@code indexed[i]} says whether row {@code i} was, and {@code null} means all of them.
+   * The closest vectors are ranked among the indexed rows only, since the others can never be
+   * returned.
+   *
+   * <p>Besides the approximate check, every query must return {@code min(topK, indexed rows)}
+   * distinct indexed documents in order of decreasing score, each scored by its own vector.
+   */
+  public static void assertSearchFindsNearestNeighbors(
+      IndexSearcher searcher,
+      String vectorField,
+      String idField,
+      float[][] dataset,
+      boolean[] indexed,
+      float[][] queries,
+      int topK,
+      int allowedMisses)
+      throws IOException {
+    int indexedCount = dataset.length;
+    if (indexed != null) {
+      indexedCount = 0;
+      for (boolean isIndexed : indexed) {
+        if (isIndexed) indexedCount++;
+      }
+    }
+    int expectedResults = Math.min(topK, indexedCount);
     int acceptableRank = topK * 3;
     int misses = 0;
     StringBuilder found = new StringBuilder();
@@ -97,13 +149,23 @@ public class TestUtils {
     for (int q = 0; q < queries.length; q++) {
       KnnFloatVectorQuery query = new KnnFloatVectorQuery(vectorField, queries[q], topK);
       TopDocs results = searcher.search(query, topK);
-      assertEquals("results for query " + q, topK, results.scoreDocs.length);
+      assertEquals("results for query " + q, expectedResults, results.scoreDocs.length);
 
-      int[] ranks = distanceRanks(dataset, queries[q]);
-      int[] ids = new int[topK];
-      int[] resultRanks = new int[topK];
-      for (int i = 0; i < topK; i++) {
+      int[] ranks = distanceRanks(dataset, indexed, queries[q]);
+      int[] ids = new int[expectedResults];
+      int[] resultRanks = new int[expectedResults];
+      Set<Integer> seen = new HashSet<>();
+      for (int i = 0; i < expectedResults; i++) {
         ids[i] = Integer.parseInt(storedFields.document(results.scoreDocs[i].doc).get(idField));
+        assertTrue(
+            "id " + ids[i] + " for query " + q + " has no vector",
+            indexed == null || indexed[ids[i]]);
+        assertTrue("id " + ids[i] + " returned twice for query " + q, seen.add(ids[i]));
+        if (i > 0) {
+          assertTrue(
+              "results for query " + q + " are not sorted by score at position " + i,
+              results.scoreDocs[i].score <= results.scoreDocs[i - 1].score);
+        }
         float expectedScore =
             VectorSimilarityFunction.EUCLIDEAN.compare(queries[q], dataset[ids[i]]);
         assertEquals(
@@ -142,6 +204,14 @@ public class TestUtils {
    * @return the 1-based rank of each vector, indexed like {@code dataset}
    */
   public static int[] distanceRanks(float[][] dataset, float[] query) {
+    return distanceRanks(dataset, null, query);
+  }
+
+  /**
+   * Like {@link #distanceRanks(float[][], float[])}, ranking only the rows where {@code indexed} is
+   * true ({@code null} means all rows). The other rows get rank {@link Integer#MAX_VALUE}.
+   */
+  public static int[] distanceRanks(float[][] dataset, boolean[] indexed, float[] query) {
     double[] distances = new double[dataset.length];
     for (int i = 0; i < dataset.length; i++) {
       for (int j = 0; j < query.length; j++) {
@@ -151,11 +221,13 @@ public class TestUtils {
     }
     int[] byDistance =
         IntStream.range(0, dataset.length)
+            .filter(i -> indexed == null || indexed[i])
             .boxed()
             .sorted(Comparator.comparingDouble(i -> distances[i]))
             .mapToInt(Integer::intValue)
             .toArray();
     int[] ranks = new int[dataset.length];
+    Arrays.fill(ranks, Integer.MAX_VALUE);
     for (int rank = 0; rank < byDistance.length; rank++) {
       ranks[byDistance[rank]] = rank + 1;
     }

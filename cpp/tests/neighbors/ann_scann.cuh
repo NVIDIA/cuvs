@@ -15,10 +15,12 @@
 #include <cuda/stream>
 #include <raft/core/resource/cuda_stream_pool.hpp>
 #include <raft/linalg/add.cuh>
+#include <raft/linalg/map.cuh>
 #include <raft/matrix/gather.cuh>
 #include <rmm/cuda_stream_pool.hpp>
 #include <rmm/mr/managed_memory_resource.hpp>
 #include <thrust/sequence.h>
+#include <vector>
 
 namespace cuvs::neighbors::experimental::scann {
 
@@ -35,6 +37,19 @@ struct scann_inputs {
     index_params.pq_n_rows_train     = num_db_vecs;
   }
 };
+inline ::std::ostream& operator<<(::std::ostream& os, const scann_inputs& p)
+{
+  os << "dataset shape=" << p.num_db_vecs << "x" << p.dim
+     << ", n_leaves=" << p.index_params.n_leaves
+     << ", partitioning_eta=" << p.index_params.partitioning_eta
+     << ", soar_lambda=" << p.index_params.soar_lambda << ", pq_dim=" << p.index_params.pq_dim
+     << ", pq_bits=" << p.index_params.pq_bits
+     << ", reordering_bf16=" << p.index_params.reordering_bf16
+     << ", reordering_noise_shaping_threshold="
+     << p.index_params.reordering_noise_shaping_threshold;
+
+  return os;
+}
 
 template <typename DataT, typename IdxT>
 class scann_test : public ::testing::TestWithParam<scann_inputs> {
@@ -166,107 +181,92 @@ class scann_test : public ::testing::TestWithParam<scann_inputs> {
 
   void check_reconstruction(const index<DataT, IdxT>& idx, int num_subspaces)
   {
-    cuvs::preprocessing::quantize::pq::params pq_params;
-    pq_params.pq_bits       = ps.index_params.pq_bits;
-    pq_params.pq_dim        = num_subspaces;
-    pq_params.use_subspaces = true;
-    pq_params.use_vq        = true;  // SCANN uses centroids separately
+    const int64_t n_rows      = ps.num_db_vecs;
+    const int64_t dim         = ps.dim;
+    const int64_t sub_dim     = ps.index_params.pq_dim;
+    const int64_t n_codes     = idx.pq_codebook().extent(0);
+    const int64_t n_leaves    = idx.centers().extent(0);
+    const int64_t n_subspaces = num_subspaces;
 
-    auto pq_codebook_copy = raft::make_device_matrix<float, uint32_t, raft::row_major>(
-      handle_, idx.pq_codebook().extent(0), idx.pq_codebook().extent(1));
-    raft::copy(pq_codebook_copy.data_handle(),
-               idx.pq_codebook().data_handle(),
-               idx.pq_codebook().size(),
-               stream_);
+    ASSERT_EQ(static_cast<int64_t>(idx.pq_codebook().extent(1)), dim);
+    ASSERT_EQ(static_cast<int64_t>(idx.centers().extent(1)), dim);
+    ASSERT_EQ(sub_dim * n_subspaces, dim);
 
-    auto vq_codebook = raft::make_device_matrix<float, uint32_t, raft::row_major>(
-      handle_, idx.centers().extent(0), idx.centers().extent(1));
-    raft::copy(
-      vq_codebook.data_handle(), idx.centers().data_handle(), idx.centers().size(), stream_);
-    auto empty_data = raft::make_device_matrix<uint8_t, int64_t, raft::row_major>(handle_, 0, 0);
-
-    cuvs::preprocessing::quantize::pq::quantizer<float> quantizer{
-      pq_params,
-      cuvs::neighbors::device_vpq_dataset<float, int64_t>{
-        std::move(vq_codebook), std::move(pq_codebook_copy), std::move(empty_data)}};
-
-    auto quantized_residuals_device =
-      raft::make_device_matrix<uint8_t, IdxT>(handle_, ps.num_db_vecs, num_subspaces);
-    raft::copy(quantized_residuals_device.data_handle(),
-               idx.quantized_residuals().data_handle(),
-               idx.quantized_residuals().size(),
-               stream_);
-
-    // Re-pack 4-bit codes. The 8-bit codes are already in the right format
-    auto codes_dim    = cuvs::preprocessing::quantize::pq::get_quantized_dim(pq_params);
-    auto packed_codes = raft::make_device_matrix<uint8_t, IdxT>(handle_, ps.num_db_vecs, codes_dim);
-
-    if (ps.index_params.pq_bits == 4) {
-      raft::linalg::map_offset(
-        handle_,
-        packed_codes.view(),
-        [qr_view = quantized_residuals_device.view(), num_subspaces, codes_dim] __device__(
-          size_t i) {
-          int64_t row_idx       = i / codes_dim;
-          int64_t packed_idx    = i % codes_dim;
-          int64_t code_idx      = packed_idx * 2;
-          int64_t code_idx_next = code_idx + 1;
-
-          uint8_t first_code = (code_idx < num_subspaces) ? qr_view(row_idx, code_idx) : 0;
-          uint8_t second_code =
-            (code_idx_next < num_subspaces) ? qr_view(row_idx, code_idx_next) : 0;
-
-          return (first_code << 4) | (second_code & 0x0F);
-        });
-    } else {
-      raft::copy(packed_codes.data_handle(),
-                 quantized_residuals_device.data_handle(),
-                 packed_codes.size(),
-                 stream_);
+    // Check codes and labels for out-of-range values
+    {
+      auto h_codes  = raft::make_host_matrix<uint8_t, int64_t>(handle_, n_rows, n_subspaces);
+      auto h_labels = raft::make_host_vector<uint32_t, int64_t>(handle_, n_rows);
+      raft::copy(
+        h_codes.data_handle(), idx.quantized_residuals().data_handle(), h_codes.size(), stream_);
+      raft::copy(h_labels.data_handle(), idx.labels().data_handle(), h_labels.size(), stream_);
+      raft::resource::sync_stream(handle_);
+      for (int64_t r = 0; r < n_rows; r++) {
+        ASSERT_LT(h_labels(r), n_leaves) << "Label out of range at row " << r;
+        for (int64_t s = 0; s < n_subspaces; s++) {
+          ASSERT_LT(h_codes(r, s), n_codes)
+            << "PQ code out of range at row " << r << ", subspace " << s;
+        }
+      }
     }
 
-    auto reconstructed_vectors =
-      raft::make_device_matrix<float, IdxT>(handle_, ps.num_db_vecs, ps.dim);
-    auto reconstructed_vectors_view = reconstructed_vectors.view();
-    cuvs::preprocessing::quantize::pq::inverse_transform(
-      handle_,
-      quantizer,
-      raft::make_const_mdspan(packed_codes.view()),
-      reconstructed_vectors_view,
-      raft::make_const_mdspan(idx.labels()));
+    auto codes = raft::make_device_matrix<uint8_t, int64_t>(handle_, n_rows, n_subspaces);
+    raft::copy(codes.data_handle(), idx.quantized_residuals().data_handle(), codes.size(), stream_);
 
-    // Compute L2 distances for reconstruction error
-    auto database_view =
-      raft::make_device_matrix_view<const float, int64_t>(database.data(), ps.num_db_vecs, ps.dim);
-    auto distances = raft::make_device_vector<float, IdxT>(handle_, ps.num_db_vecs);
+    auto codes_view    = codes.view();
+    auto codebook_view = idx.pq_codebook();
+    auto centers_view  = idx.centers();
+    auto labels_view   = idx.labels();
+
+    // Decode x_hat[row, d] = centers[labels[row], d] + codebook[code[row, d / pq_dim], d]
+    auto reconstructed = raft::make_device_matrix<float, int64_t>(handle_, n_rows, dim);
     raft::linalg::map_offset(
       handle_,
-      distances.view(),
-      [database_view, reconstructed_vectors_view, dim = ps.dim] __device__(IdxT i) {
-        float dist = 0.0f;
-        for (uint32_t j = 0; j < dim; j++) {
-          float diff = database_view(i, j) - reconstructed_vectors_view(i, j);
-          dist += diff * diff;
+      reconstructed.view(),
+      [codes_view, codebook_view, centers_view, labels_view, dim, sub_dim] __device__(size_t i) {
+        int64_t row  = static_cast<int64_t>(i) / dim;
+        int64_t d    = static_cast<int64_t>(i) % dim;
+        int64_t code = codes_view(row, d / sub_dim);
+        return centers_view(labels_view(row), d) + codebook_view(code, d);
+      });
+    auto reconstructed_view = reconstructed.view();
+
+    auto database_view =
+      raft::make_device_matrix_view<const DataT, int64_t>(database.data(), n_rows, dim);
+    auto norms      = raft::make_device_vector<float, int64_t>(handle_, n_rows);
+    auto norms_view = norms.view();
+
+    // Per-vector relative error ||x - x_hat|| / ||x|| of the reconstructed vector
+    auto errors = raft::make_device_vector<float, int64_t>(handle_, n_rows);
+    raft::linalg::map_offset(
+      handle_,
+      errors.view(),
+      [database_view, reconstructed_view, norms_view, dim] __device__(int64_t r) {
+        double sq_err = 0.0;
+        double norm   = 0.0;
+        for (int64_t k = 0; k < dim; k++) {
+          double x   = database_view(r, k);
+          double err = x - reconstructed_view(r, k);
+          sq_err += err * err;
+          norm += x * x;
         }
-        return sqrtf(dist / static_cast<float>(dim));
+        norm          = sqrtf(norm);
+        norms_view(r) = norm;
+        return sqrtf(sq_err) / norm;
       });
 
-    float max_allowed_error = 0.95f;
-    auto distances_host     = raft::make_host_vector<float, IdxT>(handle_, ps.num_db_vecs);
-    raft::copy(distances_host.data_handle(), distances.data_handle(), ps.num_db_vecs, stream_);
+    auto errors_host = raft::make_host_vector<float, int64_t>(handle_, n_rows);
+    raft::copy(errors_host.data_handle(), errors.data_handle(), n_rows, stream_);
     raft::resource::sync_stream(handle_);
 
-    float mean_error = 0.0f;
-    float max_error  = 0.0f;
-    for (IdxT i = 0; i < ps.num_db_vecs; i++) {
-      mean_error += distances_host(i);
-      max_error = std::max(max_error, distances_host(i));
+    double mean_error = 0.0;
+    for (int64_t r = 0; r < n_rows; r++) {
+      mean_error += errors_host(r);
     }
-    mean_error /= static_cast<float>(ps.num_db_vecs);
-    ASSERT_LT(mean_error, max_allowed_error)
-      << "Mean reconstruction error too large: " << mean_error;
-    ASSERT_LT(max_error, max_allowed_error * 1.5f)
-      << "Max reconstruction error too large: " << max_error;
+    mean_error /= static_cast<double>(n_rows);
+
+    const double max_allowed_mean = (ps.index_params.pq_bits == 4) ? 0.45 : 0.275;
+    ASSERT_LT(mean_error, max_allowed_mean)
+      << "Mean relative reconstruction error too large: " << mean_error;
   }
 
   void SetUp() override  // NOLINT

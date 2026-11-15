@@ -6,7 +6,7 @@
 # generation. We *could* write this in CMake with `string(JSON)`, but writing
 # it in Python is much easier. Once we have a version of CMake that has
 # https://gitlab.kitware.com/cmake/cmake/-/merge_requests/11516, we may be able
-# to port the algorithm to CMake script and use it in other RAPIDS projects.
+# to port the algorithm to CMake script and use it in other projects.
 
 import argparse
 import json

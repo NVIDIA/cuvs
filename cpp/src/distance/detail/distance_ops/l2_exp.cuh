@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -12,22 +12,6 @@
 
 namespace cuvs::distance::detail::ops {
 
-/**
- * Reserve 1 digit of precision from each floating-point type
- * for round-off error tolerance.
- * @tparam DataT
- */
-template <typename DataT, typename AccT>
-__device__ constexpr AccT get_clamp_precision()
-{
-  switch (sizeof(DataT)) {
-    case 2: return AccT{1e-3};
-    case 4: return AccT{1e-6};
-    case 8: return AccT{1e-15};
-    default: return AccT{0};
-  }
-}
-
 // Epilogue operator for CUTLASS based kernel
 template <typename DataT, typename AccT>
 struct l2_exp_cutlass_op {
@@ -39,13 +23,9 @@ struct l2_exp_cutlass_op {
   {
     AccT outVal = aNorm + bNorm - AccT(2.0) * accVal;
 
-    /**
-     * Self-neighboring points should have (aNorm == bNorm) == accVal and the dot product (accVal)
-     * can sometimes have round-off errors, which will cause (aNorm == bNorm) ~ accVal instead.
-     */
-    outVal =
-      outVal * AccT(!((outVal * outVal < get_clamp_precision<DataT, AccT>()) * (aNorm == bNorm)));
-    return sqrt ? raft::sqrt(outVal * static_cast<AccT>(outVal > AccT(0))) : outVal;
+    // Expanded L2 can be slightly negative due to round-off; clamp to zero.
+    outVal = outVal < AccT{0} ? AccT{0} : outVal;
+    return sqrt ? raft::sqrt(outVal) : outVal;
   }
 
   __device__ AccT operator()(DataT aData) const noexcept
@@ -113,14 +93,8 @@ struct l2_exp_distance_op {
         AccT accVal = acc[i][j];
         AccT val    = regxn[i] + regyn[j] - (AccT)2.0 * accVal;
 
-        /**
-         * Self-neighboring points should have (aNorm == bNorm) == accVal and the dot product
-         * (accVal) can sometimes have round-off errors, which will cause (aNorm == bNorm) ~ accVal
-         * instead.
-         */
-        acc[i][j] = val * static_cast<AccT>((val > AccT(0))) *
-                    static_cast<AccT>(
-                      !((val * val < get_clamp_precision<DataT, AccT>()) * (regxn[i] == regyn[j])));
+        // Expanded L2 can be slightly negative due to round-off; clamp to zero.
+        acc[i][j] = val < AccT{0} ? AccT{0} : val;
       }
     }
     if (sqrt) {

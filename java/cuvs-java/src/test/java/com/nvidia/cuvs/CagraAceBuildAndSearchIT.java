@@ -111,7 +111,7 @@ public class CagraAceBuildAndSearchIT extends CuVSTestCase {
       // Build the index with ACE
       try (CagraIndex index =
               CagraIndex.newBuilder(resources)
-                  .withDataset(dataset)
+                  .fromDataset(dataset)
                   .withIndexParams(indexParams)
                   .build();
           var hostVectors = CuVSMatrix.ofArray(dataset);
@@ -179,7 +179,7 @@ public class CagraAceBuildAndSearchIT extends CuVSTestCase {
       // Build the index with ACE in disk mode
       try (CagraIndex index =
           CagraIndex.newBuilder(resources)
-              .withDataset(dataset)
+              .fromDataset(dataset)
               .withIndexParams(indexParams)
               .build()) {
 

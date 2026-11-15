@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2023-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 #pragma once
@@ -417,7 +417,7 @@ class faiss_gpu_ivfpq : public faiss_gpu<T> {
 };
 
 // TODO(snanditale): Enable this in cmake
-//  ref: https://github.com/rapidsai/raft/issues/1876
+//  ref: https://github.com/NVIDIA/raft/issues/1876
 template <typename T>
 class faiss_gpu_ivfsq : public faiss_gpu<T> {
  public:
@@ -539,7 +539,9 @@ class faiss_gpu_cagra : public faiss_gpu<T> {
     config.graph_degree              = param.graph_degree;
     config.intermediate_graph_degree = param.intermediate_graph_degree;
     config.device                    = this->device_;
-    config.store_dataset             = true;
+    // TODO: Remove on upgrade to Faiss nightly, which removes store_dataset.
+    // Host-built indexes then require explicit device dataset attachment before search.
+    config.store_dataset = false;
     if (param.cagra_build_algo == "IVF_PQ") {
       config.build_algo           = faiss::gpu::graph_build_algo::IVF_PQ;
       this->ivf_pq_build_params_  = param.ivf_pq_build_params;

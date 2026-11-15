@@ -174,7 +174,7 @@ class ANNTieredIndexTest : public ::testing::TestWithParam<AnnTieredIndexInputs>
           auto padded_dataset =
             cuvs::neighbors::make_device_padded_dataset(handle_, full_database_view);
           auto attached_index = cuvs::neighbors::tiered_index::convert_standard_to_padded_index(
-            handle_, *final_index, padded_dataset->as_dataset_view());
+            handle_, *final_index, padded_dataset->view());
           cuvs::neighbors::tiered_index::search(
             handle_, search_params, attached_index, queries_view, indices_view, distances_view);
         }

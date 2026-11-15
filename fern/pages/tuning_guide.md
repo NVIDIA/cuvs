@@ -18,7 +18,7 @@ Use a representative dataset split. Sample training vectors, test queries, and h
 
 Vector search indexes are tuned much like machine learning models. You define an objective, choose a training and validation split, search over candidate hyperparameters, and validate the best candidates on held-out queries. The objective is usually multi-objective: maximize recall while staying within latency, throughput, memory, and build-time limits.
 
-Hyperparameter optimization tools such as [Ray Tune](https://medium.com/rapids-ai/30x-faster-hyperparameter-search-with-raytune-and-rapids-403013fbefc5), [Optuna](https://docs.rapids.ai/deployment/stable/examples/rapids-optuna-hpo/notebook/), and similar HPO frameworks can automate random search, Bayesian search, early stopping, and trial tracking. These tools are useful when the search space is large or when recall and performance must be optimized together.
+Hyperparameter optimization tools such as [Ray Tune](https://medium.com/rapids-ai/30x-faster-hyperparameter-search-with-raytune-and-rapids-403013fbefc5), [Optuna](https://docs.nvidia.com/datascience/deployment/latest/examples/rapids-optuna-hpo/notebook/), and similar HPO frameworks can automate random search, Bayesian search, early stopping, and trial tracking. These tools are useful when the search space is large or when recall and performance must be optimized together.
 
 [cuVS Bench](/user-guide/benchmarking-guide/cu-vs-bench-tool/introduction) also provides a `tune` mode that can perform hyperparameter optimization for benchmark configurations. This is useful when you want the same tool to run reproducible benchmark trials and search for parameter settings that satisfy a recall, latency, throughput, build-time, or memory target.
 

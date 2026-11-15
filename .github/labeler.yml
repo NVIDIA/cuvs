@@ -1,6 +1,6 @@
 # https://github.com/actions/labeler#common-examples
-# Adapted from https://github.com/rapidsai/raft/blob/main/.github/CODEOWNERS
-# Labels culled from https://github.com/rapidsai/raft/labels
+# Adapted from https://github.com/NVIDIA/raft/blob/main/.github/CODEOWNERS
+# Labels culled from https://github.com/NVIDIA/raft/labels
 
 python:
   - changed-files:

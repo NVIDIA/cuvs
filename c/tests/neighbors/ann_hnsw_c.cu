@@ -57,6 +57,10 @@ TEST(CagraHnswC, BuildSearch)
   // build index
   cuvsCagraIndexParams_t build_params;
   cuvsCagraIndexParamsCreate(&build_params);
+  // Four rows cannot train even the smallest IVF-PQ codebook (16 centroids).
+  delete static_cast<cuvsIvfPqParams*>(build_params->graph_build_params);
+  build_params->graph_build_params = nullptr;
+  build_params->build_algo         = NN_DESCENT;
   cuvsDataset_t dataset_view;
   ASSERT_EQ(cuvsDatasetMakeStandardView(res, &dataset_tensor, &dataset_view), CUVS_SUCCESS);
   ASSERT_EQ(cuvsCagraBuild(res, build_params, dataset_view, index), CUVS_SUCCESS);
