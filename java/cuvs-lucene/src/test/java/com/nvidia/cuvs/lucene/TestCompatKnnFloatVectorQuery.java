@@ -142,6 +142,69 @@ public class TestCompatKnnFloatVectorQuery extends LuceneTestCase {
     }
   }
 
+  /**
+   * A filtered segment search that cannot return as many hits as Lucene expects from the segment
+   * must be skipped: Lucene would throw its hits away and search the segment exactly anyway. One
+   * that can must still run.
+   */
+  @Test
+  public void testFilteredSearchIsSkippedWhenSegmentCannotReturnEnoughHits() throws Exception {
+    int k = 5;
+    try (Directory dir = newDirectory()) {
+      IndexWriterConfig cfg = new IndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE);
+      try (IndexWriter w = new IndexWriter(dir, cfg)) {
+        addDocs(w, 0f, 200);
+        w.commit();
+        addDocs(w, 1000f, 200);
+        w.commit();
+      }
+
+      try (DirectoryReader reader = DirectoryReader.open(dir)) {
+        assertEquals(2, reader.leaves().size());
+        float[] target = new float[] {0f, 0f};
+        Query filter = new TermQuery(new Term(TAG_FIELD, "y"));
+        // Both segments are the same size, so they have the same perLeafTopK.
+        int perLeafTopK = new CountingQuery(target, k, null).perLeafTopK(reader.leaves().get(0));
+        IndexSearcher searcher = new IndexSearcher(reader);
+
+        CountingQuery tooFew = new CountingQuery(target, k, filter);
+        tooFew.maxHits = perLeafTopK - 1;
+        assertEquals(k, searcher.search(tooFew, k).scoreDocs.length);
+        assertEquals("approximate searches", 0, tooFew.searches.get());
+        assertEquals("exact searches", 2, tooFew.exactSearches.get());
+
+        CountingQuery enough = new CountingQuery(target, k, filter);
+        enough.maxHits = perLeafTopK;
+        assertEquals(k, searcher.search(enough, k).scoreDocs.length);
+        assertEquals("approximate searches", 2, enough.searches.get());
+        assertEquals("exact searches", 0, enough.exactSearches.get());
+      }
+    }
+  }
+
+  /** Lucene keeps whatever an unfiltered search returns, so it is never skipped. */
+  @Test
+  public void testUnfilteredSearchIsNotSkipped() throws Exception {
+    int k = 5;
+    try (Directory dir = newDirectory()) {
+      IndexWriterConfig cfg = new IndexWriterConfig().setMergePolicy(NoMergePolicy.INSTANCE);
+      try (IndexWriter w = new IndexWriter(dir, cfg)) {
+        addDocs(w, 0f, 200);
+        w.commit();
+        addDocs(w, 1000f, 200);
+        w.commit();
+      }
+
+      try (DirectoryReader reader = DirectoryReader.open(dir)) {
+        CountingQuery query = new CountingQuery(new float[] {0f, 0f}, k, null);
+        query.maxHits = 1;
+        new IndexSearcher(reader).search(query, k);
+        assertEquals("approximate searches", 2, query.searches.get());
+        assertEquals("exact searches", 0, query.exactSearches.get());
+      }
+    }
+  }
+
   private static void addDocs(IndexWriter w, float offset, int count) throws Exception {
     for (int i = 0; i < count; i++) {
       Document doc = new Document();
@@ -159,15 +222,21 @@ public class TestCompatKnnFloatVectorQuery extends LuceneTestCase {
 
     final AtomicInteger searches = new AtomicInteger();
     final AtomicInteger exactSearches = new AtomicInteger();
+    int maxHits = Integer.MAX_VALUE;
 
     CountingQuery(float[] target, int k, Query filter) {
       super(FIELD, target, k, filter);
     }
 
     @Override
-    KnnCollector newPerLeafCollector(LeafReaderContext context, int k, int visitedLimit) {
+    KnnCollector newPerLeafCollector(int leafK, int visitedLimit) {
       searches.incrementAndGet();
-      return new TopKnnCollector(k, visitedLimit);
+      return new TopKnnCollector(leafK, visitedLimit);
+    }
+
+    @Override
+    int maxHits(LeafReaderContext context) {
+      return maxHits;
     }
 
     @Override

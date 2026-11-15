@@ -21,10 +21,13 @@ import org.apache.lucene.search.knn.KnnCollectorManager;
  * {@link KnnFloatVectorQuery}. Since Lucene 10.3, the documents a segment search may return come
  * to {@code approximateSearch} as {@link AcceptDocs}, where Lucene 10.2 passed {@code Bits}. Each
  * variant of this class implements the {@code approximateSearch} of its Lucene release with the
- * collector from {@code newPerLeafCollector}, so the shared query only provides that collector.
+ * collector from {@code newPerLeafCollector}, so the shared query only provides that collector and
+ * {@link #maxHits}, the most hits a segment search can return. A filtered search that cannot return
+ * as many hits as Lucene expects is skipped, since Lucene would discard them; see {@link PerLeafK}.
  *
  * <p>Each variant also tells the shared query how many hits Lucene expects from a segment search,
- * {@link #perLeafTopK}: Lucene 10.2 expects {@code k}, Lucene 10.3 more.
+ * {@link #perLeafTopK}: Lucene 10.2 expects {@code k}, Lucene 10.3 the segment's share of {@code
+ * k} plus a margin, often more than {@code k} but less for a large {@code k} over many segments.
  *
  * <p>This variant also makes the collector manager non-optimistic, so that Lucene does not repeat
  * a segment's search; see {@link #getKnnCollectorManager}.
@@ -40,15 +43,20 @@ abstract class CompatKnnFloatVectorQuery extends KnnFloatVectorQuery {
   private static final int LAMBDA = 16;
 
   /**
-   * Returns the collector for searching one segment. It may hold fewer hits than asked for, but
-   * never fewer than the query's {@code k}.
+   * Returns the collector for searching one segment.
    *
-   * @param context the segment
-   * @param k the number of hits to collect
+   * @param leafK the number of hits to collect
    * @param visitedLimit the visit budget
    */
-  abstract KnnCollector newPerLeafCollector(LeafReaderContext context, int k, int visitedLimit)
-      throws IOException;
+  abstract KnnCollector newPerLeafCollector(int leafK, int visitedLimit);
+
+  /**
+   * Returns the most hits a search of the segment returns, or {@link Integer#MAX_VALUE} if it has
+   * no such limit.
+   *
+   * @param context the segment
+   */
+  abstract int maxHits(LeafReaderContext context);
 
   /**
    * Returns how many hits Lucene expects from searching a segment with a filter. Since Lucene 10.3,
@@ -93,17 +101,13 @@ abstract class CompatKnnFloatVectorQuery extends KnnFloatVectorQuery {
       int visitedLimit,
       KnnCollectorManager knnCollectorManager)
       throws IOException {
-    // Lucene keeps the hits of a filtered search only if there are perLeafTopK of them. It passes
-    // no visit limit when it applies no filter, including one rewritten to match all documents,
-    // and then keeps whatever the search returns.
-    boolean filtered = visitedLimit != Integer.MAX_VALUE;
-    int leafK = filtered ? Math.max(k, perLeafTopK(context)) : k;
-    KnnCollector results = newPerLeafCollector(context, leafK, visitedLimit);
-    if (results.k() < leafK) {
-      // The collector cannot hold as many hits as Lucene needs, so Lucene would discard them and
+    int leafK = PerLeafK.of(this, context, visitedLimit);
+    if (leafK == PerLeafK.SKIP) {
+      // The segment cannot return as many hits as Lucene needs, so Lucene would discard them and
       // search the segment exactly anyway: skip the approximate search and let it.
       return TopDocsCollector.EMPTY_TOPDOCS;
     }
+    KnnCollector results = newPerLeafCollector(leafK, visitedLimit);
     context.reader().searchNearestVectors(field, getTargetCopy(), results, acceptDocs);
     return results.topDocs();
   }
