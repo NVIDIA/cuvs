@@ -526,7 +526,7 @@ struct search
                       // Bound random seed selection to the graph size, not the dataset size.
                       // During iterative / CAGRA-Q build the graph is smaller than the dataset,
                       // so using dataset_size here selects seeds that index past the graph end
-                      // (out-of-bounds access). See https://github.com/rapidsai/cuvs/pull/1780.
+                      // (out-of-bounds access). See https://github.com/NVIDIA/cuvs/pull/1780.
                       static_cast<IndexT>(graph.extent(0)));
 
     std::shared_ptr<rtcx::algorithm_launcher> compute_distance_to_child_nodes_launcher =

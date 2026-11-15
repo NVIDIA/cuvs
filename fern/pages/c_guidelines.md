@@ -163,12 +163,18 @@ pre-commit install
 
 ### Core Hooks
 
-C headers and C wrapper implementation files are checked by the same formatting, spelling, Doxygen, and copyright hooks used by the rest of NVIDIA cuVS.
+C headers and C wrapper implementation files are checked by the same formatting, spelling, and copyright hooks used by the rest of NVIDIA cuVS.
 
-Run Doxygen checks for public C API documentation:
+Regenerate the Fern API reference pages and run the generator's built-in validation:
 
 ```bash
-./ci/checks/doxygen.sh
+pre-commit run fern-api-reference --all-files
+```
+
+Regenerate the API pages and run Fern's configuration, link, and Markdown checks:
+
+```bash
+fern/build_docs.sh check
 ```
 
 [codespell](https://github.com/codespell-project/codespell) catches spelling issues. To apply suggested fixes interactively, run:
@@ -183,7 +189,7 @@ Use `#include <cuvs/...>` for public NVIDIA cuVS C headers. Keep public C header
 
 ### Copyright
 
-RAPIDS pre-commit hooks check copyright headers on modified tracked files. To run that check manually:
+Pre-commit hooks check copyright headers on modified tracked files. To run that check manually:
 
 ```bash
 pre-commit run -a verify-copyright
@@ -203,4 +209,4 @@ Destroy functions should avoid throwing or failing in ways that make cleanup uns
 
 ### Documentation
 
-Public C APIs require user-facing Doxygen documentation. Document the purpose, parameters, return values, ownership rules, matching destroy functions, and any constraints that affect correct use.
+Public C APIs require user-facing Doxygen-style source comments consumed by the Fern API generator. Document the purpose, parameters, return values, ownership rules, matching destroy functions, and any constraints that affect correct use.

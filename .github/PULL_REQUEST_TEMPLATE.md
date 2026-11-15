@@ -22,7 +22,7 @@ Here are some guidelines to help the review process go smoothly.
    for example when the C/C++ code of a feature is complete but Python bindings
    are still required, then add the label `[HELP-REQ]` so that others can triage
    and assist. The additional changes then can be implemented on top of the
-   same PR. If the assistance is done by members of the rapidsAI team, then no
+   same PR. If the assistance is done by members of the cuVS team, then no
    additional actions are required by the creator of the original PR for this,
    otherwise the original author of the PR needs to give permission to the
    person(s) assisting to commit to their personal fork of the project. If that

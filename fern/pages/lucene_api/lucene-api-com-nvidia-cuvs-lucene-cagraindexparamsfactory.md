@@ -15,7 +15,7 @@ classes based on the chosen strategy.
 
 For the `HEURISTIC` strategy the build heuristics are delegated to cuVS.
 
-## Public Members
+## Public and Protected Members
 
 ### create
 
@@ -61,6 +61,6 @@ chosen strategy in the `AcceleratedHNSWParams`.
 
 an instance of `CagraIndexParams`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:73`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:74`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:17`_

@@ -3,6 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include "../../src/cluster/detail/agglomerative.cuh"
+#include "../../src/cluster/detail/mst.cuh"
 #include "../test_utils.cuh"
 
 #include <cuvs/cluster/agglomerative.hpp>
@@ -654,4 +656,115 @@ typedef LinkageTest<float, int> LinkageTestF_Int;
 TEST_P(LinkageTestF_Int, Result) { EXPECT_TRUE(score == 1.0); }
 
 INSTANTIATE_TEST_CASE_P(LinkageTest, LinkageTestF_Int, ::testing::ValuesIn(linkage_inputsf2));
+
+TEST(LinkageTest, MstOrderUsesOrientedEndpointsAsFinalTieBreakers)
+{
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  std::vector<int> const host_src{3, 1, 2, 0};
+  std::vector<int> const host_dst{1, 3, 0, 2};
+  std::vector<float> const host_weights(4, 1.0f);
+  std::vector<int> const expected_src{0, 2, 1, 3};
+  std::vector<int> const expected_dst{2, 0, 3, 1};
+
+  rmm::device_uvector<int> src(host_src.size(), stream);
+  rmm::device_uvector<int> dst(host_dst.size(), stream);
+  rmm::device_uvector<float> weights(host_weights.size(), stream);
+  raft::copy(src.data(), host_src.data(), host_src.size(), stream);
+  raft::copy(dst.data(), host_dst.data(), host_dst.size(), stream);
+  raft::copy(weights.data(), host_weights.data(), host_weights.size(), stream);
+
+  detail::sort_mst_edges(handle, src.data(), dst.data(), weights.data(), src.size());
+
+  std::vector<int> sorted_src(src.size());
+  std::vector<int> sorted_dst(dst.size());
+  raft::copy(sorted_src.data(), src.data(), src.size(), stream);
+  raft::copy(sorted_dst.data(), dst.data(), dst.size(), stream);
+  raft::resource::sync_stream(handle, stream);
+
+  EXPECT_EQ(sorted_src, expected_src);
+  EXPECT_EQ(sorted_dst, expected_dst);
+}
+
+TEST(LinkageTest, MstOrderAndDendrogramAreRepeatable)
+{
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+
+  // The same mixed-weight tree in deliberately different COO orders. All edges are stored in
+  // reverse canonical orientation, and the equal-weight bucket has a different canonical order
+  // than its raw (src, dst) order.
+  std::vector<std::vector<int>> input_src = {
+    {3, 2, 4, 5, 1}, {1, 5, 3, 2, 4}, {4, 1, 2, 5, 3}, {2, 4, 5, 1, 3}};
+  std::vector<std::vector<int>> input_dst = {
+    {0, 1, 1, 3, 0}, {0, 3, 0, 1, 1}, {1, 0, 1, 3, 0}, {1, 1, 3, 0, 0}};
+  std::vector<std::vector<float>> input_weights = {{1.0f, 1.0f, 2.0f, 0.5f, 1.0f},
+                                                   {1.0f, 0.5f, 1.0f, 1.0f, 2.0f},
+                                                   {2.0f, 1.0f, 1.0f, 0.5f, 1.0f},
+                                                   {1.0f, 2.0f, 0.5f, 1.0f, 1.0f}};
+  std::vector<int> const expected_src{5, 1, 3, 2, 4};
+  std::vector<int> const expected_dst{3, 0, 0, 1, 1};
+  std::vector<float> const expected_weights{0.5f, 1.0f, 1.0f, 1.0f, 2.0f};
+
+  std::vector<int> expected_children;
+  std::vector<float> expected_distances;
+  std::vector<int> expected_sizes;
+
+  for (std::size_t run = 0; run < 20; ++run) {
+    auto const& host_src     = input_src[run % input_src.size()];
+    auto const& host_dst     = input_dst[run % input_dst.size()];
+    auto const& host_weights = input_weights[run % input_weights.size()];
+
+    rmm::device_uvector<int> src(host_src.size(), stream);
+    rmm::device_uvector<int> dst(host_dst.size(), stream);
+    rmm::device_uvector<float> weights(host_src.size(), stream);
+    raft::copy(src.data(), host_src.data(), host_src.size(), stream);
+    raft::copy(dst.data(), host_dst.data(), host_dst.size(), stream);
+    raft::copy(weights.data(), host_weights.data(), host_weights.size(), stream);
+
+    detail::sort_mst_edges(handle, src.data(), dst.data(), weights.data(), src.size());
+
+    std::vector<int> sorted_src(src.size());
+    std::vector<int> sorted_dst(dst.size());
+    std::vector<float> sorted_weights(weights.size());
+    raft::copy(sorted_src.data(), src.data(), src.size(), stream);
+    raft::copy(sorted_dst.data(), dst.data(), dst.size(), stream);
+    raft::copy(sorted_weights.data(), weights.data(), weights.size(), stream);
+    raft::resource::sync_stream(handle, stream);
+    EXPECT_EQ(sorted_src, expected_src);
+    EXPECT_EQ(sorted_dst, expected_dst);
+    EXPECT_EQ(sorted_weights, expected_weights);
+
+    rmm::device_uvector<int> children(src.size() * 2, stream);
+    rmm::device_uvector<float> distances(src.size(), stream);
+    rmm::device_uvector<int> sizes(src.size(), stream);
+    detail::build_dendrogram_host(handle,
+                                  src.data(),
+                                  dst.data(),
+                                  weights.data(),
+                                  src.size(),
+                                  children.data(),
+                                  distances.data(),
+                                  sizes.data());
+
+    std::vector<int> host_children(children.size());
+    std::vector<float> host_distances(distances.size());
+    std::vector<int> host_sizes(sizes.size());
+    raft::copy(host_children.data(), children.data(), children.size(), stream);
+    raft::copy(host_distances.data(), distances.data(), distances.size(), stream);
+    raft::copy(host_sizes.data(), sizes.data(), sizes.size(), stream);
+    raft::resource::sync_stream(handle, stream);
+
+    if (run == 0) {
+      expected_children  = host_children;
+      expected_distances = host_distances;
+      expected_sizes     = host_sizes;
+    } else {
+      EXPECT_EQ(host_children, expected_children);
+      EXPECT_EQ(host_distances, expected_distances);
+      EXPECT_EQ(host_sizes, expected_sizes);
+    }
+  }
+}
 }  // namespace cuvs::cluster::agglomerative

@@ -14,8 +14,8 @@
 #include <cstring>
 #include <exception>
 #include <limits>
+#include <memory>
 #include <sys/stat.h>
-#include <vector>
 
 namespace cuvs::util {
 namespace {
@@ -262,10 +262,14 @@ void kvikio_file_reader::read_device(void* data, size_t size) { impl_->read_devi
 class kvikio_ofstream::sbuf : public std::streambuf {
  public:
   sbuf(const std::string& path, size_t cap)
-  try : path_(path), handle_(path, "w"), buffer_(std::max<size_t>(cap, kNumpyDataAlignment)) {
-    RAFT_EXPECTS(buffer_.size() <= static_cast<size_t>(std::numeric_limits<int>::max()),
+  try
+    : path_(path),
+      handle_(path, "w"),
+      buffer_size_(std::max<size_t>(cap, kNumpyDataAlignment)),
+      buffer_(std::make_unique_for_overwrite<char[]>(buffer_size_)) {
+    RAFT_EXPECTS(buffer_size_ <= static_cast<size_t>(std::numeric_limits<int>::max()),
                  "kvikio_ofstream buffer size must fit in std::streambuf::pbump");
-    setp(buffer_.data(), buffer_.data() + buffer_.size());
+    setp(buffer_.get(), buffer_.get() + buffer_size_);
   } catch (const std::exception& e) {
     RAFT_FAIL("Cannot open file %s for writing: %s", path.c_str(), e.what());
   }
@@ -338,7 +342,7 @@ class kvikio_ofstream::sbuf : public std::streambuf {
     while (remaining > 0) {
       // If the caller hands us a large contiguous chunk, flush pending staged bytes and pass the
       // chunk straight to kvikio. This avoids std::streambuf's byte-at-a-time fallback path.
-      if (remaining >= buffer_.size()) {
+      if (remaining >= buffer_size_) {
         flush_buffer();
         write_at_current_offset(handle_, current, remaining);
         return requested;
@@ -385,7 +389,7 @@ class kvikio_ofstream::sbuf : public std::streambuf {
     const size_t n = static_cast<size_t>(pptr() - pbase());
     if (n > 0) {
       write_at_current_offset(handle_, pbase(), n);
-      setp(buffer_.data(), buffer_.data() + buffer_.size());
+      setp(buffer_.get(), buffer_.get() + buffer_size_);
     }
   }
 
@@ -400,7 +404,11 @@ class kvikio_ofstream::sbuf : public std::streambuf {
   std::string path_;
   kvikio::FileHandle handle_;
   std::unique_ptr<kvikio::FileHandle> device_handle_;
-  std::vector<char> buffer_;
+  // Staging buffer, deliberately left uninitialized: only [pbase(), pptr()) is ever passed to
+  // kvikio, and those bytes are always written first. Value-initializing it would fault in and
+  // zero every page of the (32 MiB by default) buffer on each open, even for tiny files.
+  size_t buffer_size_;
+  std::unique_ptr<char[]> buffer_;
   size_t offset_ = 0;
   bool closed_   = false;
 };

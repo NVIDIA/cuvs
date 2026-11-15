@@ -32,7 +32,7 @@ Vector search is also useful when search is not the final product. In *batch exp
 
 [K-Means](/user-guide/api-guides/clustering-guide/k-means) groups vectors around representative centroids. It is useful for segmentation, coarse partitioning, vector quantization, sampling, and summarizing large datasets. [Single-linkage](/user-guide/api-guides/clustering-guide/single-linkage) builds a hierarchy of merges, which is useful when the tree structure or dendrogram is part of the analysis. [Spectral clustering](/user-guide/api-guides/clustering-guide/spectral-clustering) works through graph structure and can separate clusters that are not well described by compact centroids.
 
-*Manifold learning* and *dimensionality reduction workflows* use neighborhood structure to reveal lower-dimensional patterns. These workflows are common for *visualization*, *exploratory analysis*, *quality checks*, *dataset debugging*, and *feature inspection*. [PCA](/user-guide/api-guides/preprocessing-guide/pca) provides a fast linear reduction path, while neighborhood graphs can feed nonlinear manifold methods in adjacent RAPIDS workflows.
+*Manifold learning* and *dimensionality reduction workflows* use neighborhood structure to reveal lower-dimensional patterns. These workflows are common for *visualization*, *exploratory analysis*, *quality checks*, *dataset debugging*, and *feature inspection*. [PCA](/user-guide/api-guides/preprocessing-guide/pca) provides a fast linear reduction path, while neighborhood graphs can feed nonlinear manifold methods in adjacent CUDA-X for data science workflows.
 
 ## Compression and preprocessing
 

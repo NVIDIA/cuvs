@@ -915,6 +915,14 @@ inline auto small_dims_per_cluster() -> test_cases_t
   return map<ivf_pq_inputs>(small_dims(), [](const ivf_pq_inputs& x) {
     ivf_pq_inputs y(x);
     y.index_params.codebook_kind = ivf_pq::codebook_gen::PER_CLUSTER;
+    if (y.dim < 4) {
+      // With only one or two PQ subspaces, use fewer IVF lists so each has enough
+      // training rows for its 256-centroid codebook.
+      y.index_params.n_lists = 4;
+      // Probe at least the default fraction of lists (20/32) without requiring an
+      // exhaustive search, which would also raise the derived recall threshold.
+      y.search_params.n_probes = 3;
+    }
     return y;
   });
 }
@@ -1110,7 +1118,7 @@ inline auto enum_variety_cosine() -> test_cases_t
     if (y.min_recall.has_value()) {
       if (y.search_params.lut_dtype == CUDA_R_8U) {
         // TODO: Increase this recall threshold for 8 bit lut
-        // (https://github.com/nvidia/cuvs/issues/390)
+        // (https://github.com/NVIDIA/cuvs/issues/390)
         y.min_recall = y.min_recall.value() * 0.70;
       } else {
         // In other cases it seems to perform a little bit better, still worse than L2

@@ -4,58 +4,39 @@
  */
 package com.nvidia.cuvs.lucene;
 
-import com.nvidia.cuvs.LibraryException;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 import org.apache.lucene.codecs.Codec;
-import org.apache.lucene.codecs.FilterCodec;
-import org.apache.lucene.codecs.KnnVectorsFormat;
 
 /**
  * CuVS based codec for GPU based vector search
  *
+ * <p>This codec, named {@code Lucene101AcceleratedHNSWBinaryQuantizedCodec}, wraps {@code
+ * Lucene101Codec}, the default codec of Lucene 10.2. On later Lucene releases it can only read
+ * existing indexes; use {@link CuVSCodecs#acceleratedHNSWBinaryQuantized} to write.
+ *
  * @since 26.02
  */
-public class LuceneAcceleratedHNSWBinaryQuantizedCodec extends FilterCodec {
+public class LuceneAcceleratedHNSWBinaryQuantizedCodec extends CuVSFilterCodec {
 
-  private static final Logger log =
-      Logger.getLogger(LuceneAcceleratedHNSWBinaryQuantizedCodec.class.getName());
   private static final String NAME = "Lucene101AcceleratedHNSWBinaryQuantizedCodec";
 
-  private KnnVectorsFormat format;
-
-  public LuceneAcceleratedHNSWBinaryQuantizedCodec() throws Exception {
-    this(NAME, LuceneProvider.getCodec("101"));
+  public LuceneAcceleratedHNSWBinaryQuantizedCodec() {
+    this(new AcceleratedHNSWParams.Builder().build());
   }
 
   public LuceneAcceleratedHNSWBinaryQuantizedCodec(String name, Codec delegate) {
-    super(name, delegate);
-    initializeFormat(new AcceleratedHNSWParams.Builder().build());
+    super(
+        name,
+        delegate,
+        () ->
+            new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(
+                new AcceleratedHNSWParams.Builder().build()));
   }
 
-  public LuceneAcceleratedHNSWBinaryQuantizedCodec(AcceleratedHNSWParams acceleratedHNSWParams)
-      throws Exception {
-    this(NAME, LuceneProvider.getCodec("101"));
-    initializeFormat(acceleratedHNSWParams);
-  }
-
-  private void initializeFormat(AcceleratedHNSWParams acceleratedHNSWParams) {
-    try {
-      format = new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(acceleratedHNSWParams);
-      setKnnFormat(format);
-    } catch (LibraryException ex) {
-      log.log(
-          Level.SEVERE,
-          "Couldn't load native library, possible classloader issue. " + ex.getMessage());
-    }
-  }
-
-  @Override
-  public KnnVectorsFormat knnVectorsFormat() {
-    return format;
-  }
-
-  public void setKnnFormat(KnnVectorsFormat format) {
-    this.format = format;
+  public LuceneAcceleratedHNSWBinaryQuantizedCodec(AcceleratedHNSWParams acceleratedHNSWParams) {
+    super(
+        NAME,
+        101,
+        () -> LuceneCompat.lucene101Codec(),
+        () -> new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(acceleratedHNSWParams));
   }
 }

@@ -476,8 +476,10 @@ void brute_force_knn_impl(
           metric == cuvs::distance::DistanceType::LpUnexpanded) {
         DistType p = 0.5;  // standard l2
         if (metric == cuvs::distance::DistanceType::LpUnexpanded) p = 1.0 / metricArg;
+        raft::resources stream_handle(handle);
+        raft::resource::set_cuda_stream(stream_handle, stream);
         raft::linalg::map(
-          handle,
+          stream_handle,
           raft::make_device_vector_view<DistType, int64_t>(res_D, n * k),
           [p] __device__(DistType input) { return powf(fabsf(input), p); },
           raft::make_const_mdspan(
@@ -825,8 +827,14 @@ void brute_force_search_filtered(
                                               raft::identity_op(),
                                               filter_type);
   } else {
+    // masked_matmul fills the CSR structure from the mask itself, so it is left uninitialized
+    // here; converting first would only run the same conversion twice.
     auto csr = raft::make_device_csr_matrix<DistanceT, IdxT>(res, n_queries, n_dataset, nnz_h);
-    std::visit([&](const auto& actual_view) { actual_view.to_csr(res, csr); }, *filter_view);
+    // cuSPARSE does not document that SDDMM leaves the output values unread when beta == 0, so
+    // zero them rather than hand it uninitialized memory. (raft::linalg::zero takes an int count,
+    // which nnz can exceed.)
+    RAFT_CUDA_TRY(cudaMemsetAsync(
+      csr.get_elements().data(), 0, static_cast<size_t>(nnz_h) * sizeof(DistanceT), stream.get()));
 
     // create filter csr view
     auto compressed_csr_view = csr.structure_view();

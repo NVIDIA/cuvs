@@ -16,8 +16,10 @@
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/matrix/init.cuh>
+#include <raft/util/cudart_utils.hpp>
 
 #include <limits>
+#include <vector>
 
 namespace cuvs::neighbors {
 
@@ -34,6 +36,7 @@ struct NNInputs {
   double tol;
   cuvs::distance::detail::Top1nnBackend backend = cuvs::distance::detail::Top1nnBackend::Cutlass;
   cuvs::distance::detail::Top1nnTuning tuning{};
+  bool accurate_distances{};
 };
 
 __global__ void fill_int8(int8_t* buff, int len, int seed_offset)
@@ -107,14 +110,25 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
             backend, x.data_handle(), y.data_handle(), m, n, k, metric)) {
         backend_unavailable = true;
       } else {
-        plan = cuvs::distance::probe_top_1_nn(
-          handle, x.data_handle(), y.data_handle(), m, n, k, tuning, metric, backend);
+        plan                = cuvs::distance::probe_top_1_nn(handle,
+                                              x.data_handle(),
+                                              y.data_handle(),
+                                              m,
+                                              n,
+                                              k,
+                                              tuning,
+                                              metric,
+                                              backend,
+                                              true,
+                                              params_.accurate_distances);
         backend_unavailable = !plan.available;
         workspace_size      = plan.workspace_bytes;
       }
     } else if constexpr (impl == ImplType::unfused) {
       workspace_size = m * n * sizeof(AccT);
     }
+
+    if (backend_unavailable) { GTEST_SKIP() << "Requested top_1_nn path is unavailable"; }
 
     // Reset buffer
     if constexpr (std::is_same_v<OutT, raft::KeyValuePair<IdxT, AccT>>) {
@@ -138,7 +152,6 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
       handle, ref_out.data_handle(), x.data_handle(), y.data_handle(), m, n, k, sqrt, metric);
 
     if constexpr (impl == ImplType::fused) {
-      if (backend_unavailable) { GTEST_SKIP() << "Requested top_1_nn path is unavailable"; }
       auto run_top_1_nn = [&](auto output) {
         cuvs::distance::top_1_nn<DataT, IdxT>(handle,
                                               output,
@@ -253,7 +266,7 @@ class NNTest : public ::testing::TestWithParam<NNInputs<IdxT>> {
   bool backend_unavailable{};
   raft::device_vector<IdxT, IdxT> cutile_idx;
   raft::device_vector<AccT, IdxT> cutile_dist;
-  size_t workspace_size;
+  std::size_t workspace_size{};
 };
 
 template <typename IdxT>
@@ -280,7 +293,8 @@ const std::vector<NNInputs<IdxT>> input_fp32_fused = [] {
     inputs.push_back(input);
   }
   for (auto input : input_fp32<IdxT>) {
-    input.backend = cuvs::distance::detail::Top1nnBackend::Stable;
+    input.backend            = cuvs::distance::detail::Top1nnBackend::Auto;
+    input.accurate_distances = true;
     inputs.push_back(input);
   }
   inputs.push_back({30,
@@ -298,7 +312,9 @@ const std::vector<NNInputs<IdxT>> input_fp32_fused = [] {
                     false,
                     uint64_t(31415926),
                     0.1,
-                    cuvs::distance::detail::Top1nnBackend::Stable});
+                    cuvs::distance::detail::Top1nnBackend::Auto,
+                    {},
+                    true});
   for (auto input : input_fp32<IdxT>) {
     input.backend = cuvs::distance::detail::Top1nnBackend::Unfused;
     inputs.push_back(input);
@@ -313,6 +329,24 @@ const std::vector<NNInputs<IdxT>> input_fp32_fused = [] {
                     263,
                     65,
                     DistanceType::InnerProduct,
+                    false,
+                    uint64_t(31415926),
+                    0.1,
+                    cuvs::distance::detail::Top1nnBackend::Cutile});
+  // High-dimensional tile, strict ABI, should be selected on all archs with a high-dim tile.
+  inputs.push_back({128,
+                    2000,
+                    3072,
+                    DistanceType::L2Expanded,
+                    false,
+                    uint64_t(31415926),
+                    0.1,
+                    cuvs::distance::detail::Top1nnBackend::Cutile});
+  // large K and N but falls into relaxed ABI tile
+  inputs.push_back({128,
+                    2000,
+                    3071,
+                    DistanceType::L2Expanded,
                     false,
                     uint64_t(31415926),
                     0.1,
@@ -348,31 +382,41 @@ TEST(Top1nnAutoSelection, LegacyHeuristic)
     Backend::Unfused);
 }
 
-TEST(Top1nnStableSelection, ExcludesCutile)
+TEST(Top1nnAccurateSelection, Tf32LabelsFromSixteenFeatures)
 {
   using Backend = cuvs::distance::detail::Top1nnBackend;
   raft::resources handle;
-  constexpr int m       = 32;
-  constexpr int n       = 32;
-  constexpr int k       = 4;
-  auto x                = raft::make_device_matrix<float, int>(handle, m, k);
-  auto y                = raft::make_device_matrix<float, int>(handle, n, k);
-  const auto plan       = cuvs::distance::probe_top_1_nn(handle,
-                                                   x.data_handle(),
-                                                   y.data_handle(),
-                                                   m,
-                                                   n,
-                                                   k,
-                                                   cuvs::distance::detail::Top1nnTuning{},
-                                                   DistanceType::L2Expanded,
-                                                   Backend::Stable);
+  constexpr int m = 32;
+  constexpr int n = 32;
+  auto x          = raft::make_device_matrix<float, int>(handle, m, 16);
+  auto y          = raft::make_device_matrix<float, int>(handle, n, 16);
+  auto probe      = [&](int k) {
+    return cuvs::distance::probe_top_1_nn(handle,
+                                          x.data_handle(),
+                                          y.data_handle(),
+                                          m,
+                                          n,
+                                          k,
+                                          cuvs::distance::detail::Top1nnTuning{},
+                                          DistanceType::L2Expanded,
+                                          Backend::Auto,
+                                          true,
+                                          true);
+  };
+  // Below 16 features: strict-FP32 labels from the legacy backend, then refined.
   const auto properties = raft::resource::get_device_properties(handle);
-  EXPECT_TRUE(plan.available);
-  EXPECT_EQ(plan.requested_backend, Backend::Stable);
-  EXPECT_EQ(plan.backend,
+  const auto small_k    = probe(4);
+  EXPECT_TRUE(small_k.available);
+  EXPECT_TRUE(small_k.refine);
+  EXPECT_FALSE(small_k.tf32_assignment);
+  EXPECT_EQ(small_k.backend,
             cuvs::distance::detail::legacy_top_1_nn_backend(
               properties.major, m, n, DistanceType::L2Expanded));
-  EXPECT_NE(plan.backend, Backend::Cutile);
+  // From 16 features: TF32 labels, then refined.
+  const auto large_k = probe(16);
+  EXPECT_TRUE(large_k.available);
+  EXPECT_TRUE(large_k.refine);
+  EXPECT_TRUE(large_k.tf32_assignment);
 }
 
 #if CUVS_CUTILE_ENABLED
@@ -443,6 +487,77 @@ TEST(Top1nnPlan, RejectsMismatchedLaunch)
                                                          DistanceType::L2Expanded,
                                                          0.0f,
                                                          plan)));
+}
+
+// Distinct points with equal norms and a small magnitude (as in a spectral embedding) must not be
+// treated as self-neighbors when finding the nearest neighbor.
+TEST(Top1nnEqualNorms, SmallScale)
+{
+  using Backend = cuvs::distance::detail::Top1nnBackend;
+  using Kvp     = raft::KeyValuePair<int, float>;
+  raft::resources handle;
+  auto stream       = raft::resource::get_cuda_stream(handle);
+  constexpr int m   = 1000;
+  constexpr int n   = 5;
+  constexpr int k   = 5;
+  constexpr float s = 1e-2f;
+  std::vector<float> h_x(m * k, 0.0f);
+  std::vector<float> h_y(n * k, 0.0f);
+  for (int i = 0; i < m; i++) {
+    h_x[i * k + i % n] = s;
+  }
+  for (int j = 0; j < n; j++) {
+    h_y[j * k + j] = s;
+  }
+  auto x      = raft::make_device_matrix<float, int>(handle, m, k);
+  auto y      = raft::make_device_matrix<float, int>(handle, n, k);
+  auto x_norm = raft::make_device_vector<float, int>(handle, m);
+  auto y_norm = raft::make_device_vector<float, int>(handle, n);
+  auto output = raft::make_device_vector<Kvp, int>(handle, m);
+  raft::update_device(x.data_handle(), h_x.data(), h_x.size(), stream.get());
+  raft::update_device(y.data_handle(), h_y.data(), h_y.size(), stream.get());
+  raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+    x_norm.data_handle(), x.data_handle(), k, m, stream.get());
+  raft::linalg::rowNorm<raft::linalg::L2Norm, true>(
+    y_norm.data_handle(), y.data_handle(), k, n, stream.get());
+
+  cuvs::distance::detail::Top1nnTuning tuning{};
+  for (auto backend : {Backend::Cutlass, Backend::Unfused}) {
+    if (!cuvs::distance::detail::is_top_1_nn_backend_available(
+          backend, x.data_handle(), y.data_handle(), m, n, k, DistanceType::L2Expanded)) {
+      continue;
+    }
+    const auto plan = cuvs::distance::probe_top_1_nn(
+      handle, x.data_handle(), y.data_handle(), m, n, k, tuning, DistanceType::L2Expanded, backend);
+    ASSERT_TRUE(plan.available);
+    auto workspace = raft::make_device_vector<char, int>(handle, plan.workspace_bytes);
+    cuvs::distance::top_1_nn<float, int>(handle,
+                                         output.data_handle(),
+                                         x.data_handle(),
+                                         y.data_handle(),
+                                         x_norm.data_handle(),
+                                         y_norm.data_handle(),
+                                         m,
+                                         n,
+                                         k,
+                                         tuning,
+                                         workspace.data_handle(),
+                                         workspace.size(),
+                                         false,
+                                         true,
+                                         true,
+                                         DistanceType::L2Expanded,
+                                         0.0f,
+                                         plan);
+    std::vector<Kvp> h_out(m);
+    raft::update_host(h_out.data(), output.data_handle(), m, stream.get());
+    raft::resource::sync_stream(handle, stream);
+    int n_wrong = 0;
+    for (int i = 0; i < m; i++) {
+      n_wrong += h_out[i].key != i % n;
+    }
+    EXPECT_EQ(n_wrong, 0) << "backend=" << static_cast<int>(backend);
+  }
 }
 
 TEST(Top1nnPlan, ExplicitUnavailableBackendIsStrict)
@@ -594,6 +709,24 @@ const std::vector<NNInputs<IdxT>> input_fp16_cutile = {
    uint64_t(31415926),
    0.1,
    cuvs::distance::detail::Top1nnBackend::Auto},
+  // High-dimensional tile, strict ABI, should be selected on all archs with a high-dim tile.
+  {64,
+   2000,
+   3072,
+   DistanceType::L2Expanded,
+   false,
+   uint64_t(31415926),
+   0.1,
+   cuvs::distance::detail::Top1nnBackend::Cutile},
+  // large K and N but falls into relaxed ABI tile
+  {64,
+   2000,
+   3071,
+   DistanceType::L2Expanded,
+   false,
+   uint64_t(31415926),
+   0.1,
+   cuvs::distance::detail::Top1nnBackend::Cutile},
 };
 
 using NNTest_fp16_fused = NNTest<half, float, int32_t, ImplType::fused>;

@@ -51,7 +51,10 @@ enum class DIST_COMP_DTYPE { AUTO = 0, FP32 = 1, FP16 = 2 };
  * that `intermediate_graph_degree` >= 1.5 * graph_degree
  * - `max_iterations`: The number of iterations that nn-descent will refine
  * the graph for. More iterations produce a better quality graph at cost of performance
- * - `termination_threshold`: The delta at which nn-descent will terminate its iterations
+ * - `termination_threshold`: NN-descent terminates when the number of graph updates in an
+ * iteration is less than `termination_threshold * internal_graph_degree * dataset_size`, where
+ * `internal_graph_degree` is the expanded and padded working degree derived from `graph_degree`.
+ * Set to `0.0` to disable early termination. Defaults to `0.001`.
  * - `return_distances`: Boolean to decide whether to return distances array
  * - `dist_comp_dtype`: dtype to use for distance computation. Defaults to `AUTO` which
  * automatically determines the best dtype for distance computation based on the dataset dimensions.
@@ -63,7 +66,7 @@ struct index_params : cuvs::neighbors::index_params {
   size_t graph_degree              = 64;
   size_t intermediate_graph_degree = 128;
   size_t max_iterations            = 20;
-  float termination_threshold      = 0.0001;
+  float termination_threshold      = 0.001;
   bool return_distances            = true;
   DIST_COMP_DTYPE dist_comp_dtype  = DIST_COMP_DTYPE::AUTO;
 

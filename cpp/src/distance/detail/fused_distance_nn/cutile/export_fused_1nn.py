@@ -147,7 +147,7 @@ def _kernel_signature(
     matrix = _cuvs_matrix_constraint(
         elem,
         index_dtype=idx_dtype,
-        require_tma_friendly_pitch=matrix_layout == "strict",
+        require_tma_friendly_pitch=matrix_layout in ("strict", "high_dim"),
         require_ldgsts_friendly_shape=(
             matrix_layout == "strict" and gpu_code in ("sm_80", "sm_86")
         ),
@@ -202,18 +202,10 @@ def export_binary(
     gpu_code: str,
     matrix_layout: str = "strict",
     occupancy: int | None = None,
+    num_ctas: int | None = None,
 ) -> str:
-    kernel = make_kernel(
-        data_type,
-        metric,
-        tile_m,
-        tile_n,
-        tile_k,
-        index_type=index_type,
-        gpu_code=gpu_code,
-        matrix_layout=matrix_layout,
-        occupancy=occupancy,
-    )
+    if matrix_layout == "high_dim" and (num_ctas is None or num_ctas <= 1):
+        raise ValueError("high_dim exports must specify num_ctas > 1")
     signature = _kernel_signature(
         data_type,
         metric,
@@ -225,13 +217,37 @@ def export_binary(
         matrix_layout,
     )
 
-    export_kernel(
-        kernel=kernel,
-        signatures=[signature],
-        output_file=str(output_file),
-        gpu_code=gpu_code,
-        output_format="cubin",
-    )
+    def export(mma_rounding: bool):
+        kernel = make_kernel(
+            data_type,
+            metric,
+            tile_m,
+            tile_n,
+            tile_k,
+            index_type=index_type,
+            gpu_code=gpu_code,
+            matrix_layout=matrix_layout,
+            occupancy=occupancy,
+            num_ctas=num_ctas,
+            mma_rounding=mma_rounding,
+        )
+        export_kernel(
+            kernel=kernel,
+            signatures=[signature],
+            output_file=str(output_file),
+            gpu_code=gpu_code,
+            output_format="cubin",
+        )
+
+    try:
+        export(mma_rounding=True)
+    except ct.TileUnsupportedFeatureError:
+        print(
+            f"{signature.symbol} ({gpu_code}): tileiras < 13.4, "
+            "using the default MMA operand rounding",
+            file=sys.stderr,
+        )
+        export(mma_rounding=False)
 
     return signature.symbol
 
@@ -253,10 +269,11 @@ def main() -> int:
     )
     parser.add_argument(
         "--matrix-layout",
-        choices=("strict", "relaxed"),
+        choices=("strict", "relaxed", "high_dim"),
         default="strict",
     )
     parser.add_argument("--occupancy", type=int)
+    parser.add_argument("--num-ctas", type=int)
     args = parser.parse_args()
 
     export_binary(
@@ -270,6 +287,7 @@ def main() -> int:
         gpu_code=args.gpu_code,
         matrix_layout=args.matrix_layout,
         occupancy=args.occupancy,
+        num_ctas=args.num_ctas,
     )
     return 0
 

@@ -165,16 +165,16 @@ import com.nvidia.cuvs.CuVSDeviceMatrix;
 long nRows = 100_000;
 long nFeatures = 128;
 
-try (CuVSResources resources = CuVSResources.create()) {
-  CuVSMatrix.Builder<CuVSDeviceMatrix> builder =
-      CuVSMatrix.deviceBuilder(
-          resources, nRows, nFeatures, CuVSMatrix.DataType.FLOAT);
-
+try (CuVSResources resources = CuVSResources.create();
+    CuVSMatrix.Builder<CuVSDeviceMatrix> builder =
+        CuVSMatrix.deviceBuilder(
+            resources, nRows, nFeatures, CuVSMatrix.DataType.FLOAT)) {
   for (long row = 0; row < nRows; row++) {
     builder.addVector(loadVector(row));
   }
 
-  try (CuVSMatrix dataset = builder.build()) {
+  // A successful build transfers matrix ownership from the builder.
+  try (CuVSDeviceMatrix dataset = builder.build()) {
     // Pass dataset to NVIDIA cuVS Java APIs.
   }
 }
