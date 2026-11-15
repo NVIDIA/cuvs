@@ -133,6 +133,7 @@ public class CagraIndexParamsFactory {
         .withNNDescentNumIterations(params.getNNDescentNumIterations())
         .withMetric(params.getCuvsDistanceType())
         .withNumWriterThreads(params.getNumWriterThreads())
+        .withGuaranteeConnectivity(params.isGuaranteeConnectivity())
         .build();
   }
 }

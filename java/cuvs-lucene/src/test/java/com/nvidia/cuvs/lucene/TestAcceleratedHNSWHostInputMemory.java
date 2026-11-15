@@ -64,7 +64,7 @@ public class TestAcceleratedHNSWHostInputMemory extends LuceneTestCase {
     return Arrays.asList(
         new Object[][] {
           {new Lucene99AcceleratedHNSWVectorsFormat(params), 128, 512},
-          {new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat(params), 128, 128},
+          {CuVSCodecs.acceleratedHNSWScalarQuantizedFormat(params), 128, 128},
           // 129 binary dimensions deliberately exercise the partial final byte.
           {new LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat(params), 129, 17}
         });
@@ -211,7 +211,7 @@ public class TestAcceleratedHNSWHostInputMemory extends LuceneTestCase {
   }
 
   /** Captures a baseline immediately before each synchronous codec operation. */
-  private static final class ObservedWriter extends KnnVectorsWriter {
+  private static final class ObservedWriter extends CompatKnnVectorsWriter {
     private final KnnVectorsWriter delegate;
     private final AccountingObserver observer;
     private final String segment;
@@ -244,8 +244,10 @@ public class TestAcceleratedHNSWHostInputMemory extends LuceneTestCase {
       observe(writer -> writer.flush(maxDoc, sortMap));
     }
 
+    // Calls mergeOneField, and drops what it returns on Lucene 10.5: the cuvs-lucene writers return
+    // no work for Lucene to run later.
     @Override
-    public void mergeOneField(FieldInfo info, MergeState state) throws IOException {
+    void doMergeOneField(FieldInfo info, MergeState state) throws IOException {
       observe(writer -> writer.mergeOneField(info, state));
     }
 

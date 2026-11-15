@@ -10,7 +10,7 @@ _Java package: `com.nvidia.cuvs.lucene`_
 public class AcceleratedHNSWUtils
 ```
 
-## Public Members
+## Public and Protected Members
 
 ### createSingleVectorHnswGraph
 
@@ -34,27 +34,6 @@ layer samples `max(2, floor(previousLayerSize / M))` nodes and is built with gra
 at most `M`. The value `M` is the ceiling of half the layer-0 graph degree.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:65`_
-
-### createMultiLayerHnswGraph
-
-```java
-static GPUBuiltHnswGraph createMultiLayerHnswGraph( int dimensions, CuVSMatrix adjacencyListMatrix, CuVSMatrix vectorDataset, int hnswLayers, CagraIndexParams params, QuantizationType quantization, int maxConn) throws Throwable
-```
-
-Creates a multi-layer HNSW graph from a native matrix without copying the complete dataset to
-the Java heap. The list view copies only rows selected for an upper layer.
-
-The upper layers are built with graph degree at most maxConn, the most neighbors HNSW holds
-per node above layer 0. Rows wider than that on an upper layer are read fine, but a CPU merge
-copies them into arrays of maxConn + 1 slots and fails with "No growth is allowed".
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `maxConn` | the HNSW maxConn the segment is written with |
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:222`_
 
 ### writeGraph
 
@@ -81,7 +60,7 @@ a 2D array of offsets
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:356`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:378`_
 
 ### writeMeta
 
@@ -114,7 +93,7 @@ than the maxConn of a CPU writer merging the segment, which makes that merge fai
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:424`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:446`_
 
 ### writeMeta
 
@@ -144,7 +123,7 @@ Writes the meta information for the index.
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:461`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:483`_
 
 ### printInfoStream
 
@@ -160,7 +139,7 @@ A utility method to print info/debugging messages using InfoStream.
 | --- | --- |
 | `msg` | the debugging message to print |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:548`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:568`_
 
 ### writeEmpty
 
@@ -185,7 +164,7 @@ overload that also takes maxConn.
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:562`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:582`_
 
 ### writeEmpty
 
@@ -208,7 +187,7 @@ Writes an empty meta information for the field.
 | --- | --- |
 | `IOException` | I/O Exceptions |
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:574`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:594`_
 
 ### quantizeFloatVectorsToBinary
 
@@ -231,7 +210,7 @@ Bits are packed: 8 dimensions per byte.
 
 A list of byte binary representation for the input vectors
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:588`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:608`_
 
 ### quantizeFloatVectorsToScalar
 
@@ -251,6 +230,6 @@ Scalar quantization to unsigned 7-bit values stored in Java bytes.
 
 A list of byte scalar representation for the input vectors
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:630`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:650`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/AcceleratedHNSWUtils.java:33`_
