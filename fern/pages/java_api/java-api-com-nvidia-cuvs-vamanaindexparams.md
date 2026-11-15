@@ -15,7 +15,7 @@ Supplemental parameters to build a Vamana index.
 The defaults match the native `cuvs::neighbors::vamana::index_params`
 defaults.
 
-## Public Members
+## Public and Protected Members
 
 ### supportedGraphDegrees
 

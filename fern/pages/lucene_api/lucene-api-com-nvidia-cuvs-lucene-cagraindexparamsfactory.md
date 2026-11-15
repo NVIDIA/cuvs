@@ -15,7 +15,7 @@ classes based on the chosen strategy.
 
 For the `HEURISTIC` strategy the build heuristics are delegated to cuVS.
 
-## Public Members
+## Public and Protected Members
 
 ### create
 
@@ -61,29 +61,6 @@ chosen strategy in the `AcceleratedHNSWParams`.
 
 an instance of `CagraIndexParams`
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:73`_
-
-### withMaxGraphDegree
-
-```java
-static CagraIndexParams withMaxGraphDegree(CagraIndexParams params, long maxGraphDegree)
-```
-
-Returns `params` with the graph degree lowered to `maxGraphDegree`, or the same
-`params` if its graph degree is not larger. The intermediate graph degree is kept, so
-it stays at least the graph degree, as CAGRA requires.
-
-**Parameters**
-
-| Name | Description |
-| --- | --- |
-| `params` | the parameters to copy |
-| `maxGraphDegree` | the largest graph degree to build |
-
-**Returns**
-
-parameters whose graph degree is at most `maxGraphDegree`
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:119`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:74`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/CagraIndexParamsFactory.java:17`_

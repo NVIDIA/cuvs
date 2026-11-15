@@ -4,11 +4,20 @@
  */
 package com.nvidia.cuvs.lucene;
 
+import java.io.IOException;
 import org.apache.lucene.codecs.Codec;
 import org.apache.lucene.codecs.KnnVectorsFormat;
+import org.apache.lucene.codecs.KnnVectorsWriter;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
+import org.apache.lucene.codecs.hnsw.FlatVectorsWriter;
 import org.apache.lucene.codecs.lucene101.Lucene101Codec;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter;
 import org.apache.lucene.codecs.lucene99.Lucene99ScalarQuantizedVectorsFormat;
+import org.apache.lucene.index.SegmentReadState;
+import org.apache.lucene.index.SegmentWriteState;
+import org.apache.lucene.search.TaskExecutor;
+import org.apache.lucene.store.IOContext;
+import org.apache.lucene.store.ReadAdvice;
 
 /**
  * The Lucene calls that differ between the Lucene releases cuvs-lucene supports, for Lucene 10.2.
@@ -24,14 +33,58 @@ final class LuceneCompat {
   static final int LUCENE_MAJOR = 10;
   static final int LUCENE_MINOR = 2;
 
+  // The codec generation that writes on this Lucene release: the version number of the Lucene
+  // codec that codecs of this generation wrap (Lucene101Codec). Codecs of other generations are
+  // read-only. Also a compile-time constant, for the same reason.
+  static final int CURRENT_CODEC_GENERATION = 101;
+
+  // The registered name of the scalar-quantized format that writes on this Lucene release, the one
+  // CuVSCodecs.acceleratedHNSWScalarQuantizedFormat returns. A constant, so that the formats can
+  // check it without creating one.
+  static final String SCALAR_QUANTIZED_FORMAT_NAME =
+      "Lucene99AcceleratedHNSWScalarQuantizedVectorsFormat";
+
   private LuceneCompat() {}
 
-  /** Returns Lucene 10.2's {@code Lucene101Codec}. */
+  /** Returns {@code context} with a hint that the file will be read sequentially. */
+  static IOContext sequentialReadContext(IOContext context) {
+    return context.withReadAdvice(ReadAdvice.SEQUENTIAL);
+  }
+
+  /**
+   * Returns {@code state} for opening the flat vectors under an HNSW graph, which searches read at
+   * random. Before Lucene 10.6 the flat format says so itself, so {@code state} is returned as is.
+   */
+  static SegmentReadState flatReadState(SegmentReadState state) {
+    return state;
+  }
+
+  /**
+   * Returns Lucene's HNSW writer, which builds the graph on the CPU, over {@code flatWriter}, which
+   * {@code flatFormat} created. {@code flatFormat} is unused before Lucene 10.5, which reads the
+   * vectors of a merged segment back with it.
+   */
+  static KnnVectorsWriter hnswVectorsWriter(
+      SegmentWriteState state,
+      int maxConn,
+      int beamWidth,
+      FlatVectorsFormat flatFormat,
+      FlatVectorsWriter flatWriter,
+      int numMergeWorkers,
+      TaskExecutor mergeExec)
+      throws IOException {
+    return new Lucene99HnswVectorsWriter(
+        state, maxConn, beamWidth, flatWriter, numMergeWorkers, mergeExec);
+  }
+
+  /** Returns {@code Lucene101Codec}, the default codec of Lucene 10.2. */
   static Codec lucene101Codec() {
     return new Lucene101Codec();
   }
 
-  /** Returns the flat format that stores the vectors of the scalar-quantized codecs. */
+  /**
+   * Returns the flat format that stores the vectors of the scalar-quantized codecs up to Lucene 10.3.
+   */
   static FlatVectorsFormat lucene99ScalarQuantizedFlatFormat() {
     return new Lucene99ScalarQuantizedVectorsFormat();
   }
