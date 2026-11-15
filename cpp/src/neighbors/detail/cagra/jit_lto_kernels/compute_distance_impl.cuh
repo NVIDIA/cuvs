@@ -101,33 +101,47 @@ RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_worker_impl(
   constexpr auto reg_nelem =
     raft::div_rounding_up_unsafe<uint32_t>(kDatasetBlockDim, kTeamSize * vlen);
 
+  constexpr uint32_t bytes_per_word        = sizeof(uint32_t);
+  constexpr uint32_t byte_offset_mask      = bytes_per_word - 1;
+  constexpr uint32_t identity_byte_order   = 0x3210u;
+  constexpr uint32_t repeat_selector_digit = 0x1111u;
+  static_assert(sizeof(DataT) == 1 && vlen % bytes_per_word == 0);
+
   DistanceT differing = 0;
   DistanceT set_union = 0;
   // Use the same vector loads and swizzled query layout as the standard distance fragment.
   for (uint32_t elem_offset = (threadIdx.x % kTeamSize) * vlen; elem_offset < dim;
        elem_offset += kDatasetBlockDim) {
-    DataT data[reg_nelem][vlen];
+    LoadT data[reg_nelem];
 #pragma unroll
     for (uint32_t e = 0; e < reg_nelem; e++) {
       const uint32_t k = e * (kTeamSize * vlen) + elem_offset;
       if (k >= dim) break;
-      device::ldg_cg(reinterpret_cast<LoadT&>(data[e]),
-                     reinterpret_cast<const LoadT*>(dataset_ptr + k));
+      device::ldg_cg(data[e], reinterpret_cast<const LoadT*>(dataset_ptr + k));
     }
 #pragma unroll
     for (uint32_t e = 0; e < reg_nelem; e++) {
       const uint32_t k = e * (kTeamSize * vlen) + elem_offset;
       if (k >= dim) break;
 #pragma unroll
-      for (uint32_t v = 0; v < vlen; v++) {
-        // Padding bytes are not features and must not contribute to the union.
+      for (uint32_t v = 0; v < vlen; v += bytes_per_word) {
         if (k + v >= dim) break;
-        uint8_t query_byte;
-        device::lds(query_byte,
-                    query_smem_ptr + device::swizzling<kDatasetBlockDim, vlen * kTeamSize>(k + v));
-        auto data_byte = static_cast<uint8_t>(data[e][v]);
-        differing += __popc(query_byte ^ data_byte);
-        set_union += __popc(query_byte | data_byte);
+        const auto query_offset = device::swizzling<kDatasetBlockDim, vlen * kTeamSize>(k + v);
+        uint32_t query_word;
+        device::lds(query_word, query_smem_ptr + (query_offset & ~byte_offset_mask));
+        // Undo swizzling within the word so query bytes match dataset bytes.
+        const auto byte_displacement = query_offset & byte_offset_mask;
+        const auto byte_order = identity_byte_order ^ (byte_displacement * repeat_selector_digit);
+        query_word            = __byte_perm(query_word, 0, byte_order);
+        auto data_word        = reinterpret_cast<const uint32_t*>(&data[e])[v / bytes_per_word];
+        // Padding bytes are not features and must not contribute to either count.
+        if (dim - (k + v) < bytes_per_word) {
+          const auto mask = (uint32_t{1} << (8 * (dim - (k + v)))) - 1;
+          query_word &= mask;
+          data_word &= mask;
+        }
+        differing += __popc(query_word ^ data_word);
+        set_union += __popc(query_word | data_word);
       }
     }
   }

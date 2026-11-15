@@ -74,7 +74,7 @@ TYPED_TEST(CagraJaccardTest, SearchCompleteGraph)
   constexpr int64_t rows          = 64;
   constexpr int64_t queries_count = 5;
   constexpr int64_t k             = 32;
-  for (int64_t dim : {1, 17, 65, 129, 257, 513, 1031}) {
+  for (int64_t dim : {1, 2, 3, 4, 17, 33, 34, 35, 36, 65, 129, 257, 513, 1031}) {
     SCOPED_TRACE(dim);
     auto data = packed_binary_data<T>(rows, dim);
     auto padded =
