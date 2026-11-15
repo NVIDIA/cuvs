@@ -1,0 +1,10 @@
+{
+  "metric": "cosine",
+  "k": 10,
+  "recall_at_k_min": 0.95,
+  "production_vectors": 80000000,
+  "production_dimensions": 384,
+  "gpu_memory_budget_gb": 80.0,
+  "gpu_memory_headroom_fraction": 0.8,
+  "latency_target_p95_ms": 35.0
+}

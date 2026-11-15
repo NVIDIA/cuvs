@@ -1,0 +1,10 @@
+{
+  "n_vectors": 80000,
+  "dimensions": 1024,
+  "query_batch_size": 4096,
+  "k": 10,
+  "exact_neighbors_required": false,
+  "recall_at_k_min": 0.95,
+  "gpu_available": true,
+  "smoke_queries": 16
+}

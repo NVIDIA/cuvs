@@ -1,0 +1,9 @@
+{
+  "n_vectors": 20000,
+  "dimensions": 128,
+  "query_batch_size": 4,
+  "k": 10,
+  "exact_neighbors_required": true,
+  "gpu_available": true,
+  "measured_exact_cpu_ms": 3.2
+}
