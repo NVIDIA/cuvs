@@ -54,7 +54,7 @@ import org.apache.lucene.util.InfoStream;
  *
  * @since 26.02
  */
-public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVectorsWriter {
+public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends CompatKnnVectorsWriter {
 
   private static final long SHALLOW_RAM_BYTES_USED =
       shallowSizeOfInstance(LuceneAcceleratedHNSWScalarQuantizedVectorsWriter.class);
@@ -233,6 +233,10 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
   @Override
   public void flush(int maxDoc, DocMap sortMap) throws IOException {
     flatVectorsWriter.flush(maxDoc, sortMap);
+    // Since Lucene 10.4, the scalar-quantized flat writer normalizes the buffered vectors of COSINE
+    // fields in place when it flushes, so a flush builds their graph from normalized vectors and a
+    // merge from the vectors as indexed. Both are built with the configured cuVS distance, which
+    // does not depend on the field's similarity yet.
     for (var field : fields) {
       if (sortMap == null) {
         writeField(field);
@@ -311,11 +315,9 @@ public class LuceneAcceleratedHNSWScalarQuantizedVectorsWriter extends KnnVector
     }
   }
 
-  /**
-   * Write field for merging.
-   */
+  /** Merges one field, building its graph from the merged vectors. */
   @Override
-  public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
+  void doMergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     flatVectorsWriter.mergeOneField(fieldInfo, mergeState);
     vectorBasedMerge(fieldInfo, mergeState);
   }

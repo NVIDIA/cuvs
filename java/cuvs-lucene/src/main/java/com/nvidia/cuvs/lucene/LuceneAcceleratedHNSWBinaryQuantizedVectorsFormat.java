@@ -17,7 +17,6 @@ import org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer;
 import org.apache.lucene.codecs.hnsw.FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99FlatVectorsFormat;
 import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
-import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsWriter;
 import org.apache.lucene.index.SegmentReadState;
 import org.apache.lucene.index.SegmentWriteState;
 import org.apache.lucene.search.TaskExecutor;
@@ -77,10 +76,11 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
       log.log(
           Level.WARNING,
           "GPU based indexing not supported, falling back to using the Lucene99HnswVectorsWriter");
-      return new Lucene99HnswVectorsWriter(
+      return LuceneCompat.hnswVectorsWriter(
           state,
           acceleratedHNSWParams.getMaxConn(),
           acceleratedHNSWParams.getBeamWidth(),
+          FLAT_VECTORS_FORMAT,
           flatWriter,
           acceleratedHNSWParams.getNumMergeWorkers(),
           new TaskExecutor(acceleratedHNSWParams.getMergeExec()));
@@ -93,7 +93,8 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     LuceneVersionGuard.ensureCompatible();
-    return new Lucene99HnswVectorsReader(state, FLAT_VECTORS_FORMAT.fieldsReader(state));
+    return new Lucene99HnswVectorsReader(
+        state, FLAT_VECTORS_FORMAT.fieldsReader(LuceneCompat.flatReadState(state)));
   }
 
   /**

@@ -34,9 +34,16 @@ export PATH
 
 if [[ $(command -v jextract) == "" ]];
 then
+  # Checksums are published at ${JEXTRACT_DOWNLOAD_URL}.sha256
   case "${ARCH}" in
-    x86_64) JEXTRACT_ARCH="linux-x64" ;;
-    aarch64) JEXTRACT_ARCH="linux-aarch64" ;;
+    x86_64)
+      JEXTRACT_ARCH="linux-x64"
+      JEXTRACT_SHA256="a6a42d5b5f4bff119455daadd1ccec9389b2554aea3342f391577843769cc7ec"
+      ;;
+    aarch64)
+      JEXTRACT_ARCH="linux-aarch64"
+      JEXTRACT_SHA256="e218579a43dd1cb77e94cdbfa5b7b30eaed682aef8f40300c9916e59b1194fa7"
+      ;;
     *)
       echo "Unsupported architecture for jextract download: ${ARCH}"
       exit 1
@@ -45,7 +52,18 @@ then
   JEXTRACT_FILENAME="openjdk-22-jextract+6-47_${JEXTRACT_ARCH}_bin.tar.gz"
   JEXTRACT_DOWNLOAD_URL="https://download.java.net/java/early_access/jextract/22/6/${JEXTRACT_FILENAME}"
   echo "jextract doesn't exist. Downloading it from $JEXTRACT_DOWNLOAD_URL.";
-  wget -c $JEXTRACT_DOWNLOAD_URL
+  for attempt in 1 2 3 4 5; do
+    rm -f "${JEXTRACT_FILENAME}"
+    if wget --tries=1 --timeout=60 -O "${JEXTRACT_FILENAME}" "${JEXTRACT_DOWNLOAD_URL}" \
+      && echo "${JEXTRACT_SHA256}  ${JEXTRACT_FILENAME}" | sha256sum -c -; then
+      break
+    elif [[ ${attempt} == 5 ]]; then
+      rm -f "${JEXTRACT_FILENAME}"
+      echo "Failed to download jextract after ${attempt} attempts."
+      exit 1
+    fi
+    sleep $((attempt * 15))
+  done
   tar -xvf ./"${JEXTRACT_FILENAME}"
   echo "jextract downloaded to $(pwd)/jextract-22"
 fi

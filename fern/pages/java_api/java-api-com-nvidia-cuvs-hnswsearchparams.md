@@ -20,7 +20,7 @@ parameters for HNSW index.
 | `ef` | the ef value |
 | `numThreads` | the number of threads |
 
-## Public Members
+## Public and Protected Members
 
 ### Builder
 

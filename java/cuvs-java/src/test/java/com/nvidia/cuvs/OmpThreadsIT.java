@@ -73,7 +73,7 @@ public class OmpThreadsIT extends CuVSTestCase {
     try (var resources = CheckedCuVSResources.create();
         var dataset = CuVSMatrix.ofArray(createFloatMatrix(2000, 32))) {
       try (var index =
-          CagraIndex.newBuilder(resources).withDataset(dataset).withIndexParams(params).build()) {
+          CagraIndex.newBuilder(resources).fromDataset(dataset).withIndexParams(params).build()) {
         assertEquals(BASELINE, ompMaxThreads());
       }
     }
@@ -83,7 +83,7 @@ public class OmpThreadsIT extends CuVSTestCase {
   public void testCagraBuildWithoutParamsLeavesOmpThreads() throws Throwable {
     try (var resources = CheckedCuVSResources.create();
         var dataset = CuVSMatrix.ofArray(createFloatMatrix(2000, 32))) {
-      try (var index = CagraIndex.newBuilder(resources).withDataset(dataset).build()) {
+      try (var index = CagraIndex.newBuilder(resources).fromDataset(dataset).build()) {
         assertEquals(BASELINE, ompMaxThreads());
       }
     }
@@ -100,10 +100,10 @@ public class OmpThreadsIT extends CuVSTestCase {
         var dataset1 = CuVSMatrix.ofArray(createFloatMatrix(2000, 32)).toDevice(resources);
         var dataset2 = CuVSMatrix.ofArray(createFloatMatrix(2000, 32)).toDevice(resources);
         var index1 =
-            CagraIndex.newBuilder(resources).withDataset(dataset1).withIndexParams(params).build();
+            CagraIndex.newBuilder(resources).fromDataset(dataset1).withIndexParams(params).build();
         var index2 =
             CagraIndex.newBuilder(resources)
-                .withDataset(dataset2)
+                .fromDataset(dataset2)
                 .withIndexParams(params)
                 .build()) {
       setOmpThreads(BASELINE);
