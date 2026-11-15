@@ -15,6 +15,7 @@
 #include "../device_memory_ops.hpp"
 
 #include <raft/util/integer_utils.hpp>
+#include <raft/util/warp_primitives.cuh>
 #include <type_traits>
 
 namespace cuvs::neighbors::cagra::detail {
@@ -107,8 +108,8 @@ RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_worker_impl(
   constexpr uint32_t repeat_selector_digit = 0x1111u;
   static_assert(sizeof(DataT) == 1 && vlen % bytes_per_word == 0);
 
-  DistanceT differing = 0;
-  DistanceT set_union = 0;
+  uint32_t differing = 0;
+  uint32_t set_union = 0;
   // Use the same vector loads and swizzled query layout as the standard distance fragment.
   for (uint32_t elem_offset = (threadIdx.x % kTeamSize) * vlen; elem_offset < dim;
        elem_offset += kDatasetBlockDim) {
@@ -148,14 +149,14 @@ RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_worker_impl(
 
   // Calls may be conditional on candidate validity. All lanes of this team participate,
   // while other teams in the warp may be inactive.
-  const auto team_lane = (threadIdx.x % 32) / kTeamSize * kTeamSize;
-  const auto mask      = (0xffffffffu >> (32 - kTeamSize)) << team_lane;
+  const auto team_lane = (threadIdx.x % raft::WarpSize) / kTeamSize * kTeamSize;
+  const auto mask      = (0xffffffffu >> (raft::WarpSize - kTeamSize)) << team_lane;
 #pragma unroll
   for (uint32_t offset = kTeamSize / 2; offset > 0; offset /= 2) {
-    differing += __shfl_xor_sync(mask, differing, offset, kTeamSize);
-    set_union += __shfl_xor_sync(mask, set_union, offset, kTeamSize);
+    differing += raft::shfl_xor(differing, offset, kTeamSize, mask);
+    set_union += raft::shfl_xor(set_union, offset, kTeamSize, mask);
   }
-  auto distance = set_union > 0 ? differing / set_union : DistanceT(0);
+  auto distance = set_union > 0 ? DistanceT(differing) / DistanceT(set_union) : DistanceT(0);
   // The search kernels sum per-thread contributions after this call.
   return distance / DistanceT(kTeamSize);
 }
