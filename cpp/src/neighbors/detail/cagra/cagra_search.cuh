@@ -239,7 +239,7 @@ void search_main(raft::resources const& res,
       params.smem_dtype = cuvs::neighbors::cagra::internal_dtype::F16;
     }
     auto desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
-      res, params, vv.dset(), index.metric(), nullptr);
+      res, params, vv, index.metric(), nullptr);
     search_main_core<T, graph_idx_type, DistanceT, CagraSampleFilterT, IdxT, OutputIdxT>(
       res,
       params,
@@ -252,8 +252,9 @@ void search_main(raft::resources const& res,
       query_logical_dim,
       sample_filter);
   } else if constexpr (cuvs::neighbors::is_device_standard_dataset_view_v<DatasetViewT>) {
+    auto const stride = index.dataset().data_const_view().stride(0);
     RAFT_EXPECTS(
-      cuvs::neighbors::matrix_row_width_matches_cagra_required(index.dataset().view()),
+      cuvs::neighbors::cagra_required_row_width<T>(stride) == stride,
       "CAGRA search requires each dataset row to have the CAGRA-aligned stride. Create a padded "
       "dataset with make_device_padded_dataset() and attach it with cagra::update_dataset().");
     run_strided_like(index.dataset());
