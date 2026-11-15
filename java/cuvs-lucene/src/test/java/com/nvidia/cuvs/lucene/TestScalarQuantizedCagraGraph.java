@@ -69,7 +69,7 @@ public class TestScalarQuantizedCagraGraph extends LuceneTestCase {
         new IndexWriterConfig()
             .setCodec(
                 TestUtil.alwaysKnnVectorsFormat(
-                    new LuceneAcceleratedHNSWScalarQuantizedVectorsFormat(params)))
+                    CuVSCodecs.acceleratedHNSWScalarQuantizedFormat(params)))
             .setMergePolicy(NoMergePolicy.INSTANCE)
             .setMergeScheduler(new SerialMergeScheduler())
             .setMaxBufferedDocs(maxBufferedDocsWithoutAutomaticFlush)

@@ -10,8 +10,8 @@ import org.apache.lucene.codecs.Codec;
  * cuVS based codec for GPU based vector search that enables both - indexing and search on the GPU.
  * cuVS serialization formats are in experimental phase and hence backward compatibility cannot be guaranteed.
  *
- * <p>This codec wraps {@code Lucene101Codec}, the default codec of Lucene 10.2. {@link CuVSCodecs#gpuSearch}
- * returns the codec of this family for the Lucene release in use.
+ * <p>This codec wraps {@code Lucene101Codec}, the default codec of Lucene 10.2. On later Lucene
+ * releases it can only read existing indexes; use {@link CuVSCodecs#gpuSearch} to write.
  *
  * @since 25.10
  */
@@ -56,7 +56,8 @@ public class CuVS2510GPUSearchCodec extends CuVSFilterCodec {
   public CuVS2510GPUSearchCodec(GPUSearchParams params, FilterBitsetCacheConfig filterCacheConfig) {
     super(
         NAME,
-        delegate(NAME, () -> LuceneCompat.lucene101Codec()),
+        101,
+        () -> LuceneCompat.lucene101Codec(),
         () -> new CuVS2510GPUVectorsFormat(params, filterCacheConfig));
   }
 
