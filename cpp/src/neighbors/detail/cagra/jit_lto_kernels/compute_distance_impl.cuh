@@ -106,7 +106,7 @@ RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_worker_impl(
   constexpr uint32_t byte_offset_mask      = bytes_per_word - 1;
   constexpr uint32_t identity_byte_order   = 0x3210u;
   constexpr uint32_t repeat_selector_digit = 0x1111u;
-  static_assert(sizeof(DataT) == 1 && vlen % bytes_per_word == 0);
+  static_assert(std::is_same_v<DataT, uint8_t> && vlen % bytes_per_word == 0);
 
   uint32_t differing = 0;
   uint32_t set_union = 0;
@@ -360,8 +360,7 @@ __device__ DistanceT compute_distance_impl(
 {
   if constexpr (IsJaccard) {
     static_assert(PQ_BITS == 0 && PQ_LEN == 0 && std::is_same_v<CodebookT, void> &&
-                    (std::is_same_v<DataT, int8_t> || std::is_same_v<DataT, uint8_t>) &&
-                    std::is_same_v<QueryT, uint8_t>,
+                    std::is_same_v<DataT, uint8_t> && std::is_same_v<QueryT, uint8_t>,
                   "BitwiseJaccard requires a standard packed-byte descriptor");
     using desc_t =
       standard_dataset_descriptor_t<TeamSize, DatasetBlockDim, DataT, IndexT, DistanceT, QueryT>;

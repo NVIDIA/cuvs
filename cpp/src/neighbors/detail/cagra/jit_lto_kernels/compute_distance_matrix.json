@@ -256,10 +256,6 @@
       {
         "data_type": "uint8_t",
         "data_abbrev": "u8"
-      },
-      {
-        "data_type": "int8_t",
-        "data_abbrev": "i8"
       }
     ],
     "index_type": "uint32_t",

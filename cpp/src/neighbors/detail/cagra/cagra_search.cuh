@@ -42,6 +42,32 @@
 // All includes are done before opening namespace to avoid nested namespace issues
 namespace cuvs::neighbors::cagra::detail {
 
+// Reinterpret packed signed bytes before descriptor and JIT selection; no storage is copied.
+template <typename SearchT, typename DatasetViewT>
+auto dataset_for_search(DatasetViewT const& dataset)
+{
+  auto view   = dataset.data_const_view();
+  using DataT = std::remove_const_t<typename decltype(view)::element_type>;
+  if constexpr (std::is_same_v<DataT, SearchT>) {
+    return dataset;
+  } else {
+    static_assert(std::is_same_v<DataT, int8_t> && std::is_same_v<SearchT, uint8_t>);
+    return cuvs::neighbors::detail::make_dense_view<
+      cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t>>(
+      reinterpret_cast<const uint8_t*>(view.data_handle()),
+      dataset.n_rows(),
+      dataset.dim(),
+      view.stride(0));
+  }
+}
+
+inline auto unsigned_query_view(
+  raft::device_matrix_view<const int8_t, int64_t, raft::row_major> queries)
+{
+  return raft::make_device_matrix_view<const uint8_t, int64_t>(
+    reinterpret_cast<const uint8_t*>(queries.data_handle()), queries.extent(0), queries.extent(1));
+}
+
 template <typename DataT,
           typename IndexT,
           typename DistanceT,
@@ -228,19 +254,30 @@ void search_main(raft::resources const& res,
     if (index.metric() == cuvs::distance::DistanceType::CosineExpanded) {
       dataset_norms_ptr = index.dataset_norms().value().data_handle();
     }
-    auto desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
-      res, params, row_dataset, index.metric(), dataset_norms_ptr);
-    search_main_core<T, graph_idx_type, DistanceT, CagraSampleFilterT, IdxT, OutputIdxT>(
-      res,
-      params,
-      desc,
-      index.graph(),
-      index.source_indices(),
-      queries,
-      neighbors,
-      distances,
-      query_logical_dim,
-      sample_filter);
+    auto run_search =
+      [&]<typename SearchT>(
+        raft::device_matrix_view<const SearchT, int64_t, raft::row_major> search_queries) {
+        auto desc = dataset_descriptor_init_with_cache<SearchT, graph_idx_type, DistanceT>(
+          res, params, dataset_for_search<SearchT>(row_dataset), index.metric(), dataset_norms_ptr);
+        search_main_core<SearchT, graph_idx_type, DistanceT, CagraSampleFilterT, IdxT, OutputIdxT>(
+          res,
+          params,
+          desc,
+          index.graph(),
+          index.source_indices(),
+          search_queries,
+          neighbors,
+          distances,
+          query_logical_dim,
+          sample_filter);
+      };
+    if constexpr (std::is_same_v<T, int8_t>) {
+      if (index.metric() == cuvs::distance::DistanceType::BitwiseJaccard) {
+        run_search(unsigned_query_view(queries));
+        return;
+      }
+    }
+    run_search(queries);
   };
 
   if constexpr (cuvs::neighbors::is_empty_dataset_view_v<DatasetViewT>) {
@@ -353,12 +390,13 @@ template <typename T,
           typename OutputIdxT         = uint32_t,
           typename IdxT               = uint32_t,
           typename DistanceT          = float,
-          typename CagraSampleFilterT = cuvs::neighbors::filtering::none_sample_filter>
-void search_multi_partition(
+          typename CagraSampleFilterT = cuvs::neighbors::filtering::none_sample_filter,
+          typename SearchT            = T>
+void search_multi_partition_impl(
   raft::resources const& res,
   search_params params,
   const std::vector<const index<T, IdxT>*>& indices,
-  raft::device_matrix_view<const T, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<const SearchT, int64_t, raft::row_major> queries,
   raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
   raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,
   raft::device_matrix_view<DistanceT, int64_t, raft::row_major> distances,
@@ -445,8 +483,8 @@ void search_multi_partition(
   if (metric == cuvs::distance::DistanceType::CosineExpanded) {
     dataset_norms_ptr0 = indices[0]->dataset_norms().value().data_handle();
   }
-  auto plan_desc = dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
-    res, params, indices[0]->dataset(), metric, dataset_norms_ptr0);
+  auto plan_desc = dataset_descriptor_init_with_cache<SearchT, graph_idx_type, DistanceT>(
+    res, params, dataset_for_search<SearchT>(indices[0]->dataset()), metric, dataset_norms_ptr0);
 
   cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
 
@@ -462,7 +500,7 @@ void search_multi_partition(
   RAFT_EXPECTS(partition_bitsets.empty() || partition_bitsets.size() == num_partitions,
                "partition_bitsets must be empty (unfiltered) or have one entry per partition");
 
-  constexpr float kScale = cuvs::spatial::knn::detail::utils::config<T>::kDivisor /
+  constexpr float kScale = cuvs::spatial::knn::detail::utils::config<SearchT>::kDivisor /
                            cuvs::spatial::knn::detail::utils::config<DistanceT>::kDivisor;
 
   // Number of candidates each partition contributes to the cross-partition merge below.
@@ -528,7 +566,7 @@ void search_multi_partition(
         raft::compose_op(raft::sq_op{}, cuvs::spatial::knn::detail::utils::mapping<DistanceT>{});
       raft::linalg::reduce<raft::Apply::ALONG_ROWS>(
         res,
-        raft::make_device_matrix_view<const T, int64_t, raft::row_major>(
+        raft::make_device_matrix_view<const SearchT, int64_t, raft::row_major>(
           queries.data_handle() + static_cast<size_t>(qid) * dim, chunk_queries, dim),
         chunk_query_norms,
         (DistanceT)0,
@@ -651,9 +689,13 @@ void search_multi_partition(
   };
 
   if (params.algo == search_algo::SINGLE_CTA) {
-    single_cta_search::
-      search<T, graph_idx_type, DistanceT, CagraSampleFilterT_s, graph_idx_type, graph_idx_type>
-        plan(res, params, plan_desc, dim, max_dataset_size, graph_degree, topk);
+    single_cta_search::search<SearchT,
+                              graph_idx_type,
+                              DistanceT,
+                              CagraSampleFilterT_s,
+                              graph_idx_type,
+                              graph_idx_type>
+      plan(res, params, plan_desc, dim, max_dataset_size, graph_degree, topk);
 
     RAFT_EXPECTS(topk <= plan.itopk_size,
                  "topk = %u must be smaller than itopk_size = %lu",
@@ -668,11 +710,12 @@ void search_multi_partition(
     // Build per-partition descriptors on the host (partition-dependent and query-independent, so
     // built once and reused across chunks). Queries and result buffers are passed to the kernel
     // as separate per-chunk parameters.
-    using part_desc_t    = single_cta_search::multi_partition_desc_t<T, graph_idx_type, DistanceT>;
+    using part_desc_t =
+      single_cta_search::multi_partition_desc_t<SearchT, graph_idx_type, DistanceT>;
     auto host_part_descs = raft::make_host_vector<part_desc_t>(res, num_partitions);
 
     // Collect per-partition dataset descriptors (may trigger lazy device init on `stream`).
-    std::vector<dataset_descriptor_host<T, graph_idx_type, DistanceT>> part_dataset_descs;
+    std::vector<dataset_descriptor_host<SearchT, graph_idx_type, DistanceT>> part_dataset_descs;
     part_dataset_descs.reserve(num_partitions);
 
     for (uint32_t i = 0; i < num_partitions; i++) {
@@ -683,8 +726,13 @@ void search_multi_partition(
                      i);
         norms_ptr = indices[i]->dataset_norms().value().data_handle();
       }
-      part_dataset_descs.push_back(dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
-        res, params, indices[i]->dataset(), indices[i]->metric(), norms_ptr));
+      part_dataset_descs.push_back(
+        dataset_descriptor_init_with_cache<SearchT, graph_idx_type, DistanceT>(
+          res,
+          params,
+          dataset_for_search<SearchT>(indices[i]->dataset()),
+          indices[i]->metric(),
+          norms_ptr));
 
       host_part_descs(i).dataset_desc = part_dataset_descs.back().dev_ptr(stream);
       host_part_descs(i).graph        = indices[i]->graph().data_handle();
@@ -733,9 +781,13 @@ void search_multi_partition(
       merge_chunk(qid, chunk_queries);
     }
   } else /* MULTI_CTA */ {
-    multi_cta_search::
-      search<T, graph_idx_type, DistanceT, CagraSampleFilterT_s, graph_idx_type, graph_idx_type>
-        plan(res, params, plan_desc, dim, max_dataset_size, graph_degree, topk);
+    multi_cta_search::search<SearchT,
+                             graph_idx_type,
+                             DistanceT,
+                             CagraSampleFilterT_s,
+                             graph_idx_type,
+                             graph_idx_type>
+      plan(res, params, plan_desc, dim, max_dataset_size, graph_degree, topk);
 
     // MULTI_CTA splits the global itopk pool across num_cta_per_query CTAs of 32 candidates
     // each. The kernel emits all num_cta_per_query * itopk_size candidates per (query,
@@ -746,10 +798,11 @@ void search_multi_partition(
       static_cast<size_t>(num_partitions) * max_queries * per_partition_topk;
     allocate_workspace(chunk_capacity);
 
-    using part_desc_t    = multi_cta_search::multi_partition_desc_t<T, graph_idx_type, DistanceT>;
+    using part_desc_t =
+      multi_cta_search::multi_partition_desc_t<SearchT, graph_idx_type, DistanceT>;
     auto host_part_descs = raft::make_host_vector<part_desc_t>(res, num_partitions);
 
-    std::vector<dataset_descriptor_host<T, graph_idx_type, DistanceT>> part_dataset_descs;
+    std::vector<dataset_descriptor_host<SearchT, graph_idx_type, DistanceT>> part_dataset_descs;
     part_dataset_descs.reserve(num_partitions);
 
     for (uint32_t i = 0; i < num_partitions; i++) {
@@ -760,8 +813,13 @@ void search_multi_partition(
                      i);
         norms_ptr = indices[i]->dataset_norms().value().data_handle();
       }
-      part_dataset_descs.push_back(dataset_descriptor_init_with_cache<T, graph_idx_type, DistanceT>(
-        res, params, indices[i]->dataset(), indices[i]->metric(), norms_ptr));
+      part_dataset_descs.push_back(
+        dataset_descriptor_init_with_cache<SearchT, graph_idx_type, DistanceT>(
+          res,
+          params,
+          dataset_for_search<SearchT>(indices[i]->dataset()),
+          indices[i]->metric(),
+          norms_ptr));
 
       host_part_descs(i).dataset_desc = part_dataset_descs.back().dev_ptr(stream);
       host_part_descs(i).graph        = indices[i]->graph().data_handle();
@@ -810,6 +868,48 @@ void search_multi_partition(
       merge_chunk(qid, chunk_queries);
     }
   }
+}
+
+template <typename T,
+          typename OutputIdxT         = uint32_t,
+          typename IdxT               = uint32_t,
+          typename DistanceT          = float,
+          typename CagraSampleFilterT = cuvs::neighbors::filtering::none_sample_filter>
+void search_multi_partition(
+  raft::resources const& res,
+  search_params params,
+  const std::vector<const index<T, IdxT>*>& indices,
+  raft::device_matrix_view<const T, int64_t, raft::row_major> queries,
+  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
+  raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,
+  raft::device_matrix_view<DistanceT, int64_t, raft::row_major> distances,
+  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets,
+  CagraSampleFilterT sample_filter = CagraSampleFilterT{})
+{
+  if constexpr (std::is_same_v<T, int8_t>) {
+    if (!indices.empty() && indices[0]->metric() == cuvs::distance::DistanceType::BitwiseJaccard) {
+      search_multi_partition_impl<T, OutputIdxT, IdxT, DistanceT, CagraSampleFilterT, uint8_t>(
+        res,
+        params,
+        indices,
+        unsigned_query_view(queries),
+        partition_ids,
+        neighbors,
+        distances,
+        partition_bitsets,
+        sample_filter);
+      return;
+    }
+  }
+  search_multi_partition_impl<T, OutputIdxT, IdxT, DistanceT, CagraSampleFilterT>(res,
+                                                                                  params,
+                                                                                  indices,
+                                                                                  queries,
+                                                                                  partition_ids,
+                                                                                  neighbors,
+                                                                                  distances,
+                                                                                  partition_bitsets,
+                                                                                  sample_filter);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

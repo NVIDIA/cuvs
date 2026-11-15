@@ -80,11 +80,10 @@ template <typename DataTag>
 using query_type_tag_standard_hamming_t =
   query_type_tag_standard_t<DataTag, cuvs::distance::DistanceType::BitwiseHamming>;
 
-// Packed Jaccard uses unsigned-byte queries for both signed and unsigned byte data.
+// Packed Jaccard search uses unsigned bytes after adapting signed input views.
 template <typename DataTag>
 using query_type_tag_standard_jaccard_t =
-  std::conditional_t<std::is_same_v<DataTag, cuvs::neighbors::detail::tag_u8> ||
-                       std::is_same_v<DataTag, cuvs::neighbors::detail::tag_i8>,
+  std::conditional_t<std::is_same_v<DataTag, cuvs::neighbors::detail::tag_u8>,
                      cuvs::neighbors::detail::tag_u8,
                      cuvs::neighbors::detail::tag_f>;
 
