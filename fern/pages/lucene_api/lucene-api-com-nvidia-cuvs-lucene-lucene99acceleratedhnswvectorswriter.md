@@ -13,7 +13,7 @@ public class Lucene99AcceleratedHNSWVectorsWriter extends KnnVectorsWriter
 This class extends upon the KnnVectorsWriter to
 enable the creation of GPU-based accelerated HNSW based vector search.
 
-## Public Members
+## Public and Protected Members
 
 ### Lucene99AcceleratedHNSWVectorsWriter
 
@@ -59,16 +59,6 @@ Build the indexes and writes it to the disk.
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:224`_
 
-### mergeOneField
-
-```java
-@Override public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
-```
-
-Write field for merging.
-
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:383`_
-
 ### finish
 
 ```java
@@ -77,7 +67,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 
 Called once at the end before close.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:392`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:390`_
 
 ### close
 
@@ -87,7 +77,7 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 
 Closes the resources.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:412`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:410`_
 
 ### ramBytesUsed
 
@@ -97,6 +87,18 @@ _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99Accelera
 
 Returns the memory usage of this object in bytes.
 
-_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:422`_
+_Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:420`_
+
+### mergeOneField
+
+```java
+@Override public IORunnable mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException
+```
+
+Merges one field, building its index as it does, and returns `null`: nothing is left
+for Lucene to run once every field has been merged. On Lucene 10.2 to 10.4, it returns nothing
+(`void`).
+
+_Source: `java/cuvs-lucene/compat/knn-vectors-writer-105-iorunnable/src/main/java/com/nvidia/cuvs/lucene/CompatKnnVectorsWriter.java:29`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/Lucene99AcceleratedHNSWVectorsWriter.java:56`_

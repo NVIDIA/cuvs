@@ -31,6 +31,7 @@ CUVS_INSTANTIATE_TOP_1_NN_WORKSPACE_SIZE(half, int64_t);
     const detail::Top1nnTuning&,                                             \
     DistanceType,                                                            \
     detail::Top1nnBackend,                                                   \
+    bool,                                                                    \
     bool)
 
 CUVS_INSTANTIATE_PROBE_TOP_1_NN(float, int);
