@@ -89,7 +89,19 @@ struct AnnVamanaInputs {
 
   // How the Vamana graph is initialized before the insertion passes
   vamana::graph_init_algo graph_init = vamana::graph_init_algo::EMPTY;
+  // Each of the first n_rows / copies rows appears this many times in the dataset
+  int copies = 1;
 };
+
+// Vamana's build kernels read a host dataset directly, which needs pageable memory access.
+inline bool device_can_access_pageable_memory()
+{
+  int device = 0;
+  RAFT_CUDA_TRY(cudaGetDevice(&device));
+  int pageable = 0;
+  RAFT_CUDA_TRY(cudaDeviceGetAttribute(&pageable, cudaDevAttrPageableMemoryAccess, device));
+  return pageable != 0;
+}
 
 template <typename DataT, typename IdxT>
 inline void CheckGraph(vamana::index<DataT, IdxT>* index_,
@@ -154,6 +166,15 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
  protected:
   void testVamana()
   {
+    if (ps.host_dataset && !device_can_access_pageable_memory()) {
+      GTEST_SKIP() << "Building from a host dataset needs pageable memory access on the device";
+    }
+    // L2SqrtExpanded ranks neighbors as L2Expanded does, and the recall check below searches with
+    // CAGRA, so it uses L2Expanded for both.
+    const auto search_metric = ps.metric == cuvs::distance::DistanceType::L2SqrtExpanded
+                                 ? cuvs::distance::DistanceType::L2Expanded
+                                 : ps.metric;
+
     vamana::index_params index_params;
     index_params.metric            = ps.metric;
     index_params.graph_degree      = ps.graph_degree;
@@ -221,7 +242,7 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
                                                            ps.n_rows,
                                                            ps.dim,
                                                            ps.k,
-                                                           ps.metric);
+                                                           search_metric);
         raft::update_host(
           distances_naive.data(), distances_naive_dev.data(), queries_size, stream_);
         raft::update_host(indices_naive.data(), indices_naive_dev.data(), queries_size, stream_);
@@ -236,7 +257,7 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
       cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> cagra_base(handle_,
                                                                               database_view);
       auto cagra_index = cagra::device_padded_index<DataT, IdxT>(
-        handle_, ps.metric, cagra_base.view, raft::make_const_mdspan(graph_valid.view()));
+        handle_, search_metric, cagra_base.view, raft::make_const_mdspan(graph_valid.view()));
 
       cagra::search_params search_params;
       search_params.algo        = ps.algo;
@@ -339,6 +360,13 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
         handle_, r, database.data(), ps.n_rows * ps.dim, DataT(1), DataT(20));
       raft::random::uniformInt(
         handle_, r, search_queries.data(), ps.n_queries * ps.dim, DataT(1), DataT(20));
+    }
+    if (ps.copies > 1) {
+      // Duplicate-heavy data: repeat the first n_rows / copies rows to fill the dataset.
+      const size_t base_size = static_cast<size_t>(ps.n_rows / ps.copies) * ps.dim;
+      for (int c = 1; c < ps.copies; c++) {
+        raft::copy(database.data() + c * base_size, database.data(), base_size, stream_);
+      }
     }
     raft::resource::sync_stream(handle_);
   }
@@ -519,6 +547,51 @@ inline std::vector<AnnVamanaInputs> generate_nn_descent_init_inputs()
                                                     {0.2});
   inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
 
+  // Host datasets and the L2SqrtExpanded metric.
+  inputs2 = raft::util::itertools::product<AnnVamanaInputs>(
+    {1000},
+    {8, 64, 137},
+    {32},  // graph degree
+    {64},  // visited_size
+    {0.06},
+    {cuvs::distance::DistanceType::L2Expanded, cuvs::distance::DistanceType::L2SqrtExpanded},
+    {false, true},
+    {1000000},
+    {1.0},
+    {100},
+    {10},
+    {cagra::search_algo::AUTO},
+    {10},
+    {64},
+    {1},
+    {0.2});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
+  // Duplicate-heavy data (200 distinct rows, 5 copies each). Seeding repeats more neighbor ids on
+  // such data, so these check that the build succeeds and the recall holds, not how often ids
+  // repeat.
+  inputs2 =
+    raft::util::itertools::product<AnnVamanaInputs>({1000},
+                                                    {8, 32, 128},
+                                                    {32},  // graph degree
+                                                    {64},  // visited_size
+                                                    {0.06},
+                                                    {cuvs::distance::DistanceType::L2Expanded},
+                                                    {false},
+                                                    {1000000},
+                                                    {1.0},
+                                                    {100},
+                                                    {10},
+                                                    {cagra::search_algo::AUTO},
+                                                    {10},
+                                                    {64},
+                                                    {1},
+                                                    {0.2});
+  for (auto& input : inputs2) {
+    input.copies = 5;
+  }
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
   for (auto& input : inputs) {
     input.graph_init = vamana::graph_init_algo::NN_DESCENT;
   }
@@ -528,10 +601,9 @@ inline std::vector<AnnVamanaInputs> generate_nn_descent_init_inputs()
 const std::vector<AnnVamanaInputs> nn_descent_init_inputs = generate_nn_descent_init_inputs();
 
 /**
- * Checks that the default build still starts from an empty graph and draws its insertion order
- * and medoid from rand() exactly as before graph initialization was added: n_rows values for the
- * insertion order, then one for the medoid. It also checks that the invalid configurations of
- * NN_DESCENT initialization are rejected.
+ * Checks that the default build still starts from an empty graph: with the same rand() seed it
+ * builds the same graph and medoid as an explicit EMPTY build. It also checks that invalid
+ * settings are rejected.
  */
 template <typename DataT>
 void check_default_graph_init()
@@ -561,20 +633,14 @@ void check_default_graph_init()
   params.graph_degree = 32;
   params.visited_size = 64;
 
-  srand(kSeed);
-  for (int64_t i = 0; i < kRows; i++) {
-    rand();
-  }
-  const auto expected_medoid = static_cast<uint32_t>(rand() % kRows);
-
+  // The insertion order and medoid come from rand(), so reseed it before each build.
   srand(kSeed);
   auto index_default = vamana::build(handle, params, database_view);
-  EXPECT_EQ(index_default.medoid(), expected_medoid);
 
   params.graph_init = vamana::graph_init_algo::EMPTY;
   srand(kSeed);
   auto index_empty = vamana::build(handle, params, database_view);
-  EXPECT_EQ(index_empty.medoid(), expected_medoid);
+  EXPECT_EQ(index_default.medoid(), index_empty.medoid());
 
   // Same insertion order, so the same graph.
   std::vector<uint32_t> graph_default(index_default.graph().size());

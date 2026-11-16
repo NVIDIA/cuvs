@@ -7,9 +7,9 @@
 
 #include "../ann_vamana.cuh"
 
-// Every Vamana build draws its insertion order from the process-wide rand() state, so a build
-// shifts the sequence that later builds in the same process see. These tests run in their own
-// executable to leave the sequence of the existing Vamana tests unchanged.
+// The default-path tests reseed the process-wide rand() state with srand(), and every Vamana build
+// draws its insertion order from it. These tests run in their own executable so that the existing
+// Vamana tests keep the rand() sequence they had.
 
 namespace cuvs::neighbors::vamana {
 

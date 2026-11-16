@@ -327,7 +327,7 @@ ConfigureTest(
 
 ConfigureTest(
   NAME NEIGHBORS_ANN_VAMANA_GRAPH_INIT_TEST
-  PATH neighbors/ann_vamana/test_graph_init.cu
+  PATH neighbors/ann_vamana/test_graph_init.cu neighbors/ann_vamana/test_init_graph_detail.cu
   GPUS 1
   PERCENT 10
   FETCH_CODEBOOKS
