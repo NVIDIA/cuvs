@@ -900,15 +900,18 @@ __launch_bounds__(BLOCK_SIZE)
   constexpr int APAD           = 8;
   constexpr int BPAD           = 8;
   constexpr int TILE_COL_WIDTH = 128;
-  // One arena: the new and old vector tiles live in it during the pass over the features, and
-  // the distance block replaces them once that pass is done; their lifetimes never overlap.
+  // The vector tiles and the two distance blocks have disjoint lifetimes.
+  // Reuse the arena after the final feature-loop barrier to release both accumulators
+  // before metric conversion and graph insertion.
   constexpr size_t TILE_BYTES = sizeof(__half) * MAX_NUM_BI_SAMPLES * (TILE_COL_WIDTH + APAD);
-  constexpr size_t DIST_BYTES = sizeof(float) * MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES;
+  constexpr size_t DIST_BYTES =
+    align32::roundUp(sizeof(float) * MAX_NUM_BI_SAMPLES * SKEWED_MAX_NUM_BI_SAMPLES);
   static_assert(APAD == BPAD);
-  __shared__ __align__(32) unsigned char s_arena[std::max(2 * TILE_BYTES, DIST_BYTES)];
+  __shared__ __align__(32) unsigned char s_arena[std::max(2 * TILE_BYTES, 2 * DIST_BYTES)];
   auto s_nv          = reinterpret_cast<__half(*)[TILE_COL_WIDTH + APAD]>(s_arena);  // New vectors
   auto s_ov          = reinterpret_cast<__half(*)[TILE_COL_WIDTH + BPAD]>(s_arena + TILE_BYTES);
   float* s_distances = reinterpret_cast<float*>(s_arena);
+  float* s_distances_old = reinterpret_cast<float*>(s_arena + DIST_BYTES);
   __shared__ int s_unique_counter[2];
 
   if (threadIdx.x == 0) {
@@ -1038,12 +1041,19 @@ __launch_bounds__(BLOCK_SIZE)
       __syncthreads();
     }
 
-    // The tiles are dead from here on, so s_distances (which aliases them) can take the
-    // new x new block.
+    // The final loop barrier completed every tile read. Both products can now replace
+    // the tiles without keeping either accumulator live through the epilogues.
     if (warp_active) {
       wmma::store_matrix_sync(
         s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
         c_nn,
+        SKEWED_MAX_NUM_BI_SAMPLES,
+        wmma::mem_row_major);
+    }
+    if (warp_active_2) {
+      wmma::store_matrix_sync(
+        s_distances_old + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
+        c_no,
         SKEWED_MAX_NUM_BI_SAMPLES,
         wmma::mem_row_major);
     }
@@ -1075,18 +1085,7 @@ __launch_bounds__(BLOCK_SIZE)
 
   __syncthreads();
 
-  if (metric != cuvs::distance::DistanceType::BitwiseHamming) {
-    if (warp_active_2) {
-      wmma::store_matrix_sync(
-        s_distances + warp_id_y * WMMA_M * SKEWED_MAX_NUM_BI_SAMPLES + warp_id_x * WMMA_N,
-        c_no,
-        SKEWED_MAX_NUM_BI_SAMPLES,
-        wmma::mem_row_major);
-    }
-    __syncthreads();
-  }
-
-  calculate_metric(s_distances,
+  calculate_metric(s_distances_old,
                    new_neighbors,
                    list_new_size,
                    old_neighbors,
@@ -1108,11 +1107,14 @@ __launch_bounds__(BLOCK_SIZE)
                                  std::numeric_limits<DistData_t>::max()};
     if (idx_in_list < MAX_NUM_BI_SAMPLES) {
       auto temp_min_item =
-        get_min_item(s_list[idx_in_list], idx_in_list, old_neighbors, s_distances);
+        get_min_item(s_list[idx_in_list], idx_in_list, old_neighbors, s_distances_old);
       if (temp_min_item.dist() < min_elem.dist()) { min_elem = temp_min_item; }
     } else {
-      auto temp_min_item = get_min_item(
-        s_list[idx_in_list], idx_in_list - MAX_NUM_BI_SAMPLES, new_neighbors, s_distances, false);
+      auto temp_min_item = get_min_item(s_list[idx_in_list],
+                                        idx_in_list - MAX_NUM_BI_SAMPLES,
+                                        new_neighbors,
+                                        s_distances_old,
+                                        false);
       if (temp_min_item.dist() < min_elem.dist()) { min_elem = temp_min_item; }
     }
 
