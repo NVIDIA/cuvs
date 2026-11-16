@@ -6,7 +6,7 @@
 #include "../../src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp"
 #include "ann_nn_descent.cuh"
 
-#include <cuvs/preprocessing/quantize/bbq.hpp>
+#include <cuvs/core/dataset/bbq.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/host_mdarray.hpp>

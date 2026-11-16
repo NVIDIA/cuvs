@@ -5,7 +5,7 @@
 
 #include "../../src/preprocessing/quantize/detail/bbq_cpu_quantize.hpp"
 #include "../test_utils.cuh"
-#include <cuvs/preprocessing/quantize/bbq.hpp>
+#include <cuvs/core/dataset/bbq.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/random/rng.cuh>
 #include <raft/util/cudart_utils.hpp>

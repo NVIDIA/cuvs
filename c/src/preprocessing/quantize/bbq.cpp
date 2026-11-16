@@ -4,7 +4,7 @@
  */
 
 #include <cuvs/preprocessing/quantize/bbq.h>
-#include <cuvs/preprocessing/quantize/bbq.hpp>
+#include <cuvs/core/dataset/bbq.hpp>
 
 #include "../../core/exceptions.hpp"
 #include "../../core/interop.hpp"

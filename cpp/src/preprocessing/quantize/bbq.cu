@@ -4,7 +4,7 @@
  */
 
 #include "detail/bbq_quantizer.cuh"
-#include <cuvs/preprocessing/quantize/bbq.hpp>
+#include <cuvs/core/dataset/bbq.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>

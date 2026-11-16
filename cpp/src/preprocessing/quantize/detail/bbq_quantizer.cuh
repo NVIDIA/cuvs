@@ -5,8 +5,8 @@
 
 #pragma once
 
+#include <cuvs/core/dataset/bbq.hpp>
 #include <cuvs/distance/distance.hpp>
-#include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/device_mdarray.hpp>
 #include <raft/core/device_mdspan.hpp>

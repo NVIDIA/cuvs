@@ -13,9 +13,9 @@
 #include "../../core/nvtx.hpp"
 #include "../../core/omp_wrapper.hpp"
 #include "../../preprocessing/quantize/detail/bbq_distance.cuh"
+#include <cuvs/core/dataset/bbq.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
-#include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
