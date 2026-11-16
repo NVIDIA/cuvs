@@ -30,9 +30,17 @@ typedef enum {
   /** Start from an empty graph (default). */
   CUVS_VAMANA_GRAPH_INIT_EMPTY = 0,
   /**
-   * Start from a CAGRA graph built with NN-descent (kNN degree 2 * graph_degree, pruned to
-   * graph_degree), with each neighbor list sorted by distance. The medoid is the vector nearest
-   * the dataset mean and the insertion passes use full batches from the start.
+   * Start from a CAGRA graph built with NN-descent (kNN degree 2 * graph_degree, or n_rows - 1 on
+   * datasets with fewer rows, pruned to graph_degree), with each neighbor list sorted by distance.
+   * The medoid is the vector nearest the dataset mean and the insertion passes use full batches
+   * from the start.
+   *
+   * The seed needs about 16 * graph_degree + 4 bytes of GPU memory per row on top of the dataset.
+   * It is freed before the insertion passes, but on large datasets it can set the peak memory of
+   * the build. With a host dataset, NN-descent copies the dataset to the GPU (as fp16 for float
+   * data with more than 16 dimensions, otherwise in its own type), so the dataset has to fit in GPU
+   * memory, unlike with CUVS_VAMANA_GRAPH_INIT_EMPTY. Requires more dataset rows than
+   * graph_degree.
    */
   CUVS_VAMANA_GRAPH_INIT_NN_DESCENT = 1
 } cuvsVamanaGraphInitAlgo;
@@ -76,8 +84,7 @@ struct cuvsVamanaIndexParams {
   /**
    * How the graph is initialized before the insertion passes. CUVS_VAMANA_GRAPH_INIT_EMPTY
    * (default) inserts every vector into an empty graph. CUVS_VAMANA_GRAPH_INIT_NN_DESCENT inserts
-   * them into a CAGRA graph built with NN-descent, which can match the quality of two passes over
-   * an empty graph with a single pass at a smaller visited_size.
+   * them into a CAGRA graph built with NN-descent (see cuvsVamanaGraphInitAlgo for its memory).
    */
   cuvsVamanaGraphInitAlgo graph_init;
 };

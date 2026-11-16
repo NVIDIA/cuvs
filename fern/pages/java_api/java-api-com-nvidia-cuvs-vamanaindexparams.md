@@ -54,7 +54,7 @@ _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:50
 ### EMPTY
 
 ```java
-EMPTY(0), /** * Start from a CAGRA graph built with NN-descent (kNN degree twice the * graph degree, pruned to the graph degree), with each neighbor list * sorted by distance. The medoid is the vector nearest the dataset mean, * and the insertion passes use full batches from the start. One pass at a * smaller visited size, such as 128 for graph degree 64, can match the * quality of two passes over an empty graph in less time than one. */ NN_DESCENT(1)
+EMPTY(0), /** * Start from a CAGRA graph built with NN-descent (kNN degree twice the * graph degree, or one less than the row count on smaller datasets, * pruned to the graph degree), with each neighbor list sorted by * distance. The medoid is the vector nearest the dataset mean, and the * insertion passes use full batches from the start. * <p> * The seed needs about
 ```
 
 Start from an empty graph. This is the default.
@@ -68,13 +68,20 @@ NN_DESCENT(1)
 ```
 
 Start from a CAGRA graph built with NN-descent (kNN degree twice the
-graph degree, pruned to the graph degree), with each neighbor list
-sorted by distance. The medoid is the vector nearest the dataset mean,
-and the insertion passes use full batches from the start. One pass at a
-smaller visited size, such as 128 for graph degree 64, can match the
-quality of two passes over an empty graph in less time than one.
+graph degree, or one less than the row count on smaller datasets,
+pruned to the graph degree), with each neighbor list sorted by
+distance. The medoid is the vector nearest the dataset mean, and the
+insertion passes use full batches from the start.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:79`_
+The seed needs about `16 * graphDegree + 4` bytes of GPU memory
+per row on top of the dataset. It is freed before the insertion passes,
+but on large datasets it can set the peak memory of the build. With a
+host dataset, NN-descent copies the dataset to the GPU (as fp16 for
+float data with more than 16 dimensions, otherwise in its own type), so
+the dataset has to fit in GPU memory, unlike with `#EMPTY`. The
+dataset needs more rows than the graph degree.
+
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:86`_
 
 ### getGraphDegree
 
@@ -85,7 +92,7 @@ public int getGraphDegree()
 Gets the maximum degree of the output graph, the R parameter in the Vamana
 literature.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:129`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:136`_
 
 ### getVisitedSize
 
@@ -96,7 +103,7 @@ public int getVisitedSize()
 Gets the maximum number of visited nodes per search, the L parameter in the
 Vamana literature.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:137`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:144`_
 
 ### getVamanaIters
 
@@ -106,7 +113,7 @@ public float getVamanaIters()
 
 Gets the number of Vamana vector insertion iterations.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:144`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:151`_
 
 ### getAlpha
 
@@ -116,7 +123,7 @@ public float getAlpha()
 
 Gets the alpha pruning parameter.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:151`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:158`_
 
 ### getMaxFraction
 
@@ -126,7 +133,7 @@ public float getMaxFraction()
 
 Gets the maximum fraction of the dataset inserted per batch.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:158`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:165`_
 
 ### getBatchBase
 
@@ -136,7 +143,7 @@ public float getBatchBase()
 
 Gets the growth rate base for batch sizes.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:165`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:172`_
 
 ### getQueueSize
 
@@ -146,7 +153,7 @@ public int getQueueSize()
 
 Gets the candidate queue size.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:172`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:179`_
 
 ### getReverseBatchSize
 
@@ -156,7 +163,7 @@ public int getReverseBatchSize()
 
 Gets the maximum batch size of reverse edge processing.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:179`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:186`_
 
 ### getMetric
 
@@ -166,7 +173,7 @@ public CuvsDistanceType getMetric()
 
 Gets the distance metric.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:186`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:193`_
 
 ### getGraphInit
 
@@ -176,7 +183,7 @@ public GraphInitAlgo getGraphInit()
 
 Gets how the graph is initialized before the insertion passes.
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:193`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:200`_
 
 ### withGraphDegree
 
@@ -196,7 +203,7 @@ Sets the maximum degree of the output graph.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:247`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:254`_
 
 ### withVisitedSize
 
@@ -218,7 +225,7 @@ The native builder requires this to be greater than the graph degree.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:260`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:267`_
 
 ### withVamanaIters
 
@@ -238,7 +245,7 @@ Sets the number of Vamana vector insertion iterations.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:271`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:278`_
 
 ### withAlpha
 
@@ -258,7 +265,7 @@ Sets the alpha pruning parameter.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:282`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:289`_
 
 ### withMaxFraction
 
@@ -279,7 +286,7 @@ batch decreases graph quality but improves build speed.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:294`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:301`_
 
 ### withBatchBase
 
@@ -299,7 +306,7 @@ Sets the growth rate base for batch sizes.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:305`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:312`_
 
 ### withQueueSize
 
@@ -320,7 +327,7 @@ form `(2^x) - 1`.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:317`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:324`_
 
 ### withReverseBatchSize
 
@@ -341,7 +348,7 @@ memory footprint of that stage.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:329`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:336`_
 
 ### withMetric
 
@@ -361,7 +368,7 @@ Sets the distance metric.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:340`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:347`_
 
 ### withGraphInit
 
@@ -382,7 +389,7 @@ default is `GraphInitAlgo#EMPTY`.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:352`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:359`_
 
 ### build
 
@@ -396,6 +403,6 @@ Builds an instance of `VamanaIndexParams`.
 
 an instance of `VamanaIndexParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:362`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:369`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:18`_

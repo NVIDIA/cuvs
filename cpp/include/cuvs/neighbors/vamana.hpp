@@ -49,10 +49,15 @@ enum class graph_init_algo {
   EMPTY = 0,
   /**
    * Start from a CAGRA graph built with NN-descent. NN-descent builds a kNN graph of degree
-   * 2 * graph_degree, which CAGRA's optimize step prunes to graph_degree. Each neighbor list is
-   * then sorted by distance, the medoid is the vector nearest the dataset mean, and the insertion
-   * passes use full batches from the start. The NN-descent and CAGRA memory is released before the
-   * insertion passes begin.
+   * 2 * graph_degree (n_rows - 1 on datasets with fewer rows), which CAGRA's optimize step prunes
+   * to graph_degree. Each neighbor list is then sorted by distance, the medoid is the vector
+   * nearest the dataset mean, and the insertion passes use full batches from the start.
+   *
+   * The seed needs about 16 * graph_degree + 4 bytes of GPU memory per row on top of the dataset.
+   * It is freed before the insertion passes, but on large datasets it can set the peak memory of
+   * the build. With a host dataset, NN-descent copies the dataset to the GPU (as fp16 for float
+   * data with more than 16 dimensions, otherwise in its own type), so the dataset has to fit in GPU
+   * memory, unlike with EMPTY. Requires more dataset rows than graph_degree.
    */
   NN_DESCENT = 1
 };
@@ -94,11 +99,8 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t reverse_batchsize = 1000000;
   /**
    * How the graph is initialized before the insertion passes. EMPTY (default) inserts every
-   * vector into an empty graph. NN_DESCENT inserts them into a CAGRA graph built with NN-descent,
-   * so vectors inserted late get as many in-links as vectors inserted early. With NN_DESCENT a
-   * single insertion pass (vamana_iters = 1) at a smaller visited_size, such as 128 for
-   * graph_degree 64, can match the graph quality of two passes over an empty graph in less time
-   * than one.
+   * vector into an empty graph. NN_DESCENT inserts them into a CAGRA graph built with NN-descent.
+   * See graph_init_algo for what NN_DESCENT does and the memory it needs.
    */
   graph_init_algo graph_init = graph_init_algo::EMPTY;
 

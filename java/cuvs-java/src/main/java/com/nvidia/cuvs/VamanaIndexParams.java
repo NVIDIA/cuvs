@@ -71,11 +71,18 @@ public class VamanaIndexParams {
 
     /**
      * Start from a CAGRA graph built with NN-descent (kNN degree twice the
-     * graph degree, pruned to the graph degree), with each neighbor list
-     * sorted by distance. The medoid is the vector nearest the dataset mean,
-     * and the insertion passes use full batches from the start. One pass at a
-     * smaller visited size, such as 128 for graph degree 64, can match the
-     * quality of two passes over an empty graph in less time than one.
+     * graph degree, or one less than the row count on smaller datasets,
+     * pruned to the graph degree), with each neighbor list sorted by
+     * distance. The medoid is the vector nearest the dataset mean, and the
+     * insertion passes use full batches from the start.
+     * <p>
+     * The seed needs about {@code 16 * graphDegree + 4} bytes of GPU memory
+     * per row on top of the dataset. It is freed before the insertion passes,
+     * but on large datasets it can set the peak memory of the build. With a
+     * host dataset, NN-descent copies the dataset to the GPU (as fp16 for
+     * float data with more than 16 dimensions, otherwise in its own type), so
+     * the dataset has to fit in GPU memory, unlike with {@link #EMPTY}. The
+     * dataset needs more rows than the graph degree.
      */
     NN_DESCENT(1);
 
