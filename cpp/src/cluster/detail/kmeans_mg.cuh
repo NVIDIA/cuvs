@@ -27,6 +27,7 @@
 #include <raft/core/pinned_mdarray.hpp>
 #include <raft/core/pinned_mdspan.hpp>
 #include <raft/core/resource/comms.hpp>
+#include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/multi_gpu.hpp>
 #include <raft/core/resource/nccl_comm.hpp>
@@ -150,6 +151,19 @@ void mnmg_fit(
   auto n_clusters = static_cast<IndexT>(params.n_clusters);
   auto metric     = params.metric;
 
+  // Optional CAGRA-based nearest-centroid assignment (float + L2 only). All ranks take the same
+  // decision from the same params.
+  const bool use_ann = cuvs::cluster::kmeans::detail::use_ann_assignment<DataT>(
+    params, static_cast<int64_t>(n_clusters), static_cast<int64_t>(n_features));
+
+  // Ranks are threads of one process in the SNMG path and share the CUDA driver. Creating a cuBLAS
+  // handle takes a process-wide driver lock. The exact assignment is what creates it, so with ANN
+  // assignment the first creation would fall in the final exact cost pass, right before a
+  // collective: a rank that is already blocked on that collective (the host waits on its result)
+  // can hold the lock the lagging rank needs, and neither can proceed. Create it before any
+  // collective is issued instead.
+  if (use_ann) { (void)raft::resource::get_cublas_handle(dev_res); }
+
   RAFT_EXPECTS(metric == cuvs::distance::DistanceType::L2Expanded ||
                  metric == cuvs::distance::DistanceType::L2SqrtExpanded,
                "kmeans only supports L2Expanded or L2SqrtExpanded distance metrics.");
@@ -266,11 +280,8 @@ void mnmg_fit(
       raft::make_const_mdspan(d_weight_scale.view()));
   }
 
-  // Optional CAGRA-based nearest-centroid assignment (float + L2 only). All ranks take the same
-  // decision from the same params. The graph is built once per iteration on the root rank and
-  // broadcast, so every rank searches an identical index over the (replicated) centroids.
-  const bool use_ann = cuvs::cluster::kmeans::detail::use_ann_assignment<DataT>(
-    params, static_cast<int64_t>(n_clusters), static_cast<int64_t>(n_features));
+  // The graph is built once per iteration on the root rank and broadcast, so every rank searches
+  // an identical index over the (replicated) centroids.
   cuvs::distance::detail::top_1_nn_cagra_index ann_index;
   const auto assignment_backend = use_ann ? cuvs::distance::detail::Top1nnBackend::Cagra
                                           : cuvs::distance::detail::Top1nnBackend::Auto;

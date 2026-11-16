@@ -112,11 +112,13 @@ void build_ann_index_broadcast(raft::resources const& handle,
   if constexpr (std::is_same_v<DataT, float>) {
     const auto ann_params =
       params.ann_params.value_or(cuvs::cluster::kmeans::ann_assignment_params{});
-    auto stream = raft::resource::get_cuda_stream(handle);
-
-    // The graph degree is only known to the rank that built the graph (it depends on the CAGRA
-    // build params), so it is broadcast ahead of the graph itself.
-    auto degree_dev = raft::make_device_scalar<int>(handle, 0);
+    // The graph degree follows from the build params and n_clusters alone, so every rank derives it
+    // locally: no rank has to wait on a collective (and block the host on its result) just to size
+    // its receive buffer. The root checks that the built graph agrees.
+    const int degree =
+      static_cast<int>(cuvs::distance::detail::top_1_nn_cagra_index::make_build_params(
+                         ann_params.index_params, n_clusters)
+                         .graph_degree);
     if (rank == root) {
       ann_index.build(handle,
                       ann_params.index_params,
@@ -124,13 +126,9 @@ void build_ann_index_broadcast(raft::resources const& handle,
                       centroids,
                       n_clusters,
                       n_features);
-      int degree = static_cast<int>(ann_index.graph().extent(1));
-      raft::copy(degree_dev.data_handle(), &degree, 1, stream);
+      RAFT_EXPECTS(static_cast<int>(ann_index.graph().extent(1)) == degree,
+                   "CAGRA graph degree differs from the one derived from the build params");
     }
-    comms.bcast(degree_dev.data_handle(), std::size_t{1}, root);
-    int degree = 0;
-    raft::copy(&degree, degree_dev.data_handle(), 1, stream);
-    raft::resource::sync_stream(handle);
 
     // The collectives have no uint32 type; the graph is broadcast as same-sized int32.
     if (rank == root) {
