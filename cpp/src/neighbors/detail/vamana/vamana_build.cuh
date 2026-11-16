@@ -635,6 +635,15 @@ index<T, IdxT> build(
     params.graph_init == graph_init_algo::EMPTY || params.graph_init == graph_init_algo::NN_DESCENT,
     "graph_init must be EMPTY or NN_DESCENT");
 
+  // NN-descent supports both metrics accepted above, so NN_DESCENT adds only a size check.
+  if (params.graph_init == graph_init_algo::NN_DESCENT) {
+    RAFT_EXPECTS(dataset.extent(0) > static_cast<int64_t>(graph_degree),
+                 "NN_DESCENT graph initialization needs more dataset rows (%ld) than graph_degree "
+                 "(%ld)",
+                 static_cast<long>(dataset.extent(0)),
+                 static_cast<long>(graph_degree));
+  }
+
   int dim = dataset.extent(1);
 
   RAFT_LOG_DEBUG("Creating empty graph structure");

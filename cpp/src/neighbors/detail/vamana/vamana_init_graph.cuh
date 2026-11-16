@@ -285,7 +285,7 @@ auto nearest_to_mean(
 /**
  * Builds the NN-descent kNN graph that seeds the Vamana graph, in host memory. NN-descent runs
  * before the Vamana build allocates its buffers, and its device memory is released when it
- * returns.
+ * returns. build() validates the parameters (metric, rows against graph_degree) beforehand.
  */
 template <typename T, typename Accessor>
 auto build_init_knn_graph(
@@ -294,8 +294,8 @@ auto build_init_knn_graph(
   raft::mdspan<const T, raft::matrix_extent<int64_t>, raft::row_major, Accessor> dataset,
   int64_t graph_degree) -> raft::host_matrix<uint32_t, int64_t>
 {
-  // NN-descent supports every data type and metric that Vamana does. Check here as well, so that
-  // a future Vamana data type or metric fails clearly instead of being seeded incorrectly.
+  // NN-descent supports every data type Vamana does. Check here as well, so that a future Vamana
+  // data type fails clearly instead of being seeded incorrectly.
   if constexpr (!(std::is_same_v<T, float> || std::is_same_v<T, half> ||
                   std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>)) {
     RAFT_FAIL(
@@ -303,15 +303,6 @@ auto build_init_knn_graph(
   } else {
     const int64_t n_rows = dataset.extent(0);
     const int64_t dim    = dataset.extent(1);
-    RAFT_EXPECTS(params.metric == cuvs::distance::DistanceType::L2Expanded ||
-                   params.metric == cuvs::distance::DistanceType::L2SqrtExpanded,
-                 "NN_DESCENT graph initialization supports the L2Expanded and L2SqrtExpanded "
-                 "metrics only");
-    RAFT_EXPECTS(n_rows > graph_degree,
-                 "NN_DESCENT graph initialization needs more dataset rows (%ld) than graph_degree "
-                 "(%ld)",
-                 static_cast<long>(n_rows),
-                 static_cast<long>(graph_degree));
 
     // The kNN graph is twice the Vamana degree (fewer on tiny datasets), and CAGRA's optimize step
     // prunes it to the Vamana degree.
