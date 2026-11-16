@@ -1110,18 +1110,21 @@ built `host_standard_index<uint8_t, uint32_t>`
 
 **Additional overload:** `neighbors::cagra::build`
 
-Build from a device BBQ-quantized dataset view.
+Build from a device BBQ-quantized dataset view, optionally against a second, wider encoding of the same rows.
 
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset)
--> cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>;
+cuvs::neighbors::device_bbq_dataset_view<float, int64_t> dataset,
+std::optional<cuvs::neighbors::device_bbq_dataset_view<float, int64_t>> dataset_query =
+std::nullopt) -> cuvs::neighbors::cagra::device_bbq_index<float, uint32_t>;
 ```
 
-The kNN graph is built from the quantized codes alone, so the uncompressed vectors are never needed and peak memory is driven by the code size. Only nn-descent graph construction is available (IVF-PQ, iterative CAGRA search, and ACE all read uncompressed vectors), and the metric must be one of L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct and must match the metric the quantizer corrections were generated for.
+The kNN graph is built from the quantized codes alone, so the uncompressed vectors are never needed and peak memory is driven by the code size. Without `dataset_query`, distances are symmetric between the codes of `dataset`; with it, they are asymmetric between the codes of (dataset, dataset_query) layout pairs are (packed_1b, packed_4b), (packed_1b, transposed_2b), (packed_1b, transposed_4b) and (transposed_2b, transposed_4b); both datasets must hold the same rows, encoded against the same centroid.
 
-The returned index cannot be searched: CAGRA has no BBQ search kernels. Call the type-changing `update_dataset` with an uncompressed device-padded dataset to search the resulting graph.
+Only nn-descent graph construction is available (IVF-PQ, iterative CAGRA search, and ACE all read uncompressed vectors), and the metric must be one of L2Expanded, L2SqrtExpanded, CosineExpanded, or InnerProduct and must match the metric the quantizer corrections were generated for.
+
+The returned index refers to `dataset` when `params.attach_dataset_on_build` is set, and cannot be searched: CAGRA has no BBQ search kernels. Call the type-changing `update_dataset` with an uncompressed device-padded dataset to search the resulting graph.
 
 **Parameters**
 
@@ -1129,7 +1132,8 @@ The returned index cannot be searched: CAGRA has no BBQ search kernels. Call the
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resources |
 | `params` | in | `const cuvs::neighbors::cagra::index_params&` | CAGRA index build parameters |
-| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<float, int64_t>` | device BBQ dataset view [n_rows, dim] |
+| `dataset` | in | `cuvs::neighbors::device_bbq_dataset_view<float, int64_t>` | device BBQ dataset view read on the document side [n_rows, dim] |
+| `dataset_query` | in | `std::optional<cuvs::neighbors::device_bbq_dataset_view<float, int64_t>>` | optional device BBQ dataset view read on the query side [n_rows, dim]<br />Default: `std::nullopt`. |
 
 **Returns**
 
@@ -1139,14 +1143,17 @@ built `device_bbq_index<float, uint32_t>`
 
 **Additional overload:** `neighbors::cagra::build`
 
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
+cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset,
 
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset)
--> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
+cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset,
+std::optional<cuvs::neighbors::device_bbq_dataset_view<half, int64_t>> dataset_query =
+std::nullopt) -> cuvs::neighbors::cagra::device_bbq_index<half, uint32_t>;
 ```
+
+std::optional&lt;cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt;&gt; dataset_query)
 
 **Parameters**
 
@@ -1155,6 +1162,7 @@ cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset)
 | `res` |  | `raft::resources const&` |  |
 | `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
 | `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<half, int64_t>` |  |
+| `dataset_query` |  | `std::optional<cuvs::neighbors::device_bbq_dataset_view<half, int64_t>>` | Default: `std::nullopt`. |
 
 **Returns**
 
@@ -1162,14 +1170,17 @@ cuvs::neighbors::device_bbq_dataset_view<half, int64_t> dataset)
 
 **Additional overload:** `neighbors::cagra::build`
 
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
+cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset,
 
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset)
--> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
+cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset,
+std::optional<cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t>> dataset_query =
+std::nullopt) -> cuvs::neighbors::cagra::device_bbq_index<int8_t, uint32_t>;
 ```
+
+std::optional&lt;cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt;&gt; dataset_query)
 
 **Parameters**
 
@@ -1178,6 +1189,7 @@ cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset)
 | `res` |  | `raft::resources const&` |  |
 | `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
 | `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t>` |  |
+| `dataset_query` |  | `std::optional<cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t>>` | Default: `std::nullopt`. |
 
 **Returns**
 
@@ -1185,14 +1197,17 @@ cuvs::neighbors::device_bbq_dataset_view<int8_t, int64_t> dataset)
 
 **Additional overload:** `neighbors::cagra::build`
 
-cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset)
+cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt; dataset,
 
 ```cpp
 auto build(raft::resources const& res,
 const cuvs::neighbors::cagra::index_params& params,
-cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset)
--> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
+cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset,
+std::optional<cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t>> dataset_query =
+std::nullopt) -> cuvs::neighbors::cagra::device_bbq_index<uint8_t, uint32_t>;
 ```
+
+std::optional&lt;cuvs::neighbors::device_bbq_dataset_view&lt;float, int64_t&gt;&gt; dataset_query)
 
 **Parameters**
 
@@ -1201,6 +1216,7 @@ cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t> dataset)
 | `res` |  | `raft::resources const&` |  |
 | `params` |  | `const cuvs::neighbors::cagra::index_params&` |  |
 | `dataset` |  | `cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t>` |  |
+| `dataset_query` |  | `std::optional<cuvs::neighbors::device_bbq_dataset_view<uint8_t, int64_t>>` | Default: `std::nullopt`. |
 
 **Returns**
 

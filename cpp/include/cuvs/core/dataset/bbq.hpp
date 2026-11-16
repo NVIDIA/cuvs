@@ -16,7 +16,6 @@
 #include <raft/util/integer_utils.hpp>
 
 #include <cstdint>
-#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -85,8 +84,42 @@ constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noex
   return 0;
 }
 
+/**
+ * @brief Non-owning view of a BBQ quantizer.
+ *
+ * The view owns neither the centroid nor its norm, so the quantizer it was taken from has to
+ * outlive it.
+ *
+ * @tparam T data element type; const for a read-only view
+ */
 template <typename T>
-struct quantizer_view;
+struct quantizer_view {
+  using norm_type = std::conditional_t<std::is_const_v<T>, const float, float>;
+
+  /** Centroid shared by every row; rows are encoded relative to it. */
+  raft::device_vector_view<T, int64_t> centroid;
+  /** Squared L2 norm of the centroid, ||c||^2. */
+  // NOTE: a scalar mdspan has a static extent, so it has no default constructor of its own.
+  raft::device_scalar_view<norm_type, int64_t> centroid_norm_sq{static_cast<norm_type*>(nullptr)};
+  /** Code layout of the encoded rows. */
+  bbq_code_layout layout{bbq_code_layout::packed_1b};
+  /** Metric the per-row additional corrections are computed for. */
+  cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
+
+  [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t
+  {
+    return static_cast<uint32_t>(centroid.extent(0));
+  }
+
+  /** A mutable view decays to the read-only one, the way an mdspan does. */
+  template <typename U>
+  operator quantizer_view<U>() const noexcept  // NOLINT(google-explicit-constructor)
+    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
+  {
+    return quantizer_view<U>{
+      raft::make_const_mdspan(centroid), raft::make_const_mdspan(centroid_norm_sq), layout, metric};
+  }
+};
 
 /**
  * @brief Better Binary Quantization
@@ -107,8 +140,9 @@ struct quantizer_view;
  * direction, then applies a random orthogonal rotation before binary coding; BBQ uses per-vector
  * scalar intervals to interpret the compressed residual codes.
  *
- * The quantizer is the manifest of a `cuvs::device_bbq_dataset`: what every encoding of the rows
- * shares. The layouts and the metric belong to the encoded data.
+ * The quantizer is the manifest of a `cuvs::device_bbq_dataset`: it states how the rows of the
+ * dataset are encoded. Two datasets encoding the same rows in different layouts against the same
+ * centroid form the document and query sides of an asymmetric distance.
  *
  * @tparam T data element type
  */
@@ -123,10 +157,19 @@ struct quantizer {
   raft::device_vector<T, int64_t> centroid;
   /** Squared L2 norm of the centroid, ||c||^2. */
   raft::device_scalar<float, int64_t> centroid_norm_sq;
+  /** Code layout of the encoded rows. */
+  bbq_code_layout layout{bbq_code_layout::packed_1b};
+  /** Metric the per-row additional corrections are computed for. */
+  cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
 
-  quantizer(raft::resources const& res, uint32_t dim)
+  quantizer(raft::resources const& res,
+            uint32_t dim,
+            bbq_code_layout layout              = bbq_code_layout::packed_1b,
+            cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded)
     : centroid{raft::make_device_vector<T, int64_t>(res, static_cast<int64_t>(dim))},
-      centroid_norm_sq{raft::make_device_scalar<float, int64_t>(res)}
+      centroid_norm_sq{raft::make_device_scalar<float, int64_t>(res)},
+      layout{layout},
+      metric{metric}
   {
   }
 
@@ -136,44 +179,11 @@ struct quantizer {
   }
   [[nodiscard]] auto view() noexcept -> view_type
   {
-    return view_type{centroid.view(), centroid_norm_sq.view()};
+    return view_type{centroid.view(), centroid_norm_sq.view(), layout, metric};
   }
   [[nodiscard]] auto view() const noexcept -> const_view_type
   {
-    return const_view_type{centroid.view(), centroid_norm_sq.view()};
-  }
-};
-
-/**
- * @brief Non-owning view of a BBQ quantizer.
- *
- * The view owns neither the centroid nor its norm, so the quantizer it was taken from has to
- * outlive it.
- *
- * @tparam T data element type; const for a read-only view
- */
-template <typename T>
-struct quantizer_view {
-  using norm_type = std::conditional_t<std::is_const_v<T>, const float, float>;
-
-  /** Centroid shared by every row; rows are encoded relative to it. */
-  raft::device_vector_view<T, int64_t> centroid;
-  /** Squared L2 norm of the centroid, ||c||^2. */
-  // NOTE: a scalar mdspan has a static extent, so it has no default constructor of its own.
-  raft::device_scalar_view<norm_type, int64_t> centroid_norm_sq{static_cast<norm_type*>(nullptr)};
-
-  [[nodiscard]] constexpr auto dim() const noexcept -> uint32_t
-  {
-    return static_cast<uint32_t>(centroid.extent(0));
-  }
-
-  /** A mutable view decays to the read-only one, the way an mdspan does. */
-  template <typename U>
-  operator quantizer_view<U>() const noexcept  // NOLINT(google-explicit-constructor)
-    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
-  {
-    return quantizer_view<U>{raft::make_const_mdspan(centroid),
-                             raft::make_const_mdspan(centroid_norm_sq)};
+    return const_view_type{centroid.view(), centroid_norm_sq.view(), layout, metric};
   }
 };
 
@@ -182,8 +192,7 @@ struct quantizer_view {
 }  // namespace preprocessing::quantize::bbq
 
 /**
- * One encoding of the rows of a BBQ dataset: the codes in one layout, together with the per-row
- * terms of the distance estimator and the encoder outputs those terms are derived from.
+ * The data of a BBQ dataset: the rows encoded in the layout of its quantizer.
  *
  * It holds arrays for an owning dataset and spans for a view of it.
  *
@@ -209,9 +218,6 @@ struct bbq_encoding {
   VectorT dequant_sum_delta;
   /** Per-row squared norm in the original (un-centered) vector space, ||x||^2. */
   VectorT row_norm;
-  /** Code layout of `codes`. */
-  preprocessing::quantize::bbq::bbq_code_layout layout{
-    preprocessing::quantize::bbq::bbq_code_layout::packed_1b};
 
   /** The spans over the arrays. */
   [[nodiscard]] auto view() noexcept
@@ -225,8 +231,7 @@ struct bbq_encoding {
                                                    quantized_component_sums.view(),
                                                    dequant_delta.view(),
                                                    dequant_sum_delta.view(),
-                                                   row_norm.view(),
-                                                   layout};
+                                                   row_norm.view()};
   }
 
   /** The read-only spans over the arrays. */
@@ -241,70 +246,7 @@ struct bbq_encoding {
                                                          quantized_component_sums.view(),
                                                          dequant_delta.view(),
                                                          dequant_sum_delta.view(),
-                                                         row_norm.view(),
-                                                         layout};
-  }
-};
-
-/**
- * The data of a BBQ dataset view: the encoding read on the document side of a distance and the one
- * read on its query side. Both encode the same rows, in the same order, against the centroid of the
- * manifest, and their corrections were computed for `metric`. A symmetric dataset refers to one
- * encoding on both sides.
- *
- * @tparam CodesT the type of the code matrix span [n_rows, the encoded row length]
- * @tparam VectorT the type of the per-row vector spans [n_rows]
- * @tparam SumsT the type of the per-row code sum span [n_rows]
- */
-template <typename CodesT, typename VectorT, typename SumsT>
-struct bbq_data_view {
-  using encoding_type = bbq_encoding<CodesT, VectorT, SumsT>;
-
-  /** Metric the additional corrections of both encodings were computed for. */
-  cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
-  /** Encoding read on the document side of a distance. */
-  encoding_type document;
-  /** Encoding read on the query side of a distance; the document encoding when symmetric. */
-  encoding_type query;
-};
-
-/**
- * The data of an owning BBQ dataset: the rows encoded in the document layout and, when the query
- * side of a distance reads a different layout, encoded a second time in that one.
- *
- * @tparam CodesT the type of the code matrix [n_rows, the encoded row length]
- * @tparam VectorT the type of the per-row vectors [n_rows]
- * @tparam SumsT the type of the per-row code sums [n_rows]
- */
-template <typename CodesT, typename VectorT, typename SumsT>
-struct bbq_data {
-  using encoding_type   = bbq_encoding<CodesT, VectorT, SumsT>;
-  using view_type       = bbq_data_view<typename CodesT::view_type,
-                                        typename VectorT::view_type,
-                                        typename SumsT::view_type>;
-  using const_view_type = bbq_data_view<typename CodesT::const_view_type,
-                                        typename VectorT::const_view_type,
-                                        typename SumsT::const_view_type>;
-
-  /** Metric the additional corrections of both encodings were computed for. */
-  cuvs::distance::DistanceType metric{cuvs::distance::DistanceType::L2Expanded};
-  /** Encoding read on the document side of a distance. */
-  encoding_type document;
-  /** Encoding read on the query side of a distance; empty when the dataset is symmetric. */
-  std::optional<encoding_type> query;
-
-  /** The spans over the arrays; a symmetric dataset hands out its document encoding twice. */
-  [[nodiscard]] auto view() noexcept -> view_type
-  {
-    auto document_view = document.view();
-    return {metric, document_view, query.has_value() ? query->view() : document_view};
-  }
-
-  /** The read-only spans over the arrays. */
-  [[nodiscard]] auto view() const noexcept -> const_view_type
-  {
-    auto document_view = document.view();
-    return {metric, document_view, query.has_value() ? query->view() : document_view};
+                                                         row_norm.view()};
   }
 };
 
@@ -325,11 +267,17 @@ struct bbq_spec {
 
     static constexpr bool is_device_accessible = true;
 
-    using data_type            = bbq_data<raft::device_matrix<code_type, int64_t>,
-                                          raft::device_vector<math_type, int64_t>,
-                                          raft::device_vector<sum_type, int64_t>>;
-    using data_view_type       = typename data_type::view_type;
-    using const_data_view_type = typename data_type::const_view_type;
+    using codes_type  = raft::device_matrix<code_type, int64_t>;
+    using vector_type = raft::device_vector<math_type, int64_t>;
+    using sums_type   = raft::device_vector<sum_type, int64_t>;
+
+    using data_type            = bbq_encoding<codes_type, vector_type, sums_type>;
+    using data_view_type       = bbq_encoding<typename codes_type::view_type,
+                                              typename vector_type::view_type,
+                                              typename sums_type::view_type>;
+    using const_data_view_type = bbq_encoding<typename codes_type::const_view_type,
+                                              typename vector_type::const_view_type,
+                                              typename sums_type::const_view_type>;
 
     using manifest_type            = preprocessing::quantize::bbq::quantizer<value_type>;
     using manifest_view_type       = preprocessing::quantize::bbq::quantizer_view<value_type>;
@@ -346,7 +294,14 @@ struct bbq_spec {
     }
     [[nodiscard]] static auto get_data_const_view(data_view_type d) noexcept -> const_data_view_type
     {
-      return {d.metric, get_encoding_const_view(d.document), get_encoding_const_view(d.query)};
+      return {raft::make_const_mdspan(d.codes),
+              raft::make_const_mdspan(d.lower_intervals),
+              raft::make_const_mdspan(d.upper_intervals),
+              raft::make_const_mdspan(d.additional_corrections),
+              raft::make_const_mdspan(d.quantized_component_sums),
+              raft::make_const_mdspan(d.dequant_delta),
+              raft::make_const_mdspan(d.dequant_sum_delta),
+              raft::make_const_mdspan(d.row_norm)};
     }
 
     [[nodiscard]] static auto get_manifest_view(manifest_type& m) noexcept -> manifest_view_type
@@ -368,29 +323,13 @@ struct bbq_spec {
     // or the view a `dataset_view` holds.
     [[nodiscard]] static constexpr auto get_n_rows(const auto& d) noexcept -> index_type
     {
-      return static_cast<index_type>(d.document.codes.extent(0));
+      return static_cast<index_type>(d.codes.extent(0));
     }
     // NOTE: the dimension is the quantizer's; the encoded rows only know their byte length.
     [[nodiscard]] static constexpr auto get_dim(const auto&, const auto& manifest) noexcept
       -> uint32_t
     {
       return manifest.dim();
-    }
-
-   private:
-    [[nodiscard]] static auto get_encoding_const_view(
-      const typename data_view_type::encoding_type& e) noexcept ->
-      typename const_data_view_type::encoding_type
-    {
-      return {raft::make_const_mdspan(e.codes),
-              raft::make_const_mdspan(e.lower_intervals),
-              raft::make_const_mdspan(e.upper_intervals),
-              raft::make_const_mdspan(e.additional_corrections),
-              raft::make_const_mdspan(e.quantized_component_sums),
-              raft::make_const_mdspan(e.dequant_delta),
-              raft::make_const_mdspan(e.dequant_sum_delta),
-              raft::make_const_mdspan(e.row_norm),
-              e.layout};
     }
   };
 };

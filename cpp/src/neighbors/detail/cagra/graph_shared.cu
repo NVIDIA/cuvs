@@ -170,23 +170,29 @@ using bbq_quantizer_view_t = cuvs::preprocessing::quantize::bbq::quantizer_view<
  *
  */
 template <typename DataT>
-__device__ __forceinline__ float bbq_row_distance(const bbq_encoding_view_t& encoding_document,
-                                                  const bbq_encoding_view_t& encoding_query,
-                                                  const bbq_quantizer_view_t<DataT>& quantizer,
-                                                  cuvs::distance::DistanceType metric,
-                                                  int64_t row_document,
-                                                  int64_t row_query)
+__device__ __forceinline__ float bbq_row_distance(
+  const bbq_encoding_view_t& encoding_document,
+  const bbq_quantizer_view_t<DataT>& quantizer_document,
+  const bbq_encoding_view_t& encoding_query,
+  const bbq_quantizer_view_t<DataT>& quantizer_query,
+  cuvs::distance::DistanceType metric,
+  int64_t row_document,
+  int64_t row_query)
 {
   namespace bbq_detail = cuvs::preprocessing::quantize::bbq::detail;
-  const uint32_t raw =
-    bbq_detail::code_inner_product(encoding_document, encoding_query, row_document, row_query);
+  const uint32_t raw   = bbq_detail::code_inner_product(encoding_document,
+                                                      quantizer_document.layout,
+                                                      encoding_query,
+                                                      quantizer_query.layout,
+                                                      row_document,
+                                                      row_query);
   return bbq_detail::bbq_calculate_metric(
     raw,
     bbq_detail::get_dequant_factors(encoding_document, row_document),
     bbq_detail::get_dequant_factors(encoding_query, row_query),
     encoding_document,
     encoding_query,
-    quantizer,
+    quantizer_document,
     metric,
     raft::identity_op{},
     row_document,
@@ -195,8 +201,9 @@ __device__ __forceinline__ float bbq_row_distance(const bbq_encoding_view_t& enc
 
 template <typename DataT, int numElementsPerThread>
 __global__ void kern_sort_bbq(const bbq_encoding_view_t encoding_document,
+                              const bbq_quantizer_view_t<DataT> quantizer_document,
                               const bbq_encoding_view_t encoding_query,
-                              const bbq_quantizer_view_t<DataT> quantizer,
+                              const bbq_quantizer_view_t<DataT> quantizer_query,
                               uint32_t* const knn_graph,  // [graph_size, graph_degree]
                               const uint32_t graph_size,
                               const uint32_t graph_degree,
@@ -218,9 +225,14 @@ __global__ void kern_sort_bbq(const bbq_encoding_view_t encoding_document,
       continue;
     }
     const uint32_t dst_node = knn_graph[k + static_cast<uint64_t>(graph_degree) * src_node];
-    my_keys[i] =
-      bbq_row_distance(encoding_document, encoding_query, quantizer, metric, src_node, dst_node);
-    my_vals[i] = dst_node;
+    my_keys[i]              = bbq_row_distance(encoding_document,
+                                  quantizer_document,
+                                  encoding_query,
+                                  quantizer_query,
+                                  metric,
+                                  src_node,
+                                  dst_node);
+    my_vals[i]              = dst_node;
   }
 
   raft::util::bitonic<numElementsPerThread>(true).sort(my_keys, my_vals);
@@ -235,6 +247,7 @@ __global__ void kern_sort_bbq(const bbq_encoding_view_t encoding_document,
 
 template <typename DataT>
 using sort_bbq_kernel_type = void (*)(bbq_encoding_view_t,
+                                      bbq_quantizer_view_t<DataT>,
                                       bbq_encoding_view_t,
                                       bbq_quantizer_view_t<DataT>,
                                       uint32_t*,
@@ -260,22 +273,26 @@ auto select_sort_bbq_kernel(uint32_t degree) -> sort_bbq_kernel_type<DataT>
 template <typename DataT>
 void sort_knn_graph_bbq_impl(raft::resources const& res,
                              cuvs::distance::DistanceType metric,
-                             cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
+                             cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> document,
+                             cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> query,
                              raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph)
 {
   namespace bbq_detail  = cuvs::preprocessing::quantize::bbq::detail;
   using bbq_code_layout = cuvs::preprocessing::quantize::bbq::bbq_code_layout;
 
-  const auto data      = dataset.data_view();
-  const auto quantizer = dataset.manifest_view();
-  RAFT_EXPECTS(data.document.layout == data.query.layout ||
-                 bbq_detail::is_asymmetric_layout_pair(data.document.layout, data.query.layout),
+  const auto quantizer_document = document.manifest_view();
+  const auto quantizer_query    = query.manifest_view();
+  const auto document_layout    = quantizer_document.layout;
+  const auto query_layout       = quantizer_query.layout;
+  bbq_detail::check_same_quantizer<DataT>(res, quantizer_document, quantizer_query);
+  RAFT_EXPECTS(document_layout == query_layout ||
+                 bbq_detail::is_asymmetric_layout_pair(document_layout, query_layout),
                "Unsupported BBQ (document, query) layout pair (%d, %d). Supported asymmetric "
                "pairs: (packed_1b, packed_4b), (packed_1b, transposed_2b), "
                "(packed_1b, transposed_4b), (transposed_2b, transposed_4b).",
-               static_cast<int>(data.document.layout),
-               static_cast<int>(data.query.layout));
-  RAFT_EXPECTS(dataset.n_rows() == knn_graph.extent(0),
+               static_cast<int>(document_layout),
+               static_cast<int>(query_layout));
+  RAFT_EXPECTS(document.n_rows() == knn_graph.extent(0) && query.n_rows() == knn_graph.extent(0),
                "dataset size is expected to have the same number of graph index size");
   RAFT_EXPECTS(metric == cuvs::distance::DistanceType::L2Expanded ||
                  metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
@@ -289,9 +306,10 @@ void sort_knn_graph_bbq_impl(raft::resources const& res,
   auto kernel             = select_sort_bbq_kernel<DataT>(graph_degree);
   // The code inner products read both rows as uint32_t words, and a bit-sliced layout starts
   // every plane at a multiple of the plane stride, so each plane must be 4-byte aligned.
-  for (const auto& encoding : {data.document, data.query}) {
-    const auto row_length = bbq_detail::get_encoded_row_length(encoding);
-    const auto planes     = static_cast<uint32_t>(bbq_detail::get_code_planes(encoding.layout));
+  for (const auto& dataset : {document, query}) {
+    const auto row_length = bbq_detail::get_encoded_row_length(dataset.data_view());
+    const auto planes =
+      static_cast<uint32_t>(bbq_detail::get_code_planes(dataset.manifest_view().layout));
     RAFT_EXPECTS(row_length % (4u * planes) == 0,
                  "Sorting a BBQ-quantized kNN graph requires the encoded row length to be a "
                  "multiple of 4*n_planes for 32-bit aligned plane loads, got %u with n_planes = %u",
@@ -300,11 +318,11 @@ void sort_knn_graph_bbq_impl(raft::resources const& res,
   }
   // A packed_1b document is promoted to 4-bit width one 32-dimension word at a time, which only
   // covers the packed_4b query row exactly when the dimensionality is a multiple of 32.
-  RAFT_EXPECTS(data.query.layout != bbq_code_layout::packed_4b ||
-                 data.document.layout == data.query.layout || dataset.dim() % 32 == 0,
+  RAFT_EXPECTS(query_layout != bbq_code_layout::packed_4b || document_layout == query_layout ||
+                 document.dim() % 32 == 0,
                "Sorting a BBQ-quantized kNN graph with packed_1b codes against packed_4b ones "
                "requires the dataset dim to be a multiple of 32, got %u",
-               dataset.dim());
+               document.dim());
 
   const double time_sort_start = cur_time();
   RAFT_LOG_DEBUG("# Sorting kNN Graph on GPUs\n");
@@ -318,9 +336,10 @@ void sort_knn_graph_bbq_impl(raft::resources const& res,
   auto const warps              = block_size / raft::WarpSize;
   auto const blocks             = (graph_size + warps - 1) / warps;
   kernel<<<blocks, block_size, 0, raft::resource::get_cuda_stream(res).get()>>>(
-    data.document,
-    data.query,
-    quantizer,
+    document.data_view(),
+    quantizer_document,
+    query.data_view(),
+    quantizer_query,
     d_input_graph.data_handle(),
     graph_size,
     graph_degree,
@@ -358,10 +377,11 @@ CUVS_DEFINE_CAGRA_GRAPH_SORT(uint8_t)
 #define CUVS_DEFINE_CAGRA_GRAPH_SORT_BBQ(DataT)                                                 \
   void sort_knn_graph_bbq(raft::resources const& res,                                           \
                           cuvs::distance::DistanceType metric,                                  \
-                          cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,     \
+                          cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> document,    \
+                          cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> query,       \
                           raft::host_matrix_view<uint32_t, int64_t, raft::row_major> knn_graph) \
   {                                                                                             \
-    sort_knn_graph_bbq_impl<DataT>(res, metric, dataset, knn_graph);                            \
+    sort_knn_graph_bbq_impl<DataT>(res, metric, document, query, knn_graph);                    \
   }
 
 CUVS_DEFINE_CAGRA_GRAPH_SORT_BBQ(float)

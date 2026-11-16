@@ -161,8 +161,7 @@ Parameters for encoding a dataset with `cuvsBbqQuantizerTransform`.
 
 ```c
 struct cuvsBbqQuantizerParams {
-  cuvsBbqCodeLayout_t doc_layout;
-  cuvsBbqCodeLayout_t query_layout;
+  cuvsBbqCodeLayout_t layout;
   cuvsDistanceType metric;
   float lambda;
   int iters;
@@ -173,8 +172,7 @@ struct cuvsBbqQuantizerParams {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `doc_layout` | [`cuvsBbqCodeLayout_t`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqcodelayout-t) | Code layout of the encoded rows on the document side of a distance. |
-| `query_layout` | [`cuvsBbqCodeLayout_t`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqcodelayout-t) | Code layout of the encoded rows on the query side of a distance. When it differs from `doc_layout`, the dataset is encoded a second time in this layout. |
+| `layout` | [`cuvsBbqCodeLayout_t`](/api-reference/c-api-preprocessing-quantize-bbq#cuvsbbqcodelayout-t) | Code layout of the encoded rows. |
 | `metric` | [`cuvsDistanceType`](/api-reference/c-api-distance-distance#cuvsdistancetype) | Selects the per-row additional correction: \|\|x - c\|\|^2 for L2, x.c otherwise. |
 | `lambda` | `float` | Relative interval weight of the quantization error against the norm-preserving term of the loss. |
 | `iters` | `int` | Coordinate descent iterations per row. |
@@ -188,7 +186,7 @@ Allocate BBQ quantizer params, and populate with default values
 cuvsError_t cuvsBbqQuantizerParamsCreate(cuvsBbqQuantizerParams_t* params);
 ```
 
-Defaults: `CUVS_BBQ_CODE_LAYOUT_PACKED_1B` documents, `CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B` queries, `L2Expanded`, `lambda` 0.1 and 5 `iters`.
+Defaults: `CUVS_BBQ_CODE_LAYOUT_PACKED_1B`, `L2Expanded`, `lambda` 0.1 and 5 `iters`.
 
 **Parameters**
 
@@ -257,7 +255,7 @@ DLManagedTensor* in_dataset,
 cuvsDataset_t* bbq_dataset);
 ```
 
-The dataset holds one storage in `params->doc_layout`, plus one in `params->query_layout` when it differs, and its own copy of the centroid, so it does not depend on `quantizer` or `dataset` once returned. `quantizer` is either built by `cuvsBbqQuantizerBuild`, or a float32 view from `cuvsBbqQuantizerCreateView`, whose centroid is then reused. Destroy the result with `cuvsDatasetDestroy`.
+The dataset holds the rows encoded in `params->layout` and its own copy of the centroid, so it does not depend on `quantizer` or `dataset` once returned. `quantizer` is either built by `cuvsBbqQuantizerBuild`, or a float32 view from `cuvsBbqQuantizerCreateView`, whose centroid is then reused. Destroy the result with `cuvsDatasetDestroy`.
 
 **Parameters**
 

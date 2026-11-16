@@ -24,17 +24,14 @@ namespace preprocessing::quantize::bbq {
  */
 
 /**
- * doc_layout: The code layout of the encoded rows on the document side of a distance
- * query_layout: The code layout of the encoded rows on the query side of a distance. When it
- * differs from doc_layout, the dataset is encoded a second time in this layout.
+ * layout: The code layout of the encoded rows.
  * metric: Used for selecting the per-row additional correction: ||x - c||^2 for L2, x.c otherwise.
  * lambda: Relative interval weight of the quantization error against the norm-preserving term of
  * the loss.
  * iters: Coordinate descent iterations per row.
  */
 struct params {
-  bbq_code_layout doc_layout          = bbq_code_layout::packed_1b;
-  bbq_code_layout query_layout        = bbq_code_layout::transposed_4b;
+  bbq_code_layout layout              = bbq_code_layout::packed_1b;
   cuvs::distance::DistanceType metric = cuvs::distance::DistanceType::L2Expanded;
   float lambda                        = 0.1f;
   int iters                           = 5;
@@ -83,9 +80,8 @@ void build(raft::resources const& res,
  * @brief Allocates a BBQ dataset of the shape `transform` writes, leaving its contents
  * uninitialized.
  *
- * The rows are allocated in `params.doc_layout` and, when `params.query_layout` differs, a second
- * time in that layout; the metric is recorded from `params.metric`, and the quantizer holds room
- * for a centroid of @p dim components.
+ * The rows are allocated in `params.layout`. The quantizer records `params.layout` and
+ * `params.metric`, and holds room for a centroid of @p dim components.
  *
  * Usage example:
  * @code{.cpp}
@@ -96,8 +92,7 @@ void build(raft::resources const& res,
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] params configuration for BBQ encoding; only doc_layout, query_layout and metric are
- * used
+ * @param[in] params configuration for BBQ encoding; only layout and metric are used
  * @param[in] n_rows number of rows
  * @param[in] dim number of components of each row before encoding
  *
@@ -112,9 +107,9 @@ cuvs::device_bbq_dataset<float, int64_t> make_device_bbq_dataset(raft::resources
  * @brief Encodes a dataset into a BBQ dataset, against the centroid in the manifest of the BBQ
  * dataset.
  *
- * @p out receives the rows encoded in `params.doc_layout` format, and when specified in
- * `params.query_layout` format as well. The manifest of @p out has to hold the quantizer already,
- * from a previous call to `build`.
+ * @p out receives the rows encoded in the layout of its quantizer. The manifest of @p out has to
+ * hold the quantizer already, from a previous call to `build`, and its layout and metric have to
+ * be the ones of @p params.
  *
  * Usage example:
  * @code{.cpp}
@@ -127,8 +122,7 @@ cuvs::device_bbq_dataset<float, int64_t> make_device_bbq_dataset(raft::resources
  * @endcode
  *
  * @param[in] res raft resource
- * @param[in] params configuration for BBQ encoding, e.g. doc_layout, query_layout, metric, lambda,
- * iters
+ * @param[in] params configuration for BBQ encoding, e.g. layout, metric, lambda, iters
  * @param[in] dense_dataset a row-major matrix view on device
  * @param[inout] out a view of the BBQ dataset whose manifest holds the quantizer, to write the
  * encoding into

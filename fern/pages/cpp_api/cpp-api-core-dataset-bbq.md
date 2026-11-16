@@ -74,32 +74,6 @@ constexpr auto get_encoded_row_length(uint32_t dim, bbq_code_layout layout) noex
 
 `uint32_t`
 
-<a id="preprocessing-quantize-bbq-quantizer"></a>
-### preprocessing::quantize::bbq::quantizer
-
-Better Binary Quantization ([BBQ](https://www.elastic.co/search-labs/blog/better-binary-quantization-lucene-elasticsearch)) is a vector-quantization approach used in Elasticsearch and Apache Lucene. It builds on ideas introduced in RaBitQ([Gao and Long](https://arxiv.org/pdf/2405.12497, [Gao et al.](https://arxiv.org/pdf/2409.09913)): residual binary codes around a centroid, corrective factors, and efficient bitwise comparison of codes at different bit widths. Lucene implements this as optimized scalar quantization (OSQ) with packed and bit-plane layouts; Elasticsearch exposes it as BBQ.
-
-BBQ in cuVS designed to be compatible with the Lucene/Elasticsearch dataset: a single shared centroid, no random rotation, and OSQ codes.
-
-RaBitQ and BBQ in cuVS both compress centroid-relative vectors to low-bit codes and retain additional per-vector information so search is better than naïve sign-bit comparison. They differ in transformation and scale representation. RaBitQ commonly separates residual magnitude from direction, then applies a random orthogonal rotation before binary coding; BBQ uses per-vector scalar intervals to interpret the compressed residual codes.
-
-The quantizer is the manifest of a `cuvs::device_bbq_dataset`: what every encoding of the rows shares. The layouts and the metric belong to the encoded data.
-
-```cpp
-template <typename T>
-struct quantizer {
-  raft::device_vector<T, int64_t> centroid;
-  raft::device_scalar<float, int64_t> centroid_norm_sq;
-};
-```
-
-**Fields**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `centroid` | `raft::device_vector<T, int64_t>` | Centroid shared by every row; rows are encoded relative to it. |
-| `centroid_norm_sq` | `raft::device_scalar<float, int64_t>` | Squared L2 norm of the centroid, \|\|c\|\|^2. |
-
 <a id="preprocessing-quantize-bbq-quantizer-view"></a>
 ### preprocessing::quantize::bbq::quantizer_view
 
@@ -111,6 +85,8 @@ The view owns neither the centroid nor its norm, so the quantizer it was taken f
 template <typename T>
 struct quantizer_view {
   raft::device_vector_view<T, int64_t> centroid;
+  bbq_code_layout layout;
+  cuvs::distance::DistanceType metric;
 };
 ```
 
@@ -119,6 +95,8 @@ struct quantizer_view {
 | Name | Type | Description |
 | --- | --- | --- |
 | `centroid` | `raft::device_vector_view<T, int64_t>` | Centroid shared by every row; rows are encoded relative to it. |
+| `layout` | [`bbq_code_layout`](/api-reference/cpp-api-core-dataset-bbq#preprocessing-quantize-bbq-bbq-code-layout) | Code layout of the encoded rows. |
+| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | Metric the per-row additional corrections are computed for. |
 
 <a id="preprocessing-quantize-bbq-quantizer-view-quantizer-view-u"></a>
 ### preprocessing::quantize::bbq::quantizer_view::quantizer_view&lt;U&gt;
@@ -135,14 +113,42 @@ requires(!std::is_const_v<T> && std::is_same_v<U, const T>);
 
 `operator`
 
+<a id="preprocessing-quantize-bbq-quantizer"></a>
+### preprocessing::quantize::bbq::quantizer
+
+Better Binary Quantization ([BBQ](https://www.elastic.co/search-labs/blog/better-binary-quantization-lucene-elasticsearch)) is a vector-quantization approach used in Elasticsearch and Apache Lucene. It builds on ideas introduced in RaBitQ([Gao and Long](https://arxiv.org/pdf/2405.12497, [Gao et al.](https://arxiv.org/pdf/2409.09913)): residual binary codes around a centroid, corrective factors, and efficient bitwise comparison of codes at different bit widths. Lucene implements this as optimized scalar quantization (OSQ) with packed and bit-plane layouts; Elasticsearch exposes it as BBQ.
+
+BBQ in cuVS designed to be compatible with the Lucene/Elasticsearch dataset: a single shared centroid, no random rotation, and OSQ codes.
+
+RaBitQ and BBQ in cuVS both compress centroid-relative vectors to low-bit codes and retain additional per-vector information so search is better than naïve sign-bit comparison. They differ in transformation and scale representation. RaBitQ commonly separates residual magnitude from direction, then applies a random orthogonal rotation before binary coding; BBQ uses per-vector scalar intervals to interpret the compressed residual codes.
+
+The quantizer is the manifest of a `cuvs::device_bbq_dataset`: it states how the rows of the dataset are encoded. Two datasets encoding the same rows in different layouts against the same centroid form the document and query sides of an asymmetric distance.
+
+```cpp
+template <typename T>
+struct quantizer {
+  raft::device_vector<T, int64_t> centroid;
+  raft::device_scalar<float, int64_t> centroid_norm_sq;
+  bbq_code_layout layout;
+  cuvs::distance::DistanceType metric;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `centroid` | `raft::device_vector<T, int64_t>` | Centroid shared by every row; rows are encoded relative to it. |
+| `centroid_norm_sq` | `raft::device_scalar<float, int64_t>` | Squared L2 norm of the centroid, \|\|c\|\|^2. |
+| `layout` | [`bbq_code_layout`](/api-reference/cpp-api-core-dataset-bbq#preprocessing-quantize-bbq-bbq-code-layout) | Code layout of the encoded rows. |
+| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | Metric the per-row additional corrections are computed for. |
+
 ## Types
 
 <a id="bbq-encoding"></a>
 ### bbq_encoding
 
-One encoding of the rows of a BBQ dataset: the codes in one layout, together with the per-row
-
-terms of the distance estimator and the encoder outputs those terms are derived from.
+The data of a BBQ dataset: the rows encoded in the layout of its quantizer.
 
 It holds arrays for an owning dataset and spans for a view of it.
 
@@ -157,7 +163,6 @@ struct bbq_encoding {
   VectorT dequant_delta;
   VectorT dequant_sum_delta;
   VectorT row_norm;
-  preprocessing::quantize::bbq::bbq_code_layout layout;
 };
 ```
 
@@ -173,55 +178,6 @@ struct bbq_encoding {
 | `dequant_delta` | `VectorT` | Per-row step between consecutive codes: (upper - lower) / (2^bits - 1). |
 | `dequant_sum_delta` | `VectorT` | Per-row dequant_delta * quantized_component_sums. |
 | `row_norm` | `VectorT` | Per-row squared norm in the original (un-centered) vector space, \|\|x\|\|^2. |
-| `layout` | [`preprocessing::quantize::bbq::bbq_code_layout`](/api-reference/cpp-api-core-dataset-bbq#preprocessing-quantize-bbq-bbq-code-layout) | Code layout of `codes`. |
-
-<a id="bbq-data-view"></a>
-### bbq_data_view
-
-The data of a BBQ dataset view: the encoding read on the document side of a distance and the one
-
-read on its query side. Both encode the same rows, in the same order, against the centroid of the manifest, and their corrections were computed for `metric`. A symmetric dataset refers to one encoding on both sides.
-
-```cpp
-template <typename CodesT, typename VectorT, typename SumsT>
-struct bbq_data_view {
-  cuvs::distance::DistanceType metric;
-  encoding_type document;
-  encoding_type query;
-};
-```
-
-**Fields**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | Metric the additional corrections of both encodings were computed for. |
-| `document` | `encoding_type` | Encoding read on the document side of a distance. |
-| `query` | `encoding_type` | Encoding read on the query side of a distance; the document encoding when symmetric. |
-
-<a id="bbq-data"></a>
-### bbq_data
-
-The data of an owning BBQ dataset: the rows encoded in the document layout and, when the query
-
-side of a distance reads a different layout, encoded a second time in that one.
-
-```cpp
-template <typename CodesT, typename VectorT, typename SumsT>
-struct bbq_data {
-  cuvs::distance::DistanceType metric;
-  encoding_type document;
-  std::optional<encoding_type> query;
-};
-```
-
-**Fields**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | Metric the additional corrections of both encodings were computed for. |
-| `document` | `encoding_type` | Encoding read on the document side of a distance. |
-| `query` | `std::optional<encoding_type>` | Encoding read on the query side of a distance; empty when the dataset is symmetric. |
 
 <a id="bbq-spec"></a>
 ### bbq_spec

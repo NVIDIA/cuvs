@@ -2489,42 +2489,47 @@ template <typename Data_t, typename Index_t>
 template <typename DistEpilogue_t>
 void GNND<Data_t, Index_t>::local_join(
   cudaStream_t stream,
-  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
+  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> document,
+  std::optional<cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t>>
+    dataset_query,
   DistEpilogue_t dist_epilogue)
 {
   raft::matrix::fill(res, dists_buffer_.view(), std::numeric_limits<float>::max());
 
   // Both kernels take the same (document, query) pair, so there is no symmetric/asymmetric split
-  // here: a symmetric dataset reads its one encoding on both operands, which is exactly what
+  // here: a symmetric build reads its one dataset on both operands, which is exactly what
   // SelfJoin encodes.
-  const auto data      = dataset.data_view();
-  const auto quantizer = dataset.manifest_view();
-  const bool self_join = data.document.layout == data.query.layout;
+  const auto query     = dataset_query.value_or(document);
+  const auto quantizer = document.manifest_view();
+  const auto d_layout  = document.manifest_view().layout;
+  const auto q_layout  = query.manifest_view().layout;
+  const bool self_join = d_layout == q_layout;
 
   // Asymmetric: a packed_4b query selects the tensor-core path, a transposed query the SIMT one.
   // Only packed_1b promotes to the tensor-core path; transposed_2b is SIMT-only (it would need
   // promoting from two bitplanes at once, which the int4 MMA staging doesn't support).
   RAFT_EXPECTS(self_join || cuvs::preprocessing::quantize::bbq::detail::is_asymmetric_layout_pair(
-                              data.document.layout, data.query.layout),
+                              d_layout, q_layout),
                "Unsupported BBQ layout pair for asymmetric local join. Supported: "
                "packed_1b x packed_4b (tensor core); packed_1b x transposed_2b, "
                "packed_1b x transposed_4b, transposed_2b x transposed_4b (SIMT).");
 
   // stage_tile_simt / stage_promoted_tile cast code buffers to uint32_t*, so every plane stride
   // must be 4-byte aligned.
-  for (const auto& encoding : {data.document, data.query}) {
-    const auto len = cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(encoding);
+  for (const auto& dataset : {document, query}) {
+    const auto len =
+      cuvs::preprocessing::quantize::bbq::detail::get_encoded_row_length(dataset.data_view());
     const int n_planes =
-      cuvs::preprocessing::quantize::bbq::detail::get_code_planes(encoding.layout);
+      cuvs::preprocessing::quantize::bbq::detail::get_code_planes(dataset.manifest_view().layout);
     RAFT_EXPECTS(len % (4u * static_cast<uint32_t>(n_planes)) == 0,
                  "BBQ local join requires the encoded row length to be a multiple of 4*n_planes "
                  "for 32-bit aligned plane loads, got %u with n_planes = %d",
                  len,
                  n_planes);
   }
-  RAFT_EXPECTS(dataset.dim() % 32 == 0,
+  RAFT_EXPECTS(document.dim() % 32 == 0,
                "BBQ local join requires dataset dim to be a multiple of 32, got %lld",
-               static_cast<long long>(dataset.dim()));
+               static_cast<long long>(document.dim()));
 
   // One launch site for both kernels: they take identical arguments, and the query's layout picks
   // the path -- packed_4b is the only layout the int4 tensor-core kernel is dispatched for.
@@ -2539,8 +2544,8 @@ void GNND<Data_t, Index_t>::local_join(
                                                h_rev_graph_old_.data_handle(),
                                                d_list_sizes_old_.data_handle(),
                                                NUM_SAMPLES,
-                                               data.document,
-                                               data.query,
+                                               document.data_view(),
+                                               query.data_view(),
                                                quantizer,
                                                graph_buffer_.data_handle(),
                                                dists_buffer_.data_handle(),
@@ -2560,10 +2565,8 @@ void GNND<Data_t, Index_t>::local_join(
         local_join_kernel_bbq_simt<D, Q, kernel_data_t, Index_t, kernel_id_t, DistEpilogue_t>);
     }
   };
-  const bbq_code_layout d = data.document.layout;
-  const bbq_code_layout q = data.query.layout;
   if (self_join) {
-    switch (d) {
+    switch (d_layout) {
       case bbq_code_layout::packed_1b:
         launch(std::integral_constant<bbq_code_layout, bbq_code_layout::packed_1b>{},
                std::integral_constant<bbq_code_layout, bbq_code_layout::packed_1b>{});
@@ -2586,16 +2589,17 @@ void GNND<Data_t, Index_t>::local_join(
         break;
       default: RAFT_FAIL("Unsupported BBQ layout for symmetric local join on this branch.");
     }
-  } else if (d == bbq_code_layout::packed_1b && q == bbq_code_layout::packed_4b) {
+  } else if (d_layout == bbq_code_layout::packed_1b && q_layout == bbq_code_layout::packed_4b) {
     launch(std::integral_constant<bbq_code_layout, bbq_code_layout::packed_1b>{},
            std::integral_constant<bbq_code_layout, bbq_code_layout::packed_4b>{});
-  } else if (d == bbq_code_layout::packed_1b && q == bbq_code_layout::transposed_2b) {
+  } else if (d_layout == bbq_code_layout::packed_1b && q_layout == bbq_code_layout::transposed_2b) {
     launch(std::integral_constant<bbq_code_layout, bbq_code_layout::packed_1b>{},
            std::integral_constant<bbq_code_layout, bbq_code_layout::transposed_2b>{});
-  } else if (d == bbq_code_layout::packed_1b && q == bbq_code_layout::transposed_4b) {
+  } else if (d_layout == bbq_code_layout::packed_1b && q_layout == bbq_code_layout::transposed_4b) {
     launch(std::integral_constant<bbq_code_layout, bbq_code_layout::packed_1b>{},
            std::integral_constant<bbq_code_layout, bbq_code_layout::transposed_4b>{});
-  } else if (d == bbq_code_layout::transposed_2b && q == bbq_code_layout::transposed_4b) {
+  } else if (d_layout == bbq_code_layout::transposed_2b &&
+             q_layout == bbq_code_layout::transposed_4b) {
     launch(std::integral_constant<bbq_code_layout, bbq_code_layout::transposed_2b>{},
            std::integral_constant<bbq_code_layout, bbq_code_layout::transposed_4b>{});
   } else {
@@ -2854,14 +2858,16 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
 template <typename Data_t, typename Index_t>
 template <typename DistEpilogue_t>
 void GNND<Data_t, Index_t>::build(
-  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> dataset,
+  cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t> document,
+  std::optional<cuvs::neighbors::device_bbq_dataset_view<std::remove_const_t<Data_t>, int64_t>>
+    query,
   Index_t* output_graph,
   bool return_distances,
   DistData_t* output_distances,
   DistEpilogue_t dist_epilogue)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(res).get();
-  nrow_               = static_cast<size_t>(dataset.n_rows());
+  nrow_               = static_cast<size_t>(document.n_rows());
   graph_.nrow         = nrow_;
   graph_.bloom_filter.set_nrow(nrow_);
   update_counter_ = 0;
@@ -2912,7 +2918,7 @@ void GNND<Data_t, Index_t>::build(
                       d_list_sizes_old_.data_handle(),
                       stream);
 
-    local_join(stream, dataset, dist_epilogue);
+    local_join(stream, document, query, dist_epilogue);
     worker.wait();
     if (converged) { break; }
     raft::copy(res, graph_host_buffer_.view(), graph_buffer_.view());
@@ -2975,33 +2981,38 @@ void GNND<Data_t, Index_t>::build(
   }
 }
 
+/**
+ * Builds the graph of the rows of @p document from the distances between their @p document codes
+ * and their @p query codes; a symmetric build passes no @p query.
+ */
 template <typename DataT, typename IdxT = uint32_t>
-void build(raft::resources const& res,
-           const index_params& params,
-           cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
-           index<IdxT>& idx)
+void build_bbq(raft::resources const& res,
+               const index_params& params,
+               cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> document,
+               std::optional<cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t>> query,
+               index<IdxT>& idx)
 {
-  RAFT_EXPECTS(dataset.n_rows() > 0, "BBQ dataset must not be empty.");
-  const auto data = dataset.data_view();
+  RAFT_EXPECTS(document.n_rows() > 0, "BBQ dataset must not be empty.");
+  const auto document_layout = document.manifest_view().layout;
+  const auto query_layout    = query.value_or(document).manifest_view().layout;
   cuvs::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope(
     "neighbors::nn_descent::detail::build-bbq(%zu, %zu, %zu, %zu, %zu)",
-    size_t(dataset.n_rows()),
-    size_t(dataset.dim()),
+    size_t(document.n_rows()),
+    size_t(document.dim()),
     size_t(idx.graph().extent(1)),
     size_t(idx.metric()),
-    size_t(cuvs::preprocessing::quantize::bbq::get_bit_width(data.document.layout)));
+    size_t(cuvs::preprocessing::quantize::bbq::get_bit_width(document_layout)));
   RAFT_EXPECTS(idx.metric() == cuvs::distance::DistanceType::L2Expanded ||
                  idx.metric() == cuvs::distance::DistanceType::L2SqrtExpanded ||
                  idx.metric() == cuvs::distance::DistanceType::CosineExpanded ||
                  idx.metric() == cuvs::distance::DistanceType::InnerProduct,
                "BBQ NN-Descent supports L2Expanded, L2SqrtExpanded, CosineExpanded, and "
                "InnerProduct.");
-  RAFT_EXPECTS(idx.metric() == data.metric,
+  RAFT_EXPECTS(idx.metric() == document.manifest_view().metric,
                "BBQ dataset metric does not match the NN-Descent metric.");
   // packed_4b is the only layout dispatched to local_join_kernel_bbq_wmma, and the int4 MMA that
   // kernel is built around only exists from sm_75 on.
-  if (data.document.layout == bbq_code_layout::packed_4b ||
-      data.query.layout == bbq_code_layout::packed_4b) {
+  if (document_layout == bbq_code_layout::packed_4b || query_layout == bbq_code_layout::packed_4b) {
     auto kernel       = local_join_kernel_bbq_wmma<bbq_code_layout::packed_4b,
                                                    bbq_code_layout::packed_4b,
                                                    DataT,
@@ -3022,27 +3033,28 @@ void build(raft::resources const& res,
   size_t graph_degree;
   auto build_config = get_build_config(res,
                                        params,
-                                       dataset.n_rows(),
-                                       dataset.dim(),
+                                       document.n_rows(),
+                                       document.dim(),
                                        idx.metric(),
                                        extended_graph_degree,
                                        graph_degree);
   RAFT_EXPECTS(
-    static_cast<size_t>(idx.graph().extent(0)) == static_cast<size_t>(dataset.n_rows()) &&
+    static_cast<size_t>(idx.graph().extent(0)) == static_cast<size_t>(document.n_rows()) &&
       static_cast<size_t>(idx.graph().extent(1)) == graph_degree,
     "The output graph shape must match the dataset size and effective graph degree.");
   if (idx.distances().has_value()) {
     RAFT_EXPECTS(
-      static_cast<size_t>(idx.distances()->extent(0)) == static_cast<size_t>(dataset.n_rows()) &&
+      static_cast<size_t>(idx.distances()->extent(0)) == static_cast<size_t>(document.n_rows()) &&
         static_cast<size_t>(idx.distances()->extent(1)) == graph_degree,
       "The output distances shape must match the output graph shape.");
   }
   auto int_graph =
-    raft::make_host_matrix<int, int64_t, raft::row_major>(dataset.n_rows(), extended_graph_degree);
+    raft::make_host_matrix<int, int64_t, raft::row_major>(document.n_rows(), extended_graph_degree);
   GNND<const DataT, int> nnd(res, build_config);
 
   if (idx.distances().has_value() || !params.return_distances) {
-    nnd.build(dataset,
+    nnd.build(document,
+              query,
               int_graph.data_handle(),
               params.return_distances,
               idx.distances()
@@ -3055,11 +3067,25 @@ void build(raft::resources const& res,
   }
 
 #pragma omp parallel for
-  for (size_t i = 0; i < static_cast<size_t>(dataset.n_rows()); ++i) {
+  for (size_t i = 0; i < static_cast<size_t>(document.n_rows()); ++i) {
     for (size_t j = 0; j < graph_degree; ++j) {
       idx.graph()(i, j) = int_graph(i, j);
     }
   }
+}
+
+template <typename DataT, typename IdxT = uint32_t>
+void build(raft::resources const& res,
+           const index_params& params,
+           cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
+           std::optional<cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t>> dataset_query,
+           index<IdxT>& idx)
+{
+  if (dataset_query.has_value()) {
+    cuvs::preprocessing::quantize::bbq::detail::check_asymmetric_pair<DataT>(
+      res, dataset, *dataset_query);
+  }
+  build_bbq<DataT, IdxT>(res, params, dataset, dataset_query, idx);
 }
 
 template <typename T,
@@ -3131,9 +3157,11 @@ void build(raft::resources const& res,
 }
 
 template <typename DataT, typename IdxT = uint32_t>
-index<IdxT> build(raft::resources const& res,
-                  const index_params& params,
-                  cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset)
+index<IdxT> build(
+  raft::resources const& res,
+  const index_params& params,
+  cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t> dataset,
+  std::optional<cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t>> dataset_query)
 {
   auto effective_params = get_effective_index_params(params, dataset.n_rows());
 
@@ -3142,7 +3170,7 @@ index<IdxT> build(raft::resources const& res,
                   static_cast<int64_t>(effective_params.graph_degree),
                   effective_params.return_distances,
                   effective_params.metric};
-  detail::build<DataT, IdxT>(res, effective_params, dataset, idx);
+  detail::build<DataT, IdxT>(res, effective_params, dataset, dataset_query, idx);
   return idx;
 }
 

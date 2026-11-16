@@ -342,14 +342,13 @@ inline void copy_bbq_quantizer_host_to_device(
   raft::copy(device.centroid_norm_sq.data_handle(), &host_storage.centroid_norm_sq, 1, stream);
 }
 
-/** Uploads the per-row arrays of @p host_storage that make up one encoding of the rows. */
+/** Uploads the per-row arrays of @p host_storage that make up the encoded rows. */
 inline void copy_bbq_encoding_host_to_device(
   raft::resources const& res,
   host_encoding const& host_storage,
-  cuvs::device_bbq_dataset<float, int64_t>::data_view_type::encoding_type device)
+  cuvs::device_bbq_dataset<float, int64_t>::data_view_type device)
 {
-  RAFT_EXPECTS(device.layout == host_storage.layout &&
-                 device.codes.extent(0) == host_storage.codes.extent(0) &&
+  RAFT_EXPECTS(device.codes.extent(0) == host_storage.codes.extent(0) &&
                  device.codes.extent(1) == host_storage.codes.extent(1),
                "the device BBQ encoding does not match the shape of the host one");
   auto stream = raft::resource::get_cuda_stream(res);
@@ -385,35 +384,20 @@ inline void copy_bbq_encoding_host_to_device(
              stream);
 }
 
-/**
- * Create a device BBQ dataset from 1 or 2 host encodings.
- */
-inline auto to_device_bbq_dataset(raft::resources const& res,
-                                  host_encoding const& document,
-                                  host_encoding const* query = nullptr)
+/** Creates a device BBQ dataset from a host encoding. */
+inline auto to_device_bbq_dataset(raft::resources const& res, host_encoding const& host_storage)
   -> cuvs::device_bbq_dataset<float, int64_t>
 {
-  if (query != nullptr) {
-    RAFT_EXPECTS(query->layout != document.layout,
-                 "the host BBQ query encoding has the layout of the document one");
-    const auto& centroid = document.centroid;
-    RAFT_EXPECTS(query->centroid.extent(0) == centroid.extent(0) &&
-                   std::equal(centroid.data_handle(),
-                              centroid.data_handle() + centroid.size(),
-                              query->centroid.data_handle()),
-                 "the host BBQ query encoding was encoded against a different centroid");
-    RAFT_EXPECTS(
-      query->codes.extent(0) == document.codes.extent(0) && query->metric == document.metric,
-      "the host BBQ query encoding does not encode the document rows");
-  }
-  const cuvs::preprocessing::quantize::bbq::params params{
-    document.layout, query != nullptr ? query->layout : document.layout, document.metric};
+  cuvs::preprocessing::quantize::bbq::params params;
+  params.layout       = host_storage.layout;
+  params.metric       = host_storage.metric;
   auto device_dataset = cuvs::preprocessing::quantize::bbq::make_device_bbq_dataset(
-    res, params, document.codes.extent(0), static_cast<uint32_t>(document.centroid.extent(0)));
-  auto device_data_view = device_dataset.data_view();
-  copy_bbq_encoding_host_to_device(res, document, device_data_view.document);
-  if (query != nullptr) { copy_bbq_encoding_host_to_device(res, *query, device_data_view.query); }
-  copy_bbq_quantizer_host_to_device(res, document, device_dataset.manifest_view());
+    res,
+    params,
+    host_storage.codes.extent(0),
+    static_cast<uint32_t>(host_storage.centroid.extent(0)));
+  copy_bbq_encoding_host_to_device(res, host_storage, device_dataset.data_view());
+  copy_bbq_quantizer_host_to_device(res, host_storage, device_dataset.manifest_view());
   return device_dataset;
 }
 
@@ -602,30 +586,23 @@ inline auto quantize_cached(const float* rows,
 }
 
 /**
- * Quantize host-resident @p rows and upload the codes, ready for the BBQ NN-Descent build.
+ * Quantize host-resident @p rows in @p layout and upload the codes, ready for a BBQ build.
  *
- * `query_token == doc_token` produces a single encoding and a symmetric join; differing tokens
- * produce a second, wider encoding for the query side and an asymmetric join.
+ * An asymmetric build quantizes the rows twice, once per side: every encoding takes its centroid
+ * from the host mean of the rows, so the two hold the same one.
  */
 inline auto quantize_to_device(raft::resources const& res,
                                const float* rows,
                                int64_t n_rows,
                                int64_t dim,
                                cuvs::distance::DistanceType metric,
-                               bbq_code_layout query_layout,
-                               bbq_code_layout doc_layout)
-  -> cuvs::device_bbq_dataset<float, int64_t>
+                               bbq_code_layout layout) -> cuvs::device_bbq_dataset<float, int64_t>
 {
-  validate_layout_pair(query_layout, doc_layout);
-  const auto document = quantize_cached(rows, n_rows, dim, doc_layout, metric);
-  std::optional<host_encoding> query;
-  if (query_layout != doc_layout) {
-    query = quantize_cached(rows, n_rows, dim, query_layout, metric);
-  }
-  auto device_dataset = to_device_bbq_dataset(res, document, query.has_value() ? &*query : nullptr);
-  // The uploads are stream-ordered against the host encodings, which die with this frame.
+  const auto encoding = quantize_cached(rows, n_rows, dim, layout, metric);
+  auto dataset        = to_device_bbq_dataset(res, encoding);
+  // The uploads are stream-ordered against the host encoding, which dies with this frame.
   raft::resource::sync_stream(res);
-  return device_dataset;
+  return dataset;
 }
 
 inline auto quantize_to_device(raft::resources const& res,
@@ -633,16 +610,8 @@ inline auto quantize_to_device(raft::resources const& res,
                                int64_t n_rows,
                                int64_t dim,
                                cuvs::distance::DistanceType metric,
-                               std::string_view query_token,
-                               std::string_view doc_token)
-  -> cuvs::device_bbq_dataset<float, int64_t>
+                               std::string_view token) -> cuvs::device_bbq_dataset<float, int64_t>
 {
-  return quantize_to_device(res,
-                            rows,
-                            n_rows,
-                            dim,
-                            metric,
-                            parse_bbq_layout_token(query_token),
-                            parse_bbq_layout_token(doc_token));
+  return quantize_to_device(res, rows, n_rows, dim, metric, parse_bbq_layout_token(token));
 }
 }  // namespace cuvs::preprocessing::quantize::bbq::detail

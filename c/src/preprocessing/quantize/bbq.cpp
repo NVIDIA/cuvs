@@ -25,8 +25,8 @@
 namespace {
 
 /**
- * What a quantizer view handle refers to: the caller's rows, encoded in one layout, read as a
- * symmetric BBQ dataset; `cuvsDatasetMakeBbqView` combines two of them into an asymmetric one.
+ * What a quantizer view handle refers to: the caller's rows, encoded in one layout, read as a BBQ
+ * dataset; `cuvsDatasetMakeBbqView` pairs two of them for an asymmetric distance.
  */
 template <typename T>
 using quantizer_view_handle_t = typename cuvs::device_bbq_dataset<T, int64_t>::const_view_type;
@@ -65,8 +65,7 @@ auto to_cpp_params(cuvsBbqQuantizerParams const& params)
   -> cuvs::preprocessing::quantize::bbq::params
 {
   return cuvs::preprocessing::quantize::bbq::params{
-    to_cpp_layout(params.doc_layout),
-    to_cpp_layout(params.query_layout),
+    to_cpp_layout(params.layout),
     static_cast<cuvs::distance::DistanceType>(params.metric),
     params.lambda,
     params.iters};
@@ -153,11 +152,11 @@ auto make_cpp_quantizer_view(
       row_norm.extent(0) == n_rows,
     "cuvsBbqQuantizerCreateView: every correction vector must contain one value per row");
 
-  const typename view_t::data_view_type::encoding_type encoding{
-    codes, lower, upper, corrections, sums, delta, sum_delta, row_norm, layout};
-  return view_t{typename view_t::data_view_type{
-                  static_cast<cuvs::distance::DistanceType>(metric), encoding, encoding},
-                typename view_t::manifest_view_type{centroid, centroid_norm_sq}};
+  return view_t{
+    typename view_t::data_view_type{
+      codes, lower, upper, corrections, sums, delta, sum_delta, row_norm},
+    typename view_t::manifest_view_type{
+      centroid, centroid_norm_sq, layout, static_cast<cuvs::distance::DistanceType>(metric)}};
 }
 
 template <typename T>
@@ -311,11 +310,8 @@ extern "C" cuvsError_t cuvsBbqQuantizerParamsCreate(cuvsBbqQuantizerParams_t* pa
 {
   return cuvs::core::translate_exceptions([=] {
     RAFT_EXPECTS(params != nullptr, "cuvsBbqQuantizerParamsCreate: null output");
-    *params = new cuvsBbqQuantizerParams{.doc_layout   = CUVS_BBQ_CODE_LAYOUT_PACKED_1B,
-                                         .query_layout = CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B,
-                                         .metric       = L2Expanded,
-                                         .lambda       = 0.1f,
-                                         .iters        = 5};
+    *params = new cuvsBbqQuantizerParams{
+      .layout = CUVS_BBQ_CODE_LAYOUT_PACKED_1B, .metric = L2Expanded, .lambda = 0.1f, .iters = 5};
   });
 }
 

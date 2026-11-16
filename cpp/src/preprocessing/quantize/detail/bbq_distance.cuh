@@ -10,20 +10,98 @@
 #include <cuvs/preprocessing/quantize/bbq.hpp>
 
 #include <raft/core/device_mdspan.hpp>
+#include <raft/core/error.hpp>
 #include <raft/core/operators.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resources.hpp>
+#include <raft/util/cudart_utils.hpp>
 
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <type_traits>
+#include <vector>
 
 namespace cuvs::preprocessing::quantize::bbq::detail {
 
 /** The read-only view of a BBQ dataset, as the algorithms take it. */
 template <typename DataT>
 using bbq_dataset_view_t = cuvs::neighbors::device_bbq_dataset_view<DataT, int64_t>;
-/** One read-only encoding of the rows, as the kernels read it. */
-using bbq_encoding_view_t = typename bbq_dataset_view_t<float>::data_view_type::encoding_type;
+/** The read-only encoded rows of a BBQ dataset, as the kernels read them. */
+using bbq_encoding_view_t = typename bbq_dataset_view_t<float>::data_view_type;
+
+/**
+ * The asymmetric (document, query) layout pairs the distance kernels compute: a packed_1b document
+ * against a packed_4b (tensor core), transposed_2b or transposed_4b query, and a transposed_2b
+ * document against a transposed_4b query (SIMT).
+ */
+constexpr auto is_asymmetric_layout_pair(bbq_code_layout document, bbq_code_layout query) noexcept
+  -> bool
+{
+  return (document == bbq_code_layout::packed_1b &&
+          (query == bbq_code_layout::packed_4b || query == bbq_code_layout::transposed_2b ||
+           query == bbq_code_layout::transposed_4b)) ||
+         (document == bbq_code_layout::transposed_2b && query == bbq_code_layout::transposed_4b);
+}
+
+/**
+ * Checks that @p document and @p query hold the same quantizer up to the layout: the same metric
+ * and a bitwise-identical centroid and centroid norm, so that one of them can stand for both
+ * sides of a distance.
+ */
+template <typename DataT>
+void check_same_quantizer(raft::resources const& res,
+                          const quantizer_view<const DataT>& document,
+                          const quantizer_view<const DataT>& query)
+{
+  RAFT_EXPECTS(document.metric == query.metric,
+               "BBQ: the document and query datasets were encoded for different metrics");
+  RAFT_EXPECTS(document.dim() == query.dim(),
+               "BBQ: the document and query centroids have different dimensions");
+  if (document.centroid.data_handle() == query.centroid.data_handle() &&
+      document.centroid_norm_sq.data_handle() == query.centroid_norm_sq.data_handle()) {
+    return;
+  }
+  const auto dim    = static_cast<size_t>(document.dim());
+  const auto stream = raft::resource::get_cuda_stream(res);
+  std::vector<DataT> centroids(2 * dim);
+  float centroid_norms_sq[2];
+  raft::copy(centroids.data(), document.centroid.data_handle(), dim, stream);
+  raft::copy(centroids.data() + dim, query.centroid.data_handle(), dim, stream);
+  raft::copy(&centroid_norms_sq[0], document.centroid_norm_sq.data_handle(), 1, stream);
+  raft::copy(&centroid_norms_sq[1], query.centroid_norm_sq.data_handle(), 1, stream);
+  raft::resource::sync_stream(res);
+  bool centroids_equal = true;
+  for (size_t i = 0; i < dim; ++i) {
+    if (centroids[i] != centroids[i + dim]) {
+      centroids_equal = false;
+      break;
+    }
+  }
+  RAFT_EXPECTS(centroids_equal && centroid_norms_sq[0] == centroid_norms_sq[1],
+               "BBQ: the document and query datasets were encoded against different centroids");
+}
+
+/**
+ * Checks that @p document and @p query are the two sides of an asymmetric distance: the same rows,
+ * encoded against the same centroid for the same metric, in a supported pair of layouts.
+ */
+template <typename DataT>
+void check_asymmetric_pair(raft::resources const& res,
+                           const bbq_dataset_view_t<DataT>& document,
+                           const bbq_dataset_view_t<DataT>& query)
+{
+  const auto document_quantizer = document.manifest_view();
+  const auto query_quantizer    = query.manifest_view();
+  RAFT_EXPECTS(is_asymmetric_layout_pair(document_quantizer.layout, query_quantizer.layout),
+               "BBQ: (document layout %d, query layout %d) is not a supported asymmetric pair",
+               static_cast<int>(document_quantizer.layout),
+               static_cast<int>(query_quantizer.layout));
+  RAFT_EXPECTS(document.n_rows() == query.n_rows(),
+               "BBQ: the document and query datasets do not encode the same rows");
+  check_same_quantizer<DataT>(res, document_quantizer, query_quantizer);
+}
 
 #ifdef __CUDACC__
 
@@ -49,20 +127,6 @@ _RAFT_HOST_DEVICE constexpr int get_code_planes(const bbq_code_layout layout)
     case bbq_code_layout::transposed_4b: return 4;
     default: return 1;
   }
-}
-
-/**
- * The asymmetric (document, query) layout pairs the distance kernels compute: a packed_1b document
- * against a packed_4b (tensor core), transposed_2b or transposed_4b query, and a transposed_2b
- * document against a transposed_4b query (SIMT).
- */
-constexpr auto is_asymmetric_layout_pair(bbq_code_layout document, bbq_code_layout query) noexcept
-  -> bool
-{
-  return (document == bbq_code_layout::packed_1b &&
-          (query == bbq_code_layout::packed_4b || query == bbq_code_layout::transposed_2b ||
-           query == bbq_code_layout::transposed_4b)) ||
-         (document == bbq_code_layout::transposed_2b && query == bbq_code_layout::transposed_4b);
 }
 
 // --------------------------------------------------------------------------
@@ -296,37 +360,39 @@ __device__ __forceinline__ uint32_t code_inner_product_1b_x_packed_4b(const uint
 
 /**
  * Integer inner product between a document row and a query row, each read through its own
- * encoding. The two layouts may differ: the supported (document, query) pairs are the ones
- * nn-descent's local join dispatches on, and passing the same view twice is the symmetric case.
+ * encoding in its own layout. The two layouts may differ: the supported (document, query) pairs
+ * are the ones nn-descent's local join dispatches on, and passing the same encoding twice is the
+ * symmetric case.
  */
 __device__ __forceinline__ uint32_t code_inner_product(const bbq_encoding_view_t& encoding_document,
+                                                       bbq_code_layout document_layout,
                                                        const bbq_encoding_view_t& encoding_query,
+                                                       bbq_code_layout query_layout,
                                                        int64_t row_document,
                                                        int64_t row_query)
 {
   const uint8_t* document = &encoding_document.codes(row_document, 0);
   const uint8_t* query    = &encoding_query.codes(row_query, 0);
 
-  if (encoding_document.layout == encoding_query.layout) {
+  if (document_layout == query_layout) {
     return code_inner_product(
-      document, query, encoding_document.layout, get_encoded_row_length(encoding_document));
+      document, query, document_layout, get_encoded_row_length(encoding_document));
   }
-  if (encoding_document.layout == bbq_code_layout::packed_1b &&
-      encoding_query.layout == bbq_code_layout::packed_4b) {
+  if (document_layout == bbq_code_layout::packed_1b && query_layout == bbq_code_layout::packed_4b) {
     return code_inner_product_1b_x_packed_4b(
       document, query, get_encoded_row_length(encoding_document));
   }
   // Every remaining supported pair is bit-sliced on both sides: (packed_1b, transposed_2b),
   // (packed_1b, transposed_4b) and (transposed_2b, transposed_4b).
-  assert(encoding_document.layout == bbq_code_layout::packed_1b ||
-         encoding_document.layout == bbq_code_layout::transposed_2b);
-  assert(encoding_query.layout == bbq_code_layout::transposed_2b ||
-         encoding_query.layout == bbq_code_layout::transposed_4b);
-  const int document_planes = get_code_planes(encoding_document.layout);
+  assert(document_layout == bbq_code_layout::packed_1b ||
+         document_layout == bbq_code_layout::transposed_2b);
+  assert(query_layout == bbq_code_layout::transposed_2b ||
+         query_layout == bbq_code_layout::transposed_4b);
+  const int document_planes = get_code_planes(document_layout);
   return code_inner_product_planes(document,
                                    document_planes,
                                    query,
-                                   get_code_planes(encoding_query.layout),
+                                   get_code_planes(query_layout),
                                    get_encoded_row_length(encoding_document) / document_planes);
 }
 

@@ -13,8 +13,7 @@ _Source header: `cuvs/preprocessing/quantize/bbq.hpp`_
 
 ```cpp
 struct params {
-  bbq_code_layout doc_layout;
-  bbq_code_layout query_layout;
+  bbq_code_layout layout;
   cuvs::distance::DistanceType metric;
   float lambda;
   int iters;
@@ -25,8 +24,7 @@ struct params {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `doc_layout` | `bbq_code_layout` | The code layout of the encoded rows on the document side of a distance |
-| `query_layout` | `bbq_code_layout` | The code layout of the encoded rows on the query side of a distance. When it differs from doc_layout, the dataset is encoded a second time in this layout. |
+| `layout` | `bbq_code_layout` | The code layout of the encoded rows. |
 | `metric` | [`cuvs::distance::DistanceType`](/api-reference/cpp-api-distance-distance#distance-distancetype) | Used for selecting the per-row additional correction: \|\|x - c\|\|^2 for L2, x.c otherwise. |
 | `lambda` | `float` | Relative interval weight of the quantization error against the norm-preserving term of the loss. |
 | `iters` | `int` | Coordinate descent iterations per row. |
@@ -104,7 +102,7 @@ int64_t n_rows,
 uint32_t dim);
 ```
 
-The rows are allocated in `params.doc_layout` and, when `params.query_layout` differs, a second time in that layout; the metric is recorded from `params.metric`, and the quantizer holds room for a centroid of `dim` components.
+The rows are allocated in `params.layout`. The quantizer records `params.layout` and `params.metric`, and holds room for a centroid of `dim` components.
 
 Usage example:
 
@@ -113,7 +111,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `params` | in | [`const params`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-params) | configuration for BBQ encoding; only doc_layout, query_layout and metric are used |
+| `params` | in | [`const params`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-params) | configuration for BBQ encoding; only layout and metric are used |
 | `n_rows` | in | `int64_t` | number of rows |
 | `dim` | in | `uint32_t` | number of components of each row before encoding |
 
@@ -135,7 +133,7 @@ raft::device_matrix_view<const float, int64_t> dense_dataset,
 cuvs::device_bbq_dataset<float, int64_t>::view_type out);
 ```
 
-`params.query_layout` format as well. The manifest of `out` has to hold the quantizer already, from a previous call to `build`.
+hold the quantizer already, from a previous call to `build`, and its layout and metric have to be the ones of `params`.
 
 Usage example:
 
@@ -144,7 +142,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `params` | in | [`const params`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-params) | configuration for BBQ encoding, e.g. doc_layout, query_layout, metric, lambda, iters |
+| `params` | in | [`const params`](/api-reference/cpp-api-preprocessing-quantize-bbq#preprocessing-quantize-bbq-params) | configuration for BBQ encoding, e.g. layout, metric, lambda, iters |
 | `dense_dataset` | in | `raft::device_matrix_view<const float, int64_t>` | a row-major matrix view on device |
 | `out` | inout | `cuvs::device_bbq_dataset<float, int64_t>::view_type` | a view of the BBQ dataset whose manifest holds the quantizer, to write the encoding into |
 

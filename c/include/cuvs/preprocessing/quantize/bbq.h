@@ -166,13 +166,8 @@ CUVS_EXPORT cuvsError_t cuvsDatasetMakeBbqView(cuvsResources_t res,
  * @brief Parameters for encoding a dataset with `cuvsBbqQuantizerTransform`.
  */
 struct cuvsBbqQuantizerParams {
-  /** Code layout of the encoded rows on the document side of a distance. */
-  cuvsBbqCodeLayout_t doc_layout;
-  /**
-   * Code layout of the encoded rows on the query side of a distance. When it differs from
-   * `doc_layout`, the dataset is encoded a second time in this layout.
-   */
-  cuvsBbqCodeLayout_t query_layout;
+  /** Code layout of the encoded rows. */
+  cuvsBbqCodeLayout_t layout;
   /** Selects the per-row additional correction: ||x - c||^2 for L2, x.c otherwise. */
   cuvsDistanceType metric;
   /**
@@ -189,8 +184,7 @@ typedef struct cuvsBbqQuantizerParams* cuvsBbqQuantizerParams_t;
 /**
  * @brief Allocate BBQ quantizer params, and populate with default values
  *
- * Defaults: `CUVS_BBQ_CODE_LAYOUT_PACKED_1B` documents, `CUVS_BBQ_CODE_LAYOUT_TRANSPOSED_4B`
- * queries, `L2Expanded`, `lambda` 0.1 and 5 `iters`.
+ * Defaults: `CUVS_BBQ_CODE_LAYOUT_PACKED_1B`, `L2Expanded`, `lambda` 0.1 and 5 `iters`.
  *
  * @param[out] params cuvsBbqQuantizerParams_t to allocate
  * @return cuvsError_t
@@ -235,11 +229,10 @@ CUVS_EXPORT cuvsError_t cuvsBbqQuantizerBuild(cuvsResources_t res,
 /**
  * @brief Encode a dataset against the centroid of a BBQ quantizer into an owning BBQ dataset.
  *
- * The dataset holds one storage in `params->doc_layout`, plus one in `params->query_layout` when it
- * differs, and its own copy of the centroid, so it does not depend on `quantizer` or `dataset` once
- * returned. `quantizer` is either built by `cuvsBbqQuantizerBuild`, or a float32 view from
- * `cuvsBbqQuantizerCreateView`, whose centroid is then reused. Destroy the result with
- * `cuvsDatasetDestroy`.
+ * The dataset holds the rows encoded in `params->layout` and its own copy of the centroid, so it
+ * does not depend on `quantizer` or `dataset` once returned. `quantizer` is either built by
+ * `cuvsBbqQuantizerBuild`, or a float32 view from `cuvsBbqQuantizerCreateView`, whose centroid is
+ * then reused. Destroy the result with `cuvsDatasetDestroy`.
  *
  * @param[in] res cuVS resources
  * @param[in] params encoding parameters
