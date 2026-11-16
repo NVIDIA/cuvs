@@ -12,7 +12,7 @@ public interface CuVSResources extends AutoCloseable
 
 Used for allocating resources for cuVS
 
-## Public Members
+## Public and Protected Members
 
 ### handle
 

@@ -48,15 +48,20 @@ struct params {
 | `threshold` | [`bit_threshold`](/api-reference/cpp-api-preprocessing-quantize-binary#preprocessing-quantize-binary-bit-threshold) | Threshold method for binarization. |
 | `sampling_ratio` | `float` | Specifies the sampling ratio. |
 
-<a id="preprocessing-quantize-binary-quantizer"></a>
-### preprocessing::quantize::binary::quantizer
+<a id="preprocessing-quantize-binary-quantizer-view"></a>
+### preprocessing::quantize::binary::quantizer_view
 
-Store the threshold vector for quantization. In the binary::transform function, a bit is set if the corresponding element in the dataset vector is greater than the corresponding element in the threshold vector.
+Non-owning view of a binary quantizer, with the constness semantics of an mdspan: `quantizer_view<T>` can modify the thresholds, `quantizer_view<const T>` cannot.
+
+The threshold is either the vector of per-dimension thresholds (whose extent is the dimension), or just the dimension of the vectors, which stands for the zero quantizer: no thresholds are stored and zero is the threshold in every dimension. These are different quantizers even when the vector is empty.
 
 ```cpp
-template <typename T>
-struct quantizer {
-  raft::device_vector<T, int64_t> threshold;
+template <typename T,
+typename ContainerPolicy =
+raft::device_accessor<raft::device_container_policy<std::remove_const_t<T>>>>
+struct quantizer_view {
+  using vector_type;
+  std::variant<uint32_t, vector_view_type> value;
 };
 ```
 
@@ -64,26 +69,212 @@ struct quantizer {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `threshold` | `raft::device_vector<T, int64_t>` | Threshold vector used for binarization. |
+| `vector_type` | `using` | The owning vector of the thresholds, which defines the memory space of the view. |
+| `value` | `std::variant<uint32_t, vector_view_type>` | The thresholds [dim], or the dimension for the zero quantizer. |
 
-<a id="preprocessing-quantize-binary-quantizer-quantizer"></a>
-### preprocessing::quantize::binary::quantizer::quantizer
+<a id="vector-type"></a>
+### vector_type
 
-Construct a quantizer with an empty threshold vector.
+The owning vector of the thresholds, which defines the memory space of the view.
 
 ```cpp
-quantizer(raft::resources const& res);
+using vector_type      = raft::mdarray<std::remove_const_t<T>,
+raft::vector_extent<int64_t>,
+raft::layout_c_contiguous,
+ContainerPolicy>;
+```
+
+<a id="preprocessing-quantize-binary-quantizer-view-quantizer-view"></a>
+### preprocessing::quantize::binary::quantizer_view::quantizer_view
+
+The zero quantizer of dimension zero.
+
+```cpp
+quantizer_view() = default;
+```
+
+**Returns**
+
+`void`
+
+**Additional overload:** `preprocessing::quantize::binary::quantizer_view::quantizer_view`
+
+The zero quantizer of the given dimension (number of bits).
+
+```cpp
+explicit quantizer_view(uint32_t dim) noexcept : value;
 ```
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `res` |  | `raft::resources const&` |  |
+| `dim` |  | `uint32_t` |  |
+
+**Returns**
+
+`explicit`
+
+**Additional overload:** `preprocessing::quantize::binary::quantizer_view::quantizer_view`
+
+The quantizer with the given thresholds; its dimension is the extent of the vector.
+
+```cpp
+explicit quantizer_view(vector_view_type thresholds) noexcept : value;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `thresholds` |  | `vector_view_type` |  |
+
+**Returns**
+
+`explicit`
+
+<a id="preprocessing-quantize-binary-quantizer-view-dim"></a>
+### preprocessing::quantize::binary::quantizer_view::dim
+
+The number of dimensions (bits) of the quantized vectors.
+
+```cpp
+[[nodiscard]] auto dim() const noexcept -> uint32_t;
+```
+
+**Returns**
+
+`uint32_t`
+
+<a id="preprocessing-quantize-binary-quantizer-view-requires"></a>
+### preprocessing::quantize::binary::quantizer_view::requires
+
+A mutable view decays to the read-only one, the way an mdspan does.
+
+```cpp
+template <typename U>
+requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
+operator quantizer_view<U, ContainerPolicy>()
+const noexcept  // NOLINT(google-explicit-constructor);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `arg1` |  | `!std::is_const_v<T> && std::is_same_v<U, const T>` |  |
 
 **Returns**
 
 `void`
+
+<a id="preprocessing-quantize-binary-quantizer"></a>
+### preprocessing::quantize::binary::quantizer
+
+Store the threshold vector for quantization. In the binary::transform function, a bit is set if the corresponding element in the dataset vector is greater than the corresponding element in the threshold vector.
+
+The threshold is either the vector of per-dimension thresholds (whose extent is the dimension), or just the dimension of the vectors, which stands for the zero quantizer: no thresholds are stored and zero is the threshold in every dimension. These are different quantizers even when the vector is empty. A default-constructed quantizer is the zero quantizer of dimension zero.
+
+```cpp
+template <typename T,
+typename ContainerPolicy = raft::device_accessor<raft::device_container_policy<T>>>
+struct quantizer {
+  std::variant<uint32_t, threshold_type> value;
+};
+```
+
+**Fields**
+
+| Name | Type | Description |
+| --- | --- | --- |
+| `value` | `std::variant<uint32_t, threshold_type>` | The thresholds [dim], or the dimension for the zero quantizer. |
+
+<a id="preprocessing-quantize-binary-quantizer-quantizer"></a>
+### preprocessing::quantize::binary::quantizer::quantizer
+
+The zero quantizer of dimension zero.
+
+```cpp
+quantizer() = default;
+```
+
+**Returns**
+
+`void`
+
+**Additional overload:** `preprocessing::quantize::binary::quantizer::quantizer`
+
+The zero quantizer of the given dimension (number of bits).
+
+```cpp
+explicit quantizer(uint32_t dim) noexcept : value;
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `dim` |  | `uint32_t` |  |
+
+**Returns**
+
+`explicit`
+
+**Additional overload:** `preprocessing::quantize::binary::quantizer::quantizer`
+
+The quantizer owning the given thresholds; its dimension is the extent of the vector.
+
+```cpp
+explicit quantizer(threshold_type&& thresholds);
+```
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `thresholds` |  | `threshold_type&&` |  |
+
+**Returns**
+
+`explicit`
+
+<a id="preprocessing-quantize-binary-quantizer-dim"></a>
+### preprocessing::quantize::binary::quantizer::dim
+
+The number of dimensions (bits) of the quantized vectors.
+
+```cpp
+[[nodiscard]] auto dim() const noexcept -> uint32_t;
+```
+
+**Returns**
+
+`uint32_t`
+
+<a id="preprocessing-quantize-binary-quantizer-view"></a>
+### preprocessing::quantize::binary::quantizer::view
+
+A non-owning view of the quantizer.
+
+```cpp
+[[nodiscard]] auto view() noexcept -> view_type;
+```
+
+**Returns**
+
+`view_type`
+
+**Additional overload:** `preprocessing::quantize::binary::quantizer::view`
+
+A read-only non-owning view of the quantizer.
+
+```cpp
+[[nodiscard]] auto view() const noexcept -> const_view_type;
+```
+
+**Returns**
+
+`const_view_type`
 
 <a id="preprocessing-quantize-binary-train"></a>
 ### preprocessing::quantize::binary::train

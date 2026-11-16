@@ -110,6 +110,8 @@ requirements:
         - mkl =2023
         - llvm-openmp
   ignore_run_exports:
+    from_package:
+      - libboost-devel
     by_name:
       - glog
       - libboost
