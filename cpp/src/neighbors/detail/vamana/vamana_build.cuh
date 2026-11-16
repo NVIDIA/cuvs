@@ -9,6 +9,7 @@
 #include "../../detail/ann_utils.cuh"
 #include "greedy_search.cuh"
 #include "robust_prune.cuh"
+#include "vamana_init_graph.cuh"
 #include "vamana_structs.cuh"
 #include <cuvs/neighbors/vamana.hpp>
 
@@ -35,6 +36,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 #include <type_traits>
 
 #include <cuvs/distance/distance.hpp>
@@ -160,9 +162,25 @@ void batched_insert_vamana(
   auto start_t = std::chrono::system_clock::now();
 #endif
 
-  // Initialize graph with invalid neighbor indices (raft::upper_bound<IdxT>()).
-  auto d_graph = raft::make_device_matrix<IdxT, int64_t>(res, graph.extent(0), graph.extent(1));
-  raft::linalg::map(res, d_graph.view(), raft::const_op<IdxT>{raft::upper_bound<IdxT>()});
+  // With NN_DESCENT initialization, build the kNN graph before any of the buffers below is
+  // allocated, so that the NN-descent workspace does not add to them.
+  const bool nn_descent_init = params.graph_init == graph_init_algo::NN_DESCENT;
+  std::optional<raft::host_matrix<uint32_t, int64_t>> init_knn_graph;
+  if (nn_descent_init) {
+    init_knn_graph.emplace(build_init_knn_graph<T, Accessor>(res, params, dataset, degree));
+  }
+
+  auto d_graph     = raft::make_device_matrix<IdxT, int64_t>(res, graph.extent(0), graph.extent(1));
+  IdxT init_medoid = 0;
+  if (nn_descent_init) {
+    // Start from the CAGRA graph pruned from the kNN graph, with every list sorted by distance.
+    init_medoid = init_graph_from_knn_graph<T, IdxT, Accessor>(
+      res, dataset, init_knn_graph->view(), d_graph.view());
+    init_knn_graph.reset();
+  } else {
+    // Initialize graph with invalid neighbor indices (raft::upper_bound<IdxT>()).
+    raft::linalg::map(res, d_graph.view(), raft::const_op<IdxT>{raft::upper_bound<IdxT>()});
+  }
 
   // Temp storage about each batch of inserts being performed
   auto query_ids      = raft::make_device_vector<IdxT>(res, max_batchsize);
@@ -313,10 +331,12 @@ void batched_insert_vamana(
   // Random medoid has minor impact on recall
   // TODO: use heuristic for better medoid selection, issue:
   // https://github.com/NVIDIA/cuvs/issues/355
-  *medoid_id = rand() % N;
+  // With NN_DESCENT initialization the medoid is the vector nearest the dataset mean.
+  *medoid_id = nn_descent_init ? init_medoid : static_cast<IdxT>(rand() % N);
 
-  // size of current batch of inserts, increases logarithmically until max_batchsize
-  int step_size = 1;
+  // size of current batch of inserts, increases logarithmically until max_batchsize. An
+  // initialized graph already holds every vector, so its first pass uses full batches.
+  int step_size = nn_descent_init ? max_batchsize : 1;
   // Loop through batches and call the insert and prune kernels - can insert > N times based on
   // iters parameter
   for (int start = 0; start < (int)(insert_iters * (float)N);) {
@@ -610,6 +630,10 @@ index<T, IdxT> build(
 
   RAFT_EXPECTS(params.vamana_iters >= 1.0,
                "vamana_iters must be at least 1.0 to insert the entire input dataset");
+
+  RAFT_EXPECTS(
+    params.graph_init == graph_init_algo::EMPTY || params.graph_init == graph_init_algo::NN_DESCENT,
+    "graph_init must be EMPTY or NN_DESCENT");
 
   int dim = dataset.extent(1);
 

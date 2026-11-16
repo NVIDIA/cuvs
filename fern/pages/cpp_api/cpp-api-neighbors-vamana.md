@@ -32,6 +32,25 @@ struct codebook_params {
 | `pq_encoding_table` | `std::vector<T>` |  |
 | `rotation_matrix` | `std::vector<T>` |  |
 
+<a id="neighbors-vamana-graph-init-algo"></a>
+### neighbors::vamana::graph_init_algo
+
+How the Vamana build initializes the graph before the insertion passes.
+
+```cpp
+enum class graph_init_algo {
+  EMPTY = 0,
+  NN_DESCENT = 1
+};
+```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `EMPTY` | `0` |
+| `NN_DESCENT` | `1` |
+
 <a id="neighbors-vamana-index-params"></a>
 ### neighbors::vamana::index_params
 
@@ -47,6 +66,7 @@ struct index_params : cuvs::neighbors::index_params {
   float batch_base;
   uint32_t queue_size;
   uint32_t reverse_batchsize;
+  graph_init_algo graph_init;
   std::optional<codebook_params<float>> codebooks;
 };
 ```
@@ -63,6 +83,7 @@ struct index_params : cuvs::neighbors::index_params {
 | `batch_base` | `float` | Base of growth rate of batch sizes * |
 | `queue_size` | `uint32_t` | Size of candidate queue structure - should be (2^x)-1 |
 | `reverse_batchsize` | `uint32_t` | Max batchsize of reverse edge processing (reduces memory footprint) |
+| `graph_init` | [`graph_init_algo`](/api-reference/cpp-api-neighbors-vamana#neighbors-vamana-graph-init-algo) | How the graph is initialized before the insertion passes (see graph_init_algo). |
 | `codebooks` | [`std::optional<codebook_params<float>>`](/api-reference/cpp-api-neighbors-vamana#neighbors-vamana-codebook-params) | Codebooks and related parameters |
 
 ## Vamana index type
@@ -336,7 +357,7 @@ raft::device_matrix_view<const float, int64_t, raft::row_major> dataset)
 -> cuvs::neighbors::vamana::index<float, uint32_t>;
 ```
 
-The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph.
+The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph. Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA graph built with NN-descent instead of an empty graph.
 
 The following distance metrics are supported:
 
@@ -367,7 +388,7 @@ raft::host_matrix_view<const float, int64_t, raft::row_major> dataset)
 -> cuvs::neighbors::vamana::index<float, uint32_t>;
 ```
 
-The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph.
+The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph. Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA graph built with NN-descent instead of an empty graph.
 
 The following distance metrics are supported:
 
@@ -398,7 +419,7 @@ raft::device_matrix_view<const int8_t, int64_t, raft::row_major> dataset)
 -> cuvs::neighbors::vamana::index<int8_t, uint32_t>;
 ```
 
-The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph.
+The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph. Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA graph built with NN-descent instead of an empty graph.
 
 The following distance metrics are supported:
 
@@ -429,7 +450,7 @@ raft::host_matrix_view<const int8_t, int64_t, raft::row_major> dataset)
 -> cuvs::neighbors::vamana::index<int8_t, uint32_t>;
 ```
 
-The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph.
+The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph. Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA graph built with NN-descent instead of an empty graph.
 
 The following distance metrics are supported:
 
@@ -460,7 +481,7 @@ raft::device_matrix_view<const uint8_t, int64_t, raft::row_major> dataset)
 -> cuvs::neighbors::vamana::index<uint8_t, uint32_t>;
 ```
 
-The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph.
+The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph. Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA graph built with NN-descent instead of an empty graph.
 
 The following distance metrics are supported:
 
@@ -491,7 +512,7 @@ raft::host_matrix_view<const uint8_t, int64_t, raft::row_major> dataset)
 -> cuvs::neighbors::vamana::index<uint8_t, uint32_t>;
 ```
 
-The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph.
+The build utilities the Vamana insertion-based algorithm to create the graph. The algorithm starts with an empty graph and iteratively iserts batches of nodes. Each batch involves performing a greedy search for each vector to be inserted, and inserting it with edges to all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied to improve graph quality. The index_params struct controls the degree of the final graph. Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA graph built with NN-descent instead of an empty graph.
 
 The following distance metrics are supported:
 

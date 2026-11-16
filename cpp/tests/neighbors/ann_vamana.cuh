@@ -54,6 +54,19 @@ struct cast_to_half_op {
   __device__ half operator()(float x) const { return __float2half(x); }
 };
 
+// Cast fp32 -> any test data type.
+template <typename DataT>
+struct cast_from_float_op {
+  __device__ DataT operator()(float x) const
+  {
+    if constexpr (std::is_same_v<DataT, half>) {
+      return __float2half(x);
+    } else {
+      return static_cast<DataT>(x);
+    }
+  }
+};
+
 struct AnnVamanaInputs {
   int n_rows;
   int dim;
@@ -73,6 +86,9 @@ struct AnnVamanaInputs {
   int itopk_size;
   int search_width;
   double min_recall;
+
+  // How the Vamana graph is initialized before the insertion passes
+  vamana::graph_init_algo graph_init = vamana::graph_init_algo::EMPTY;
 };
 
 template <typename DataT, typename IdxT>
@@ -145,6 +161,7 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
     index_params.max_fraction      = ps.max_fraction;
     index_params.reverse_batchsize = ps.reverse_batchsize;
     index_params.vamana_iters      = ps.insert_iters;
+    index_params.graph_init        = ps.graph_init;
 
     // use randomized codebooks to test serialization & quantization code path
     if (ps.dim == 384 && std::is_same_v<DataT, int8_t>)
@@ -170,6 +187,7 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
     };
 
     CheckGraph<DataT, IdxT>(&index, ps, stream_.get());
+    if (ps.graph_init == vamana::graph_init_algo::NN_DESCENT) { CheckMedoidNearMean(index); }
 
     tmp_index_file index_file;
     vamana::serialize(handle_, index_file.filename, index);
@@ -252,6 +270,40 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
                                   0.003,
                                   min_recall));
     }
+  }
+
+  // With NN_DESCENT initialization the medoid is the vector nearest the dataset mean.
+  void CheckMedoidNearMean(const vamana::index<DataT, IdxT>& index)
+  {
+    std::vector<DataT> h_database(database.size());
+    raft::update_host(h_database.data(), database.data(), database.size(), stream_);
+    raft::resource::sync_stream(handle_);
+    auto value = [&](int64_t row, int64_t col) {
+      return static_cast<double>(static_cast<float>(h_database[row * ps.dim + col]));
+    };
+    std::vector<double> mean(ps.dim, 0.0);
+    for (int64_t i = 0; i < ps.n_rows; i++) {
+      for (int64_t j = 0; j < ps.dim; j++) {
+        mean[j] += value(i, j);
+      }
+    }
+    for (auto& m : mean) {
+      m /= ps.n_rows;
+    }
+    auto dist_to_mean = [&](int64_t row) {
+      double d = 0.0;
+      for (int64_t j = 0; j < ps.dim; j++) {
+        d += (value(row, j) - mean[j]) * (value(row, j) - mean[j]);
+      }
+      return d;
+    };
+    double nearest = dist_to_mean(0);
+    for (int64_t i = 1; i < ps.n_rows; i++) {
+      nearest = std::min(nearest, dist_to_mean(i));
+    }
+    ASSERT_LT(static_cast<int64_t>(index.medoid()), static_cast<int64_t>(ps.n_rows));
+    // The GPU sums in float, so allow for rounding between near ties.
+    EXPECT_LE(dist_to_mean(index.medoid()), nearest * (1.0 + 1e-4) + 1e-6);
   }
 
   void SetUp() override
@@ -388,5 +440,162 @@ inline std::vector<AnnVamanaInputs> generate_inputs()
 }
 
 const std::vector<AnnVamanaInputs> inputs = generate_inputs();
+
+// Builds that start from a graph initialized with NN-descent, with the same recall checks.
+inline std::vector<AnnVamanaInputs> generate_nn_descent_init_inputs()
+{
+  std::vector<AnnVamanaInputs> inputs =
+    raft::util::itertools::product<AnnVamanaInputs>({1000},
+                                                    {1, 3, 8, 17, 64, 137, 384, 1024},
+                                                    {32},  // graph degree
+                                                    {64},  // visited_size
+                                                    {0.06, 0.1},
+                                                    {cuvs::distance::DistanceType::L2Expanded},
+                                                    {false},
+                                                    {100, 1000000},
+                                                    {1.0, 2.0},
+                                                    {100},
+                                                    {10},
+                                                    {cagra::search_algo::AUTO},
+                                                    {10},
+                                                    {64},
+                                                    {1},
+                                                    {0.2});
+
+  std::vector<AnnVamanaInputs> inputs2 =
+    raft::util::itertools::product<AnnVamanaInputs>({1000},
+                                                    {8, 64, 137, 1024},
+                                                    {64},   // graph degree
+                                                    {128},  // visited_size
+                                                    {0.06},
+                                                    {cuvs::distance::DistanceType::L2Expanded},
+                                                    {false},
+                                                    {1000000},
+                                                    {1.0},
+                                                    {100},
+                                                    {10},
+                                                    {cagra::search_algo::AUTO},
+                                                    {10},
+                                                    {32},
+                                                    {1},
+                                                    {0.2});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
+  inputs2 =
+    raft::util::itertools::product<AnnVamanaInputs>({1000},
+                                                    {64, 384},
+                                                    {128},  // graph degree
+                                                    {256},  // visited_size
+                                                    {0.06},
+                                                    {cuvs::distance::DistanceType::L2Expanded},
+                                                    {false},
+                                                    {1000000},
+                                                    {1.0},
+                                                    {100},
+                                                    {10},
+                                                    {cagra::search_algo::AUTO},
+                                                    {10},
+                                                    {64},
+                                                    {1},
+                                                    {0.2});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
+  inputs2 =
+    raft::util::itertools::product<AnnVamanaInputs>({1000},
+                                                    {64, 1024},
+                                                    {256},  // graph degree
+                                                    {512},  // visited_size
+                                                    {0.06},
+                                                    {cuvs::distance::DistanceType::L2Expanded},
+                                                    {false},
+                                                    {1000000},
+                                                    {1.0},
+                                                    {100},
+                                                    {10},
+                                                    {cagra::search_algo::AUTO},
+                                                    {10},
+                                                    {64},
+                                                    {1},
+                                                    {0.2});
+  inputs.insert(inputs.end(), inputs2.begin(), inputs2.end());
+
+  for (auto& input : inputs) {
+    input.graph_init = vamana::graph_init_algo::NN_DESCENT;
+  }
+  return inputs;
+}
+
+const std::vector<AnnVamanaInputs> nn_descent_init_inputs = generate_nn_descent_init_inputs();
+
+/**
+ * Checks that the default build still starts from an empty graph and draws its insertion order
+ * and medoid from rand() exactly as before graph initialization was added: n_rows values for the
+ * insertion order, then one for the medoid. It also checks that the invalid configurations of
+ * NN_DESCENT initialization are rejected.
+ */
+template <typename DataT>
+void check_default_graph_init()
+{
+  constexpr int64_t kRows  = 1000;
+  constexpr int64_t kDim   = 64;
+  constexpr unsigned kSeed = 1234;
+
+  EXPECT_EQ(vamana::index_params{}.graph_init, vamana::graph_init_algo::EMPTY);
+
+  raft::resources handle;
+  auto stream   = raft::resource::get_cuda_stream(handle);
+  auto database = raft::make_device_matrix<DataT, int64_t>(handle, kRows, kDim);
+  {
+    auto values = raft::make_device_vector<float, int64_t>(handle, kRows * kDim);
+    raft::random::RngState r(1234ULL);
+    raft::random::uniform(handle, r, values.data_handle(), kRows * kDim, 0.0f, 20.0f);
+    raft::linalg::map(
+      handle,
+      raft::make_device_vector_view<DataT, int64_t>(database.data_handle(), kRows * kDim),
+      cast_from_float_op<DataT>{},
+      raft::make_const_mdspan(values.view()));
+  }
+  auto database_view = raft::make_const_mdspan(database.view());
+
+  vamana::index_params params;
+  params.graph_degree = 32;
+  params.visited_size = 64;
+
+  srand(kSeed);
+  for (int64_t i = 0; i < kRows; i++) {
+    rand();
+  }
+  const auto expected_medoid = static_cast<uint32_t>(rand() % kRows);
+
+  srand(kSeed);
+  auto index_default = vamana::build(handle, params, database_view);
+  EXPECT_EQ(index_default.medoid(), expected_medoid);
+
+  params.graph_init = vamana::graph_init_algo::EMPTY;
+  srand(kSeed);
+  auto index_empty = vamana::build(handle, params, database_view);
+  EXPECT_EQ(index_empty.medoid(), expected_medoid);
+
+  // Same insertion order, so the same graph.
+  std::vector<uint32_t> graph_default(index_default.graph().size());
+  std::vector<uint32_t> graph_empty(index_empty.graph().size());
+  raft::update_host(
+    graph_default.data(), index_default.graph().data_handle(), graph_default.size(), stream);
+  raft::update_host(
+    graph_empty.data(), index_empty.graph().data_handle(), graph_empty.size(), stream);
+  raft::resource::sync_stream(handle);
+  EXPECT_EQ(graph_default, graph_empty);
+
+  params.graph_init = static_cast<vamana::graph_init_algo>(7);
+  EXPECT_THROW(vamana::build(handle, params, database_view), raft::logic_error);
+
+  // NN_DESCENT needs more rows than graph_degree.
+  params.graph_init = vamana::graph_init_algo::NN_DESCENT;
+  EXPECT_THROW(vamana::build(handle,
+                             params,
+                             raft::make_device_matrix_view<const DataT, int64_t>(
+                               database.data_handle(), params.graph_degree, kDim)),
+               raft::logic_error);
+}
 
 }  // namespace cuvs::neighbors::vamana

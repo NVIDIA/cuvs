@@ -42,6 +42,22 @@ struct codebook_params {
 };
 
 /**
+ * @brief How the Vamana build initializes the graph before the insertion passes.
+ */
+enum class graph_init_algo {
+  /** Start from an empty graph and grow the insertion batches from a single vector (default). */
+  EMPTY = 0,
+  /**
+   * Start from a CAGRA graph built with NN-descent. NN-descent builds a kNN graph of degree
+   * 2 * graph_degree, which CAGRA's optimize step prunes to graph_degree. Each neighbor list is
+   * then sorted by distance, the medoid is the vector nearest the dataset mean, and the insertion
+   * passes use full batches from the start. The NN-descent and CAGRA memory is released before the
+   * insertion passes begin.
+   */
+  NN_DESCENT = 1
+};
+
+/**
  * @brief Parameters used to build DiskANN index
  *
  * `graph_degree`: Maximum degree of graph; corresponds to the R parameter of
@@ -53,6 +69,7 @@ struct codebook_params {
  * `max_fraction`: The maximum batch size is this fraction of the total dataset size. Larger
  * gives faster build but lower graph quality.
  * `alpha`: Used to determine how aggressive the pruning will be.
+ * `graph_init`: How the graph is initialized before the insertion passes (see graph_init_algo).
  */
 
 struct index_params : cuvs::neighbors::index_params {
@@ -75,6 +92,15 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t queue_size = 127;
   /** Max batchsize of reverse edge processing (reduces memory footprint) */
   uint32_t reverse_batchsize = 1000000;
+  /**
+   * How the graph is initialized before the insertion passes. EMPTY (default) inserts every
+   * vector into an empty graph. NN_DESCENT inserts them into a CAGRA graph built with NN-descent,
+   * so vectors inserted late get as many in-links as vectors inserted early. With NN_DESCENT a
+   * single insertion pass (vamana_iters = 1) at a smaller visited_size, such as 128 for
+   * graph_degree 64, can match the graph quality of two passes over an empty graph in less time
+   * than one.
+   */
+  graph_init_algo graph_init = graph_init_algo::EMPTY;
 
   /** Codebooks and related parameters */
   std::optional<codebook_params<float>> codebooks = std::nullopt;
@@ -309,6 +335,8 @@ struct index : cuvs::neighbors::index {
  * performing a greedy search for each vector to be inserted, and inserting it with edges to
  * all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied
  * to improve graph quality. The index_params struct controls the degree of the final graph.
+ * Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA
+ * graph built with NN-descent instead of an empty graph.
  *
  * The following distance metrics are supported:
  * - L2
@@ -343,6 +371,8 @@ auto build(raft::resources const& res,
  * performing a greedy search for each vector to be inserted, and inserting it with edges to
  * all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied
  * to improve graph quality. The index_params struct controls the degree of the final graph.
+ * Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA
+ * graph built with NN-descent instead of an empty graph.
  *
  * The following distance metrics are supported:
  * - L2
@@ -387,6 +417,8 @@ auto build(raft::resources const& res,
  * performing a greedy search for each vector to be inserted, and inserting it with edges to
  * all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied
  * to improve graph quality. The index_params struct controls the degree of the final graph.
+ * Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA
+ * graph built with NN-descent instead of an empty graph.
  *
  * The following distance metrics are supported:
  * - L2
@@ -421,6 +453,8 @@ auto build(raft::resources const& res,
  * performing a greedy search for each vector to be inserted, and inserting it with edges to
  * all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied
  * to improve graph quality. The index_params struct controls the degree of the final graph.
+ * Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA
+ * graph built with NN-descent instead of an empty graph.
  *
  * The following distance metrics are supported:
  * - L2
@@ -455,6 +489,8 @@ auto build(raft::resources const& res,
  * performing a greedy search for each vector to be inserted, and inserting it with edges to
  * all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied
  * to improve graph quality. The index_params struct controls the degree of the final graph.
+ * Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA
+ * graph built with NN-descent instead of an empty graph.
  *
  * The following distance metrics are supported:
  * - L2
@@ -489,6 +525,8 @@ auto build(raft::resources const& res,
  * performing a greedy search for each vector to be inserted, and inserting it with edges to
  * all nodes traversed during the search. Reverse edges are also inserted and robustPrune is applied
  * to improve graph quality. The index_params struct controls the degree of the final graph.
+ * Set index_params::graph_init to graph_init_algo::NN_DESCENT to start the insertion from a CAGRA
+ * graph built with NN-descent instead of an empty graph.
  *
  * The following distance metrics are supported:
  * - L2
