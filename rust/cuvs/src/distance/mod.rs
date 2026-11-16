@@ -60,7 +60,7 @@ pub enum DistanceType {
     RusselRaoExpanded,
     /// Dice-Sorensen distance.
     DiceExpanded,
-    /// Bitwise Hamming distance.
+    /// Bitstring Hamming distance.
     BitwiseHamming,
     /// Bitstring Jaccard distance.
     BitwiseJaccard,

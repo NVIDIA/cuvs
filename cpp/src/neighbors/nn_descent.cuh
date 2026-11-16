@@ -29,7 +29,7 @@ namespace cuvs::neighbors::nn_descent {
  * - CosineExpanded
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
- * - BitwiseJaccard (packed uint8 bitstrings; dimensions are in bytes)
+ * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}
@@ -69,7 +69,7 @@ auto build(raft::resources const& res,
  * - CosineExpanded
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
- * - BitwiseJaccard (packed uint8 bitstrings; dimensions are in bytes)
+ * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}
@@ -113,7 +113,7 @@ void build(raft::resources const& res,
  * - CosineExpanded
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
- * - BitwiseJaccard (packed uint8 bitstrings; dimensions are in bytes)
+ * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}
@@ -153,7 +153,7 @@ auto build(raft::resources const& res,
  * - CosineExpanded
  * - InnerProduct
  * - BitwiseHamming (when T == int8, uint8)
- * - BitwiseJaccard (packed uint8 bitstrings; dimensions are in bytes)
+ * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}
