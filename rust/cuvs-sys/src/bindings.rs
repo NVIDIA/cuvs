@@ -1900,6 +1900,12 @@ unsafe extern "C" {
         output_index: cuvsTieredIndex_t,
     ) -> cuvsError_t;
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum cuvsVamanaGraphInitAlgo {
+    CUVS_VAMANA_GRAPH_INIT_EMPTY = 0,
+    CUVS_VAMANA_GRAPH_INIT_NN_DESCENT = 1,
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsVamanaIndexParams {
@@ -1912,10 +1918,11 @@ pub struct cuvsVamanaIndexParams {
     pub batch_base: f32,
     pub queue_size: u32,
     pub reverse_batchsize: u32,
+    pub graph_init: cuvsVamanaGraphInitAlgo,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsVamanaIndexParams"][::std::mem::size_of::<cuvsVamanaIndexParams>() - 36usize];
+    ["Size of cuvsVamanaIndexParams"][::std::mem::size_of::<cuvsVamanaIndexParams>() - 40usize];
     ["Alignment of cuvsVamanaIndexParams"]
         [::std::mem::align_of::<cuvsVamanaIndexParams>() - 4usize];
     ["Offset of field: cuvsVamanaIndexParams::metric"]
@@ -1936,6 +1943,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsVamanaIndexParams, queue_size) - 28usize];
     ["Offset of field: cuvsVamanaIndexParams::reverse_batchsize"]
         [::std::mem::offset_of!(cuvsVamanaIndexParams, reverse_batchsize) - 32usize];
+    ["Offset of field: cuvsVamanaIndexParams::graph_init"]
+        [::std::mem::offset_of!(cuvsVamanaIndexParams, graph_init) - 36usize];
 };
 pub type cuvsVamanaIndexParams_t = *mut cuvsVamanaIndexParams;
 unsafe extern "C" {

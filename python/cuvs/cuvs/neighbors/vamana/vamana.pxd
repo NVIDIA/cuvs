@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -14,6 +14,10 @@ from cuvs.distance_type cimport cuvsDistanceType
 
 cdef extern from "cuvs/neighbors/vamana.h" nogil:
 
+    ctypedef enum cuvsVamanaGraphInitAlgo:
+        CUVS_VAMANA_GRAPH_INIT_EMPTY
+        CUVS_VAMANA_GRAPH_INIT_NN_DESCENT
+
     ctypedef struct cuvsVamanaIndexParams:
         cuvsDistanceType metric
         uint32_t graph_degree
@@ -24,6 +28,7 @@ cdef extern from "cuvs/neighbors/vamana.h" nogil:
         float batch_base
         uint32_t queue_size
         uint32_t reverse_batchsize
+        cuvsVamanaGraphInitAlgo graph_init
 
     ctypedef cuvsVamanaIndexParams* cuvsVamanaIndexParams_t
 
