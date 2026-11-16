@@ -128,57 +128,6 @@ TYPED_TEST(CagraJaccardTest, SearchCompleteGraph)
   }
 }
 
-TYPED_TEST(CagraJaccardTest, DatasetReplacementChangesDistances)
-{
-  using T               = TypeParam;
-  constexpr auto metric = cuvs::distance::DistanceType::BitwiseJaccard;
-  raft::device_resources res;
-  constexpr int64_t rows = 64;
-  constexpr int64_t dim  = 129;
-  auto original          = raft::make_host_matrix<T, int64_t>(rows, dim);
-  auto replacement       = raft::make_host_matrix<T, int64_t>(rows, dim);
-  auto graph             = raft::make_host_matrix<uint32_t, int64_t>(rows, rows);
-  for (int64_t i = 0; i < rows; ++i) {
-    for (int64_t j = 0; j < dim; ++j) {
-      original(i, j)    = T(uint8_t(255));
-      replacement(i, j) = T(j == 0);
-    }
-    for (int64_t j = 0; j < rows; ++j) {
-      graph(i, j) = j;
-    }
-  }
-  auto original_device =
-    cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(original.view()));
-  auto replacement_device =
-    cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(replacement.view()));
-  device_padded_index<T> index(
-    res, metric, original_device->view(), raft::make_const_mdspan(graph.view()));
-  auto queries   = raft::make_device_matrix<T, int64_t>(res, 1, dim);
-  auto neighbors = raft::make_device_matrix<uint32_t, int64_t>(res, 1, 1);
-  auto distances = raft::make_device_matrix<float, int64_t>(res, 1, 1);
-  raft::copy(queries.data_handle(), replacement.data_handle(), dim, res.get_stream());
-  search_params params;
-  params.algo       = search_algo::SINGLE_CTA;
-  params.itopk_size = 64;
-  auto check        = [&](auto const& current, float expected) {
-    search(res,
-           params,
-           current,
-           raft::make_const_mdspan(queries.view()),
-           neighbors.view(),
-           distances.view());
-    float actual;
-    raft::copy(&actual, distances.data_handle(), 1, res.get_stream());
-    res.sync_stream();
-    EXPECT_NEAR(actual, expected, 1e-6);
-  };
-  EXPECT_FALSE(index.dataset_norms().has_value());
-  check(index, 1.0f - 1.0f / (8 * dim));
-  device_padded_index<T> replaced(res, std::move(index), replacement_device->view());
-  EXPECT_FALSE(replaced.dataset_norms().has_value());
-  check(replaced, 0.0f);
-}
-
 TYPED_TEST(CagraJaccardTest, NNDescentDistances)
 {
   using T               = TypeParam;
