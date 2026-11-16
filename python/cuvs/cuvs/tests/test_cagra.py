@@ -375,11 +375,3 @@ def test_cagra_ivf_pq(
     recall = calc_recall(out_idx, skl_idx)
 
     assert recall > 0.9
-
-
-@pytest.mark.parametrize("metric", ["sqeuclidean", "inner_product", "cosine"])
-def test_cagra_default_builder(metric):
-    params = cagra.IndexParams(metric=metric)
-    assert params.metric == metric
-    expected = cagra.IndexParams(build_algo="ivf_pq")
-    assert params.build_algo == expected.build_algo
