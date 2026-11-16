@@ -47,7 +47,7 @@ Lucene expects from the segment, which can exceed `k`. A segment with only a CAG
 returns at most 1024 hits, or 512 with SINGLE_CTA; when Lucene expects more, the segment is
 searched exactly on the CPU instead, which a brute force index avoids.
 
-## Public Members
+## Public and Protected Members
 
 ### GPUKnnFloatVectorQuery
 
@@ -94,5 +94,18 @@ Initializes `GPUKnnFloatVectorQuery`.
 | `searchAlgo` | CAGRA search algorithm |
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:168`_
+
+### getKnnCollectorManager
+
+```java
+@Override protected KnnCollectorManager getKnnCollectorManager(int k, IndexSearcher searcher)
+```
+
+Returns a manager that is not optimistic. Since Lucene 10.3, `rewrite` searches again,
+expecting more hits, every segment whose hits all beat the global top-k when the manager is
+optimistic. `#approximateSearch` does not use the manager, so that second search would
+only repeat the first one.
+
+_Source: `java/cuvs-lucene/compat/knn-float-vector-query-103-acceptdocs/src/main/java/com/nvidia/cuvs/lucene/CompatKnnFloatVectorQuery.java:88`_
 
 _Source: `java/cuvs-lucene/src/main/java/com/nvidia/cuvs/lucene/GPUKnnFloatVectorQuery.java:91`_
