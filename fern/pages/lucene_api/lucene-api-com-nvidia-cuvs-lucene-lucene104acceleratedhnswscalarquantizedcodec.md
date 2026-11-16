@@ -16,7 +16,7 @@ Lucene's HNSW format so that they are searched on the CPU. See `Lucene104Acceler
 This codec wraps `Lucene104Codec`, the default codec of Lucene 10.4. Once a later Lucene
 release replaces that default, this codec can only read existing indexes; use `CuVSCodecs#acceleratedHNSWScalarQuantized` to write.
 
-## Public Members
+## Public and Protected Members
 
 ### Lucene104AcceleratedHNSWScalarQuantizedCodec
 

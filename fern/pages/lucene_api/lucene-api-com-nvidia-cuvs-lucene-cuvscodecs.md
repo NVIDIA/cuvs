@@ -22,7 +22,7 @@ Lucene release and the matching cuvs-lucene artifact.
 Every method throws `IllegalStateException` if the Lucene release in use is not the one
 this cuvs-lucene artifact is built for.
 
-## Public Members
+## Public and Protected Members
 
 ### checkLuceneVersion
 
