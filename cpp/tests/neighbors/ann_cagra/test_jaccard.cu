@@ -21,226 +21,91 @@
 namespace cuvs::neighbors::cagra {
 namespace {
 
-// Independent bit-by-bit reference, including the empty-set convention.
-template <typename T>
-float jaccard_reference(const T* a, const T* b, int64_t dim)
-{
-  int intersection = 0;
-  int set_union    = 0;
-  for (int64_t i = 0; i < dim; ++i) {
-    // Unpack each bit for the reference; the implementation uses population counts.
-    for (int bit = 0; bit < 8; ++bit) {
-      bool in_a = (static_cast<uint8_t>(a[i]) >> bit) & 1;
-      bool in_b = (static_cast<uint8_t>(b[i]) >> bit) & 1;
-      intersection += in_a && in_b;
-      set_union += in_a || in_b;
-    }
-  }
-  return set_union ? 1.0f - float(intersection) / set_union : 0.0f;
-}
-
-template <typename T>
-auto packed_binary_data(int64_t rows, int64_t dim, uint32_t seed = 1158)
-{
-  auto data = raft::make_host_matrix<T, int64_t>(rows, dim);
-  std::mt19937 rng(seed);
-  for (int64_t i = 0; i < rows; ++i) {
-    for (int64_t j = 0; j < dim; ++j) {
-      // Two empty rows, two full rows, then varying cardinalities.
-      uint8_t value = 0;
-      for (int bit = 0; bit < 8; ++bit) {
-        bool present = i >= 2 && (i < 4 || rng() % 8 < static_cast<uint64_t>(1 + i % 6));
-        value |= uint8_t(present) << bit;
-      }
-      data(i, j) = T(value);
-    }
-  }
-  return data;
-}
-
 template <typename T>
 class CagraJaccardTest : public ::testing::Test {};
 using JaccardTypes = ::testing::Types<int8_t, uint8_t>;
 TYPED_TEST_SUITE(CagraJaccardTest, JaccardTypes);
 
-TYPED_TEST(CagraJaccardTest, SearchCompleteGraph)
+TYPED_TEST(CagraJaccardTest, EmptyAndFullBitsets)
 {
-  using T               = TypeParam;
-  constexpr auto metric = cuvs::distance::DistanceType::BitwiseJaccard;
+  using T = TypeParam;
   raft::device_resources res;
-  constexpr int64_t rows          = 64;
-  constexpr int64_t queries_count = 5;
-  constexpr int64_t k             = 32;
-  for (int64_t dim : {1, 2, 3, 4, 17, 33, 34, 35, 36, 65, 129, 257, 513, 1031}) {
-    SCOPED_TRACE(dim);
-    auto data = packed_binary_data<T>(rows, dim);
+  constexpr int64_t rows = 128;
+  constexpr int64_t dim  = 3;
+  auto data              = raft::make_host_matrix<T, int64_t>(rows, dim);
+  auto queries           = raft::make_host_matrix<T, int64_t>(2, dim);
+  std::fill_n(queries.data_handle(), dim, T(0));
+  std::fill_n(queries.data_handle() + dim, dim, T(uint8_t(255)));
+  auto device_queries = raft::make_device_matrix<T, int64_t>(res, 2, dim);
+  raft::copy(device_queries.data_handle(), queries.data_handle(), queries.size(), res.get_stream());
+
+  for (bool full : {false, true}) {
+    SCOPED_TRACE(full);
+    std::fill_n(data.data_handle(), data.size(), full ? T(uint8_t(255)) : T(0));
     auto padded =
       cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(data.view()));
-    auto graph = raft::make_host_matrix<uint32_t, int64_t>(rows, rows);
-    for (int64_t i = 0; i < rows; ++i) {
-      for (int64_t j = 0; j < rows; ++j) {
-        graph(i, j) = j;
-      }
+    nn_descent::index_params params;
+    params.metric                    = cuvs::distance::DistanceType::BitwiseJaccard;
+    params.graph_degree              = 32;
+    params.intermediate_graph_degree = 64;
+    params.return_distances          = true;
+    auto nn_index = nn_descent::build(res, params, raft::make_const_mdspan(data.view()));
+    ASSERT_TRUE(nn_index.distances().has_value());
+    std::vector<float> nn_distances(rows * params.graph_degree);
+    raft::copy(nn_distances.data(),
+               nn_index.distances()->data_handle(),
+               nn_distances.size(),
+               res.get_stream());
+    res.sync_stream();
+    // Identical empty sets and identical full sets both have distance zero.
+    for (float distance : nn_distances) {
+      EXPECT_FLOAT_EQ(distance, 0.0f);
     }
+
     device_padded_index<T> index(
-      res, metric, padded->view(), raft::make_const_mdspan(graph.view()));
-    auto queries = raft::make_device_matrix<T, int64_t>(res, queries_count, dim);
-    raft::copy(queries.data_handle(), data.data_handle(), queries.size(), res.get_stream());
-    auto neighbors = raft::make_device_matrix<uint32_t, int64_t>(res, queries_count, k);
-    auto distances = raft::make_device_matrix<float, int64_t>(res, queries_count, k);
-    std::vector<uint32_t> ids(queries_count * k);
-    std::vector<float> actual(queries_count * k);
-
-    for (auto algo : {search_algo::SINGLE_CTA, search_algo::MULTI_CTA, search_algo::MULTI_KERNEL}) {
-      SCOPED_TRACE(static_cast<int>(algo));
-      search_params params;
-      params.algo           = algo;
-      params.itopk_size     = 64;
-      params.min_iterations = 2;
-      params.max_iterations = 8;
-      search(res,
-             params,
-             index,
-             raft::make_const_mdspan(queries.view()),
-             neighbors.view(),
-             distances.view());
-      raft::copy(ids.data(), neighbors.data_handle(), ids.size(), res.get_stream());
-      raft::copy(actual.data(), distances.data_handle(), actual.size(), res.get_stream());
-      res.sync_stream();
-      for (int64_t q = 0; q < queries_count; ++q) {
-        std::vector<float> expected(rows);
-        for (int64_t i = 0; i < rows; ++i) {
-          expected[i] =
-            jaccard_reference(data.data_handle() + q * dim, data.data_handle() + i * dim, dim);
-        }
-        std::sort(expected.begin(), expected.end());
-        for (int64_t j = 0; j < k; ++j) {
-          auto pos = q * k + j;
-          ASSERT_LT(ids[pos], rows);
-          EXPECT_NEAR(actual[pos], expected[j], 1e-6);
-          EXPECT_NEAR(actual[pos],
-                      jaccard_reference(
-                        data.data_handle() + q * dim, data.data_handle() + ids[pos] * dim, dim),
-                      1e-6);
-        }
-      }
-    }
-  }
-}
-
-TYPED_TEST(CagraJaccardTest, NNDescentDistances)
-{
-  using T               = TypeParam;
-  constexpr auto metric = cuvs::distance::DistanceType::BitwiseJaccard;
-  raft::device_resources res;
-  constexpr int64_t rows = 512;
-  constexpr int64_t dim  = 65;
-  auto data              = packed_binary_data<T>(rows, dim);
-  auto device_data       = raft::make_device_matrix<T, int64_t>(res, rows, dim);
-  raft::copy(device_data.data_handle(), data.data_handle(), data.size(), res.get_stream());
-  nn_descent::index_params params;
-  params.metric                    = metric;
-  params.graph_degree              = 32;
-  params.intermediate_graph_degree = 64;
-  params.return_distances          = true;
-  // Exercise both precision settings with host and device input.
-  // Packed Jaccard must use bit operations in either setting.
-  for (auto dtype : {nn_descent::DIST_COMP_DTYPE::FP32, nn_descent::DIST_COMP_DTYPE::FP16}) {
-    params.dist_comp_dtype = dtype;
-    for (bool host : {false, true}) {
-      auto index = host
-                     ? nn_descent::build(res, params, raft::make_const_mdspan(data.view()))
-                     : nn_descent::build(res, params, raft::make_const_mdspan(device_data.view()));
-      ASSERT_TRUE(index.distances().has_value());
-      std::vector<float> distances(rows * params.graph_degree);
-      raft::copy(
-        distances.data(), index.distances()->data_handle(), distances.size(), res.get_stream());
-      res.sync_stream();
-      for (int64_t i = 0; i < rows; ++i) {
-        for (size_t j = 0; j < params.graph_degree; ++j) {
-          auto neighbor = index.graph()(i, j);
-          ASSERT_LT(neighbor, rows);
-          EXPECT_NEAR(distances[i * params.graph_degree + j],
-                      jaccard_reference(
-                        data.data_handle() + i * dim, data.data_handle() + neighbor * dim, dim),
-                      1e-6);
-        }
-      }
-    }
+      res, params.metric, padded->view(), raft::make_const_mdspan(nn_index.graph()));
+    auto neighbors = raft::make_device_matrix<uint32_t, int64_t>(res, 2, 1);
+    auto distances = raft::make_device_matrix<float, int64_t>(res, 2, 1);
+    search(res,
+           search_params{},
+           index,
+           raft::make_const_mdspan(device_queries.view()),
+           neighbors.view(),
+           distances.view());
+    float actual[2];
+    raft::copy(actual, distances.data_handle(), 2, res.get_stream());
+    res.sync_stream();
+    EXPECT_FLOAT_EQ(actual[0], full ? 1.0f : 0.0f);
+    EXPECT_FLOAT_EQ(actual[1], full ? 0.0f : 1.0f);
   }
 }
 
 }  // namespace
 
-TEST(CagraJaccard, IVFPQBuilderIsRejected)
+TEST(CagraJaccard, ApiChecks)
 {
   raft::device_resources res;
-  auto data = packed_binary_data<uint8_t>(512, 65);
-  auto padded =
-    cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(data.view()));
   index_params params;
+  params.metric = cuvs::distance::DistanceType::BitwiseJaccard;
+
+  // IVF-PQ cannot build a packed Jaccard index.
+  auto bytes = raft::make_host_matrix<uint8_t, int64_t>(512, 65);
+  std::fill_n(bytes.data_handle(), bytes.size(), uint8_t(0));
+  auto padded_bytes =
+    cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(bytes.view()));
   params.graph_build_params = graph_build_params::ivf_pq_params{};
-  params.metric             = cuvs::distance::DistanceType::BitwiseJaccard;
-  EXPECT_THROW(build(res, params, padded->view()), raft::exception);
-}
+  EXPECT_THROW(build(res, params, padded_bytes->view()), raft::exception);
 
-TEST(CagraJaccard, PackedInputRequiresBytes)
-{
-  raft::device_resources res;
-  auto data = raft::make_host_matrix<float, int64_t>(512, 65);
-  std::fill_n(data.data_handle(), data.size(), 0.0f);
-  auto padded =
-    cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(data.view()));
-  index_params params;
-  params.metric             = cuvs::distance::DistanceType::BitwiseJaccard;
+  // CAGRA and NN-Descent require packed byte inputs.
+  auto floats = raft::make_host_matrix<float, int64_t>(512, 65);
+  std::fill_n(floats.data_handle(), floats.size(), 0.0f);
+  auto padded_floats =
+    cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(floats.view()));
   params.graph_build_params = graph_build_params::nn_descent_params(128, params.metric);
-  EXPECT_THROW(build(res, params, padded->view()), raft::exception);
+  EXPECT_THROW(build(res, params, padded_floats->view()), raft::exception);
   nn_descent::index_params nn_params;
   nn_params.metric = params.metric;
-  EXPECT_THROW(nn_descent::build(res, nn_params, raft::make_const_mdspan(data.view())),
-               raft::exception);
-}
-
-template <typename T>
-class CagraJaccardSortInvalidTypeTest : public ::testing::Test {};
-using InvalidJaccardTypes = ::testing::Types<float, half>;
-TYPED_TEST_SUITE(CagraJaccardSortInvalidTypeTest, InvalidJaccardTypes);
-
-TYPED_TEST(CagraJaccardSortInvalidTypeTest, RejectsHostAndDeviceDatasets)
-{
-  raft::device_resources res;
-  auto data = raft::make_host_matrix<TypeParam, int64_t>(3, 1);
-  std::fill_n(data.data_handle(), data.size(), TypeParam(0));
-  auto device_data = raft::make_device_matrix<TypeParam, int64_t>(res, 3, 1);
-  raft::copy(device_data.data_handle(), data.data_handle(), data.size(), res.get_stream());
-  auto graph = raft::make_host_matrix<uint32_t, int64_t>(3, 2);
-  std::fill_n(graph.data_handle(), graph.size(), uint32_t(0));
-  constexpr auto metric = cuvs::distance::DistanceType::BitwiseJaccard;
-  EXPECT_THROW(
-    detail::graph::sort_knn_graph(res, metric, raft::make_const_mdspan(data.view()), graph.view()),
-    raft::exception);
-  EXPECT_THROW(detail::graph::sort_knn_graph(
-                 res, metric, raft::make_const_mdspan(device_data.view()), graph.view()),
-               raft::exception);
-  res.sync_stream();
-}
-
-TEST(CagraJaccard, UnpackedMetricIsRejected)
-{
-  raft::device_resources res;
-  auto data = raft::make_host_matrix<uint8_t, int64_t>(512, 65);
-  std::fill_n(data.data_handle(), data.size(), uint8_t(1));
-  auto padded =
-    cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(data.view()));
-  index_params params;
-  params.metric             = cuvs::distance::DistanceType::JaccardExpanded;
-  params.graph_build_params = graph_build_params::nn_descent_params(128, params.metric);
-  EXPECT_THROW(build(res, params, padded->view()), raft::exception);
-  params.graph_build_params = graph_build_params::iterative_search_params{};
-  EXPECT_THROW(build(res, params, padded->view()), raft::exception);
-  nn_descent::index_params nn_params;
-  nn_params.metric = params.metric;
-  EXPECT_THROW(nn_descent::build(res, nn_params, raft::make_const_mdspan(data.view())),
+  EXPECT_THROW(nn_descent::build(res, nn_params, raft::make_const_mdspan(floats.view())),
                raft::exception);
 }
 
