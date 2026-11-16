@@ -262,8 +262,8 @@ void recompute_internal_state(const raft::resources& res, Index& index)
   auto tmp_res = raft::resource::get_workspace_resource_ref(res);
   rmm::device_uvector<uint32_t> sorted_sizes(index.n_lists(), stream, tmp_res);
 
-  // Actualize the list pointers: gather them on the host and upload each array with a single copy
-  // instead of one tiny pageable H2D copy per list. The host buffers outlive the sync_stream below.
+  // Actualize the list pointers: gather them on the host and upload each array with a single copy.
+  // The host buffers outlive the sync_stream below.
   auto data_ptrs = index.data_ptrs();
   auto inds_ptrs = index.inds_ptrs();
   std::vector<typename decltype(data_ptrs)::value_type> data_ptrs_host(index.n_lists());
