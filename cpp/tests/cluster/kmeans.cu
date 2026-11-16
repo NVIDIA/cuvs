@@ -510,7 +510,8 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
   }
 
   // Fit the same data from the same initial centroids several times and require bitwise-identical
-  // results, both for device (in-memory) and host (batched) input.
+  // results, both for device (in-memory) and host (batched) input. Weights are not whole numbers,
+  // so per-cluster weight sums depend on the summation order.
   void runReproducibleCheck()
   {
     int n_samples  = testparams.n_row;
@@ -530,11 +531,18 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     raft::random::RngState rng(p.rng_state.seed);
     raft::random::uniform(handle, rng, d_init.data_handle(), n_clusters * n_features, T(-1), T(1));
 
-    auto d_sw                                                    = d_sw_view();
+    std::optional<raft::device_vector_view<const T, int>> d_sw   = std::nullopt;
     std::optional<raft::host_vector_view<const T, int64_t>> h_sw = std::nullopt;
     auto h_sample_weight = raft::make_host_vector<T, int64_t>(testparams.weighted ? n_samples : 0);
+    auto d_sample_weight_frac =
+      raft::make_device_vector<T, int>(handle, testparams.weighted ? n_samples : 0);
     if (testparams.weighted) {
-      std::fill_n(h_sample_weight.data_handle(), n_samples, T(1));
+      for (int i = 0; i < n_samples; ++i) {
+        h_sample_weight(i) = T(0.1) + T(i % 7) * T(0.37);
+      }
+      raft::copy(
+        d_sample_weight_frac.data_handle(), h_sample_weight.data_handle(), n_samples, stream);
+      d_sw = std::make_optional(raft::make_const_mdspan(d_sample_weight_frac.view()));
       h_sw = std::make_optional(raft::make_const_mdspan(h_sample_weight.view()));
     }
 
@@ -822,6 +830,45 @@ INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
 INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
                         KmeansFitBatchedTestD,
                         ::testing::ValuesIn(batched_inputsd2));
+
+// Shapes for the reproducibility check that reach each of raft::linalg::reduce_rows_by_key's
+// kernels (many clusters, wide rows, many rows per cluster), not only its few-keys path.
+template <typename T>
+class KmeansFitReproducibleTest : public KmeansFitBatchedTest<T> {};
+
+typedef KmeansFitReproducibleTest<float> KmeansFitReproducibleTestF;
+typedef KmeansFitReproducibleTest<double> KmeansFitReproducibleTestD;
+
+TEST_P(KmeansFitReproducibleTestF, Reproducible)
+{
+  this->prepareBlobInputs();
+  this->runReproducibleCheck();
+}
+
+TEST_P(KmeansFitReproducibleTestD, Reproducible)
+{
+  this->prepareBlobInputs();
+  this->runReproducibleCheck();
+}
+
+const std::vector<KmeansBatchedInputs<float>> reproducible_inputsf = {
+  {20000, 256, 200, 0.0001f, true, 5000},
+  {100000, 160, 8, 0.0001f, true, 20000},
+  {20000, 32, 150, 0.0001f, true, 5000},
+};
+
+const std::vector<KmeansBatchedInputs<double>> reproducible_inputsd = {
+  {20000, 256, 200, 0.0001, true, 5000},
+  {100000, 160, 8, 0.0001, true, 20000},
+  {20000, 32, 150, 0.0001, true, 5000},
+};
+
+INSTANTIATE_TEST_CASE_P(KmeansFitReproducibleTests,
+                        KmeansFitReproducibleTestF,
+                        ::testing::ValuesIn(reproducible_inputsf));
+INSTANTIATE_TEST_CASE_P(KmeansFitReproducibleTests,
+                        KmeansFitReproducibleTestD,
+                        ::testing::ValuesIn(reproducible_inputsd));
 
 class KmeansBatchLoaderTest : public ::testing::TestWithParam<bool> {};
 
