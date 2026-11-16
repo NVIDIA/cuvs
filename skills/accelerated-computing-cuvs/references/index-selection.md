@@ -11,12 +11,8 @@
 | **HNSW** | Medium | Medium | High | Tunable | HNSW serving, GPU hierarchy search, or CPU mutable index handoff |
 | **Brute Force** | None | High | Exact | Slowest | Exact top-k, exact filtered/callback parity, and ground truth |
 
-Compare ANN indexes at equivalent recall. For benchmarks and production
-selection, build a Pareto view across recall buckets 80–89%, 90–94%,
-95–98%, and 99%+, then compare latency, throughput, build time, and memory
-within the bucket that matches the product requirement. State `k`, batch size,
-and hardware with the numbers. For a reproducible sweep, use cuVS Bench
-(`https://docs.nvidia.com/cuvs/user-guide/benchmarking-guide`).
+Compare indexes inside one recall bucket. The bucket definitions, the Pareto
+build-time average, and the cuVS Bench commands are in `references/benchmarking.md`.
 
 Pareto dimensions for cuVS ANN work:
 
@@ -27,9 +23,6 @@ Pareto dimensions for cuVS ANN work:
 | Build/refresh cost | Index build time, update time, and refresh cadence |
 | Memory footprint | Index size plus raw vectors, temporary build memory, and peak GPU memory |
 | Integration cost | GPU-serving path vs GPU-build/CPU-serve handoff, ABI boundary, and operational complexity |
-
-A configuration is Pareto-optimal when no other tested configuration gives at
-least the same quality with better latency/throughput, build cost, and memory.
 
 ## CAGRA — Graph-Based ANN (High-Throughput Default)
 
@@ -52,21 +45,7 @@ params = cagra.IndexParams(
 index = cagra.build(params, dataset)
 ```
 
-**Search parameters:**
-```python
-# Few queries: latency path. algo="auto" also selects from the query count.
-search_params = cagra.SearchParams(itopk_size=64, algo="multi_cta")
-
-# Batched throughput. persistent applies only to single_cta.
-search_params = cagra.SearchParams(
-    itopk_size=64,
-    algo="single_cta",
-    persistent=True,
-)
-distances, neighbors = cagra.search(search_params, index, queries, k=10)
-```
-
-Use `multi_cta` for a few queries. Use `single_cta` once a batch is larger than about 10. Set `persistent=True` for many concurrent searches, and only with `single_cta`.
+Search-kernel choice is in `SKILL.md` under Search Shape. `itopk_size` is the recall knob on top of that kernel.
 
 **Tuning order (CAGRA):**
 1. Raise `itopk_size` until recall is in the target bucket.
@@ -108,22 +87,23 @@ graph/list overhead does not fit the serving GPU memory budget.
 
 ```python
 import cupy as cp
-from cuvs.neighbors import ivf_pq
+from cuvs.neighbors import ivf_pq, refine
 
 params = ivf_pq.IndexParams(
-    n_lists=4096,           # aim for about 1,000–10,000 vectors per list
-    pq_dim=64,              # compressed dims — must divide into n_features
+    n_lists=1024,           # about 1,000–10,000 vectors per list
+    pq_dim=32,              # must divide n_features; lower = smaller index, lower recall
     pq_bits=8,              # bits per subquantizer (4 or 8)
     metric="sqeuclidean",
 )
 index = ivf_pq.build(params, dataset)
 
 search_params = ivf_pq.SearchParams(
-    n_probes=100,
+    n_probes=50,
     internal_distance_dtype=cp.float32,  # float32 for quality, uint8 for speed
     lut_dtype=cp.float32,
 )
-distances, neighbors = ivf_pq.search(search_params, index, queries, k=10)
+_, candidates = ivf_pq.search(search_params, index, queries, k=40)
+distances, neighbors = refine(dataset, queries, candidates, k=10)
 ```
 
 **Tuning order (IVF-PQ):**
@@ -137,25 +117,6 @@ distances, neighbors = ivf_pq.search(search_params, index, queries, k=10)
 - float32 baseline: 128 dims × 4 bytes = 512 bytes/vector
 - IVF-PQ (pq_dim=32, pq_bits=8): 32 bytes/vector → 16× compression
 
-**Memory-constrained serving pattern:**
-- Use IVF-PQ when projected full-vector storage plus graph/index overhead exceeds the serving GPU budget.
-- Keep exact search only for sampled ground truth. The serving path should build/search IVF-PQ, not a full pairwise matrix.
-- Recover recall by raising `n_probes`, using higher-quality lookup tables, and overfetching candidates for `refine`.
-
-```python
-from cuvs.neighbors import ivf_pq, refine
-
-index = ivf_pq.build(
-    ivf_pq.IndexParams(n_lists=4096, pq_dim=64, pq_bits=8, metric="sqeuclidean"),
-    dataset,
-)
-search_params = ivf_pq.SearchParams(n_probes=128)
-
-# Search more candidates than the final k, then exact-rerank just those IDs.
-_, candidates = ivf_pq.search(search_params, index, queries, k=40)
-distances, neighbors = refine(dataset, queries, candidates, k=10)
-```
-
 ## Brute Force — Exact Semantics
 
 Use brute force to preserve exact nearest-neighbor behavior, exact filtered
@@ -163,14 +124,7 @@ top-k, hnswlib-style callback parity, and recall measurement on a
 representative sample. It is a valid GPU production path when the user values
 exactness over ANN throughput or the filtered candidate set is modest. For
 large serving workloads, use it as the reference path for CAGRA, IVF-Flat, or
-IVF-PQ recall validation.
-
-```python
-from cuvs.neighbors import brute_force
-
-gt_index = brute_force.build(sample_dataset, metric="sqeuclidean")
-gt_distances, gt_neighbors = brute_force.search(gt_index, sample_queries, k=10)
-```
+IVF-PQ recall validation. The recall snippet is in `SKILL.md`.
 
 ## Workload Guidance
 
@@ -195,16 +149,5 @@ gt_distances, gt_neighbors = brute_force.search(gt_index, sample_queries, k=10)
 | A few queries look slower than CPU | `algo="multi_cta"`. Stop timing a host round trip per query. |
 | Large-batch throughput is low | `algo="single_cta"`, then `persistent=True` |
 | Bandwidth-bound, recall is still close | Scalar quantization before IVF-PQ |
-| Hash-sharded database | Tune one production segment. Every query searches every shard. |
-
-## Index Persistence
-
-```python
-import cuvs
-
-# Save index to disk
-cuvs.neighbors.cagra.save("my_index.cagra", index)
-
-# Load index from disk
-index = cuvs.neighbors.cagra.load("my_index.cagra")
-```
+| Hash-sharded database | Tune one production segment, then time the fan-out separately. See `references/benchmarking.md`. |
+| Allocator fragmentation during build | Configure an RMM async memory resource before cuVS allocations |

@@ -16,8 +16,9 @@ metadata:
 
 ## Compatibility
 
-- Release tracked by this skill: 26.06.
-- Requires an NVIDIA GPU and a matching RAPIDS/cuVS install for the target CUDA/Python environment. This skill targets the planned 26.06 cuVS release line; verify final platform support with the RAPIDS install selector when the release is published. Dtype support is API- and release-specific; use `references/version-boundaries.md` when the installed version or docs differ from 26.06.
+- Release tracked by this skill: 26.06. Verify platform support with the RAPIDS install selector.
+- Requires an NVIDIA GPU and a matching RAPIDS/cuVS install.
+- When the installed version or docs differ, use `references/version-boundaries.md`.
 
 ## Naming
 
@@ -30,14 +31,14 @@ You are a cuVS expert helping an implementer build GPU-accelerated vector search
 ## Critical Rules
 
 1. **Choose the index for the workload.** CAGRA for high-recall search that fits on the GPU. IVF-Flat when full-precision lists are enough. Scalar quantization when bandwidth is the limit and the recall loss can stay small. IVF-PQ when index size is the limit. See `references/index-selection.md`.
-2. **Handle dtype deliberately.** `float32` is the safe baseline for dense embeddings and exact ground-truth paths. Several 26.06 Python index APIs also accept `float16`, `int8`, or `uint8`; preserve those dtypes when the chosen API supports them and the data is already quantized or memory-bound. Validate recall after changing dtype.
+2. **Handle dtype deliberately.** `float32` is the safe baseline for dense embeddings and exact ground-truth paths. Preserve `float16`, `int8`, or `uint8` when the chosen API accepts them and the data is already in that dtype or memory-bound, then validate recall. The per-API table is in `references/version-boundaries.md`.
 3. **Three dimensions to balance:** build time, search quality (recall), search throughput. You cannot maximize all three simultaneously.
 4. **Tune search before build.** CAGRA: `itopk_size`, then `graph_degree`, then `intermediate_graph_degree`. IVF: about 1,000–10,000 vectors per list, then `n_probes`, then compression, then `refine`. Compare latency, throughput, build time, and memory inside one recall bucket: 80–89%, 90–94%, 95–98%, or 99%+. For a hash-sharded database, tune one production segment, not the full corpus. See `references/index-selection.md`.
 5. **Match exactness before speed.** Use cuVS brute force for exact top-k,
    exact filtered search, callback-filter parity, and recall ground truth. Use
    ANN indexes when approximate recall is acceptable and measured.
 6. **Place the GPU where the workload benefits.** Under about 100K vectors, start with brute force or CPU HNSW unless dimensions or query batches are large. Use IVF-Flat, scalar quantization, or IVF-PQ when a large dataset needs fast ingest. Use CAGRA when a high-recall index fits in GPU memory. Use a GPU build with CPU HNSW serving when indexing is the bottleneck and search stays on CPU. A corpus that does not fit in memory is a DiskANN problem, not an in-memory cuVS index. When the production path is GPU search, report CPU timing separately.
-7. **Use memory-aware ANN when the full-vector path does not fit.** Prefer scalar quantization when the limit is bandwidth, then IVF-PQ or compressed CAGRA when the limit is index size. Recover recall with larger `n_probes`/`itopk_size` and overfetch plus `refine`. Confirm an IVF-SQ index exists in the installed package before importing one; otherwise use `cuvs.preprocessing.quantize.scalar`.
+7. **Confirm the quantizer before importing it.** Use an IVF-SQ index only when the installed package exposes one; otherwise use `cuvs.preprocessing.quantize.scalar`. Recover recall with larger `n_probes` or `itopk_size`, then overfetch and `refine`.
 8. **Keep cuVS inputs device-resident.** Prefer CuPy, PyTorch CUDA tensors, or other `__cuda_array_interface__` arrays. NumPy host arrays require a visible host→device transfer step before build/search.
 9. **Apply filters before search.** For filtered vector search, use cuVS
    pre-search filters (`filters.from_bitset` or `filters.from_bitmap`) so the
@@ -47,19 +48,6 @@ You are a cuVS expert helping an implementer build GPU-accelerated vector search
 10. **Stay at the vector-search layer.** For embedding search services, use cuVS indexes. Use RAFT for lower-level primitives and custom library work when the task is below the index/service layer.
 11. **Use the C API for binary-stable product integrations.** For vector databases, search engines, language bindings, or packaged apps that need ABI stability, choose the cuVS C API boundary and check the installed ABI window. See `references/ann-patterns.md` and `references/version-boundaries.md`.
 
-## Index Selection Quick Guide
-
-| Index | Best For | Recall | Build Speed | Search Speed |
-|---|---|---|---|---|
-| **CAGRA** | High-recall search that fits on the GPU, or a GPU build for CPU HNSW serving | Very High | Slower than IVF | Fastest |
-| **IVF-Flat** | Full-precision lists, fast ingest | Highest | Fastest | Fast |
-| **Scalar quantization** | Bandwidth-bound search with a small recall loss | High | Fast | Fast |
-| **IVF-PQ** | Index size is the limit | High (tunable) | Fast | Fast |
-| **HNSW** | HNSW search with GPU hierarchy by default, or CPU serving after GPU build | High | Tunable | GPU or CPU |
-| **Brute Force** | Exact top-k, exact filtered/callback parity, validation | Exact | Fastest | Slower |
-
-Start from the workload. Under about 100K vectors, start with brute force or CPU HNSW. For a large corpus that must ingest quickly, start with IVF-Flat or IVF-PQ. For high-recall search that fits on the GPU, start with CAGRA. Start with brute force when the user needs exact nearest-neighbor semantics, exact metadata-filtered top-k, or hnswlib-style callback parity. See `references/index-selection.md`.
-
 ## Search Shape
 
 Pick the CAGRA search kernel from the query count before tuning `itopk_size`.
@@ -67,10 +55,10 @@ Pick the CAGRA search kernel from the query count before tuning `itopk_size`.
 ```python
 from cuvs.neighbors import cagra
 
-# Few queries: latency path. algo="auto" also selects from the query count.
+# Fewer than about 10 queries. algo="auto" also selects from the query count.
 search_params = cagra.SearchParams(itopk_size=64, algo="multi_cta")
 
-# Batched throughput. persistent applies only to single_cta.
+# Larger batches. persistent applies only to single_cta.
 search_params = cagra.SearchParams(
     itopk_size=64,
     algo="single_cta",
@@ -78,7 +66,7 @@ search_params = cagra.SearchParams(
 )
 ```
 
-Use `multi_cta` for a few queries. Use `single_cta` once a batch is larger than about 10. Set `persistent=True` for a service with many concurrent searches, and only with `single_cta`. A Python loop that searches one vector and copies each result to the host measures the round trip, not GPU search.
+A Python loop that searches one vector and copies each result to the host measures the round trip, not GPU search.
 
 ## Core Workflow
 
@@ -106,45 +94,9 @@ distances, neighbors = cagra.search(search_params, index, queries, k=10)
 # distances: shape (n_queries, k) — distance values
 ```
 
-## IVF-PQ (Compressed Large-Scale Search)
-
-```python
-from cuvs.neighbors import ivf_pq, refine
-
-# Build
-index_params = ivf_pq.IndexParams(
-    n_lists=1024,      # aim for about 1,000–10,000 vectors per list
-    pq_dim=32,         # compressed dims — lower = smaller index, lower recall
-    pq_bits=8,
-)
-index = ivf_pq.build(index_params, dataset)
-
-# Search
-search_params = ivf_pq.SearchParams(n_probes=50)  # higher = better recall, slower
-distances, neighbors = ivf_pq.search(search_params, index, queries, k=10)
-
-# Optional recall recovery: overfetch approximate candidates, then exact-rerank
-# only those candidates against the original dataset.
-_, candidates = ivf_pq.search(search_params, index, queries, k=40)
-distances, neighbors = refine(dataset, queries, candidates, k=10)
-```
-
-## IVF-Flat (High Recall, Smaller Datasets)
-
-```python
-from cuvs.neighbors import ivf_flat
-
-index_params = ivf_flat.IndexParams(n_lists=1024)
-index = ivf_flat.build(index_params, dataset)
-
-search_params = ivf_flat.SearchParams(n_probes=50)
-distances, neighbors = ivf_flat.search(search_params, index, queries, k=10)
-```
+IVF-Flat, IVF-PQ, and `refine` are in `references/index-selection.md`.
 
 ## Interoperability
-
-cuVS is happiest with device arrays. Use CuPy or framework GPU tensors for
-build/search inputs and convert outputs deliberately for reporting:
 
 ```python
 import numpy as np
@@ -165,34 +117,16 @@ cupy_neighbors = cp.asarray(neighbors)
 torch_neighbors = torch.as_tensor(neighbors, device="cuda")
 ```
 
-## Dtype Guidance
-
-Use `float32` for a first implementation unless the workload already has a
-lower-precision embedding representation or the memory budget requires one.
-For 26.06 Python APIs, common index families support these input dtypes:
-
-| API | 26.06 Python input dtype guidance |
-|---|---|
-| CAGRA | `float32`, `float16`, `int8`, `uint8` |
-| IVF-Flat | `float32`, `float16`, `int8`, `uint8` |
-| IVF-PQ | `float32`, `float16`, `int8`, `uint8`; tune `lut_dtype`, `internal_distance_dtype`, and `coarse_search_dtype` deliberately |
-| HNSW | `float32`, `float16`, `int8`, `uint8` |
-| Brute force | `float32` or `float16` |
-| Refine | `float32`, `float16`, `int8`, `uint8` inputs with `float32` distances |
-
-When a task depends on a specific release, read `references/version-boundaries.md`
-before changing dtype assumptions or API calls.
-
 ## Cosine Similarity
 
-CAGRA and IVF-Flat accept `metric="cosine"` in the current public Python API. Use it when the installed `IndexParams` documents `cosine`.
+CAGRA and IVF-Flat accept `metric="cosine"` when the installed `IndexParams` documents it. Do the IVF-PQ check in `references/version-boundaries.md` before using `cosine` there.
 
 ```python
 index_params = cagra.IndexParams(metric="cosine")
 index = cagra.build(index_params, dataset)
 ```
 
-When the installed version does not accept `cosine`, L2-normalize the dataset and the queries, then use `metric="inner_product"`. Check `references/version-boundaries.md` before choosing.
+When the installed version rejects `cosine`, L2-normalize the dataset and the queries, then use `metric="inner_product"`.
 
 ```python
 norms = cp.linalg.norm(dataset, axis=1, keepdims=True)
@@ -220,66 +154,21 @@ recall = (matches.sum() / (approx.shape[0] * k)).item()
 print(f"Recall@{k}: {recall:.3f}")
 ```
 
-Compare p50/p95/p99 latency, throughput, build time, and memory only inside one recall bucket: 80–89%, 90–94%, 95–98%, or 99%+. State `k`, batch size, and hardware with the numbers. A migration is ready when that bucket meets the recall target and the serving latency budget.
+## Benchmarking
 
-For a reproducible sweep, use [cuVS Bench](https://docs.nvidia.com/cuvs/user-guide/benchmarking-guide/cu-vs-bench-tool/introduction). It records build time, throughput, latency, and recall, and its tune mode searches parameters against a target. Follow the [benchmark methodology](https://docs.nvidia.com/cuvs/user-guide/benchmarking-guide/methodologies).
+Run cuVS Bench when the number has to be compared or reproduced: GPU against GPU, GPU against CPU, a parameter sweep, or the same configuration on another machine. Use `tune` mode when the build/search cross product is too large.
 
-## Multi-GPU Vector Search
+Both sides share the dataset, metric, `k`, batch size, filters, and ground truth. Compare inside one recall bucket, using the Pareto points in that bucket, and benchmark the unit that is searched. Buckets, commands, and result columns are in `references/benchmarking.md`.
 
-For datasets that exceed one GPU's memory, or for higher query throughput, cuVS provides multi-GPU variants of all three major index types via `cuvs.neighbors.mg`:
+## Multi-GPU
 
-```python
-from cuvs.neighbors.mg import cagra as mg_cagra
-
-# Build across all visible GPUs
-index_params = mg_cagra.IndexParams(mode="replicated")  # or "sharded"
-index = mg_cagra.build(index_params, dataset)
-
-search_params = mg_cagra.SearchParams(itopk_size=64)
-distances, neighbors = mg_cagra.search(search_params, index, queries, k=10)
-```
-
-- `mode="replicated"` — every GPU holds the full index; best for high query throughput
-- `mode="sharded"` — index is split across GPUs; scales to datasets larger than one GPU's VRAM
-
-See `references/api-index.md` for multi-GPU search modes, merge modes, and IVF-Flat/IVF-PQ multi-GPU variants.
-
-## Troubleshooting
-
-**Low recall:**
-- Raise the search knob first: `itopk_size` for CAGRA, `n_probes` for IVF-Flat and IVF-PQ.
-- If recall is still short, raise `graph_degree`, then `intermediate_graph_degree`.
-- For IVF-PQ, raise `pq_dim` or `pq_bits`, or overfetch and `refine`.
-- See `references/index-selection.md` for the full order.
-
-**Latency is high for a few queries:**
-- Use `algo="multi_cta"`, or leave `algo="auto"`.
-- A one-query Python loop that copies each result to the host measures the round trip, not GPU search.
-
-**Throughput is low on large batches:**
-- Set `algo="single_cta"`. For many concurrent searches, also set `persistent=True`.
-- Then raise `itopk_size` if recall is short.
-
-**Build time dominates:**
-- Switch CAGRA `build_algo` to `"nn_descent"` before growing the graph.
-
-**OOM during index build:**
-- If the graph is the problem, reduce `intermediate_graph_degree`.
-- If the vectors do not fit on the GPU, use `build_algo="ace"` or IVF-PQ.
-- A dataset that does not fit in host memory is a DiskANN problem.
-- If allocation fragmentation is part of the failure, configure an RMM async memory resource before cuVS allocations.
-
-**A hash-sharded database is slow end to end:**
-- Tune and measure one production segment. Every query searches every shard, so a faster single index can disappear after the fan-out and merge.
-
-**Wrong results with cosine similarity:**
-- Use `metric="cosine"` when the installed API accepts it.
-- Otherwise normalize both the dataset and the queries before `inner_product`.
+Use `cuvs.neighbors.mg` when the index does not fit on one GPU, or when a full copy on every GPU raises query throughput. `replicated` copies the index. `sharded` splits it. Search modes, merge modes, and the IVF variants are in `references/api-index.md`.
 
 ## Reference Files
 
-- `references/index-selection.md` — Detailed index comparison, when to use each, tuning guide
-- `references/ann-patterns.md` — Production patterns, batching, index persistence, integration examples
+- `references/index-selection.md` — Index comparison, parameter defaults, tuning order, symptom map
+- `references/benchmarking.md` — When to run cuVS Bench, recall buckets, Pareto comparison, GPU-against-CPU runs
+- `references/ann-patterns.md` — Serving pipeline, integration shapes, filtering, memory estimate
 - `references/api-index.md` — Full API index: all index types, multi-GPU module, filtering, quantization, pairwise distance, K-means, IndexParams/SearchParams quick maps
 - `references/version-boundaries.md` — Release-specific API and dtype boundaries, especially 24.04 vs 26.06 Python coverage
 

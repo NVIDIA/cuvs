@@ -18,16 +18,10 @@ The main skill guidance targets cuVS 26.06. For Python vector-search APIs in
 | `cuvs.neighbors.brute_force` | `float32`, `float16` |
 | `cuvs.neighbors.refine` | `float32`, `float16`, `int8`, `uint8` inputs with `float32` distances |
 
-Use `float32` as the dense embedding baseline. Choose `float16`, `int8`, or
-`uint8` when the source embeddings already use that representation, the memory
-budget requires it, and recall validation confirms the target quality.
-
 The current public Python API accepts `metric="cosine"` on CAGRA and IVF-Flat
 `IndexParams`, along with `sqeuclidean` and `inner_product`. IVF-Flat also
-accepts `euclidean`. Use `metric="cosine"` when the installed `IndexParams`
-documents it. When that value is rejected, L2-normalize the dataset and the
-queries and use `metric="inner_product"`. Do not assume IVF-PQ accepts
-`cosine` unless the installed signature lists it.
+accepts `euclidean`. The normalize-and-`inner_product` fallback is in `SKILL.md`.
+Treat IVF-PQ `cosine` as unsupported until the installed signature lists it.
 
 Python 26.06 includes the higher-level modules used by the skill examples:
 `cagra`, `ivf_flat`, `ivf_pq`, `hnsw`, `brute_force`, `filters`, `refine`, and

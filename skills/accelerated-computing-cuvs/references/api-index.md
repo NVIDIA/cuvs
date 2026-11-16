@@ -2,15 +2,15 @@
 
 ## Nearest Neighbor Index Types
 
-| Index | Module | Best For |
-|---|---|---|
-| **CAGRA** | `cuvs.neighbors.cagra` | Static high-throughput GPU search |
-| **IVF-Flat** | `cuvs.neighbors.ivf_flat` | High recall, moderate dataset sizes |
-| **IVF-PQ** | `cuvs.neighbors.ivf_pq` | Large/memory-constrained datasets |
-| **Brute-Force** | `cuvs.neighbors.brute_force` | Ground-truth / exact results |
-| **HNSW** | `cuvs.neighbors.hnsw` | HNSW search with GPU hierarchy by default; CPU hierarchy/export when needed |
-| **NN-Descent** | `cuvs.neighbors.nn_descent` | Fast approximate graph construction |
-| **All-Neighbors** | `cuvs.neighbors.all_neighbors` | KNN graph construction over full dataset |
+| Index | Module |
+|---|---|
+| **CAGRA** | `cuvs.neighbors.cagra` |
+| **IVF-Flat** | `cuvs.neighbors.ivf_flat` |
+| **IVF-PQ** | `cuvs.neighbors.ivf_pq` |
+| **Brute-Force** | `cuvs.neighbors.brute_force` |
+| **HNSW** | `cuvs.neighbors.hnsw` |
+| **NN-Descent** | `cuvs.neighbors.nn_descent` |
+| **All-Neighbors** | `cuvs.neighbors.all_neighbors` |
 
 ### Multi-GPU Indexes (`cuvs.neighbors.mg`)
 
@@ -47,48 +47,32 @@ index = cagra.extend(index_params, new_vectors, index)
 
 ---
 
+Tuning order is in `references/index-selection.md`. This map is the parameter names.
+
 ## IndexParams Quick Map
 
-| Index | Key Params | Tuning Guidance |
-|---|---|---|
-| **CAGRA** | `graph_degree` (64), `intermediate_graph_degree` (128), `metric`, `build_algo` | Tune `itopk_size` before either degree. `nn_descent` when build time dominates; `ace` when the dataset does not fit. `metric="cosine"` when the installed API lists it. |
-| **IVF-Flat** | `n_lists` (~1k–10k vectors/list), `metric` | Raise `n_probes` before changing `n_lists`. `metric="cosine"` when the installed API lists it. |
-| **IVF-PQ** | `n_lists`, `pq_dim` (dims/4), `pq_bits` (8) | Tune `n_probes` before compression. ↓ pq_dim = smaller index, lower recall. |
-| **HNSW** | `hierarchy` (`"gpu"` default), ACE params, or `from_cagra()` | Use GPU hierarchy for GPU search; use CPU hierarchy for mutable CPU serving |
-| **NN-Descent** | `n_clusters`, `max_iterations` | Used when CAGRA build too slow |
-| **Brute-Force** | `metric` | No tuning needed — exact |
+| Index | Key Params |
+|---|---|
+| **CAGRA** | `graph_degree` (64), `intermediate_graph_degree` (128), `metric`, `build_algo` (`nn_descent`, `ace`) |
+| **IVF-Flat** | `n_lists` (~1k–10k vectors/list), `metric` |
+| **IVF-PQ** | `n_lists`, `pq_dim`, `pq_bits` (8) |
+| **HNSW** | `hierarchy` (`"gpu"` default), ACE params, or `from_cagra()` |
+| **NN-Descent** | `n_clusters`, `max_iterations` |
+| **Brute-Force** | `metric` |
 
 ## SearchParams Quick Map
 
-| Index | Key Params | Tuning Guidance |
-|---|---|---|
-| **CAGRA** | `itopk_size` (64), `algo`, `persistent` | Raise `itopk_size` for recall. `multi_cta` for a few queries; `single_cta` above about 10; `persistent` only with `single_cta`. |
-| **IVF-Flat** | `n_probes` (50) | ↑ = better recall, slower search |
-| **IVF-PQ** | `n_probes` (50), then `lut_dtype` | Raise `n_probes` first. Change `lut_dtype` only after recall and latency are acceptable. |
-| **HNSW** | `ef` | ↑ = better recall, slower search |
-| **Brute-Force** | none | Always exact |
-
----
-
-## Input Dtype Quick Map
-
-Use the installed cuVS version and function docstring as the final authority.
-For 26.06 Python APIs:
-
-| API | Build/search input dtypes |
+| Index | Key Params |
 |---|---|
-| `cagra` | `float32`, `float16`, `int8`, `uint8` |
-| `ivf_flat` | `float32`, `float16`, `int8`, `uint8` |
-| `ivf_pq` | `float32`, `float16`, `int8`, `uint8` |
-| `hnsw` | `float32`, `float16`, `int8`, `uint8` |
-| `brute_force` | `float32`, `float16` |
-| `refine` | `float32`, `float16`, `int8`, `uint8` |
-
-Use `float32` for a first dense embedding implementation, then move to
-`float16`, `int8`, or `uint8` when the data representation, memory budget, and
-recall validation justify that choice.
+| **CAGRA** | `itopk_size` (64), `algo` (`multi_cta`, `single_cta`), `persistent` (only with `single_cta`) |
+| **IVF-Flat** | `n_probes` |
+| **IVF-PQ** | `n_probes`, `lut_dtype`, `internal_distance_dtype`, `coarse_search_dtype` |
+| **HNSW** | `ef` |
+| **Brute-Force** | none |
 
 ---
+
+Dtype tables are in `references/version-boundaries.md`.
 
 ## HNSW: GPU Hierarchy or CPU Serve
 
@@ -177,58 +161,11 @@ mg_index = mg_cagra.distribute(index)
 
 ### Filtering
 
-Pre-filter candidates before search. In Python 26.06, use factory functions
-from `cuvs.neighbors.filters`. A bitset filter is a packed `uint32` array where
-bit `1` means the dataset row is allowed.
-
-```python
-import numpy as np
-import cupy as cp
-from cuvs.neighbors import cagra, filters
-
-def make_bitset(valid: np.ndarray) -> cp.ndarray:
-    words = np.zeros((valid.size + 31) // 32, dtype=np.uint32)
-    for idx in np.flatnonzero(valid):
-        words[int(idx) // 32] |= np.uint32(1) << np.uint32(int(idx) % 32)
-    return cp.asarray(words)
-
-valid = np.ones(n_vectors, dtype=bool)
-valid[exclude_ids] = False
-prefilter = filters.from_bitset(make_bitset(valid))
-
-# ANN indexes use filter=... when approximate recall is acceptable.
-distances, neighbors = cagra.search(
-    search_params, index, queries, k=10, filter=prefilter
-)
-```
-
-For exact filtered top-k, callback-filter parity, or recall validation, build a
-brute-force index and pass the same filter as `prefilter=...`:
-
-```python
-from cuvs.neighbors import brute_force
-
-exact_index = brute_force.build(dataset)
-exact_distances, exact_neighbors = brute_force.search(
-    exact_index, queries, k=10, prefilter=prefilter
-)
-```
+`filters.from_bitset` and `filters.from_bitmap` build the pre-search filter. Brute force takes it as `prefilter=`. CAGRA, IVF-Flat, and IVF-PQ take it as `filter=`. The bitset layout and a full example are in `references/ann-patterns.md`.
 
 ### Refinement
 
-Improve approximate results by re-ranking candidates against exact distances:
-
-```python
-from cuvs.neighbors import refine
-
-# Get approximate candidates (overfetch — request 2-4× more than needed)
-distances, candidates = cagra.search(search_params, index, queries, k=40)
-
-# Refine top-k from original dataset
-refined_distances, refined_neighbors = refine(
-    dataset, queries, candidates, k=10
-)
-```
+`refine(dataset, queries, candidates, k)` exact-reranks an overfetched candidate list. The IVF-PQ example is in `references/index-selection.md`.
 
 ### Pairwise Distance
 
