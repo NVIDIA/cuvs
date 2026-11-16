@@ -14,13 +14,16 @@ cuvsVamanaGraphInitAlgo default_vamana_graph_init(void)
   return graph_init;
 }
 
+/* Builds a Vamana index from a device float dataset and writes its graph to graph_file. A negative
+ * graph_init keeps the default from cuvsVamanaIndexParamsCreate. Any other value is stored in the
+ * graph_init field as is, including values outside cuvsVamanaGraphInitAlgo. */
 cuvsError_t run_vamana(cuvsResources_t res,
                        int64_t n_rows,
                        int64_t n_dim,
                        float* index_data,
                        uint32_t graph_degree,
                        uint32_t visited_size,
-                       cuvsVamanaGraphInitAlgo graph_init,
+                       int graph_init,
                        const char* graph_file)
 {
   DLManagedTensor dataset_tensor;
@@ -40,7 +43,7 @@ cuvsError_t run_vamana(cuvsResources_t res,
   cuvsVamanaIndexParamsCreate(&build_params);
   build_params->graph_degree = graph_degree;
   build_params->visited_size = visited_size;
-  build_params->graph_init   = graph_init;
+  if (graph_init >= 0) { build_params->graph_init = (cuvsVamanaGraphInitAlgo)graph_init; }
 
   cuvsVamanaIndex_t index;
   cuvsVamanaIndexCreate(&index);

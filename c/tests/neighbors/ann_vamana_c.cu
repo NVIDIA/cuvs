@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <memory>
 #include <random>
 #include <string>
@@ -34,17 +35,25 @@ extern "C" cuvsError_t run_vamana(cuvsResources_t res,
                                   float* index_data,
                                   uint32_t graph_degree,
                                   uint32_t visited_size,
-                                  cuvsVamanaGraphInitAlgo graph_init,
+                                  int graph_init,
                                   const char* graph_file);
 
 namespace {
 
-constexpr int64_t kRows          = 2000;
-constexpr int64_t kDim           = 32;
-constexpr uint32_t kGraphDegree  = 32;
-constexpr uint32_t kVisitedSize  = 64;
-constexpr unsigned kInsertSeed   = 42;
-constexpr int kInvalidGraphInit  = 7;
+constexpr int64_t kRows         = 2000;
+constexpr int64_t kDim          = 32;
+constexpr uint32_t kGraphDegree = 32;
+constexpr uint32_t kVisitedSize = 64;
+constexpr unsigned kInsertSeed  = 42;
+// run_vamana keeps the default graph_init for a negative value and stores any other value as is.
+constexpr int kDefaultGraphInit = -1;
+constexpr int kInvalidGraphInit = 7;
+
+auto read_file(const std::string& path) -> std::vector<char>
+{
+  std::ifstream in(path, std::ios::binary);
+  return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
 
 struct vamana_graph_file {
   uint32_t max_degree;
@@ -138,19 +147,16 @@ class VamanaC : public ::testing::Test {
   void TearDown() override
   {
     std::filesystem::remove(graph_file_);
+    std::filesystem::remove(graph_file_ + ".empty");
     cuvsResourcesDestroy(res_);
   }
 
-  auto build(cuvsVamanaGraphInitAlgo graph_init) -> cuvsError_t
+  auto build(int graph_init) -> cuvsError_t { return build(graph_init, graph_file_); }
+
+  auto build(int graph_init, const std::string& file) -> cuvsError_t
   {
-    return run_vamana(res_,
-                      kRows,
-                      kDim,
-                      d_data_->data(),
-                      kGraphDegree,
-                      kVisitedSize,
-                      graph_init,
-                      graph_file_.c_str());
+    return run_vamana(
+      res_, kRows, kDim, d_data_->data(), kGraphDegree, kVisitedSize, graph_init, file.c_str());
   }
 
   raft::handle_t handle_;
@@ -168,20 +174,17 @@ TEST(VamanaCParams, DefaultGraphInitIsEmpty)
   EXPECT_EQ(default_vamana_graph_init(), CUVS_VAMANA_GRAPH_INIT_EMPTY);
 }
 
-TEST_F(VamanaC, BuildFromEmptyGraph)
+TEST_F(VamanaC, DefaultBuildIsTheEmptyGraphBuild)
 {
-  // The default build draws n_rows values from rand() for the insertion order, then the medoid.
+  // The insertion order and medoid come from rand(), so reseed it before each build.
+  const std::string empty_file = graph_file_ + ".empty";
   srand(kInsertSeed);
-  for (int64_t i = 0; i < kRows; i++) {
-    rand();
-  }
-  const auto expected_medoid = static_cast<uint32_t>(rand() % kRows);
-
+  ASSERT_EQ(build(kDefaultGraphInit), CUVS_SUCCESS) << cuvsGetLastErrorText();
   srand(kInsertSeed);
-  ASSERT_EQ(build(CUVS_VAMANA_GRAPH_INIT_EMPTY), CUVS_SUCCESS) << cuvsGetLastErrorText();
-  auto graph = read_graph_file(graph_file_, kRows);
-  check_graph(graph, kRows);
-  EXPECT_EQ(graph.medoid, expected_medoid);
+  ASSERT_EQ(build(CUVS_VAMANA_GRAPH_INIT_EMPTY, empty_file), CUVS_SUCCESS)
+    << cuvsGetLastErrorText();
+  check_graph(read_graph_file(graph_file_, kRows), kRows);
+  EXPECT_EQ(read_file(graph_file_), read_file(empty_file));
 }
 
 TEST_F(VamanaC, BuildFromNNDescentGraph)
@@ -200,5 +203,5 @@ TEST_F(VamanaC, BuildFromNNDescentGraph)
 
 TEST_F(VamanaC, InvalidGraphInitIsRejected)
 {
-  EXPECT_EQ(build(static_cast<cuvsVamanaGraphInitAlgo>(kInvalidGraphInit)), CUVS_ERROR);
+  EXPECT_EQ(build(kInvalidGraphInit), CUVS_ERROR);
 }

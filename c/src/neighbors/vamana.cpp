@@ -4,6 +4,7 @@
  */
 
 #include <cstdint>
+#include <cstring>
 #include <cuda_fp16.h>
 #include <dlpack/dlpack.h>
 
@@ -21,14 +22,19 @@
 
 namespace {
 
-auto convert_graph_init(cuvsVamanaGraphInitAlgo graph_init)
+// C callers can store any int in the graph_init field, so read it as an int rather than as the
+// enum, whose valid values in C++ are only 0 and 1.
+auto convert_graph_init(const cuvsVamanaIndexParams& params)
   -> cuvs::neighbors::vamana::graph_init_algo
 {
+  int graph_init = 0;
+  static_assert(sizeof(graph_init) == sizeof(params.graph_init));
+  std::memcpy(&graph_init, &params.graph_init, sizeof(graph_init));
   switch (graph_init) {
     case CUVS_VAMANA_GRAPH_INIT_EMPTY: return cuvs::neighbors::vamana::graph_init_algo::EMPTY;
     case CUVS_VAMANA_GRAPH_INIT_NN_DESCENT:
       return cuvs::neighbors::vamana::graph_init_algo::NN_DESCENT;
-    default: RAFT_FAIL("Unsupported Vamana graph_init value: %d", static_cast<int>(graph_init));
+    default: RAFT_FAIL("Unsupported Vamana graph_init value: %d", graph_init);
   }
 }
 
@@ -48,7 +54,7 @@ void* _build(cuvsResources_t res, cuvsVamanaIndexParams* params, DLManagedTensor
   index_params.batch_base        = params->batch_base;
   index_params.queue_size        = params->queue_size;
   index_params.reverse_batchsize = params->reverse_batchsize;
-  index_params.graph_init        = convert_graph_init(params->graph_init);
+  index_params.graph_init        = convert_graph_init(*params);
   auto index                     = new cuvs::neighbors::vamana::index<T, uint32_t>(*res_ptr);
 
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
