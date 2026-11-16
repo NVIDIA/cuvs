@@ -12,6 +12,7 @@
 #include <cuvs/detail/jit_lto/fused_distance_nn/fused_1nn_fragments.hpp>
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/core/resource/device_properties.hpp>
 #include <raft/linalg/unary_op.cuh>
 #include <raft/util/cuda_utils.cuh>
 
@@ -25,6 +26,12 @@ namespace distance {
 namespace detail {
 
 namespace {
+
+/** Rows per cuTile launch when the candidates do not fit in L2.
+ * cuTile requires each new batch to be 16-byte aligned.
+ */
+constexpr int64_t kFused1nnCutileL2RowBatch = 32768;
+static_assert(kFused1nnCutileL2RowBatch % 16 == 0);
 
 /**
  * Returns true when the problem dimensions exceed the per-arch high-dim crossover thresholds.
@@ -352,75 +359,58 @@ void launch_fused_1nn_tile(raft::resources const& handle,
     use_strict_abi &&
     should_use_high_dim_tile<DataT>(n, k, capabilities.cc_major, capabilities.cc_minor);
 
-  if constexpr (std::is_same_v<IdxT, int>) {
-    if (use_high_dim_abi) {
-      launch_fused_1nn_tile_impl<DataT, int, cutile_abi_high_dim>(
-        handle, nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt);
-    } else if (use_strict_abi) {
-      launch_fused_1nn_tile_impl<DataT, int, cutile_abi_strict>(
-        handle, nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt);
-    } else {
-      launch_fused_1nn_tile_impl<DataT, int, cutile_abi_relaxed>(
-        handle, nearest_idx, nearest_dist, x, y, xn, yn, m, n, k, metric, is_sqrt);
-    }
-  } else {
-    const auto stream             = raft::resource::get_cuda_stream(handle);
-    constexpr int64_t max_batch_m = fused_1nn_cutile_max_batch_m<DataT>;
-    auto* tmp_idx = nearest_idx == nullptr ? nullptr : static_cast<int*>(index_workspace);
-    for (int64_t offset = 0; offset < m;) {
-      const int64_t batch_m64 = std::min<int64_t>(max_batch_m, m - offset);
-      const int batch_m       = static_cast<int>(batch_m64);
-      const auto* batch_x     = x + static_cast<size_t>(offset) * static_cast<size_t>(k);
-      const auto* batch_xn    = xn == nullptr ? nullptr : xn + offset;
-      auto* batch_dist        = nearest_dist + offset;
+  // Row batching for L2-optimization
+  const auto candidate_bytes =
+    static_cast<int64_t>(n) * static_cast<int64_t>(k) * static_cast<int64_t>(sizeof(DataT));
+  const int64_t row_batch =
+    candidate_bytes > raft::resource::get_device_properties(handle).l2CacheSize
+      ? kFused1nnCutileL2RowBatch
+      : fused_1nn_cutile_max_batch_m<DataT>;
 
-      if (use_high_dim_abi) {
-        launch_fused_1nn_tile_impl<DataT, int, cutile_abi_high_dim>(handle,
-                                                                    tmp_idx,
-                                                                    batch_dist,
-                                                                    batch_x,
-                                                                    y,
-                                                                    batch_xn,
-                                                                    yn,
-                                                                    batch_m,
-                                                                    static_cast<int>(n),
-                                                                    static_cast<int>(k),
-                                                                    metric,
-                                                                    is_sqrt);
-      } else if (use_strict_abi) {
-        launch_fused_1nn_tile_impl<DataT, int, cutile_abi_strict>(handle,
-                                                                  tmp_idx,
-                                                                  batch_dist,
-                                                                  batch_x,
-                                                                  y,
-                                                                  batch_xn,
-                                                                  yn,
-                                                                  batch_m,
-                                                                  static_cast<int>(n),
-                                                                  static_cast<int>(k),
-                                                                  metric,
-                                                                  is_sqrt);
+  const auto stream = raft::resource::get_cuda_stream(handle);
+  for (int64_t offset = 0; offset < static_cast<int64_t>(m);) {
+    const int64_t batch_m64 = std::min<int64_t>(row_batch, static_cast<int64_t>(m) - offset);
+    const int batch_m       = static_cast<int>(batch_m64);
+    // int64 indices go through an int32 index workspace and are widened per batch.
+    int* batch_idx = nullptr;
+    if (nearest_idx != nullptr) {
+      if constexpr (std::is_same_v<IdxT, int>) {
+        batch_idx = nearest_idx + offset;
       } else {
-        launch_fused_1nn_tile_impl<DataT, int, cutile_abi_relaxed>(handle,
-                                                                   tmp_idx,
-                                                                   batch_dist,
-                                                                   batch_x,
-                                                                   y,
-                                                                   batch_xn,
-                                                                   yn,
-                                                                   batch_m,
-                                                                   static_cast<int>(n),
-                                                                   static_cast<int>(k),
-                                                                   metric,
-                                                                   is_sqrt);
+        batch_idx = static_cast<int*>(index_workspace);
       }
-
-      if (nearest_idx != nullptr) {
-        raft::linalg::unaryOp(
-          nearest_idx + offset, tmp_idx, batch_m, raft::cast_op<int64_t>{}, stream.get());
-      }
-      offset += batch_m64;
     }
+
+    auto launch = [&](auto abi) {
+      launch_fused_1nn_tile_impl<DataT, int, decltype(abi)>(
+        handle,
+        batch_idx,
+        nearest_dist + offset,
+        x + static_cast<size_t>(offset) * static_cast<size_t>(k),
+        y,
+        xn == nullptr ? nullptr : xn + offset,
+        yn,
+        batch_m,
+        static_cast<int>(n),
+        static_cast<int>(k),
+        metric,
+        is_sqrt);
+    };
+    if (use_high_dim_abi) {
+      launch(cutile_abi_high_dim{});
+    } else if (use_strict_abi) {
+      launch(cutile_abi_strict{});
+    } else {
+      launch(cutile_abi_relaxed{});
+    }
+
+    if constexpr (!std::is_same_v<IdxT, int>) {
+      if (batch_idx != nullptr) {
+        raft::linalg::unaryOp(
+          nearest_idx + offset, batch_idx, batch_m, raft::cast_op<int64_t>{}, stream.get());
+      }
+    }
+    offset += batch_m64;
   }
 }
 
