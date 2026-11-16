@@ -73,8 +73,12 @@ struct Top1nnTuning {
 /** Native result representation required by the resolved top-1 NN backend. */
 enum class Top1nnOutputLayout : std::uint8_t { KeyValuePair, Separate };
 
-/** Arithmetic policy callers must use when preparing row norms. */
-enum class Top1nnNormPolicy : std::uint8_t { Native, Tf32 };
+/** Row norms the resolved top-1 NN backend reads */
+enum class Top1nnNormPolicy : std::uint8_t {
+  Native,  // norms in the data type's precision (legacy backends)
+  Tf32,    // norms of TF32-rounded values, matching a TF32 GEMM (float cuTile)
+  None,    // no norms are read (CAGRA)
+};
 
 /** Reusable result of probing one exact top-1 NN invocation. */
 template <typename IdxT>

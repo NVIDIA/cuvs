@@ -10,7 +10,7 @@ _Java package: `com.nvidia.cuvs`_
 public interface GPUInfoProvider
 ```
 
-## Public Members
+## Public and Protected Members
 
 ### availableGPUs
 
