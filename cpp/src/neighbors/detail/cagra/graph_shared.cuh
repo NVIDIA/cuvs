@@ -51,6 +51,32 @@ CUVS_DECL_CAGRA_GRAPH_SORT_BBQ(uint8_t);
 
 #undef CUVS_DECL_CAGRA_GRAPH_SORT_BBQ
 
+/** Connects the weakly connected components of an optimized CAGRA graph in place.
+ *  `dataset` rows are `dataset_stride` elements apart, in device memory if `dataset_on_device`.
+ *  A device graph is checked on the device and only copied to the host when disconnected. */
+#define CUVS_DECL_CAGRA_GRAPH_BRIDGE(DataT)                            \
+  CUVS_EXPORT void bridge_components(                                  \
+    raft::resources const& res,                                        \
+    cuvs::distance::DistanceType metric,                               \
+    DataT const* dataset,                                              \
+    bool dataset_on_device,                                            \
+    int64_t dataset_stride,                                            \
+    raft::host_matrix_view<uint32_t, int64_t, raft::row_major> graph); \
+  CUVS_EXPORT void bridge_components(                                  \
+    raft::resources const& res,                                        \
+    cuvs::distance::DistanceType metric,                               \
+    DataT const* dataset,                                              \
+    bool dataset_on_device,                                            \
+    int64_t dataset_stride,                                            \
+    raft::device_matrix_view<uint32_t, int64_t, raft::row_major> graph)
+
+CUVS_DECL_CAGRA_GRAPH_BRIDGE(float);
+CUVS_DECL_CAGRA_GRAPH_BRIDGE(half);
+CUVS_DECL_CAGRA_GRAPH_BRIDGE(int8_t);
+CUVS_DECL_CAGRA_GRAPH_BRIDGE(uint8_t);
+
+#undef CUVS_DECL_CAGRA_GRAPH_BRIDGE
+
 /** Run the existing CAGRA optimizer through one compiled instantiation instead of rematerializing
  *  its reverse-graph, prune, merge, and MST kernels in every Fastener dtype TU. */
 CUVS_EXPORT void optimize_device_graph(

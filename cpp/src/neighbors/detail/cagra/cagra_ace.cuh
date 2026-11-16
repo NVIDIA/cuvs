@@ -6,6 +6,8 @@
 
 #include "../../../core/nvtx.hpp"
 #include "../../../util/kvikio_io.hpp"
+#include "cagra_helpers.hpp"
+#include "graph_shared.cuh"
 
 #include <raft/core/copy.cuh>
 #include <raft/core/device_mdarray.hpp>
@@ -1047,8 +1049,12 @@ bool ace_check_use_disk_mode(raft::resources const& res,
   size_t sub_partition_size =
     static_cast<size_t>(imbalance_factor * vector_expansion_factor *
                         raft::div_rounding_up_safe(dataset_size, n_partitions));
-  const auto workspace_sizes = helpers::optimize_workspace_size(
-    sub_partition_size, graph_degree, intermediate_degree, sizeof(IdxT), guarantee_connectivity);
+  const auto workspace_sizes =
+    helpers::optimize_workspace_size(sub_partition_size,
+                                     graph_degree,
+                                     intermediate_degree,
+                                     sizeof(IdxT),
+                                     guarantee_connectivity && !helpers::bridge_enabled());
   const auto opt_host_ws_total = std::get<0>(workspace_sizes);
   const auto opt_dev_ws_total  = std::get<1>(workspace_sizes);
 
@@ -1177,8 +1183,11 @@ void ace_validate_disk_mode_partitions(raft::resources const& res,
         gpu_workspace_size_total,
         host_workspace_size_fixed,
         gpu_workspace_size_fixed] =
-    helpers::optimize_workspace_size(
-      sub_partition_size, graph_degree, intermediate_degree, sizeof(IdxT), guarantee_connectivity);
+    helpers::optimize_workspace_size(sub_partition_size,
+                                     graph_degree,
+                                     intermediate_degree,
+                                     sizeof(IdxT),
+                                     guarantee_connectivity && !helpers::bridge_enabled());
 
   // Check host memory requirements
   size_t disk_mode_host_required = mem.partition_labels_size + mem.id_mapping_size +
@@ -1267,13 +1276,14 @@ void ace_validate_disk_mode_partitions(raft::resources const& res,
     size_t new_sub_partition_size =
       static_cast<size_t>(imbalance_factor * vector_expansion_factor *
                           raft::div_rounding_up_safe(dataset_size, n_partitions));
-    const auto updated_workspace = helpers::optimize_workspace_size(new_sub_partition_size,
-                                                                    graph_degree,
-                                                                    intermediate_degree,
-                                                                    sizeof(IdxT),
-                                                                    guarantee_connectivity);
-    const auto new_opt_host_ws   = std::get<0>(updated_workspace);
-    const auto new_opt_dev_ws    = std::get<1>(updated_workspace);
+    const auto updated_workspace =
+      helpers::optimize_workspace_size(new_sub_partition_size,
+                                       graph_degree,
+                                       intermediate_degree,
+                                       sizeof(IdxT),
+                                       guarantee_connectivity && !helpers::bridge_enabled());
+    const auto new_opt_host_ws = std::get<0>(updated_workspace);
+    const auto new_opt_dev_ws  = std::get<1>(updated_workspace);
 
     mem.sub_dataset_size = new_sub_partition_size * dataset_dim * sizeof(T);
     mem.sub_graph_size =
@@ -1746,6 +1756,18 @@ auto build_ace(raft::resources const& res, const index_params& params, DatasetVi
     RAFT_LOG_INFO("ACE build: partition graph build completed in %ld ms (partitions=%zu)",
                   partition_processing_elapsed,
                   n_partitions);
+
+    // The partition graphs are bridged by their builds; this joins the partitions.
+    if constexpr (std::is_same_v<IdxT, uint32_t>) {
+      if (!use_disk_mode && helpers::bridge_enabled()) {
+        graph::bridge_components(res,
+                                 params.metric,
+                                 dataset_view.data_handle(),
+                                 false,
+                                 dataset_view.extent(1),
+                                 search_graph.view());
+      }
+    }
 
     // Clean up augmented dataset file to save disk space (no longer needed after partitions
     // processed)

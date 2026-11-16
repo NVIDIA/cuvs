@@ -895,12 +895,12 @@ __global__ void kern_component_sizes(raft::device_vector_view<IdxT, int64_t> par
   }
 }
 
-// Logs the weakly connected components of a graph given its union-find forest. `sizes` is
-// scratch memory of the same length.
+// Logs and returns the number of weakly connected components of a graph given its union-find
+// forest. `sizes` is scratch memory of the same length.
 template <typename IdxT>
-void log_connected_components(raft::resources const& res,
+auto log_connected_components(raft::resources const& res,
                               raft::device_vector_view<IdxT, int64_t> parent,
-                              raft::device_vector_view<uint32_t, int64_t> sizes)
+                              raft::device_vector_view<uint32_t, int64_t> sizes) -> uint64_t
 {
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> block_scope(
     "cagra::graph::optimize/connected_components");
@@ -929,6 +929,7 @@ void log_connected_components(raft::resources const& res,
   } else {
     RAFT_LOG_DEBUG("CAGRA graph is weakly connected (%lu nodes)", graph_size);
   }
+  return num_components;
 }
 
 template <typename IdxT, typename AccessorOutputGraph, bool VariableDegree>
@@ -1801,18 +1802,19 @@ void prune_graph_gpu(
 
 }  // namespace
 
+/** Returns the number of weakly connected components of `new_graph`. */
 template <typename IdxT = uint32_t,
           typename AccessorKnnGraph =
             raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>,
           typename AccessorOutputGraph =
             raft::host_device_accessor<cuda::std::default_accessor<IdxT>, raft::memory_type::host>>
-void optimize(
+auto optimize(
   raft::resources const& res_const,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorKnnGraph> knn_graph,
   raft::mdspan<IdxT, raft::matrix_extent<int64_t>, raft::row_major, AccessorOutputGraph> new_graph,
   const bool guarantee_connectivity           = true,
   const bool use_gpu_for_mst_optimization     = true,
-  const double variable_graph_degree_fraction = 1.0)
+  const double variable_graph_degree_fraction = 1.0) -> uint64_t
 {
   // TODO(achirkin): come up with a reasonable API to initialize a non-empty stream pool.
   // raft::resource::set_cuda_stream_pool below modifies the resource, so it cannot be const.
@@ -1947,7 +1949,8 @@ void optimize(
   }
 
   // d_rev_graph_count is no longer needed after the merge and serves as scratch here.
-  log_connected_components<IdxT>(res, d_uf_parent.view(), d_rev_graph_count.view());
+  const uint64_t num_components =
+    log_connected_components<IdxT>(res, d_uf_parent.view(), d_rev_graph_count.view());
 
   raft::resource::sync_stream(res);
 
@@ -1974,6 +1977,7 @@ void optimize(
 
     check_duplicates_and_out_of_range<IdxT, AccessorOutputGraph>(res, new_graph);
   }
+  return num_components;
 }
 
 }  // namespace cuvs::neighbors::cagra::detail::graph
