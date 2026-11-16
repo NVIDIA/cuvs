@@ -8,6 +8,25 @@ _Source header: `cuvs/neighbors/vamana.h`_
 
 ## C API for Vamana index build
 
+<a id="cuvsvamanagraphinitalgo"></a>
+### cuvsVamanaGraphInitAlgo
+
+How the Vamana build initializes the graph before the insertion passes
+
+```c
+typedef enum {
+  CUVS_VAMANA_GRAPH_INIT_EMPTY = 0,
+  CUVS_VAMANA_GRAPH_INIT_NN_DESCENT = 1
+} cuvsVamanaGraphInitAlgo;
+```
+
+**Values**
+
+| Name | Value |
+| --- | --- |
+| `CUVS_VAMANA_GRAPH_INIT_EMPTY` | `0` |
+| `CUVS_VAMANA_GRAPH_INIT_NN_DESCENT` | `1` |
+
 <a id="cuvsvamanaindexparams"></a>
 ### cuvsVamanaIndexParams
 
@@ -24,6 +43,7 @@ struct cuvsVamanaIndexParams {
   float batch_base;
   uint32_t queue_size;
   uint32_t reverse_batchsize;
+  cuvsVamanaGraphInitAlgo graph_init;
 };
 ```
 
@@ -40,6 +60,7 @@ struct cuvsVamanaIndexParams {
 | `batch_base` | `float` | Base of growth rate of batch sizes * |
 | `queue_size` | `uint32_t` | Size of candidate queue structure - should be (2^x)-1 |
 | `reverse_batchsize` | `uint32_t` | Max batchsize of reverse edge processing (reduces memory footprint) |
+| `graph_init` | [`cuvsVamanaGraphInitAlgo`](/api-reference/c-api-neighbors-vamana#cuvsvamanagraphinitalgo) | How the graph is initialized before the insertion passes. |
 
 <a id="cuvsvamanaindexparamscreate"></a>
 ### cuvsVamanaIndexParamsCreate

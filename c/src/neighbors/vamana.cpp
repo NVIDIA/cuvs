@@ -21,6 +21,17 @@
 
 namespace {
 
+auto convert_graph_init(cuvsVamanaGraphInitAlgo graph_init)
+  -> cuvs::neighbors::vamana::graph_init_algo
+{
+  switch (graph_init) {
+    case CUVS_VAMANA_GRAPH_INIT_EMPTY: return cuvs::neighbors::vamana::graph_init_algo::EMPTY;
+    case CUVS_VAMANA_GRAPH_INIT_NN_DESCENT:
+      return cuvs::neighbors::vamana::graph_init_algo::NN_DESCENT;
+    default: RAFT_FAIL("Unsupported Vamana graph_init value: %d", static_cast<int>(graph_init));
+  }
+}
+
 template <typename T>
 void* _build(cuvsResources_t res, cuvsVamanaIndexParams* params, DLManagedTensor* dataset_tensor)
 {
@@ -37,6 +48,7 @@ void* _build(cuvsResources_t res, cuvsVamanaIndexParams* params, DLManagedTensor
   index_params.batch_base        = params->batch_base;
   index_params.queue_size        = params->queue_size;
   index_params.reverse_batchsize = params->reverse_batchsize;
+  index_params.graph_init        = convert_graph_init(params->graph_init);
   auto index                     = new cuvs::neighbors::vamana::index<T, uint32_t>(*res_ptr);
 
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
@@ -178,6 +190,7 @@ extern "C" cuvsError_t cuvsVamanaIndexParamsCreate(cuvsVamanaIndexParams_t* para
     (*params)->batch_base        = 2.0f;
     (*params)->queue_size        = 127;
     (*params)->reverse_batchsize = 1000000;
+    (*params)->graph_init        = CUVS_VAMANA_GRAPH_INIT_EMPTY;
   });
 }
 

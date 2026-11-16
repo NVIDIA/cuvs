@@ -24,6 +24,20 @@ extern "C" {
  */
 
 /**
+ * @brief How the Vamana build initializes the graph before the insertion passes
+ */
+typedef enum {
+  /** Start from an empty graph (default). */
+  CUVS_VAMANA_GRAPH_INIT_EMPTY = 0,
+  /**
+   * Start from a CAGRA graph built with NN-descent (kNN degree 2 * graph_degree, pruned to
+   * graph_degree), with each neighbor list sorted by distance. The medoid is the vector nearest
+   * the dataset mean and the insertion passes use full batches from the start.
+   */
+  CUVS_VAMANA_GRAPH_INIT_NN_DESCENT = 1
+} cuvsVamanaGraphInitAlgo;
+
+/**
  * @brief Supplemental parameters to build Vamana Index
  *
  * `graph_degree`: Maximum degree of graph; corresponds to the R parameter of
@@ -35,6 +49,7 @@ extern "C" {
  * `max_fraction`: The maximum batch size is this fraction of the total dataset size. Larger
  * gives faster build but lower graph quality.
  * `alpha`: Used to determine how aggressive the pruning will be.
+ * `graph_init`: How the graph is initialized before the insertion passes.
  */
 struct cuvsVamanaIndexParams {
   /** Distance type. */
@@ -58,6 +73,13 @@ struct cuvsVamanaIndexParams {
   uint32_t queue_size;
   /** Max batchsize of reverse edge processing (reduces memory footprint) */
   uint32_t reverse_batchsize;
+  /**
+   * How the graph is initialized before the insertion passes. CUVS_VAMANA_GRAPH_INIT_EMPTY
+   * (default) inserts every vector into an empty graph. CUVS_VAMANA_GRAPH_INIT_NN_DESCENT inserts
+   * them into a CAGRA graph built with NN-descent, which can match the quality of two passes over
+   * an empty graph with a single pass at a smaller visited_size.
+   */
+  cuvsVamanaGraphInitAlgo graph_init;
 };
 
 typedef struct cuvsVamanaIndexParams* cuvsVamanaIndexParams_t;
