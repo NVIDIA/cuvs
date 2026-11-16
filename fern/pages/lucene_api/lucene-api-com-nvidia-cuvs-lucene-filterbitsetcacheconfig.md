@@ -27,7 +27,7 @@ in-flight handles.
 | `enabled` | whether filter bitsets are cached between searches |
 | `maxBytes` | maximum bytes cached by this format; must be positive when caching is enabled |
 
-## Public Members
+## Public and Protected Members
 
 ### FilterBitsetCacheConfig
 
