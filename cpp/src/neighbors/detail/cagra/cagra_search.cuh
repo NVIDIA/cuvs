@@ -392,7 +392,7 @@ template <typename T,
           typename DistanceT          = float,
           typename CagraSampleFilterT = cuvs::neighbors::filtering::none_sample_filter,
           typename SearchT            = T>
-void search_multi_partition_impl(
+void search_multi_partition(
   raft::resources const& res,
   search_params params,
   const std::vector<const index<T, IdxT>*>& indices,
@@ -403,6 +403,22 @@ void search_multi_partition_impl(
   const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets,
   CagraSampleFilterT sample_filter = CagraSampleFilterT{})
 {
+  if constexpr (std::is_same_v<T, int8_t> && std::is_same_v<SearchT, int8_t>) {
+    if (!indices.empty() && indices[0]->metric() == cuvs::distance::DistanceType::BitwiseJaccard) {
+      search_multi_partition<T, OutputIdxT, IdxT, DistanceT, CagraSampleFilterT, uint8_t>(
+        res,
+        params,
+        indices,
+        unsigned_query_view(queries),
+        partition_ids,
+        neighbors,
+        distances,
+        partition_bitsets,
+        sample_filter);
+      return;
+    }
+  }
+
   static_assert(std::is_same_v<IdxT, uint32_t>, "Only uint32_t graph index type is supported");
   static_assert(std::is_same_v<DistanceT, float>, "Only float distances are supported");
 
@@ -868,48 +884,6 @@ void search_multi_partition_impl(
       merge_chunk(qid, chunk_queries);
     }
   }
-}
-
-template <typename T,
-          typename OutputIdxT         = uint32_t,
-          typename IdxT               = uint32_t,
-          typename DistanceT          = float,
-          typename CagraSampleFilterT = cuvs::neighbors::filtering::none_sample_filter>
-void search_multi_partition(
-  raft::resources const& res,
-  search_params params,
-  const std::vector<const index<T, IdxT>*>& indices,
-  raft::device_matrix_view<const T, int64_t, raft::row_major> queries,
-  raft::device_matrix_view<uint32_t, int64_t, raft::row_major> partition_ids,
-  raft::device_matrix_view<OutputIdxT, int64_t, raft::row_major> neighbors,
-  raft::device_matrix_view<DistanceT, int64_t, raft::row_major> distances,
-  const std::vector<cuvs::core::bitset_view<std::uint32_t, int64_t>>& partition_bitsets,
-  CagraSampleFilterT sample_filter = CagraSampleFilterT{})
-{
-  if constexpr (std::is_same_v<T, int8_t>) {
-    if (!indices.empty() && indices[0]->metric() == cuvs::distance::DistanceType::BitwiseJaccard) {
-      search_multi_partition_impl<T, OutputIdxT, IdxT, DistanceT, CagraSampleFilterT, uint8_t>(
-        res,
-        params,
-        indices,
-        unsigned_query_view(queries),
-        partition_ids,
-        neighbors,
-        distances,
-        partition_bitsets,
-        sample_filter);
-      return;
-    }
-  }
-  search_multi_partition_impl<T, OutputIdxT, IdxT, DistanceT, CagraSampleFilterT>(res,
-                                                                                  params,
-                                                                                  indices,
-                                                                                  queries,
-                                                                                  partition_ids,
-                                                                                  neighbors,
-                                                                                  distances,
-                                                                                  partition_bitsets,
-                                                                                  sample_filter);
 }
 
 }  // namespace cuvs::neighbors::cagra::detail
