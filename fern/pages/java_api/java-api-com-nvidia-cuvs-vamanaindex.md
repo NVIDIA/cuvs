@@ -17,7 +17,7 @@ Vamana is the graph construction algorithm behind DiskANN. cuVS currently
 provides build and serialize only. There is no Vamana search API, so a
 serialized index is searched by loading it with DiskANN.
 
-## Public Members
+## Public and Protected Members
 
 ### getDimensions
 

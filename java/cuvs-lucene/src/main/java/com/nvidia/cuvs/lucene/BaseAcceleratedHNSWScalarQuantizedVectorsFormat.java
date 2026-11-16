@@ -136,7 +136,8 @@ abstract class BaseAcceleratedHNSWScalarQuantizedVectorsFormat extends KnnVector
   @Override
   public KnnVectorsReader fieldsReader(SegmentReadState state) throws IOException {
     LuceneVersionGuard.ensureCompatible();
-    return new Lucene99HnswVectorsReader(state, flatVectorsFormat().fieldsReader(state));
+    return new Lucene99HnswVectorsReader(
+        state, flatVectorsFormat().fieldsReader(LuceneCompat.flatReadState(state)));
   }
 
   /**
