@@ -2506,6 +2506,7 @@ inline std::vector<AnnCagraMpInputs> generate_mp_inputs()
                             cuvs::distance::DistanceType::InnerProduct,
                             cuvs::distance::DistanceType::CosineExpanded,
                             cuvs::distance::DistanceType::BitwiseJaccard}) {
+          const auto itopk_size = metric == cuvs::distance::DistanceType::BitwiseJaccard ? 256 : 64;
           inputs.push_back(
             AnnCagraMpInputs{/*n_queries*/ 100,
                              /*n_rows*/ 10000,
@@ -2515,7 +2516,7 @@ inline std::vector<AnnCagraMpInputs> generate_mp_inputs()
                              split,
                              graph_build_algo::NN_DESCENT,
                              algo,
-                             /*itopk_size*/ 64,
+                             /*itopk_size*/ itopk_size,
                              metric,
                              // Lower than the single-index 0.985 convention. These
                              // low-redundancy single-partition / skewed configs dip

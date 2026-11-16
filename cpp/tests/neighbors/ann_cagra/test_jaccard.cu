@@ -16,7 +16,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <vector>
 
 namespace cuvs::neighbors::cagra {
 namespace {
@@ -39,31 +38,18 @@ TYPED_TEST(CagraJaccardTest, EmptyAndFullBitsets)
   auto device_queries = raft::make_device_matrix<T, int64_t>(res, 2, dim);
   raft::copy(device_queries.data_handle(), queries.data_handle(), queries.size(), res.get_stream());
 
+  index_params params;
+  params.metric                    = cuvs::distance::DistanceType::BitwiseJaccard;
+  params.graph_degree              = 32;
+  params.intermediate_graph_degree = 64;
+  params.graph_build_params        = graph_build_params::iterative_search_params{};
+
   for (bool full : {false, true}) {
     SCOPED_TRACE(full);
     std::fill_n(data.data_handle(), data.size(), full ? T(uint8_t(255)) : T(0));
     auto padded =
       cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(data.view()));
-    nn_descent::index_params params;
-    params.metric                    = cuvs::distance::DistanceType::BitwiseJaccard;
-    params.graph_degree              = 32;
-    params.intermediate_graph_degree = 64;
-    params.return_distances          = true;
-    auto nn_index = nn_descent::build(res, params, raft::make_const_mdspan(data.view()));
-    ASSERT_TRUE(nn_index.distances().has_value());
-    std::vector<float> nn_distances(rows * params.graph_degree);
-    raft::copy(nn_distances.data(),
-               nn_index.distances()->data_handle(),
-               nn_distances.size(),
-               res.get_stream());
-    res.sync_stream();
-    // Identical empty sets and identical full sets both have distance zero.
-    for (float distance : nn_distances) {
-      EXPECT_FLOAT_EQ(distance, 0.0f);
-    }
-
-    device_padded_index<T> index(
-      res, params.metric, padded->view(), raft::make_const_mdspan(nn_index.graph()));
+    auto index     = build(res, params, padded->view());
     auto neighbors = raft::make_device_matrix<uint32_t, int64_t>(res, 2, 1);
     auto distances = raft::make_device_matrix<float, int64_t>(res, 2, 1);
     search(res,
