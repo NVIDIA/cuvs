@@ -140,6 +140,7 @@ public class VamanaIndexImpl implements VamanaIndex {
       cuvsVamanaIndexParams.queue_size(seg, params.getQueueSize());
       cuvsVamanaIndexParams.reverse_batchsize(seg, params.getReverseBatchSize());
       cuvsVamanaIndexParams.metric(seg, params.getMetric().value);
+      cuvsVamanaIndexParams.graph_init(seg, params.getGraphInit().value);
       return handle;
     } catch (RuntimeException | Error e) {
       handle.close();

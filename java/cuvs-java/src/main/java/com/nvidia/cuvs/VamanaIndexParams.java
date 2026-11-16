@@ -60,6 +60,35 @@ public class VamanaIndexParams {
     }
   }
 
+  /**
+   * How the builder initializes the graph before the insertion passes.
+   */
+  public enum GraphInitAlgo {
+    /**
+     * Start from an empty graph. This is the default.
+     */
+    EMPTY(0),
+
+    /**
+     * Start from a CAGRA graph built with NN-descent (kNN degree twice the
+     * graph degree, pruned to the graph degree), with each neighbor list
+     * sorted by distance. The medoid is the vector nearest the dataset mean,
+     * and the insertion passes use full batches from the start. One pass at a
+     * smaller visited size, such as 128 for graph degree 64, can match the
+     * quality of two passes over an empty graph in less time than one.
+     */
+    NN_DESCENT(1);
+
+    /**
+     * The value for the enum choice.
+     */
+    public final int value;
+
+    private GraphInitAlgo(int value) {
+      this.value = value;
+    }
+  }
+
   private final int graphDegree;
   private final int visitedSize;
   private final float vamanaIters;
@@ -69,6 +98,7 @@ public class VamanaIndexParams {
   private final int queueSize;
   private final int reverseBatchSize;
   private final CuvsDistanceType metric;
+  private final GraphInitAlgo graphInit;
 
   private VamanaIndexParams(
       int graphDegree,
@@ -79,7 +109,8 @@ public class VamanaIndexParams {
       float batchBase,
       int queueSize,
       int reverseBatchSize,
-      CuvsDistanceType metric) {
+      CuvsDistanceType metric,
+      GraphInitAlgo graphInit) {
     this.graphDegree = graphDegree;
     this.visitedSize = visitedSize;
     this.vamanaIters = vamanaIters;
@@ -89,6 +120,7 @@ public class VamanaIndexParams {
     this.queueSize = queueSize;
     this.reverseBatchSize = reverseBatchSize;
     this.metric = metric;
+    this.graphInit = graphInit;
   }
 
   /**
@@ -156,6 +188,13 @@ public class VamanaIndexParams {
     return metric;
   }
 
+  /**
+   * Gets how the graph is initialized before the insertion passes.
+   */
+  public GraphInitAlgo getGraphInit() {
+    return graphInit;
+  }
+
   @Override
   public String toString() {
     return "VamanaIndexParams [graphDegree="
@@ -176,6 +215,8 @@ public class VamanaIndexParams {
         + reverseBatchSize
         + ", metric="
         + metric
+        + ", graphInit="
+        + graphInit
         + "]";
   }
 
@@ -193,6 +234,7 @@ public class VamanaIndexParams {
     private int queueSize = 127;
     private int reverseBatchSize = 1000000;
     private CuvsDistanceType metric = CuvsDistanceType.L2Expanded;
+    private GraphInitAlgo graphInit = GraphInitAlgo.EMPTY;
 
     public Builder() {}
 
@@ -302,6 +344,18 @@ public class VamanaIndexParams {
     }
 
     /**
+     * Sets how the graph is initialized before the insertion passes. The
+     * default is {@link GraphInitAlgo#EMPTY}.
+     *
+     * @param graphInit the graph initialization
+     * @return an instance of this Builder
+     */
+    public Builder withGraphInit(GraphInitAlgo graphInit) {
+      this.graphInit = graphInit;
+      return this;
+    }
+
+    /**
      * Builds an instance of {@link VamanaIndexParams}.
      *
      * @return an instance of {@link VamanaIndexParams}
@@ -317,7 +371,8 @@ public class VamanaIndexParams {
           batchBase,
           queueSize,
           reverseBatchSize,
-          metric);
+          metric,
+          graphInit);
     }
 
     /**
@@ -364,6 +419,7 @@ public class VamanaIndexParams {
             "reverseBatchSize must be positive, was " + reverseBatchSize);
       }
       Objects.requireNonNull(metric, "metric must not be null");
+      Objects.requireNonNull(graphInit, "graphInit must not be null");
     }
   }
 }

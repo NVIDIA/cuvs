@@ -415,6 +415,104 @@ public class VamanaBuildAndSerializeIT extends CuVSTestCase {
   }
 
   @Test
+  public void testDefaultGraphInitIsEmpty() {
+    assertEquals(
+        VamanaIndexParams.GraphInitAlgo.EMPTY,
+        new VamanaIndexParams.Builder().build().getGraphInit());
+  }
+
+  @Test
+  public void testNullGraphInitIsRejectedInJava() {
+    var builder = new VamanaIndexParams.Builder().withGraphInit(null);
+    assertThrows(NullPointerException.class, builder::build);
+  }
+
+  private static VamanaIndexParams nnDescentParams() {
+    return new VamanaIndexParams.Builder()
+        .withGraphDegree(GRAPH_DEGREE)
+        .withVisitedSize(64)
+        .withGraphInit(VamanaIndexParams.GraphInitAlgo.NN_DESCENT)
+        .build();
+  }
+
+  /** Squared distance of every row to the mean of the rows. */
+  private static double[] squaredDistancesToMean(float[][] dataset) {
+    double[] mean = new double[DIMENSIONS];
+    for (float[] row : dataset) {
+      for (int j = 0; j < DIMENSIONS; j++) {
+        mean[j] += row[j];
+      }
+    }
+    double[] distances = new double[dataset.length];
+    for (int i = 0; i < dataset.length; i++) {
+      for (int j = 0; j < DIMENSIONS; j++) {
+        double diff = dataset[i][j] - mean[j] / dataset.length;
+        distances[i] += diff * diff;
+      }
+    }
+    return distances;
+  }
+
+  @Test
+  public void testBuildWithNNDescentGraphInit() throws Throwable {
+    float[][] data = randomFloatDataset();
+    try (CuVSResources resources = CuVSResources.create();
+        VamanaIndex index =
+            VamanaIndex.newBuilder(resources)
+                .withDataset(data)
+                .withIndexParams(nnDescentParams())
+                .build()) {
+      assertEquals(DIMENSIONS, index.getDimensions());
+
+      withPrefix(
+          prefix -> {
+            index.serialize(prefix, false);
+            long graphSize = sizeOf(prefix);
+
+            // the graph file opens with its own length, the maximum degree and
+            // the medoid, which is the vector nearest the dataset mean
+            ByteBuffer graphHead = readHead(prefix, 16);
+            assertEquals(graphSize, graphHead.getLong());
+            int maxDegree = graphHead.getInt();
+            assertTrue("max degree should be positive, was " + maxDegree, maxDegree > 0);
+            assertTrue(
+                "max degree " + maxDegree + " should not exceed the configured graph degree",
+                maxDegree <= GRAPH_DEGREE);
+            int medoid = graphHead.getInt();
+            assertTrue("medoid " + medoid + " should be a row", medoid >= 0 && medoid < ROWS);
+
+            double[] distances = squaredDistancesToMean(data);
+            double nearest = Double.MAX_VALUE;
+            for (double d : distances) {
+              nearest = Math.min(nearest, d);
+            }
+            // the native code sums in float, so allow for rounding between near ties
+            assertTrue(
+                "medoid " + medoid + " should be the row nearest the mean",
+                distances[medoid] <= nearest * (1.0 + 1e-4) + 1e-6);
+          });
+    }
+  }
+
+  @Test
+  public void testBuildHalfDatasetOnDeviceWithNNDescentGraphInit() throws Throwable {
+    try (CuVSResources resources = CuVSResources.create();
+        CuVSMatrix dataset = deviceMatrix(resources, CuVSMatrix.DataType.HALF);
+        VamanaIndex index =
+            VamanaIndex.newBuilder(resources)
+                .withDataset(dataset)
+                .withIndexParams(nnDescentParams())
+                .build()) {
+      assertEquals(DIMENSIONS, index.getDimensions());
+      withPrefix(
+          prefix -> {
+            index.serialize(prefix, true);
+            assertEquals((long) ROWS * DIMENSIONS * 2 + 8, sizeOf(dataFile(prefix)));
+          });
+    }
+  }
+
+  @Test
   public void testInfiniteVamanaItersIsRejectedInJava() {
     var builder = new VamanaIndexParams.Builder().withVamanaIters(Float.POSITIVE_INFINITY);
     assertThrows(IllegalArgumentException.class, builder::build);
