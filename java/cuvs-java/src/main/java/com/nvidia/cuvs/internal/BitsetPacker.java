@@ -24,8 +24,8 @@ public final class BitsetPacker {
   private BitsetPacker() {}
 
   /** Returns the number of 32-bit words cuVS reads for {@code numBits} bits. */
-  public static long words32(long numBits) {
-    return (numBits + 31) / 32;
+  public static long numWords32(long numBits) {
+    return (numBits + Integer.SIZE - 1) / Integer.SIZE;
   }
 
   /**
@@ -40,34 +40,37 @@ public final class BitsetPacker {
       throw new IllegalArgumentException("numRows must not be negative, got " + numRows);
     }
     long totalBits = Math.multiplyExact(numRows, (long) filters.length);
-    long numLongs = (totalBits + 63) / 64;
+    long numLongs = (totalBits + Long.SIZE - 1) / Long.SIZE;
     if (numLongs > Integer.MAX_VALUE - 8) {
       throw new IllegalArgumentException(
           filters.length + " filters of " + numRows + " rows are too large to pack");
     }
     long[] packed = new long[(int) numLongs];
     for (int i = 0; i < filters.length; i++) {
-      long base = i * numRows;
+      long startBit = i * numRows;
       if (filters[i] == null) {
-        setRange(packed, base, base + numRows);
+        setRange(packed, startBit, startBit + numRows);
       } else {
-        orBits(packed, base, filters[i], numRows);
+        orBits(packed, startBit, filters[i], numRows);
       }
     }
     return packed;
   }
 
-  /** ORs the first {@code numRows} bits of {@code filter} into {@code packed} at bit {@code base}. */
-  private static void orBits(long[] packed, long base, BitSet filter, long numRows) {
+  /**
+   * ORs the first {@code numRows} bits of {@code filter} into {@code packed} at bit {@code
+   * startBit}.
+   */
+  private static void orBits(long[] packed, long startBit, BitSet filter, long numRows) {
     // toLongArray() stops at the last set bit, which is fine here: the array is zero-initialized.
     long[] src = filter.toLongArray();
-    int srcLongs = (int) Math.min(src.length, (numRows + 63) / 64);
-    int shift = (int) (base & 63);
-    int dst = (int) (base >>> 6);
+    int srcLongs = (int) Math.min(src.length, (numRows + Long.SIZE - 1) / Long.SIZE);
+    int shift = (int) (startBit % Long.SIZE);
+    int dst = (int) (startBit / Long.SIZE);
     for (int j = 0; j < srcLongs; j++) {
       long word = src[j];
-      long remaining = numRows - 64L * j;
-      if (remaining < 64) {
+      long remaining = numRows - (long) Long.SIZE * j;
+      if (remaining < Long.SIZE) {
         word &= (1L << remaining) - 1;
       }
       if (word == 0) {
@@ -75,7 +78,7 @@ public final class BitsetPacker {
       }
       packed[dst + j] |= word << shift;
       if (shift != 0 && dst + j + 1 < packed.length) {
-        packed[dst + j + 1] |= word >>> (64 - shift);
+        packed[dst + j + 1] |= word >>> (Long.SIZE - shift);
       }
     }
   }
@@ -85,10 +88,12 @@ public final class BitsetPacker {
     if (from >= to) {
       return;
     }
-    int first = (int) (from >>> 6);
-    int last = (int) ((to - 1) >>> 6);
-    long firstMask = -1L << (from & 63);
-    long lastMask = -1L >>> (63 - ((to - 1) & 63));
+    int first = (int) (from / Long.SIZE);
+    int last = (int) ((to - 1) / Long.SIZE);
+    long firstMask = -1L << (from % Long.SIZE);
+    // When to is a multiple of Long.SIZE the shift is Long.SIZE, which Java reduces to 0, so the
+    // last word is fully set.
+    long lastMask = -1L >>> (Long.SIZE - (to % Long.SIZE));
     if (first == last) {
       packed[first] |= firstMask & lastMask;
       return;

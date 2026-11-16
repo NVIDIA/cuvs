@@ -56,7 +56,7 @@ public final class Prefilters {
       throw new IllegalArgumentException("Expected at least one bitset, or null for no filter");
     }
     long[] packed = BitsetPacker.pack(bitsets, numRows);
-    long words = BitsetPacker.words32(numRows * bitsets.length);
+    long words = BitsetPacker.numWords32(numRows * bitsets.length);
     long bytes = C_INT_BYTE_SIZE * words;
     // The GPU reads the words little-endian. Written little-endian, the packed longs hold the same
     // bytes as the 32-bit words, and cover at least as many bytes as cuVS reads.

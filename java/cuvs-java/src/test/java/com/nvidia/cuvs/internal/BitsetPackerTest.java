@@ -77,12 +77,12 @@ public class BitsetPackerTest {
   }
 
   @Test
-  public void countsWords32() {
-    assertEquals(0, BitsetPacker.words32(0));
-    assertEquals(1, BitsetPacker.words32(1));
-    assertEquals(1, BitsetPacker.words32(32));
-    assertEquals(2, BitsetPacker.words32(33));
-    assertEquals(7, BitsetPacker.words32(195));
+  public void numWords32RoundsUpToWholeWords() {
+    assertEquals(0, BitsetPacker.numWords32(0));
+    assertEquals(1, BitsetPacker.numWords32(1));
+    assertEquals(1, BitsetPacker.numWords32(32));
+    assertEquals(2, BitsetPacker.numWords32(33));
+    assertEquals(7, BitsetPacker.numWords32(195));
   }
 
   /** null, empty, full, random, only the last row, and bits set past numRows. */
