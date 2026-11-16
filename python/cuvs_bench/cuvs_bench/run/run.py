@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -16,7 +16,7 @@ from .runners import cuvs_bench_cpp
 
 def rmm_present() -> bool:
     """
-    Check if RMM (RAPIDS Memory Manager) is present.
+    Check if NVIDIA RMM is present.
 
     Returns
     -------

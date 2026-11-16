@@ -7,7 +7,9 @@
 
 #include "distance_ops/all_ops.cuh"
 #include "pairwise_matrix/dispatch.cuh"
+
 #include <cuvs/distance/distance.hpp>
+
 #include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/gemm.cuh>
@@ -15,12 +17,24 @@
 #include <raft/linalg/norm.cuh>
 #include <raft/linalg/reduce.cuh>
 #include <raft/util/cuda_dev_essentials.cuh>  // to_float
+#include <raft/util/kernel_launch.hpp>
 
+#include <cstdint>
 #include <type_traits>
 
 namespace cuvs {
 namespace distance {
 namespace detail {
+
+template <typename OutT, typename AccT, typename FinOpT, typename IdxT>
+RAFT_KERNEL set_self_distances_kernel(OutT* out,
+                                      IdxT diagonal_size,
+                                      IdxT leading_dimension,
+                                      FinOpT fin_op)
+{
+  IdxT idx = static_cast<IdxT>(blockIdx.x) * blockDim.x + threadIdx.x;
+  if (idx < diagonal_size) { out[std::size_t(idx) * leading_dimension + idx] = fin_op(AccT{0}, 0); }
+}
 
 /**
  * @brief: A tag type for overload resolution based on DistanceType
@@ -591,6 +605,23 @@ void distance_impl_l2_expanded(  // NOTE: different name
   ops::l2_exp_distance_op<DataT, AccT, IdxT> distance_op{perform_sqrt};
   pairwise_matrix_dispatch<decltype(distance_op), DataT, AccT, OutT, FinOpT, IdxT>(
     distance_op, m, n, k, x, y, x_norm, y_norm, out, fin_op, stream, is_row_major);
+
+  // When both inputs are the same matrix, diagonal entries compare each row with itself.
+  // Set those known self-distances to zero.
+  if (x == y && m > 0 && n > 0 && (is_row_major || m == n)) {
+    constexpr uint32_t block_size = 256;
+    IdxT diagonal_size            = std::min(m, n);
+    IdxT leading_dimension        = is_row_major ? n : m;
+    auto grid_size                = raft::ceildiv(diagonal_size, IdxT{block_size});
+    raft::launch_kernel(stream,
+                        grid_size,
+                        block_size,
+                        set_self_distances_kernel<OutT, AccT, FinOpT, IdxT>,
+                        out,
+                        diagonal_size,
+                        leading_dimension,
+                        fin_op);
+  }
 }
 
 template <typename DataT, typename AccT, typename OutT, typename FinOpT, typename IdxT = int>

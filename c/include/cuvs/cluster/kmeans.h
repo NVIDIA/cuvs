@@ -105,11 +105,18 @@ struct cuvsKMeansParams {
 
   /**
    * Number of samples to process per GPU batch for the batched (host-data) API.
-   * When set to 0, defaults to n_samples (process all at once).
+   * Default: 0, which uses n_samples (process all at once). For a single host
+   * input matrix, this creates one full-dataset input buffer on the GPU, even
+   * when a stream pool is configured. Set a positive value less than n_samples
+   * to stream that matrix in smaller batches.
    * Multiple batches use one input buffer without a stream pool and two when
-   * an auxiliary stream enables transfer/compute overlap. Each input buffer
-   * uses about device_buffer_samples * n_features * sizeof(value_type) bytes,
-   * excluding algorithm workspaces and optional sample-weight buffers.
+   * an auxiliary stream enables transfer/compute overlap. No stream pool is
+   * configured by default, so transfers and compute are serialized. Call
+   * cuvsResourcesSetStreamPool(res, 1) to enable overlap for multiple batches.
+   * Each input buffer uses about
+   * device_buffer_samples * n_features * sizeof(value_type) bytes (substitute
+   * n_samples when device_buffer_samples is 0), excluding algorithm workspaces
+   * and optional sample-weight buffers.
    */
   int64_t device_buffer_samples;
 

@@ -34,6 +34,9 @@ JAVA_SOURCE_DIRS = [
 ]
 LUCENE_SOURCE_DIRS = [
     REPO_DIR / "java" / "cuvs-lucene" / "src" / "main" / "java",
+    # Classes that first appear in a later Lucene release (such as the
+    # Lucene103* codecs) live in that module's lucene-10.x/src/since/java.
+    *(REPO_DIR / "java" / "cuvs-lucene").glob("lucene-*/src/since/java"),
 ]
 API_NAV_SECTIONS = [
     ("C API Documentation", "c_api", "c-api-documentation", "C API", "c-api"),
@@ -142,8 +145,20 @@ LUCENE_EXTENSION_POINTS = frozenset(
         "KnnVectorsFormat",
         "KnnVectorsReader",
         "KnnVectorsWriter",
+        # cuvs-lucene's own base for its codecs, a FilterCodec.
+        "CuVSFilterCodec",
     }
 )
+# Package-private ``cuvs-lucene`` bases: those that adapt a Lucene class to the
+# Lucene release a module is built for (java/cuvs-lucene/compat), and those
+# shared by the formats of several Lucene releases. Readers cannot see them, so
+# the pages name the Lucene class each one extends instead.
+JAVA_HIDDEN_SUPERTYPES = {
+    "BaseAcceleratedHNSWScalarQuantizedVectorsFormat": "KnnVectorsFormat",
+    "CompatKnnFloatVectorQuery": "KnnFloatVectorQuery",
+    "CompatKnnVectorsReader": "KnnVectorsReader",
+    "CompatKnnVectorsWriter": "KnnVectorsWriter",
+}
 JAVA_SUPERTYPE_RE = re.compile(r"\b(?:extends|implements)\s+(?P<name>\w+)")
 PUBLIC_JAVA_TYPE_RE = re.compile(
     r"\bpublic\s+(?:abstract\s+|final\s+|sealed\s+|non-sealed\s+)?"
@@ -239,6 +254,9 @@ class JavaDoc:
     params: list[DoxygenParam] = field(default_factory=list)
     returns: str = ""
     throws: list[DoxygenParam] = field(default_factory=list)
+    deprecated: str = ""
+    # Whether the comment has an @deprecated tag, which may come without text.
+    is_deprecated: bool = False
 
 
 @dataclass
@@ -247,6 +265,9 @@ class JavaMember:
     signature: str
     doc: JavaDoc
     line: int
+    # The file that declares the member, when it is not the class's own: a
+    # member inherited from a hidden base (JAVA_HIDDEN_SUPERTYPES).
+    source: str | None = None
 
 
 @dataclass
@@ -259,6 +280,9 @@ class JavaClass:
     source: str
     line: int
     members: list[JavaMember] = field(default_factory=list)
+    # The package-private base the class extends, if it is one of
+    # JAVA_HIDDEN_SUPERTYPES; its signature names the Lucene class instead.
+    hidden_base: str | None = None
 
 
 @dataclass
@@ -3014,7 +3038,11 @@ def generate_lucene_api_pages() -> None:
         title="Lucene API Documentation",
         intro=(
             "These pages are generated from the Java source files in "
-            "`java/cuvs-lucene/src/main`.\n\n"
+            "`java/cuvs-lucene/src/main` and `java/cuvs-lucene/lucene-*/src/since`. "
+            "Members that classes inherit from the package-private bases in "
+            "`java/cuvs-lucene/compat` are shown as they are on "
+            f"Lucene {newest_lucene_version()}, the newest supported release; "
+            "their signatures can differ on earlier releases.\n\n"
             "For an introduction to the codecs, configuration, and tuning, see the "
             "[Lucene Integration](/user-guide/lucene) guide."
         ),
@@ -3066,7 +3094,7 @@ def generate_jvm_api_pages(
         if klass.doc.summary:
             lines.append("")
         if klass.members:
-            lines.extend(["## Public Members", ""])
+            lines.extend(["## Public and Protected Members", ""])
             for member in klass.members:
                 lines.extend(
                     [
@@ -3083,9 +3111,15 @@ def generate_jvm_api_pages(
                     member.doc.summary
                     or member.doc.params
                     or member.doc.returns
+                    or member.doc.is_deprecated
                 ):
                     lines.append("")
-                lines.extend([f"_Source: `{klass.source}:{member.line}`_", ""])
+                lines.extend(
+                    [
+                        f"_Source: `{member.source or klass.source}:{member.line}`_",
+                        "",
+                    ]
+                )
         lines.extend([f"_Source: `{klass.source}:{klass.line}`_", ""])
         write_page(
             out_dir / f"{api_page_route(directory, java_slug(klass))}.md",
@@ -3136,8 +3170,117 @@ def collect_java_classes(roots: list[Path]) -> list[JavaClass]:
             klass = parse_java_class(path)
             if klass is not None:
                 classes.append(klass)
+    for klass in classes:
+        if klass.hidden_base is not None:
+            klass.members.extend(
+                inherited_java_members(
+                    klass, java_hidden_base_path(klass, roots)
+                )
+            )
     classes.sort(key=lambda item: (item.package, item.name))
     return classes
+
+
+def java_hidden_base_path(klass: JavaClass, roots: list[Path]) -> Path:
+    """Finds the source of the hidden base ``klass`` extends.
+
+    Bases shared by every Lucene release live in the source roots. The compat
+    bases have one variant per Lucene API change (java/cuvs-lucene/compat), and
+    each lucene-10.x module picks its variants through cuvs.lucene.compat.*
+    properties in its pom; the pages document the newest module's.
+    """
+    file_name = f"{klass.hidden_base}.java"
+    for root in [*roots, *newest_lucene_compat_dirs()]:
+        for path in sorted(root.rglob(file_name)):
+            return path
+    raise SystemExit(
+        f"{klass.source}: cannot find the source of {klass.hidden_base}"
+    )
+
+
+def newest_lucene_pom() -> Path | None:
+    """Returns the pom of the module for the newest supported Lucene release."""
+    poms = sorted(
+        (REPO_DIR / "java" / "cuvs-lucene").glob("lucene-*/pom.xml"),
+        key=lambda pom: tuple(
+            int(part)
+            for part in pom.parent.name.removeprefix("lucene-").split(".")
+        ),
+    )
+    return poms[-1] if poms else None
+
+
+def newest_lucene_version() -> str:
+    pom = newest_lucene_pom()
+    if pom is None:
+        raise SystemExit("cannot find any java/cuvs-lucene/lucene-* module")
+    return pom.parent.name.removeprefix("lucene-")
+
+
+def newest_lucene_compat_dirs() -> list[Path]:
+    pom = newest_lucene_pom()
+    if pom is None:
+        return []
+    lucene_dir = pom.parent.parent
+    variants = re.findall(
+        r"<cuvs\.lucene\.compat\.\w+>([^<]+)</",
+        pom.read_text(encoding="utf-8"),
+    )
+    return [
+        lucene_dir / "compat" / variant / "src" / "main" / "java"
+        for variant in variants
+    ]
+
+
+def inherited_java_members(
+    klass: JavaClass, base_path: Path
+) -> list[JavaMember]:
+    """Returns the members ``klass`` inherits from its hidden base.
+
+    Readers cannot see the base, so its public and protected members are listed
+    on the page of each class that extends it, unless the class overrides them.
+    Abstract members are left out: the class implements those itself.
+    """
+    declared = {java_member_key(member.signature) for member in klass.members}
+    source = base_path.relative_to(REPO_DIR).as_posix()
+    inherited = []
+    for member in parse_java_members(base_path.read_text(encoding="utf-8")):
+        prefix = strip_java_annotations(member.signature).split("(", 1)[0]
+        if re.search(r"\babstract\b", prefix):
+            continue
+        if java_member_key(member.signature) in declared:
+            continue
+        member.source = source
+        inherited.append(member)
+    return inherited
+
+
+def java_member_key(signature: str) -> tuple[str, tuple[str, ...]]:
+    """Returns a member's name and parameter types, which identify an override."""
+    declaration = strip_java_annotations(signature)
+    name_match = re.search(r"([A-Za-z_]\w*)\s*\(", declaration)
+    if not name_match:
+        return (declaration, ())
+    params, depth, current = [], 0, ""
+    for char in declaration[name_match.end() :]:
+        if char in "<(":
+            depth += 1
+        elif char in ">)":
+            if char == ")" and depth == 0:
+                break
+            depth -= 1
+        if char == "," and depth == 0:
+            params.append(current)
+            current = ""
+        else:
+            current += char
+    params.append(current)
+    types = []
+    for param in params:
+        param = re.sub(r"@\w+(?:\([^)]*\))?|\bfinal\b", "", param).strip()
+        if param:
+            types.append(re.sub(r"\s+", "", param.rsplit(" ", 1)[0]))
+    return (name_match.group(1), tuple(types))
 
 
 def parse_java_class(path: Path) -> JavaClass | None:
@@ -3148,6 +3291,18 @@ def parse_java_class(path: Path) -> JavaClass | None:
     if not type_match:
         return None
     signature, class_line = java_signature_at(text, type_match.start())
+    base_match = re.search(r"\bextends\s+(\w+)", signature)
+    hidden_base = (
+        base_match.group(1)
+        if base_match and base_match.group(1) in JAVA_HIDDEN_SUPERTYPES
+        else None
+    )
+    signature = re.sub(
+        r"\b(extends\s+)(\w+)",
+        lambda m: m.group(1)
+        + JAVA_HIDDEN_SUPERTYPES.get(m.group(2), m.group(2)),
+        signature,
+    )
     doc = parse_javadoc(comment_before(text, type_match.start()))
     klass = JavaClass(
         package=package,
@@ -3157,27 +3312,30 @@ def parse_java_class(path: Path) -> JavaClass | None:
         doc=doc,
         source=path.relative_to(REPO_DIR).as_posix(),
         line=class_line,
+        hidden_base=hidden_base,
     )
-    klass.members = parse_java_members(text, klass.name)
+    klass.members = parse_java_members(text)
     return klass
 
 
-def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
+def parse_java_members(text: str) -> list[JavaMember]:
+    """Returns the documented members of a Java source file readers can use."""
     members: list[JavaMember] = []
+    type_bodies = java_type_bodies(text)
     for match in COMMENT_RE.finditer(text):
         signature, line = java_signature_at(text, match.end())
-        if "(" not in signature:
+        # Annotations stay in the signature on the page, but an argument list
+        # such as @Deprecated(since = "...") must not be taken for the member.
+        declaration = strip_java_annotations(signature)
+        if "(" not in declaration:
             continue
-        if re.search(r"\b(class|interface|enum|record)\b", signature):
+        if re.search(r"\b(class|interface|enum|record)\b", declaration):
             continue
-        if re.search(r"\b(if|for|while|switch|catch)\s*\(", signature):
+        if re.search(r"\b(if|for|while|switch|catch)\s*\(", declaration):
             continue
-        # The pages advertise "Public Members"; drop explicitly private ones.
-        # Package-private and interface members are left alone because an
-        # interface method with no modifier is implicitly public.
-        if re.match(r"\s*private\b", signature):
+        if not java_member_is_visible(declaration, match.end(), type_bodies):
             continue
-        name_match = re.search(r"([A-Za-z_]\w*)\s*\(", signature)
+        name_match = re.search(r"([A-Za-z_]\w*)\s*\(", declaration)
         if not name_match:
             continue
         name = name_match.group(1)
@@ -3186,6 +3344,70 @@ def parse_java_members(text: str, class_name: str) -> list[JavaMember]:
             JavaMember(name=name, signature=signature, doc=doc, line=line)
         )
     return members
+
+
+def java_type_bodies(text: str) -> list[tuple[int, int, str, str]]:
+    """Returns the start, end, kind and name of each type body in ``text``."""
+    # Blank out comments and literals, keeping offsets, so that their braces
+    # and keywords are not taken for code.
+    code = re.sub(
+        r"/\*.*?\*/|//[^\n]*|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
+        lambda m: re.sub(r"[^\n]", " ", m.group(0)),
+        text,
+        flags=re.DOTALL,
+    )
+    bodies = []
+    for match in re.finditer(
+        r"\b(class|interface|enum|record)\s+([A-Za-z_]\w*)", code
+    ):
+        start = code.find("{", match.end())
+        if start < 0 or ";" in code[match.end() : start]:
+            continue
+        depth = 0
+        for end in range(start, len(code)):
+            if code[end] == "{":
+                depth += 1
+            elif code[end] == "}":
+                depth -= 1
+                if depth == 0:
+                    bodies.append((start, end, match.group(1), match.group(2)))
+                    break
+    return bodies
+
+
+def java_member_is_visible(
+    declaration: str,
+    position: int,
+    type_bodies: list[tuple[int, int, str, str]],
+) -> bool:
+    """Returns whether readers can use a member declared at ``position``.
+
+    The pages advertise "Public and Protected Members". In an interface, a member with no
+    modifier is implicitly public, so only private ones are dropped, and enum
+    constants are always public (an enum constructor never is); any other
+    member of a class, enum or record must be public, or protected for
+    subclasses to use.
+    """
+    enclosing = [body for body in type_bodies if body[0] < position < body[1]]
+    _, _, kind, type_name = (
+        max(enclosing) if enclosing else (0, 0, "class", "")
+    )
+    if kind == "interface":
+        return not re.match(r"\s*private\b", declaration)
+    constant = re.match(r"\s*([A-Za-z_]\w*)\s*[(,;{]", declaration)
+    if kind == "enum" and constant and constant.group(1) != type_name:
+        return True
+    return (
+        re.search(r"\b(public|protected)\b", declaration.split("(", 1)[0])
+        is not None
+    )
+
+
+def strip_java_annotations(signature: str) -> str:
+    """Returns the declaration that follows the annotations on a member."""
+    while match := re.match(r"@\w+(?:\s*\([^)]*\))?\s*", signature):
+        signature = signature[match.end() :]
+    return signature
 
 
 def clean_doxygen_comment(raw: str) -> str:
@@ -4215,11 +4437,13 @@ def parse_enum_values(signature: str) -> list[dict[str, str]]:
     body_match = re.search(r"{(?P<body>.*)}", signature, re.DOTALL)
     if not body_match:
         return []
+    # Strip comments before splitting to avoid a comma inside one
+    body = re.sub(
+        r"/\*.*?\*/|//[^\n]*", "", body_match.group("body"), flags=re.DOTALL
+    )
     values: list[dict[str, str]] = []
-    for raw_value in split_top_level(body_match.group("body"), ","):
-        cleaned = re.sub(
-            r"/\*.*?\*/|//.*", "", raw_value, flags=re.DOTALL
-        ).strip()
+    for raw_value in split_top_level(body, ","):
+        cleaned = raw_value.strip()
         if not cleaned:
             continue
         name, _, value = cleaned.partition("=")
@@ -4718,7 +4942,8 @@ def java_signature_at(text: str, start: int) -> tuple[str, int]:
         char = text[idx]
         update_depth(depth, char)
         if char in "{;" and not depth["("] and not depth["["]:
-            signature = text[start:idx].strip()
+            # A line comment after an annotation is not part of the declaration.
+            signature = re.sub(r"//[^\n]*", "", text[start:idx]).strip()
             signature = re.sub(r"\s+", " ", signature)
             return signature, line
         idx += 1
@@ -4749,10 +4974,12 @@ def parse_javadoc(raw: str) -> JavaDoc:
     summary_lines: list[str] = []
     active: DoxygenParam | None = None
     active_kind = ""
+    # Lines are collected unconverted and each block is converted once complete, because an
+    # inline tag such as {@link ...} may be wrapped across lines.
     for line in lines:
-        stripped = clean_javadoc_text(line.strip())
+        stripped = line.strip()
         if not stripped:
-            if active is None:
+            if active is None and active_kind == "":
                 summary_lines.append("")
             continue
         param_match = re.match(r"@param\s+(\w+)\s*(.*)", stripped)
@@ -4777,9 +5004,17 @@ def parse_javadoc(raw: str) -> JavaDoc:
             active = None
             active_kind = "return"
             continue
-        if stripped.startswith("@"):
+        deprecated_match = re.match(r"@deprecated\b\s*(.*)", stripped)
+        if deprecated_match:
+            doc.deprecated = deprecated_match.group(1).strip()
+            doc.is_deprecated = True
             active = None
-            active_kind = ""
+            active_kind = "deprecated"
+            continue
+        if re.match(r"@\w", stripped):
+            # Another block tag (@since, @see, ...): it and its continuation lines are not shown.
+            active = None
+            active_kind = "skip"
             continue
         if active is not None and active_kind in {"param", "throws"}:
             active.description = append_doxygen_line(
@@ -4787,22 +5022,65 @@ def parse_javadoc(raw: str) -> JavaDoc:
             )
         elif active_kind == "return":
             doc.returns = append_doxygen_line(doc.returns, stripped)
+        elif active_kind == "deprecated":
+            doc.deprecated = append_doxygen_line(doc.deprecated, stripped)
+        elif active_kind == "skip":
+            continue
         else:
             summary_lines.append(stripped)
-    doc.summary = "\n".join(trim_blank_lines(summary_lines)).strip()
+    doc.summary = clean_javadoc_text(
+        "\n".join(trim_blank_lines(summary_lines))
+    )
+    for param in doc.params + doc.throws:
+        param.description = clean_javadoc_text(param.description)
+    doc.returns = clean_javadoc_text(doc.returns)
+    doc.deprecated = clean_javadoc_text(doc.deprecated)
     return doc
 
 
 def clean_javadoc_text(text: str) -> str:
-    text = re.sub(r"\{@code\s+([^}]+)\}", r"`\1`", text)
+    # Converted inline tags are held as placeholders until the HTML tags are removed, so that
+    # their text, such as {@code List<String>} or {@literal <T>}, keeps its angle brackets.
+    kept: list[str] = []
+
+    def keep(converted: str) -> str:
+        kept.append(converted)
+        return f"\x00{len(kept) - 1}\x00"
+
+    def words(value: str) -> str:
+        # A tag wrapped across lines keeps its words on one line.
+        return " ".join(value.split())
+
     text = re.sub(
-        r"\{@link\s+([^}\s]+)(?:\s+([^}]+))?\}",
-        lambda m: m.group(2) or f"`{m.group(1)}`",
+        r"\{@code\s+([^}]+)\}", lambda m: keep(f"`{words(m.group(1))}`"), text
+    )
+    text = re.sub(
+        r"\{@(?:value|systemProperty)\s+#?([^}\s]+)\s*\}",
+        lambda m: keep(f"`{m.group(1)}`"),
         text,
+    )
+    text = re.sub(
+        r"\{@literal\s+([^}]+)\}", lambda m: keep(words(m.group(1))), text
+    )
+    text = re.sub(
+        # A method's parameter list may contain spaces, so it belongs to the
+        # target rather than starting the label.
+        r"\{@link(?:plain)?\s+([^}\s(]+(?:\([^)]*\))?)(?:\s+([^}]+))?\}",
+        lambda m: keep(
+            words(m.group(2)) if m.group(2) else f"`{words(m.group(1))}`"
+        ),
+        text,
+    )
+    # Any other inline tag shows its text.
+    text = re.sub(
+        r"\{@\w+\s+([^}]+)\}", lambda m: keep(words(m.group(1))), text
     )
     text = re.sub(r"<a\b[^>]*>(.*?)</a>", r"\1", text)
     text = re.sub(r"</?p>", "", text)
     text = re.sub(r"<[^>]+>", "", text)
+    # Removed HTML can leave doubled spaces; converted tags are still placeholders here.
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\x00(\d+)\x00", lambda m: kept[int(m.group(1))], text)
     return text.strip()
 
 
@@ -4811,6 +5089,10 @@ def render_javadoc(doc: JavaDoc) -> list[str]:
     if doc.summary:
         lines.extend(escape_text(line) for line in doc.summary.splitlines())
         lines.append("")
+    if doc.deprecated:
+        lines.extend([f"**Deprecated:** {escape_text(doc.deprecated)}", ""])
+    elif doc.is_deprecated:
+        lines.extend(["**Deprecated.**", ""])
     if doc.params:
         lines.extend(
             ["**Parameters**", "", "| Name | Description |", "| --- | --- |"]
@@ -6051,17 +6333,30 @@ def escape_code(value: str) -> str:
     )
 
 
+CODE_SPAN_RE = re.compile(r"(`+)(.+?)\1")
+
+
 def escape_text(value: str) -> str:
-    escaped = (
-        str(value)
-        .replace("|", "\\|")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace("{", "\\{")
-        .replace("}", "\\}")
-        .replace("\n", " ")
-    )
-    return restore_math_placeholders(escaped)
+    # MDX shows code spans literally: an entity such as &lt; or a backslash escape inside one
+    # would appear as typed, and angle brackets and braces need no escaping there. The pipe is
+    # still escaped, since a code span inside a table cell would otherwise split the cell.
+    def escape_prose(text: str) -> str:
+        return (
+            text.replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("{", "\\{")
+            .replace("}", "\\}")
+        )
+
+    text = str(value).replace("|", "\\|").replace("\n", " ")
+    parts: list[str] = []
+    end = 0
+    for match in CODE_SPAN_RE.finditer(text):
+        parts.append(escape_prose(text[end : match.start()]))
+        parts.append(match.group(0))
+        end = match.end()
+    parts.append(escape_prose(text[end:]))
+    return restore_math_placeholders("".join(parts))
 
 
 def restore_math_placeholders(value: str) -> str:

@@ -168,7 +168,7 @@ function(ConfigureAnnBench)
     add_dependencies(${BENCH_NAME} ANN_BENCH)
   else()
     add_executable(${BENCH_NAME} ${ConfigureAnnBench_PATH})
-    target_compile_definitions(${BENCH_NAME} PRIVATE ANN_BENCH_BUILD_MAIN>)
+    target_compile_definitions(${BENCH_NAME} PRIVATE ANN_BENCH_BUILD_MAIN)
     target_link_libraries(
       ${BENCH_NAME} PRIVATE benchmark::benchmark $<$<TARGET_EXISTS:CUDA::nvtx3>:CUDA::nvtx3>
     )

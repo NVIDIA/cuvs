@@ -13,7 +13,9 @@ func TestBruteForce(t *testing.T) {
 		nFeatures   = 16
 		nQueries    = 4
 		k           = 4
-		epsilon     = 0.001
+		// Self-neighbors with L2SqrtExpanded may have small round-off error
+        // which can cause distances to be non-zero.
+		epsilon = 0.01
 	)
 
 	resource, _ := cuvs.NewResource(nil)

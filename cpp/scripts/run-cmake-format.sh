@@ -1,17 +1,17 @@
 #!/bin/bash
 
-# SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2022-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
 # This script is a wrapper for cmakelang that may be used with pre-commit. The
-# wrapping is necessary because RAPIDS libraries split configuration for
-# cmakelang linters between a local config file and a second config file that's
-# shared across all of RAPIDS via rapids-cmake. In order to keep it up to date
-# this file is only maintained in one place (the rapids-cmake repo) and
-# pulled down during builds. We need a way to invoke CMake linting commands
-# without causing pre-commit failures (which could block local commits or CI),
-# while also being sufficiently flexible to allow users to maintain the config
-# file independently of a build directory.
+# wrapping is necessary because libraries split configuration for cmakelang
+# linters between a local config file and a second config file that's shared
+# via rapids-cmake. In order to keep it up to date this file is only maintained
+# in one place (the rapids-cmake repo) and pulled down during builds. We need a
+# way to invoke CMake linting commands without causing pre-commit failures
+# (which could block local commits or CI), while also being sufficiently
+# flexible to allow users to maintain the config file independently of a build
+# directory.
 #
 # This script provides the minimal functionality to enable those use cases. It
 # searches in a number of predefined locations for the rapids-cmake config file
