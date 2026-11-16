@@ -297,6 +297,7 @@ vamana::serialize(
 | `batch_base` | `2.0` | Growth factor for insertion batch sizes. |
 | `queue_size` | `127` | Candidate queue size used during graph traversal. This should be one less than a power of two and should be larger than `visited_size`. |
 | `reverse_batchsize` | `1000000` | Maximum reverse-edge processing batch size. Lower values can reduce temporary memory during reverse-edge processing. |
+| `graph_init` | `EMPTY` | How the graph is initialized before the insertion passes. `EMPTY` inserts every vector into an empty graph. `NN_DESCENT` inserts them into a CAGRA graph built with NN-descent, with the vector nearest the dataset mean as the medoid. One pass at a smaller `visited_size`, such as `128` for `graph_degree` `64`, can then match the graph quality of two passes over an empty graph in less time than one. The NN-descent memory is released before the insertion passes start. Available in C++, C (`CUVS_VAMANA_GRAPH_INIT_*`) and Java (`VamanaIndexParams.GraphInitAlgo`). |
 | `codebooks` | None | Optional C++ PQ codebook parameters loaded with `deserialize_codebooks` for DiskANN-compatible quantized output workflows. |
 
 ## Tuning
