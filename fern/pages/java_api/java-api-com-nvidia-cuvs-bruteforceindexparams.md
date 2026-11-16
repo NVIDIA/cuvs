@@ -12,7 +12,7 @@ public class BruteForceIndexParams
 
 Supplemental parameters to build BRUTEFORCE index.
 
-## Public Members
+## Public and Protected Members
 
 ### getNumWriterThreads
 
