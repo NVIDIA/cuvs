@@ -2505,9 +2505,8 @@ void GNND<Data_t, Index_t>::build(Data_t* data,
       "Data type needs to be int8 or uint8 for NN Descent to run with BitwiseHamming distance.");
   }
   if (build_config_.metric == distance::DistanceType::BitwiseJaccard &&
-      !(std::is_same_v<input_t, uint8_t> || std::is_same_v<input_t, int8_t>)) {
-    RAFT_FAIL(
-      "Data type needs to be int8 or uint8 for NN Descent to run with BitwiseJaccard distance.");
+      !std::is_same_v<input_t, uint8_t>) {
+    RAFT_FAIL("Data type needs to be uint8 for NN Descent to run with BitwiseJaccard distance.");
   }
 
   cudaStream_t stream = raft::resource::get_cuda_stream(res).get();

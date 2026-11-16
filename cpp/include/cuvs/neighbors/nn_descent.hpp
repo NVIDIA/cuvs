@@ -381,7 +381,6 @@ auto build(raft::resources const& res,
  * - InnerProduct
  * - L1
  * - BitwiseHamming
- * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}
@@ -420,7 +419,6 @@ auto build(raft::resources const& res,
  * - InnerProduct
  * - L1
  * - BitwiseHamming
- * - BitwiseJaccard
  *
  * Usage example:
  * @code{.cpp}

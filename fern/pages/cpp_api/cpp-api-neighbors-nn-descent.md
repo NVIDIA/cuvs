@@ -391,7 +391,6 @@ The following distance metrics are supported:
 - InnerProduct
 - L1
 - BitwiseHamming
-- BitwiseJaccard
 
 Usage example:
 
@@ -428,7 +427,6 @@ The following distance metrics are supported:
 - InnerProduct
 - L1
 - BitwiseHamming
-- BitwiseJaccard
 
 Usage example:
 

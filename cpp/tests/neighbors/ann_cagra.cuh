@@ -366,12 +366,9 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
   template <typename SearchIdxT = IdxT>
   void testCagra()
   {
-    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
-        (!(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>) ||
-         ps.build_algo == graph_build_algo::IVF_PQ))
-      GTEST_SKIP();
-    // IVF_PQ graph build does not support BitwiseHamming
-    if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
+    // Packed bitwise metrics require uint8_t search and a non-IVF-PQ builder.
+    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming ||
+         ps.metric == cuvs::distance::DistanceType::BitwiseJaccard) &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
       GTEST_SKIP();
     // If the dataset dimension is small and the dataset size is large, there can be a lot of
@@ -1190,12 +1187,9 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         GTEST_SKIP();
       }
     }
-    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
-        (!(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>) ||
-         ps.build_algo == graph_build_algo::IVF_PQ))
-      GTEST_SKIP();
-    // IVF_PQ graph build does not support BitwiseHamming
-    if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
+    // Packed bitwise metrics require uint8_t search and a non-IVF-PQ builder.
+    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming ||
+         ps.metric == cuvs::distance::DistanceType::BitwiseJaccard) &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
       GTEST_SKIP();
     // If the dataset dimension is small and the dataset size is large, there can be a lot of
@@ -1446,12 +1440,9 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
-    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
-        (!(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>) ||
-         ps.build_algo == graph_build_algo::IVF_PQ))
-      GTEST_SKIP();
-    // IVF_PQ graph build does not support BitwiseHamming
-    if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
+    // Packed bitwise metrics require uint8_t search and a non-IVF-PQ builder.
+    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming ||
+         ps.metric == cuvs::distance::DistanceType::BitwiseJaccard) &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
       GTEST_SKIP();
     // If the dataset dimension is small and the dataset size is large, there can be a lot of
@@ -2459,7 +2450,7 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
   void SetUp() override
   {
     if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
-        !(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>)) {
+        !std::is_same_v<DataT, uint8_t>) {
       GTEST_SKIP();
     }
     database.resize(static_cast<size_t>(ps.n_rows) * ps.dim, stream_);

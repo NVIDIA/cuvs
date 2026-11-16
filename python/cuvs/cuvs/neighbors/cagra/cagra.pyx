@@ -191,7 +191,7 @@ cdef class IndexParams:
             - cosine distance is defined as
               distance(a, b) = 1 - \\sum_i a_i * b_i / ( ||a||_2 * ||b||_2).
 
-            - bitwise_jaccard computes Jaccard distance on packed int8 or uint8
+            - bitwise_jaccard computes Jaccard distance on packed uint8
               bitstrings: distance(a, b) = 1 - intersection(a, b) / union(a, b).
               Two empty bitstrings have distance zero. Each byte stores eight
               binary features; dimensions are in bytes and unused trailing bits
@@ -485,7 +485,7 @@ def build(IndexParams index_params, dataset, resources=None):
         - L2
         - InnerProduct
         - Cosine
-        - BitwiseJaccard (packed int8/uint8 bitstrings)
+        - BitwiseJaccard (packed uint8 bitstrings)
 
     Parameters
     ----------

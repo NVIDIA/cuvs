@@ -74,9 +74,12 @@ class AnnNNDescentTest : public ::testing::TestWithParam<AnnNNDescentInputs> {
  protected:
   void testNNDescent()
   {
-    if ((ps.metric == cuvs::distance::DistanceType::BitwiseHamming ||
-         ps.metric == cuvs::distance::DistanceType::BitwiseJaccard) &&
+    if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         !(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>)) {
+      GTEST_SKIP();
+    }
+    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
+        !std::is_same_v<DataT, uint8_t>) {
       GTEST_SKIP();
     }
     size_t queries_size = ps.n_rows * ps.graph_degree;

@@ -55,7 +55,7 @@ typedef enum {
   DiceExpanded = 19,
   /** Bitstring Hamming distance **/
   BitwiseHamming = 20,
-  /** Jaccard distance between packed bitstrings **/
+  /** Bitstring Jaccard distance **/
   BitwiseJaccard = 21,
   /** Precomputed (special value) **/
   Precomputed = 100

@@ -53,7 +53,7 @@ naive_distance(const DataT* x, const DataT* y, IdxT k, cuvs::distance::DistanceT
         }
       } break;
       case cuvs::distance::DistanceType::BitwiseJaccard: {
-        if constexpr (std::is_same_v<uint8_t, DataT> || std::is_same_v<int8_t, DataT>) {
+        if constexpr (std::is_same_v<uint8_t, DataT>) {
           auto xb = static_cast<uint8_t>(xv);
           auto yb = static_cast<uint8_t>(yv);
           intersection += __popc(static_cast<uint32_t>(xb & yb));

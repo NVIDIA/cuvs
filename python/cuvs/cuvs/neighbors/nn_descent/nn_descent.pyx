@@ -47,7 +47,7 @@ cdef class IndexParams:
         Supported metrics are `l2`, `euclidean`, `sqeuclidean`,
         `inner_product`, `cosine`, `bitwise_hamming`, and `bitwise_jaccard`
         (`bitwise_hamming` is for int8 and uint8 data types only)
-        `bitwise_jaccard` accepts packed int8 and uint8 bitstrings, with eight
+        `bitwise_jaccard` accepts packed uint8 bitstrings, with eight
         binary features per byte. Dimensions are in bytes; unused bits in the
         last byte must be zero. Use ``numpy.packbits(..., axis=1)`` to pack binary
         vectors. Two empty bitstrings have distance zero.

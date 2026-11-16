@@ -62,7 +62,7 @@ pub enum DistanceType {
     DiceExpanded,
     /// Bitwise Hamming distance.
     BitwiseHamming,
-    /// Jaccard distance between packed bitstrings.
+    /// Bitstring Jaccard distance.
     BitwiseJaccard,
     /// Precomputed distance matrix.
     Precomputed,

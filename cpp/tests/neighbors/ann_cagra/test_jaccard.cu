@@ -18,16 +18,9 @@
 #include <cstdint>
 
 namespace cuvs::neighbors::cagra {
-namespace {
-
-template <typename T>
-class CagraJaccardTest : public ::testing::Test {};
-using JaccardTypes = ::testing::Types<int8_t, uint8_t>;
-TYPED_TEST_SUITE(CagraJaccardTest, JaccardTypes);
-
-TYPED_TEST(CagraJaccardTest, EmptyAndFullBitsets)
+TEST(CagraJaccard, EmptyAndFullBitsets)
 {
-  using T = TypeParam;
+  using T = uint8_t;
   raft::device_resources res;
   constexpr int64_t rows = 128;
   constexpr int64_t dim  = 3;
@@ -66,8 +59,6 @@ TYPED_TEST(CagraJaccardTest, EmptyAndFullBitsets)
   }
 }
 
-}  // namespace
-
 TEST(CagraJaccard, ApiChecks)
 {
   raft::device_resources res;
@@ -82,7 +73,7 @@ TEST(CagraJaccard, ApiChecks)
   params.graph_build_params = graph_build_params::ivf_pq_params{};
   EXPECT_THROW(build(res, params, padded_bytes->view()), raft::exception);
 
-  // CAGRA and NN-Descent require packed byte inputs.
+  // CAGRA and NN-Descent require unsigned byte inputs.
   auto floats = raft::make_host_matrix<float, int64_t>(512, 65);
   std::fill_n(floats.data_handle(), floats.size(), 0.0f);
   auto padded_floats =
@@ -92,6 +83,14 @@ TEST(CagraJaccard, ApiChecks)
   nn_descent::index_params nn_params;
   nn_params.metric = params.metric;
   EXPECT_THROW(nn_descent::build(res, nn_params, raft::make_const_mdspan(floats.view())),
+               raft::exception);
+
+  auto signed_bytes = raft::make_host_matrix<int8_t, int64_t>(512, 65);
+  std::fill_n(signed_bytes.data_handle(), signed_bytes.size(), int8_t(0));
+  auto padded_signed =
+    cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(signed_bytes.view()));
+  EXPECT_THROW(build(res, params, padded_signed->view()), raft::exception);
+  EXPECT_THROW(nn_descent::build(res, nn_params, raft::make_const_mdspan(signed_bytes.view())),
                raft::exception);
 }
 
