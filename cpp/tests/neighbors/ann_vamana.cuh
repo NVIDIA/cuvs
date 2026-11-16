@@ -32,6 +32,7 @@
 
 #include <thrust/sequence.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <filesystem>
 #include <iostream>
@@ -114,6 +115,23 @@ inline void CheckGraph(vamana::index<DataT, IdxT>* index_,
 
   // Graph won't always be full, but <75% is very unlikely
   EXPECT_TRUE(((float)edge_count / max_edges) > 0.75);
+
+  // Every row holds neighbors followed only by invalid ids (raft::upper_bound<IdxT>()). On float
+  // data no row repeats a neighbor. On integer and half data a row can still repeat one, which is
+  // a separate issue.
+  int rows_with_gaps = 0, rows_with_repeats = 0;
+  for (int i = 0; i < h_graph.extent(0); i++) {
+    std::vector<IdxT> row(&h_graph(i, 0), &h_graph(i, 0) + h_graph.extent(1));
+    auto valid_end = std::find(row.begin(), row.end(), raft::upper_bound<IdxT>());
+    if (std::any_of(
+          valid_end, row.end(), [](IdxT id) { return id != raft::upper_bound<IdxT>(); })) {
+      rows_with_gaps++;
+    }
+    std::sort(row.begin(), valid_end);
+    if (std::adjacent_find(row.begin(), valid_end) != valid_end) { rows_with_repeats++; }
+  }
+  EXPECT_EQ(rows_with_gaps, 0);
+  if constexpr (std::is_same_v<DataT, float>) { EXPECT_EQ(rows_with_repeats, 0); }
 }
 
 template <typename DistanceT, typename DataT, typename IdxT>
