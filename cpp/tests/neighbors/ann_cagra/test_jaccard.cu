@@ -3,8 +3,6 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "../../../src/neighbors/detail/cagra/graph_core.cuh"
-
 #include <cuvs/neighbors/cagra.hpp>
 #include <cuvs/neighbors/nn_descent.hpp>
 
@@ -18,7 +16,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <random>
 #include <vector>
 
 namespace cuvs::neighbors::cagra {
@@ -258,7 +255,7 @@ TYPED_TEST(CagraJaccardTest, DatasetReplacementChangesDistances)
   check(replaced, 0.0f);
 }
 
-TYPED_TEST(CagraJaccardTest, NNDescentDistancesAndBuild)
+TYPED_TEST(CagraJaccardTest, NNDescentDistances)
 {
   using T               = TypeParam;
   constexpr auto metric = cuvs::distance::DistanceType::BitwiseJaccard;
@@ -297,112 +294,6 @@ TYPED_TEST(CagraJaccardTest, NNDescentDistancesAndBuild)
         }
       }
     }
-  }
-
-  // Build CAGRA with an explicit NN-descent configuration.
-  auto padded =
-    cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(data.view()));
-  index_params cagra_params;
-  cagra_params.metric                    = params.metric;
-  cagra_params.intermediate_graph_degree = 64;
-  cagra_params.graph_degree              = 32;
-  cagra_params.graph_build_params        = graph_build_params::nn_descent_params(
-    cagra_params.intermediate_graph_degree, cagra_params.metric);
-  auto index = build(res, cagra_params, padded->view());
-  EXPECT_EQ(index.metric(), params.metric);
-  auto neighbors = raft::make_device_matrix<uint32_t, int64_t>(res, 4, 1);
-  auto distances = raft::make_device_matrix<float, int64_t>(res, 4, 1);
-  search(res,
-         search_params{},
-         index,
-         raft::make_device_matrix_view<const T, int64_t>(device_data.data_handle(), 4, dim),
-         neighbors.view(),
-         distances.view());
-  std::vector<uint32_t> ids(4);
-  std::vector<float> actual(4);
-  raft::copy(ids.data(), neighbors.data_handle(), ids.size(), res.get_stream());
-  raft::copy(actual.data(), distances.data_handle(), actual.size(), res.get_stream());
-  res.sync_stream();
-  for (int64_t q = 0; q < 4; ++q) {
-    ASSERT_LT(ids[q], rows);
-    EXPECT_NEAR(
-      actual[q],
-      jaccard_reference(data.data_handle() + q * dim, data.data_handle() + ids[q] * dim, dim),
-      1e-6);
-  }
-}
-
-TYPED_TEST(CagraJaccardTest, IterativeBuildAndSearch)
-{
-  using T               = TypeParam;
-  constexpr auto metric = cuvs::distance::DistanceType::BitwiseJaccard;
-  raft::device_resources res;
-  constexpr int64_t rows = 512;
-  constexpr int64_t nq   = 32;
-  constexpr int64_t k    = 10;
-  for (int64_t dim : {17, 65, 128, 129}) {
-    SCOPED_TRACE(dim);
-    auto data    = packed_binary_data<T>(rows, dim);
-    auto queries = packed_binary_data<T>(nq, dim, 1159);
-    auto padded =
-      cuvs::neighbors::make_device_padded_dataset(res, raft::make_const_mdspan(data.view()));
-    index_params params;
-    params.metric                    = metric;
-    params.graph_degree              = 32;
-    params.intermediate_graph_degree = 64;
-    params.graph_build_params        = graph_build_params::iterative_search_params{};
-    auto index                       = build(res, params, padded->view());
-    EXPECT_EQ(index.metric(), params.metric);
-    EXPECT_EQ(index.size(), rows);
-    EXPECT_EQ(index.graph_degree(), params.graph_degree);
-
-    auto device_queries = raft::make_device_matrix<T, int64_t>(res, nq, dim);
-    raft::copy(
-      device_queries.data_handle(), queries.data_handle(), queries.size(), res.get_stream());
-    auto neighbors = raft::make_device_matrix<uint32_t, int64_t>(res, nq, k);
-    auto distances = raft::make_device_matrix<float, int64_t>(res, nq, k);
-    search_params search_params;
-    search_params.itopk_size = 128;
-    search(res,
-           search_params,
-           index,
-           raft::make_const_mdspan(device_queries.view()),
-           neighbors.view(),
-           distances.view());
-    std::vector<uint32_t> ids(nq * k);
-    std::vector<float> actual(nq * k);
-    raft::copy(ids.data(), neighbors.data_handle(), ids.size(), res.get_stream());
-    raft::copy(actual.data(), distances.data_handle(), actual.size(), res.get_stream());
-    res.sync_stream();
-
-    int64_t hits = 0;
-    for (int64_t q = 0; q < nq; ++q) {
-      std::vector<float> expected(rows);
-      for (int64_t i = 0; i < rows; ++i) {
-        expected[i] =
-          jaccard_reference(queries.data_handle() + q * dim, data.data_handle() + i * dim, dim);
-      }
-      auto sorted = expected;
-      std::sort(sorted.begin(), sorted.end());
-      const auto cutoff = sorted[k - 1];
-      const auto strict_count =
-        std::count_if(expected.begin(), expected.end(), [cutoff](float d) { return d < cutoff; });
-      int64_t strict_hits   = 0;
-      int64_t boundary_hits = 0;
-      std::vector<bool> seen(rows, false);
-      for (int64_t j = 0; j < k; ++j) {
-        const auto pos = q * k + j;
-        ASSERT_LT(ids[pos], rows);
-        EXPECT_FALSE(seen[ids[pos]]);
-        seen[ids[pos]] = true;
-        EXPECT_NEAR(actual[pos], expected[ids[pos]], 1e-6);
-        if (j > 0) { EXPECT_LE(actual[pos - 1], actual[pos]); }
-        strict_hits += expected[ids[pos]] < cutoff;
-        boundary_hits += expected[ids[pos]] == cutoff;
-      }
-      hits += strict_hits + std::min<int64_t>(boundary_hits, k - strict_count);
-    }
-    EXPECT_GE(double(hits) / (nq * k), 0.9);
   }
 }
 

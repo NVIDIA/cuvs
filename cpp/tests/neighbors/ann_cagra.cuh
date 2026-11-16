@@ -323,6 +323,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraInputs& p)
       case cuvs::distance::DistanceType::L2Expanded: return "L2";
       case cuvs::distance::DistanceType::BitwiseHamming: return "BitwiseHamming";
       case cuvs::distance::DistanceType::CosineExpanded: return "Cosine";
+      case cuvs::distance::DistanceType::BitwiseJaccard: return "BitwiseJaccard";
       case cuvs::distance::DistanceType::L1: return "L1";
       default: break;
     }
@@ -365,6 +366,10 @@ class AnnCagraTest : public ::testing::TestWithParam<AnnCagraInputs> {
   template <typename SearchIdxT = IdxT>
   void testCagra()
   {
+    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
+        (!(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>) ||
+         ps.build_algo == graph_build_algo::IVF_PQ))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -1185,6 +1190,10 @@ class AnnCagraIndexFilteredMergeTest : public ::testing::TestWithParam<AnnCagraI
         GTEST_SKIP();
       }
     }
+    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
+        (!(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>) ||
+         ps.build_algo == graph_build_algo::IVF_PQ))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -1437,6 +1446,10 @@ class AnnCagraIndexMergeTest : public ::testing::TestWithParam<AnnCagraInputs> {
         GTEST_SKIP();
       }
     }
+    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
+        (!(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>) ||
+         ps.build_algo == graph_build_algo::IVF_PQ))
+      GTEST_SKIP();
     // IVF_PQ graph build does not support BitwiseHamming
     if (ps.metric == cuvs::distance::DistanceType::BitwiseHamming &&
         ((!std::is_same_v<DataT, uint8_t>) || (ps.build_algo == graph_build_algo::IVF_PQ)))
@@ -1772,6 +1785,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::distance::DistanceType::L2Expanded,
      cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::CosineExpanded,
      cuvs::distance::DistanceType::L1},
     {false},
@@ -1797,6 +1811,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {1},
     {cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::CosineExpanded,
      cuvs::distance::DistanceType::L1},
     {false},
@@ -1849,6 +1864,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::distance::DistanceType::L2Expanded,
      cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::L1},
     {false},
     {true},
@@ -1877,6 +1893,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::distance::DistanceType::L2Expanded,
      cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::CosineExpanded,
      cuvs::distance::DistanceType::L1},
     {false},
@@ -1904,6 +1921,7 @@ inline std::vector<AnnCagraInputs> generate_inputs()
     {cuvs::distance::DistanceType::L2Expanded,
      cuvs::distance::DistanceType::InnerProduct,
      cuvs::distance::DistanceType::BitwiseHamming,
+     cuvs::distance::DistanceType::BitwiseJaccard,
      cuvs::distance::DistanceType::CosineExpanded,
      cuvs::distance::DistanceType::L1},
     {false},
@@ -2100,6 +2118,7 @@ inline ::std::ostream& operator<<(::std::ostream& os, const AnnCagraMpInputs& p)
       case cuvs::distance::DistanceType::InnerProduct: return "InnerProduct";
       case cuvs::distance::DistanceType::L2Expanded: return "L2";
       case cuvs::distance::DistanceType::CosineExpanded: return "Cosine";
+      case cuvs::distance::DistanceType::BitwiseJaccard: return "BitwiseJaccard";
       default: return "Unknown";
     }
   };
@@ -2439,6 +2458,10 @@ class AnnCagraMultiPartitionTest : public ::testing::TestWithParam<AnnCagraMpInp
 
   void SetUp() override
   {
+    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
+        !(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>)) {
+      GTEST_SKIP();
+    }
     database.resize(static_cast<size_t>(ps.n_rows) * ps.dim, stream_);
     search_queries.resize(static_cast<size_t>(ps.n_queries) * ps.dim, stream_);
     raft::random::RngState r(1234ULL);
@@ -2481,7 +2504,8 @@ inline std::vector<AnnCagraMpInputs> generate_mp_inputs()
       for (auto algo : {search_algo::SINGLE_CTA, search_algo::MULTI_CTA}) {
         for (auto metric : {cuvs::distance::DistanceType::L2Expanded,
                             cuvs::distance::DistanceType::InnerProduct,
-                            cuvs::distance::DistanceType::CosineExpanded}) {
+                            cuvs::distance::DistanceType::CosineExpanded,
+                            cuvs::distance::DistanceType::BitwiseJaccard}) {
           inputs.push_back(
             AnnCagraMpInputs{/*n_queries*/ 100,
                              /*n_rows*/ 10000,

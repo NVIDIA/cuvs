@@ -23,9 +23,11 @@ template <typename EvalT, typename DataT, typename IdxT>
 __device__ EvalT
 naive_distance(const DataT* x, const DataT* y, IdxT k, cuvs::distance::DistanceType metric)
 {
-  EvalT acc   = EvalT(0);
-  EvalT normX = EvalT(0);
-  EvalT normY = EvalT(0);
+  EvalT acc             = EvalT(0);
+  EvalT normX           = EvalT(0);
+  EvalT normY           = EvalT(0);
+  uint64_t intersection = 0;
+  uint64_t set_union    = 0;
   for (IdxT i = 0; i < k; ++i) {
     auto xv = x[i];
     auto yv = y[i];
@@ -50,6 +52,14 @@ naive_distance(const DataT* x, const DataT* y, IdxT k, cuvs::distance::DistanceT
           acc += __popc(static_cast<uint32_t>(xv ^ yv) & 0xff);
         }
       } break;
+      case cuvs::distance::DistanceType::BitwiseJaccard: {
+        if constexpr (std::is_same_v<uint8_t, DataT> || std::is_same_v<int8_t, DataT>) {
+          auto xb = static_cast<uint8_t>(xv);
+          auto yb = static_cast<uint8_t>(yv);
+          intersection += __popc(static_cast<uint32_t>(xb & yb));
+          set_union += __popc(static_cast<uint32_t>(xb | yb));
+        }
+      } break;
       case cuvs::distance::DistanceType::L1: {
         auto diff = static_cast<EvalT>(xv) - static_cast<EvalT>(yv);
         acc += raft::abs(diff);
@@ -63,6 +73,9 @@ naive_distance(const DataT* x, const DataT* y, IdxT k, cuvs::distance::DistanceT
     }
   }
   switch (metric) {
+    case cuvs::distance::DistanceType::BitwiseJaccard: {
+      acc = set_union ? EvalT(1) - EvalT(intersection) / EvalT(set_union) : EvalT(0);
+    } break;
     case cuvs::distance::DistanceType::L2SqrtExpanded:
     case cuvs::distance::DistanceType::L2SqrtUnexpanded: {
       acc = raft::sqrt(acc);
