@@ -957,6 +957,7 @@ void make_reverse_graph_gpu(
     for (uint64_t k = 0; k < n_cols; k++) {
       kern_make_rev_graph_k<<<blocks, threads, 0, stream.get()>>>(
         graph_view, d_rev_graph, d_rev_graph_count, k);
+      RAFT_CUDA_TRY(cudaPeekAtLastError());
     }
   };
 
