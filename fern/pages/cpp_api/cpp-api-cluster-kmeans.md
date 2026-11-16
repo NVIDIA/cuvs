@@ -123,7 +123,9 @@ SuperKMeans is Lloyd's k-means with a pruned assignment step: the first iteratio
 
 The number of clusters is taken from the `centroids` argument. The start centroids are rows sampled at random, as with kmeans::params::InitMethod::Random; all `n_iters` iterations run (there is no convergence test), and an empty cluster keeps its previous centroid.
 
-With a stream pool on the handle (one stream is enough), the pruned assignment's row batches alternate between the main stream and the pool's, overlapping their kernels, for up to 2 GiB more workspace.
+Pruning is approximate and can discard the true nearest centroid. The first filter uses FP16 tensor cores for both float and half input; surviving candidates are refined in FP32 over subsequent 256-dimension tiles, with further pruning between tiles.
+
+Prediction uses full nearest-centroid assignment without pruning. Returned labels and optional inertia are computed with a full assignment against the final centroids.
 
 The following metrics are currently supported:
 

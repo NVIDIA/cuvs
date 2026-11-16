@@ -319,9 +319,12 @@ struct balanced_params : base_params {
  * sampled at random, as with kmeans::params::InitMethod::Random; all `n_iters` iterations run
  * (there is no convergence test), and an empty cluster keeps its previous centroid.
  *
- * With a stream pool on the handle (one stream is enough), the pruned assignment's row batches
- * alternate between the main stream and the pool's, overlapping their kernels, for up to 2 GiB
- * more workspace.
+ * Pruning is approximate and can discard the true nearest centroid. The first filter uses FP16
+ * tensor cores for both float and half input; surviving candidates are refined in FP32 over
+ * subsequent 256-dimension tiles, with further pruning between tiles.
+ *
+ * Prediction uses full nearest-centroid assignment without pruning. Returned labels and optional
+ * inertia are computed with a full assignment against the final centroids.
  *
  * The following metrics are currently supported:
  *  - L2Expanded
@@ -877,22 +880,6 @@ void fit(const raft::resources& handle,
 /**
  * @brief Find clusters with the SuperKMeans algorithm.
  *
- * @code{.cpp}
- *   #include <raft/core/resources.hpp>
- *   #include <cuvs/cluster/kmeans.hpp>
- *   using namespace  cuvs::cluster;
- *   ...
- *   raft::resources handle;
- *   cuvs::cluster::kmeans::superkmeans_params params;
- *   int64_t n_features = 1024, n_clusters = 4096;
- *   auto centroids = raft::make_device_matrix<float, int64_t>(handle, n_clusters, n_features);
- *
- *   kmeans::fit(handle,
- *               params,
- *               X,
- *               centroids.view());
- * @endcode
- *
  * @param[in]     handle        The raft handle.
  * @param[in]     params        Parameters for SuperKMeans.
  * @param[in]     X             Training instances to cluster. The data must
@@ -1445,22 +1432,6 @@ void predict(const raft::resources& handle,
 /**
  * @brief Predict the closest cluster each sample in X belongs to, for SuperKMeans centroids.
  *
- * @code{.cpp}
- *   #include <raft/core/resources.hpp>
- *   #include <cuvs/cluster/kmeans.hpp>
- *   using namespace  cuvs::cluster;
- *   ...
- *   raft::resources handle;
- *   cuvs::cluster::kmeans::superkmeans_params params;
- *   auto labels = raft::make_device_vector<uint32_t, int64_t>(handle, X.extent(0));
- *
- *   kmeans::predict(handle,
- *                   params,
- *                   X,
- *                   centroids,
- *                   labels.view());
- * @endcode
- *
  * @param[in]     handle        The raft handle.
  * @param[in]     params        Parameters for SuperKMeans.
  * @param[in]     X             New data to predict.
@@ -1804,24 +1775,6 @@ void fit_predict(const raft::resources& handle,
 
 /**
  * @brief Compute SuperKMeans clusters and predict the cluster index of each sample.
- *
- * @code{.cpp}
- *   #include <raft/core/resources.hpp>
- *   #include <cuvs/cluster/kmeans.hpp>
- *   using namespace  cuvs::cluster;
- *   ...
- *   raft::resources handle;
- *   cuvs::cluster::kmeans::superkmeans_params params;
- *   int64_t n_features = 1024, n_clusters = 4096;
- *   auto centroids = raft::make_device_matrix<float, int64_t>(handle, n_clusters, n_features);
- *   auto labels = raft::make_device_vector<uint32_t, int64_t>(handle, X.extent(0));
- *
- *   kmeans::fit_predict(handle,
- *                       params,
- *                       X,
- *                       centroids.view(),
- *                       labels.view());
- * @endcode
  *
  * @param[in]     handle        The raft handle.
  * @param[in]     params        Parameters for SuperKMeans.

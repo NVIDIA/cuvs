@@ -31,7 +31,6 @@ ConstInt = ct.Constant[int]
 # float32 bits in the low 32. One scatter per survivor is the costly part of the kernel; separate
 # 32-bit scatters per field are much slower.
 ID_SHIFT = 32
-LOW_32_BITS = (1 << 32) - 1
 
 
 def kernel_symbol(data_type: str) -> str:
@@ -113,12 +112,9 @@ def make_kernel(*, gpu_code: str, occupancy: int | None = None):
             keep_i = keep.astype(ct.int32)
             slot = row_ids * row_stride + filled + ct.cumsum(keep_i, 1) - 1
             filled = filled + ct.sum(keep_i, axis=1, keepdims=True)
-            # The distance's bits are masked: widening a negative int32 (a negative float, e.g. a
-            # rounded-down 0) to int64 would sign-extend into the index
-            index = ct.broadcast_to(centroid_ids, (tm, tn)).astype(ct.int64)
-            dist_bits = (
-                ct.bitcast(dist, ct.int32).astype(ct.int64) & LOW_32_BITS
-            )
+            # Unsigned widening keeps the distance's sign bit out of the centroid index.
+            index = centroid_ids.astype(ct.int64)
+            dist_bits = ct.bitcast(dist, ct.uint32).astype(ct.int64)
             value = ct.bitwise_lshift(index, ID_SHIFT) | dist_bits
             ct.scatter(packed, slot, value, mask=keep)
         ct.store(count, index=(row_tile, 0), tile=filled)
