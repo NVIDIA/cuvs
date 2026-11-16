@@ -150,7 +150,6 @@ void mnmg_fit(
   auto n_features = centroids.extent(1);
   auto n_clusters = static_cast<IndexT>(params.n_clusters);
   auto metric     = params.metric;
-
   // Optional CAGRA-based nearest-centroid assignment (float + L2 only). All ranks take the same
   // decision from the same params.
   const bool use_ann = cuvs::cluster::kmeans::detail::use_ann_assignment<DataT>(
@@ -518,16 +517,14 @@ void mnmg_fit(
       // The centroids change every iteration, so the index is rebuilt every iteration. Every rank
       // takes part (even one without data): the graph is built on the root and broadcast.
       if (use_ann) {
-        cuvs::cluster::kmeans::detail::build_ann_index_broadcast<DataT>(
-          dev_res,
-          iter_params,
-          comms,
-          rank,
-          CUVS_KMEANS_COMM_ROOT,
-          ann_index,
-          rank_centroids.data_handle(),
-          static_cast<int64_t>(n_clusters),
-          static_cast<int64_t>(n_features));
+        cuvs::cluster::kmeans::detail::build_ann_index<DataT>(dev_res,
+                                                              iter_params,
+                                                              comms,
+                                                              rank,
+                                                              ann_index,
+                                                              rank_centroids.data_handle(),
+                                                              static_cast<int64_t>(n_clusters),
+                                                              static_cast<int64_t>(n_features));
       }
 
       data_batches.start();
@@ -620,6 +617,8 @@ void mnmg_fit(
       }
       if constexpr (data_on_device) { norms_cached = true; }
 
+      // The CAGRA search allocates and launches kernels; finish it on every rank before any rank's
+      // allreduce starts.
       comms.group_start();
       comms.allreduce(
         centroid_sums.data_handle(), centroid_sums.data_handle(), n_clusters * n_features);
@@ -748,6 +747,8 @@ void mnmg_fit(
         if (weight_batch.has_value()) { weight_batches->release(*weight_batch); }
       }
     }
+    // The exact cost pass is the first brute-force pass of an ANN fit; finish it on every rank
+    // before any rank's allreduce starts.
     comms.allreduce(clustering_cost.data_handle(), clustering_cost.data_handle(), 1);
     raft::copy(&local_inertia, clustering_cost.data_handle(), 1, stream);
     raft::resource::sync_stream(dev_res);

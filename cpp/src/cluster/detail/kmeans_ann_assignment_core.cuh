@@ -17,6 +17,7 @@
  */
 #pragma once
 
+#include "../../core/mnmg_comms.cuh"
 #include "../../distance/detail/top_1_nn_cagra.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
@@ -30,6 +31,11 @@
 #include <optional>
 #include <type_traits>
 #include <variant>
+
+// Rank that builds shared state and broadcasts it in the multi-GPU k-means.
+#ifndef CUVS_KMEANS_COMM_ROOT
+#define CUVS_KMEANS_COMM_ROOT 0
+#endif
 
 namespace cuvs::cluster::kmeans::detail {
 
@@ -89,37 +95,39 @@ void build_ann_index(raft::resources const& handle,
 }
 
 /**
- * @brief Multi-GPU counterpart of build_ann_index: every rank ends up with the same CAGRA index
- * over the (identical on all ranks) `n_clusters` x `n_features` centroids, but the graph is built
- * only once.
+ * @brief Multi-GPU overload of `build_ann_index`: every rank ends up with the
+ * same CAGRA index over the (identical on all ranks) `n_clusters` x `n_features` centroids, but
+ * the graph is built only once.
  *
- * @p root builds the graph and broadcasts it through @p comms (`mnmg_comms`-like: `bcast(T*,
- * count, root)`); every other rank attaches the received graph to its own copy of the centroids.
- * The CAGRA graph is the only part of the index that is expensive to produce. All ranks must call
- * this together, with identical centroids and params, even ranks that hold no data.
+ * The root rank (`CUVS_KMEANS_COMM_ROOT`) builds the graph and broadcasts it through @p comms;
+ * every other rank attaches the received graph to its own copy of the centroids. The CAGRA graph
+ * is the only part of the index that is expensive to produce, and NN-descent does not build the
+ * same graph twice, so it is built once and shared. The graph degree is derived from the build
+ * params on every rank, so no rank has to wait on a collective (and block the host on its result)
+ * just to size its receive buffer. All ranks must call this together, with identical centroids and
+ * params, even ranks that hold no data.
  */
-template <typename DataT, typename CommsT>
-void build_ann_index_broadcast(raft::resources const& handle,
-                               cuvs::cluster::kmeans::params const& params,
-                               CommsT const& comms,
-                               int rank,
-                               int root,
-                               cuvs::distance::detail::top_1_nn_cagra_index& ann_index,
-                               const DataT* centroids,
-                               int64_t n_clusters,
-                               int64_t n_features)
+template <typename DataT>
+void build_ann_index(raft::resources const& handle,
+                     cuvs::cluster::kmeans::params const& params,
+                     cuvs::core::detail::mnmg_comms const& comms,
+                     int rank,
+                     cuvs::distance::detail::top_1_nn_cagra_index& ann_index,
+                     const DataT* centroids,
+                     int64_t n_clusters,
+                     int64_t n_features)
 {
   if constexpr (std::is_same_v<DataT, float>) {
     const auto ann_params =
       params.ann_params.value_or(cuvs::cluster::kmeans::ann_assignment_params{});
-    // The graph degree follows from the build params and n_clusters alone, so every rank derives it
-    // locally: no rank has to wait on a collective (and block the host on its result) just to size
-    // its receive buffer. The root checks that the built graph agrees.
+
+    // The degree follows from the build params and n_clusters alone (the root checks below that the
+    // built graph agrees).
     const int degree =
       static_cast<int>(cuvs::distance::detail::top_1_nn_cagra_index::make_build_params(
                          ann_params.index_params, n_clusters)
                          .graph_degree);
-    if (rank == root) {
+    if (rank == CUVS_KMEANS_COMM_ROOT) {
       ann_index.build(handle,
                       ann_params.index_params,
                       ann_params.search_params,
@@ -130,21 +138,19 @@ void build_ann_index_broadcast(raft::resources const& handle,
                    "CAGRA graph degree differs from the one derived from the build params");
     }
 
-    // The collectives have no uint32 type; the graph is broadcast as same-sized int32.
-    if (rank == root) {
+    const auto count = static_cast<std::size_t>(n_clusters) * static_cast<std::size_t>(degree);
+    if (rank == CUVS_KMEANS_COMM_ROOT) {
+      // The broadcast is in place; the root only reads its graph.
       auto* graph = const_cast<uint32_t*>(ann_index.graph().data_handle());
-      comms.bcast(reinterpret_cast<int*>(graph),
-                  static_cast<std::size_t>(n_clusters) * static_cast<std::size_t>(degree),
-                  root);
+      comms.bcast(graph, count, CUVS_KMEANS_COMM_ROOT);
+      raft::resource::sync_stream(handle);
     } else {
-      auto graph = raft::make_device_matrix<uint32_t, int64_t>(handle, n_clusters, degree);
-      comms.bcast(reinterpret_cast<int*>(graph.data_handle()),
-                  static_cast<std::size_t>(n_clusters) * static_cast<std::size_t>(degree),
-                  root);
+      auto recv_graph = raft::make_device_matrix<uint32_t, int64_t>(handle, n_clusters, degree);
+      comms.bcast(recv_graph.data_handle(), count, CUVS_KMEANS_COMM_ROOT);
+      raft::resource::sync_stream(handle);
       ann_index.attach_graph(
-        handle, ann_params.search_params, centroids, n_clusters, n_features, std::move(graph));
+        handle, ann_params.search_params, centroids, n_clusters, n_features, std::move(recv_graph));
     }
-    raft::resource::sync_stream(handle);
   } else {
     RAFT_FAIL("ANN centroid assignment only supports float data");
   }
