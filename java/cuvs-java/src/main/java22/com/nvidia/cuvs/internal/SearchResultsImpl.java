@@ -48,12 +48,26 @@ class SearchResultsImpl implements SearchResults {
         long i = query * topK + j;
         long id = (long) neighboursVarHandle.get(neighboursMemorySegment, 0L, i);
         float dst = (float) distancesVarHandle.get(distancesMemorySegment, 0L, i);
+        if (isEmptySlot(id, dst)) {
+          continue;
+        }
         resultMap.put(mapping != null ? mapping.applyAsInt((int) id) : (int) id, dst);
       }
       results.add(resultMap);
     }
 
     return new SearchResultsImpl(results);
+  }
+
+  /**
+   * Whether a top-k slot holds no result, because fewer than topK rows passed the filter or the
+   * index has fewer than topK rows. Used for every index type, CAGRA included. Depending on the
+   * algorithm and the path it takes, such a slot has a negative id (the searches fill the ids with
+   * -1 before they run, and some paths write -1 themselves), or an id with the distance of a row
+   * the filter removed: +/-infinity or +/-FLT_MAX, negated for inner product.
+   */
+  static boolean isEmptySlot(long id, float distance) {
+    return id < 0 || !Float.isFinite(distance) || Math.abs(distance) == Float.MAX_VALUE;
   }
 
   /**
