@@ -1062,9 +1062,7 @@ auto gpipnn_build_graph(raft::resources const& res,
   }
   if (params.guarantee_connectivity) {
     RAFT_LOG_WARN(
-      "guarantee_connectivity has no effect with the gpipnn graph build: gpipnn prunes to "
-      "graph_degree itself, so CAGRA's optimize() -- which is what enforces connectivity -- does "
-      "not run.");
+      "guarantee_connectivity is not supported with gpipnn graph build.");
   }
   gpipnn_params.metric = params.metric;
 
