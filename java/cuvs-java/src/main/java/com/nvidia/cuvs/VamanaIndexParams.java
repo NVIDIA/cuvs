@@ -69,6 +69,7 @@ public class VamanaIndexParams {
   private final int queueSize;
   private final int reverseBatchSize;
   private final CuvsDistanceType metric;
+  private final CuVSHostMatrix initialGraph;
 
   private VamanaIndexParams(
       int graphDegree,
@@ -79,7 +80,8 @@ public class VamanaIndexParams {
       float batchBase,
       int queueSize,
       int reverseBatchSize,
-      CuvsDistanceType metric) {
+      CuvsDistanceType metric,
+      CuVSHostMatrix initialGraph) {
     this.graphDegree = graphDegree;
     this.visitedSize = visitedSize;
     this.vamanaIters = vamanaIters;
@@ -89,6 +91,7 @@ public class VamanaIndexParams {
     this.queueSize = queueSize;
     this.reverseBatchSize = reverseBatchSize;
     this.metric = metric;
+    this.initialGraph = initialGraph;
   }
 
   /**
@@ -156,6 +159,13 @@ public class VamanaIndexParams {
     return metric;
   }
 
+  /**
+   * Gets the graph the build starts from, or {@code null} to start from an empty graph.
+   */
+  public CuVSHostMatrix getInitialGraph() {
+    return initialGraph;
+  }
+
   @Override
   public String toString() {
     return "VamanaIndexParams [graphDegree="
@@ -176,6 +186,8 @@ public class VamanaIndexParams {
         + reverseBatchSize
         + ", metric="
         + metric
+        + ", initialGraph="
+        + initialGraph
         + "]";
   }
 
@@ -193,6 +205,7 @@ public class VamanaIndexParams {
     private int queueSize = 127;
     private int reverseBatchSize = 1000000;
     private CuvsDistanceType metric = CuvsDistanceType.L2Expanded;
+    private CuVSHostMatrix initialGraph;
 
     public Builder() {}
 
@@ -302,6 +315,21 @@ public class VamanaIndexParams {
     }
 
     /**
+     * Sets a graph to start the build from instead of an empty graph, for example a host copy of
+     * {@link CagraIndex#getGraph()} from an index built with NN-descent. It holds one full row of
+     * {@code graphDegree} neighbor ids per vector, never the row's own id, in any order. The build
+     * copies it, so it must stay open until the index build returns. Once it is closed, these
+     * parameters must not be used for another build.
+     *
+     * @param initialGraph the graph, with one row per dataset vector
+     * @return an instance of this Builder
+     */
+    public Builder withInitialGraph(CuVSHostMatrix initialGraph) {
+      this.initialGraph = initialGraph;
+      return this;
+    }
+
+    /**
      * Builds an instance of {@link VamanaIndexParams}.
      *
      * @return an instance of {@link VamanaIndexParams}
@@ -317,7 +345,8 @@ public class VamanaIndexParams {
           batchBase,
           queueSize,
           reverseBatchSize,
-          metric);
+          metric,
+          initialGraph);
     }
 
     /**

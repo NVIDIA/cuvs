@@ -188,6 +188,37 @@ public class VamanaBuildAndSerializeIT extends CuVSTestCase {
   }
 
   @Test
+  public void testBuildFromCagraGraph() throws Throwable {
+    float[][] dataset = randomFloatDataset();
+    CagraIndexParams cagraParams =
+        new CagraIndexParams.Builder()
+            .withCagraGraphBuildAlgo(CagraIndexParams.CagraGraphBuildAlgo.NN_DESCENT)
+            .withIntermediateGraphDegree(2 * GRAPH_DEGREE)
+            .withGraphDegree(GRAPH_DEGREE)
+            .build();
+    try (CuVSResources resources = CuVSResources.create();
+        CagraIndex cagra =
+            CagraIndex.newBuilder(resources)
+                .fromDataset(dataset)
+                .withIndexParams(cagraParams)
+                .build();
+        CuVSHostMatrix graph = cagra.getGraph().toHost()) {
+      var params = new VamanaIndexParams.Builder().withVisitedSize(64).withInitialGraph(graph);
+      try (VamanaIndex index =
+          VamanaIndex.newBuilder(resources)
+              .withDataset(dataset)
+              .withIndexParams(params.withGraphDegree(GRAPH_DEGREE).build())
+              .build()) {
+        assertEquals(DIMENSIONS, index.getDimensions());
+      }
+      // The graph has GRAPH_DEGREE columns, so a build with twice that degree rejects it.
+      var wider = params.withGraphDegree(2 * GRAPH_DEGREE).withVisitedSize(128).build();
+      var builder = VamanaIndex.newBuilder(resources).withDataset(dataset).withIndexParams(wider);
+      assertThrows(RuntimeException.class, builder::build);
+    }
+  }
+
+  @Test
   public void testBuildUnsignedByteDataset() throws Throwable {
     try (CuVSResources resources = CuVSResources.create();
         CuVSMatrix dataset = hostMatrix(CuVSMatrix.DataType.BYTE);

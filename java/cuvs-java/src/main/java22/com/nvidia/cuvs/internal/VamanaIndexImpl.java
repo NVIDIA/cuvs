@@ -158,6 +158,11 @@ public class VamanaIndexImpl implements VamanaIndex {
         var localArena = Arena.ofConfined()) {
 
       var datasetTensor = dataset.toTensor(localArena);
+      var initialGraph = indexParameters == null ? null : indexParameters.getInitialGraph();
+      if (initialGraph != null) {
+        var graphTensor = ((CuVSMatrixInternal) initialGraph).toTensor(localArena);
+        cuvsVamanaIndexParams.initial_graph(indexParams.handle(), graphTensor);
+      }
       var index = createVamanaIndex();
       try {
         try (var resourcesAccessor = resources.access()) {
