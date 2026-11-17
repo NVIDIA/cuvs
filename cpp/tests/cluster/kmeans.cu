@@ -23,6 +23,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstring>
 #include <optional>
 #include <vector>
 
@@ -508,6 +509,90 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     }
   }
 
+  // Fit the same data from the same initial centroids several times and require bitwise-identical
+  // results, both for device (in-memory) and host (batched) input. Weights are not whole numbers,
+  // so per-cluster weight sums depend on the summation order.
+  void runReproducibleCheck()
+  {
+    int n_samples  = testparams.n_row;
+    int n_features = testparams.n_col;
+    int n_clusters = testparams.n_clusters;
+    auto stream    = raft::resource::get_cuda_stream(handle);
+
+    cuvs::cluster::kmeans::params p;
+    p.n_clusters          = n_clusters;
+    p.tol                 = testparams.tol;
+    p.rng_state.seed      = 1;
+    p.oversampling_factor = 0;
+    p.init                = cuvs::cluster::kmeans::params::Array;
+    p.max_iter            = 20;
+
+    auto d_init = raft::make_device_matrix<T, int>(handle, n_clusters, n_features);
+    raft::random::RngState rng(p.rng_state.seed);
+    raft::random::uniform(handle, rng, d_init.data_handle(), n_clusters * n_features, T(-1), T(1));
+
+    std::optional<raft::device_vector_view<const T, int>> d_sw   = std::nullopt;
+    std::optional<raft::host_vector_view<const T, int64_t>> h_sw = std::nullopt;
+    auto h_sample_weight = raft::make_host_vector<T, int64_t>(testparams.weighted ? n_samples : 0);
+    auto d_sample_weight_frac =
+      raft::make_device_vector<T, int>(handle, testparams.weighted ? n_samples : 0);
+    if (testparams.weighted) {
+      for (int i = 0; i < n_samples; ++i) {
+        h_sample_weight(i) = T(0.1) + T(i % 7) * T(0.37);
+      }
+      raft::copy(
+        d_sample_weight_frac.data_handle(), h_sample_weight.data_handle(), n_samples, stream);
+      d_sw = std::make_optional(raft::make_const_mdspan(d_sample_weight_frac.view()));
+      h_sw = std::make_optional(raft::make_const_mdspan(h_sample_weight.view()));
+    }
+
+    constexpr int n_runs = 3;
+    for (int host : {0, 1}) {
+      std::vector<std::vector<T>> centroids(n_runs, std::vector<T>(n_clusters * n_features));
+      std::vector<T> inertias(n_runs);
+      std::vector<int64_t> n_iters(n_runs);
+      for (int r = 0; r < n_runs; ++r) {
+        auto d_c = raft::make_device_matrix<T, int>(handle, n_clusters, n_features);
+        raft::copy(d_c.data_handle(), d_init.data_handle(), n_clusters * n_features, stream);
+        T inertia = 0;
+        if (host) {
+          auto pb                  = p;
+          pb.device_buffer_samples = testparams.device_buffer_samples;
+          int64_t n_iter           = 0;
+          cuvs::cluster::kmeans::fit(
+            handle,
+            pb,
+            raft::make_const_mdspan(h_X->view()),
+            h_sw,
+            raft::make_device_matrix_view<T, int64_t>(d_c.data_handle(), n_clusters, n_features),
+            raft::make_host_scalar_view<T>(&inertia),
+            raft::make_host_scalar_view<int64_t>(&n_iter));
+          n_iters[r] = n_iter;
+        } else {
+          int n_iter = 0;
+          cuvs::cluster::kmeans::fit(handle,
+                                     p,
+                                     raft::make_const_mdspan(d_X->view()),
+                                     d_sw,
+                                     d_c.view(),
+                                     raft::make_host_scalar_view<T>(&inertia),
+                                     raft::make_host_scalar_view<int>(&n_iter));
+          n_iters[r] = n_iter;
+        }
+        raft::copy(centroids[r].data(), d_c.data_handle(), n_clusters * n_features, stream);
+        raft::resource::sync_stream(handle, stream);
+        inertias[r] = inertia;
+      }
+      for (int r = 1; r < n_runs; ++r) {
+        EXPECT_EQ(n_iters[0], n_iters[r]) << (host ? "host" : "device") << " run " << r;
+        EXPECT_EQ(inertias[0], inertias[r]) << (host ? "host" : "device") << " run " << r;
+        EXPECT_EQ(
+          0, std::memcmp(centroids[0].data(), centroids[r].data(), centroids[0].size() * sizeof(T)))
+          << (host ? "host" : "device") << " run " << r << ": centroids differ";
+      }
+    }
+  }
+
   T fitHostWithInitSize(int64_t init_size_value)
   {
     int n_features = testparams.n_col;
@@ -727,12 +812,63 @@ TEST_P(KmeansFitBatchedTestD, Result)
   runZeroCost();
 }
 
+TEST_P(KmeansFitBatchedTestF, Reproducible)
+{
+  prepareBlobInputs();
+  runReproducibleCheck();
+}
+
+TEST_P(KmeansFitBatchedTestD, Reproducible)
+{
+  prepareBlobInputs();
+  runReproducibleCheck();
+}
+
 INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
                         KmeansFitBatchedTestF,
                         ::testing::ValuesIn(batched_inputsf2));
 INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
                         KmeansFitBatchedTestD,
                         ::testing::ValuesIn(batched_inputsd2));
+
+// Shapes for the reproducibility check that reach each of raft::linalg::reduce_rows_by_key's
+// kernels (many clusters, wide rows, many rows per cluster), not only its few-keys path.
+template <typename T>
+class KmeansFitReproducibleTest : public KmeansFitBatchedTest<T> {};
+
+typedef KmeansFitReproducibleTest<float> KmeansFitReproducibleTestF;
+typedef KmeansFitReproducibleTest<double> KmeansFitReproducibleTestD;
+
+TEST_P(KmeansFitReproducibleTestF, Reproducible)
+{
+  this->prepareBlobInputs();
+  this->runReproducibleCheck();
+}
+
+TEST_P(KmeansFitReproducibleTestD, Reproducible)
+{
+  this->prepareBlobInputs();
+  this->runReproducibleCheck();
+}
+
+const std::vector<KmeansBatchedInputs<float>> reproducible_inputsf = {
+  {20000, 256, 200, 0.0001f, true, 5000},
+  {100000, 160, 8, 0.0001f, true, 20000},
+  {20000, 32, 150, 0.0001f, true, 5000},
+};
+
+const std::vector<KmeansBatchedInputs<double>> reproducible_inputsd = {
+  {20000, 256, 200, 0.0001, true, 5000},
+  {100000, 160, 8, 0.0001, true, 20000},
+  {20000, 32, 150, 0.0001, true, 5000},
+};
+
+INSTANTIATE_TEST_CASE_P(KmeansFitReproducibleTests,
+                        KmeansFitReproducibleTestF,
+                        ::testing::ValuesIn(reproducible_inputsf));
+INSTANTIATE_TEST_CASE_P(KmeansFitReproducibleTests,
+                        KmeansFitReproducibleTestD,
+                        ::testing::ValuesIn(reproducible_inputsd));
 
 class KmeansBatchLoaderTest : public ::testing::TestWithParam<bool> {};
 
