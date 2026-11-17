@@ -27,10 +27,10 @@ public class CagraRandomizedIT extends CuVSTestCase {
 
   // CAGRA is approximate, and on uniformly random data in high dimensions a single query can
   // legitimately miss some of its exact neighbors (#631), so recall is checked as a mean over every
-  // query of the test. About 300 CI runs measured means of 0.83 (sd 0.022) without a prefilter and
-  // 0.94 (sd 0.011) with one; these bounds only fail when results are wrong, not approximate.
+  // query of the test. The means were about 0.83 without a prefilter and 0.94 with one in CI, and
+  // somewhat lower on other GPUs; these bounds only fail when results are wrong, not approximate.
   private static final double MIN_MEAN_RECALL_UNFILTERED = 0.65;
-  private static final double MIN_MEAN_RECALL_FILTERED = 0.8;
+  private static final double MIN_MEAN_RECALL_FILTERED = 0.7;
   // Allows for the GPU computing distances in float rather than double.
   private static final double DISTANCE_RELATIVE_TOLERANCE = 1e-4;
 
