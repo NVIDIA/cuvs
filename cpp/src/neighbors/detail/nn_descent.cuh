@@ -990,7 +990,6 @@ __launch_bounds__(BLOCK_SIZE)
       int num_load_elems = (step == raft::ceildiv(data_dim, TILE_COL_WIDTH) - 1)
                              ? data_dim - step * TILE_COL_WIDTH
                              : TILE_COL_WIDTH;
-#pragma unroll
       for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
         int idx = i * num_warps + warp_id;
         if (idx < list_new_size) {
@@ -1003,10 +1002,6 @@ __launch_bounds__(BLOCK_SIZE)
                    TILE_COL_WIDTH,
                    lane_id);
         }
-      }
-#pragma unroll
-      for (int i = 0; i < MAX_NUM_BI_SAMPLES / num_warps; i++) {
-        int idx = i * num_warps + warp_id;
         if (idx < list_old_size) {
           size_t neighbor_id = old_neighbors[idx];
           size_t idx_in_data = neighbor_id * data_dim;
@@ -1082,8 +1077,6 @@ __launch_bounds__(BLOCK_SIZE)
   }
 
   if (!has_old) return;
-
-  __syncthreads();
 
   calculate_metric(s_distances_old,
                    new_neighbors,
