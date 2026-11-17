@@ -1436,8 +1436,10 @@ void kmeans_transform(raft::resources const& handle,
                       raft::device_matrix_view<DataT, IndexT> X_new)
 {
   RAFT_EXPECTS(pams.metric == cuvs::distance::DistanceType::L2Expanded ||
-                 pams.metric == cuvs::distance::DistanceType::L2SqrtExpanded,
-               "kmeans only supports L2Expanded or L2SqrtExpanded distance metrics.");
+                 pams.metric == cuvs::distance::DistanceType::L2SqrtExpanded ||
+                 pams.metric == cuvs::distance::DistanceType::L2SqrtUnexpanded,
+               "kmeans transform only supports L2Expanded, L2SqrtExpanded, or "
+               "L2SqrtUnexpanded distance metrics.");
   raft::common::nvtx::range<cuvs::common::nvtx::domain::cuvs> fun_scope("kmeans_transform");
   raft::default_logger().set_level(pams.verbosity);
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();

@@ -23,6 +23,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <limits>
 #include <optional>
 #include <vector>
 
@@ -733,6 +735,79 @@ INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
 INSTANTIATE_TEST_CASE_P(KmeansFitBatchedTests,
                         KmeansFitBatchedTestD,
                         ::testing::ValuesIn(batched_inputsd2));
+
+template <typename T>
+class KmeansTransformTest : public ::testing::Test {};
+
+using KmeansTransformTypes = ::testing::Types<float, double>;
+TYPED_TEST_SUITE(KmeansTransformTest, KmeansTransformTypes);
+
+TYPED_TEST(KmeansTransformTest, UnexpandedDistances)
+{
+  using T                  = TypeParam;
+  constexpr int n_samples  = 5;
+  constexpr int n_features = 3;
+  constexpr int n_clusters = 2;
+  // Binary fractions make the small offsets exact in both input types.
+  const T delta = T(1.0 / 1024.0);
+  const std::vector<T> centers{T(1024), T(1024), T(1024), T(-1024), T(-1024), T(-1024)};
+  const std::vector<T> samples{T(1024),
+                               T(1024),
+                               T(1024),
+                               T(-1024),
+                               T(-1024),
+                               T(-1024),
+                               T(1024) + delta,
+                               T(1024),
+                               T(1024),
+                               T(-1024),
+                               T(-1024) + delta,
+                               T(-1024),
+                               T(0),
+                               T(0),
+                               T(0)};
+  raft::resources handle;
+  const auto stream = raft::resource::get_cuda_stream(handle);
+  auto X            = raft::make_device_matrix<T, int>(handle, n_samples, n_features);
+  auto centroids    = raft::make_device_matrix<T, int>(handle, n_clusters, n_features);
+  auto output       = raft::make_device_matrix<T, int>(handle, n_samples, n_clusters);
+  raft::update_device(X.data_handle(), samples.data(), samples.size(), stream);
+  raft::update_device(centroids.data_handle(), centers.data(), centers.size(), stream);
+
+  cluster::kmeans::params params;
+  params.n_clusters = n_clusters;
+  params.metric     = distance::DistanceType::L2SqrtUnexpanded;
+  for (int batch_size : {1, 2, n_samples}) {
+    SCOPED_TRACE(batch_size);
+    params.batch_samples = batch_size;
+    cluster::kmeans::transform(handle,
+                               params,
+                               raft::make_const_mdspan(X.view()),
+                               raft::make_const_mdspan(centroids.view()),
+                               output.view());
+    std::vector<T> actual(n_samples * n_clusters);
+    raft::update_host(actual.data(), output.data_handle(), actual.size(), stream);
+    raft::resource::sync_stream(handle);
+    EXPECT_EQ(actual[0], T(0));
+    EXPECT_EQ(actual[n_clusters + 1], T(0));
+    EXPECT_EQ(actual[2 * n_clusters], delta);
+    EXPECT_EQ(actual[3 * n_clusters + 1], delta);
+    for (int row = 0; row < n_samples; ++row) {
+      for (int center = 0; center < n_clusters; ++center) {
+        double squared = 0;
+        for (int col = 0; col < n_features; ++col) {
+          const double diff =
+            double(samples[row * n_features + col]) - double(centers[center * n_features + col]);
+          squared += diff * diff;
+        }
+        const double expected = std::sqrt(squared);
+        EXPECT_NEAR(double(actual[row * n_clusters + center]),
+                    expected,
+                    expected * 8 * std::numeric_limits<T>::epsilon());
+      }
+    }
+  }
+}
 
 class KmeansBatchLoaderTest : public ::testing::TestWithParam<bool> {};
 
