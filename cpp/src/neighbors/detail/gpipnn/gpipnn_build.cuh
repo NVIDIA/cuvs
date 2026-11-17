@@ -124,7 +124,7 @@ void build_graph(raft::resources const& res,
           overflowed.resize(1, stream);
           RAFT_CUDA_TRY(cudaMemsetAsync(overflowed.data(), 0, sizeof(int), stream));
         } else {
-          max_abs = finite_max_abs(dataset.data_handle(), n_rows * dim, stream);
+          max_abs = finite_max_abs(res, dataset.data_handle(), n_rows * dim);
         }
         scale = half_cast_scale(max_abs);
         if (scale != 1.0f) {

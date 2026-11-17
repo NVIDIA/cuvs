@@ -16,6 +16,7 @@
 #include <raft/linalg/detail/cublas_wrappers.hpp>
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/cudart_utils.hpp>
+#include <raft/util/warp_primitives.cuh>
 
 #include <rmm/device_uvector.hpp>
 
@@ -217,7 +218,7 @@ RAFT_KERNEL fused_topk_kernel(const float* __restrict__ dots,
     uint64_t m = best[0];
 #pragma unroll
     for (int off = warpSize / 2; off > 0; off >>= 1) {
-      const uint64_t v = __shfl_xor_sync(0xffffffffu, m, off);
+      const uint64_t v = raft::shfl_xor(m, off);
       m                = v < m ? v : m;
     }
     if (lane == 0) {

@@ -9,11 +9,10 @@
 #include "leaf.cuh"
 
 #include <raft/core/device_mdspan.hpp>
-#include <raft/core/resource/cublas_handle.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
-#include <raft/linalg/detail/cublas_wrappers.hpp>
+#include <raft/linalg/gemm.cuh>
 #include <raft/random/rng.cuh>
 #include <raft/util/cuda_rt_essentials.hpp>
 
@@ -278,27 +277,21 @@ inline auto compute_sketches(raft::resources const& res,
   rmm::device_uvector<float> sketches(n_rows * hash_bits, stream);
   const float alpha = 1.0f;
   const float beta  = 0.0f;
-  auto cublas_h     = raft::resource::get_cublas_handle(res);
-  RAFT_CUBLAS_TRY(cublasSetStream(cublas_h, stream));
-  RAFT_CUBLAS_TRY(cublasGemmEx(cublas_h,
-                               CUBLAS_OP_T,
-                               CUBLAS_OP_N,
-                               hash_bits,
-                               static_cast<int>(n_rows),
-                               static_cast<int>(dim),
-                               &alpha,
-                               planes.data(),
-                               CUDA_R_16F,
-                               static_cast<int>(dim),
-                               dataset.data_handle(),
-                               CUDA_R_16F,
-                               static_cast<int>(dim),
-                               &beta,
-                               sketches.data(),
-                               CUDA_R_32F,
-                               hash_bits,
-                               CUBLAS_COMPUTE_32F,
-                               CUBLAS_GEMM_DEFAULT));
+  raft::linalg::gemm(res,
+                     true,
+                     false,
+                     hash_bits,
+                     static_cast<int>(n_rows),
+                     static_cast<int>(dim),
+                     &alpha,
+                     planes.data(),
+                     static_cast<int>(dim),
+                     dataset.data_handle(),
+                     static_cast<int>(dim),
+                     &beta,
+                     sketches.data(),
+                     hash_bits,
+                     stream);
   return sketches;
 }
 

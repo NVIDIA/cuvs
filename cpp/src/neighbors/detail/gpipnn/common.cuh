@@ -10,7 +10,9 @@
 #include <raft/core/detail/macros.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/logger.hpp>
+#include <raft/core/resource/cuda_stream.hpp>
 #include <raft/linalg/norm.cuh>
+#include <raft/util/cudart_utils.hpp>
 
 #include <rmm/device_uvector.hpp>
 
@@ -182,8 +184,9 @@ struct finite_max_abs_op {
 };
 
 /** Largest finite magnitude in `[data, data + n)`, or 0 when there is none. */
-inline auto finite_max_abs(const float* data, int64_t n, cudaStream_t stream) -> float
+inline auto finite_max_abs(raft::resources const& res, const float* data, int64_t n) -> float
 {
+  auto stream = raft::resource::get_cuda_stream(res).get();
   rmm::device_uvector<float> out(1, stream);
   size_t bytes = 0;
   RAFT_CUDA_TRY(cub::DeviceReduce::Reduce(
@@ -193,9 +196,8 @@ inline auto finite_max_abs(const float* data, int64_t n, cudaStream_t stream) ->
     workspace.data(), bytes, data, out.data(), n, finite_max_abs_op{}, 0.0f, stream));
 
   float max_abs = 0.0f;
-  RAFT_CUDA_TRY(
-    cudaMemcpyAsync(&max_abs, out.data(), sizeof(float), cudaMemcpyDeviceToHost, stream));
-  RAFT_CUDA_TRY(cudaStreamSynchronize(stream));
+  raft::copy(&max_abs, out.data(), 1, stream);
+  raft::resource::sync_stream(res);
   return max_abs;
 }
 
