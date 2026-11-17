@@ -9,6 +9,7 @@
 #include "kmeans_ann_assignment_core.cuh"
 #include "kmeans_batch_loader.cuh"
 #include "kmeans_common.cuh"
+#include "kmeans_emeans.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
@@ -49,6 +50,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <limits>
@@ -723,6 +725,13 @@ void kmeans_fit(
 
   constexpr bool data_on_device = raft::is_device_mdspan_v<decltype(X)>;
 
+  std::optional<emeans_schedule> ema_schedule;
+  if (pams.emeans) {
+    RAFT_EXPECTS(!sample_weight.has_value(), "e-means currently supports unweighted training only");
+    RAFT_EXPECTS(!pams.use_ann_for_assignment, "e-means does not support ANN assignment");
+    ema_schedule = resolve_emeans(*pams.emeans, n_samples, n_features, n_clusters);
+  }
+
   const DataT* weight_ptr =
     sample_weight.has_value() ? sample_weight.value().data_handle() : nullptr;
 
@@ -841,6 +850,7 @@ void kmeans_fit(
   auto L2NormBatch          = raft::make_device_vector<DataT, IndexT>(handle, l2_norm_size);
   auto Tf32NormBatch        = raft::make_device_vector<DataT, IndexT>(
     handle, kmeans_may_require_tf32_norms_v<DataT> ? l2_norm_size : IndexT{0});
+  rmm::device_uvector<DataT> aligned_ema_norms(0, stream);
   // Host-path weight batches: only materialized when weights are provided and
   // the data resides on host
   std::optional<kmeans_batch_loader<DataT, IndexT, false>> weight_batches;
@@ -960,6 +970,9 @@ void kmeans_fit(
   bool device_uses_tf32 = false;
   if constexpr (data_on_device) {
     device_uses_tf32 = assignment_uses_tf32(X.data_handle(), n_samples, cur_centroids_ptr);
+    // Logical minibatches may select a different backend than the full matrix. Cache both
+    // policies so each actual invocation can consume its own native norm representation.
+    device_uses_tf32 |= pams.emeans.has_value() && kmeans_may_require_tf32_norms_v<DataT>;
     if (need_compute_norms) { compute_batch_norms(X.data_handle(), n_samples, device_uses_tf32); }
   }
 
@@ -989,7 +1002,79 @@ void kmeans_fit(
     auto d_done_flag  = raft::make_device_scalar<int>(handle, 0);
     auto h_done_flag  = raft::make_pinned_scalar<int>(handle, 0);
 
-    for (n_current_iter = 1; n_current_iter <= iter_params.max_iter; ++n_current_iter) {
+    if (ema_schedule) {
+      emeans_state<DataT, IndexT> state(
+        handle, *ema_schedule, static_cast<IndexT>(n_clusters), n_features);
+      auto centers =
+        raft::make_device_matrix_view<DataT, IndexT>(cur_centroids_ptr, n_clusters, n_features);
+      auto accumulate = [&](const DataT* data, IndexT rows, IndexT offset) {
+        const auto plan = probe_kmeans_top_1_nn(handle,
+                                                data,
+                                                centers.data_handle(),
+                                                rows,
+                                                static_cast<IndexT>(n_clusters),
+                                                n_features,
+                                                metric,
+                                                iter_params.batch_samples,
+                                                iter_params.batch_centroids,
+                                                cuvs::distance::detail::Top1nnBackend::Auto);
+        const bool tf32 =
+          plan.available && plan.norm_policy == cuvs::distance::detail::Top1nnNormPolicy::Tf32;
+        if constexpr (!data_on_device) { compute_batch_norms(data, rows, tf32); }
+        auto norm_offset = data_on_device ? offset : IndexT{0};
+        auto norms       = raft::make_device_vector_view<const DataT, IndexT>(
+          L2NormBatch.data_handle() + norm_offset, rows);
+        std::optional<raft::device_vector_view<const DataT, IndexT>> tf32_norms;
+        if constexpr (kmeans_may_require_tf32_norms_v<DataT>) {
+          if (tf32) {
+            auto* cached = Tf32NormBatch.data_handle() + norm_offset;
+            // A logical batch can begin at any row. Only misaligned norm slices need a copy;
+            // the aligned buffer is grown on demand and reused across batches and initializations.
+            if (reinterpret_cast<std::uintptr_t>(cached) % plan.norm_alignment != 0) {
+              if (aligned_ema_norms.size() < static_cast<size_t>(rows)) {
+                aligned_ema_norms.resize(rows, stream);
+              }
+              raft::copy(aligned_ema_norms.data(), cached, rows, stream);
+              cached = aligned_ema_norms.data();
+            }
+            tf32_norms = raft::make_device_vector_view<const DataT, IndexT>(cached, rows);
+          }
+        }
+        process_batch<DataT, IndexT>(
+          handle,
+          raft::make_device_matrix_view<const DataT, IndexT>(data, rows, n_features),
+          raft::make_device_vector_view<const DataT, IndexT>(batch_weights_buf.data_handle(), rows),
+          raft::make_const_mdspan(centers),
+          metric,
+          iter_params.batch_samples,
+          iter_params.batch_centroids,
+          assignment_output,
+          norms,
+          tf32_norms,
+          L2NormBuf_OR_DistBuf,
+          ws,
+          centroid_sums.view(),
+          weight_per_cluster.view(),
+          clustering_cost.view(),
+          batch_workspace,
+          batch_cost.view(),
+          cuvs::distance::detail::Top1nnBackend::Auto,
+          nullptr,
+          /*collect_cost=*/false);
+      };
+      train_emeans(handle,
+                   state,
+                   centers,
+                   centroid_sums.view(),
+                   weight_per_cluster.view(),
+                   data_batches,
+                   iter_params.rng_state.seed,
+                   recycle_offset,
+                   accumulate);
+      n_current_iter = static_cast<IndexT>(ema_schedule->epoch_rows.size());
+    }
+    for (IndexT lloyd_iter = 1; !ema_schedule && lloyd_iter <= iter_params.max_iter; ++lloyd_iter) {
+      n_current_iter = lloyd_iter;
       if (n_current_iter > 1) {
         raft::resource::sync_stream(handle);
         if (*h_done_flag.data_handle()) {
@@ -1217,7 +1302,9 @@ void kmeans_fit(
 
     if (iter_inertia < inertia[0]) {
       inertia[0] = iter_inertia;
-      n_iter[0]  = std::min(n_current_iter, static_cast<IndexT>(iter_params.max_iter));
+      n_iter[0]  = ema_schedule
+                     ? n_current_iter
+                     : std::min(n_current_iter, static_cast<IndexT>(iter_params.max_iter));
       raft::copy(centroids.data_handle(), cur_centroids_ptr, centroid_buf_size, stream);
     }
     RAFT_LOG_DEBUG("KMeans.fit after iteration-%d/%d: inertia - %f, n_iter - %d",
