@@ -15,9 +15,10 @@
 #include <raft/core/host_device_accessor.hpp>
 #include <raft/core/host_mdspan.hpp>
 #include <raft/core/mdspan.hpp>
+#include <raft/core/operators.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
-#include <raft/core/resource/thrust_policy.hpp>
 #include <raft/core/resources.hpp>
+#include <raft/linalg/map.cuh>
 #include <raft/linalg/reduce.cuh>
 #include <raft/matrix/init.cuh>
 #include <raft/stats/mean.cuh>
@@ -32,11 +33,7 @@
 #include <raft/util/cuda_rt_essentials.hpp>
 #include <raft/util/integer_utils.hpp>
 
-#include <cuda/functional>
 #include <cuda_fp16.h>
-#include <thrust/count.h>
-#include <thrust/reduce.h>
-#include <thrust/sequence.h>
 
 #include <float.h>
 #include <sys/time.h>
@@ -877,11 +874,15 @@ __global__ void kern_union_edges(GraphView graph_batch,  // [batch_size, degree]
   uf_unite(parent.data_handle(), static_cast<IdxT>(src), static_cast<IdxT>(dst));
 }
 
-// Lanes with the same root share one atomic, as most nodes belong to the largest component.
-// Requires blockDim.x to be a multiple of the warp size.
+// Writes the number of components to stats[0] and the size of the largest one to stats[1]. Lanes
+// with the same root share one atomic, as most nodes belong to the largest component. Every
+// root's last atomicAdd yields its final size and all earlier ones yield less, so the atomicMax
+// over the post-add counts is the largest size. Requires blockDim.x to be a multiple of the warp
+// size.
 template <typename IdxT>
-__global__ void kern_component_sizes(raft::device_vector_view<IdxT, int64_t> parent,
-                                     raft::device_vector_view<uint32_t, int64_t> sizes)
+__global__ void kern_component_stats(raft::device_vector_view<IdxT, int64_t> parent,
+                                     raft::device_vector_view<uint32_t, int64_t> sizes,
+                                     uint32_t* stats)
 {
   const uint64_t n       = parent.extent(0);
   const uint64_t i       = threadIdx.x + static_cast<uint64_t>(blockDim.x) * blockIdx.x;
@@ -889,9 +890,12 @@ __global__ void kern_component_sizes(raft::device_vector_view<IdxT, int64_t> par
   // Out-of-range lanes must still reach the full-mask match; roots are < n, so n matches none.
   const IdxT root =
     i < n ? uf_find(parent.data_handle(), static_cast<IdxT>(i)) : static_cast<IdxT>(n);
-  const uint32_t group = __match_any_sync(0xffffffffu, root);
+  const uint32_t group     = __match_any_sync(0xffffffffu, root);
+  const uint32_t num_roots = __popc(__ballot_sync(0xffffffffu, i < n && root == i));
+  if (lane_id == 0 && num_roots > 0) { atomicAdd(stats, num_roots); }
   if (i < n && (group & ((1u << lane_id) - 1u)) == 0u) {
-    atomicAdd(&sizes(root), static_cast<uint32_t>(__popc(group)));
+    const uint32_t count = __popc(group);
+    atomicMax(stats + 1, atomicAdd(&sizes(root), count) + count);
   }
 }
 
@@ -908,17 +912,19 @@ void log_connected_components(raft::resources const& res,
   const uint64_t graph_size  = parent.extent(0);
   const uint32_t num_threads = 256;
   const uint32_t num_blocks  = raft::ceildiv<uint64_t>(graph_size, num_threads);
+  auto d_stats               = raft::make_device_vector<uint32_t, int64_t>(res, 2);
   raft::matrix::fill(res, sizes, uint32_t(0));
-  kern_component_sizes<IdxT>
-    <<<num_blocks, num_threads, 0, raft::resource::get_cuda_stream(res).get()>>>(parent, sizes);
+  raft::matrix::fill(res, d_stats.view(), uint32_t(0));
+  kern_component_stats<IdxT>
+    <<<num_blocks, num_threads, 0, raft::resource::get_cuda_stream(res).get()>>>(
+      parent, sizes, d_stats.data_handle());
   RAFT_CUDA_TRY(cudaPeekAtLastError());
 
-  auto policy               = raft::resource::get_thrust_policy(res);
-  const uint32_t* sizes_ptr = sizes.data_handle();
-  const uint64_t num_components =
-    graph_size - thrust::count(policy, sizes_ptr, sizes_ptr + graph_size, 0u);
-  const uint64_t largest =
-    thrust::reduce(policy, sizes_ptr, sizes_ptr + graph_size, 0u, cuda::maximum<uint32_t>{});
+  uint32_t stats[2];
+  raft::copy(res, raft::make_host_vector_view<uint32_t, int64_t>(stats, 2), d_stats.view());
+  raft::resource::sync_stream(res);
+  const uint64_t num_components = stats[0];
+  const uint64_t largest        = stats[1];
   if (num_components > 1) {
     RAFT_LOG_WARN(
       "CAGRA graph has %lu weakly connected components, the largest has %lu of %lu nodes (%.2f%%)",
@@ -989,9 +995,7 @@ void merge_graph_gpu(
   d_mst_graph.prefetch_next_batch();
   d_mst_graph_num_edges.prefetch_next_batch();
 
-  thrust::sequence(raft::resource::get_thrust_policy(res),
-                   d_uf_parent.data_handle(),
-                   d_uf_parent.data_handle() + graph_size);
+  raft::linalg::map_offset(res, d_uf_parent, raft::cast_op<IdxT>{});
 
   const uint32_t num_warps = 4;
   const dim3 threads_merge(raft::WarpSize * num_warps, 1, 1);
@@ -1023,6 +1027,7 @@ void merge_graph_gpu(
     kern_union_edges<IdxT>
       <<<blocks_union, threads_union, 0, raft::resource::get_cuda_stream(res).get()>>>(
         output_view, static_cast<uint64_t>(batch_size) * i_batch, d_uf_parent);
+    RAFT_CUDA_TRY(cudaPeekAtLastError());
 
     d_output_graph.prefetch_next_batch();
     d_mst_graph.prefetch_next_batch();
