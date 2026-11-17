@@ -13,7 +13,7 @@ public class CuVS2510GPUVectorsFormat extends KnnVectorsFormat
 Extends upon the KnnVectorsFormat - Encodes/decodes per-document vector and any associated indexing structures required to support
 GPU-based accelerated nearest-neighbor search.
 
-## Public Members
+## Public and Protected Members
 
 ### CuVS2510GPUVectorsFormat
 
