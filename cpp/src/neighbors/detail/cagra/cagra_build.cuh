@@ -1061,8 +1061,7 @@ auto gpipnn_build_graph(raft::resources const& res,
     gpipnn_params.max_candidates = raised;
   }
   if (params.guarantee_connectivity) {
-    RAFT_LOG_WARN(
-      "guarantee_connectivity is not supported with gpipnn graph build.");
+    RAFT_LOG_WARN("guarantee_connectivity is not supported with gpipnn graph build.");
   }
   gpipnn_params.metric = params.metric;
 
@@ -1318,11 +1317,11 @@ auto build_from_device_matrix(raft::resources const& res,
     auto cagra_graph = iterative_build_graph<T, IdxT>(res, params, device_dataset);
     idx.update_graph(res, std::move(cagra_graph));
   } else if (std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params)) {
-    auto cagra_graph = gpipnn_build_graph<T>(
-      res,
-      params,
-      std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params),
-      device_dataset);
+    auto cagra_graph =
+      gpipnn_build_graph<T>(res,
+                            params,
+                            std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params),
+                            device_dataset);
     idx.update_graph(res, std::move(cagra_graph));
   } else {
     auto cagra_graph = build_cagra_host_graph_from_knn_params<T, IdxT>(
