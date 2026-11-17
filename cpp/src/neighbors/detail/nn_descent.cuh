@@ -219,41 +219,40 @@ constexpr int WMMA_M                    = 16;
 constexpr int WMMA_N                    = 16;
 constexpr int WMMA_K                    = 16;
 
-template <typename Data_t>
-__device__ __forceinline__ void load_vec(Data_t* vec_buffer,
-                                         const Data_t* d_vec,
+// Vectorized float/half calls rely on the alignment and row-stride checks in local_join().
+template <bool Vectorized = false, typename DstT, typename SrcT>
+__device__ __forceinline__ void load_vec(DstT* vec_buffer,
+                                         const SrcT* d_vec,
                                          const int load_dims,
                                          const int padding_dims,
                                          const int lane_id)
 {
-  constexpr int num_load_elems_per_warp = raft::warp_size();
-  for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
-    int idx = step * num_load_elems_per_warp + lane_id;
-    if (idx < load_dims) {
-      vec_buffer[idx] = d_vec[idx];
-    } else if (idx < padding_dims) {
-      vec_buffer[idx] = 0.0f;
-    }
-  }
-}
-
-/** Converting load: loads Data_t from global memory into __half shared memory buffer. */
-template <typename Data_t>
-  requires(!std::is_same_v<Data_t, __half>)
-__device__ __forceinline__ void load_vec(__half* vec_buffer,
-                                         const Data_t* d_vec,
-                                         const int load_dims,
-                                         const int padding_dims,
-                                         const int lane_id)
-{
-  constexpr int num_load_elems_per_warp = raft::warp_size();
-  const __half half_0                   = __float2half(0.0f);
-  for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
-    int idx = step * num_load_elems_per_warp + lane_id;
-    if (idx < load_dims) {
-      vec_buffer[idx] = d_vec[idx];
-    } else if (idx < padding_dims) {
-      vec_buffer[idx] = half_0;
+  constexpr bool convert_pair =
+    Vectorized && std::is_same_v<DstT, __half> && std::is_same_v<SrcT, float>;
+  constexpr bool copy_halves =
+    Vectorized && std::is_same_v<DstT, __half> && std::is_same_v<SrcT, __half>;
+  constexpr int width          = convert_pair ? 2 : (copy_halves ? 4 : 1);
+  constexpr int elems_per_warp = raft::warp_size() * width;
+  for (int step = 0; step < raft::ceildiv(padding_dims, elems_per_warp); step++) {
+    int idx = step * elems_per_warp + lane_id * width;
+    if (idx + width <= load_dims) {
+      if constexpr (convert_pair) {
+        float2 value = *reinterpret_cast<const float2*>(d_vec + idx);
+        *reinterpret_cast<__half2*>(vec_buffer + idx) = __floats2half2_rn(value.x, value.y);
+      } else if constexpr (copy_halves) {
+        *reinterpret_cast<float2*>(vec_buffer + idx) =
+          *reinterpret_cast<const float2*>(d_vec + idx);
+      } else {
+        vec_buffer[idx] = d_vec[idx];
+      }
+    } else if (idx + width <= padding_dims) {
+      if constexpr (convert_pair) {
+        *reinterpret_cast<__half2*>(vec_buffer + idx) = __float2half2_rn(0.0f);
+      } else if constexpr (copy_halves) {
+        *reinterpret_cast<float2*>(vec_buffer + idx) = float2{0.0f, 0.0f};
+      } else {
+        vec_buffer[idx] = DstT{0};
+      }
     }
   }
 }
@@ -968,20 +967,20 @@ __launch_bounds__(BLOCK_SIZE)
           size_t neighbor_id = new_neighbors[idx];
           size_t idx_in_data = neighbor_id * data_dim;
           // converted to fp16 on-the-fly while loading
-          load_vec(s_nv[idx],
-                   data + idx_in_data + step * TILE_COL_WIDTH,
-                   num_load_elems,
-                   TILE_COL_WIDTH,
-                   lane_id);
+          load_vec<true>(s_nv[idx],
+                         data + idx_in_data + step * TILE_COL_WIDTH,
+                         num_load_elems,
+                         TILE_COL_WIDTH,
+                         lane_id);
         }
         if (idx < list_old_size) {
           size_t neighbor_id = old_neighbors[idx];
           size_t idx_in_data = neighbor_id * data_dim;
-          load_vec(s_ov[idx],
-                   data + idx_in_data + step * TILE_COL_WIDTH,
-                   num_load_elems,
-                   TILE_COL_WIDTH,
-                   lane_id);
+          load_vec<true>(s_ov[idx],
+                         data + idx_in_data + step * TILE_COL_WIDTH,
+                         num_load_elems,
+                         TILE_COL_WIDTH,
+                         lane_id);
         }
       }
       __syncthreads();
@@ -2387,7 +2386,13 @@ void GNND<Data_t, Index_t>::local_join(cudaStream_t stream, DistEpilogue_t dist_
                   build_config_.metric == cuvs::distance::DistanceType::L1;
 
   auto launch_kernel = [&](auto* typed_ptr) {
-    if (use_simt) {
+    using launch_data_t = std::remove_cv_t<std::remove_pointer_t<decltype(typed_ptr)>>;
+    bool launch_simt    = use_simt;
+    if constexpr (std::is_same_v<launch_data_t, float> || std::is_same_v<launch_data_t, __half>) {
+      launch_simt = launch_simt || reinterpret_cast<size_t>(typed_ptr) % sizeof(float2) != 0 ||
+                    (static_cast<size_t>(ndim_) * sizeof(launch_data_t)) % sizeof(float2) != 0;
+    }
+    if (launch_simt) {
       local_join_kernel_simt<<<nrow_, BLOCK_SIZE, 0, stream>>>(graph_.h_graph_new.data_handle(),
                                                                h_rev_graph_new_.data_handle(),
                                                                d_list_sizes_new_.data_handle(),
