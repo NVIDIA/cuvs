@@ -78,11 +78,8 @@ struct scoring_operand {
       n_rows(n),
       dim(d)
   {
-    auto stream           = raft::resource::get_cuda_stream(res).get();
-    const int64_t threads = 256;
-    detail::cast_to_half_kernel<<<(n * d + threads - 1) / threads, threads, 0, stream>>>(
-      dataset, data.data(), n * d);
-    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    auto stream = raft::resource::get_cuda_stream(res).get();
+    detail::cast_to_half(res, dataset, data.data(), n * d);
     detail::row_norms(data.data(), n, d, norms.data(), stream);
     raft::resource::sync_stream(res);
   }
@@ -332,11 +329,8 @@ class AnnGpipnnTest : public ::testing::TestWithParam<AnnGpipnnInputs> {
   {
     auto params = make_params();
     rmm::device_uvector<half> half_data(static_cast<size_t>(ps.n_rows) * ps.dim, stream_);
-    const int64_t threads = 256;
-    const int64_t n       = static_cast<int64_t>(ps.n_rows) * ps.dim;
-    detail::cast_to_half_kernel<<<(n + threads - 1) / threads, threads, 0, stream_.get()>>>(
-      database.data(), half_data.data(), n);
-    RAFT_CUDA_TRY(cudaPeekAtLastError());
+    const int64_t n = static_cast<int64_t>(ps.n_rows) * ps.dim;
+    detail::cast_to_half(handle_, database.data(), half_data.data(), n);
 
     auto graph = raft::make_device_matrix<IdxT, int64_t>(handle_, ps.n_rows, ps.graph_degree);
     build_graph(

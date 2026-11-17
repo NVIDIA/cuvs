@@ -269,10 +269,7 @@ inline auto compute_sketches(raft::resources const& res,
   raft::random::normal(res, rng, planes_f.data(), planes_f.size(), 0.0f, 1.0f);
 
   rmm::device_uvector<half> planes(hash_bits * dim, stream);
-  const int64_t threads = 256;
-  cast_to_half_kernel<<<(planes_f.size() + threads - 1) / threads, threads, 0, stream>>>(
-    planes_f.data(), planes.data(), static_cast<int64_t>(planes_f.size()));
-  RAFT_CUDA_TRY(cudaPeekAtLastError());
+  cast_to_half(res, planes_f.data(), planes.data(), static_cast<int64_t>(planes_f.size()));
 
   rmm::device_uvector<float> sketches(n_rows * hash_bits, stream);
   const float alpha = 1.0f;

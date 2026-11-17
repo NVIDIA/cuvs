@@ -11,6 +11,7 @@
 #include <raft/core/error.hpp>
 #include <raft/core/logger.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
+#include <raft/linalg/map.cuh>
 #include <raft/linalg/norm.cuh>
 #include <raft/util/cudart_utils.hpp>
 
@@ -230,11 +231,11 @@ inline auto half_cast_scale(float max_abs) -> float
 }
 
 /**
- * Casts a buffer of `T` to half, rescaling by a shared positive factor on the way. Exact for
- * int8 and uint8: half represents every integer up to 2048.
+ * Elementwise `T` to half cast for `raft::linalg::map`.
  *
  * `scale` comes from `half_cast_scale`. Multiplying by the default of 1 is exact for every
- * input, so callers that do not need rescaling get the plain conversion.
+ * input, so callers that do not need rescaling get the plain conversion. Exact for int8 and
+ * uint8: half represents every integer up to 2048.
  *
  * When `overflowed` is given, it is raised if a finite input lands outside half, which means
  * `scale` was derived from a peak lower than the data's own. Inputs that arrive non-finite are
@@ -242,21 +243,33 @@ inline auto half_cast_scale(float max_abs) -> float
  * caller's to begin with and the conversion is not what lost them.
  */
 template <typename T>
-RAFT_KERNEL cast_to_half_kernel(const T* __restrict__ src,
-                                half* __restrict__ dst,
-                                int64_t n,
-                                float scale                  = 1.0f,
-                                int* __restrict__ overflowed = nullptr)
-{
-  const int64_t i = blockIdx.x * static_cast<int64_t>(blockDim.x) + threadIdx.x;
-  if (i < n) {
-    const float v = static_cast<float>(src[i]) * scale;
+struct half_cast_op {
+  float scale     = 1.0f;
+  int* overflowed = nullptr;
+
+  __device__ auto operator()(T x) const -> half
+  {
+    const float v = static_cast<float>(x) * scale;
     const half h  = __float2half(v);
-    dst[i]        = h;
     if (overflowed != nullptr && isfinite(v) && !isfinite(__half2float(h))) {
       atomicOr(overflowed, 1);
     }
+    return h;
   }
+};
+
+template <typename T>
+void cast_to_half(raft::resources const& res,
+                  const T* src,
+                  half* dst,
+                  int64_t n,
+                  float scale     = 1.0f,
+                  int* overflowed = nullptr)
+{
+  raft::linalg::map(res,
+                    raft::make_device_vector_view<half, int64_t>(dst, n),
+                    half_cast_op<T>{scale, overflowed},
+                    raft::make_device_vector_view<const T, int64_t>(src, n));
 }
 
 /**

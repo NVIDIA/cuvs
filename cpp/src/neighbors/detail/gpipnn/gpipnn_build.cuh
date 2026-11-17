@@ -135,14 +135,12 @@ void build_graph(raft::resources const& res,
             static_cast<double>(scale));
         }
       }
-      const int64_t threads = 256;
-      const int64_t blocks  = (n_rows * dim + threads - 1) / threads;
-      cast_to_half_kernel<<<blocks, threads, 0, stream>>>(
-        dataset.data_handle(),
-        half_storage.data(),
-        n_rows * dim,
-        scale,
-        overflowed.is_empty() ? nullptr : overflowed.data());
+      cast_to_half(res,
+                   dataset.data_handle(),
+                   half_storage.data(),
+                   n_rows * dim,
+                   scale,
+                   overflowed.is_empty() ? nullptr : overflowed.data());
     }
     RAFT_CUDA_TRY(cudaPeekAtLastError());
     if (!overflowed.is_empty()) {
