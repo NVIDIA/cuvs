@@ -1017,18 +1017,19 @@ auto ensure_contiguous_device_dataset_for_gpipnn(
 }
 
 /**
- * GPiPNN graph construction, returning the final host CAGRA graph.
+ * GPiPNN graph construction, returning the device CAGRA graph.
  *
- * Unlike the IVF-PQ and NN-descent paths this does not go through `optimize()`: GPiPNN's own prune
- * stage already emits a fully populated graph at `graph_degree`, so `intermediate_graph_degree` is
- * unused and `guarantee_connectivity` has nothing to act on.
+ * The graph is `uint32_t` regardless of `IdxT`: that is the type CAGRA stores. Unlike the IVF-PQ
+ * and NN-descent paths this does not go through `optimize()`: GPiPNN's own prune stage already
+ * emits a fully populated graph at `graph_degree`, so `intermediate_graph_degree` is unused and
+ * `guarantee_connectivity` has nothing to act on.
  */
-template <typename T, typename IdxT, typename DatasetViewT>
+template <typename T, typename DatasetViewT>
   requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
 auto gpipnn_build_graph(raft::resources const& res,
                         index_params const& params,
                         cuvs::neighbors::experimental::gpipnn::index_params gpipnn_params,
-                        DatasetViewT const& dataset) -> raft::host_matrix<IdxT, int64_t>
+                        DatasetViewT const& dataset) -> raft::device_matrix<uint32_t, int64_t>
 {
   static_assert(std::is_same_v<T, float> || std::is_same_v<T, half> || std::is_same_v<T, int8_t> ||
                   std::is_same_v<T, uint8_t>,
@@ -1070,22 +1071,11 @@ auto gpipnn_build_graph(raft::resources const& res,
   std::optional<raft::device_matrix<T, int64_t>> dataset_own;
   auto gpipnn_dataset = ensure_contiguous_device_dataset_for_gpipnn<T>(res, dataset, dataset_own);
 
-  auto device_graph = raft::make_device_matrix<uint32_t, int64_t>(res, n_rows, graph_degree);
+  auto device_graph =
+    raft::make_device_matrix<uint32_t, int64_t>(res, n_rows, static_cast<int64_t>(graph_degree));
   cuvs::neighbors::experimental::gpipnn::build_graph(
     res, gpipnn_params, gpipnn_dataset, device_graph.view());
-
-  auto cagra_graph = raft::make_host_matrix<IdxT, int64_t>(n_rows, graph_degree);
-  if constexpr (std::is_same_v<IdxT, uint32_t>) {
-    raft::copy(res, cagra_graph.view(), device_graph.view());
-    raft::resource::sync_stream(res);
-  } else {
-    auto staging = raft::make_host_matrix<uint32_t, int64_t>(n_rows, graph_degree);
-    raft::copy(res, staging.view(), device_graph.view());
-    raft::resource::sync_stream(res);
-    std::copy(
-      staging.data_handle(), staging.data_handle() + staging.size(), cagra_graph.data_handle());
-  }
-  return cagra_graph;
+  return device_graph;
 }
 
 template <typename IdxT>
@@ -1251,6 +1241,22 @@ auto build_from_host_matrix(raft::resources const& res,
     res, params, dataset_extents, intermediate_degree);
   validate_cagra_knn_graph_build_constraints<T>(params, knn_build_params);
 
+  if (std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params)) {
+    auto device_graph = gpipnn_build_graph<T>(
+      res, params, std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params), dataset);
+    if (params.attach_dataset_on_build) {
+      // The constructor stores a non-owning view of `device_graph`. Take ownership before it
+      // goes out of scope, or `graph_view_` dangles.
+      cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> out(
+        res, params.metric, dataset, raft::make_const_mdspan(device_graph.view()));
+      out.update_graph(res, std::move(device_graph));
+      return out;
+    }
+    cuvs::neighbors::cagra::index<T, IdxT, DatasetViewT> out(res, params.metric);
+    out.update_graph(res, std::move(device_graph));
+    return out;
+  }
+
   auto cagra_graph = [&]() -> raft::host_matrix<IdxT, int64_t> {
     if (std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
           knn_build_params)) {
@@ -1259,10 +1265,6 @@ auto build_from_host_matrix(raft::resources const& res,
         "pass a device_padded_dataset_view (or an already-aligned "
         "device_standard_dataset_view). Host datasets can use IVF-PQ or NN-descent "
         "graph construction.");
-    }
-    if (std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params)) {
-      return gpipnn_build_graph<T, IdxT>(
-        res, params, std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params), dataset);
     }
     return build_cagra_host_graph_from_knn_params<T, IdxT>(
       res,
@@ -1318,12 +1320,12 @@ auto build_from_device_matrix(raft::resources const& res,
     auto cagra_graph = iterative_build_graph<T, IdxT>(res, params, device_dataset);
     idx.update_graph(res, std::move(cagra_graph));
   } else if (std::holds_alternative<cagra::graph_build_params::gpipnn_params>(knn_build_params)) {
-    auto cagra_graph = gpipnn_build_graph<T, IdxT>(
+    auto cagra_graph = gpipnn_build_graph<T>(
       res,
       params,
       std::get<cagra::graph_build_params::gpipnn_params>(knn_build_params),
       device_dataset);
-    idx.update_graph(res, raft::make_const_mdspan(cagra_graph.view()));
+    idx.update_graph(res, std::move(cagra_graph));
   } else {
     auto cagra_graph = build_cagra_host_graph_from_knn_params<T, IdxT>(
       res,
