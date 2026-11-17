@@ -7,6 +7,7 @@
 
 #include "../../../sparse/neighbors/cross_component_nn.cuh"
 #include "../../detail/ann_utils.cuh"
+#include "../cagra/graph_shared.cuh"
 #include "greedy_search.cuh"
 #include "robust_prune.cuh"
 #include "vamana_structs.cuh"
@@ -160,9 +161,23 @@ void batched_insert_vamana(
   auto start_t = std::chrono::system_clock::now();
 #endif
 
-  // Initialize graph with invalid neighbor indices (raft::upper_bound<IdxT>()).
+  // Start from the caller's graph, or from invalid neighbor indices (raft::upper_bound<IdxT>()).
   auto d_graph = raft::make_device_matrix<IdxT, int64_t>(res, graph.extent(0), graph.extent(1));
-  raft::linalg::map(res, d_graph.view(), raft::const_op<IdxT>{raft::upper_bound<IdxT>()});
+  if (params.initial_graph.has_value()) {
+    raft::copy(d_graph.data_handle(), params.initial_graph->data_handle(), d_graph.size(), stream);
+    // The insertion passes expect each row sorted by increasing distance. L2Expanded gives the
+    // same order as L2SqrtExpanded.
+    cuvs::neighbors::cagra::detail::graph::launch_sort_knn_graph(
+      res,
+      cuvs::distance::DistanceType::L2Expanded,
+      dataset.data_handle(),
+      N,
+      dim,
+      d_graph.data_handle(),
+      degree);
+  } else {
+    raft::linalg::map(res, d_graph.view(), raft::const_op<IdxT>{raft::upper_bound<IdxT>()});
+  }
 
   // Temp storage about each batch of inserts being performed
   auto query_ids      = raft::make_device_vector<IdxT>(res, max_batchsize);
@@ -315,8 +330,9 @@ void batched_insert_vamana(
   // https://github.com/NVIDIA/cuvs/issues/355
   *medoid_id = rand() % N;
 
-  // size of current batch of inserts, increases logarithmically until max_batchsize
-  int step_size = 1;
+  // size of current batch of inserts, increases logarithmically until max_batchsize. A graph that
+  // already links every vector takes full batches from the start.
+  int step_size = params.initial_graph.has_value() ? max_batchsize : 1;
   // Loop through batches and call the insert and prune kernels - can insert > N times based on
   // iters parameter
   for (int start = 0; start < (int)(insert_iters * (float)N);) {
@@ -610,6 +626,23 @@ index<T, IdxT> build(
 
   RAFT_EXPECTS(params.vamana_iters >= 1.0,
                "vamana_iters must be at least 1.0 to insert the entire input dataset");
+
+  RAFT_EXPECTS(!params.initial_graph.has_value() ||
+                 (params.initial_graph->extent(0) == dataset.extent(0) &&
+                  params.initial_graph->extent(1) == static_cast<int64_t>(graph_degree)),
+               "initial_graph must have one row per dataset row and graph_degree columns");
+  if (params.initial_graph.has_value()) {
+    // Let any copy into the caller's host memory on this stream land before reading it.
+    raft::resource::sync_stream(res);
+    auto initial_graph = *params.initial_graph;
+    for (int64_t i = 0; i < initial_graph.extent(0); i++) {
+      for (int64_t j = 0; j < initial_graph.extent(1); j++) {
+        RAFT_EXPECTS(initial_graph(i, j) < dataset.extent(0) && initial_graph(i, j) != i,
+                     "initial_graph must hold an id below n_rows, other than the row's own, in "
+                     "every slot");
+      }
+    }
+  }
 
   int dim = dataset.extent(1);
 

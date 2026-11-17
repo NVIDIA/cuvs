@@ -74,6 +74,9 @@ struct AnnVamanaInputs {
   int itopk_size;
   int search_width;
   double min_recall;
+
+  // Start from the graph of a CAGRA index built with NN-descent
+  bool initial_graph = false;
 };
 
 template <typename DataT, typename IdxT>
@@ -175,6 +178,23 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
     auto database_view = raft::make_device_matrix_view<const DataT, int64_t>(
       (const DataT*)database.data(), ps.n_rows, ps.dim);
 
+    auto seed =
+      raft::make_host_matrix<uint32_t, int64_t>(ps.initial_graph ? ps.n_rows : 0, ps.graph_degree);
+    if (ps.initial_graph) {
+      cagra::index_params cagra_params;
+      cagra_params.intermediate_graph_degree = 2 * ps.graph_degree;
+      cagra_params.graph_degree              = ps.graph_degree;
+      cagra_params.graph_build_params =
+        cagra::graph_build_params::nn_descent_params(2 * ps.graph_degree, ps.metric);
+      cuvs::neighbors::test::padded_device_matrix_for_cagra<DataT> cagra_data(handle_,
+                                                                              database_view);
+      auto cagra_index = cagra::build(handle_, cagra_params, cagra_data.view);
+      raft::copy(seed.data_handle(), cagra_index.graph().data_handle(), seed.size(), stream_);
+      index_params.initial_graph = raft::make_const_mdspan(seed.view());
+      // Seeded cases run last, so reseeding rand() leaves the draws of the other cases alone.
+      srand(ps.n_rows);
+    }
+
     vamana::index<DataT, IdxT> index(handle_);
     if (ps.host_dataset) {
       auto database_host = raft::make_host_matrix<DataT, int64_t>(ps.n_rows, ps.dim);
@@ -188,6 +208,29 @@ class AnnVamanaTest : public ::testing::TestWithParam<AnnVamanaInputs> {
     };
 
     CheckGraph<DataT, IdxT>(&index, ps, stream_.get());
+
+    if (ps.initial_graph) {
+      // With the same rand() draws, a build without the graph gives a different graph.
+      auto unseeded_params          = index_params;
+      unseeded_params.initial_graph = std::nullopt;
+      srand(ps.n_rows);
+      auto unseeded = vamana::build(handle_, unseeded_params, database_view);
+      std::vector<IdxT> seeded_ids(index.graph().size()), unseeded_ids(unseeded.graph().size());
+      raft::copy(seeded_ids.data(), index.graph().data_handle(), seeded_ids.size(), stream_);
+      raft::copy(unseeded_ids.data(), unseeded.graph().data_handle(), unseeded_ids.size(), stream_);
+      raft::resource::sync_stream(handle_);
+      EXPECT_NE(seeded_ids, unseeded_ids);
+
+      // A graph of the wrong shape, or with an unused slot or a self id, is rejected.
+      index_params.initial_graph = raft::make_host_matrix_view<const uint32_t, int64_t>(
+        seed.data_handle(), ps.n_rows, ps.graph_degree / 2);
+      EXPECT_THROW(vamana::build(handle_, index_params, database_view), raft::logic_error);
+      seed(0, 0)                 = raft::upper_bound<uint32_t>();
+      index_params.initial_graph = raft::make_const_mdspan(seed.view());
+      EXPECT_THROW(vamana::build(handle_, index_params, database_view), raft::logic_error);
+      seed(0, 0) = 0;
+      EXPECT_THROW(vamana::build(handle_, index_params, database_view), raft::logic_error);
+    }
 
     tmp_index_file index_file;
     vamana::serialize(handle_, index_file.filename, index);
