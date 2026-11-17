@@ -42,6 +42,7 @@
 
 #include <mma.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <limits>
 #include <numeric>
@@ -1135,7 +1136,7 @@ __launch_bounds__(BLOCK_SIZE)
 }
 // --------------------------------------------------------------------------
 // BBQ local-join kernels
-// Quantized-code joins: SIMT (popc / dp4a) and int4 tensor core (u4 wmma).
+// Quantized-code joins: SIMT (popc / dp4a) and u8 WMMA over packed 4-bit codes.
 // --------------------------------------------------------------------------
 
 // The code promotion, the dequant factors and the raw-dot-product-to-distance conversion live
@@ -1146,11 +1147,8 @@ using cuvs::preprocessing::quantize::bbq::detail::bbq_dequant_factors;
 using cuvs::preprocessing::quantize::bbq::detail::get_dequant_factors;
 using cuvs::preprocessing::quantize::bbq::detail::packed_1b_to_4b;
 
-// Stages one K-tile of `count` neighbor rows into SMEM. Shared skeleton: one warp per row,
-// lanes strided along native uint32 words, last-tile zero-pad so compute reads a full tile.
-//
-// stage_tile_simt copies native codes in storage layout (Planes > 1 gathers bit-sliced planes).
-// stage_promoted_tile expands packed_1b to u4 for int4 MMA (packed_4b is a plain copy).
+// Stages one K-tile of native codes per neighbor row, using one warp per row.
+// Planes > 1 gathers bit-sliced planes; the last tile is zero-padded.
 template <int Planes, int RowStride, typename DataT, typename Index_t>
 __device__ __forceinline__ void stage_tile_simt(uint8_t (*dst)[RowStride],
                                                 const quantizer_view<DataT, int64_t>& quantizer,
@@ -1201,10 +1199,9 @@ __device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
 {
   static_assert(Layout == bbq_code_layout::packed_1b || Layout == bbq_code_layout::packed_4b,
                 "int4 MMA path supports packed_1b (1b), packed_4b (4b)");
-  // A u4 MMA fragment needs 4 bits per value, so a layout storing `bits` bits per value expands
-  // one native word into 4/bits promoted words. packed_4b is the identity case (a plain word
-  // copy), which is why the symmetric kernel needs no separate "no promotion" path -- and why a
-  // promoted query works exactly like a promoted document.
+  // Stage both operands as packed 4-bit codes. packed_1b expands each native word into four
+  // words; packed_4b is copied unchanged. The MMA helper loads these bytes into u8 fragments,
+  // then extracts the low and high nibbles for separate MMA operations.
   constexpr int expansion       = Layout == bbq_code_layout::packed_1b ? 4 : 1;
   constexpr int native_tile     = TileBytes / expansion;
   constexpr int native_tile_u32 = native_tile / 4;
@@ -1359,14 +1356,6 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   constexpr int plane_tile       = query_plane_tile;
   constexpr int doc_row_bytes    = query_plane_tile * document_planes;
   static_assert(plane_tile % 4 == 0, "plane_tile must be 4-byte aligned for uint32 loads");
-  // Row strides too: rows are indexed as base + idx * stride and then read as uint32_t, so a
-  // stride that is not a multiple of 4 misaligns every odd row. Derived from QUERY_ROW_BYTES, so
-  // this is what catches an ill-chosen QUERY_ROW_BYTES rather than letting it fault at runtime.
-  static_assert((doc_row_bytes + DOC_PAD) % alignof(uint32_t) == 0,
-                "document row stride must be 4-byte aligned for uint32 loads");
-  static_assert(
-    doc_row_bytes % document_planes == 0 && doc_row_bytes / document_planes == query_plane_tile,
-    "document plane stride must match query plane stride");
   // plane_bytes is the per-plane stride in bytes; plane_extent is the same in uint32 elements,
   // computed once so call sites don't re-derive it. Alignment (plane_bytes % 4 == 0, i.e.
   // dataset dim % 32 == 0) is enforced by the launcher.
@@ -1590,11 +1579,8 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   }
 }
 
-// int4 tensor-core BBQ local join, covering both the symmetric (one quantizer, self-join) and
-// asymmetric (two quantizers) cases. Modeled on local_join_kernel_wmma: a warp-level i4 MMA (see
-// promoted_i4_warp_mma.cuh) replaces the popc/dp4a inner product; the accumulator lives in
-// registers across the whole K reduction and is stored to s_distances once per phase, not
-// accumulated into shared memory every step like the scalar kernel.
+// BBQ local join using u8 WMMA over packed 4-bit codes for symmetric and asymmetric inputs.
+// Accumulators stay in registers across the K reduction and are stored once per phase.
 template <bbq_code_layout DocumentLayout,
           bbq_code_layout QueryLayout,
           typename DataT,
@@ -1651,13 +1637,13 @@ __launch_bounds__(BLOCK_SIZE)
   // SelfJoin, phase 1 leaves s_col_vec untouched and both fragments read s_row_vec.
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
   __shared__ __align__(16) uint8_t s_row_vec[MAX_NUM_BI_SAMPLES][ROW_STRIDE];
-  // s_col_vec aliases s_distances's memory instead of its own array: their live ranges never
-  // overlap (col_vec fully consumed by the kk-loop before distances are stored; distances fully
-  // consumed by the min-search loop before the next phase re-stages col_vec).
-  __shared__ __align__(16) DistData_t s_distances[MAX_NUM_BI_SAMPLES * MMA_STORE_STRIDE];
-  static_assert(sizeof(s_distances) >= MAX_NUM_BI_SAMPLES * ROW_STRIDE,
-                "s_col_vec aliases s_distances's memory and must fit inside it");
-  auto(*s_col_vec)[ROW_STRIDE] = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_distances);
+  // Column tiles and distances have disjoint lifetimes: all tile reads finish before distances
+  // are stored, and min-search consumes the distances before the next phase stages column tiles.
+  constexpr size_t COL_BYTES  = sizeof(uint8_t) * MAX_NUM_BI_SAMPLES * ROW_STRIDE;
+  constexpr size_t DIST_BYTES = sizeof(DistData_t) * MAX_NUM_BI_SAMPLES * MMA_STORE_STRIDE;
+  __shared__ __align__(16) uint8_t s_arena[std::max(COL_BYTES, DIST_BYTES)];
+  auto* s_distances            = reinterpret_cast<DistData_t*>(s_arena);
+  auto(*s_col_vec)[ROW_STRIDE] = reinterpret_cast<uint8_t (*)[ROW_STRIDE]>(s_arena);
   __shared__ int s_unique_counter[2];
   // Document-side (row axis) dequant factors -- see the identical buffer and full rationale in
   // local_join_kernel_bbq_simt. Staged once below, reused unchanged by both phases (rows are
@@ -2312,7 +2298,7 @@ void GNND<Data_t, Index_t>::local_join(
 
   // Asymmetric: a packed_4b query selects the tensor-core path, a transposed query the SIMT one.
   // Only packed_1b promotes to the tensor-core path; transposed_2b is SIMT-only (it would need
-  // promoting from two bitplanes at once, which the int4 MMA staging doesn't support).
+  // promoting from two bitplanes at once, which the packed 4-bit staging doesn't support).
   const bool tc_pair   = has_4b && has_1b;
   const bool simt_pair = (has_4bt && (has_1b || has_2bt)) || (has_2bt && has_1b);
   RAFT_EXPECTS(self_join || tc_pair || simt_pair,
@@ -2346,7 +2332,7 @@ void GNND<Data_t, Index_t>::local_join(
   }
 
   // One launch site for both kernels: they take identical arguments, and the query's layout picks
-  // the path -- packed_4b is the only layout the int4 tensor-core kernel is dispatched for.
+  // the path -- packed_4b is the only query layout dispatched to the WMMA kernel.
   auto launch = [&](auto document_layout, auto query_layout) {
     constexpr auto D       = decltype(document_layout)::value;
     constexpr auto Q       = decltype(query_layout)::value;
@@ -2816,8 +2802,7 @@ void build(raft::resources const& res,
                "InnerProduct.");
   RAFT_EXPECTS(idx.metric() == front_quantizer.metric,
                "BBQ dataset metric does not match the NN-Descent metric.");
-  // packed_4b is the only layout dispatched to local_join_kernel_bbq_wmma, and the int4 MMA that
-  // kernel is built around only exists from sm_75 on.
+  // packed_4b queries use local_join_kernel_bbq_wmma, whose u8 WMMA helper requires sm_75 or newer.
   if (dataset.has_layout(bbq_code_layout::packed_4b)) {
     auto kernel       = local_join_kernel_bbq_wmma<bbq_code_layout::packed_4b,
                                                    bbq_code_layout::packed_4b,
