@@ -226,41 +226,13 @@ __device__ __forceinline__ void load_vec(Data_t* vec_buffer,
                                          const int padding_dims,
                                          const int lane_id)
 {
-  if constexpr (std::is_same_v<Data_t, float> or std::is_same_v<Data_t, uint8_t> or
-                std::is_same_v<Data_t, int8_t>) {
-    constexpr int num_load_elems_per_warp = raft::warp_size();
-    for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
-      int idx = step * num_load_elems_per_warp + lane_id;
-      if (idx < load_dims) {
-        vec_buffer[idx] = d_vec[idx];
-      } else if (idx < padding_dims) {
-        vec_buffer[idx] = 0.0f;
-      }
-    }
-  }
-  if constexpr (std::is_same_v<Data_t, __half>) {
-    if ((size_t)d_vec % sizeof(float2) == 0 && (size_t)vec_buffer % sizeof(float2) == 0 &&
-        load_dims % 4 == 0 && padding_dims % 4 == 0) {
-      constexpr int num_load_elems_per_warp = raft::warp_size() * 4;
-#pragma unroll
-      for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
-        int idx_in_vec = step * num_load_elems_per_warp + lane_id * 4;
-        if (idx_in_vec + 4 <= load_dims) {
-          *(float2*)(vec_buffer + idx_in_vec) = *(float2*)(d_vec + idx_in_vec);
-        } else if (idx_in_vec + 4 <= padding_dims) {
-          *(float2*)(vec_buffer + idx_in_vec) = float2({0.0f, 0.0f});
-        }
-      }
-    } else {
-      constexpr int num_load_elems_per_warp = raft::warp_size();
-      for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
-        int idx = step * num_load_elems_per_warp + lane_id;
-        if (idx < load_dims) {
-          vec_buffer[idx] = d_vec[idx];
-        } else if (idx < padding_dims) {
-          vec_buffer[idx] = 0.0f;
-        }
-      }
+  constexpr int num_load_elems_per_warp = raft::warp_size();
+  for (int step = 0; step < raft::ceildiv(padding_dims, num_load_elems_per_warp); step++) {
+    int idx = step * num_load_elems_per_warp + lane_id;
+    if (idx < load_dims) {
+      vec_buffer[idx] = d_vec[idx];
+    } else if (idx < padding_dims) {
+      vec_buffer[idx] = 0.0f;
     }
   }
 }
