@@ -112,7 +112,7 @@ void build_graph(raft::resources const& res,
     // construction, since `half_cast_scale` lands it just under the top of the range.
     rmm::device_uvector<int> overflowed(0, stream);
     if (normalize) {
-      normalize_rows_to_half_kernel<<<n_rows, 256, 0, stream>>>(
+      normalize_rows_to_half_kernel<DataT, 256><<<n_rows, 256, 0, stream>>>(
         dataset.data_handle(), half_storage.data(), n_rows, dim);
     } else {
       // Only float can fall outside the range half represents: int8 and uint8 are bounded by

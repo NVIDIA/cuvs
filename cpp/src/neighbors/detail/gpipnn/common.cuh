@@ -16,6 +16,7 @@
 
 #include <rmm/device_uvector.hpp>
 
+#include <cub/block/block_reduce.cuh>
 #include <cub/device/device_radix_sort.cuh>
 #include <cub/device/device_reduce.cuh>
 #include <cub/util_type.cuh>
@@ -285,7 +286,7 @@ __device__ inline auto norm_to_half(double v, double s) -> half { return __doubl
  *
  * One block per row, so `dim` does not bound the block size.
  */
-template <typename T>
+template <typename T, int BlockSize>
 RAFT_KERNEL normalize_rows_to_half_kernel(const T* __restrict__ src,
                                           half* __restrict__ dst,
                                           int64_t n_rows,
@@ -298,34 +299,24 @@ RAFT_KERNEL normalize_rows_to_half_kernel(const T* __restrict__ src,
   half* out   = dst + row * dim;
 
   acc_t acc = acc_t{0};
-  for (int64_t i = threadIdx.x; i < dim; i += blockDim.x) {
+  for (int64_t i = threadIdx.x; i < dim; i += BlockSize) {
     const acc_t v = static_cast<acc_t>(in[i]);
     acc           = fma(v, v, acc);
   }
-  for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
-    acc += __shfl_down_sync(0xffffffffu, acc, offset);
-  }
-  __shared__ acc_t partial[32];
+
+  using BlockReduce = cub::BlockReduce<acc_t, BlockSize>;
+  __shared__ typename BlockReduce::TempStorage temp;
+  acc = BlockReduce(temp).Sum(acc);
   __shared__ acc_t scale;
-  const int warp = static_cast<int>(threadIdx.x) / warpSize;
-  const int lane = static_cast<int>(threadIdx.x) % warpSize;
-  if (lane == 0) { partial[warp] = acc; }
-  __syncthreads();
-  if (warp == 0) {
-    const int n_warps = static_cast<int>(blockDim.x) / warpSize;
-    acc               = lane < n_warps ? partial[lane] : acc_t{0};
-    for (int offset = warpSize / 2; offset > 0; offset >>= 1) {
-      acc += __shfl_down_sync(0xffffffffu, acc, offset);
-    }
-    // Zero for a zero row, so the stores below stay finite without a second branch.
-    if (lane == 0) { scale = acc > acc_t{0} ? norm_rsqrt(acc) : acc_t{0}; }
-  }
+  // Zero for a zero row, so the stores below stay finite without a second branch. Sum is valid
+  // only in thread 0.
+  if (threadIdx.x == 0) { scale = acc > acc_t{0} ? norm_rsqrt(acc) : acc_t{0}; }
   __syncthreads();
 
   // The scale stays at accumulator width: a row of float subnormals normalizes by ~1e43, which
   // only fp32 inputs can produce and which fp32 cannot hold.
   const acc_t s = scale;
-  for (int64_t i = threadIdx.x; i < dim; i += blockDim.x) {
+  for (int64_t i = threadIdx.x; i < dim; i += BlockSize) {
     out[i] = norm_to_half(static_cast<acc_t>(in[i]), s);
   }
 }
