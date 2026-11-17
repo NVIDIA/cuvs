@@ -18,6 +18,7 @@ import org.apache.lucene.index.MergeState;
  */
 abstract class CompatKnnVectorsWriter extends KnnVectorsWriter {
 
+  /** Merges one field, building its index as it does. */
   @Override
   public void mergeOneField(FieldInfo fieldInfo, MergeState mergeState) throws IOException {
     doMergeOneField(fieldInfo, mergeState);
