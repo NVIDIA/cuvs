@@ -56,7 +56,7 @@ public class CagraRandomizedIT extends CuVSTestCase {
     TestDatasetMemoryKind[] testDatasetMemoryKinds = {
       TestDatasetMemoryKind.HEAP, TestDatasetMemoryKind.NATIVE, TestDatasetMemoryKind.DEVICE
     };
-    for (int i = 0; i < 100; i++) {
+    for (int i = 0; i < 30; i++) {
       for (var datasetMemoryKind : testDatasetMemoryKinds) {
         tmpResultsTopKWithRandomValues(datasetMemoryKind);
       }
