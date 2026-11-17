@@ -215,9 +215,6 @@ constexpr int DEGREE_ON_DEVICE{32};
 constexpr int MAX_NUM_BI_SAMPLES        = 64;
 constexpr int SKEWED_MAX_NUM_BI_SAMPLES = skew_dim<float>(MAX_NUM_BI_SAMPLES);
 constexpr int BLOCK_SIZE                = 512;
-constexpr int WMMA_M                    = 16;
-constexpr int WMMA_N                    = 16;
-constexpr int WMMA_K                    = 16;
 
 template <typename Data_t>
 __device__ __forceinline__ void load_vec(Data_t* vec_buffer,
@@ -599,6 +596,49 @@ struct DistAccumulator {
 // Full-precision joins over the original vectors: SIMT and fp16 tensor core.
 // --------------------------------------------------------------------------
 
+// Stages and deduplicates the new/old neighbor lists for all local-join kernels.
+// The caller keeps the block-uniform early return for an empty new list.
+template <typename Index_t>
+__device__ __forceinline__ void stage_neighbor_lists(Index_t* new_neighbors,
+                                                     Index_t* old_neighbors,
+                                                     int* s_unique_counter,
+                                                     const Index_t* graph_new,
+                                                     const Index_t* rev_graph_new,
+                                                     const Index_t* graph_old,
+                                                     const Index_t* rev_graph_old,
+                                                     const size_t list_id,
+                                                     const int width,
+                                                     const int2 new_size2,
+                                                     const int2 old_size2,
+                                                     int& new_size,
+                                                     int& old_size)
+{
+  const int tx = threadIdx.x;
+  if (tx == 0) {
+    s_unique_counter[0] = 0;
+    s_unique_counter[1] = 0;
+  }
+  if (tx < new_size2.x) {
+    new_neighbors[tx] = graph_new[list_id * width + tx];
+  } else if (tx < new_size) {
+    new_neighbors[tx] = rev_graph_new[list_id * width + tx - new_size2.x];
+  }
+  if (tx < old_size2.x) {
+    old_neighbors[tx] = graph_old[list_id * width + tx];
+  } else if (tx < old_size) {
+    old_neighbors[tx] = rev_graph_old[list_id * width + tx - old_size2.x];
+  }
+  __syncthreads();
+
+  remove_duplicates(
+    new_neighbors, new_size2.x, new_neighbors + new_size2.x, new_size2.y, s_unique_counter[0], 0);
+  remove_duplicates(
+    old_neighbors, old_size2.x, old_neighbors + old_size2.x, old_size2.y, s_unique_counter[1], 1);
+  __syncthreads();
+  new_size = new_size2.x + s_unique_counter[0];
+  old_size = old_size2.x + s_unique_counter[1];
+}
+
 template <typename Data_t,
           typename Index_t,
           typename ID_t = InternalID_t<Index_t>,
@@ -642,11 +682,6 @@ __launch_bounds__(BLOCK_SIZE)
   // s_distances: MAX_NUM_BI_SAMPLES x SKEWED_MAX_NUM_BI_SAMPLES, reuse the space of s_ov
   int* s_unique_counter = (int*)&s_ov[0][0];
 
-  if (threadIdx.x == 0) {
-    s_unique_counter[0] = 0;
-    s_unique_counter[1] = 0;
-  }
-
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
 
@@ -659,36 +694,19 @@ __launch_bounds__(BLOCK_SIZE)
   if (!list_new_size) return;
   int tx = threadIdx.x;
 
-  if (tx < list_new_size2.x) {
-    new_neighbors[tx] = graph_new[list_id * width + tx];
-  } else if (tx >= list_new_size2.x && tx < list_new_size) {
-    new_neighbors[tx] = rev_graph_new[list_id * width + tx - list_new_size2.x];
-  }
-
-  if (tx < list_old_size2.x) {
-    old_neighbors[tx] = graph_old[list_id * width + tx];
-  } else if (tx >= list_old_size2.x && tx < list_old_size) {
-    old_neighbors[tx] = rev_graph_old[list_id * width + tx - list_old_size2.x];
-  }
-
-  __syncthreads();
-
-  remove_duplicates(new_neighbors,
-                    list_new_size2.x,
-                    new_neighbors + list_new_size2.x,
-                    list_new_size2.y,
-                    s_unique_counter[0],
-                    0);
-
-  remove_duplicates(old_neighbors,
-                    list_old_size2.x,
-                    old_neighbors + list_old_size2.x,
-                    list_old_size2.y,
-                    s_unique_counter[1],
-                    1);
-  __syncthreads();
-  list_new_size = list_new_size2.x + s_unique_counter[0];
-  list_old_size = list_old_size2.x + s_unique_counter[1];
+  stage_neighbor_lists(new_neighbors,
+                       old_neighbors,
+                       s_unique_counter,
+                       graph_new,
+                       rev_graph_new,
+                       graph_old,
+                       rev_graph_old,
+                       list_id,
+                       width,
+                       list_new_size2,
+                       list_old_size2,
+                       list_new_size,
+                       list_old_size);
 
   int warp_id             = threadIdx.x / raft::warp_size();
   int lane_id             = threadIdx.x % raft::warp_size();
@@ -897,6 +915,9 @@ __launch_bounds__(BLOCK_SIZE)
   using namespace nvcuda;
   __shared__ int s_list[MAX_NUM_BI_SAMPLES * 2];
 
+  constexpr int WMMA_M         = 16;
+  constexpr int WMMA_N         = 16;
+  constexpr int WMMA_K         = 16;
   constexpr int APAD           = 8;
   constexpr int BPAD           = 8;
   constexpr int TILE_COL_WIDTH = 128;
@@ -907,11 +928,6 @@ __launch_bounds__(BLOCK_SIZE)
   // s_distances: MAX_NUM_BI_SAMPLES x SKEWED_MAX_NUM_BI_SAMPLES, reuse the space of s_ov
   float* s_distances    = (float*)&s_ov[0][0];
   int* s_unique_counter = (int*)&s_ov[0][0];
-
-  if (threadIdx.x == 0) {
-    s_unique_counter[0] = 0;
-    s_unique_counter[1] = 0;
-  }
 
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
@@ -925,36 +941,19 @@ __launch_bounds__(BLOCK_SIZE)
   if (!list_new_size) return;
   int tx = threadIdx.x;
 
-  if (tx < list_new_size2.x) {
-    new_neighbors[tx] = graph_new[list_id * width + tx];
-  } else if (tx >= list_new_size2.x && tx < list_new_size) {
-    new_neighbors[tx] = rev_graph_new[list_id * width + tx - list_new_size2.x];
-  }
-
-  if (tx < list_old_size2.x) {
-    old_neighbors[tx] = graph_old[list_id * width + tx];
-  } else if (tx >= list_old_size2.x && tx < list_old_size) {
-    old_neighbors[tx] = rev_graph_old[list_id * width + tx - list_old_size2.x];
-  }
-
-  __syncthreads();
-
-  remove_duplicates(new_neighbors,
-                    list_new_size2.x,
-                    new_neighbors + list_new_size2.x,
-                    list_new_size2.y,
-                    s_unique_counter[0],
-                    0);
-
-  remove_duplicates(old_neighbors,
-                    list_old_size2.x,
-                    old_neighbors + list_old_size2.x,
-                    list_old_size2.y,
-                    s_unique_counter[1],
-                    1);
-  __syncthreads();
-  list_new_size = list_new_size2.x + s_unique_counter[0];
-  list_old_size = list_old_size2.x + s_unique_counter[1];
+  stage_neighbor_lists(new_neighbors,
+                       old_neighbors,
+                       s_unique_counter,
+                       graph_new,
+                       rev_graph_new,
+                       graph_old,
+                       rev_graph_old,
+                       list_id,
+                       width,
+                       list_new_size2,
+                       list_old_size2,
+                       list_new_size,
+                       list_old_size);
 
   int warp_id             = threadIdx.x / raft::warp_size();
   int lane_id             = threadIdx.x % raft::warp_size();
@@ -1242,46 +1241,6 @@ __device__ __forceinline__ void stage_promoted_tile(uint8_t (*dst)[RowStride],
   }
 }
 
-// Stages this block's new/old neighbour lists into shared memory and drops duplicates. Identical
-// in the SIMT and wmma BBQ kernels, so it lives here rather than twice. The caller keeps the
-// `if (!new_size) return;` early-out, which has to stay at kernel scope.
-template <typename Index_t>
-__device__ __forceinline__ void stage_neighbor_lists(Index_t* new_neighbors,
-                                                     Index_t* old_neighbors,
-                                                     int* s_unique_counter,
-                                                     const Index_t* graph_new,
-                                                     const Index_t* rev_graph_new,
-                                                     const Index_t* graph_old,
-                                                     const Index_t* rev_graph_old,
-                                                     const size_t list_id,
-                                                     const int width,
-                                                     const int2 new_size2,
-                                                     const int2 old_size2,
-                                                     int& new_size,
-                                                     int& old_size)
-{
-  const int tx = threadIdx.x;
-  if (tx < new_size2.x) {
-    new_neighbors[tx] = graph_new[list_id * width + tx];
-  } else if (tx < new_size) {
-    new_neighbors[tx] = rev_graph_new[list_id * width + tx - new_size2.x];
-  }
-  if (tx < old_size2.x) {
-    old_neighbors[tx] = graph_old[list_id * width + tx];
-  } else if (tx < old_size) {
-    old_neighbors[tx] = rev_graph_old[list_id * width + tx - old_size2.x];
-  }
-  __syncthreads();
-
-  remove_duplicates(
-    new_neighbors, new_size2.x, new_neighbors + new_size2.x, new_size2.y, s_unique_counter[0], 0);
-  remove_duplicates(
-    old_neighbors, old_size2.x, old_neighbors + old_size2.x, old_size2.y, s_unique_counter[1], 1);
-  __syncthreads();
-  new_size = new_size2.x + s_unique_counter[0];
-  old_size = old_size2.x + s_unique_counter[1];
-}
-
 template <bbq_code_layout DocumentLayout,
           bbq_code_layout QueryLayout,
           typename DataT,
@@ -1347,11 +1306,6 @@ RAFT_KERNEL __launch_bounds__(BLOCK_SIZE)
   // same row (see the pair_idx assignment below), so caching avoids up to 64x redundant scattered
   // global reads
   __shared__ bbq_dequant_factors s_document_factors[MAX_NUM_BI_SAMPLES];
-
-  if (threadIdx.x == 0) {
-    s_unique_counter[0] = 0;
-    s_unique_counter[1] = 0;
-  }
 
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
@@ -1709,11 +1663,6 @@ __launch_bounds__(BLOCK_SIZE)
   // local_join_kernel_bbq_simt. Staged once below, reused unchanged by both phases (rows are
   // always new_neighbors/document in both).
   __shared__ bbq_dequant_factors s_document_factors[MAX_NUM_BI_SAMPLES];
-
-  if (threadIdx.x == 0) {
-    s_unique_counter[0] = 0;
-    s_unique_counter[1] = 0;
-  }
 
   Index_t* new_neighbors = s_list;
   Index_t* old_neighbors = s_list + MAX_NUM_BI_SAMPLES;
