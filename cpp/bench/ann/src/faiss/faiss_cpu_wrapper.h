@@ -22,6 +22,7 @@
 #include <string>
 #include <type_traits>
 #include <typeinfo>
+#include <utility>
 
 namespace {
 
@@ -207,8 +208,7 @@ void faiss_cpu<T>::load_(const std::string& file)
     throw std::runtime_error("'" + file + "' uses the " + metric_type_name(typed->metric_type) +
                              " metric, but the dataset uses " + metric_type_name(metric_type_));
   }
-  loaded.release();
-  index_.reset(typed);
+  index_ = std::move(loaded);
 }
 
 template <typename T>
