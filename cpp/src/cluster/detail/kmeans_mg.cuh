@@ -617,8 +617,8 @@ void mnmg_fit(
       }
       if constexpr (data_on_device) { norms_cached = true; }
 
-      // The CAGRA search allocates and launches kernels; finish it on every rank before any rank's
-      // allreduce starts.
+      // The CAGRA search work is enqueued before this allreduce. No barrier waits for the other
+      // ranks to finish their search first.
       comms.group_start();
       comms.allreduce(
         centroid_sums.data_handle(), centroid_sums.data_handle(), n_clusters * n_features);
@@ -747,8 +747,8 @@ void mnmg_fit(
         if (weight_batch.has_value()) { weight_batches->release(*weight_batch); }
       }
     }
-    // The exact cost pass is the first brute-force pass of an ANN fit; finish it on every rank
-    // before any rank's allreduce starts.
+    // The exact cost pass is the first brute-force pass of an ANN fit. Its work is enqueued before
+    // this allreduce. No barrier waits for the other ranks to finish it first.
     comms.allreduce(clustering_cost.data_handle(), clustering_cost.data_handle(), 1);
     raft::copy(&local_inertia, clustering_cost.data_handle(), 1, stream);
     raft::resource::sync_stream(dev_res);

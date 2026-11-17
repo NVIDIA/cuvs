@@ -101,8 +101,8 @@ class top_1_nn_cagra_index {
 
   /**
    * The index parameters `build` actually uses for `n` candidates: the metric is L2Expanded
-   * (squared L2 distances), the dataset is attached on build, and the graph degrees are clamped to
-   * `n - 1`.
+   * (squared L2 distances), the dataset is attached on build, the graph degrees are clamped to
+   * `n - 1`, and the graph degree is clamped to the intermediate graph degree (as CAGRA does).
    */
   static cuvs::neighbors::cagra::index_params make_build_params(
     cuvs::neighbors::cagra::index_params const& index_params, int64_t n)
@@ -114,6 +114,10 @@ class top_1_nn_cagra_index {
     build_params.graph_degree = std::min(build_params.graph_degree, max_degree);
     build_params.intermediate_graph_degree =
       std::min(build_params.intermediate_graph_degree, max_degree);
+    // CAGRA also reduces the graph degree to the intermediate graph degree when the latter is
+    // smaller, so the built graph has min(graph_degree, intermediate_graph_degree) columns.
+    build_params.graph_degree =
+      std::min(build_params.graph_degree, build_params.intermediate_graph_degree);
     build_params.attach_dataset_on_build = true;
     // CAGRA requires the NN-descent graph degree to equal the intermediate graph degree (it warns
     // and realigns otherwise), so keep it in step with the clamped value.

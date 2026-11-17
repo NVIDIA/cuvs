@@ -43,6 +43,8 @@ struct KmeansSNMGInputs {
   cuvs::cluster::kmeans::params::InitMethod init = cuvs::cluster::kmeans::params::Array;
   int max_iter                                   = 20;
   bool use_ann = false;  // CAGRA ANN nearest-centroid assignment in the SNMG fit (float only)
+  // When non-zero (and use_ann), overrides the CAGRA intermediate graph degree.
+  size_t ann_intermediate_graph_degree = 0;
 };
 
 template <typename T>
@@ -118,6 +120,11 @@ class KmeansSNMGTest : public ::testing::TestWithParam<KmeansSNMGInputs<T>> {
     snmg_params.init                   = testparams_.init;
     snmg_params.device_buffer_samples  = testparams_.device_buffer_samples;
     snmg_params.use_ann_for_assignment = testparams_.use_ann;
+    if (testparams_.use_ann && testparams_.ann_intermediate_graph_degree > 0) {
+      cuvs::cluster::kmeans::ann_assignment_params ann;
+      ann.index_params.intermediate_graph_degree = testparams_.ann_intermediate_graph_degree;
+      snmg_params.ann_params                     = ann;
+    }
 
     T snmg_inertia      = T{0};
     int64_t snmg_n_iter = 0;
@@ -369,6 +376,19 @@ const std::vector<KmeansSNMGInputs<float>> snmg_inputsf = {
    20,
    true},
   {3, 4, 2, 0.001f, kmeans_weight_mode::none, 3, 1, cuvs::cluster::kmeans::params::Array, 20, true},
+  // intermediate_graph_degree below graph_degree: CAGRA reduces the graph degree to it, and the
+  // ranks must derive the same (reduced) degree to size the broadcast buffer.
+  {2000,
+   16,
+   128,
+   0.0001f,
+   kmeans_weight_mode::none,
+   2000,
+   1,
+   cuvs::cluster::kmeans::params::Array,
+   20,
+   true,
+   32},
 };
 
 // ============================================================================
