@@ -1912,12 +1912,13 @@ pub struct cuvsVamanaIndexParams {
     pub batch_base: f32,
     pub queue_size: u32,
     pub reverse_batchsize: u32,
+    pub initial_graph: *mut DLManagedTensor,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsVamanaIndexParams"][::std::mem::size_of::<cuvsVamanaIndexParams>() - 36usize];
+    ["Size of cuvsVamanaIndexParams"][::std::mem::size_of::<cuvsVamanaIndexParams>() - 48usize];
     ["Alignment of cuvsVamanaIndexParams"]
-        [::std::mem::align_of::<cuvsVamanaIndexParams>() - 4usize];
+        [::std::mem::align_of::<cuvsVamanaIndexParams>() - 8usize];
     ["Offset of field: cuvsVamanaIndexParams::metric"]
         [::std::mem::offset_of!(cuvsVamanaIndexParams, metric) - 0usize];
     ["Offset of field: cuvsVamanaIndexParams::graph_degree"]
@@ -1936,6 +1937,8 @@ const _: () = {
         [::std::mem::offset_of!(cuvsVamanaIndexParams, queue_size) - 28usize];
     ["Offset of field: cuvsVamanaIndexParams::reverse_batchsize"]
         [::std::mem::offset_of!(cuvsVamanaIndexParams, reverse_batchsize) - 32usize];
+    ["Offset of field: cuvsVamanaIndexParams::initial_graph"]
+        [::std::mem::offset_of!(cuvsVamanaIndexParams, initial_graph) - 40usize];
 };
 pub type cuvsVamanaIndexParams_t = *mut cuvsVamanaIndexParams;
 unsafe extern "C" {

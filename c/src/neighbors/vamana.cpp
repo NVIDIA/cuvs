@@ -37,7 +37,11 @@ void* _build(cuvsResources_t res, cuvsVamanaIndexParams* params, DLManagedTensor
   index_params.batch_base        = params->batch_base;
   index_params.queue_size        = params->queue_size;
   index_params.reverse_batchsize = params->reverse_batchsize;
-  auto index                     = new cuvs::neighbors::vamana::index<T, uint32_t>(*res_ptr);
+  if (params->initial_graph != nullptr) {
+    using graph_type = raft::host_matrix_view<const uint32_t, int64_t, raft::row_major>;
+    index_params.initial_graph = cuvs::core::from_dlpack<graph_type>(params->initial_graph);
+  }
+  auto index = new cuvs::neighbors::vamana::index<T, uint32_t>(*res_ptr);
 
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
     using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
@@ -178,6 +182,7 @@ extern "C" cuvsError_t cuvsVamanaIndexParamsCreate(cuvsVamanaIndexParams_t* para
     (*params)->batch_base        = 2.0f;
     (*params)->queue_size        = 127;
     (*params)->reverse_batchsize = 1000000;
+    (*params)->initial_graph     = nullptr;
   });
 }
 

@@ -19,6 +19,7 @@
 #include <cstring>
 #include <cuvs/neighbors/cagra.h>
 #include <cuvs/neighbors/hnsw.h>
+#include <cuvs/neighbors/vamana.h>
 #include <string>
 #include <type_traits>
 #include <unistd.h>
@@ -2232,5 +2233,63 @@ TEST(CagraC, SearchMultiPartitionMultiKernelRejected)
     cuvsDatasetDestroy(part_padded_owners[p]);
     cuvsDatasetDestroy(part_views[p]);
   }
+  cuvsResourcesDestroy(res);
+}
+
+TEST(CagraC, GraphSeedsVamanaBuild)
+{
+  cuvsResources_t res;
+  ASSERT_EQ(cuvsResourcesCreate(&res), CUVS_SUCCESS);
+  cudaStream_t stream;
+  cuvsStreamGet(res, &stream);
+  constexpr int64_t n = 1000, dim = 16, degree = 32;
+  rmm::device_uvector<float> data_d(n * dim, stream);
+  rmm::device_uvector<int64_t> labels_d(n, stream);
+  raft::random::make_blobs<float, int64_t>(data_d.data(), labels_d.data(), n, dim, 10, stream);
+  DLManagedTensor data_tensor = make_device_matrix_tensor(data_d.data(), n, dim);
+
+  // Build a CAGRA graph with NN-descent and copy it to the host.
+  cuvsCagraIndexParams_t cagra_params;
+  ASSERT_EQ(cuvsCagraIndexParamsCreate(&cagra_params), CUVS_SUCCESS);
+  set_small_dataset_build_params(cagra_params);
+  cagra_params->intermediate_graph_degree = 2 * degree;
+  cagra_params->graph_degree              = degree;
+  cuvsDataset_t dataset;
+  ASSERT_EQ(cuvsDatasetMakePaddedView(res, &data_tensor, &dataset), CUVS_SUCCESS);
+  cuvsCagraIndex_t cagra;
+  ASSERT_EQ(cuvsCagraIndexCreate(&cagra), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsCagraBuild(res, cagra_params, dataset, cagra), CUVS_SUCCESS);
+  DLManagedTensor cagra_graph;
+  ASSERT_EQ(cuvsCagraIndexGetGraph(cagra, &cagra_graph), CUVS_SUCCESS);
+  std::vector<uint32_t> graph(n * degree);
+  raft::copy(graph.data(), static_cast<uint32_t*>(cagra_graph.dl_tensor.data), graph.size(), stream);
+  ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
+  DLManagedTensor graph_tensor{};
+  cuvs::core::to_dlpack(raft::make_host_matrix_view<uint32_t, int64_t>(graph.data(), n, degree),
+                        &graph_tensor);
+
+  // Start a Vamana build from it. A build whose degree does not match the graph rejects it.
+  cuvsVamanaIndexParams_t params;
+  ASSERT_EQ(cuvsVamanaIndexParamsCreate(&params), CUVS_SUCCESS);
+  EXPECT_EQ(params->initial_graph, nullptr);
+  params->graph_degree  = degree;
+  params->visited_size  = 128;
+  params->initial_graph = &graph_tensor;
+  cuvsVamanaIndex_t index, rejected;
+  ASSERT_EQ(cuvsVamanaIndexCreate(&index), CUVS_SUCCESS);
+  ASSERT_EQ(cuvsVamanaIndexCreate(&rejected), CUVS_SUCCESS);
+  EXPECT_EQ(cuvsVamanaBuild(res, params, &data_tensor, index), CUVS_SUCCESS);
+  params->graph_degree = 2 * degree;
+  EXPECT_EQ(cuvsVamanaBuild(res, params, &data_tensor, rejected), CUVS_ERROR);
+
+  free_tensor(graph_tensor);
+  free_tensor(cagra_graph);
+  free_tensor(data_tensor);
+  cuvsVamanaIndexParamsDestroy(params);
+  cuvsVamanaIndexDestroy(rejected);
+  cuvsVamanaIndexDestroy(index);
+  cuvsCagraIndexDestroy(cagra);
+  cuvsDatasetDestroy(dataset);
+  cuvsCagraIndexParamsDestroy(cagra_params);
   cuvsResourcesDestroy(res);
 }

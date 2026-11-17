@@ -24,6 +24,7 @@ struct cuvsVamanaIndexParams {
   float batch_base;
   uint32_t queue_size;
   uint32_t reverse_batchsize;
+  DLManagedTensor* initial_graph;
 };
 ```
 
@@ -40,6 +41,7 @@ struct cuvsVamanaIndexParams {
 | `batch_base` | `float` | Base of growth rate of batch sizes * |
 | `queue_size` | `uint32_t` | Size of candidate queue structure - should be (2^x)-1 |
 | `reverse_batchsize` | `uint32_t` | Max batchsize of reverse edge processing (reduces memory footprint) |
+| `initial_graph` | `DLManagedTensor*` | Optional host graph [n_rows, graph_degree] of uint32 neighbor ids to start the build from instead of an empty graph, or NULL (the default). Rows must be full, and each lists ids below n_rows other than the row's own. The build copies the graph and sorts each row by distance. |
 
 <a id="cuvsvamanaindexparamscreate"></a>
 ### cuvsVamanaIndexParamsCreate

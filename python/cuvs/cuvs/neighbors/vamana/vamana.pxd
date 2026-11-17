@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -24,6 +24,7 @@ cdef extern from "cuvs/neighbors/vamana.h" nogil:
         float batch_base
         uint32_t queue_size
         uint32_t reverse_batchsize
+        DLManagedTensor* initial_graph
 
     ctypedef cuvsVamanaIndexParams* cuvsVamanaIndexParams_t
 
