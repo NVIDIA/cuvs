@@ -110,6 +110,23 @@ struct per_dim_type {
 | `mins` | `vector_view_type` | One finite lower bound per dimension, with mins[j] &lt;= maxs[j]. |
 | `maxs` | `vector_view_type` | One finite upper bound per dimension; must have the same extent as mins. |
 
+<a id="preprocessing-quantize-scalar-quantizer-view-quantizer-view-u"></a>
+### preprocessing::quantize::scalar::quantizer_view::quantizer_view&lt;U&gt;
+
+A mutable view converts to the read-only quantizer_view&lt;const T&gt;, as an mdspan does.
+
+```cpp
+template <typename U>
+operator quantizer_view<U>() const noexcept  // NOLINT(google-explicit-constructor)
+requires(!std::is_const_v<T> && std::is_same_v<U, const T>);
+```
+
+The result borrows the same vectors.
+
+**Returns**
+
+`operator`
+
 <a id="preprocessing-quantize-scalar-quantizer"></a>
 ### preprocessing::quantize::scalar::quantizer
 

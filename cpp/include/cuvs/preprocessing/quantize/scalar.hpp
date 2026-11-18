@@ -91,10 +91,11 @@ struct quantizer_view {
   /** Global bounds or borrowed per-dimension bounds. */
   std::variant<global_type, per_dim_type> value;
 
-  // A mutable view decays to the read-only one, the way an mdspan does.
+  /** A mutable view converts to the read-only quantizer_view<const T>, as an mdspan does.
+   * The result borrows the same vectors. */
   template <typename U>
-    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
   operator quantizer_view<U>() const noexcept  // NOLINT(google-explicit-constructor)
+    requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
   {
     using const_view_type = quantizer_view<U>;
     if (auto const* range = std::get_if<global_type>(&value)) {
