@@ -348,8 +348,9 @@ Sets a graph to start the build from instead of an empty graph, for example a ho
 `CagraIndex#getGraph()` from an index built with NN-descent. It must be a
 `CuVSMatrix.DataType#UINT` matrix, which `CagraIndex#getGraph()` already returns,
 holding one full row of `graphDegree` neighbor ids per vector, never the row's own id,
-in any order. The build copies it, so it must stay open until the index build returns. Once
-it is closed, these parameters must not be used for another build.
+in any order. Its rows must be contiguous, so the build rejects a matrix whose row stride
+differs from its column count. The build copies it, so it must stay open until the index
+build returns. Once it is closed, these parameters must not be used for another build.
 
 **Parameters**
 
@@ -361,7 +362,7 @@ it is closed, these parameters must not be used for another build.
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:328`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:329`_
 
 ### build
 
@@ -375,6 +376,6 @@ Builds an instance of `VamanaIndexParams`.
 
 an instance of `VamanaIndexParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:338`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:339`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:18`_

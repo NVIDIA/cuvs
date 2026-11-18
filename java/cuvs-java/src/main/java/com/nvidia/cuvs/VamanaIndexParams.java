@@ -319,8 +319,9 @@ public class VamanaIndexParams {
      * {@link CagraIndex#getGraph()} from an index built with NN-descent. It must be a
      * {@link CuVSMatrix.DataType#UINT} matrix, which {@link CagraIndex#getGraph()} already returns,
      * holding one full row of {@code graphDegree} neighbor ids per vector, never the row's own id,
-     * in any order. The build copies it, so it must stay open until the index build returns. Once
-     * it is closed, these parameters must not be used for another build.
+     * in any order. Its rows must be contiguous, so the build rejects a matrix whose row stride
+     * differs from its column count. The build copies it, so it must stay open until the index
+     * build returns. Once it is closed, these parameters must not be used for another build.
      *
      * @param initialGraph the {@link CuVSMatrix.DataType#UINT} graph, with one row per dataset
      *     vector

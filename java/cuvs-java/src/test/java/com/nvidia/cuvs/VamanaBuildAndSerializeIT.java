@@ -219,6 +219,33 @@ public class VamanaBuildAndSerializeIT extends CuVSTestCase {
   }
 
   @Test
+  public void testInitialGraphWithPaddedRowsIsRejected() throws Throwable {
+    float[][] dataset = randomFloatDataset();
+    int rowStride = 2 * GRAPH_DEGREE;
+    var graphBuilder =
+        CuVSMatrix.hostBuilder(ROWS, GRAPH_DEGREE, rowStride, -1, CuVSMatrix.DataType.UINT);
+    for (int i = 0; i < ROWS; i++) {
+      int[] row = new int[GRAPH_DEGREE];
+      for (int j = 0; j < GRAPH_DEGREE; j++) {
+        row[j] = (i + j + 1) % ROWS;
+      }
+      graphBuilder.addVector(row);
+    }
+    try (CuVSResources resources = CuVSResources.create();
+        CuVSHostMatrix graph = graphBuilder.build()) {
+      var params =
+          new VamanaIndexParams.Builder()
+              .withGraphDegree(GRAPH_DEGREE)
+              .withVisitedSize(64)
+              .withInitialGraph(graph)
+              .build();
+      var builder = VamanaIndex.newBuilder(resources).withDataset(dataset).withIndexParams(params);
+      IllegalArgumentException e = assertThrows(IllegalArgumentException.class, builder::build);
+      assertTrue(e.getMessage(), e.getMessage().contains("row stride (" + rowStride + ")"));
+    }
+  }
+
+  @Test
   public void testBuildUnsignedByteDataset() throws Throwable {
     try (CuVSResources resources = CuVSResources.create();
         CuVSMatrix dataset = hostMatrix(CuVSMatrix.DataType.BYTE);
