@@ -113,7 +113,7 @@ The Docker image is based on `nvidia/cuda:{CUDA_VERSION}-devel-rockylinux9` and 
 
 - **CUDA Development Tools**: Complete CUDA toolkit for the specified version
 - **GCC Toolset 14**: Modern C++ compiler with C++20 support
-- **CMake 4.0**: Build system generator
+- **CMake 4.3**: Build system generator
 - **JDK 22**: Java Development Kit with Panama FFM support
 - **Maven**: Java project management and build tool
 - **ccache**: Compiler cache for faster incremental builds
