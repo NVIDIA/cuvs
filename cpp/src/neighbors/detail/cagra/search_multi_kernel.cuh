@@ -368,7 +368,8 @@ struct search
     RAFT_LOG_DEBUG("# topk_workspace_size: %lu", topk_workspace_size);
     topk_workspace.resize(topk_workspace_size, raft::resource::get_cuda_stream(res));
     terminate_flag.resize(1, raft::resource::get_cuda_stream(res));
-    hashmap.resize(hashmap_size, raft::resource::get_cuda_stream(res));
+    // Convert the byte size to the element count required by resize().
+    hashmap.resize(hashmap_size / sizeof(INDEX_T), raft::resource::get_cuda_stream(res));
   }
 
   ~search() {}
