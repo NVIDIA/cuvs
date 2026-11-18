@@ -695,7 +695,7 @@ dependencies:
             packages:
               - mkl-devel=2023
               - libaio
-              - libboost-devel=1.87
+              - libboost-devel=1.88
           - matrix:
               arch: aarch64
             packages: null
