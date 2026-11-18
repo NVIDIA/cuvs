@@ -18,9 +18,9 @@ on:
         type: string
         default: ''
       build_run_id: &build_run_id
-        description: Optional build.yaml run ID (otherwise resolve from cuVS SHA)
+        description: Successful nightly build.yaml run ID for the selected cuVS commit
         type: string
-        default: ''
+        required: true
       solr_repository: &solr_repository
         description: Solr repository
         type: string
@@ -56,9 +56,8 @@ jobs:
     outputs:
       bundle_ready: ${{ steps.upload-bundle.outputs.artifact-id != '' }}
     container:
-      image: &solr_image rapidsai/ci-conda:26.12-cuda13.4.3-rockylinux8-py3.12
+      image: &solr_image rapidsai/ci-conda:27.02-cuda13.4.3-rockylinux8-py3.12
     env: &solr_env
-      GH_TOKEN: ${{ github.token }}
       RAPIDS_BUILD_TYPE: nightly
       RAPIDS_CUDA_VERSION: "13.4.3"
       RAPIDS_REPOSITORY: ${{ github.repository }}
@@ -91,6 +90,8 @@ jobs:
           date: ${{ inputs.date }}
           sha: ${{ inputs.cuvs_commit }}
       - name: Install nightly cuVS artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ci/test_solr.sh setup
       - name: Apply temporary Solr compatibility patches
         run: ci/test_solr.sh patch
@@ -136,10 +137,14 @@ jobs:
         with:
           persist-credentials: false
       - name: Download prebuilt Solr test bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh run download "${GITHUB_RUN_ID}" --repo "${RAPIDS_REPOSITORY}" \
             --name "solr-cuvs-bundle-cuda${RAPIDS_CUDA_VERSION}" --dir "${SOLR_WORK_DIR}"
       - name: Restore pinned native runtime and prebuilt Solr
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: ci/test_solr.sh restore
       - name: Test Solr GPU indexing
         run: ci/test_solr.sh test

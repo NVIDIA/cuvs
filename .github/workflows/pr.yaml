@@ -820,7 +820,7 @@ jobs:
         sccache --zero-stats;
         build-all -j0 --verbose;
         sccache --show-adv-stats;
-  # Temporary validation of this workflow against the successful 2026-11-13 main nightly.
+  # Temporary validation against the successful 2026-11-18 main nightly.
   # Remove this job and its pr-builder dependency before merging the nightly-only integration.
   solr-cuvs-validation:
     needs: checks
@@ -829,8 +829,8 @@ jobs:
       contents: read
     uses: ./.github/workflows/solr-cuvs.yaml
     with:
-      cuvs_commit: a93bbfad1f9c26efa113bc6f1b1427bfbb23c9ed
+      cuvs_commit: 960698881230c196d9b7f49e5c4b7cb659ff3572
       branch: main
-      date: '2026-11-13'
-      build_run_id: '43373472245'
+      date: '2026-11-18'
+      build_run_id: '44246975349'
       continue_on_error: false

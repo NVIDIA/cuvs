@@ -41,16 +41,15 @@ run_setup() {
   rm -f "${SOLR_RESULTS_DIR}/success.json" "${SOLR_RESULTS_DIR}/build-success.json"
   export RAPIDS_SHA
   RAPIDS_SHA=$(git -C "${CUVS_DIR}" rev-parse HEAD)
-  BUILD_RUN_ID=${SOLR_BUILD_RUN_ID:-$(rapids-github-run-id)}
+  BUILD_RUN_ID=${SOLR_BUILD_RUN_ID:?The cuVS build_run_id is required}
   if [[ ! "${BUILD_RUN_ID}" =~ ^[0-9]+$ ]]; then
-    echo "Invalid build run ID: ${BUILD_RUN_ID}" >&2
-    exit 1
+    echo "Invalid cuVS build_run_id: ${BUILD_RUN_ID}" >&2
+    return 1
   fi
-  # Resolve once: all downloads must come from the same completed producer run.
   gh api "repos/${RAPIDS_REPOSITORY}/actions/runs/${BUILD_RUN_ID}" > "${SOLR_RESULTS_DIR}/build-run.json"
-  jq -e --arg sha "${RAPIDS_SHA}" \
-    '.head_sha == $sha and .path == ".github/workflows/build.yaml" and .status == "completed"' \
-    "${SOLR_RESULTS_DIR}/build-run.json" > /dev/null
+  jq -e --arg branch "${RAPIDS_REF_NAME}" --arg sha "${RAPIDS_SHA}" \
+    '.path == ".github/workflows/build.yaml" and .event == "workflow_dispatch" and
+     .head_branch == $branch and .head_sha == $sha and .conclusion == "success"' "${SOLR_RESULTS_DIR}/build-run.json" >/dev/null
   jq -n --arg cuvs "${RAPIDS_SHA}" --arg ci "$(git -C "${CI_ROOT}" rev-parse HEAD)" \
     --arg solr "$(git -C "${SOLR_SOURCE_DIR}" rev-parse HEAD)" \
     --arg run "${BUILD_RUN_ID}" --arg cuda "${RAPIDS_CUDA_VERSION}" \

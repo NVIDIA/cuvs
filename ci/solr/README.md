@@ -45,7 +45,7 @@ and phase logs, and JUnit results. Job summaries report failures even when allow
 ## PR and manual validation
 
 The temporary `solr-cuvs-validation` caller in
-[pr.yaml](../../.github/workflows/pr.yaml) pins a successful nightly and makes
+[pr.yaml](../../.github/workflows/pr.yaml) pins the nightly SHA and build run ID and makes
 both jobs required through `pr-builder`. The CI scripts come from the PR revision;
 the selected cuVS checkout supplies dependencies and artifact identity. This
 tests the CI changes against nightly cuVS binaries. Remove the temporary caller
@@ -59,14 +59,14 @@ For manual dispatch, select the workflow branch with `gh workflow run solr-cuvs.
 | `cuvs_commit` | Commit or branch with completed `build.yaml` artifacts; `main` |
 | `branch` | Producer's branch; `main` |
 | `date` | Nightly build date (`YYYY-MM-DD`); optional |
-| `build_run_id` | Specific producer run; otherwise resolved from cuVS SHA |
+| `build_run_id` | Required: successful nightly build run for the selected cuVS commit |
 | `solr_repository` / `solr_commit` | Downstream checkout; `apache/solr` / `main` |
 | `continue_on_error` | Set `false` for required validation; default `true` |
 
 Manual dispatch requires the workflow to exist on the default branch.
-The selected producer must be a completed `build.yaml` run matching the cuVS SHA;
-a PR's own run ID is not supported. All three artifacts must be available for
-the workflow's CUDA version.
+The RAPIDS nightly launcher passes the build run ID alongside the SHA it sent
+to the build. Both Solr jobs download cuVS artifacts from that exact run.
+Dispatching the general `test.yaml` workflow without an ID skips only Solr.
 
 ## Temporary Solr patches
 

@@ -21,6 +21,10 @@ on:
         description: "build_type: one of [branch, nightly, pull-request]"
         type: string
         default: nightly
+      build_run_id:
+        description: Successful cuVS build run supplying artifacts for Solr validation
+        type: string
+        required: false
 
 permissions: {}
 
@@ -156,12 +160,13 @@ jobs:
       script: ci/test_wheel_cuvs.sh
       matrix_type: nightly
   solr-cuvs:
-    if: ${{ inputs.build_type == 'nightly' }}
+    if: ${{ inputs.build_type == 'nightly' && inputs.build_run_id != '' }}
     permissions:
       actions: read
       contents: read
     uses: ./.github/workflows/solr-cuvs.yaml
     with:
+      build_run_id: ${{ inputs.build_run_id }}
       cuvs_commit: ${{ inputs.sha }}
       branch: ${{ inputs.branch }}
       date: ${{ inputs.date }}
