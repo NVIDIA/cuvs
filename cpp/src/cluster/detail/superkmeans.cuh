@@ -94,7 +94,7 @@ auto inertia(const raft::resources& handle,
 }
 
 template <typename T>
-void validate(const cuvs::cluster::kmeans::superkmeans_params& params,
+void validate(const cuvs::cluster::kmeans::experimental::superkmeans_params& params,
               raft::device_matrix_view<const T, int64_t> X,
               raft::device_matrix_view<const float, int64_t> centroids)
 {
@@ -108,7 +108,7 @@ void validate(const cuvs::cluster::kmeans::superkmeans_params& params,
 /** Each row's closest centroid over all dims. */
 template <typename T>
 void predict(const raft::resources& handle,
-             const cuvs::cluster::kmeans::superkmeans_params& params,
+             const cuvs::cluster::kmeans::experimental::superkmeans_params& params,
              raft::device_matrix_view<const T, int64_t> X,
              raft::device_matrix_view<const float, int64_t> centroids,
              raft::device_vector_view<uint32_t, int64_t> labels)
@@ -211,7 +211,7 @@ class pruned_assignment {
  */
 template <typename T>
 void fit(const raft::resources& handle,
-         const cuvs::cluster::kmeans::superkmeans_params& params,
+         const cuvs::cluster::kmeans::experimental::superkmeans_params& params,
          raft::device_matrix_view<const T, int64_t> X,
          raft::device_matrix_view<float, int64_t> centroids,
          std::optional<raft::device_vector_view<uint32_t, int64_t>> labels,

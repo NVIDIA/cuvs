@@ -303,45 +303,6 @@ struct balanced_params : base_params {
 };
 
 /**
- * Simple object to specify hyper-parameters to the SuperKMeans algorithm.
- *
- * SuperKMeans is Lloyd's k-means with a pruned assignment step: the first iteration assigns every
- * row with the fused 1-NN over all dimensions; later iterations compute partial distances over the
- * first 256 dimensions, discard centroids that are unlikely to beat a row's current one (the
- * ADSampling bound, without its random rotation), and finish the remaining dimensions only for the
- * survivors. With more than 256 clusters and more than 1024 dimensions, pruning is required:
- * the dimension count must be divisible by 256, dataset and centroid pointers must be 16-byte
- * aligned, and the build and device must provide the pruning kernel. Inputs that violate these
- * requirements raise an error. With at most 256 clusters or at most 1024 dimensions, every
- * iteration uses full nearest-centroid assignment (Lloyd's algorithm).
- *
- * The number of clusters is taken from the `centroids` argument. The start centroids are rows
- * sampled at random, as with kmeans::params::InitMethod::Random; all `n_iters` iterations run
- * (there is no convergence test), and an empty cluster keeps its previous centroid.
- *
- * Pruning is approximate and can discard the true nearest centroid. The first filter uses FP16
- * tensor cores for both float and half input; surviving candidates are refined in FP32 over
- * subsequent 256-dimension tiles, with further pruning between tiles.
- *
- * Prediction uses full nearest-centroid assignment without pruning. Returned labels and optional
- * inertia are computed with a full assignment against the final centroids.
- *
- * The following metrics are currently supported:
- *  - L2Expanded
- */
-struct superkmeans_params : base_params {
-  /**
-   * Number of training iterations (default 10).
-   */
-  uint32_t n_iters = 10;
-
-  /**
-   * Seed to the random number generator (the start rows); default seed 0.
-   */
-  raft::random::RngState rng_state{0};
-};
-
-/**
  * @}
  */
 
@@ -878,47 +839,6 @@ void fit(const raft::resources& handle,
          std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 
 /**
- * @brief Find clusters with the SuperKMeans algorithm.
- *
- * @param[in]     handle        The raft handle.
- * @param[in]     params        Parameters for SuperKMeans.
- * @param[in]     X             Training instances to cluster. The data must
- *                              be in row-major format.
- *                              [dim = n_samples x n_features]
- * @param[out]    centroids     The generated centroids.
- *                              [dim = n_clusters x n_features]
- * @param[out]    inertia       Sum of squared distances of samples to their
- *                              closest cluster center.
- */
-void fit(const raft::resources& handle,
-         cuvs::cluster::kmeans::superkmeans_params const& params,
-         raft::device_matrix_view<const float, int64_t> X,
-         raft::device_matrix_view<float, int64_t> centroids,
-         std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
-
-/**
- * @brief Find clusters with the SuperKMeans algorithm.
- *
- * With half input the distance GEMMs run on FP16 tensor cores against an FP16 copy of the
- * centroids, which are accumulated and returned in FP32.
- *
- * @param[in]     handle        The raft handle.
- * @param[in]     params        Parameters for SuperKMeans.
- * @param[in]     X             Training instances to cluster. The data must
- *                              be in row-major format.
- *                              [dim = n_samples x n_features]
- * @param[out]    centroids     The generated centroids.
- *                              [dim = n_clusters x n_features]
- * @param[out]    inertia       Sum of squared distances of samples to their
- *                              closest cluster center.
- */
-void fit(const raft::resources& handle,
-         cuvs::cluster::kmeans::superkmeans_params const& params,
-         raft::device_matrix_view<const half, int64_t> X,
-         raft::device_matrix_view<float, int64_t> centroids,
-         std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
-
-/**
  * @brief Predict the closest cluster each sample in X belongs to.
  *
  * @code{.cpp}
@@ -1430,42 +1350,6 @@ void predict(const raft::resources& handle,
              raft::device_vector_view<uint32_t, int64_t> labels);
 
 /**
- * @brief Predict the closest cluster each sample in X belongs to, for SuperKMeans centroids.
- *
- * @param[in]     handle        The raft handle.
- * @param[in]     params        Parameters for SuperKMeans.
- * @param[in]     X             New data to predict.
- *                              [dim = n_samples x n_features]
- * @param[in]     centroids     Cluster centroids. The data must be in row-major format.
- *                              [dim = n_clusters x n_features]
- * @param[out]    labels        Index of the closest centroid for each sample.
- *                              [len = n_samples]
- */
-void predict(const raft::resources& handle,
-             cuvs::cluster::kmeans::superkmeans_params const& params,
-             raft::device_matrix_view<const float, int64_t> X,
-             raft::device_matrix_view<const float, int64_t> centroids,
-             raft::device_vector_view<uint32_t, int64_t> labels);
-
-/**
- * @brief Predict the closest cluster each sample in X belongs to, for SuperKMeans centroids.
- *
- * @param[in]     handle        The raft handle.
- * @param[in]     params        Parameters for SuperKMeans.
- * @param[in]     X             New data to predict.
- *                              [dim = n_samples x n_features]
- * @param[in]     centroids     Cluster centroids. The data must be in row-major format.
- *                              [dim = n_clusters x n_features]
- * @param[out]    labels        Index of the closest centroid for each sample.
- *                              [len = n_samples]
- */
-void predict(const raft::resources& handle,
-             cuvs::cluster::kmeans::superkmeans_params const& params,
-             raft::device_matrix_view<const half, int64_t> X,
-             raft::device_matrix_view<const float, int64_t> centroids,
-             raft::device_vector_view<uint32_t, int64_t> labels);
-
-/**
  * @brief Compute k-means clustering and predicts cluster index for each sample
  * in the input.
  *
@@ -1772,50 +1656,6 @@ void fit_predict(const raft::resources& handle,
                  raft::device_matrix_view<const int8_t, int64_t> X,
                  raft::device_matrix_view<float, int64_t> centroids,
                  raft::device_vector_view<uint32_t, int64_t> labels);
-
-/**
- * @brief Compute SuperKMeans clusters and predict the cluster index of each sample.
- *
- * @param[in]     handle        The raft handle.
- * @param[in]     params        Parameters for SuperKMeans.
- * @param[in]     X             Training instances to cluster. The data must be
- *                              in row-major format.
- *                              [dim = n_samples x n_features]
- * @param[out]    centroids     The generated centroids.
- *                              [dim = n_clusters x n_features]
- * @param[out]    labels        Index of the closest centroid for each sample.
- *                              [len = n_samples]
- * @param[out]    inertia       Sum of squared distances of samples to their
- *                              closest cluster center.
- */
-void fit_predict(const raft::resources& handle,
-                 cuvs::cluster::kmeans::superkmeans_params const& params,
-                 raft::device_matrix_view<const float, int64_t> X,
-                 raft::device_matrix_view<float, int64_t> centroids,
-                 raft::device_vector_view<uint32_t, int64_t> labels,
-                 std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
-
-/**
- * @brief Compute SuperKMeans clusters and predict the cluster index of each sample.
- *
- * @param[in]     handle        The raft handle.
- * @param[in]     params        Parameters for SuperKMeans.
- * @param[in]     X             Training instances to cluster. The data must be
- *                              in row-major format.
- *                              [dim = n_samples x n_features]
- * @param[out]    centroids     The generated centroids.
- *                              [dim = n_clusters x n_features]
- * @param[out]    labels        Index of the closest centroid for each sample.
- *                              [len = n_samples]
- * @param[out]    inertia       Sum of squared distances of samples to their
- *                              closest cluster center.
- */
-void fit_predict(const raft::resources& handle,
-                 cuvs::cluster::kmeans::superkmeans_params const& params,
-                 raft::device_matrix_view<const half, int64_t> X,
-                 raft::device_matrix_view<float, int64_t> centroids,
-                 raft::device_vector_view<uint32_t, int64_t> labels,
-                 std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 
 /**
  * @brief Transform X to a cluster-distance space.
@@ -2146,6 +1986,179 @@ void find_k(raft::resources const& handle,
  * @}
  */
 }  // namespace helpers
+
+namespace experimental {
+
+/**
+ * @defgroup superkmeans Experimental SuperKMeans APIs
+ * @{
+ */
+
+/**
+ * Simple object to specify hyper-parameters to the SuperKMeans algorithm.
+ *
+ * SuperKMeans is Lloyd's k-means with a pruned assignment step: the first iteration assigns every
+ * row with the fused 1-NN over all dimensions; later iterations compute partial distances over the
+ * first 256 dimensions, discard centroids that are unlikely to beat a row's current one (the
+ * ADSampling bound, without its random rotation), and finish the remaining dimensions only for the
+ * survivors. With more than 256 clusters and more than 1024 dimensions, pruning is required:
+ * row strides must be divisible by 16 bytes, dataset and centroid pointers must be 16-byte
+ * aligned, and the build and device must provide the pruning kernel. Inputs that violate these
+ * requirements raise an error. With at most 256 clusters or at most 1024 dimensions, every
+ * iteration uses full nearest-centroid assignment (Lloyd's algorithm).
+ *
+ * The number of clusters is taken from the `centroids` argument. The start centroids are rows
+ * sampled at random, as with kmeans::params::InitMethod::Random; all `n_iters` iterations run
+ * (there is no convergence test), and an empty cluster keeps its previous centroid.
+ *
+ * Pruning is approximate and can discard the true nearest centroid. The first filter uses FP16
+ * tensor cores for both float and half input; surviving candidates are refined in FP32 over
+ * subsequent tiles of up to 256 dimensions, with further pruning between tiles.
+ *
+ * Prediction uses full nearest-centroid assignment without pruning. Returned labels and optional
+ * inertia are computed with a full assignment against the final centroids.
+ *
+ * The following metrics are currently supported:
+ *  - L2Expanded
+ */
+struct superkmeans_params : base_params {
+  /**
+   * Number of training iterations (default 10).
+   */
+  uint32_t n_iters = 10;
+
+  /**
+   * Seed to the random number generator (the start rows); default seed 0.
+   */
+  raft::random::RngState rng_state{0};
+};
+
+/**
+ * @brief Find clusters with the SuperKMeans algorithm.
+ *
+ * @param[in]     handle        The raft handle.
+ * @param[in]     params        Parameters for SuperKMeans.
+ * @param[in]     X             Training instances to cluster. The data must
+ *                              be in row-major format.
+ *                              [dim = n_samples x n_features]
+ * @param[out]    centroids     The generated centroids.
+ *                              [dim = n_clusters x n_features]
+ * @param[out]    inertia       Sum of squared distances of samples to their
+ *                              closest cluster center.
+ */
+void fit(const raft::resources& handle,
+         cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
+         raft::device_matrix_view<const float, int64_t> X,
+         raft::device_matrix_view<float, int64_t> centroids,
+         std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+
+/**
+ * @brief Find clusters with the SuperKMeans algorithm.
+ *
+ * With half input the distance GEMMs run on FP16 tensor cores against an FP16 copy of the
+ * centroids, which are accumulated and returned in FP32.
+ *
+ * @param[in]     handle        The raft handle.
+ * @param[in]     params        Parameters for SuperKMeans.
+ * @param[in]     X             Training instances to cluster. The data must
+ *                              be in row-major format.
+ *                              [dim = n_samples x n_features]
+ * @param[out]    centroids     The generated centroids.
+ *                              [dim = n_clusters x n_features]
+ * @param[out]    inertia       Sum of squared distances of samples to their
+ *                              closest cluster center.
+ */
+void fit(const raft::resources& handle,
+         cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
+         raft::device_matrix_view<const half, int64_t> X,
+         raft::device_matrix_view<float, int64_t> centroids,
+         std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+
+/**
+ * @brief Predict the closest cluster each sample in X belongs to, for SuperKMeans centroids.
+ *
+ * @param[in]     handle        The raft handle.
+ * @param[in]     params        Parameters for SuperKMeans.
+ * @param[in]     X             New data to predict.
+ *                              [dim = n_samples x n_features]
+ * @param[in]     centroids     Cluster centroids. The data must be in row-major format.
+ *                              [dim = n_clusters x n_features]
+ * @param[out]    labels        Index of the closest centroid for each sample.
+ *                              [len = n_samples]
+ */
+void predict(const raft::resources& handle,
+             cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
+             raft::device_matrix_view<const float, int64_t> X,
+             raft::device_matrix_view<const float, int64_t> centroids,
+             raft::device_vector_view<uint32_t, int64_t> labels);
+
+/**
+ * @brief Predict the closest cluster each sample in X belongs to, for SuperKMeans centroids.
+ *
+ * @param[in]     handle        The raft handle.
+ * @param[in]     params        Parameters for SuperKMeans.
+ * @param[in]     X             New data to predict.
+ *                              [dim = n_samples x n_features]
+ * @param[in]     centroids     Cluster centroids. The data must be in row-major format.
+ *                              [dim = n_clusters x n_features]
+ * @param[out]    labels        Index of the closest centroid for each sample.
+ *                              [len = n_samples]
+ */
+void predict(const raft::resources& handle,
+             cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
+             raft::device_matrix_view<const half, int64_t> X,
+             raft::device_matrix_view<const float, int64_t> centroids,
+             raft::device_vector_view<uint32_t, int64_t> labels);
+
+/**
+ * @brief Compute SuperKMeans clusters and predict the cluster index of each sample.
+ *
+ * @param[in]     handle        The raft handle.
+ * @param[in]     params        Parameters for SuperKMeans.
+ * @param[in]     X             Training instances to cluster. The data must be
+ *                              in row-major format.
+ *                              [dim = n_samples x n_features]
+ * @param[out]    centroids     The generated centroids.
+ *                              [dim = n_clusters x n_features]
+ * @param[out]    labels        Index of the closest centroid for each sample.
+ *                              [len = n_samples]
+ * @param[out]    inertia       Sum of squared distances of samples to their
+ *                              closest cluster center.
+ */
+void fit_predict(const raft::resources& handle,
+                 cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
+                 raft::device_matrix_view<const float, int64_t> X,
+                 raft::device_matrix_view<float, int64_t> centroids,
+                 raft::device_vector_view<uint32_t, int64_t> labels,
+                 std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+
+/**
+ * @brief Compute SuperKMeans clusters and predict the cluster index of each sample.
+ *
+ * @param[in]     handle        The raft handle.
+ * @param[in]     params        Parameters for SuperKMeans.
+ * @param[in]     X             Training instances to cluster. The data must be
+ *                              in row-major format.
+ *                              [dim = n_samples x n_features]
+ * @param[out]    centroids     The generated centroids.
+ *                              [dim = n_clusters x n_features]
+ * @param[out]    labels        Index of the closest centroid for each sample.
+ *                              [len = n_samples]
+ * @param[out]    inertia       Sum of squared distances of samples to their
+ *                              closest cluster center.
+ */
+void fit_predict(const raft::resources& handle,
+                 cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
+                 raft::device_matrix_view<const half, int64_t> X,
+                 raft::device_matrix_view<float, int64_t> centroids,
+                 raft::device_vector_view<uint32_t, int64_t> labels,
+                 std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+
+/**
+ * @}
+ */
+
+}  // namespace experimental
 
 }  // namespace kmeans
 }  // namespace cluster

@@ -7,10 +7,10 @@
 
 #include <cuvs/cluster/kmeans.hpp>
 
-namespace cuvs::cluster::kmeans {
+namespace cuvs::cluster::kmeans::experimental {
 
 void fit(const raft::resources& handle,
-         cuvs::cluster::kmeans::superkmeans_params const& params,
+         cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
          raft::device_matrix_view<const float, int64_t> X,
          raft::device_matrix_view<float, int64_t> centroids,
          std::optional<raft::host_scalar_view<float>> inertia)
@@ -19,7 +19,7 @@ void fit(const raft::resources& handle,
 }
 
 void fit(const raft::resources& handle,
-         cuvs::cluster::kmeans::superkmeans_params const& params,
+         cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
          raft::device_matrix_view<const half, int64_t> X,
          raft::device_matrix_view<float, int64_t> centroids,
          std::optional<raft::host_scalar_view<float>> inertia)
@@ -28,7 +28,7 @@ void fit(const raft::resources& handle,
 }
 
 void predict(const raft::resources& handle,
-             cuvs::cluster::kmeans::superkmeans_params const& params,
+             cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
              raft::device_matrix_view<const float, int64_t> X,
              raft::device_matrix_view<const float, int64_t> centroids,
              raft::device_vector_view<uint32_t, int64_t> labels)
@@ -37,7 +37,7 @@ void predict(const raft::resources& handle,
 }
 
 void predict(const raft::resources& handle,
-             cuvs::cluster::kmeans::superkmeans_params const& params,
+             cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
              raft::device_matrix_view<const half, int64_t> X,
              raft::device_matrix_view<const float, int64_t> centroids,
              raft::device_vector_view<uint32_t, int64_t> labels)
@@ -46,7 +46,7 @@ void predict(const raft::resources& handle,
 }
 
 void fit_predict(const raft::resources& handle,
-                 cuvs::cluster::kmeans::superkmeans_params const& params,
+                 cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
                  raft::device_matrix_view<const float, int64_t> X,
                  raft::device_matrix_view<float, int64_t> centroids,
                  raft::device_vector_view<uint32_t, int64_t> labels,
@@ -56,7 +56,7 @@ void fit_predict(const raft::resources& handle,
 }
 
 void fit_predict(const raft::resources& handle,
-                 cuvs::cluster::kmeans::superkmeans_params const& params,
+                 cuvs::cluster::kmeans::experimental::superkmeans_params const& params,
                  raft::device_matrix_view<const half, int64_t> X,
                  raft::device_matrix_view<float, int64_t> centroids,
                  raft::device_vector_view<uint32_t, int64_t> labels,
@@ -65,4 +65,4 @@ void fit_predict(const raft::resources& handle,
   detail::superkmeans::fit<half>(handle, params, X, centroids, labels, inertia);
 }
 
-}  // namespace cuvs::cluster::kmeans
+}  // namespace cuvs::cluster::kmeans::experimental

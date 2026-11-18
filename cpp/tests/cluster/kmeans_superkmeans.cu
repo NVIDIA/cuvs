@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include "../test_utils.h"
+#include "../test_utils.cuh"
 
 #include <cuvs/cluster/kmeans.hpp>
 
@@ -169,11 +169,11 @@ void fit_predict(raft::handle_t& handle,
                  float& inertia)
 {
   cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
-  cuvs::cluster::kmeans::superkmeans_params params;
+  cuvs::cluster::kmeans::experimental::superkmeans_params params;
   params.n_iters   = n_iters;
   auto d_centroids = raft::make_device_matrix<float, int64_t>(handle, kClusters, kDim);
   auto d_labels    = raft::make_device_vector<uint32_t, int64_t>(handle, kRows);
-  cuvs::cluster::kmeans::fit_predict(
+  cuvs::cluster::kmeans::experimental::fit_predict(
     handle, params, X, d_centroids.view(), d_labels.view(), raft::make_host_scalar_view(&inertia));
   centroids.resize(kClusters * kDim);
   labels.resize(kRows);
@@ -208,13 +208,13 @@ TEST(KmeansSuperKMeans, Fallback)
       kDim,
       kClusters,
       1,
-      start_centroids(handle, h_X, cuvs::cluster::kmeans::superkmeans_params{}.rng_state.seed),
+      start_centroids(
+        handle, h_X, cuvs::cluster::kmeans::experimental::superkmeans_params{}.rng_state.seed),
       ref_centroids,
       ref_labels,
       ref_inertia);
-    for (size_t i = 0; i < centroids.size(); i++) {
-      ASSERT_NEAR(centroids[i], ref_centroids[i], 1e-5f) << "centroid " << i / kDim;
-    }
+    ASSERT_TRUE(
+      cuvs::hostVecMatch(ref_centroids, centroids, cuvs::CompareApproxNoScaling<float>(1e-5f)));
     int64_t same_label = 0;
     for (int64_t r = 0; r < kRows; r++) {
       same_label += labels[r] == ref_labels[r];
@@ -270,26 +270,27 @@ TEST(KmeansSuperKMeans, Fallback)
     auto d_labels       = raft::make_device_vector<uint32_t, int64_t>(handle, kRows);
     cudaStream_t stream = raft::resource::get_cuda_stream(handle).get();
     raft::copy(d_centroids_fp.data_handle(), centroids.data(), centroids.size(), stream);
-    cuvs::cluster::kmeans::predict(handle,
-                                   cuvs::cluster::kmeans::superkmeans_params{},
-                                   raft::make_const_mdspan(X.view()),
-                                   raft::make_const_mdspan(d_centroids_fp.view()),
-                                   d_labels.view());
+    cuvs::cluster::kmeans::experimental::predict(
+      handle,
+      cuvs::cluster::kmeans::experimental::superkmeans_params{},
+      raft::make_const_mdspan(X.view()),
+      raft::make_const_mdspan(d_centroids_fp.view()),
+      d_labels.view());
     std::vector<uint32_t> predicted(kRows);
     raft::copy(predicted.data(), d_labels.data_handle(), kRows, stream);
     raft::resource::sync_stream(handle);
     EXPECT_EQ(predicted, labels);
 
     // fit runs the same iterations; its centroids may differ in the last bits (atomic sums).
-    cuvs::cluster::kmeans::superkmeans_params params;
+    cuvs::cluster::kmeans::experimental::superkmeans_params params;
     params.n_iters    = n_iters;
     auto d_centroids  = raft::make_device_matrix<float, int64_t>(handle, kClusters, kDim);
     float fit_inertia = 0;
-    cuvs::cluster::kmeans::fit(handle,
-                               params,
-                               raft::make_const_mdspan(X.view()),
-                               d_centroids.view(),
-                               raft::make_host_scalar_view(&fit_inertia));
+    cuvs::cluster::kmeans::experimental::fit(handle,
+                                             params,
+                                             raft::make_const_mdspan(X.view()),
+                                             d_centroids.view(),
+                                             raft::make_host_scalar_view(&fit_inertia));
     EXPECT_NEAR(fit_inertia, inertia, 1e-3 * inertia);
   }
 }
@@ -352,13 +353,13 @@ TEST(KmeansSuperKMeans, Pruned)
                              raft::make_host_scalar_view(&lloyd_inertia),
                              raft::make_host_scalar_view(&lloyd_iters));
 
-  cuvs::cluster::kmeans::superkmeans_params params;
+  cuvs::cluster::kmeans::experimental::superkmeans_params params;
   params.n_iters   = n_iters;
   params.rng_state = raft::random::RngState(seed);
   auto labels      = raft::make_device_vector<uint32_t, int64_t>(handle, n_rows);
   auto check       = [&](auto data) {
     float inertia = 0;
-    cuvs::cluster::kmeans::fit_predict(
+    cuvs::cluster::kmeans::experimental::fit_predict(
       handle, params, data, centroids.view(), labels.view(), raft::make_host_scalar_view(&inertia));
     EXPECT_NEAR(inertia, lloyd_inertia, 0.01 * lloyd_inertia);
   };
@@ -397,7 +398,7 @@ TEST(KmeansSuperKMeans, AlignmentRequirements)
       for (int64_t i = 0; i < n_rows * dim; ++i) {
         host[i] = static_cast<T>(std::sin(static_cast<float>(i) * 0.13f));
       }
-      cuvs::cluster::kmeans::superkmeans_params params;
+      cuvs::cluster::kmeans::experimental::superkmeans_params params;
       params.n_iters = 3;
       for (auto offsets : {std::pair{1, 0}, std::pair{0, 1}, std::pair{1, 1}}) {
         SCOPED_TRACE(sizeof(T));
@@ -411,12 +412,12 @@ TEST(KmeansSuperKMeans, AlignmentRequirements)
         float inertia = 0;
         if (dim > 1024) {
           EXPECT_THROW(
-            cuvs::cluster::kmeans::fit_predict(
+            cuvs::cluster::kmeans::experimental::fit_predict(
               handle, params, X, C, labels.view(), raft::make_host_scalar_view(&inertia)),
             raft::logic_error);
           continue;
         }
-        cuvs::cluster::kmeans::fit_predict(
+        cuvs::cluster::kmeans::experimental::fit_predict(
           handle, params, X, C, labels.view(), raft::make_host_scalar_view(&inertia));
         std::vector<float> host_centers(n_clusters * dim);
         std::vector<uint32_t> host_labels(n_rows);
@@ -444,7 +445,7 @@ TEST(KmeansSuperKMeans, AlignmentRequirements)
 TEST(KmeansSuperKMeans, UntiledDimensionFallback)
 {
   raft::handle_t handle;
-  cuvs::cluster::kmeans::superkmeans_params params;
+  cuvs::cluster::kmeans::experimental::superkmeans_params params;
   params.n_iters = 3;
   auto X_odd     = raft::make_device_matrix<float, int64_t>(handle, 1000, 384);
   auto centroids = raft::make_device_matrix<float, int64_t>(handle, 300, 384);
@@ -453,35 +454,35 @@ TEST(KmeansSuperKMeans, UntiledDimensionFallback)
                                 X_odd.size() * sizeof(float),
                                 raft::resource::get_cuda_stream(handle).get()));
   float inertia = -1;
-  cuvs::cluster::kmeans::fit(handle,
-                             params,
-                             raft::make_const_mdspan(X_odd.view()),
-                             centroids.view(),
-                             raft::make_host_scalar_view(&inertia));
+  cuvs::cluster::kmeans::experimental::fit(handle,
+                                           params,
+                                           raft::make_const_mdspan(X_odd.view()),
+                                           centroids.view(),
+                                           raft::make_host_scalar_view(&inertia));
   EXPECT_EQ(inertia, 0);
 }
 
 TEST(KmeansSuperKMeans, RejectsUnsupported)
 {
   raft::handle_t handle;
-  cuvs::cluster::kmeans::superkmeans_params params;
+  cuvs::cluster::kmeans::experimental::superkmeans_params params;
   auto X               = raft::make_device_matrix<float, int64_t>(handle, 1000, 256);
   auto small_centroids = raft::make_device_matrix<float, int64_t>(handle, 8, 256);
   params.metric        = cuvs::distance::DistanceType::InnerProduct;
-  EXPECT_THROW(cuvs::cluster::kmeans::fit(
+  EXPECT_THROW(cuvs::cluster::kmeans::experimental::fit(
                  handle, params, raft::make_const_mdspan(X.view()), small_centroids.view()),
                raft::logic_error);
 
   params.metric = cuvs::distance::DistanceType::L2Expanded;
   auto X_odd    = raft::make_device_matrix<float, int64_t>(handle, 1000, 1152);
   auto C_odd    = raft::make_device_matrix<float, int64_t>(handle, 300, 1152);
-  EXPECT_THROW(
-    cuvs::cluster::kmeans::fit(handle, params, raft::make_const_mdspan(X_odd.view()), C_odd.view()),
-    raft::logic_error);
+  EXPECT_THROW(cuvs::cluster::kmeans::experimental::fit(
+                 handle, params, raft::make_const_mdspan(X_odd.view()), C_odd.view()),
+               raft::logic_error);
   auto too_many = raft::make_device_matrix<float, int64_t>(handle, 1001, 256);
-  EXPECT_THROW(
-    cuvs::cluster::kmeans::fit(handle, params, raft::make_const_mdspan(X.view()), too_many.view()),
-    raft::logic_error);
+  EXPECT_THROW(cuvs::cluster::kmeans::experimental::fit(
+                 handle, params, raft::make_const_mdspan(X.view()), too_many.view()),
+               raft::logic_error);
 }
 
 }  // namespace cuvs
