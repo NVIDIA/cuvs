@@ -47,8 +47,6 @@ constexpr uint32_t kSurvivorTileSize = 16;
 constexpr int kSurvivorIdShift = 32;
 
 constexpr std::size_t kAlignment = 16;
-constexpr uint32_t kWarpSize     = 32;
-constexpr uint32_t kFullMask     = 0xffffffff;
 
 /**
  * ADSampling's pruning ratio for a partial distance over the first i of dim dims:
@@ -78,11 +76,12 @@ RAFT_KERNEL squared_norms_kernel(const T* __restrict__ rows,
                                  Copy copy,
                                  int64_t copy_cols)
 {
-  const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / kWarpSize;
+  const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / raft::warp_size();
   if (row >= n) { return; }
   float s              = 0.f;
   constexpr bool kCopy = !std::is_same_v<Copy, std::nullptr_t>;
-  for (int64_t j = threadIdx.x % kWarpSize; j < (kCopy ? copy_cols : cols); j += kWarpSize) {
+  for (int64_t j = threadIdx.x % raft::warp_size(); j < (kCopy ? copy_cols : cols);
+       j += raft::warp_size()) {
     float v = static_cast<float>(rows[row * stride + j]);
     if constexpr (kCopy) {
       const half h              = static_cast<half>(v);
@@ -92,7 +91,7 @@ RAFT_KERNEL squared_norms_kernel(const T* __restrict__ rows,
     if (j < cols) { s += v * v; }
   }
   s = raft::warpReduce(s);
-  if (threadIdx.x % kWarpSize == 0) { out[row] = s; }
+  if (threadIdx.x % raft::warp_size() == 0) { out[row] = s; }
 }
 
 template <typename T, typename Copy = std::nullptr_t>
@@ -106,7 +105,7 @@ void squared_norms(const raft::resources& handle,
                    int64_t copy_cols = 0)
 {
   constexpr uint32_t kThreads = 256;
-  const auto blocks           = raft::ceildiv<int64_t>(n * kWarpSize, kThreads);
+  const auto blocks           = raft::ceildiv<int64_t>(n * raft::warp_size(), kThreads);
   raft::launch_kernel(handle,
                       blocks,
                       kThreads,
@@ -131,12 +130,12 @@ RAFT_KERNEL distance_to_assigned_and_copy_kernel(const T* __restrict__ rows,
                                                  float* __restrict__ dist,
                                                  half* __restrict__ filter_rows)
 {
-  const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / kWarpSize;
+  const int64_t row = (blockIdx.x * int64_t{blockDim.x} + threadIdx.x) / raft::warp_size();
   if (row >= n) { return; }
   const T* row_data          = rows + row * dim;
   const C* assigned_centroid = centroids + static_cast<int64_t>(labels[row]) * dim;
   float distance             = 0.f;
-  for (int64_t j = threadIdx.x % kWarpSize; j < dim; j += kWarpSize) {
+  for (int64_t j = threadIdx.x % raft::warp_size(); j < dim; j += raft::warp_size()) {
     const float value = static_cast<float>(row_data[j]);
     const float diff  = value - static_cast<float>(assigned_centroid[j]);
     distance += diff * diff;
@@ -145,7 +144,7 @@ RAFT_KERNEL distance_to_assigned_and_copy_kernel(const T* __restrict__ rows,
     }
   }
   distance = raft::warpReduce(distance);
-  if (threadIdx.x % kWarpSize == 0) { dist[row] = distance; }
+  if (threadIdx.x % raft::warp_size() == 0) { dist[row] = distance; }
 }
 
 template <bool Copy = false, typename T, typename C>
@@ -159,7 +158,7 @@ void distance_to_assigned(const raft::resources& handle,
                           half* filter_rows = nullptr)
 {
   constexpr uint32_t kThreads = 256;
-  const auto blocks           = raft::ceildiv<int64_t>(n * kWarpSize, kThreads);
+  const auto blocks           = raft::ceildiv<int64_t>(n * raft::warp_size(), kThreads);
   raft::launch_kernel(handle,
                       blocks,
                       kThreads,
@@ -174,31 +173,21 @@ void distance_to_assigned(const raft::resources& handle,
 }
 
 /**
- * The first filter's survivor lists of one row batch x centroid batch (see launch_fused_filter):
- * row r's survivors at packed[r * row_stride], count[r] of them. The pruning kernel compacts them
- * in place.
- */
-struct first_filter_lists {
-  int64_t* packed;
-  const int32_t* count;
-  uint32_t row_stride;
-};
-
-/**
  * One dim tile in 16-byte loads. Non-256-aligned dimensions still have a whole-vector tail;
  * zero-fill vectors past its end. Aligned instantiations omit the bounds checks.
  */
 template <uint32_t Dims, bool Aligned, typename T>
 __device__ __forceinline__ void load_tile(const T* __restrict__ values,
                                           uint32_t valid_dims,
-                                          T (&tile)[Dims / kWarpSize])
+                                          T (&tile)[Dims / raft::warp_size()])
 {
   constexpr uint32_t kVec = 16 / sizeof(T);
-  static_assert(Dims % (kWarpSize * kVec) == 0, "a dim tile is whole 16-byte loads per lane");
-  const uint32_t lane = threadIdx.x % kWarpSize;
+  static_assert(Dims % (raft::warp_size() * kVec) == 0,
+                "a dim tile is whole 16-byte loads per lane");
+  const uint32_t lane = threadIdx.x % raft::warp_size();
 #pragma unroll
-  for (uint32_t j = 0; j < Dims / (kWarpSize * kVec); j++) {
-    const uint32_t offset = (j * kWarpSize + lane) * kVec;
+  for (uint32_t j = 0; j < Dims / (raft::warp_size() * kVec); j++) {
+    const uint32_t offset = (j * raft::warp_size() + lane) * kVec;
     if constexpr (!Aligned) {
       if (offset >= valid_dims) {
 #pragma unroll
@@ -224,7 +213,7 @@ __device__ __forceinline__ void load_tile(const T* __restrict__ values,
  * back.
  */
 template <uint32_t Dims, uint32_t N, bool Aligned, typename T>
-__device__ __forceinline__ void add_tile_distances(const T (&row_tile)[Dims / kWarpSize],
+__device__ __forceinline__ void add_tile_distances(const T (&row_tile)[Dims / raft::warp_size()],
                                                    const T* __restrict__ centroids,
                                                    uint32_t stride,
                                                    uint32_t valid_dims,
@@ -232,16 +221,16 @@ __device__ __forceinline__ void add_tile_distances(const T (&row_tile)[Dims / kW
                                                    uint32_t first,
                                                    float& distance)
 {
-  const uint32_t lane = threadIdx.x % kWarpSize;
+  const uint32_t lane = threadIdx.x % raft::warp_size();
   float partial[N];
 #pragma unroll
   for (uint32_t i = 0; i < N; i++) {
     const T* centroid = centroids + static_cast<int64_t>(raft::shfl(ids, first + i)) * stride;
-    T centroid_tile[Dims / kWarpSize];
+    T centroid_tile[Dims / raft::warp_size()];
     load_tile<Dims, Aligned>(centroid, valid_dims, centroid_tile);
     partial[i] = 0;
 #pragma unroll
-    for (uint32_t j = 0; j < Dims / kWarpSize; j++) {
+    for (uint32_t j = 0; j < Dims / raft::warp_size(); j++) {
       const float diff = static_cast<float>(row_tile[j]) - static_cast<float>(centroid_tile[j]);
       partial[i]       = fmaf(diff, diff, partial[i]);
     }
@@ -273,9 +262,9 @@ __device__ __forceinline__ int64_t pack_survivor(uint32_t id, float distance)
  * each but the last, then the argmin, kept if closer than the row's current centroid. Block b
  * handles row row_order[b], ordered using this tile's first-filter survivor counts.
  *
- * The survivor list stays in the row's region of `lists`, but for its first kWarpSize entries,
- * copied to shared memory; the warp reads it a window of kWarpSize entries at a time, lane l
- * holding entry l, and each re-filter compacts it in place.
+ * Row r has count[r] survivors at packed[r * kCentroidBatchSize]. The first warp's entries are
+ * copied to shared memory; the warp reads one window of entries at a time, lane l holding entry l,
+ * and each re-filter compacts the list in place.
  */
 template <typename T, bool Aligned>
 RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
@@ -283,21 +272,22 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
                          const T* __restrict__ centroids,
                          uint32_t centroid_offset,
                          uint32_t dim,
-                         first_filter_lists lists,
+                         int64_t* __restrict__ packed,
+                         const int32_t* __restrict__ count,
                          uint32_t* __restrict__ labels,
                          float* __restrict__ dist)
 {
-  __shared__ int64_t head[kWarpSize];
+  __shared__ int64_t head[raft::warp_size()];
   const uint32_t lane        = threadIdx.x;
   const uint32_t lanes_below = (1u << lane) - 1;
   const int64_t row          = row_order[blockIdx.x];
-  uint32_t n_left            = static_cast<uint32_t>(lists.count[row]);
+  uint32_t n_left            = static_cast<uint32_t>(count[row]);
   const T* row_values        = rows + row * dim;
   uint32_t best_index        = UINT32_MAX;  // No improving candidate yet.
   // The row's distance to its current centroid until the last tile's argmin
   float best = dist[row];
 
-  int64_t* list = lists.packed + row * lists.row_stride;
+  int64_t* list = packed + row * kCentroidBatchSize;
   if (lane < n_left) { head[lane] = list[lane]; }
   __syncwarp();
 
@@ -307,11 +297,11 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
     const bool last = d + kDimTileSize >= dim;
     // The re-filter's ratio
     const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, kAdsamplingEps0);
-    T row_tile[kDimTileSize / kWarpSize];
+    T row_tile[kDimTileSize / raft::warp_size()];
     load_tile<kDimTileSize, Aligned>(row_values + d, dim - d, row_tile);
     uint32_t kept = 0;
-    for (uint32_t base = 0; base < n_left; base += kWarpSize) {
-      const uint32_t w    = min(kWarpSize, n_left - base);
+    for (uint32_t base = 0; base < n_left; base += raft::warp_size()) {
+      const uint32_t w    = min(uint32_t{raft::warp_size()}, n_left - base);
       const int64_t entry = lane >= w ? 0 : base == 0 ? head[lane] : list[base + lane];
       const auto ids      = static_cast<uint32_t>(entry >> kSurvivorIdShift);
       float distance      = __int_as_float(static_cast<int32_t>(entry));
@@ -327,10 +317,10 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
       if (!last) {
         // The kept survivors go below this window's end, never into a later window
         const bool keep       = lane < w && distance < best * ratio;
-        const uint32_t ballot = __ballot_sync(kFullMask, keep);
+        const uint32_t ballot = __ballot_sync(raft::warp_full_mask(), keep);
         if (keep) {
-          const uint32_t slot                          = kept + __popc(ballot & lanes_below);
-          (slot < kWarpSize ? head[slot] : list[slot]) = pack_survivor(ids, distance);
+          const uint32_t slot = kept + __popc(ballot & lanes_below);
+          (slot < raft::warp_size() ? head[slot] : list[slot]) = pack_survivor(ids, distance);
         }
         kept += __popc(ballot);
       } else if (lane < w && distance < best) {  // after the last tile the distances are full
@@ -354,20 +344,19 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
     float distance    = __int_as_float(static_cast<int32_t>(entry));
     const T* centroid = centroids + static_cast<int64_t>(centroid_id) * dim;
     for (; d < dim; d += kDimTileSize) {
-      const bool last   = d + kDimTileSize >= dim;
-      const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, kAdsamplingEps0);
-      T row_tile[kDimTileSize / kWarpSize];
-      T centroid_tile[kDimTileSize / kWarpSize];
+      T row_tile[kDimTileSize / raft::warp_size()];
+      T centroid_tile[kDimTileSize / raft::warp_size()];
       load_tile<kDimTileSize, Aligned>(row_values + d, dim - d, row_tile);
       load_tile<kDimTileSize, Aligned>(centroid + d, dim - d, centroid_tile);
       float partial = 0.f;
 #pragma unroll
-      for (uint32_t j = 0; j < kDimTileSize / kWarpSize; j++) {
+      for (uint32_t j = 0; j < kDimTileSize / raft::warp_size(); j++) {
         const float diff = static_cast<float>(row_tile[j]) - static_cast<float>(centroid_tile[j]);
         partial          = fmaf(diff, diff, partial);
       }
       distance += raft::warpReduce(partial);
-      if (!last) {
+      if (d + kDimTileSize < dim) {
+        const float ratio = adsampling_ratio(d + kDimTileSize, dim, kAdsamplingEps0);
         if (!(distance < best * ratio)) { break; }
       } else if (lane == 0 && distance < best) {
         labels[row] = centroid_offset + centroid_id;
@@ -387,8 +376,8 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
 
 /**
  * The pruning kernel for n_rows rows against one centroid batch (its first centroid
- * centroid_offset), after the fused first filter wrote `lists`. `labels` and `dist` hold each
- * row's current centroid and distance, and get the closer survivor if there is one.
+ * centroid_offset), after the fused first filter wrote `packed` and `count`. `labels` and `dist`
+ * hold each row's current centroid and distance, and get the closer survivor if there is one.
  * row_order: the rows' order.
  */
 template <typename T>
@@ -399,7 +388,8 @@ void prune(const raft::resources& handle,
            const T* centroids,
            uint32_t centroid_offset,
            int64_t dim,
-           first_filter_lists lists,
+           int64_t* packed,
+           const int32_t* count,
            uint32_t* labels,
            float* dist)
 {
@@ -410,14 +400,15 @@ void prune(const raft::resources& handle,
   const auto kernel = dim % kDimTileSize == 0 ? prune_kernel<T, true> : prune_kernel<T, false>;
   raft::launch_kernel(handle,
                       n_rows,
-                      kWarpSize,
+                      raft::warp_size(),
                       kernel,
                       rows,
                       row_order,
                       centroids,
                       centroid_offset,
                       static_cast<uint32_t>(dim),
-                      lists,
+                      packed,
+                      count,
                       labels,
                       dist);
 }

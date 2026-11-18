@@ -320,7 +320,8 @@ void pruned_top_1_nn(raft::resources const& handle,
             y + j * k,
             static_cast<uint32_t>(j),
             k,
-            first_filter_lists{packed, count, kCentroidBatchSize},
+            packed,
+            count,
             row_labels,
             row_dist);
     }
