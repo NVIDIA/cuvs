@@ -12,6 +12,7 @@
 #pragma once
 
 #include <raft/core/error.hpp>
+#include <raft/core/kvp.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/util/cuda_utils.cuh>
@@ -221,8 +222,7 @@ __device__ __forceinline__ void add_tile_distances(const T (&row_tile)[Dims / kW
   float partial[N];
 #pragma unroll
   for (uint32_t i = 0; i < N; i++) {
-    const T* centroid =
-      centroids + static_cast<int64_t>(__shfl_sync(kFullMask, ids, first + i)) * stride;
+    const T* centroid = centroids + static_cast<int64_t>(raft::shfl(ids, first + i)) * stride;
     T centroid_tile[Dims / kWarpSize];
     load_tile<Dims>(centroid, centroid_tile);
     partial[i] = 0;
@@ -235,7 +235,7 @@ __device__ __forceinline__ void add_tile_distances(const T (&row_tile)[Dims / kW
   // Lane i ends with survivor first + i's sum; move it to that survivor's lane
   using batched_reduce = cub::WarpReduceBatched<float, N>;
   typename batched_reduce::TempStorage temp_storage;
-  const float sum = __shfl_sync(kFullMask, batched_reduce{temp_storage}.Sum(partial), lane - first);
+  const float sum = raft::shfl(batched_reduce{temp_storage}.Sum(partial), lane - first);
   if (lane >= first && lane < first + N) { distance += sum; }
 }
 
@@ -364,17 +364,11 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
     return;
   }
 
-  for (int offset = kWarpSize / 2; offset > 0; offset >>= 1) {
-    const uint32_t other_index = __shfl_down_sync(kFullMask, best_index, offset);
-    const float other          = __shfl_down_sync(kFullMask, best, offset);
-    if (other < best) {
-      best       = other;
-      best_index = other_index;
-    }
-  }
-  if (lane == 0 && best_index != UINT32_MAX) {
-    labels[row] = best_index;
-    dist[row]   = best;
+  const auto nearest =
+    raft::warpReduce(raft::KeyValuePair<uint32_t, float>{best_index, best}, raft::argmin_op{});
+  if (lane == 0 && nearest.key != UINT32_MAX) {
+    labels[row] = nearest.key;
+    dist[row]   = nearest.value;
   }
 }
 
