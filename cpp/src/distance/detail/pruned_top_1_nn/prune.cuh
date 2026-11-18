@@ -292,10 +292,8 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
   const uint32_t lanes_below = (1u << lane) - 1;
   const int64_t row          = row_order[blockIdx.x];
   uint32_t n_left            = static_cast<uint32_t>(lists.count[row]);
-  // Nothing survived: nothing else to read or write
-  if (n_left == 0) { return; }
-  const T* row_values = rows + row * dim;
-  uint32_t best_index = UINT32_MAX;  // No improving candidate yet.
+  const T* row_values        = rows + row * dim;
+  uint32_t best_index        = UINT32_MAX;  // No improving candidate yet.
   // The row's distance to its current centroid until the last tile's argmin
   float best = dist[row];
 
