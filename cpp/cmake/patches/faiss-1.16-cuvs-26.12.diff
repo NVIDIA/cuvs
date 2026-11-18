@@ -1,0 +1,196 @@
+diff --git a/faiss/gpu/Dataset.cu b/faiss/gpu/Dataset.cu
+index 22e5bba..af305e8 100644
+--- a/faiss/gpu/Dataset.cu
++++ b/faiss/gpu/Dataset.cu
+@@ -113,7 +113,7 @@ struct TypedDatasetStorage : DatasetStorage {
+     explicit TypedDatasetStorage(Storage value) : value_(std::move(value)) {}
+
+     const void* getData() const override {
+-        return value_.view().data_handle();
++        return value_.view().data_view().data_handle();
+     }
+
+     Storage value_;
+diff --git a/faiss/gpu/impl/BinaryCuvsCagra.cu b/faiss/gpu/impl/BinaryCuvsCagra.cu
+index 826837c..d55dab9 100644
+--- a/faiss/gpu/impl/BinaryCuvsCagra.cu
++++ b/faiss/gpu/impl/BinaryCuvsCagra.cu
+@@ -135,23 +135,18 @@ void BinaryCuvsCagra::train(const Dataset& dataset) {
+                 raft_handle,
+                 cuvs::neighbors::cagra::build(
+                         raft_handle, index_params_, datasetView),
+-                cuvs::neighbors::
+-                        device_padded_dataset_view<uint8_t, int64_t>{});
++                CuvsIndex(raft_handle).dataset());
+     };
+     if (dataset.isCagraCompatible()) {
+-        auto physical = raft::make_device_matrix_view<const uint8_t, int64_t>(
+-                data, n, dataset.getRowStride());
+-        auto view =
+-                cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t>(
+-                        physical, dataset.getDim());
++        auto physical =
++                raft::make_device_strided_matrix_view<const uint8_t, int64_t>(
++                        data, n, dataset.getDim(), dataset.getRowStride());
++        auto view = cuvs::neighbors::make_device_padded_dataset_view(
++                raft_handle, physical);
+         cuvs_index = std::make_shared<CuvsIndex>(cuvs::neighbors::cagra::build(
+                 raft_handle, index_params_, view));
+-    } else if (
+-            dataset.getRowStride() != dataset.getDim() &&
+-            !(dataset.isDevice() && useNNDescent)) {
+-        // Host row gaps may be nonzero; pack them for graph construction.
+-        // Device NN-descent consumes the original rows with their required
+-        // zero-filled gaps, independently of CAGRA search compatibility.
++    } else if (dataset.getRowStride() != dataset.getDim()) {
++        // Standard dataset views require densely packed logical columns.
+         std::vector<uint8_t> packed(n * dataset.getDim());
+         dataset.copyToHost(packed.data());
+         auto physical = raft::make_host_matrix_view<const uint8_t, int64_t>(
+@@ -160,11 +155,11 @@ void BinaryCuvsCagra::train(const Dataset& dataset) {
+                 cuvs::neighbors::make_host_standard_dataset_view(physical));
+         raft_handle.sync_stream();
+     } else if (dataset.isDevice()) {
+-        auto physical = raft::make_device_matrix_view<const uint8_t, int64_t>(
+-                data, n, dataset.getRowStride());
++        auto physical =
++                raft::make_device_strided_matrix_view<const uint8_t, int64_t>(
++                        data, n, dataset.getDim(), dataset.getRowStride());
+         cuvs_index = buildGraph(
+-                cuvs::neighbors::device_standard_dataset_view<uint8_t, int64_t>(
+-                        physical, dataset.getDim()));
++                cuvs::neighbors::make_device_standard_dataset_view(physical));
+     } else {
+         auto physical = raft::make_host_matrix_view<const uint8_t, int64_t>(
+                 data, n, dataset.getDim());
+@@ -186,13 +181,15 @@ void BinaryCuvsCagra::updateDataset(const Dataset& dataset) {
+             dataset.isCagraCompatible(),
+             "Search requires a compatible device Dataset; use Dataset::makeDevicePadded");
+     auto borrowed = dataset.view();
+-    auto physical = raft::make_device_matrix_view<const uint8_t, int64_t>(
+-            static_cast<const uint8_t*>(dataset.getData()),
+-            dataset.getNumRows(),
+-            dataset.getRowStride());
+-    auto view = cuvs::neighbors::device_padded_dataset_view<uint8_t, int64_t>(
+-            physical, dataset.getDim());
++    auto physical =
++            raft::make_device_strided_matrix_view<const uint8_t, int64_t>(
++                    static_cast<const uint8_t*>(dataset.getData()),
++                    dataset.getNumRows(),
++                    dataset.getDim(),
++                    dataset.getRowStride());
+     const auto& raft_handle = resources_->getRaftHandleCurrentDevice();
++    auto view = cuvs::neighbors::make_device_padded_dataset_view(
++            raft_handle, physical);
+     raft_handle.sync_stream();
+     *cuvs_index = cuvs::neighbors::cagra::update_dataset(
+             raft_handle, std::move(*cuvs_index), view);
+diff --git a/faiss/gpu/impl/CuvsCagra.cu b/faiss/gpu/impl/CuvsCagra.cu
+index 9ea81d7..a861a4c 100644
+--- a/faiss/gpu/impl/CuvsCagra.cu
++++ b/faiss/gpu/impl/CuvsCagra.cu
+@@ -129,13 +129,13 @@ CuvsCagra<data_t>::CuvsCagra(
+     cuvs_index->update_graph(
+             raft_handle, raft::make_const_mdspan(graph.view()));
+     if (dataset) {
+-        auto view =
+-                cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>(
+-                        raft::make_device_matrix_view<const data_t, int64_t>(
+-                                static_cast<const data_t*>(dataset->getData()),
+-                                n,
+-                                dataset->getRowStride()),
+-                        dataset->getDim());
++        auto view = cuvs::neighbors::make_device_padded_dataset_view(
++                raft_handle,
++                raft::make_device_strided_matrix_view<const data_t, int64_t>(
++                        static_cast<const data_t*>(dataset->getData()),
++                        n,
++                        dataset->getDim(),
++                        dataset->getRowStride()));
+         *cuvs_index = cuvs::neighbors::cagra::update_dataset(
+                 raft_handle, std::move(*cuvs_index), view);
+         dataset_.emplace(dataset->view());
+@@ -183,15 +183,9 @@ void CuvsCagra<data_t>::train(const Dataset& dataset) {
+     const auto* data = static_cast<const data_t*>(dataset.getData());
+     auto rowStride = dataset.getRowStride();
+     bool deviceInput = dataset.isDevice();
+-    const bool nnDescentDeviceInput = deviceInput &&
+-            graph_build_algo_ == faiss::cagra_build_algo::NN_DESCENT;
+     std::vector<data_t> packed;
+-    if (!nnDescentDeviceInput && !dataset.isCagraCompatible() &&
+-        rowStride != dim_) {
+-        // NN-descent reads device rows directly: the Dataset contract requires
+-        // zero row gaps, which do not change distances. Its graph build does
+-        // not require CAGRA's search alignment or exact padded row width.
+-        // Pack logical columns for host input and other graph builders.
++    if (!dataset.isCagraCompatible() && rowStride != dim_) {
++        // Standard dataset views require densely packed logical columns.
+         packed.resize(static_cast<size_t>(n) * dim_);
+         dataset.copyToHost(packed.data());
+         data = packed.data();
+@@ -199,36 +193,32 @@ void CuvsCagra<data_t>::train(const Dataset& dataset) {
+         deviceInput = false;
+     }
+     if (deviceInput) {
+-        auto physical = raft::make_device_matrix_view<const data_t, int64_t>(
+-                data, n, rowStride);
++        auto physical =
++                raft::make_device_strided_matrix_view<const data_t, int64_t>(
++                        data, n, dataset.getDim(), rowStride);
+         if (dataset.isCagraCompatible()) {
+-            auto view = cuvs::neighbors::
+-                    device_padded_dataset_view<data_t, int64_t>(
+-                            physical, dataset.getDim());
++            auto view = cuvs::neighbors::make_device_padded_dataset_view(
++                    raft_handle, physical);
+             cuvs_index =
+                     std::make_shared<CuvsIndex>(cuvs::neighbors::cagra::build(
+                             raft_handle, index_params_, view));
+         } else {
+-            auto view = cuvs::neighbors::
+-                    device_standard_dataset_view<data_t, int64_t>(
+-                            physical, dataset.getDim());
++            auto view = cuvs::neighbors::make_device_standard_dataset_view(
++                    physical);
+             cuvs_index = std::make_shared<CuvsIndex>(
+                     raft_handle,
+                     cuvs::neighbors::cagra::build(
+                             raft_handle, index_params_, view),
+-                    cuvs::neighbors::
+-                            device_padded_dataset_view<data_t, int64_t>{});
++                    CuvsIndex(raft_handle).dataset());
+         }
+     } else {
+         auto physical = raft::make_host_matrix_view<const data_t, int64_t>(
+-                data, n, rowStride);
+-        auto view =
+-                cuvs::neighbors::host_standard_dataset_view<data_t, int64_t>(
+-                        physical, dataset.getDim());
++                data, n, dataset.getDim());
++        auto view = cuvs::neighbors::make_host_standard_dataset_view(physical);
+         cuvs_index = std::make_shared<CuvsIndex>(
+                 raft_handle,
+                 cuvs::neighbors::cagra::build(raft_handle, index_params_, view),
+-                cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>{});
++                CuvsIndex(raft_handle).dataset());
+     }
+     if (!packed.empty()) {
+         raft_handle.sync_stream();
+@@ -246,12 +236,13 @@ void CuvsCagra<data_t>::updateDataset(const Dataset& dataset) {
+             "CAGRA search requires compatible device storage; use Dataset::makeDevicePadded");
+     auto borrowed = dataset.view();
+     const auto& raft_handle = resources_->getRaftHandleCurrentDevice();
+-    auto view = cuvs::neighbors::device_padded_dataset_view<data_t, int64_t>(
+-            raft::make_device_matrix_view<const data_t, int64_t>(
++    auto view = cuvs::neighbors::make_device_padded_dataset_view(
++            raft_handle,
++            raft::make_device_strided_matrix_view<const data_t, int64_t>(
+                     static_cast<const data_t*>(dataset.getData()),
+                     dataset.getNumRows(),
+-                    dataset.getRowStride()),
+-            dataset.getDim());
++                    dataset.getDim(),
++                    dataset.getRowStride()));
+     // Wait for previous searches before rebinding. On return the caller may
+     // release the old allocation, provided no other index is using it.
+     raft_handle.sync_stream();
