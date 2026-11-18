@@ -38,8 +38,7 @@ namespace cuvs::distance {
 
 namespace detail::pruned_nn {
 
-constexpr int64_t kMaxStreams    = 2;
-constexpr std::size_t kAlignment = 16;
+constexpr int64_t kMaxStreams = 2;
 
 /** The fused first filter's tile on this device, or nullopt when the build or device has none. */
 inline auto filter_tile() -> std::optional<fused_filter_tile>
@@ -170,13 +169,11 @@ inline void order_rows_by_survivors(raft::resources const& handle,
 /**
  * Whether pruned_top_1_nn runs for k features on this build and device: it needs the fused
  * filter's cuTile kernel, the first detail::pruned_nn::kPartialDim dims for filtering, and a
- * positive tail in whole detail::pruned_nn::kDimTileSize tiles to prune on.
+ * positive tail to prune on.
  */
 inline bool is_pruned_top_1_nn_available(int64_t k)
 {
-  return k > detail::pruned_nn::kPartialDim &&
-         (k - detail::pruned_nn::kPartialDim) % detail::pruned_nn::kDimTileSize == 0 &&
-         detail::pruned_nn::filter_tile().has_value();
+  return k > detail::pruned_nn::kPartialDim && detail::pruned_nn::filter_tile().has_value();
 }
 
 /** The workspace pruned_top_1_nn needs for m rows on `handle` (the same handle as the call). */
@@ -247,9 +244,8 @@ void pruned_top_1_nn(raft::resources const& handle,
   constexpr bool kHalf = std::is_same_v<DataT, half>;
   RAFT_EXPECTS(is_pruned_top_1_nn_available(k),
                "Pruned 1-NN needs the fused filter's cuTile kernel and a positive tail after %u "
-               "dims in tiles of %u",
-               kPartialDim,
-               kDimTileSize);
+               "dims",
+               kPartialDim);
   RAFT_EXPECTS(m > 0 && n > 0, "Pruned 1-NN needs rows in x and y");
   RAFT_EXPECTS(kHalf || y_fp16 != nullptr,
                "Pruned 1-NN on float needs an FP16 copy of y's first dims");

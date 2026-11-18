@@ -24,6 +24,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -35,9 +36,11 @@ namespace cuvs {
 
 namespace {
 
-constexpr int64_t kRows     = 4000;
-constexpr int64_t kDim      = 200;  // below one dimension tile: no pruning
-constexpr int64_t kClusters = 300;
+constexpr int64_t kRows              = 4000;
+constexpr int64_t kDim               = 200;  // below one dimension tile: no pruning
+constexpr int64_t kClusters          = 300;
+constexpr int64_t kPrunedDim         = 1536;
+constexpr int64_t kRowAlignmentBytes = 16;
 
 double sq_dist(const float* a, const float* b, int64_t dim)
 {
@@ -295,16 +298,17 @@ TEST(KmeansSuperKMeans, Fallback)
   }
 }
 
-/* With more than 256 clusters and more than 1024 dims, a multiple of 256, the iterations after
- * the first prune on a build and device with the filter's kernels. The
- * pruning bound is a heuristic without a rotation, so the result is compared with Lloyd's from the
- * same start rows rather than exactly. The labels and inertia come from a full assignment.
+/* Exercise pruned assignment with whole dimension tiles and a partial tail. The pruning bound
+ * is a heuristic without a rotation, so compare with Lloyd's from the same start rows rather than
+ * exactly. The labels and inertia come from a full assignment.
  */
-TEST(KmeansSuperKMeans, Pruned)
+class KmeansSuperKMeansPruned : public ::testing::TestWithParam<int64_t> {};
+
+TEST_P(KmeansSuperKMeansPruned, Pruned)
 {
   // Multiple row and centroid batches, with partial final batches and several tail dimension tiles
   constexpr int64_t n_rows     = 300000;
-  constexpr int64_t dim        = 1536;
+  const int64_t dim            = GetParam();
   constexpr int64_t n_clusters = 2200;
   constexpr uint32_t n_iters   = 8;
   constexpr uint64_t seed      = 42;
@@ -382,6 +386,11 @@ TEST(KmeansSuperKMeans, Pruned)
     }
   }
 }
+
+INSTANTIATE_TEST_SUITE_P(DimensionTails,
+                         KmeansSuperKMeansPruned,
+                         ::testing::Values(kPrunedDim,
+                                           kPrunedDim + kRowAlignmentBytes / sizeof(half)));
 
 TEST(KmeansSuperKMeans, AlignmentRequirements)
 {
@@ -473,9 +482,10 @@ TEST(KmeansSuperKMeans, RejectsUnsupported)
                  handle, params, raft::make_const_mdspan(X.view()), small_centroids.view()),
                raft::logic_error);
 
-  params.metric = cuvs::distance::DistanceType::L2Expanded;
-  auto X_odd    = raft::make_device_matrix<float, int64_t>(handle, 1000, 1152);
-  auto C_odd    = raft::make_device_matrix<float, int64_t>(handle, 300, 1152);
+  params.metric                        = cuvs::distance::DistanceType::L2Expanded;
+  constexpr int64_t invalid_stride_dim = kPrunedDim + 1;
+  auto X_odd = raft::make_device_matrix<float, int64_t>(handle, 1000, invalid_stride_dim);
+  auto C_odd = raft::make_device_matrix<float, int64_t>(handle, 300, invalid_stride_dim);
   EXPECT_THROW(cuvs::cluster::kmeans::experimental::fit(
                  handle, params, raft::make_const_mdspan(X_odd.view()), C_odd.view()),
                raft::logic_error);

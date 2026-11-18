@@ -46,8 +46,9 @@ constexpr uint32_t kSurvivorTileSize = 16;
 // fused_filter_kernel.py's ID_SHIFT
 constexpr int kSurvivorIdShift = 32;
 
-constexpr uint32_t kWarpSize = 32;
-constexpr uint32_t kFullMask = 0xffffffff;
+constexpr std::size_t kAlignment = 16;
+constexpr uint32_t kWarpSize     = 32;
+constexpr uint32_t kFullMask     = 0xffffffff;
 
 /**
  * ADSampling's pruning ratio for a partial distance over the first i of dim dims:
@@ -184,19 +185,31 @@ struct first_filter_lists {
 };
 
 /**
- * One dim tile of a vector (16-byte aligned) into the warp's registers, in 16-byte loads:
- * lane l holds dims (32 j + l) * V + [0, V) at tile[j * V + [0, V)], V = 16 / sizeof(T).
+ * One dim tile in 16-byte loads. Non-256-aligned dimensions still have a whole-vector tail;
+ * zero-fill vectors past its end. Aligned instantiations omit the bounds checks.
  */
-template <uint32_t Dims, typename T>
-__device__ __forceinline__ void load_tile(const T* __restrict__ values, T (&tile)[Dims / kWarpSize])
+template <uint32_t Dims, bool Aligned, typename T>
+__device__ __forceinline__ void load_tile(const T* __restrict__ values,
+                                          uint32_t valid_dims,
+                                          T (&tile)[Dims / kWarpSize])
 {
   constexpr uint32_t kVec = 16 / sizeof(T);
   static_assert(Dims % (kWarpSize * kVec) == 0, "a dim tile is whole 16-byte loads per lane");
   const uint32_t lane = threadIdx.x % kWarpSize;
 #pragma unroll
   for (uint32_t j = 0; j < Dims / (kWarpSize * kVec); j++) {
+    const uint32_t offset = (j * kWarpSize + lane) * kVec;
+    if constexpr (!Aligned) {
+      if (offset >= valid_dims) {
+#pragma unroll
+        for (uint32_t k = 0; k < kVec; k++) {
+          tile[j * kVec + k] = T{0};
+        }
+        continue;
+      }
+    }
     raft::TxN_t<T, kVec> v;
-    v.load(values, (j * kWarpSize + lane) * kVec);
+    v.load(values, offset);
 #pragma unroll
     for (uint32_t k = 0; k < kVec; k++) {
       tile[j * kVec + k] = v.val.data[k];
@@ -210,10 +223,11 @@ __device__ __forceinline__ void load_tile(const T* __restrict__ values, T (&tile
  * holding each survivor adds its distance to `distance`. The N centroids' loads are issued back to
  * back.
  */
-template <uint32_t Dims, uint32_t N, typename T>
+template <uint32_t Dims, uint32_t N, bool Aligned, typename T>
 __device__ __forceinline__ void add_tile_distances(const T (&row_tile)[Dims / kWarpSize],
                                                    const T* __restrict__ centroids,
                                                    uint32_t stride,
+                                                   uint32_t valid_dims,
                                                    uint32_t ids,
                                                    uint32_t first,
                                                    float& distance)
@@ -224,7 +238,7 @@ __device__ __forceinline__ void add_tile_distances(const T (&row_tile)[Dims / kW
   for (uint32_t i = 0; i < N; i++) {
     const T* centroid = centroids + static_cast<int64_t>(raft::shfl(ids, first + i)) * stride;
     T centroid_tile[Dims / kWarpSize];
-    load_tile<Dims>(centroid, centroid_tile);
+    load_tile<Dims, Aligned>(centroid, valid_dims, centroid_tile);
     partial[i] = 0;
 #pragma unroll
     for (uint32_t j = 0; j < Dims / kWarpSize; j++) {
@@ -263,7 +277,7 @@ __device__ __forceinline__ int64_t pack_survivor(uint32_t id, float distance)
  * copied to shared memory; the warp reads it a window of kWarpSize entries at a time, lane l
  * holding entry l, and each re-filter compacts it in place.
  */
-template <typename T>
+template <typename T, bool Aligned>
 RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
                          const uint32_t* __restrict__ row_order,
                          const T* __restrict__ centroids,
@@ -296,7 +310,7 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
     // The re-filter's ratio
     const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, kAdsamplingEps0);
     T row_tile[kDimTileSize / kWarpSize];
-    load_tile<kDimTileSize>(row_values + d, row_tile);
+    load_tile<kDimTileSize, Aligned>(row_values + d, dim - d, row_tile);
     uint32_t kept = 0;
     for (uint32_t base = 0; base < n_left; base += kWarpSize) {
       const uint32_t w    = min(kWarpSize, n_left - base);
@@ -308,7 +322,8 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
       for_each_halving<kSurvivorTileSize>([&](auto tile) {
         constexpr uint32_t kTile = decltype(tile)::value;
         for (; i + kTile <= w; i += kTile) {
-          add_tile_distances<kDimTileSize, kTile>(row_tile, centroids + d, dim, ids, i, distance);
+          add_tile_distances<kDimTileSize, kTile, Aligned>(
+            row_tile, centroids + d, dim, dim - d, ids, i, distance);
         }
       });
       if (!last) {
@@ -345,8 +360,8 @@ RAFT_KERNEL prune_kernel(const T* __restrict__ rows,
       const float ratio = last ? 0.0f : adsampling_ratio(d + kDimTileSize, dim, kAdsamplingEps0);
       T row_tile[kDimTileSize / kWarpSize];
       T centroid_tile[kDimTileSize / kWarpSize];
-      load_tile<kDimTileSize>(row_values + d, row_tile);
-      load_tile<kDimTileSize>(centroid + d, centroid_tile);
+      load_tile<kDimTileSize, Aligned>(row_values + d, dim - d, row_tile);
+      load_tile<kDimTileSize, Aligned>(centroid + d, dim - d, centroid_tile);
       float partial = 0.f;
 #pragma unroll
       for (uint32_t j = 0; j < kDimTileSize / kWarpSize; j++) {
@@ -390,14 +405,15 @@ void prune(const raft::resources& handle,
            uint32_t* labels,
            float* dist)
 {
-  RAFT_EXPECTS(dim > kPartialDim && (dim - kPartialDim) % kDimTileSize == 0,
-               "Pruned 1-NN needs a positive tail after %u dims in tiles of %u",
-               kPartialDim,
-               kDimTileSize);
+  RAFT_EXPECTS(dim > kPartialDim, "Pruned 1-NN needs a positive tail after %u dims", kPartialDim);
+  RAFT_EXPECTS(dim % (kAlignment / sizeof(T)) == 0,
+               "Pruned 1-NN needs row strides divisible by 16 bytes");
+  // Whole dimension tiles keep the vectorized kernel free of tail checks.
+  const auto kernel = dim % kDimTileSize == 0 ? prune_kernel<T, true> : prune_kernel<T, false>;
   raft::launch_kernel(handle,
                       n_rows,
                       kWarpSize,
-                      prune_kernel<T>,
+                      kernel,
                       rows,
                       row_order,
                       centroids,

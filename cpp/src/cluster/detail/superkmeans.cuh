@@ -36,8 +36,8 @@ namespace cuvs::cluster::kmeans::detail::superkmeans {
 
 namespace pruned_nn = cuvs::distance::detail::pruned_nn;
 
-// Pruning works on whole dimension tiles past the first filter's, and only pays off with enough
-// centroids to discard; below that every iteration assigns with the full 1-NN.
+// Pruning only pays off with enough dimensions and centroids to discard; below these thresholds
+// every iteration assigns with the full 1-NN.
 constexpr int64_t kMinPrunedK   = 256;
 constexpr int64_t kMinPrunedDim = 1024;
 
@@ -228,11 +228,8 @@ void fit(const raft::resources& handle,
   const bool pruned = prunes(n_clusters, dim);
   if (pruned) {
     // Validate before sampling centroids or allocating scratch: eligible inputs must use pruning.
-    RAFT_EXPECTS(
-      dim > pruned_nn::kPartialDim && (dim - pruned_nn::kPartialDim) % pruned_nn::kDimTileSize == 0,
-      "SuperKMeans pruning needs a positive tail after %u dims in tiles of %u",
-      pruned_nn::kPartialDim,
-      pruned_nn::kDimTileSize);
+    RAFT_EXPECTS(dim % (pruned_nn::kAlignment / sizeof(T)) == 0,
+                 "SuperKMeans pruning needs row strides divisible by 16 bytes");
     const auto aligned = [](const void* ptr) {
       return reinterpret_cast<uintptr_t>(ptr) % pruned_nn::kAlignment == 0;
     };
