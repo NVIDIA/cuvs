@@ -6,8 +6,16 @@
 #include <gtest/gtest.h>
 
 #include "../ann_cagra.cuh"
+#include "../ann_cagra_ace.cuh"
 
 namespace cuvs::neighbors::cagra {
+
+typedef AnnCagraAceTest<half> AnnCagraAceTestF16_U32;
+TEST_P(AnnCagraAceTestF16_U32, BuildSearch) { this->testCagraAce(); }
+INSTANTIATE_TEST_CASE_P(AnnCagraAceTest,
+                        AnnCagraAceTestF16_U32,
+                        ::testing::ValuesIn(inputs_ace),
+                        ace_case_name);
 
 typedef AnnCagraTest<float, half, std::uint32_t> AnnCagraTestF16_U32;
 TEST_P(AnnCagraTestF16_U32, AnnCagra_U32) { this->testCagra<uint32_t>(); }
