@@ -25,7 +25,7 @@ Most source builds use the repository `build.sh` script. The script wraps CMake,
 
 The common source-build prerequisites are:
 
-1. CMake 4.0 or newer.
+1. CMake 4.3 or newer.
 2. GCC 13.3 or newer.
 3. A Python 3 interpreter.
   * cuTile ( CUDA 13.1 or newer ): the `cuda.tile` Python package, `tileiras` and `bin2c`. With conda install `cutile-python` and `cuda-tileiras`; with pip install `cuda-tile` and `cuda-toolkit[tileiras]`.
