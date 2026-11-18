@@ -396,4 +396,123 @@ inline auto var_search_mode_1_bit() -> test_cases_t
 #define INSTANTIATE(type, vals) \
   INSTANTIATE_TEST_SUITE_P(IvfRabitq, type, ::testing::ValuesIn(vals)); /* NOLINT */
 
+/* Empty lists */
+
+enum class dataset_input { device, host, host_streaming };
+
+struct ivf_rabitq_empty_lists_inputs {
+  uint32_t dim;
+  dataset_input input;
+};
+
+inline auto operator<<(std::ostream& os, const ivf_rabitq_empty_lists_inputs& p) -> std::ostream&
+{
+  const char* input = p.input == dataset_input::device ? "device"
+                      : p.input == dataset_input::host ? "host"
+                                                       : "host_streaming";
+  return os << "ivf_rabitq_empty_lists_inputs {.dim = " << p.dim << ", .input = " << input << "}";
+}
+
+/**
+ * The dataset has fewer distinct rows than there are lists. Identical rows are always assigned to
+ * the same list, so k-means is guaranteed to leave some lists empty. The index must still build
+ * from device and host input, and search must still find the nearest rows.
+ */
+class ivf_rabitq_empty_lists_test : public ::testing::TestWithParam<ivf_rabitq_empty_lists_inputs> {
+ protected:
+  void run()
+  {
+    constexpr int64_t kRows     = 4096;
+    constexpr int64_t kDistinct = 8;
+    constexpr int64_t kQueries  = 2 * kDistinct;
+    constexpr int64_t kK        = 10;
+    constexpr uint32_t kLists   = 32;
+    constexpr float kSpacing    = 0.25f;
+    constexpr float kOffset     = 0.1f;
+
+    auto ps     = GetParam();
+    auto dim    = static_cast<int64_t>(ps.dim);
+    auto stream = raft::resource::get_cuda_stream(handle_);
+
+    // Row i is the point kSpacing * (i % kDistinct) on the diagonal. Query q is offset from the
+    // distinct row q % kDistinct by +-kOffset in every dimension, so that row is its unique nearest
+    // distinct row at squared L2 distance kOffset^2 * dim.
+    auto h_dataset = raft::make_host_matrix<float, int64_t>(kRows, dim);
+    for (int64_t i = 0; i < kRows; i++) {
+      for (int64_t j = 0; j < dim; j++) {
+        h_dataset(i, j) = kSpacing * static_cast<float>(i % kDistinct);
+      }
+    }
+    auto h_queries = raft::make_host_matrix<float, int64_t>(kQueries, dim);
+    for (int64_t i = 0; i < kQueries; i++) {
+      for (int64_t j = 0; j < dim; j++) {
+        h_queries(i, j) =
+          kSpacing * static_cast<float>(i % kDistinct) + (i < kDistinct ? kOffset : -kOffset);
+      }
+    }
+    auto d_dataset = raft::make_device_matrix<float, int64_t>(handle_, kRows, dim);
+    auto d_queries = raft::make_device_matrix<float, int64_t>(handle_, kQueries, dim);
+    raft::copy(d_dataset.data_handle(), h_dataset.data_handle(), h_dataset.size(), stream);
+    raft::copy(d_queries.data_handle(), h_queries.data_handle(), h_queries.size(), stream);
+
+    index_params ipams;
+    ipams.n_lists = kLists;
+    if (ps.input == dataset_input::host_streaming) {
+      ipams.force_streaming      = true;
+      ipams.streaming_batch_size = kRows;
+    }
+    auto idx = ps.input == dataset_input::device
+                 ? build(handle_, ipams, raft::make_const_mdspan(d_dataset.view()))
+                 : build(handle_, ipams, raft::make_const_mdspan(h_dataset.view()));
+
+    // Probe every list, because an empty list's centroid can be closer to a query than the
+    // centroid of the list that holds its neighbors.
+    search_params sparams;
+    sparams.n_probes = kLists;
+    auto neighbors   = raft::make_device_matrix<int64_t, int64_t>(handle_, kQueries, kK);
+    auto distances   = raft::make_device_matrix<float, int64_t>(handle_, kQueries, kK);
+    search(handle_,
+           sparams,
+           idx,
+           raft::make_const_mdspan(d_queries.view()),
+           neighbors.view(),
+           distances.view());
+
+    std::vector<int64_t> h_neighbors(kQueries * kK);
+    std::vector<float> h_distances(kQueries * kK);
+    raft::copy(h_neighbors.data(), neighbors.data_handle(), h_neighbors.size(), stream);
+    raft::copy(h_distances.data(), distances.data_handle(), h_distances.size(), stream);
+    raft::resource::sync_stream(handle_);
+
+    // Every row has kRows / kDistinct > kK copies, so all kK neighbors are copies of the nearest
+    // distinct row. The next nearest distinct row is (kSpacing - kOffset)^2 * dim away.
+    const float expected_dist = kOffset * kOffset * static_cast<float>(dim);
+    for (int64_t q = 0; q < kQueries; q++) {
+      for (int64_t j = 0; j < kK; j++) {
+        auto neighbor = h_neighbors[q * kK + j];
+        auto dist     = h_distances[q * kK + j];
+        ASSERT_TRUE(neighbor >= 0 && neighbor < kRows)
+          << ps << ": query " << q << ", neighbor " << j << " = " << neighbor;
+        ASSERT_EQ(neighbor % kDistinct, q % kDistinct)
+          << ps << ": query " << q << ", neighbor " << j << " = " << neighbor;
+        ASSERT_NEAR(dist, expected_dist, 0.1f * expected_dist)
+          << ps << ": query " << q << ", neighbor " << j << " = " << neighbor;
+      }
+    }
+  }
+
+  raft::resources handle_;
+};
+
+inline auto empty_lists_inputs() -> std::vector<ivf_rabitq_empty_lists_inputs>
+{
+  std::vector<ivf_rabitq_empty_lists_inputs> xs;
+  for (uint32_t dim : {1, 2, 7, 64, 100}) {
+    for (auto input : {dataset_input::device, dataset_input::host, dataset_input::host_streaming}) {
+      xs.push_back({dim, input});
+    }
+  }
+  return xs;
+}
+
 }  // namespace cuvs::neighbors::ivf_rabitq

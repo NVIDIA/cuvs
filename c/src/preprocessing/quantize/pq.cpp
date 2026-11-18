@@ -1,9 +1,10 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
 #include <cstdint>
+#include <utility>
 #include <dlpack/dlpack.h>
 
 #include <cuvs/core/c_api.h>
@@ -72,12 +73,12 @@ void* _build(cuvsResources_t res,
     using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
     auto mds          = cuvs::core::from_dlpack<mdspan_type>(dataset_tensor);
     ret = new cuvs::preprocessing::quantize::pq::quantizer<T>{
-      cuvs::preprocessing::quantize::pq::build(*res_ptr, quantizer_params, mds)};
+      cuvs::preprocessing::quantize::pq::build(*res_ptr, std::move(quantizer_params), mds)};
   } else if (cuvs::core::is_dlpack_host_compatible(dataset)) {
     using host_mdspan_type = raft::host_matrix_view<T const, int64_t, raft::row_major>;
     auto mds          = cuvs::core::from_dlpack<host_mdspan_type>(dataset_tensor);
     ret = new cuvs::preprocessing::quantize::pq::quantizer<T>{
-      cuvs::preprocessing::quantize::pq::build(*res_ptr, quantizer_params, mds)};
+      cuvs::preprocessing::quantize::pq::build(*res_ptr, std::move(quantizer_params), mds)};
   } else {
     RAFT_FAIL("dataset must be accessible on host or device memory");
   }
@@ -244,7 +245,7 @@ extern "C" cuvsError_t cuvsProductQuantizerGetPqCodebook(cuvsProductQuantizer_t 
       if (quantizer->dtype.code == kDLFloat && quantizer->dtype.bits == 32) {
         auto pq_mdspan =
           (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))
-            ->vpq_codebooks.pq_code_book.view();
+            ->vpq_codebooks.manifest_view().pq_code_book;
         cuvs::core::to_dlpack(pq_mdspan, pq_codebook);
       } else {
         RAFT_FAIL("Unsupported quantizer dtype: %d and bits: %d",
@@ -266,7 +267,7 @@ extern "C" cuvsError_t cuvsProductQuantizerGetVqCodebook(cuvsProductQuantizer_t 
       if (quantizer->dtype.code == kDLFloat && quantizer->dtype.bits == 32) {
         auto pq_mdspan =
           (reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<float>*>(quant_addr))
-            ->vpq_codebooks.vq_code_book.view();
+            ->vpq_codebooks.manifest_view().vq_code_book;
         cuvs::core::to_dlpack(pq_mdspan, vq_codebook);
       } else {
         RAFT_FAIL("Unsupported quantizer dtype: %d and bits: %d",

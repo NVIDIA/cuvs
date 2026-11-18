@@ -1,6 +1,5 @@
 *.iml
 hs_err*.log
-cufile.log
 target/
 jextract-22/
 openjdk-22-jextract*

@@ -12,7 +12,7 @@ public class CagraCompressionParams
 
 Supplemental compression parameters to build CAGRA Index.
 
-## Public Members
+## Public and Protected Members
 
 ### getPqBits
 

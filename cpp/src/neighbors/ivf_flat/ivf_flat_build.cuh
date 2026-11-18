@@ -237,6 +237,8 @@ void extend(raft::resources const& handle,
     auto list_sizes_view =
       raft::make_device_vector_view<std::remove_pointer_t<decltype(list_sizes_ptr)>, IdxT>(
         list_sizes_ptr, n_lists);
+    vec_batches.reset();
+    vec_batches.prefetch_next_batch();
     for (const auto& batch : vec_batches) {
       auto batch_data_view =
         raft::make_device_matrix_view<const T, IdxT>(batch.data(), batch.size(), index->dim());
@@ -249,6 +251,9 @@ void extend(raft::resources const& handle,
                                                                       list_sizes_view,
                                                                       false,
                                                                       utils::mapping<float>{});
+      vec_batches.prefetch_next_batch();
+      // The copy stream must not overwrite a batch while the main stream still reads it.
+      if (enable_prefetch) { raft::resource::sync_stream(handle); }
     }
   } else {
     raft::stats::histogram<uint32_t, IdxT>(raft::stats::HistTypeAuto,

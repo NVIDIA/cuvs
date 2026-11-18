@@ -88,7 +88,7 @@ requirements:
     - if: linux64
       then:
         - libaio
-        - libboost-devel=1.87
+        - libboost-devel=1.88
         - mkl-devel=2023
   run:
     - if: aarch64
@@ -110,6 +110,8 @@ requirements:
         - mkl =2023
         - llvm-openmp
   ignore_run_exports:
+    from_package:
+      - libboost-devel
     by_name:
       - glog
       - libboost
