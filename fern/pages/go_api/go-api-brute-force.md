@@ -39,7 +39,7 @@ Builds a new Brute Force KNN Index from the dataset for efficient search.
 * `metric` - Distance type to use for building the index
 * `metric_arg` - Value of `p` for Minkowski distances - set to 2.0 if not applicable
 
-_Source: `go/brute_force/brute_force.go:48`_
+_Source: `go/brute_force/brute_force.go:57`_
 
 ### CreateIndex
 
@@ -66,7 +66,7 @@ Perform a Nearest Neighbors search on the Index
 * `neighbors` - Tensor in device memory that receives the indices of the nearest neighbors
 * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 
-_Source: `go/brute_force/brute_force.go:72`_
+_Source: `go/brute_force/brute_force.go:84`_
 
 ## Methods
 

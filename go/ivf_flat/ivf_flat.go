@@ -36,6 +36,12 @@ func CreateIndex[T any](params *IndexParams, dataset *cuvs.Tensor[T]) (*IvfFlatI
 // * `dataset` - A row-major Tensor on either the host or device to index
 // * `index` - IvfFlatIndex to build
 func BuildIndex[T any](Resources cuvs.Resource, params *IndexParams, dataset *cuvs.Tensor[T], index *IvfFlatIndex) error {
+	if index.closed() {
+		return errors.New("index is closed")
+	}
+	if params == nil || params.params == nil {
+		return errors.New("index params are closed")
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsIvfFlatBuild(C.ulong(Resources.Resource), params.params, (*C.DLManagedTensor)(unsafe.Pointer(dataset.C_tensor)), index.index)))
 	if err != nil {
 		return err
@@ -46,11 +52,20 @@ func BuildIndex[T any](Resources cuvs.Resource, params *IndexParams, dataset *cu
 
 // Destroys the IvfFlatIndex
 func (index *IvfFlatIndex) Close() error {
+	if index == nil || index.index == nil {
+		return nil
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsIvfFlatIndexDestroy(index.index)))
 	if err != nil {
 		return err
 	}
+	index.index = nil
+	index.trained = false
 	return nil
+}
+
+func (index *IvfFlatIndex) closed() bool {
+	return index == nil || index.index == nil
 }
 
 // Perform a Approximate Nearest Neighbors search on the Index
@@ -64,6 +79,12 @@ func (index *IvfFlatIndex) Close() error {
 // * `neighbors` - Tensor in device memory that receives the indices of the nearest neighbors
 // * `distances` - Tensor in device memory that receives the distances of the nearest neighbors
 func SearchIndex[T any](Resources cuvs.Resource, params *SearchParams, index *IvfFlatIndex, queries *cuvs.Tensor[T], neighbors *cuvs.Tensor[int64], distances *cuvs.Tensor[T]) error {
+	if index.closed() {
+		return errors.New("index is closed")
+	}
+	if params == nil || params.params == nil {
+		return errors.New("search params are closed")
+	}
 	if !index.trained {
 		return errors.New("index needs to be built before calling search")
 	}
@@ -77,6 +98,9 @@ func SearchIndex[T any](Resources cuvs.Resource, params *SearchParams, index *Iv
 
 func GetNLists(index *IvfFlatIndex) (nlist int64, err error) {
 	var ret C.int64_t
+	if index.closed() {
+		return 0, errors.New("index is closed")
+	}
 	if !index.trained {
 		return 0, errors.New("index needs to be built before calling GetNLists")
 	}
@@ -92,6 +116,9 @@ func GetNLists(index *IvfFlatIndex) (nlist int64, err error) {
 
 func GetDim(index *IvfFlatIndex) (dim int64, err error) {
 	var ret C.int64_t
+	if index.closed() {
+		return 0, errors.New("index is closed")
+	}
 	if !index.trained {
 		return 0, errors.New("index needs to be built before calling GetDim")
 	}
@@ -106,6 +133,9 @@ func GetDim(index *IvfFlatIndex) (dim int64, err error) {
 }
 
 func GetCenters[T any](index *IvfFlatIndex, centers *cuvs.Tensor[T]) error {
+	if index.closed() {
+		return errors.New("index is closed")
+	}
 	if !index.trained {
 		return errors.New("index needs to be built before calling GetCenters")
 	}

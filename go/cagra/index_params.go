@@ -75,10 +75,14 @@ func (p *IndexParams) SetNNDescentNiter(nn_descent_niter uint32) (*IndexParams, 
 
 // Destroys IndexParams
 func (p *IndexParams) Close() error {
+	if p == nil || p.params == nil {
+		return nil
+	}
 	err := cuvs.CheckCuvs(cuvs.CuvsError(C.cuvsCagraIndexParamsDestroy(p.params)))
 	if err != nil {
 		return err
 	}
+	p.params = nil
 
 	return nil
 }
