@@ -16,6 +16,7 @@
 #include <raft/linalg/unary_op.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <fstream>
@@ -139,7 +140,7 @@ auto cuvs_ivf_flat<T, IdxT>::estimate_work(int n_queries, int k) const
   -> std::optional<work_estimate>
 {
   const double nlist  = index_->n_lists();
-  const double nprobe = search_params_.n_probes;
+  const double nprobe = std::min<double>(search_params_.n_probes, nlist);
   const double n_rows = index_->size();
   const double dim    = dimension_;
 
@@ -159,7 +160,8 @@ auto cuvs_ivf_flat<T, IdxT>::estimate_work(int n_queries, int k) const
   const size_t bytes = sizeof(float) * nlist * dim +
                        sizeof(T) * (distinct_clusters_probed * average_cluster_size * dim +
                                     n_queries * dim) +
-                       n_queries * k * (sizeof(float) + sizeof(algo_base::index_type));
+                       static_cast<size_t>(n_queries) * k *
+                         (sizeof(float) + sizeof(algo_base::index_type));
   return work_estimate{flops, bytes};
 }
 

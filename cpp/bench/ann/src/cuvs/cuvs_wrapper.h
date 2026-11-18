@@ -164,7 +164,8 @@ auto cuvs_gpu<T>::estimate_work(int n_queries, int k) const -> std::optional<wor
 
   // Minimum traffic: read the dataset and the queries once, write k results per query.
   const size_t bytes = sizeof(T) * (n_rows * dim + n_queries * dim) +
-                       n_queries * k * (sizeof(float) + sizeof(algo_base::index_type));
+                       static_cast<size_t>(n_queries) * k *
+                         (sizeof(float) + sizeof(algo_base::index_type));
   return work_estimate{flops, bytes};
 }
 

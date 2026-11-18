@@ -21,6 +21,7 @@
 #include <raft/linalg/unary_op.cuh>
 #include <raft/util/cudart_utils.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <type_traits>
@@ -138,7 +139,7 @@ auto cuvs_ivf_pq<T, IdxT>::estimate_work(int n_queries, int k) const
   -> std::optional<work_estimate>
 {
   const double nlist  = index_->n_lists();
-  const double nprobe = search_params_.n_probes;
+  const double nprobe = std::min<double>(search_params_.n_probes, nlist);
   const double n_rows = index_->size();
   const double dim    = dimension_;
 
@@ -154,12 +155,23 @@ auto cuvs_ivf_pq<T, IdxT>::estimate_work(int n_queries, int k) const
   const double distinct_clusters_probed =
     nlist * (1.0 - std::pow(1.0 - nprobe / nlist, n_queries));
 
+  // The cluster centers read by the coarse search: the copy in coarse_search_dtype, with its padded
+  // width, as selected by get_centers() in the library's search.
+  const auto bytes_of = [](const auto& m) {
+    return sizeof(*m.data_handle()) * static_cast<double>(m.size());
+  };
+  const auto dtype           = search_params_.coarse_search_dtype;
+  const double centers_bytes = dtype == CUDA_R_16F ? bytes_of(index_->centers_half(handle_))
+                               : dtype == CUDA_R_8I ? bytes_of(index_->centers_int8(handle_))
+                                                    : bytes_of(index_->centers());
+
   // Only the coarse search and the scan of the compressed vectors are counted. The query rotation,
   // the lookup tables and the refinement step are not.
-  const size_t bytes = sizeof(float) * nlist * dim +
+  const size_t bytes = centers_bytes +
                        distinct_clusters_probed * average_cluster_size * compressed_vector_bytes +
                        sizeof(T) * n_queries * dim +
-                       n_queries * k * (sizeof(float) + sizeof(algo_base::index_type));
+                       static_cast<size_t>(n_queries) * k *
+                         (sizeof(float) + sizeof(algo_base::index_type));
 
   // Flops are not estimated for IVF-PQ yet.
   return work_estimate{std::nullopt, bytes};
