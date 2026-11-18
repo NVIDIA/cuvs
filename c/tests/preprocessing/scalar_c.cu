@@ -24,7 +24,7 @@ class ScalarQuantizerC : public ::testing::Test {
   cudaStream_t stream{};
   cuvsScalarQuantizerParams_t params{};
   cuvsScalarQuantizer_t quantizer{};
-  std::vector<T> values{0.f, 10.f, 9.f, 254.f, 137.f, 9.f};
+  std::vector<T> values{0.f, 10.f, 9.f, 255.f, 137.5f, 9.f};
   std::vector<int8_t> host_codes = std::vector<int8_t>(values.size());
   rmm::device_uvector<T> input{0, stream};
   rmm::device_uvector<int8_t> codes{0, stream};
@@ -73,7 +73,7 @@ class ScalarQuantizerC : public ::testing::Test {
     raft::update_host(host_codes.data(), codes.data(), host_codes.size(), stream);
     raft::update_host(decoded.data(), input.data(), decoded.size(), stream);
     ASSERT_EQ(cuvsStreamSync(res), CUVS_SUCCESS);
-    EXPECT_EQ(host_codes, (std::vector<int8_t>{-127, -127, 0, 127, 127, 0}));
+    EXPECT_EQ(host_codes, (std::vector<int8_t>{-128, -128, -128, 127, 127, -128}));
     EXPECT_EQ(decoded, values);
   }
 };
@@ -124,7 +124,7 @@ TEST_F(ScalarQuantizerCFloat, RetrainingChangesMode)
   check_per_dimension_round_trip();
   ASSERT_EQ(train(CUVS_SCALAR_GLOBAL, host), CUVS_SUCCESS);
   EXPECT_EQ(quantizer->min_, 0);
-  EXPECT_EQ(quantizer->max_, 254);
+  EXPECT_EQ(quantizer->max_, 255);
   EXPECT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &host, &host_encoded), CUVS_SUCCESS);
 }
 

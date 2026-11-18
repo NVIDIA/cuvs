@@ -182,7 +182,7 @@ DLManagedTensor* dataset,
 DLManagedTensor* out);
 ```
 
-Per-dimension mode requires device matrices with the same input type and width as training. Its output codes are int8 in [-127, 127]. The quantizer must outlive stream work using its bounds.
+Per-dimension mode requires device matrices with the same input type and width as training. The quantizer must outlive stream work using its bounds.
 
 **Parameters**
 

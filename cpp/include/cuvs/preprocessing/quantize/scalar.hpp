@@ -14,7 +14,6 @@
 #include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/core/export.hpp>
 
-#include <cmath>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -44,21 +43,16 @@ struct params {
   /**
    * Per-dimension training uses every row of a nonempty, finite dataset.
    * It applies the quantile independently to each dimension to select lower and upper bounds.
-   * Transforms derive each dimension's shift from the midpoint of its bounds, rounded to the input
-   * type. Each dimension's scale fits its bounds around that shift into the symmetric range of
-   * quantized values.
-   *
-   * For a zero-width interval, its scale is one. Otherwise, each scale is at least
-   * the smallest positive normal value of the scale type.
+   * Transforms map each dimension's bounds to the quantized range exactly as global bounds are
+   * mapped.
    */
   quantization_mode range = quantization_mode::GLOBAL;
   /**
    * Maximum rows staged on device for host training and host dataset build.
    * Default: 65536. Zero processes the entire host input in one batch. Ignored for device input.
    * Multiple batches use two input buffers when res has an auxiliary stream pool, and one
-   * otherwise. Pageable input uses batch-sized pinned staging buffers, without registering
-   * the full input. Each input buffer uses at most device_buffer_samples * dim * sizeof(T)
-   * bytes, in addition to reduction and encoding workspace. Substitute n_rows when it is zero.
+   * otherwise. Each input buffer uses at most device_buffer_samples * dim * sizeof(T) bytes, in
+   * addition to reduction and encoding workspace. Substitute n_rows when it is zero.
    *
    * Per-dimension host training with quantile < 1 selects exact quantiles using one column of
    * host scratch (n_rows * sizeof(T) bytes). Global training retains its sampled quantiles.
@@ -69,7 +63,7 @@ struct params {
 /**
  * Non-owning scalar quantizer bounds, with the constness semantics of an mdspan:
  * quantizer_view<T> can modify per-dimension bounds; quantizer_view<const T> cannot.
- * Global bounds and max_error are copied. The owner must outlive stream work using the vectors.
+ * Global bounds are copied. The owner must outlive stream work using the vectors.
  */
 template <typename T>
 struct quantizer_view {
@@ -86,10 +80,8 @@ struct quantizer_view {
     /** Upper bound shared by all dimensions. */
     value_type max = value_type{0};
   };
-  /** Per-dimension bounds. Transforms derive midpoint shifts and scales from these bounds.
-   * Encode (x - shift) / scale, rounding to nearest with ties to even and
-   * clamping to the symmetric range of quantized values.
-   * Decode shift + scale * code, saturating to finite limits of the input type. */
+  /** Per-dimension bounds. Transforms map each dimension as global_type does, with that
+   * dimension's bounds. */
   struct per_dim_type {
     /** One finite lower bound per dimension, with mins[j] <= maxs[j]. */
     vector_view_type mins;
@@ -98,22 +90,19 @@ struct quantizer_view {
   };
   /** Global bounds or borrowed per-dimension bounds. */
   std::variant<global_type, per_dim_type> value;
-  /** Maximum training-row L2 reconstruction error; see quantizer::max_error. */
-  scale_type max_error = INFINITY;
 
-  /** A mutable view decays to the read-only one, the way an mdspan does. */
+  // A mutable view decays to the read-only one, the way an mdspan does.
   template <typename U>
     requires(!std::is_const_v<T> && std::is_same_v<U, const T>)
   operator quantizer_view<U>() const noexcept  // NOLINT(google-explicit-constructor)
   {
     using const_view_type = quantizer_view<U>;
     if (auto const* range = std::get_if<global_type>(&value)) {
-      return {typename const_view_type::global_type{range->min, range->max}, max_error};
+      return {typename const_view_type::global_type{range->min, range->max}};
     }
     auto const& bounds = std::get<per_dim_type>(value);
     return {typename const_view_type::per_dim_type{raft::make_const_mdspan(bounds.mins),
-                                                   raft::make_const_mdspan(bounds.maxs)},
-            max_error};
+                                                   raft::make_const_mdspan(bounds.maxs)}};
   }
 };
 
@@ -136,14 +125,6 @@ struct quantizer {
   };
   /** Global bounds or owning per-dimension bounds. */
   std::variant<global_type, per_dim_type> value;
-  /**
-   * Upper bound on the L2 error between a training row and its int8 encode/decode result.
-   * train measures every input row, including clipped outliers, and rounds the maximum up
-   * with a relative 1e-6 margin. This bound applies only to the training data, not later queries.
-   * It is infinity when constructed from parameters alone or when the error is not finite.
-   */
-  scale_type max_error = INFINITY;
-
   /** Construct default global bounds. */
   quantizer() : value{global_type{}} {}
   /** Construct from finite global bounds with min <= max. */
@@ -156,19 +137,18 @@ struct quantizer {
   /** Borrow mutable per-dimension bounds; the owner must outlive stream work using them. */
   [[nodiscard]] auto view() noexcept -> view_type
   {
-    if (auto const* range = std::get_if<global_type>(&value)) { return {*range, max_error}; }
+    if (auto const* range = std::get_if<global_type>(&value)) { return {*range}; }
     auto& bounds = std::get<per_dim_type>(value);
-    return {typename view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()}, max_error};
+    return {typename view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()}};
   }
   /** Borrow read-only bounds; the owner must outlive stream work using per-dimension bounds. */
   [[nodiscard]] auto view() const noexcept -> const_view_type
   {
     if (auto const* range = std::get_if<global_type>(&value)) {
-      return {typename const_view_type::global_type{range->min, range->max}, max_error};
+      return {typename const_view_type::global_type{range->min, range->max}};
     }
     auto const& bounds = std::get<per_dim_type>(value);
-    return {typename const_view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()},
-            max_error};
+    return {typename const_view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()}};
   }
 };
 
@@ -211,6 +191,61 @@ quantizer<double> train(raft::resources const& res,
 quantizer<double> train(raft::resources const& res,
                         const params params,
                         raft::host_matrix_view<const double, int64_t> dataset);
+
+/**
+ * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
+ *
+ * Measures every row, including clipped outliers, and rounds the maximum up with a relative
+ * 1e-6 margin. The result bounds only the measured rows, and is infinity when the error is not
+ * finite. make_sq_dataset can measure it while encoding the same dataset.
+ *
+ * Usage example:
+ * @code{.cpp}
+ * raft::handle_t handle;
+ * cuvs::preprocessing::quantize::scalar::params params;
+ * auto quantizer = cuvs::preprocessing::quantize::scalar::train(handle, params, dataset);
+ * auto max_error =
+ *   cuvs::preprocessing::quantize::scalar::compute_max_error(handle, quantizer, dataset);
+ * @endcode
+ *
+ * @param[in] res raft resource
+ * @param[in] quantizer a scalar quantizer
+ * @param[in] dataset a row-major matrix view on device
+ *
+ * @return upper bound on the L2 error between a row and its int8 encode/decode result
+ */
+double compute_max_error(raft::resources const& res,
+                         const quantizer<double>& quantizer,
+                         raft::device_matrix_view<const double, int64_t> dataset);
+
+/**
+ * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
+ *
+ * Measures every row in GPU batches, including clipped outliers, and rounds the maximum up
+ * with a relative 1e-6 margin. The result bounds only the measured rows, and is infinity when
+ * the error is not finite. make_sq_dataset can measure it while encoding the same dataset.
+ *
+ * Usage example:
+ * @code{.cpp}
+ * raft::handle_t handle;
+ * cuvs::preprocessing::quantize::scalar::params params;
+ * auto quantizer = cuvs::preprocessing::quantize::scalar::train(handle, params, dataset);
+ * auto max_error =
+ *   cuvs::preprocessing::quantize::scalar::compute_max_error(handle, quantizer, dataset);
+ * @endcode
+ *
+ * @param[in] res raft resource
+ * @param[in] quantizer a scalar quantizer
+ * @param[in] dataset a row-major matrix view on host
+ * @param[in] device_buffer_samples maximum rows staged on device per batch; zero stages the
+ * entire input in one batch. See params::device_buffer_samples.
+ *
+ * @return upper bound on the L2 error between a row and its int8 encode/decode result
+ */
+double compute_max_error(raft::resources const& res,
+                         const quantizer<double>& quantizer,
+                         raft::host_matrix_view<const double, int64_t> dataset,
+                         int64_t device_buffer_samples = 1 << 16);
 
 /**
  * @brief Applies quantization transform to given dataset
@@ -360,6 +395,61 @@ quantizer<float> train(raft::resources const& res,
                        raft::host_matrix_view<const float, int64_t> dataset);
 
 /**
+ * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
+ *
+ * Measures every row, including clipped outliers, and rounds the maximum up with a relative
+ * 1e-6 margin. The result bounds only the measured rows, and is infinity when the error is not
+ * finite. make_sq_dataset can measure it while encoding the same dataset.
+ *
+ * Usage example:
+ * @code{.cpp}
+ * raft::handle_t handle;
+ * cuvs::preprocessing::quantize::scalar::params params;
+ * auto quantizer = cuvs::preprocessing::quantize::scalar::train(handle, params, dataset);
+ * auto max_error =
+ *   cuvs::preprocessing::quantize::scalar::compute_max_error(handle, quantizer, dataset);
+ * @endcode
+ *
+ * @param[in] res raft resource
+ * @param[in] quantizer a scalar quantizer
+ * @param[in] dataset a row-major matrix view on device
+ *
+ * @return upper bound on the L2 error between a row and its int8 encode/decode result
+ */
+float compute_max_error(raft::resources const& res,
+                        const quantizer<float>& quantizer,
+                        raft::device_matrix_view<const float, int64_t> dataset);
+
+/**
+ * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
+ *
+ * Measures every row in GPU batches, including clipped outliers, and rounds the maximum up
+ * with a relative 1e-6 margin. The result bounds only the measured rows, and is infinity when
+ * the error is not finite. make_sq_dataset can measure it while encoding the same dataset.
+ *
+ * Usage example:
+ * @code{.cpp}
+ * raft::handle_t handle;
+ * cuvs::preprocessing::quantize::scalar::params params;
+ * auto quantizer = cuvs::preprocessing::quantize::scalar::train(handle, params, dataset);
+ * auto max_error =
+ *   cuvs::preprocessing::quantize::scalar::compute_max_error(handle, quantizer, dataset);
+ * @endcode
+ *
+ * @param[in] res raft resource
+ * @param[in] quantizer a scalar quantizer
+ * @param[in] dataset a row-major matrix view on host
+ * @param[in] device_buffer_samples maximum rows staged on device per batch; zero stages the
+ * entire input in one batch. See params::device_buffer_samples.
+ *
+ * @return upper bound on the L2 error between a row and its int8 encode/decode result
+ */
+float compute_max_error(raft::resources const& res,
+                        const quantizer<float>& quantizer,
+                        raft::host_matrix_view<const float, int64_t> dataset,
+                        int64_t device_buffer_samples = 1 << 16);
+
+/**
  * @brief Applies quantization transform to given dataset
  *
  * Usage example:
@@ -504,6 +594,61 @@ quantizer<half> train(raft::resources const& res,
 quantizer<half> train(raft::resources const& res,
                       const params params,
                       raft::host_matrix_view<const half, int64_t> dataset);
+
+/**
+ * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
+ *
+ * Measures every row, including clipped outliers, and rounds the maximum up with a relative
+ * 1e-6 margin. The result bounds only the measured rows, and is infinity when the error is not
+ * finite. make_sq_dataset can measure it while encoding the same dataset.
+ *
+ * Usage example:
+ * @code{.cpp}
+ * raft::handle_t handle;
+ * cuvs::preprocessing::quantize::scalar::params params;
+ * auto quantizer = cuvs::preprocessing::quantize::scalar::train(handle, params, dataset);
+ * auto max_error =
+ *   cuvs::preprocessing::quantize::scalar::compute_max_error(handle, quantizer, dataset);
+ * @endcode
+ *
+ * @param[in] res raft resource
+ * @param[in] quantizer a scalar quantizer
+ * @param[in] dataset a row-major matrix view on device
+ *
+ * @return upper bound on the L2 error between a row and its int8 encode/decode result
+ */
+float compute_max_error(raft::resources const& res,
+                        const quantizer<half>& quantizer,
+                        raft::device_matrix_view<const half, int64_t> dataset);
+
+/**
+ * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
+ *
+ * Measures every row in GPU batches, including clipped outliers, and rounds the maximum up
+ * with a relative 1e-6 margin. The result bounds only the measured rows, and is infinity when
+ * the error is not finite. make_sq_dataset can measure it while encoding the same dataset.
+ *
+ * Usage example:
+ * @code{.cpp}
+ * raft::handle_t handle;
+ * cuvs::preprocessing::quantize::scalar::params params;
+ * auto quantizer = cuvs::preprocessing::quantize::scalar::train(handle, params, dataset);
+ * auto max_error =
+ *   cuvs::preprocessing::quantize::scalar::compute_max_error(handle, quantizer, dataset);
+ * @endcode
+ *
+ * @param[in] res raft resource
+ * @param[in] quantizer a scalar quantizer
+ * @param[in] dataset a row-major matrix view on host
+ * @param[in] device_buffer_samples maximum rows staged on device per batch; zero stages the
+ * entire input in one batch. See params::device_buffer_samples.
+ *
+ * @return upper bound on the L2 error between a row and its int8 encode/decode result
+ */
+float compute_max_error(raft::resources const& res,
+                        const quantizer<half>& quantizer,
+                        raft::host_matrix_view<const half, int64_t> dataset,
+                        int64_t device_buffer_samples = 1 << 16);
 
 /**
  * @brief Applies quantization transform to given dataset

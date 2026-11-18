@@ -113,7 +113,7 @@ CUVS_EXPORT cuvsError_t cuvsScalarQuantizerTrain(cuvsResources_t res,
  * @brief Applies quantization transform to given dataset
  *
  * Per-dimension mode requires device matrices with the same input type and width as training.
- * Its output codes are int8 in [-127, 127]. The quantizer must outlive stream work using its bounds.
+ * The quantizer must outlive stream work using its bounds.
  *
  * @param[in] res raft resource
  * @param[in] quantizer a scalar quantizer
