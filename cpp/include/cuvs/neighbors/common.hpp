@@ -6,7 +6,6 @@
 #pragma once
 
 #include <cstdint>
-#include <cuvs/cluster/kmeans.hpp>
 #include <cuvs/distance/distance.hpp>
 #include <raft/core/device_container_policy.hpp>
 #include <raft/core/device_csr_matrix.hpp>
@@ -50,6 +49,15 @@ class bloom_filter;
 class roaring_allowlist_view;
 class roaring_allowlist;
 }  // namespace core
+namespace cluster::kmeans {
+/**
+ * @brief Type of k-means algorithm.
+ *
+ * Defined here rather than in cluster/kmeans.hpp so that the neighbors headers do not depend on
+ * the k-means header, which itself depends on the CAGRA parameter types.
+ */
+enum class kmeans_type { KMeans = 0, KMeansBalanced = 1 };
+}  // namespace cluster::kmeans
 namespace neighbors {
 /**
  * @addtogroup cagra_cpp_index_params
