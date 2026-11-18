@@ -16,8 +16,24 @@ void convert_c_index_params(cuvsCagraIndexParams params,
 void convert_c_search_params(cuvsCagraSearchParams params,
                              cuvs::neighbors::cagra::search_params* out);
 
+/** The dataset layout of the `cagra::index` type stored behind a C API handle. */
+enum class c_api_dataset_layout : uint8_t {
+  device_padded,
+  device_standard,
+  device_vpq,
+  device_bbq,
+  host_padded,
+  host_standard
+};
+
 /** Resolves `cuvsCagraIndex::addr` to `cagra::index*`; nullptr if the handle is empty. */
 void* cagra_c_api_index_ptr(cuvsCagraIndex const* idx);
+
+/**
+ * The dataset layout of the index behind the handle. The pointer returned by
+ * `cagra_c_api_index_ptr` must be cast to the index type of this layout.
+ */
+c_api_dataset_layout cagra_c_api_index_layout(cuvsCagraIndex const* idx);
 
 namespace detail {
 template <typename T, typename IdxT, cuvs::neighbors::ann_dataset_view DatasetViewT>

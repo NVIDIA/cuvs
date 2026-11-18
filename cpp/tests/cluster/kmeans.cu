@@ -23,10 +23,97 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include <optional>
 #include <vector>
 
 namespace cuvs {
+
+template <typename T>
+class KmeansTransformTest : public ::testing::Test {};
+
+using KmeansTransformTypes = ::testing::Types<float, double>;
+TYPED_TEST_SUITE(KmeansTransformTest, KmeansTransformTypes);
+
+TYPED_TEST(KmeansTransformTest, DistancesAndBatching)
+{
+  using T                  = TypeParam;
+  constexpr int n_samples  = 5;
+  constexpr int n_clusters = 3;
+  constexpr int n_features = 100;
+  raft::resources handle;
+  auto stream = raft::resource::get_cuda_stream(handle);
+  std::vector<T> centers(n_clusters * n_features);
+  std::vector<T> samples(n_samples * n_features);
+  // Duplicate centers also exercise exact zero distances off the diagonal.
+  for (int center = 0; center < n_clusters; ++center) {
+    for (int col = 0; col < n_features; ++col) {
+      centers[center * n_features + col] = T(center == 2 ? 300 : 100) + T(col) / T{10};
+    }
+  }
+  auto X         = raft::make_device_matrix<T, int>(handle, n_samples, n_features);
+  auto C         = raft::make_device_matrix<T, int>(handle, n_clusters, n_features);
+  auto distances = raft::make_device_matrix<T, int>(handle, n_samples, n_clusters);
+  raft::update_device(C.data_handle(), centers.data(), centers.size(), stream);
+
+  for (auto metric : {distance::DistanceType::L2Expanded,
+                      distance::DistanceType::L2SqrtExpanded,
+                      distance::DistanceType::L2Unexpanded,
+                      distance::DistanceType::L2SqrtUnexpanded}) {
+    bool unexpanded = metric == distance::DistanceType::L2Unexpanded ||
+                      metric == distance::DistanceType::L2SqrtUnexpanded;
+    // Keep a well-separated smoke case for expanded metrics. Unexpanded metrics
+    // must also handle copied centers and small, nonzero distances accurately.
+    for (int row = 0; row < n_samples; ++row) {
+      auto offset = row < n_clusters ? T{0} : std::sqrt(std::numeric_limits<T>::epsilon());
+      for (int col = 0; col < n_features; ++col) {
+        samples[row * n_features + col] =
+          unexpanded ? centers[((row + 1) % n_clusters) * n_features + col] + offset : T(row - col);
+      }
+    }
+    raft::update_device(X.data_handle(), samples.data(), samples.size(), stream);
+    // Five rows leave a partial final batch when batch_samples is two.
+    for (int batch_samples : {2, 32768}) {
+      SCOPED_TRACE(::testing::Message()
+                   << "metric=" << static_cast<int>(metric) << " batch=" << batch_samples);
+      cluster::kmeans::params params;
+      params.n_clusters    = n_clusters;
+      params.metric        = metric;
+      params.batch_samples = batch_samples;
+      cluster::kmeans::transform(handle,
+                                 params,
+                                 raft::make_const_mdspan(X.view()),
+                                 raft::make_const_mdspan(C.view()),
+                                 distances.view());
+      std::vector<T> actual(distances.size());
+      raft::update_host(actual.data(), distances.data_handle(), actual.size(), stream);
+      raft::resource::sync_stream(handle);
+      for (int row = 0; row < n_samples; ++row) {
+        for (int center = 0; center < n_clusters; ++center) {
+          long double expected = 0;
+          for (int col = 0; col < n_features; ++col) {
+            auto delta = static_cast<long double>(samples[row * n_features + col]) -
+                         static_cast<long double>(centers[center * n_features + col]);
+            expected += delta * delta;
+          }
+          if (metric == distance::DistanceType::L2SqrtExpanded ||
+              metric == distance::DistanceType::L2SqrtUnexpanded) {
+            expected = std::sqrt(expected);
+          }
+          auto value = actual[row * n_clusters + center];
+          if (expected == 0) {
+            EXPECT_EQ(value, T{0}) << "row=" << row << " center=" << center;
+          } else {
+            auto tolerance = expected * (n_features + 2) * std::numeric_limits<T>::epsilon();
+            EXPECT_NEAR(value, expected, tolerance) << "row=" << row << " center=" << center;
+          }
+        }
+      }
+    }
+  }
+}
 
 template <typename T>
 struct KmeansInputs {
@@ -35,6 +122,7 @@ struct KmeansInputs {
   int n_clusters;
   T tol;
   bool weighted;
+  bool use_ann = false;  // CAGRA ANN nearest-centroid assignment (float data only)
 };
 
 // template <typename DataT, typename IndexT>
@@ -227,13 +315,14 @@ class KmeansTest : public ::testing::TestWithParam<KmeansInputs<T>> {
   {
     testparams = ::testing::TestWithParam<KmeansInputs<T>>::GetParam();
 
-    int n_samples              = testparams.n_row;
-    int n_features             = testparams.n_col;
-    params.n_clusters          = testparams.n_clusters;
-    params.tol                 = testparams.tol;
-    params.n_init              = 5;
-    params.rng_state.seed      = 1;
-    params.oversampling_factor = 0;
+    int n_samples                 = testparams.n_row;
+    int n_features                = testparams.n_col;
+    params.n_clusters             = testparams.n_clusters;
+    params.tol                    = testparams.tol;
+    params.use_ann_for_assignment = testparams.use_ann;
+    params.n_init                 = 5;
+    params.rng_state.seed         = 1;
+    params.oversampling_factor    = 0;
 
     auto stream = raft::resource::get_cuda_stream(handle);
     auto bi     = make_kmeans_blob_inputs<T>(
@@ -314,7 +403,16 @@ const std::vector<KmeansInputs<float>> inputsf2 = {{1000, 32, 5, 0.0001f, true},
                                                    {10000, 100, 50, 0.0001f, true},
                                                    {10000, 100, 50, 0.0001f, false},
                                                    {10000, 500, 100, 0.0001f, true},
-                                                   {10000, 500, 100, 0.0001f, false}};
+                                                   {10000, 500, 100, 0.0001f, false},
+                                                   // CAGRA ANN assignment (aligned and unaligned
+                                                   // number of features)
+                                                   {1000, 32, 5, 0.0001f, true, true},
+                                                   {1000, 32, 5, 0.0001f, false, true},
+                                                   {1000, 10, 20, 0.0001f, false, true},
+                                                   {10000, 32, 10, 0.0001f, true, true},
+                                                   {10000, 100, 50, 0.0001f, false, true},
+                                                   {10000, 30, 100, 0.0001f, true, true},
+                                                   {10000, 500, 100, 0.0001f, false, true}};
 
 const std::vector<KmeansInputs<double>> inputsd2 = {{1000, 32, 5, 0.0001, true},
                                                     {1000, 32, 5, 0.0001, false},
@@ -345,6 +443,7 @@ struct KmeansBatchedInputs {
   T tol;
   bool weighted;
   int device_buffer_samples;
+  bool use_ann = false;  // CAGRA ANN nearest-centroid assignment (float data only)
 };
 
 template <typename T>
@@ -380,12 +479,13 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
 
   void fitBatchedTest()
   {
-    int n_samples              = testparams.n_row;
-    int n_features             = testparams.n_col;
-    params.n_clusters          = testparams.n_clusters;
-    params.tol                 = testparams.tol;
-    params.rng_state.seed      = 1;
-    params.oversampling_factor = 0;
+    int n_samples                 = testparams.n_row;
+    int n_features                = testparams.n_col;
+    params.n_clusters             = testparams.n_clusters;
+    params.tol                    = testparams.tol;
+    params.use_ann_for_assignment = testparams.use_ann;
+    params.rng_state.seed         = 1;
+    params.oversampling_factor    = 0;
 
     auto stream = raft::resource::get_cuda_stream(handle);
 
@@ -502,15 +602,16 @@ class KmeansFitBatchedTest : public ::testing::TestWithParam<KmeansBatchedInputs
     auto stream    = raft::resource::get_cuda_stream(handle);
 
     cuvs::cluster::kmeans::params p;
-    p.n_clusters            = n_clusters;
-    p.tol                   = testparams.tol;
-    p.n_init                = 3;
-    p.init                  = cuvs::cluster::kmeans::params::KMeansPlusPlus;
-    p.max_iter              = 20;
-    p.rng_state.seed        = 1;
-    p.oversampling_factor   = 0;
-    p.device_buffer_samples = testparams.device_buffer_samples;
-    p.init_size             = init_size_value;
+    p.n_clusters             = n_clusters;
+    p.tol                    = testparams.tol;
+    p.use_ann_for_assignment = testparams.use_ann;
+    p.n_init                 = 3;
+    p.init                   = cuvs::cluster::kmeans::params::KMeansPlusPlus;
+    p.max_iter               = 20;
+    p.rng_state.seed         = 1;
+    p.oversampling_factor    = 0;
+    p.device_buffer_samples  = testparams.device_buffer_samples;
+    p.init_size              = init_size_value;
 
     auto d_centroids_buf = raft::make_device_matrix<T, int64_t>(handle, n_clusters, n_features);
     T inertia            = 0;
@@ -666,6 +767,10 @@ const std::vector<KmeansBatchedInputs<float>> batched_inputsf2 = {
   {1000, 10, 20, 0.0001f, false, 30},
   {10000, 16, 10, 0.00001f, true, 1000},
   {10000, 96, 10, 0.0001f, false, 10000},
+  // CAGRA ANN assignment (aligned and unaligned number of features)
+  {1000, 32, 5, 0.0001f, true, 256, true},
+  {1000, 10, 20, 0.0001f, false, 30, true},
+  {10000, 96, 10, 0.0001f, false, 1000, true},
 };
 
 const std::vector<KmeansBatchedInputs<double>> batched_inputsd2 = {

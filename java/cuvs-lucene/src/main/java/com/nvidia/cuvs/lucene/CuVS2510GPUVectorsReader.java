@@ -32,6 +32,7 @@ import java.util.stream.StreamSupport;
 import org.apache.lucene.codecs.CodecUtil;
 import org.apache.lucene.codecs.KnnVectorsReader;
 import org.apache.lucene.codecs.hnsw.FlatVectorsReader;
+import org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader;
 import org.apache.lucene.index.ByteVectorValues;
 import org.apache.lucene.index.CorruptIndexException;
 import org.apache.lucene.index.FieldInfo;
@@ -49,7 +50,6 @@ import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.IOContext;
 import org.apache.lucene.store.IOContext.Context;
 import org.apache.lucene.store.IndexInput;
-import org.apache.lucene.store.ReadAdvice;
 import org.apache.lucene.util.Bits;
 import org.apache.lucene.util.IOUtils;
 import org.apache.lucene.util.hnsw.IntToIntFunction;
@@ -59,15 +59,23 @@ import org.apache.lucene.util.hnsw.IntToIntFunction;
  *
  * @since 25.10
  */
-public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
+public class CuVS2510GPUVectorsReader extends CompatKnnVectorsReader {
 
-  private static final LuceneProvider LUCENE_PROVIDER;
-  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS;
+  /**
+   * Largest number of hits searched for with CAGRA in one segment, or {@link
+   * GPUKnnFloatVectorQuery#MAX_SINGLE_CTA_ITOPK} with SINGLE_CTA. Beyond it the brute force index
+   * is searched instead if the segment has one, and otherwise CAGRA returns only this many; see
+   * {@link #maxHits}.
+   */
+  static final int MAX_CAGRA_K = 1024;
+
+  private static final List<VectorSimilarityFunction> VECTOR_SIMILARITY_FUNCTIONS =
+      Lucene99HnswVectorsReader.SIMILARITY_FUNCTIONS;
 
   private final FlatVectorsReader flatVectorsReader;
   private final FieldInfos fieldInfos;
   private final IntObjectHashMap<FieldEntry> fields;
-  // Loaded eagerly, or null if this reader was opened for a merge; see getCuVSIndex().
+  // Loaded eagerly, or null if the reader was opened with a merge IOContext; see getCuVSIndex().
   private final IntObjectHashMap<GPUIndex> cuvsIndices;
   // Private, so that code outside this class cannot take the lock held across a GPU load.
   private final Object lazyLoadLock = new Object();
@@ -79,15 +87,9 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   private boolean closed;
   private final IndexInput cuvsIndexInput;
   private final FilterBitsetCache filterBitsetCache;
-
-  static {
-    try {
-      LUCENE_PROVIDER = LuceneProvider.getInstance("99");
-      VECTOR_SIMILARITY_FUNCTIONS = LUCENE_PROVIDER.getSimilarityFunctions();
-    } catch (Exception e) {
-      throw new ExceptionInInitializerError(e.getMessage());
-    }
-  }
+  // The reader that owns the GPU indexes and the files: this one, unless withRawVectorsReader
+  // created it for a merge.
+  private final CuVS2510GPUVectorsReader original;
 
   /**
    * Initializes the {@link CuVS2510GPUVectorsReader}, checks and loads the index.
@@ -113,6 +115,8 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   CuVS2510GPUVectorsReader(
       SegmentReadState state, FlatVectorsReader flatReader, FilterBitsetCache filterBitsetCache)
       throws IOException {
+    super(flatReader);
+    this.original = this;
     this.flatVectorsReader = flatReader;
     this.filterBitsetCache = filterBitsetCache;
     this.fieldInfos = state.fieldInfos;
@@ -139,7 +143,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
       } finally {
         CodecUtil.checkFooter(meta, priorException);
       }
-      var ioContext = state.context.withReadAdvice(ReadAdvice.SEQUENTIAL);
+      var ioContext = LuceneCompat.sequentialReadContext(state.context);
       cuvsIndexInput = openCuVSInput(state, versionMeta, ioContext);
       /*
        * Do not load indexes on the GPU when this reader is opened for a merge, which reads them
@@ -155,6 +159,31 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
         IOUtils.closeWhileHandlingException(this);
       }
     }
+  }
+
+  /** Creates a reader that shares everything with {@code original} but the raw vectors reader. */
+  private CuVS2510GPUVectorsReader(
+      CuVS2510GPUVectorsReader original, FlatVectorsReader flatReader) {
+    super(flatReader);
+    this.original = original;
+    this.flatVectorsReader = flatReader;
+    this.filterBitsetCache = original.filterBitsetCache;
+    this.fieldInfos = original.fieldInfos;
+    this.fields = original.fields;
+    this.cuvsIndices = original.cuvsIndices;
+    this.cuvsIndexInput = original.cuvsIndexInput;
+  }
+
+  /**
+   * Returns a reader for a merge that reads the raw vectors through {@code flatReader} and shares
+   * everything else with the reader this one was created from, which owns what they share: closing
+   * the returned reader does nothing.
+   *
+   * <p>Implements {@code CompatKnnVectorsReader.withRawVectorsReader}, which only the Lucene 10.6
+   * variant declares, so it is not marked {@code @Override}; earlier releases never call it.
+   */
+  KnnVectorsReader withRawVectorsReader(FlatVectorsReader flatReader) {
+    return new CuVS2510GPUVectorsReader(original, flatReader);
   }
 
   /**
@@ -342,7 +371,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
             cuvsIndexInput.slice(
                 "cagra index", fieldEntry.cagraIndexOffset(), fieldEntry.cagraIndexLength());
         var in = new IndexInputInputStream(slice)) {
-      return CagraIndex.newBuilder(getCuVSResourcesInstance()).from(in).build();
+      return CagraIndex.newBuilder(getCuVSResourcesInstance()).fromSerialized(in).build();
     } catch (Throwable t) {
       Utils.handleThrowable(t);
       throw new AssertionError("unreachable");
@@ -385,6 +414,9 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * @throws IOException I/O exception
    */
   private GPUIndex getCuVSIndex(int fieldNumber) throws IOException {
+    if (original != this) {
+      return original.getCuVSIndex(fieldNumber);
+    }
     if (cuvsIndices != null) {
       return cuvsIndices.get(fieldNumber);
     }
@@ -411,7 +443,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * tests can check that loading is per field.
    */
   int lazilyLoadedIndexCount() {
-    return lazyIndices.size();
+    return original.lazyIndices.size();
   }
 
   /**
@@ -430,7 +462,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
         long off = fieldEntry.cagraIndexOffset();
         try (var slice = cuvsIndexInput.slice("cagra index", off, len);
             var in = new IndexInputInputStream(slice)) {
-          cagraIndex = CagraIndex.newBuilder(getCuVSResourcesInstance()).from(in).build();
+          cagraIndex = CagraIndex.newBuilder(getCuVSResourcesInstance()).fromSerialized(in).build();
         }
       }
       len = fieldEntry.bruteForceIndexLength();
@@ -453,6 +485,10 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    */
   @Override
   public void close() throws IOException {
+    if (original != this) {
+      // A merge instance; the reader it came from owns everything it reads.
+      return;
+    }
     synchronized (lazyLoadLock) {
       closed = true;
     }
@@ -525,7 +561,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * Returns the k nearest neighbor documents using cuVS's CAGRA or brute force algorithm for this field, to the given vector.
    */
   @Override
-  public void search(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
+  protected void doSearch(String field, float[] target, KnnCollector knnCollector, Bits acceptDocs)
       throws IOException {
     var fieldEntry = getFieldEntry(field, VectorEncoding.FLOAT32);
     if (fieldEntry.count() == 0 || knnCollector.k() == 0) {
@@ -576,23 +612,39 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
 
     try {
       List<Map<Integer, Float>> searchResult = null;
-      if (knnCollector.k() <= 1024 && cuvsIndex.getCagraIndex() != null) {
+      // A collector may ask for more hits than CAGRA returns: Lucene's own query does on Lucene
+      // 10.3, as many as it expects from this segment, and GPUKnnFloatVectorQuery does when the
+      // segment has a brute force index (see maxHits). Without a brute force index, CAGRA returns
+      // as many as it can. A filtered search that needs more is redone exactly by Lucene, but an
+      // unfiltered one gets at most maxHits hits from this segment, a documented limit of
+      // CAGRA-only indexes. The filter over-fetch is a heuristic, not a user request, so it is
+      // capped too, and so is the itopk_size below.
+      GPUPerLeafCuVSKnnCollector gpuCollector =
+          knnCollector instanceof GPUPerLeafCuVSKnnCollector c ? c : null;
+      int cagraLimit =
+          maxCagraHits(
+              gpuCollector != null
+                  ? gpuCollector.getSearchAlgo()
+                  : CagraSearchParams.SearchAlgo.AUTO);
+      if (cuvsIndex.getCagraIndex() != null
+          && (knnCollector.k() <= cagraLimit || cuvsIndex.getBruteforceIndex() == null)) {
+        topK = Math.min(topK, cagraLimit);
         CagraSearchParams searchParams;
-        if (knnCollector instanceof GPUPerLeafCuVSKnnCollector) {
-          GPUPerLeafCuVSKnnCollector collector = (GPUPerLeafCuVSKnnCollector) knnCollector;
-          // The filter over-fetch is a heuristic, not a user request. Keep it within SINGLE_CTA's
-          // limit so valid queries do not start failing as segment/filter cardinalities change.
-          if (collector.getSearchAlgo() == CagraSearchParams.SearchAlgo.SINGLE_CTA) {
-            topK = Math.min(topK, GPUKnnFloatVectorQuery.MAX_SINGLE_CTA_ITOPK);
+        if (gpuCollector != null) {
+          int effectiveITopK = Math.max(gpuCollector.getiTopK(), topK);
+          // The collector's iTopK is at least its k, which can exceed SINGLE_CTA's limit if the
+          // query could not find this reader to ask its maxHits. The query's own iTopK and k are
+          // checked against the limit, so only the excess is cut.
+          if (gpuCollector.getSearchAlgo() == CagraSearchParams.SearchAlgo.SINGLE_CTA) {
+            effectiveITopK = Math.min(effectiveITopK, cagraLimit);
           }
-          int effectiveITopK = Math.max(collector.getiTopK(), topK);
           searchParams =
               new CagraSearchParams.Builder()
                   .withItopkSize(effectiveITopK)
-                  .withSearchWidth(collector.getSearchWidth())
-                  .withThreadBlockSize(collector.getThreadBlockSize())
-                  .withMaxIterations(collector.getMaxIterations())
-                  .withAlgo(collector.getSearchAlgo())
+                  .withSearchWidth(gpuCollector.getSearchWidth())
+                  .withThreadBlockSize(gpuCollector.getThreadBlockSize())
+                  .withMaxIterations(gpuCollector.getMaxIterations())
+                  .withAlgo(gpuCollector.getSearchAlgo())
                   .build();
         } else {
           // Setting itopK as topK because in any case iTopK should be ATLEAST equal to topK
@@ -686,7 +738,7 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
    * This is not supported.
    */
   @Override
-  public void search(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
+  protected void doSearch(String field, byte[] target, KnnCollector knnCollector, Bits acceptDocs)
       throws IOException {
     throw new UnsupportedOperationException("Byte vectors are not currently supported");
   }
@@ -759,6 +811,34 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   }
 
   /**
+   * Returns the most hits a search of the given field in this segment returns, or {@link
+   * Integer#MAX_VALUE} if it has no such limit. A segment with a brute force index has none, and
+   * one with only a CAGRA index returns at most {@link #MAX_CAGRA_K} hits, or {@link
+   * GPUKnnFloatVectorQuery#MAX_SINGLE_CTA_ITOPK} with SINGLE_CTA. Unlike {@link
+   * #getCagraIndexForField}, this never loads an index onto the GPU.
+   *
+   * @param field the vector field name
+   * @param searchAlgo the CAGRA search algorithm the search runs with
+   */
+  int maxHits(String field, CagraSearchParams.SearchAlgo searchAlgo) {
+    FieldInfo info = fieldInfos.fieldInfo(field);
+    FieldEntry fieldEntry = info == null ? null : fields.get(info.number);
+    if (fieldEntry == null
+        || fieldEntry.cagraIndexLength() == 0
+        || fieldEntry.bruteForceIndexLength() > 0) {
+      return Integer.MAX_VALUE;
+    }
+    return maxCagraHits(searchAlgo);
+  }
+
+  /** Returns the most hits searched for with CAGRA in one segment with the given algorithm. */
+  private static int maxCagraHits(CagraSearchParams.SearchAlgo searchAlgo) {
+    return searchAlgo == CagraSearchParams.SearchAlgo.SINGLE_CTA
+        ? GPUKnnFloatVectorQuery.MAX_SINGLE_CTA_ITOPK
+        : MAX_CAGRA_K;
+  }
+
+  /**
    * Returns the {@link CagraIndex} for the given field, or {@code null} if this segment has none
    * (e.g., when the field is missing or the segment only holds a brute force index).
    *
@@ -795,7 +875,8 @@ public class CuVS2510GPUVectorsReader extends KnnVectorsReader {
   /**
    * Gets the map of {@link GPUIndex} objects.
    *
-   * @return the map of GPU index objects, or {@code null} if this reader was opened for a merge
+   * @return the map of GPU index objects, or {@code null} if the reader was opened with a merge
+   *     {@link IOContext}
    */
   public IntObjectHashMap<GPUIndex> getCuvsIndexes() {
     return cuvsIndices;

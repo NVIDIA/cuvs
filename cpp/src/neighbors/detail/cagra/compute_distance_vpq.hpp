@@ -45,7 +45,7 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
   constexpr static inline auto accepts_dataset()
     -> std::enable_if_t<is_vpq_dataset_v<DatasetT>, bool>
   {
-    return std::is_same_v<typename DatasetT::math_type, CodebookT>;
+    return std::is_same_v<typename DatasetT::spec_type::math_type, CodebookT>;
   }
 
   template <typename DatasetT>
@@ -62,10 +62,10 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
                    const DistanceT* dataset_norms = nullptr) -> host_type
   {
     return init_(params,
-                 dataset.data.data_handle(),
-                 dataset.encoded_row_length(),
-                 dataset.vq_code_book.data_handle(),
-                 dataset.pq_code_book.data_handle(),
+                 dataset.data_const_view().data_handle(),
+                 dataset.data_const_view().extent(1),
+                 dataset.manifest_view().vq_code_book.data_handle(),
+                 dataset.manifest_view().pq_code_book.data_handle(),
                  IndexT(dataset.n_rows()),
                  dataset.dim());
   }
@@ -79,8 +79,8 @@ struct vpq_descriptor_spec : public instance_spec<DataT, IndexT, DistanceT> {
     if (params.team_size != 0 && TeamSize != params.team_size) { return -1.0; }
     if (cuvs::distance::DistanceType::L2Expanded != metric) { return -1.0; }
     // Match codebook params
-    if (dataset.pq_bits() != PqBits) { return -1.0; }
-    if (dataset.pq_len() != PqLen) { return -1.0; }
+    if (dataset.manifest_view().pq_bits() != PqBits) { return -1.0; }
+    if (dataset.manifest_view().pq_len() != PqLen) { return -1.0; }
     if (select_supported_vpq_smem_dtype(params) != SmemDType) { return -1.0; }
     // Keep auto-selection on the tuned VPQ diagonal while allowing explicit team_size requests to
     // use the expanded team_size / dataset_block_dim grid.

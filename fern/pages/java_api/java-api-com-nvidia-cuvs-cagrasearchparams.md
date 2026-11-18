@@ -13,7 +13,7 @@ public class CagraSearchParams
 CagraSearchParams encapsulates the logic for configuring and holding search
 parameters.
 
-## Public Members
+## Public and Protected Members
 
 ### SINGLE_CTA
 

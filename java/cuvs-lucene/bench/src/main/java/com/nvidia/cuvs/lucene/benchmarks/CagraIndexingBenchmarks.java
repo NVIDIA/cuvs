@@ -8,7 +8,7 @@ import static com.nvidia.cuvs.lucene.benchmarks.Utils.cleanup;
 import static com.nvidia.cuvs.lucene.benchmarks.Utils.generateDataset;
 import static com.nvidia.cuvs.lucene.benchmarks.Utils.index;
 
-import com.nvidia.cuvs.lucene.CuVS2510GPUSearchCodec;
+import com.nvidia.cuvs.lucene.CuVSCodecs;
 import com.nvidia.cuvs.spi.CuVSProvider;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -61,7 +61,7 @@ public class CagraIndexingBenchmarks {
     CuVSProvider.provider().enableRMMAsyncMemory();
     random = new Random(222);
     indexDirPath = Paths.get(UUID.randomUUID().toString());
-    codec = new CuVS2510GPUSearchCodec();
+    codec = CuVSCodecs.gpuSearch();
     numDocs = 1000;
     dimension = 128;
     dataset = generateDataset(random, numDocs, dimension);

@@ -151,5 +151,32 @@
         "index_abbrev": "i64"
       }
     ]
+  },
+  {
+    "_distance": [
+      {
+        "distance_name": "bitwise_hamming",
+        "distance_abbrev": "bitwise_hamming",
+        "op_type": "cuvs::distance::detail::ops::bitwise_hamming_distance_op",
+        "header_file": "distance/detail/distance_ops/bitwise_hamming.cuh"
+      }
+    ],
+    "_data": [
+      {
+        "data_type": "uint8_t",
+        "data_abbrev": "u8",
+        "type_abbrev": "u8",
+        "acc_type": "uint32_t",
+        "acc_abbrev": "u32",
+        "out_type": "uint32_t",
+        "out_abbrev": "u32"
+      }
+    ],
+    "_index": [
+      {
+        "index_type": "int64_t",
+        "index_abbrev": "i64"
+      }
+    ]
   }
 ]

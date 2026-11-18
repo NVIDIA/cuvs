@@ -313,6 +313,21 @@ void launch_with_fixed_consts(cuvs::distance::DistanceType metric, Args&&... arg
                            tag_post_process_compose>(
         std::forward<Args>(args)...);  // NB: update the description of `knn::ivf_flat::build` when
                                        // adding here a new metric.
+    case cuvs::distance::DistanceType::BitwiseHamming:
+      if constexpr (std::is_same_v<T, uint8_t>) {
+        return launch_kernel<Capacity,
+                             Veclen,
+                             Ascending,
+                             false,
+                             T,
+                             AccT,
+                             IdxT,
+                             IvfSampleFilterTag,
+                             tag_metric_bitwise_hamming,
+                             tag_post_process_identity>(std::forward<Args>(args)...);
+      } else {
+        RAFT_FAIL("BitwiseHamming distance is only supported with uint8_t data type");
+      }
     case cuvs::distance::DistanceType::CustomUDF:
       return launch_kernel<Capacity,
                            Veclen,
@@ -438,6 +453,11 @@ void ivfflat_interleaved_scan(const index<T, IdxT>& index,
                               cuda::stream_ref stream,
                               const std::optional<std::string>& metric_udf)
 {
+  if (metric == cuvs::distance::DistanceType::BitwiseHamming && !std::is_same_v<T, uint8_t>) {
+    RAFT_FAIL("BitwiseHamming distance is only supported with uint8_t data type, got %s",
+              typeid(T).name());
+  }
+
   const uint32_t n_probes_clamped = std::min(n_probes, index.n_lists());
   const int capacity              = raft::bound_by_power_of_two(k);
 

@@ -15,6 +15,9 @@ First build `cuvs-lucene` and install it into your local Maven repository, as de
 ./build.sh libcuvs java lucene
 ```
 
+The examples use Lucene 10.2 and the matching `cuvs-lucene-10.2` artifact, set by the `lucene.version` and
+`cuvs.lucene.artifactId` properties in `pom.xml`.
+
 Then return to this directory:
 
 ```sh
@@ -24,11 +27,11 @@ cd examples/java/cuvs-lucene
 To run Accelerated HNSW example do:
 
 ```sh
-mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.12.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.AcceleratedHnswExample
+mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-27.02.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.AcceleratedHnswExample
 ```
 
 To run the Index and Search on GPU example do:
 
 ```sh
-mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-26.12.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.IndexAndSearchonGPUExample
+mvn clean install && java -Djava.util.logging.config.file=src/main/resources/logging.properties -cp target/examples-27.02.0-jar-with-merged-services.jar com.nvidia.cuvs.lucene.examples.IndexAndSearchonGPUExample
 ```

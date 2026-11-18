@@ -382,7 +382,9 @@ void build_sorted_mst(
   int iters        = 1;
   int n_components = cuvs::sparse::neighbors::get_n_components(color, m, stream.get());
 
-  bool data_on_device = raft::memory_type_from_pointer(X) != raft::memory_type::host;
+  // Pinned memory is reachable by the GPU, but keeps taking the host path.
+  auto const x_type   = raft::get_pointer_memory_info(X).type;
+  bool data_on_device = x_type == raft::memory_type::device || x_type == raft::memory_type::managed;
 
   while (n_components > 1 && iters < max_iter) {
     if (data_on_device) {
