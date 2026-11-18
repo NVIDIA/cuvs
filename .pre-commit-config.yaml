@@ -56,6 +56,13 @@ repos:
         args: ["-fallback-style=none", "-style=file", "-i"]
   - repo: local
     hooks:
+      - id: test-maven-assembly
+        name: Test Maven release assembly
+        entry: python -m pytest -q java/ci/test_assemble_maven_repo.py
+        language: python
+        additional_dependencies: ["pytest>=8.4,<10"]
+        pass_filenames: false
+        files: ^java/(ci/.*[.]py|cuvs-lucene/pom[.]xml)$
       - id: fern-api-reference
         name: fern-api-reference
         description: 'Regenerate the Fern API reference pages from the sources'

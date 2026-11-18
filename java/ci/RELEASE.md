@@ -75,6 +75,8 @@ Rollout order:
    Lucene set is published. Check Maven resolution through the old relocation
    coordinates as well as every versioned coordinate.
 
-The local checks exercise Maven assembly and docs configuration without compiling
-Java or CUDA. The complete matrix build, Sonatype namespace authorization, App
+Run `pre-commit run test-maven-assembly --all-files` to check Maven assembly
+without building Java or CUDA. The PR checks run the same hook.
+
+The complete matrix build, Sonatype namespace authorization, App
 dispatch, and S3 upload still require validation in the release environment.

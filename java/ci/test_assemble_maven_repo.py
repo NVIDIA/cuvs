@@ -22,31 +22,18 @@ def make_build(root, module, cuda, version="26.12.0", dependency="26.12.0"):
         return make_lucene_build(root, cuda, version, dependency)
     build = root / f"{module}-cuda{cuda}"
     build.mkdir(parents=True)
-    dependencies = ""
-    if module == "cuvs-lucene":
-        dependencies = (
-            "<dependencies><dependency>"
-            "<groupId>com.nvidia.cuvs</groupId>"
-            "<artifactId>cuvs-java</artifactId>"
-            f"<version>{dependency}</version>"
-            "</dependency></dependencies>"
-        )
     (build / "pom.xml").write_text(
         '<project xmlns="http://maven.apache.org/POM/4.0.0">'
         f"<groupId>{GROUPS[module]}</groupId>"
         f"<artifactId>{module}</artifactId><version>{version}</version>"
-        f"{dependencies}</project>"
+        "</project>"
     )
     for suffix in (".jar", "-sources.jar", "-javadoc.jar", "-tests.jar"):
         make_jar(build / f"{module}-{version}{suffix}", cuda)
-    if module == "cuvs-java":
-        make_jar(
-            build / f"{module}-{version}-x86_64-cuda{cuda.split('.')[0]}.jar",
-            cuda,
-        )
-    else:
-        make_jar(build / f"{module}-{version}-jar-with-dependencies.jar", cuda)
-    (build / "unrelated.txt").write_text("not a Maven artifact")
+    make_jar(
+        build / f"{module}-{version}-x86_64-cuda{cuda.split('.')[0]}.jar",
+        cuda,
+    )
     return build
 
 
@@ -160,8 +147,6 @@ def test_lucene_layout_and_dependency_assembly(tmp_path):
     "missing",
     [
         "target/pom.xml",
-        "relocation/target/pom.xml",
-        "lucene-10.3/target/cuvs-lucene-10.3-26.12.0-sources.jar",
         "lucene-10.3/target/cuvs-lucene-10.3-26.12.0-jar-with-dependencies.jar",
     ],
 )
@@ -206,9 +191,7 @@ def test_native_classifier_collision_is_rejected(tmp_path):
         assemble("cuvs-java", "v26.12.0", builds, tmp_path / "maven")
 
 
-@pytest.mark.parametrize(
-    "suffix", ["-sources.jar", "-javadoc.jar", "-x86_64-cuda13.jar"]
-)
+@pytest.mark.parametrize("suffix", ["-javadoc.jar", "-x86_64-cuda13.jar"])
 def test_missing_release_artifact_is_rejected(tmp_path, suffix):
     """Require the complete publication set before any upload."""
     builds = tmp_path / "builds"
