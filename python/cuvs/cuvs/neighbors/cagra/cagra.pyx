@@ -216,6 +216,8 @@ cdef class IndexParams:
         Parameters for ACE algorithm. If provided, it will be used for
         building the graph with ACE partitioning.
     refinement_rate: float, default = 1.0
+    guarantee_connectivity: bool, default = False
+        Whether to use MST optimization to guarantee graph connectivity.
 
     """
 
@@ -238,7 +240,8 @@ cdef class IndexParams:
                  ivf_pq_build_params: ivf_pq.IndexParams = None,
                  ivf_pq_search_params: ivf_pq.SearchParams = None,
                  ace_params: AceParams = None,
-                 refinement_rate: float = 1.0):
+                 refinement_rate: float = 1.0,
+                 guarantee_connectivity: bool = False):
         # Declare cdef variables at the top of the function
         cdef cuvsIvfPqParams_t ivf_pq_params_ptr
         cdef cuvsAceParams_t new_ace_params
@@ -259,6 +262,7 @@ cdef class IndexParams:
             raise ValueError(f"Unknown build_algo '{build_algo}'")
 
         self.params.nn_descent_niter = nn_descent_niter
+        self.params.guarantee_connectivity = guarantee_connectivity
 
         # Handle graph build params based on build algorithm
         if build_algo == "ace":
@@ -334,6 +338,10 @@ cdef class IndexParams:
     @property
     def nn_descent_niter(self):
         return self.params.nn_descent_niter
+
+    @property
+    def guarantee_connectivity(self):
+        return self.params.guarantee_connectivity
 
     @property
     def refinement_rate(self):
