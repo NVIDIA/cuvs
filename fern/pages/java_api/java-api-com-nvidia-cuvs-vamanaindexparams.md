@@ -345,22 +345,23 @@ public Builder withInitialGraph(CuVSHostMatrix initialGraph)
 ```
 
 Sets a graph to start the build from instead of an empty graph, for example a host copy of
-`CagraIndex#getGraph()` from an index built with NN-descent. It holds one full row of
-`graphDegree` neighbor ids per vector, never the row's own id, in any order. The build
-copies it, so it must stay open until the index build returns. Once it is closed, these
-parameters must not be used for another build.
+`CagraIndex#getGraph()` from an index built with NN-descent. It must be a
+`CuVSMatrix.DataType#UINT` matrix, which `CagraIndex#getGraph()` already returns,
+holding one full row of `graphDegree` neighbor ids per vector, never the row's own id,
+in any order. The build copies it, so it must stay open until the index build returns. Once
+it is closed, these parameters must not be used for another build.
 
 **Parameters**
 
 | Name | Description |
 | --- | --- |
-| `initialGraph` | the graph, with one row per dataset vector |
+| `initialGraph` | the `CuVSMatrix.DataType#UINT` graph, with one row per dataset vector |
 
 **Returns**
 
 an instance of this Builder
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:326`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:328`_
 
 ### build
 
@@ -374,6 +375,6 @@ Builds an instance of `VamanaIndexParams`.
 
 an instance of `VamanaIndexParams`
 
-_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:336`_
+_Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:338`_
 
 _Source: `java/cuvs-java/src/main/java/com/nvidia/cuvs/VamanaIndexParams.java:18`_

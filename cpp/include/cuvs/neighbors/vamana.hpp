@@ -75,6 +75,10 @@ struct index_params : cuvs::neighbors::index_params {
   uint32_t queue_size = 127;
   /** Max batchsize of reverse edge processing (reduces memory footprint) */
   uint32_t reverse_batchsize = 1000000;
+
+  /** Codebooks and related parameters */
+  std::optional<codebook_params<float>> codebooks = std::nullopt;
+
   /**
    * Optional graph [n_rows, graph_degree] to start the insertion passes from instead of an empty
    * graph, for example the graph of a CAGRA index built with NN-descent. Rows must be full, and
@@ -84,9 +88,6 @@ struct index_params : cuvs::neighbors::index_params {
    */
   std::optional<raft::host_matrix_view<const uint32_t, int64_t, raft::row_major>> initial_graph =
     std::nullopt;
-
-  /** Codebooks and related parameters */
-  std::optional<codebook_params<float>> codebooks = std::nullopt;
 };
 
 /**

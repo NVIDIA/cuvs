@@ -316,12 +316,14 @@ public class VamanaIndexParams {
 
     /**
      * Sets a graph to start the build from instead of an empty graph, for example a host copy of
-     * {@link CagraIndex#getGraph()} from an index built with NN-descent. It holds one full row of
-     * {@code graphDegree} neighbor ids per vector, never the row's own id, in any order. The build
-     * copies it, so it must stay open until the index build returns. Once it is closed, these
-     * parameters must not be used for another build.
+     * {@link CagraIndex#getGraph()} from an index built with NN-descent. It must be a
+     * {@link CuVSMatrix.DataType#UINT} matrix, which {@link CagraIndex#getGraph()} already returns,
+     * holding one full row of {@code graphDegree} neighbor ids per vector, never the row's own id,
+     * in any order. The build copies it, so it must stay open until the index build returns. Once
+     * it is closed, these parameters must not be used for another build.
      *
-     * @param initialGraph the graph, with one row per dataset vector
+     * @param initialGraph the {@link CuVSMatrix.DataType#UINT} graph, with one row per dataset
+     *     vector
      * @return an instance of this Builder
      */
     public Builder withInitialGraph(CuVSHostMatrix initialGraph) {
