@@ -303,8 +303,6 @@ void mnmg_fit(
                 CUVS_KMEANS_COMM_ROOT);
   }
 
-  std::mt19937 gen(params.rng_state.seed);
-
   auto d_prior_cost = raft::make_device_scalar<DataT>(dev_res, DataT{0});
   auto d_done_flag  = raft::make_device_scalar<int>(dev_res, 0);
   auto h_done_flag  = raft::make_pinned_scalar<int>(dev_res, 0);
@@ -451,11 +449,11 @@ void mnmg_fit(
   };
   auto rank_centroids_const = raft::make_const_mdspan(rank_centroids);
 
+  std::mt19937_64 gen(params.rng_state.seed);
   for (int seed_iter = 0; seed_iter < n_init; ++seed_iter) {
     cuvs::cluster::kmeans::params iter_params = params;
     iter_params.rng_state.seed                = gen();
-
-    auto input_centroids_const = raft::make_device_matrix_view<const DataT, IndexT>(
+    auto input_centroids_const                = raft::make_device_matrix_view<const DataT, IndexT>(
       centroids.data_handle(), n_clusters, n_features);
 
     init_centroids_for_mg_batched<DataT, IndexT, Accessor>(dev_res,
@@ -799,7 +797,6 @@ void batched_fit_omp(const raft::resources& clique,
           raft::make_host_vector_view<const DataT, IndexT>(sample_weight->data_handle() + offset,
                                                            n_local)};
       }
-
       mnmg_fit(clique, params, X_parts, sw_parts, centroids, inertia, n_iter);
     }
   }
