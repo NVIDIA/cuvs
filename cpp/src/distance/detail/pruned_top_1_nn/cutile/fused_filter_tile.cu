@@ -5,6 +5,8 @@
 
 #include "fused_filter_tile.hpp"
 
+#include "../../../../core/nvtx.hpp"
+
 #include <cuvs/detail/jit_lto/TileAlgorithmPlanner.hpp>
 #include <cuvs/detail/jit_lto/common_fragments.hpp>
 #include <cuvs/detail/jit_lto/cutile_arch_tags.hpp>
@@ -72,6 +74,7 @@ void launch_fused_filter(const raft::resources& handle,
                          int* count,
                          int row_stride)
 {
+  common::nvtx::range<common::nvtx::domain::cuvs> range("pruned_1nn::fused_filter");
   FusedFilterTilePlanner planner;
   auto launcher = planner.try_get_launcher();
   RAFT_EXPECTS(launcher != nullptr, "Pruned 1-NN fused filter: no cuTile cubin for this device");

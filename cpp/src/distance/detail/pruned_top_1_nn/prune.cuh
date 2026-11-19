@@ -11,6 +11,8 @@
  */
 #pragma once
 
+#include "../../../core/nvtx.hpp"
+
 #include <raft/core/error.hpp>
 #include <raft/core/kvp.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
@@ -393,6 +395,7 @@ void prune(const raft::resources& handle,
            uint32_t* labels,
            float* dist)
 {
+  common::nvtx::range<common::nvtx::domain::cuvs> range("pruned_1nn::prune");
   RAFT_EXPECTS(dim > kPartialDim, "Pruned 1-NN needs a positive tail after %u dims", kPartialDim);
   RAFT_EXPECTS(dim % (kAlignment / sizeof(T)) == 0,
                "Pruned 1-NN needs row strides divisible by 16 bytes");
