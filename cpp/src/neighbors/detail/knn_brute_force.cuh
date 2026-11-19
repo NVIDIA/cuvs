@@ -160,18 +160,6 @@ void tiled_brute_force_knn(const raft::resources& handle,
   auto last_col_tile_size = n % tile_cols;
   if (last_col_tile_size && (last_col_tile_size < k)) { temp_out_cols -= k - last_col_tile_size; }
 
-  // if we have less than k items in the index, we should fill out the result
-  // to indicate that we are missing items (and match behaviour in faiss)
-  if (n < k) {
-    raft::matrix::fill(handle,
-                       raft::make_device_matrix_view(distances, m, k),
-                       std::numeric_limits<DistanceT>::lowest());
-
-    if constexpr (std::is_signed_v<IndexType>) {
-      raft::matrix::fill(handle, raft::make_device_matrix_view(indices, m, k), IndexType{-1});
-    }
-  }
-
   // Only used when the index is split into column tiles, to merge each tile's top-k.
   size_t temp_out_size = tile_cols != n ? tile_rows * temp_out_cols : 0;
   rmm::device_uvector<DistanceT> temp_out_distances(temp_out_size, stream);
@@ -312,7 +300,30 @@ void tiled_brute_force_knn(const raft::resources& handle,
       }
     }
 
-    if (tile_cols != n) {
+    if (n < k) {
+      // if we have less than k items in the index, the single column tile already holds all n
+      // neighbors in sorted order. Copy them to the front of each k-wide output row and fill out
+      // the rest to indicate that we are missing items (and match behaviour in faiss)
+      const DistanceT* in_distances = temp_out_distances.data();
+      const IndexType* in_indices   = temp_out_indices.data();
+      DistanceT* out_distances      = distances + i * k;
+      IndexType* out_indices        = indices + i * k;
+
+      auto count = cuda::make_counting_iterator<IndexType>(0);
+      thrust::for_each(raft::resource::get_thrust_policy(handle),
+                       count,
+                       count + current_query_size * k,
+                       [=] __device__(IndexType idx) {
+                         size_t row = idx / k, col = idx % k;
+                         if (col < n) {
+                           out_distances[idx] = in_distances[row * n + col];
+                           out_indices[idx]   = in_indices[row * n + col];
+                         } else {
+                           out_distances[idx] = std::numeric_limits<DistanceT>::lowest();
+                           if constexpr (std::is_signed_v<IndexType>) { out_indices[idx] = -1; }
+                         }
+                       });
+    } else if (tile_cols != n) {
       // select the actual top-k items here from the temporary output
       cuvs::selection::select_k(
         handle,

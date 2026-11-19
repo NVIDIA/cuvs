@@ -19,6 +19,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
+#include <numeric>
 #include <vector>
 
 namespace cuvs::neighbors::brute_force {
@@ -268,6 +270,68 @@ TEST(BruteForceEqualNorms, PreservesNeighborOrdering)
                     expected_distance,
                     metric == cuvs::distance::DistanceType::L2Expanded ? 5e-7 : 5e-5)
           << "metric=" << static_cast<int>(metric) << " k=" << k << " rank=" << i;
+      }
+    }
+  }
+}
+
+TEST(BruteForceSmallIndex, PadsMissingNeighbors)
+{
+  raft::resources handle;
+  auto stream                  = raft::resource::get_cuda_stream(handle);
+  constexpr int64_t n_database = 4;
+  constexpr int64_t n_queries  = 5;
+  constexpr int64_t k          = 6;
+
+  // 1-d points, so the expected neighbors of each query are unambiguous.
+  std::vector<float> database_x{0.0f, 1.0f, 2.0f, 3.0f};
+  std::vector<float> queries_x{0.125f, 1.125f, 2.125f, 3.125f, -1.0f};
+  std::vector<half> h_database(n_database);
+  std::vector<half> h_queries(n_queries);
+  std::ranges::transform(database_x, h_database.begin(), [](float v) { return __float2half(v); });
+  std::ranges::transform(queries_x, h_queries.begin(), [](float v) { return __float2half(v); });
+
+  auto database = raft::make_device_matrix<half, int64_t>(handle, n_database, 1);
+  auto queries  = raft::make_device_matrix<half, int64_t>(handle, n_queries, 1);
+  raft::update_device(database.data_handle(), h_database.data(), h_database.size(), stream);
+  raft::update_device(queries.data_handle(), h_queries.data(), h_queries.size(), stream);
+
+  index_params index_params;
+  index_params.metric = cuvs::distance::DistanceType::L2Expanded;
+  auto index          = build(handle, index_params, raft::make_const_mdspan(database.view()));
+
+  auto neighbors = raft::make_device_matrix<int64_t, int64_t>(handle, n_queries, k);
+  auto distances = raft::make_device_matrix<float, int64_t>(handle, n_queries, k);
+  search(handle,
+         search_params{},
+         index,
+         raft::make_const_mdspan(queries.view()),
+         neighbors.view(),
+         distances.view(),
+         filtering::none_sample_filter{});
+
+  std::vector<int64_t> h_neighbors(n_queries * k);
+  std::vector<float> h_distances(n_queries * k);
+  raft::update_host(h_neighbors.data(), neighbors.data_handle(), h_neighbors.size(), stream);
+  raft::update_host(h_distances.data(), distances.data_handle(), h_distances.size(), stream);
+  raft::resource::sync_stream(handle, stream);
+
+  for (int64_t q = 0; q < n_queries; ++q) {
+    std::vector<int64_t> expected(n_database);
+    std::iota(expected.begin(), expected.end(), int64_t{0});
+    std::ranges::sort(expected, [&](int64_t lhs, int64_t rhs) -> bool {
+      return std::abs(queries_x[q] - database_x[lhs]) < std::abs(queries_x[q] - database_x[rhs]);
+    });
+
+    for (int64_t i = 0; i < k; ++i) {
+      if (i < n_database) {
+        float diff = queries_x[q] - database_x[expected[i]];
+        EXPECT_EQ(h_neighbors[q * k + i], expected[i]) << "query=" << q << " rank=" << i;
+        EXPECT_NEAR(h_distances[q * k + i], diff * diff, 1e-4) << "query=" << q << " rank=" << i;
+      } else {
+        EXPECT_EQ(h_neighbors[q * k + i], -1) << "query=" << q << " rank=" << i;
+        EXPECT_EQ(h_distances[q * k + i], std::numeric_limits<float>::lowest())
+          << "query=" << q << " rank=" << i;
       }
     }
   }
