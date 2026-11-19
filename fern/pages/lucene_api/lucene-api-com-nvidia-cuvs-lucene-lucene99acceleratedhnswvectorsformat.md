@@ -12,7 +12,7 @@ public class Lucene99AcceleratedHNSWVectorsFormat extends KnnVectorsFormat
 
 cuVS based KnnVectorsFormat for indexing on GPU and searching on the CPU.
 
-## Public Members
+## Public and Protected Members
 
 ### Lucene99AcceleratedHNSWVectorsFormat
 
