@@ -1,0 +1,45 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <raft/util/popc.cuh>
+
+extern template void raft::linalg::detail::coalescedReductionThin<
+  raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>,
+  int64_t,
+  int64_t,
+  int64_t,
+  raft::identity_op,
+  raft::add_op,
+  raft::identity_op>(int64_t*,
+                     const int64_t*,
+                     int64_t,
+                     int64_t,
+                     int64_t,
+                     cudaStream_t,
+                     bool,
+                     raft::identity_op,
+                     raft::add_op,
+                     raft::identity_op);
+extern template void raft::linalg::detail::coalescedReductionThin<
+  raft::linalg::detail::ReductionThinPolicy<32, 128, 1, false>,
+  uint32_t,
+  uint32_t,
+  uint32_t,
+  raft::identity_op,
+  raft::add_op,
+  raft::identity_op>(uint32_t*,
+                     const uint32_t*,
+                     uint32_t,
+                     uint32_t,
+                     uint32_t,
+                     cudaStream_t,
+                     bool,
+                     raft::identity_op,
+                     raft::add_op,
+                     raft::identity_op);
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
