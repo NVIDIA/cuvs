@@ -330,7 +330,7 @@ TEST(BruteForceSmallIndex, PadsMissingNeighbors)
         EXPECT_NEAR(h_distances[q * k + i], diff * diff, 1e-4) << "query=" << q << " rank=" << i;
       } else {
         EXPECT_EQ(h_neighbors[q * k + i], -1) << "query=" << q << " rank=" << i;
-        EXPECT_EQ(h_distances[q * k + i], std::numeric_limits<float>::lowest())
+        EXPECT_EQ(h_distances[q * k + i], std::numeric_limits<float>::max())
           << "query=" << q << " rank=" << i;
       }
     }
