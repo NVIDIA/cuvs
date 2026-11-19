@@ -135,12 +135,6 @@ RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_worker_impl(
         const auto byte_order = identity_byte_order ^ (byte_displacement * repeat_selector_digit);
         query_word            = __byte_perm(query_word, 0, byte_order);
         auto data_word        = reinterpret_cast<const uint32_t*>(&data[e])[v / bytes_per_word];
-        // Padding bytes are not features and must not contribute to either count.
-        if (dim - (k + v) < bytes_per_word) {
-          const auto mask = (uint32_t{1} << (8 * (dim - (k + v)))) - 1;
-          query_word &= mask;
-          data_word &= mask;
-        }
         differing += __popc(query_word ^ data_word);
         set_union += __popc(query_word | data_word);
       }
