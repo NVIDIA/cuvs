@@ -370,6 +370,8 @@ navigation:
             path: "./pages/cpp_api/cpp-api-core-dataset-sparse.md"
           - page: "Core Dataset SQ"
             path: "./pages/cpp_api/cpp-api-core-dataset-sq.md"
+          - page: "Core Dataset Traits"
+            path: "./pages/cpp_api/cpp-api-core-dataset-traits.md"
           - page: "Core Dataset Type"
             path: "./pages/cpp_api/cpp-api-core-dataset-type.md"
           - page: "Core Dataset View"

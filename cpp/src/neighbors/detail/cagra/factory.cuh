@@ -96,7 +96,7 @@ auto make_key(const cagra::search_params& params,
               const DatasetT& dataset,
               cuvs::distance::DistanceType metric,
               const void* dataset_norms)
-  -> std::enable_if_t<is_padded_dataset_v<DatasetT> || is_standard_dataset_v<DatasetT>, key>
+  -> std::enable_if_t<is_padded_dataset_v<DatasetT> || is_contiguous_dataset_v<DatasetT>, key>
 {
   return key{reinterpret_cast<uint64_t>(dataset.data_const_view().data_handle()),
              reinterpret_cast<uint64_t>(dataset_norms),

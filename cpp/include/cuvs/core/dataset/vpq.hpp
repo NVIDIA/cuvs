@@ -119,18 +119,24 @@ struct vpq_spec {
 
 template <typename T, typename IdxT, typename MathT, typename BookPolicy, typename CodePolicy>
 using vpq_dataset = dataset<T, IdxT, vpq_spec<MathT, BookPolicy, CodePolicy>>;
-template <typename T, typename IdxT, typename MathT>
+template <typename T, typename IdxT, typename MathT = T>
 using device_vpq_dataset =
   vpq_dataset<T,
               IdxT,
               MathT,
               raft::device_accessor<raft::device_container_policy<MathT>>,
               raft::device_accessor<raft::device_container_policy<uint8_t>>>;
-template <typename T, typename IdxT, typename MathT>
+template <typename T, typename IdxT, typename MathT = T>
 using host_vpq_dataset = vpq_dataset<T,
                                      IdxT,
                                      MathT,
                                      raft::host_accessor<raft::host_container_policy<MathT>>,
                                      raft::host_accessor<raft::host_container_policy<uint8_t>>>;
+
+/** The read-only non-owning views of the VPQ datasets above. */
+template <typename T, typename IdxT, typename MathT = T>
+using device_vpq_dataset_view = typename device_vpq_dataset<T, IdxT, MathT>::const_view_type;
+template <typename T, typename IdxT, typename MathT = T>
+using host_vpq_dataset_view = typename host_vpq_dataset<T, IdxT, MathT>::const_view_type;
 
 }  // namespace CUVS_EXPORT cuvs

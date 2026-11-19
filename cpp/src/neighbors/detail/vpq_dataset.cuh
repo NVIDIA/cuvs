@@ -122,11 +122,13 @@ void train_pq_centers(
 }
 
 template <typename DatasetT>
-auto fill_missing_params_heuristics(const vpq_params& params, const DatasetT& dataset) -> vpq_params
+auto fill_missing_params_heuristics(const cuvs::preprocessing::quantize::pq::vpq_params& params,
+                                    const DatasetT& dataset)
+  -> cuvs::preprocessing::quantize::pq::vpq_params
 {
-  vpq_params r  = params;
-  double n_rows = dataset.extent(0);
-  size_t dim    = dataset.extent(1);
+  cuvs::preprocessing::quantize::pq::vpq_params r = params;
+  double n_rows                                   = dataset.extent(0);
+  size_t dim                                      = dataset.extent(1);
   if (r.pq_dim == 0) { r.pq_dim = raft::div_rounding_up_safe(dim, size_t{4}); }
   if (r.pq_bits == 0) { r.pq_bits = 8; }
   if (r.vq_n_centers == 0) { r.vq_n_centers = raft::round_up_safe<uint32_t>(std::sqrt(n_rows), 8); }
@@ -168,8 +170,9 @@ auto transform_data(const raft::resources& res, DatasetT dataset)
 using ix_t = int64_t;
 
 template <typename MathT, typename DatasetT>
-auto train_vq(const raft::resources& res, const vpq_params& params, const DatasetT& dataset)
-  -> raft::device_matrix<MathT, uint32_t, raft::row_major>
+auto train_vq(const raft::resources& res,
+              const cuvs::preprocessing::quantize::pq::vpq_params& params,
+              const DatasetT& dataset) -> raft::device_matrix<MathT, uint32_t, raft::row_major>
 {
   using kmeans_in_type    = typename DatasetT::value_type;
   const ix_t n_rows       = dataset.extent(0);
@@ -413,7 +416,7 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_kernel(
 template <typename MathT, typename IdxT, typename DatasetT>
 void process_and_fill_codes(
   const raft::resources& res,
-  const vpq_params& params,
+  const cuvs::preprocessing::quantize::pq::vpq_params& params,
   const DatasetT& dataset,
   raft::device_matrix_view<const MathT, uint32_t, raft::row_major> pq_centers,
   raft::device_matrix_view<const MathT, uint32_t, raft::row_major> vq_centers,
@@ -808,7 +811,7 @@ __launch_bounds__(BlockSize) RAFT_KERNEL process_and_fill_codes_subspaces_kernel
 template <typename MathT, typename IdxT, typename DatasetT>
 void process_and_fill_codes_subspaces(
   const raft::resources& res,
-  const vpq_params& params,
+  const cuvs::preprocessing::quantize::pq::vpq_params& params,
   const DatasetT& dataset,
   raft::device_matrix_view<const MathT, uint32_t, raft::row_major> pq_centers,
   raft::device_matrix_view<const MathT, uint32_t, raft::row_major> vq_centers,

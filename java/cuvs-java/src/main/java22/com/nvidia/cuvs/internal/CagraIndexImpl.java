@@ -413,7 +413,7 @@ public class CagraIndexImpl implements CagraIndex {
     }
   }
 
-  /** Matches C++ `cagra_required_row_width` (16-byte default alignment). */
+  /** Matches C++ `cuvs::padded_row_width` (16-byte default alignment). */
   private static long cagraRequiredRowWidth(long logicalColumns, int sizeofValue) {
     int alignBytes = 16;
     int lcm = lcm(alignBytes, sizeofValue);
