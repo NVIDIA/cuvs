@@ -485,6 +485,19 @@ if(NOT BUILD_CPU_ONLY)
   )
   generate_jit_lto_kernels(
     jit_lto_files
+    NAME_FORMAT "ivf_sq_scan_stable_capacity_@capacity@"
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_sq/detail/jit_lto_kernels/scan_stable_matrix.json"
+    KERNEL_INPUT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_sq/detail/jit_lto_kernels/scan_stable_kernel.cu.in"
+    FRAGMENT_TAG_FORMAT "${ivf_sq_ns}::fragment_tag_ivf_sq_scan_stable<@capacity@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>"
+                              "<cuvs/detail/jit_lto/common_fragments.hpp>"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/ivf_sq/scan_stable"
+    KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
+  )
+  generate_jit_lto_kernels(
+    jit_lto_files
     NAME_FORMAT "ivf_sq_setup_invariant_smem_metric_@metric_name@"
     MATRIX_JSON_FILE
       "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_sq/detail/jit_lto_kernels/setup_invariant_smem_matrix.json"
@@ -628,6 +641,19 @@ if(NOT BUILD_CPU_ONLY)
       "${ivf_pq_ns}::fragment_tag_compute_distances<${ivf_pq_ns}::tag_out_@out_abbrev@, ${ivf_pq_ns}::tag_lut_@lut_abbrev@, @capacity@>"
     FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/ivf_pq/compute_distances"
+    KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
+  )
+  generate_jit_lto_kernels(
+    jit_lto_files
+    NAME_FORMAT "ivf_pq_compute_distances_stable_out_@out_abbrev@_lut_@lut_abbrev@_capacity_@capacity@"
+    MATRIX_JSON_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/jit_lto_kernels/compute_distances_stable_matrix.json"
+    KERNEL_INPUT_FILE
+      "${CMAKE_CURRENT_SOURCE_DIR}/src/neighbors/ivf_pq/detail/jit_lto_kernels/compute_distances_stable_kernel.cu.in"
+    FRAGMENT_TAG_FORMAT
+      "${ivf_pq_ns}::fragment_tag_compute_distances_stable<${ivf_pq_ns}::tag_out_@out_abbrev@, ${ivf_pq_ns}::tag_lut_@lut_abbrev@, @capacity@>"
+    FRAGMENT_TAG_HEADER_FILES "<cuvs/detail/jit_lto/ivf_pq/compute_similarity_fragments.hpp>"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated_kernels/ivf_pq/compute_distances_stable"
     KERNEL_LINK_LIBRARIES jit_lto_kernel_usage_requirements
   )
   generate_jit_lto_kernels(
