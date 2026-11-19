@@ -290,7 +290,7 @@ dependencies:
     common:
       - output_types: [conda, requirements, constraints, pyproject]
         packages:
-          - &cmake_ver cmake>=4.0
+          - &cmake_ver cmake>=4.3,<4.5
           - ninja
       - output_types: [conda]
         packages:
@@ -695,7 +695,7 @@ dependencies:
             packages:
               - mkl-devel=2023
               - libaio
-              - libboost-devel=1.87
+              - libboost-devel=1.88
           - matrix:
               arch: aarch64
             packages: null

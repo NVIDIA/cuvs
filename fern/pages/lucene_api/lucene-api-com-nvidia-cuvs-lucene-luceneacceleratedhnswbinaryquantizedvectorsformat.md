@@ -12,7 +12,7 @@ public class LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat extends KnnVector
 
 cuVS based Binary Quantized KnnVectorsFormat for indexing on GPU and searching on the CPU.
 
-## Public Members
+## Public and Protected Members
 
 ### LuceneAcceleratedHNSWBinaryQuantizedVectorsFormat
 

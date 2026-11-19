@@ -9,7 +9,7 @@ dependencies:
 - clang-tools==20.1.8
 - clang==20.1.8
 - click
-- cmake>=4.0
+- cmake>=4.3,<4.5
 - cuda-bindings>=12.9.3,<13.0
 - cuda-nvcc
 - cuda-nvrtc-dev
@@ -25,7 +25,7 @@ dependencies:
 - glog>=0.6.0
 - h5py>=3.8.0
 - libaio
-- libboost-devel=1.87
+- libboost-devel=1.88
 - libcublas-dev
 - libcurand-dev
 - libcusolver-dev
