@@ -214,10 +214,8 @@ jobs:
       artifact-name: cuvs-java_maven_repo
       source-git-sha: ${{ inputs.sha || github.sha }}
       profile-id: ${{ vars.MAVEN_STAGING_PROFILE_ID || 'com.nvidia.cuvs' }}
-      docs-project: cuvs-java
   lucene-publish:
     # The Lucene release depends on the matching published Java coordinate.
-    # Documentation is dispatched separately from release-tracking.
     if: ${{ !cancelled() && needs.java-publish.outputs.deployment-state == 'PUBLISHED' }}
     needs: [java-maven-gather, java-publish]
     permissions:
@@ -233,7 +231,6 @@ jobs:
       primary-artifact-id: cuvs-lucene
       source-git-sha: ${{ inputs.sha || github.sha }}
       profile-id: ${{ vars.MAVEN_STAGING_PROFILE_ID || 'com.nvidia.cuvs' }}
-      docs-project: cuvs-lucene
   python-build:
     needs: [build-details, cpp-build]
     permissions:

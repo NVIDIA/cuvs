@@ -31,9 +31,8 @@ release. The highest-CUDA build supplies the entire Lucene publication set.
 
 Both modules use the shared Maven publisher with automatic publication enabled.
 Lucene waits for the Java publisher's `PUBLISHED` output, so its dependency is
-released first. Each published module emits a completed-publication receipt.
-The standalone dispatcher in release-tracking starts the registered docs project
-in `rapidsai/docs`; docs failures do not prevent Lucene publication.
+released first. Javadoc JARs remain part of the Maven publications. Website
+documentation for Java and Lucene is part of the existing cuVS Fern docs.
 Branch and nightly builds keep their existing build behavior; these newly added
 publication jobs run on release tags.
 
@@ -46,31 +45,24 @@ API checks account namespace access directly. The legacy
 `MAVEN_STAGING_PROFILE_ID` setting is accepted but unused. Confirm namespace and
 account access during rollout.
 
-App credentials remain in release-tracking's existing `release-dispatch`
-environment. Deploy the standalone docs dispatcher, `cuvs-java` and `cuvs-lucene`
-docs registrations, and the shared workflow receipt/output contract before
-enabling this caller on the release branch. Only one system should publish these
-coordinates for a release; retire the legacy manual publishing path at cutover.
+Only one system should publish these coordinates for a release; retire the
+legacy manual publishing path at cutover.
 
 The shared publisher prerequisite is
 [shared-workflows #660](https://github.com/rapidsai/shared-workflows/pull/660).
 It adds a coordinate manifest, POM-only packaging, full Portal package-URL
 verification, and recovery tied to the complete publication set. The caller sets
-`primary-artifact-id: cuvs-lucene` to retain the docs dispatcher's existing receipt
-coordinate. The `deployment-state: PUBLISHED` output and completed receipt cover
-the entire Lucene set.
+`primary-artifact-id: cuvs-lucene` to select the primary workflow output coordinate.
+The `deployment-state: PUBLISHED` output covers the entire Lucene set.
 
 Rollout order:
 
 1. Merge the shared publisher, including its mixed JAR/POM-only coordinate tests
    and resumed-publication verification.
-2. Deploy and verify the docs dispatcher and both docs registrations if docs
-   automation is part of the cutover. Lucene javadoc must come from a versioned
-   module such as `cuvs-lucene-10.2`, since the old coordinate is POM-only.
-3. Confirm signing credentials and Sonatype namespace access;
+2. Confirm signing credentials and Sonatype namespace access;
    validate the full CUDA matrix's uploaded layout and signed bundle in the
    release environment.
-4. Merge this caller and ensure it is present on the branch being tagged. Retire
+3. Merge this caller and ensure it is present on the branch being tagged. Retire
    manual publishing and verify Java reaches `PUBLISHED` before the complete
    Lucene set is published. Check Maven resolution through the old relocation
    coordinates as well as every versioned coordinate.
@@ -78,5 +70,6 @@ Rollout order:
 Run `pre-commit run test-maven-assembly --all-files` to check Maven assembly
 without building Java or CUDA. The PR checks run the same hook.
 
-The complete matrix build, Sonatype namespace authorization, App
-dispatch, and S3 upload still require validation in the release environment.
+The complete matrix build and Sonatype namespace authorization still require
+validation in the release environment. No separate Java docs dispatcher or
+Javadoc website upload is required for this Maven release path.
