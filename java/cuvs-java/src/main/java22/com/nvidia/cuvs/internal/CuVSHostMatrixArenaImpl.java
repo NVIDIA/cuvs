@@ -4,6 +4,7 @@
  */
 package com.nvidia.cuvs.internal;
 
+import com.nvidia.cuvs.internal.common.Util;
 import java.lang.foreign.Arena;
 import java.lang.foreign.SequenceLayout;
 import java.lang.foreign.ValueLayout;
@@ -51,7 +52,9 @@ public class CuVSHostMatrixArenaImpl extends CuVSHostMatrixImpl {
       SequenceLayout layout,
       Arena arena) {
     super(
-        arena.allocate(layout),
+        // Not zero-filled: every producer of these matrices writes all of it (see
+        // HostMatrixBuilder.build for rows a caller never adds).
+        Util.allocateUninitialized(arena, layout.byteSize(), layout.byteAlignment()),
         size,
         columns,
         rowStride,
