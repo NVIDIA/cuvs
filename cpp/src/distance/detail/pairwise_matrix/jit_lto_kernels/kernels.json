@@ -1,0 +1,70 @@
+{
+  "kernels": [
+    {
+      "name_format": "pairwise_matrix_@distance_abbrev@_data_@data_abbrev@_acc_@acc_abbrev@_out_@out_abbrev@_index_@index_abbrev@_layout_@layout_abbrev@_veclen_@veclen@",
+      "matrix": "compute_distance_epilog_matrix.json",
+      "kernel_input": "pairwise_matrix_kernel.cu.in",
+      "fragment_tag_format": "@distance_ns@::fragment_tag_pairwise_matrix<@distance_ns@::tag_distance_@distance_abbrev@, @neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_@acc_abbrev@, @neighbors_ns@::tag_@out_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @distance_ns@::tag_fin_op_identity, @distance_ns@::tag_layout_@layout_abbrev@, @veclen@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/pairwise_matrix/pairwise_matrix_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/distance/pairwise_matrix/kernel"
+    },
+    {
+      "name_format": "pairwise_matrix_@distance_abbrev@_data_@data_abbrev@_acc_@acc_abbrev@_out_@out_abbrev@_index_@index_abbrev@_fin_op_rbf_layout_@layout_abbrev@_veclen_@veclen@",
+      "matrix": "compute_distance_epilog_rbf_matrix.json",
+      "kernel_input": "pairwise_matrix_rbf_kernel.cu.in",
+      "fragment_tag_format": "@distance_ns@::fragment_tag_pairwise_matrix<@distance_ns@::tag_distance_@distance_abbrev@, @neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_@acc_abbrev@, @neighbors_ns@::tag_@out_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @distance_ns@::tag_fin_op_rbf, @distance_ns@::tag_layout_@layout_abbrev@, @veclen@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/pairwise_matrix/pairwise_matrix_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/distance/pairwise_matrix/kernel_rbf"
+    },
+    {
+      "name_format": "pairwise_matrix_compute_distance_@distance_abbrev@_data_@data_abbrev@_acc_@acc_abbrev@_index_@index_abbrev@",
+      "matrix": "compute_distance_matrix.json",
+      "kernel_input": "compute_distance_kernel.cu.in",
+      "fragment_tag_format": "@distance_ns@::fragment_tag_compute_distance<@distance_ns@::tag_distance_@distance_abbrev@, @neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_@acc_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/pairwise_matrix/pairwise_matrix_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/distance/pairwise_matrix/compute_distance"
+    },
+    {
+      "name_format": "pairwise_matrix_compute_distance_@distance_abbrev@_data_@data_abbrev@_acc_@acc_abbrev@_index_@index_abbrev@",
+      "matrix": "compute_distance_rbf_matrix.json",
+      "kernel_input": "compute_distance_kernel.cu.in",
+      "fragment_tag_format": "@distance_ns@::fragment_tag_compute_distance<@distance_ns@::tag_distance_@distance_abbrev@, @neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_@acc_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/pairwise_matrix/pairwise_matrix_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/distance/pairwise_matrix/compute_distance_rbf"
+    },
+    {
+      "name_format": "pairwise_matrix_compute_distance_epilog_@distance_abbrev@_data_@data_abbrev@_acc_@acc_abbrev@_index_@index_abbrev@_layout_@layout_abbrev@_veclen_@veclen@",
+      "matrix": "compute_distance_epilog_matrix.json",
+      "kernel_input": "compute_distance_epilog_kernel.cu.in",
+      "fragment_tag_format": "@distance_ns@::fragment_tag_compute_distance_epilog<@distance_ns@::tag_distance_@distance_abbrev@, @neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_@acc_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @distance_ns@::tag_layout_@layout_abbrev@, @veclen@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/pairwise_matrix/pairwise_matrix_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/distance/pairwise_matrix/compute_distance_epilog"
+    },
+    {
+      "name_format": "pairwise_matrix_compute_distance_epilog_@distance_abbrev@_data_@data_abbrev@_acc_@acc_abbrev@_index_@index_abbrev@_layout_@layout_abbrev@_veclen_@veclen@",
+      "matrix": "compute_distance_epilog_rbf_matrix.json",
+      "kernel_input": "compute_distance_epilog_kernel.cu.in",
+      "fragment_tag_format": "@distance_ns@::fragment_tag_compute_distance_epilog<@distance_ns@::tag_distance_@distance_abbrev@, @neighbors_ns@::tag_@data_abbrev@, @neighbors_ns@::tag_@acc_abbrev@, @neighbors_ns@::tag_index_@index_abbrev@, @distance_ns@::tag_layout_@layout_abbrev@, @veclen@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/pairwise_matrix/pairwise_matrix_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/distance/pairwise_matrix/compute_distance_epilog_rbf"
+    }
+  ]
+}

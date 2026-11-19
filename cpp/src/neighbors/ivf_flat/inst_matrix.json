@@ -1,0 +1,24 @@
+{
+  "inst_matrix": [
+    {
+      "matrix": "ivf_flat_build_extend_matrix.json",
+      "input": "ivf_flat_build_extend_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/ivf_flat/ivf_flat_build_extend_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    },
+    {
+      "matrix": "ivf_flat_search_matrix.json",
+      "input": "ivf_flat_search_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/ivf_flat/ivf_flat_search_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    },
+    {
+      "matrix": "ivf_flat_interleaved_scan_matrix.json",
+      "input": "ivf_flat_interleaved_scan_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/ivf_flat/ivf_flat_interleaved_scan_inst_data_@data_abbrev@_index_@index_abbrev@_filter_@filter_name@.cu"
+    },
+    {
+      "matrix": "ivf_flat_serialize_matrix.json",
+      "input": "ivf_flat_serialize_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/neighbors/ivf_flat/ivf_flat_serialize_inst_data_@data_abbrev@_index_@index_abbrev@.cu"
+    }
+  ]
+}

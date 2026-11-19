@@ -1,0 +1,14 @@
+{
+  "inst_matrix": [
+    {
+      "matrix": "dispatch_matrix.json",
+      "input": "dispatch_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/distance/detail/pairwise_matrix/dispatch_inst_data_@data_abbrev@_acc_@acc_abbrev@_out_@out_abbrev@_index_@index_abbrev@_op_@op_abbrev@.cu"
+    },
+    {
+      "matrix": "dispatch_rbf_matrix.json",
+      "input": "dispatch_rbf_inst.cu.in",
+      "output_file_format": "@CMAKE_CURRENT_BINARY_DIR@/src/distance/detail/pairwise_matrix/dispatch_rbf_inst_data_@data_abbrev@_acc_@acc_abbrev@_out_@out_abbrev@_index_@index_abbrev@_op_@op_abbrev@.cu"
+    }
+  ]
+}

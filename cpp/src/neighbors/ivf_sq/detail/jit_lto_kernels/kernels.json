@@ -1,0 +1,66 @@
+{
+  "kernels": [
+    {
+      "name_format": "ivf_sq_scan_capacity_@capacity@",
+      "matrix": "scan_matrix.json",
+      "kernel_input": "scan_kernel.cu.in",
+      "fragment_tag_format": "@ivf_sq_ns@::fragment_tag_ivf_sq_scan<@capacity@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_sq/scan"
+    },
+    {
+      "name_format": "ivf_sq_setup_invariant_smem_metric_@metric_name@",
+      "matrix": "setup_invariant_smem_matrix.json",
+      "kernel_input": "setup_invariant_smem_kernel.cu.in",
+      "fragment_tag_format": "@ivf_sq_ns@::fragment_tag_setup_invariant_smem<@ivf_sq_ns@::tag_metric_@metric_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_sq/setup_invariant_smem"
+    },
+    {
+      "name_format": "ivf_sq_setup_per_probe_smem_metric_@metric_name@",
+      "matrix": "setup_per_probe_smem_matrix.json",
+      "kernel_input": "setup_per_probe_smem_kernel.cu.in",
+      "fragment_tag_format": "@ivf_sq_ns@::fragment_tag_setup_per_probe_smem<@ivf_sq_ns@::tag_metric_@metric_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_sq/setup_per_probe_smem"
+    },
+    {
+      "name_format": "ivf_sq_accumulate_distance_metric_@metric_name@",
+      "matrix": "accumulate_distance_matrix.json",
+      "kernel_input": "accumulate_distance_kernel.cu.in",
+      "fragment_tag_format": "@ivf_sq_ns@::fragment_tag_accumulate_distance<@ivf_sq_ns@::tag_metric_@metric_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_sq/accumulate_distance"
+    },
+    {
+      "name_format": "ivf_sq_finalize_distance_metric_@metric_name@",
+      "matrix": "finalize_distance_matrix.json",
+      "kernel_input": "finalize_distance_kernel.cu.in",
+      "fragment_tag_format": "@ivf_sq_ns@::fragment_tag_finalize_distance<@ivf_sq_ns@::tag_metric_@metric_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_sq/finalize_distance"
+    },
+    {
+      "name_format": "ivf_sq_filter_@filter_name@",
+      "matrix": "filter_matrix.json",
+      "kernel_input": "filter_kernel.cu.in",
+      "fragment_tag_format": "@ivf_sq_ns@::fragment_tag_ivf_sq_filter<@neighbors_ns@::tag_filter_@filter_name@>",
+      "fragment_tag_headers": [
+        "<cuvs/detail/jit_lto/ivf_sq/scan_fragments.hpp>",
+        "<cuvs/detail/jit_lto/common_fragments.hpp>"
+      ],
+      "output_dir": "@CMAKE_CURRENT_BINARY_DIR@/generated_kernels/ivf_sq/filter"
+    }
+  ]
+}
