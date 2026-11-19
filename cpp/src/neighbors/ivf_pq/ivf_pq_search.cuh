@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "../../core/normalize.hpp"
 #include "../../core/nvtx.hpp"
 #include "../detail/ann_utils.cuh"
 #include "../ivf_common.cuh"
@@ -1019,7 +1020,7 @@ inline void search(raft::resources const& handle,
     if (index.metric() == distance::DistanceType::CosineExpanded) {
       auto rot_queries_view = raft::make_device_matrix_view<float, uint32_t>(
         rot_queries.data(), max_bs_outer, index.rot_dim());
-      raft::linalg::row_normalize<raft::linalg::L2Norm>(
+      cuvs::detail::row_normalize<raft::linalg::L2Norm>(
         handle, raft::make_const_mdspan(rot_queries_view), rot_queries_view);
     }
     for (uint32_t offset_b = 0; offset_b < queries_batch; offset_b += max_bs_inner) {

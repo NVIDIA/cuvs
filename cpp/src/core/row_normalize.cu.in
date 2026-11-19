@@ -1,0 +1,89 @@
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+#include <core/normalize.hpp>
+#include <cuvs/core/cuda_fp16.hpp>
+#include <raft/linalg/normalize.cuh>
+
+namespace cuvs::detail {
+
+template <typename ElementType,
+          typename IndexType,
+          typename MainLambda,
+          typename ReduceLambda,
+          typename FinalLambda>
+void row_normalize(raft::resources const& handle,
+                   raft::device_matrix_view<const ElementType, IndexType, row_major> in,
+                   raft::device_matrix_view<ElementType, IndexType, row_major> out,
+                   ElementType init,
+                   MainLambda main_op,
+                   ReduceLambda reduce_op,
+                   FinalLambda fin_op,
+                   ElementType eps)
+{
+  if (raft::resource::get_dry_run_flag(handle)) { return; }
+  RAFT_EXPECTS(raft::is_row_or_column_major(in), "Input must be contiguous");
+  RAFT_EXPECTS(raft::is_row_or_column_major(out), "Output must be contiguous");
+  RAFT_EXPECTS(in.extent(0) == out.extent(0),
+               "The number of rows of the input and output should be equal");
+  RAFT_EXPECTS(in.extent(1) == out.extent(1),
+               "The number of columns of the input and output should be equal");
+
+  raft::linalg::detail::coalesced_normalize(out.data_handle(),
+                                            in.data_handle(),
+                                            in.extent(1),
+                                            in.extent(0),
+                                            init,
+                                            raft::resource::get_cuda_stream(handle).get(),
+                                            main_op,
+                                            reduce_op,
+                                            fin_op,
+                                            eps);
+}
+
+template <NormType norm_type, typename ElementType, typename IndexType>
+void row_normalize(raft::resources const& handle,
+                   raft::device_matrix_view<const ElementType, IndexType, row_major> in,
+                   raft::device_matrix_view<ElementType, IndexType, row_major> out,
+                   ElementType eps)
+{
+  if constexpr (norm_type == raft::linalg::L1Norm) {
+    row_normalize(
+      handle, in, out, ElementType(0), raft::abs_op(), raft::add_op(), raft::identity_op(), eps);
+  } else if constexpr (norm_type == raft::linalg::L2Norm) {
+    row_normalize(
+      handle, in, out, ElementType(0), raft::sq_op(), raft::add_op(), raft::sqrt_op(), eps);
+  } else if constexpr (norm_type == raft::linalg::LinfNorm) {
+    row_normalize(
+      handle, in, out, ElementType(0), raft::abs_op(), raft::max_op(), raft::identity_op(), eps);
+  } else {
+    RAFT_FAIL("Unsupported norm type: %d", norm_type);
+  }
+}
+
+extern template void
+cuvs::detail::row_normalize<float, long, raft::sq_op, raft::add_op, raft::sqrt_op>(
+  raft::resources const&,
+  cuda::std::mdspan<
+    float const,
+    cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>,
+    cuda::std::layout_right,
+    raft::host_device_accessor<cuda::std::default_accessor<float const>, (raft::memory_type)2>>,
+  cuda::std::mdspan<
+    float,
+    cuda::std::extents<long, 18446744073709551615ul, 18446744073709551615ul>,
+    cuda::std::layout_right,
+    raft::host_device_accessor<cuda::std::default_accessor<float>, (raft::memory_type)2>>,
+  float,
+  raft::sq_op,
+  raft::add_op,
+  raft::sqrt_op,
+  float);
+
+// clang-format off
+template @return_type@ @qualified_function@@template_arguments@(@parameter_types@)@function_qualifiers@;
+// clang-format on
+
+}  // namespace cuvs::detail
