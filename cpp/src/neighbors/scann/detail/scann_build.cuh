@@ -24,10 +24,10 @@
 #include <raft/matrix/slice.cuh>
 #include <raft/random/rng.cuh>
 
+#include "../../../cluster/detail/soar.cuh"
 #include "scann_avq.cuh"
 #include "scann_common.cuh"
 #include "scann_quantize.cuh"
-#include "scann_soar.cuh"
 
 namespace cuvs::neighbors::experimental::scann::detail {
 using namespace cuvs::spatial::knn::detail;  // NOLINT
@@ -264,18 +264,19 @@ index<T, IdxT> build(
               params.partitioning_eta,
               copy_stream);
 
-    auto residuals = compute_residuals<T, uint32_t>(res,
-                                                    raft::make_const_mdspan(centers_view),
-                                                    raft::make_const_mdspan(coarse_centers),
-                                                    coarse_labels);
+    auto residuals = cuvs::cluster::soar::detail::compute_residuals_normalized<T, uint32_t>(
+      res,
+      raft::make_const_mdspan(centers_view),
+      raft::make_const_mdspan(coarse_centers),
+      coarse_labels);
 
-    compute_soar_labels<T, uint32_t>(res,
-                                     raft::make_const_mdspan(centers_view),
-                                     raft::make_const_mdspan(residuals.view()),
-                                     coarse_centers,
-                                     coarse_labels,
-                                     idx.coarse_soar_labels(),
-                                     params.soar_lambda);
+    cuvs::cluster::soar::detail::compute_soar_labels<T, uint32_t>(
+      res,
+      raft::make_const_mdspan(centers_view),
+      raft::make_const_mdspan(residuals.view()),
+      raft::make_const_mdspan(coarse_centers),
+      idx.coarse_soar_labels(),
+      params.soar_lambda);
   }
 
   raft::device_vector_view<uint32_t, int64_t> soar_labels_view = idx.soar_labels();
@@ -339,18 +340,8 @@ index<T, IdxT> build(
       soar_labels_view.data_handle() + batch.offset(), batch.size());
 
     // Compute residuals for use in SOAR + quantization
-    auto avq_residuals = compute_residuals<T, uint32_t>(
+    auto avq_residuals = cuvs::cluster::soar::detail::compute_residuals<T, uint32_t>(
       res, batch_view, raft::make_const_mdspan(centers_view), batch_labels_view);
-
-    // Compute SOAR labels.
-    // We compute SOAR labels in this loop to eliminate one HtoD copy of the full dataset.
-    compute_soar_labels<T, uint32_t>(res,
-                                     batch_view,
-                                     raft::make_const_mdspan(avq_residuals.view()),
-                                     centers_view,
-                                     batch_labels_view,
-                                     batch_soar_labels_view,
-                                     params.soar_lambda);
 
     // Compute and quantize residuals using the public PQ API
     int64_t codes_dim = cuvs::preprocessing::quantize::pq::get_quantized_dim(pq_build_params);
@@ -358,12 +349,25 @@ index<T, IdxT> build(
     cuvs::preprocessing::quantize::pq::transform(
       res, pq_quantizer, raft::make_const_mdspan(avq_residuals.view()), avq_quant.view());
 
+    // PQ needs the original residuals; normalize their buffer only after encoding.
+    cuvs::cluster::soar::detail::normalize_residuals(res, avq_residuals.view());
+
+    // Compute SOAR labels.
+    // We compute SOAR labels in this loop to eliminate one HtoD copy of the full dataset.
+    cuvs::cluster::soar::detail::compute_soar_labels<T, uint32_t>(
+      res,
+      batch_view,
+      raft::make_const_mdspan(avq_residuals.view()),
+      raft::make_const_mdspan(centers_view),
+      batch_soar_labels_view,
+      params.soar_lambda);
+
     // Compute and quantize SOAR residuals
-    auto soar_residuals =
-      compute_residuals<T, uint32_t>(res,
-                                     batch_view,
-                                     raft::make_const_mdspan(centers_view),
-                                     raft::make_const_mdspan(batch_soar_labels_view));
+    auto soar_residuals = cuvs::cluster::soar::detail::compute_residuals<T, uint32_t>(
+      res,
+      batch_view,
+      raft::make_const_mdspan(centers_view),
+      raft::make_const_mdspan(batch_soar_labels_view));
 
     auto soar_quant = raft::make_device_matrix<uint8_t, IdxT>(res, batch.size(), codes_dim);
     cuvs::preprocessing::quantize::pq::transform(
