@@ -88,14 +88,11 @@ class top_1_nn_cagra_index {
     // CAGRA indexes rows with a padded stride. Aligned candidates are viewed in place; otherwise
     // they are copied into a padded buffer (zero padding leaves the L2 distances unchanged) that
     // lives as long as the index.
-    if (cuvs::neighbors::cagra_required_row_width<float>(static_cast<uint32_t>(dim)) ==
-        static_cast<uint32_t>(dim)) {
+    if (cuvs::padded_row_width<float>(static_cast<uint32_t>(dim)) == static_cast<uint32_t>(dim)) {
       index_.emplace(cuvs::neighbors::cagra::build(
-        handle,
-        build_params,
-        cuvs::neighbors::make_device_padded_dataset_view(handle, candidates_view)));
+        handle, build_params, cuvs::make_device_padded_dataset_view(handle, candidates_view)));
     } else {
-      padded_copy_ = cuvs::neighbors::make_device_padded_dataset(handle, candidates_view);
+      padded_copy_ = cuvs::make_device_padded_dataset(handle, candidates_view);
       index_.emplace(cuvs::neighbors::cagra::build(handle, build_params, padded_copy_->view()));
     }
   }
@@ -127,7 +124,7 @@ class top_1_nn_cagra_index {
 
  private:
   cuvs::neighbors::cagra::search_params search_params_;
-  std::unique_ptr<cuvs::neighbors::device_padded_dataset<float, int64_t>> padded_copy_;
+  std::unique_ptr<cuvs::device_padded_dataset<float, int64_t>> padded_copy_;
   std::optional<index_type> index_;
   int64_t n_   = 0;
   int64_t dim_ = 0;
