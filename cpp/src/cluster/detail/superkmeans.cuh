@@ -17,15 +17,14 @@
 
 #include <cuvs/cluster/kmeans.hpp>
 #include <raft/core/device_mdarray.hpp>
+#include <raft/core/dry_run_resources.hpp>
 #include <raft/core/error.hpp>
 #include <raft/core/resource/cuda_stream.hpp>
 #include <raft/core/resource/device_memory_resource.hpp>
-#include <raft/core/resource/dry_run_flag.hpp>
 #include <raft/core/resources.hpp>
 #include <raft/linalg/map.cuh>
 #include <raft/linalg/map_then_reduce.cuh>
 #include <raft/matrix/sample_rows.cuh>
-#include <raft/mr/dry_run_resource.hpp>
 #include <raft/random/rng_state.hpp>
 #include <raft/util/cuda_utils.cuh>
 #include <raft/util/cudart_utils.hpp>
@@ -34,8 +33,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <limits>
-#include <memory>
 #include <optional>
 #include <type_traits>
 
@@ -212,16 +209,11 @@ class pruned_assignment {
       (raft::resource::get_workspace_free_bytes(handle) / 10) * 8, std::size_t{1} << 29);
     const auto fits = [&](int64_t batch_size) {
       try {
-        // Only workspace is used here; keep the probe local rather than swapping global resources.
-        raft::mr::dry_run_resource<rmm::device_async_resource_ref> probe{
-          raft::resource::get_workspace_resource_ref(handle)};
-        raft::resources dry_handle(handle);
-        dry_handle.add_resource_factory(
-          std::make_shared<raft::resource::dry_run_flag_resource_factory>(true));
-        raft::resource::set_workspace_resource(
-          dry_handle, probe, std::numeric_limits<std::size_t>::max());
-        pruned_assignment candidate(dry_handle, X, n_clusters, batch_size);
-        return raft::resource::get_workspace_used_bytes(dry_handle) <= budget;
+        const auto stats =
+          raft::util::dry_run_execute(handle, [&](const raft::resources& dry_handle) {
+            pruned_assignment candidate(dry_handle, X, n_clusters, batch_size);
+          });
+        return stats.device_workspace <= budget;
       } catch (const rmm::bad_alloc&) {
         return false;
       }
@@ -233,9 +225,9 @@ class pruned_assignment {
     while (!fits(batch_size)) {
       RAFT_EXPECTS(batch_size > min_batch_size,
                    "Insufficient workspace for SuperKMeans pruned assignment");
-      const auto half_batch      = batch_size / 2;
+      const auto half_batch      = raft::ceildiv(batch_size, int64_t{2});
       const int64_t row_multiple = half_batch >= 1024 ? 1024 : alignment;
-      batch_size = std::max(min_batch_size, half_batch / row_multiple * row_multiple);
+      batch_size                 = raft::round_up_safe(half_batch, row_multiple);
     }
     return batch_size;
   }
