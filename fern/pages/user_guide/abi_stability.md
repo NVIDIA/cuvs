@@ -133,11 +133,13 @@ The scalar quantizer struct no longer exposes its `min_` and `max_` fields. Appl
 
 | Before 27.02 | 27.02 |
 | --- | --- |
-| `typedef struct { double min_; double max_; } cuvsScalarQuantizer;` | `typedef struct cuvsScalarQuantizer cuvsScalarQuantizer;` |
+| `typedef struct { double min_; double max_; } cuvsScalarQuantizer;` | `typedef struct { uintptr_t addr; DLDataType dtype; } cuvsScalarQuantizer;` |
 | Read `quantizer->min_` and `quantizer->max_` | `cuvsError_t cuvsScalarQuantizerGetBounds(cuvsScalarQuantizer_t quantizer, double* min, double* max);` |
 | Write `quantizer->min_` and `quantizer->max_` | `cuvsError_t cuvsScalarQuantizerSetBounds(cuvsScalarQuantizer_t quantizer, double min, double max);` |
 
 The handle must be allocated with `cuvsScalarQuantizerCreate` and released with `cuvsScalarQuantizerDestroy`. The signatures of the functions that take it are unchanged.
+
+`cuvsScalarQuantizerParams` also gains a `mode` field. It defaults to `CUVS_SCALAR_GLOBAL` when the struct is allocated with `cuvsScalarQuantizerParamsCreate`.
 
 ## Summary
 

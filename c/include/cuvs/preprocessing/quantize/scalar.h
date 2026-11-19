@@ -58,15 +58,18 @@ CUVS_EXPORT cuvsError_t cuvsScalarQuantizerParamsCreate(cuvsScalarQuantizerParam
 CUVS_EXPORT cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerParams_t params);
 
 /**
- * @brief Scalar quantizer handle.
+ * @brief Defines and stores scalar for quantisation upon training
  *
  * The quantization is performed by a linear mapping of an interval in the
  * float data type to the full range of the quantized int type.
  * Allocate with cuvsScalarQuantizerCreate and release with cuvsScalarQuantizerDestroy.
- * The handle owns its global or per-dimension bounds. Read and set global bounds with
+ * The quantizer owns its global or per-dimension bounds. Read and set global bounds with
  * cuvsScalarQuantizerGetBounds and cuvsScalarQuantizerSetBounds.
  */
-typedef struct cuvsScalarQuantizer cuvsScalarQuantizer;
+typedef struct {
+  uintptr_t addr;
+  DLDataType dtype;
+} cuvsScalarQuantizer;
 
 typedef cuvsScalarQuantizer* cuvsScalarQuantizer_t;
 

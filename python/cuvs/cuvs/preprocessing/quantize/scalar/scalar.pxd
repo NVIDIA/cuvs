@@ -4,6 +4,8 @@
 #
 # cython: language_level=3
 
+from libc.stdint cimport uintptr_t
+
 from cuvs.common.c_api cimport cuvsError_t, cuvsResources_t
 from cuvs.common.cydlpack cimport DLDataType, DLManagedTensor
 
@@ -21,7 +23,8 @@ cdef extern from "cuvs/preprocessing/quantize/scalar.h" nogil:
         cuvsScalarQuantizerParams_t params)
 
     ctypedef struct cuvsScalarQuantizer:
-        pass
+        uintptr_t addr
+        DLDataType dtype
 
     ctypedef cuvsScalarQuantizer* cuvsScalarQuantizer_t
 

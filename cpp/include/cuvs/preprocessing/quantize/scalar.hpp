@@ -48,14 +48,15 @@ struct params {
    */
   quantization_mode range = quantization_mode::GLOBAL;
   /**
-   * Maximum rows staged on device for host training and host dataset build.
+   * Maximum rows staged on device per batch for per-dimension host training and host dataset
+   * build. Global training stages its own sample of rows instead.
    * Default: 65536. Zero processes the entire host input in one batch. Ignored for device input.
    * Multiple batches use two input buffers when res has an auxiliary stream pool, and one
    * otherwise. Each input buffer uses at most device_buffer_samples * dim * sizeof(T) bytes, in
    * addition to reduction and encoding workspace. Substitute n_rows when it is zero.
    *
    * Per-dimension host training with quantile < 1 selects exact quantiles using one column of
-   * host scratch (n_rows * sizeof(T) bytes). Global training retains its sampled quantiles.
+   * host scratch (n_rows * sizeof(T) bytes).
    */
   int64_t device_buffer_samples = 1 << 16;
 };
