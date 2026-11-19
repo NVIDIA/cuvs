@@ -306,23 +306,21 @@ void tiled_brute_force_knn(const raft::resources& handle,
       // the rest to indicate that we are missing items (and match behaviour in faiss)
       const DistanceT* in_distances = temp_out_distances.data();
       const IndexType* in_indices   = temp_out_indices.data();
-      DistanceT* out_distances      = distances + i * k;
-      IndexType* out_indices        = indices + i * k;
 
-      auto count = cuda::make_counting_iterator<IndexType>(0);
-      thrust::for_each(raft::resource::get_thrust_policy(handle),
-                       count,
-                       count + current_query_size * k,
-                       [=] __device__(IndexType idx) {
-                         size_t row = idx / k, col = idx % k;
-                         if (col < n) {
-                           out_distances[idx] = in_distances[row * n + col];
-                           out_indices[idx]   = in_indices[row * n + col];
-                         } else {
-                           out_distances[idx] = std::numeric_limits<DistanceT>::lowest();
-                           if constexpr (std::is_signed_v<IndexType>) { out_indices[idx] = -1; }
-                         }
-                       });
+      raft::linalg::map_offset(
+        handle,
+        raft::make_device_vector_view(distances + i * k, current_query_size * k),
+        [=] __device__(size_t idx) {
+          size_t row = idx / k, col = idx % k;
+          return col < n ? in_distances[row * n + col] : std::numeric_limits<DistanceT>::lowest();
+        });
+      raft::linalg::map_offset(
+        handle,
+        raft::make_device_vector_view(indices + i * k, current_query_size * k),
+        [=] __device__(size_t idx) {
+          size_t row = idx / k, col = idx % k;
+          return col < n ? in_indices[row * n + col] : static_cast<IndexType>(-1);
+        });
     } else if (tile_cols != n) {
       // select the actual top-k items here from the temporary output
       cuvs::selection::select_k(
