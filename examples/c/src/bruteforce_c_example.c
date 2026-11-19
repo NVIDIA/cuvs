@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -58,7 +58,7 @@ void index_and_search()
   cudaMemcpy(query_data, queries, queriesBytes, cudaMemcpyHostToDevice);
 
   // create dataset DLTensor
-  DLManagedTensor dataset_tensor;
+  DLManagedTensor dataset_tensor              = {0};
   dataset_tensor.dl_tensor.data               = index_data;
   dataset_tensor.dl_tensor.device.device_type = kDLCUDA;
   dataset_tensor.dl_tensor.ndim               = 2;
@@ -77,7 +77,7 @@ void index_and_search()
   cuvsBruteForceBuild(res, &dataset_tensor, 0, 0.0f, index);
 
   // create queries DLTensor
-  DLManagedTensor queries_tensor;
+  DLManagedTensor queries_tensor              = {0};
   queries_tensor.dl_tensor.data               = (void*)query_data;
   queries_tensor.dl_tensor.device.device_type = kDLCUDA;
   queries_tensor.dl_tensor.ndim               = 2;
@@ -89,7 +89,7 @@ void index_and_search()
   queries_tensor.dl_tensor.strides            = NULL;
 
   // create neighbors DLTensor
-  DLManagedTensor neighbors_tensor;
+  DLManagedTensor neighbors_tensor              = {0};
   neighbors_tensor.dl_tensor.data               = (void*)neighbors_data;
   neighbors_tensor.dl_tensor.device.device_type = kDLCUDA;
   neighbors_tensor.dl_tensor.ndim               = 2;
@@ -101,7 +101,7 @@ void index_and_search()
   neighbors_tensor.dl_tensor.strides            = NULL;
 
   // create distances DLTensor
-  DLManagedTensor distances_tensor;
+  DLManagedTensor distances_tensor              = {0};
   distances_tensor.dl_tensor.data               = (void*)distances_data;
   distances_tensor.dl_tensor.device.device_type = kDLCUDA;
   distances_tensor.dl_tensor.ndim               = 2;
@@ -114,7 +114,7 @@ void index_and_search()
 
   cuvsFilter prefilter;
 
-  DLManagedTensor prefilter_tensor;
+  DLManagedTensor prefilter_tensor = {0};
   if (prefilter_data == NULL || prefilter_type == NO_FILTER) {
     prefilter.type = NO_FILTER;
     prefilter.addr = (uintptr_t)NULL;

@@ -22,6 +22,7 @@ void _transform(cuvsResources_t res,
                 DLManagedTensor* codes_out_tensor,
                 DLManagedTensor* vq_labels_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto q = reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<T>*>(quantizer->addr);
 
@@ -62,6 +63,7 @@ void* _build(cuvsResources_t res,
 {
   auto dataset = dataset_tensor->dl_tensor;
 
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   cuvs::preprocessing::quantize::pq::params quantizer_params(
     params->pq_bits, params->pq_dim, params->use_subspaces, params->use_vq, params->vq_n_centers,
@@ -92,6 +94,7 @@ void _inverse_transform(cuvsResources_t res,
                 DLManagedTensor* out_tensor,
                 DLManagedTensor* vq_labels_tensor)
 {
+  RAFT_EXPECTS(res != 0, "res must not be NULL");
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
   auto q = reinterpret_cast<cuvs::preprocessing::quantize::pq::quantizer<DataT>*>(quantizer->addr);
 

@@ -1,5 +1,5 @@
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+ * SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  * SPDX-License-Identifier: Apache-2.0
  */
 
@@ -72,16 +72,16 @@ void l2_distance_calc(int64_t n_cols, float x[], float y[], float* ret)
   CHECK_CUDA(cudaMemcpy(x_d, x, sizeof(float) * N_ROWS * n_cols, cudaMemcpyDefault));
   CHECK_CUDA(cudaMemcpy(y_d, y, sizeof(float) * N_ROWS * n_cols, cudaMemcpyDefault));
 
-  DLManagedTensor x_tensor;
-  int64_t x_shape[2] = {N_ROWS, n_cols};
+  DLManagedTensor x_tensor = {0};
+  int64_t x_shape[2]       = {N_ROWS, n_cols};
   tensor_initialize(x_d, x_shape, &x_tensor);
 
-  DLManagedTensor y_tensor;
-  int64_t y_shape[2] = {N_ROWS, n_cols};
+  DLManagedTensor y_tensor = {0};
+  int64_t y_shape[2]       = {N_ROWS, n_cols};
   tensor_initialize(y_d, y_shape, &y_tensor);
 
-  DLManagedTensor dist_tensor;
-  int64_t distances_shape[2] = {N_ROWS, N_ROWS};
+  DLManagedTensor dist_tensor = {0};
+  int64_t distances_shape[2]  = {N_ROWS, N_ROWS};
   tensor_initialize(distance_d, distances_shape, &dist_tensor);
 
   // metric_arg default value is 2.0,used for Minkowski distance
