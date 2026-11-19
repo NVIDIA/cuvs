@@ -12,6 +12,7 @@
 
 #include <raft/core/error.hpp>
 #include <raft/util/cudart_utils.hpp>
+#include <raft/util/kernel_launch.hpp>
 
 #include <cuda_fp16.h>
 
@@ -56,7 +57,8 @@ auto fused_filter_tile_config() -> std::optional<fused_filter_tile>
   return fused_filter_tile{cfg.tile_m, cfg.tile_n, cfg.tile_k};
 }
 
-void launch_fused_filter(const half* rows,
+void launch_fused_filter(const raft::resources& handle,
+                         const half* rows,
                          int n_rows,
                          const half* centroids,
                          int n_centroids,
@@ -68,8 +70,7 @@ void launch_fused_filter(const half* rows,
                          int partial_dim,
                          int64_t* packed,
                          int* count,
-                         int row_stride,
-                         cudaStream_t stream)
+                         int row_stride)
 {
   FusedFilterTilePlanner planner;
   auto launcher = planner.try_get_launcher();
@@ -145,43 +146,42 @@ void launch_fused_filter(const half* rows,
   dim3 grid((n_rows + tile.tile_m - 1) / tile.tile_m, 1, 1);
   dim3 block(1, 1, 1);
   // Each array as (pointer, shape..., stride...), then the scalars; the tile sizes are compiled in.
-  launcher->template dispatch<fused_filter_kernel_t>(stream,
-                                                     grid,
-                                                     block,
-                                                     0,
-                                                     rows_ptr,
-                                                     int{n_rows},
-                                                     int{dim},
-                                                     int{dim},
-                                                     int{unit},
-                                                     centroids_ptr,
-                                                     int{n_centroids},
-                                                     int{dim},
-                                                     int{dim},
-                                                     int{unit},
-                                                     row_norms_ptr,
-                                                     int{n_rows},
-                                                     int{unit},
-                                                     centroid_norms_ptr,
-                                                     int{n_centroids},
-                                                     int{unit},
-                                                     best_ptr,
-                                                     int{n_rows},
-                                                     int{unit},
-                                                     packed_ptr,
-                                                     int{packed_len},
-                                                     int{unit},
-                                                     count_ptr,
-                                                     int{n_rows},
-                                                     int{unit},
-                                                     int{unit},
-                                                     int{unit},
-                                                     int{n_rows},
-                                                     int{n_centroids},
-                                                     float{ratio},
-                                                     int{partial_dim},
-                                                     int{row_stride});
-  RAFT_CUDA_TRY(cudaGetLastError());
+  raft::launch_kernel(handle,
+                      grid,
+                      block,
+                      raft::kernel_ref<fused_filter_kernel_t>{launcher->get_kernel()},
+                      rows_ptr,
+                      int{n_rows},
+                      int{dim},
+                      int{dim},
+                      int{unit},
+                      centroids_ptr,
+                      int{n_centroids},
+                      int{dim},
+                      int{dim},
+                      int{unit},
+                      row_norms_ptr,
+                      int{n_rows},
+                      int{unit},
+                      centroid_norms_ptr,
+                      int{n_centroids},
+                      int{unit},
+                      best_ptr,
+                      int{n_rows},
+                      int{unit},
+                      packed_ptr,
+                      int{packed_len},
+                      int{unit},
+                      count_ptr,
+                      int{n_rows},
+                      int{unit},
+                      int{unit},
+                      int{unit},
+                      int{n_rows},
+                      int{n_centroids},
+                      float{ratio},
+                      int{partial_dim},
+                      int{row_stride});
 }
 
 }  // namespace cuvs::distance::detail::pruned_nn

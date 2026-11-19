@@ -8,6 +8,8 @@
 #include <cuda_runtime.h>
 #include <cuvs/detail/jit_lto/cutile_compat.hpp>
 
+#include <raft/core/resources.hpp>
+
 #include <cuda_fp16.h>
 
 #include <cstdint>
@@ -32,6 +34,7 @@ auto fused_filter_tile_config() -> std::optional<fused_filter_tile>;
  * Row r's survivors go to `packed` at r * row_stride + 0 .. count[r] - 1, each
  * `centroid << 32 | float bits of the partial distance`, in centroid order.
  *
+ * @param handle          RAFT resources providing the stream and dry-run state
  * @param rows            [n_rows, dim] row-major, 16-byte aligned, 16-byte row pitch
  * @param centroids       [n_centroids, dim] same layout as rows
  * @param row_norms       [n_rows] squared norms over the first partial_dim dims
@@ -42,9 +45,9 @@ auto fused_filter_tile_config() -> std::optional<fused_filter_tile>;
  * @param packed          [n_rows * row_stride] survivors
  * @param count           [n_rows] survivors per row
  * @param row_stride      each row's region in `packed`, at least n_centroids
- * @param stream          the stream to launch on
  */
-void launch_fused_filter(const half* rows,
+void launch_fused_filter(const raft::resources& handle,
+                         const half* rows,
                          int n_rows,
                          const half* centroids,
                          int n_centroids,
@@ -56,7 +59,6 @@ void launch_fused_filter(const half* rows,
                          int partial_dim,
                          int64_t* packed,
                          int* count,
-                         int row_stride,
-                         cudaStream_t stream);
+                         int row_stride);
 
 }  // namespace cuvs::distance::detail::pruned_nn

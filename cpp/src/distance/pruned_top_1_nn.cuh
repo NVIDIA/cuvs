@@ -276,7 +276,6 @@ void pruned_top_1_nn(raft::resources const& handle,
     const int64_t n_rows     = std::min(layout.row_batch_size, m - i);
     const int64_t s          = b % layout.n_streams;
     const auto& batch_handle = stream_handles[s];
-    auto stream              = raft::resource::get_cuda_stream(batch_handle).get();
     const DataT* rows        = x + i * k;
     uint32_t* row_labels     = output.nearest_idx + i;
     float* row_dist          = output.nearest_dist + i;
@@ -298,7 +297,8 @@ void pruned_top_1_nn(raft::resources const& handle,
     }
     for (int64_t j = 0; j < n; j += kCentroidBatchSize) {
       const int64_t n_centroids = std::min<int64_t>(kCentroidBatchSize, n - j);
-      launch_fused_filter(x_filter,
+      launch_fused_filter(batch_handle,
+                          x_filter,
                           static_cast<int>(n_rows),
                           y_filter + j * filter_dim,
                           static_cast<int>(n_centroids),
@@ -310,8 +310,7 @@ void pruned_top_1_nn(raft::resources const& handle,
                           static_cast<int>(kPartialDim),
                           packed,
                           count,
-                          static_cast<int>(kCentroidBatchSize),
-                          stream);
+                          static_cast<int>(kCentroidBatchSize));
       order_rows_by_survivors(batch_handle, count, order, n_rows, layout.max_blocks_per_sm);
       prune(batch_handle,
             rows,
