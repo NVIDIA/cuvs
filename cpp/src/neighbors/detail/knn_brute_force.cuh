@@ -303,7 +303,7 @@ void tiled_brute_force_knn(const raft::resources& handle,
     if (n < k) {
       // if we have less than k items in the index, the single column tile already holds all n
       // neighbors in sorted order. Copy them to the front of each k-wide output row and fill out
-      // the rest to indicate that we are missing items (and match behaviour in faiss)
+      // the rest to indicate that we are missing items
       const DistanceT* in_distances = temp_out_distances.data();
       const IndexType* in_indices   = temp_out_indices.data();
 
