@@ -87,21 +87,13 @@ public class Utils {
    * @return an instance of CuVSMatrix
    */
   static CuVSMatrix createFloatMatrix(List<float[]> data, int dimensions, CuVSResources resources) {
-    // Use Builder pattern to avoid intermediate float[][] allocation
-    // and copy directly from List to device memory
-    CuVSMatrix.Builder<?> builder =
-        CuVSMatrix.deviceBuilder(
-            resources,
-            data.size(), // rows (number of vectors)
-            dimensions, // columns (vector dimension)
-            CuVSMatrix.DataType.FLOAT);
-
-    // Add vectors one by one - builder copies directly to device memory
-    for (float[] vector : data) {
-      builder.addVector(vector);
+    try (CuVSMatrix.Builder<?> builder =
+        CuVSMatrix.deviceBuilder(resources, data.size(), dimensions, CuVSMatrix.DataType.FLOAT)) {
+      for (float[] vector : data) {
+        builder.addVector(vector);
+      }
+      return builder.build();
     }
-
-    return builder.build();
   }
 
   /** Builds a host-memory CuVSMatrix from a 2D byte array. */
