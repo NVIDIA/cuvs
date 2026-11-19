@@ -1,0 +1,10 @@
+[
+  {
+    "index_type": "int64_t",
+    "inst_abbrev": "f32_i64"
+  },
+  {
+    "index_type": "uint64_t",
+    "inst_abbrev": "f32_u64"
+  }
+]
