@@ -449,6 +449,10 @@ def _try_load_plugin(name: str) -> None:
                 return
 
 
+class _BackendNotFoundError(ValueError):
+    """A registry lookup completed without finding the requested backend."""
+
+
 def get_backend_class(name: str) -> Type[BenchmarkBackend]:
     """
     Get the backend class (not instance) from the global registry.
@@ -472,7 +476,7 @@ def get_backend_class(name: str) -> Type[BenchmarkBackend]:
     if name not in registry._backends:
         available = ", ".join(registry._backends.keys())
         hint = _optional_backend_install_hint(name)
-        raise ValueError(
+        raise _BackendNotFoundError(
             f"Backend '{name}' not found. Available backends: {available or '(none)'}.{hint}"
         )
     return registry._backends[name]

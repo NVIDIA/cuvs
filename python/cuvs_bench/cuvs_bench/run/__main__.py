@@ -6,17 +6,92 @@
 import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import click
 import yaml
 
+from ..backends.base import BenchmarkBackend
+from ..backends._search_params import search_parameter_failure_message
+from ..backends.registry import _BackendNotFoundError, get_backend_class
+from ..orchestrator import BenchmarkOrchestrator
 from .data_export import (
     convert_json_to_csv_build,
     convert_json_to_csv_search,
     write_results_to_csv,
 )
-from ..orchestrator import BenchmarkOrchestrator
+
+
+_DEFAULT_BACKEND = "cpp_gbench"
+_BACKEND_CONFIG_CACHE_KEY = "cuvs_bench.backend_config"
+
+
+def _read_backend_config(path: str) -> dict[str, Any]:
+    """Read a backend mapping and report malformed selectors as CLI errors."""
+    try:
+        with open(path, "r") as stream:
+            config = yaml.safe_load(stream)
+    except (OSError, yaml.YAMLError) as error:
+        raise click.BadParameter(
+            f"Cannot read {path!r}: {error}", param_hint="--backend-config"
+        ) from error
+    if not isinstance(config, dict):
+        raise click.BadParameter(
+            f"{path!r} must parse to a mapping, got {type(config).__name__}",
+            param_hint="--backend-config",
+        )
+    if "backend" not in config:
+        raise click.BadParameter(
+            f"{path!r} must include a 'backend' field",
+            param_hint="--backend-config",
+        )
+    if not isinstance(config["backend"], str):
+        raise click.BadParameter(
+            f"{path!r}: 'backend' must be a string, "
+            f"got {type(config['backend']).__name__}",
+            param_hint="--backend-config",
+        )
+    return dict(config)
+
+
+def _backend_class_for_cli(name: str) -> type[BenchmarkBackend]:
+    """Report unknown names as input errors without hiding plugin failures."""
+    try:
+        return get_backend_class(name)
+    except _BackendNotFoundError as error:
+        raise click.BadParameter(
+            str(error), param_hint="--backend-config"
+        ) from error
+
+
+def _backend_config_snapshot(path: str) -> dict[str, Any]:
+    """Return one backend configuration snapshot per CLI invocation."""
+    context = click.get_current_context()
+    cached_config = context.meta.get(_BACKEND_CONFIG_CACHE_KEY)
+    if cached_config is None:
+        cached_config = _read_backend_config(path)
+        context.meta[_BACKEND_CONFIG_CACHE_KEY] = cached_config
+    return dict(cached_config)
+
+
+def _default_algorithm() -> str:
+    """Choose the displayed prompt default from the selected backend."""
+    context = click.get_current_context(silent=True)
+    if context is not None and (
+        backend_config := context.params.get("backend_config")
+    ):
+        backend = _backend_config_snapshot(backend_config)["backend"]
+        backend_class = _backend_class_for_cli(str(backend))
+    else:
+        backend_class = get_backend_class(_DEFAULT_BACKEND)
+    if backend_class.default_algorithm is not None:
+        return backend_class.default_algorithm
+    default_backend_class = get_backend_class(_DEFAULT_BACKEND)
+    if default_backend_class.default_algorithm is None:
+        raise RuntimeError(
+            "The default backend must define a default algorithm"
+        )
+    return default_backend_class.default_algorithm
 
 
 @click.command()
@@ -88,12 +163,13 @@ from ..orchestrator import BenchmarkOrchestrator
 @click.option("--search", is_flag=True, help="Perform the search")
 @click.option(
     "--algorithms",
-    default="cuvs_cagra",
+    default=_default_algorithm,
     show_default=True,
     prompt="Enter the comma separated list of named algorithms to run",
     help="Run only comma separated list of named algorithms. If parameters "
     "`groups` and `algo-groups` are both undefined, then group `base` "
-    "is run by default.",
+    "is run by default. A backend may provide its own prompt default; "
+    "otherwise the CLI default is retained.",
 )
 @click.option(
     "--groups",
@@ -271,20 +347,13 @@ def main(
     if not build and not search:
         build = search = True
 
-    backend_type = "cpp_gbench"
+    backend_type = _DEFAULT_BACKEND
     backend_kwargs = {}
     if backend_config:
-        with open(backend_config, "r") as f:
-            cfg = yaml.safe_load(f)
-        if not isinstance(cfg, dict):
-            raise ValueError(
-                f"--backend-config must parse to a mapping, "
-                f"got {type(cfg).__name__}"
-            )
-        if "backend" not in cfg:
-            raise ValueError("--backend-config must include a 'backend' field")
+        cfg = _backend_config_snapshot(backend_config)
         backend_type = cfg.pop("backend")
         backend_kwargs = cfg
+        _backend_class_for_cli(backend_type)
 
     orchestrator = BenchmarkOrchestrator(backend_type=backend_type)
     results = orchestrator.run_benchmark(
@@ -312,6 +381,8 @@ def main(
     )
 
     if dry_run:
+        if failure_message := search_parameter_failure_message(results):
+            raise click.ClickException(failure_message)
         return
 
     if backend_type == "cpp_gbench":
@@ -319,8 +390,12 @@ def main(
             convert_json_to_csv_build(dataset, dataset_path)
         if search:
             convert_json_to_csv_search(dataset, dataset_path)
+        failure_message = search_parameter_failure_message(results)
     else:
         write_results_to_csv(results, dataset, dataset_path, count, batch_size)
+        failure_message = orchestrator.result_failure_message(results)
+    if failure_message:
+        raise click.ClickException(failure_message)
 
 
 if __name__ == "__main__":

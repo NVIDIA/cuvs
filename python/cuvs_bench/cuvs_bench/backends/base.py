@@ -11,7 +11,7 @@ along with standardized data structures for datasets and results.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Dict, List, Any, Optional, TYPE_CHECKING
+from typing import Dict, List, Any, Optional, Sequence, TYPE_CHECKING
 import numpy as np
 
 if TYPE_CHECKING:
@@ -368,6 +368,10 @@ class BenchmarkBackend(ABC):
         - requires_network : bool - Whether backend requires network (default: False)
     """
 
+    # Registration exposes this optional class-level default to the generic
+    # CLI.
+    default_algorithm: Optional[str] = None
+
     def __init__(self, config: Dict[str, Any]):
         """Initialize backend with configuration."""
         self.config = config
@@ -441,8 +445,10 @@ class BenchmarkBackend(ABC):
         batch_size : int, optional
             Number of queries to process at once (default: 10000)
         mode : str, optional
-            "latency" (measure individual query latency with percentiles) or
-            "throughput" (measure overall QPS) (default: "latency")
+            "latency" measures search latency; the backend defines the
+            measurement boundary and whether samples represent individual
+            queries or batches. Percentiles are reported where supported.
+            "throughput" measures overall QPS (default: "latency").
         force : bool, optional
             Whether to force the execution regardless of existing results (default: False)
         search_threads : Optional[int], optional
@@ -494,6 +500,13 @@ class BenchmarkBackend(ABC):
         Default implementation does nothing. Override if needed.
         """
         pass
+
+    @classmethod
+    def result_failure_message(
+        cls, results: Sequence[BuildResult | SearchResult]
+    ) -> Optional[str]:
+        """Return a fatal result summary when the backend requires one."""
+        return None
 
     def _check_gpu_available(self) -> bool:
         """

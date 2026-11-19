@@ -539,8 +539,9 @@ class TestOpenSearchBackendIntegration:
         assert build_result.success
 
         results = live_backend.search(dataset, [idx], k=k)
+        orchestrator = BenchmarkOrchestrator(backend_type="opensearch")
         for result in results:
-            BenchmarkOrchestrator._finalize_search_result(result, dataset, k)
+            orchestrator._finalize_search_result(result, dataset, k)
 
         assert [result.search_params for result in results] == [
             [{"ef_search": 10}],

@@ -51,6 +51,8 @@ class CppGoogleBenchmarkBackend(BenchmarkBackend):
     >>> print(backend.algo)  # "cuvs_ivf_flat" (from config)
     """
 
+    default_algorithm = "cuvs_cagra"
+
     def __init__(self, config: Dict[str, Any]):
         """Initialize C++ benchmark backend."""
         super().__init__(config)
