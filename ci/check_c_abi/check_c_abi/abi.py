@@ -3,14 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
-import msgspec
 from itertools import zip_longest
+import os
 import pathlib
 from typing import Generator, Optional, Self
-import os
-
 
 import clang.cindex
+import msgspec
 
 try:
     from termcolor import colored
