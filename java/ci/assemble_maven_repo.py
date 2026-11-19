@@ -27,13 +27,39 @@ def read_pom(pom):
     return ET.fromstring(text)  # noqa: S314 - Entity declarations rejected.
 
 
-def read_coordinates(pom):
+def read_coordinates(root):
     """Read the module's coordinates rather than a dependency's coordinates."""
-    root = read_pom(pom)
     return tuple(
         root.findtext(f"m:{key}", namespaces=NS)
         for key in ("groupId", "artifactId", "version")
     )
+
+
+def cuda_builds(module, artifacts_dir):
+    """Find module builds in numeric CUDA order."""
+    builds = []
+    for path in artifacts_dir.iterdir():
+        match = re.fullmatch(rf"{module}-cuda([0-9]+(?:\.[0-9]+)*)", path.name)
+        if not path.is_dir() or not match:
+            raise ValueError(f"Unexpected build artifact: {path.name}")
+        builds.append((tuple(map(int, match[1].split("."))), path))
+    if not builds:
+        raise ValueError("No module build artifacts were downloaded")
+    return sorted(builds)
+
+
+def copy_repository(files, output_dir):
+    """Copy selected artifacts without leaving a partial repository on failure."""
+    if output_dir.exists():
+        raise ValueError("Output directory must not already exist")
+    try:
+        for relative, source in files.items():
+            destination = output_dir / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+    except Exception:
+        shutil.rmtree(output_dir, ignore_errors=True)
+        raise
 
 
 def assemble(module, tag, artifacts_dir, output_dir):
@@ -45,110 +71,79 @@ def assemble(module, tag, artifacts_dir, output_dir):
     version = f"{major}.{minor}.{int(patch)}"
     if module == "cuvs-lucene":
         return assemble_lucene(version, artifacts_dir, output_dir)
-    builds = []
-    for path in artifacts_dir.iterdir():
-        cuda = re.fullmatch(
-            rf"{re.escape(module)}-cuda([0-9]+(?:\.[0-9]+)*)", path.name
-        )
-        if not path.is_dir() or not cuda:
-            raise ValueError(f"Unexpected build artifact: {path.name}")
-        cuda_version = tuple(map(int, cuda[1].split(".")))
-        if read_coordinates(path / "pom.xml") != (
+    builds = cuda_builds(module, artifacts_dir)
+    for _, path in builds:
+        if read_coordinates(read_pom(path / "pom.xml")) != (
             GROUPS[module],
             module,
             version,
         ):
             raise ValueError(f"POM does not match {module}:{version}")
-        builds.append((cuda_version, path))
-    if not builds:
-        raise ValueError("No module build artifacts were downloaded")
     # Keep the established higher-CUDA selection for the unclassified release
     # artifact, sources, javadoc, and POM. Never merge same-named jars blindly.
-    builds.sort(key=lambda entry: entry[0])
     primary = builds[-1][1]
     selected = {}
     for suffix in (".jar", "-sources.jar", "-javadoc.jar"):
         name = f"{module}-{version}{suffix}"
         selected[name] = primary / name
     selected[f"{module}-{version}.pom"] = primary / "pom.xml"
-    if module == "cuvs-java":
-        for cuda, path in builds:
-            natives = list(
-                path.glob(f"{module}-{version}-*-cuda{cuda[0]}.jar")
-            )
-            if len(natives) != 1:
-                raise ValueError(f"Expected one native classifier in {path}")
-            native = natives[0]
-            if not re.fullmatch(
-                rf"{module}-{re.escape(version)}-"
-                rf"(x86_64|aarch64)-cuda{cuda[0]}\.jar",
-                native.name,
-            ):
-                raise ValueError(f"Invalid native classifier: {native.name}")
-            previous = selected.get(native.name)
-            if previous and not filecmp.cmp(previous, native, shallow=False):
-                raise ValueError(
-                    f"Conflicting native classifier: {native.name}"
-                )
-            selected[native.name] = native
+    for cuda, path in builds:
+        natives = list(path.glob(f"{module}-{version}-*-cuda{cuda[0]}.jar"))
+        if len(natives) != 1:
+            raise ValueError(f"Expected one native classifier in {path}")
+        native = natives[0]
+        if not re.fullmatch(
+            rf"{module}-{re.escape(version)}-"
+            rf"(x86_64|aarch64)-cuda{cuda[0]}\.jar",
+            native.name,
+        ):
+            raise ValueError(f"Invalid native classifier: {native.name}")
+        previous = selected.get(native.name)
+        if previous and not filecmp.cmp(previous, native, shallow=False):
+            raise ValueError(f"Conflicting native classifier: {native.name}")
+        selected[native.name] = native
     for name, source in selected.items():
         if not source.is_file():
             raise ValueError(f"Missing release artifact: {source}")
         if name.endswith(".jar") and not zipfile.is_zipfile(source):
             raise ValueError(f"Invalid JAR: {source}")
-    if output_dir.exists():
-        raise ValueError("Output directory must not already exist")
-    destination = output_dir / GROUPS[module].replace(".", "/")
-    destination = destination / module / version
-    destination.mkdir(parents=True)
-    try:
-        for name, source in selected.items():
-            shutil.copyfile(source, destination / name)
-    except Exception:
-        shutil.rmtree(output_dir)
-        raise
+    relative = Path(GROUPS[module].replace(".", "/")) / module / version
+    copy_repository(
+        {relative / name: source for name, source in selected.items()},
+        output_dir,
+    )
     print(f"Primary build: {primary.name}")
     print(f"Assembled {GROUPS[module]}:{module}:{version}")
-    return destination
+    return output_dir / relative
 
 
 def assemble_lucene(version, artifacts_dir, output_dir):
     """Publish the complete reactor, including parent and relocation POMs."""
     group = GROUPS["cuvs-lucene"]
-    builds = []
-    for path in artifacts_dir.iterdir():
-        cuda = re.fullmatch(
-            r"cuvs-lucene-cuda([0-9]+(?:\.[0-9]+)*)", path.name
+    builds = cuda_builds("cuvs-lucene", artifacts_dir)
+    # Flattened POMs omit the reactor list. Use the release source as
+    # the authoritative module inventory so a missing CI output fails.
+    modules = read_pom(
+        Path(__file__).resolve().parents[1] / "cuvs-lucene/pom.xml"
+    ).findall("m:modules/m:module", NS)
+    names = [element.text for element in modules]
+    if (
+        not names
+        or any(
+            name != "relocation"
+            and not re.fullmatch(r"lucene-[0-9]+\.[0-9]+", name or "")
+            for name in names
         )
-        if not path.is_dir() or not cuda:
-            raise ValueError(f"Unexpected build artifact: {path.name}")
-        builds.append((tuple(map(int, cuda[1].split("."))), path))
-    if not builds:
-        raise ValueError("No module build artifacts were downloaded")
-    builds.sort(key=lambda entry: entry[0])
+        or len(set(names)) != len(names)
+    ):
+        raise ValueError("Invalid Lucene reactor modules")
+    inventory = {"cuvs-lucene-parent", "cuvs-lucene"} | {
+        f"cuvs-{name}" for name in names if name != "relocation"
+    }
+    if "relocation" not in names:
+        raise ValueError("Missing Lucene relocation module")
     selected = {}
     for _, build in builds:
-        # Flattened POMs omit the reactor list. Use the release source as
-        # the authoritative module inventory so a missing CI output fails.
-        modules = read_pom(
-            Path(__file__).resolve().parents[1] / "cuvs-lucene/pom.xml"
-        ).findall("m:modules/m:module", NS)
-        names = [element.text for element in modules]
-        if (
-            not names
-            or any(
-                name != "relocation"
-                and not re.fullmatch(r"lucene-[0-9]+\.[0-9]+", name or "")
-                for name in names
-            )
-            or len(set(names)) != len(names)
-        ):
-            raise ValueError("Invalid Lucene reactor modules")
-        inventory = {"cuvs-lucene-parent", "cuvs-lucene"} | {
-            f"cuvs-{name}" for name in names if name != "relocation"
-        }
-        if "relocation" not in names:
-            raise ValueError("Missing Lucene relocation module")
         targets = [("cuvs-lucene-parent", build / "target")]
         targets.extend(
             (
@@ -160,9 +155,9 @@ def assemble_lucene(version, artifacts_dir, output_dir):
         current = {}
         for artifact, target in targets:
             pom = target / "pom.xml"
-            if read_coordinates(pom) != (group, artifact, version):
-                raise ValueError(f"POM does not match {artifact}:{version}")
             root = read_pom(pom)
+            if read_coordinates(root) != (group, artifact, version):
+                raise ValueError(f"POM does not match {artifact}:{version}")
             packaging = root.findtext(
                 "m:packaging", default="jar", namespaces=NS
             )
@@ -220,16 +215,7 @@ def assemble_lucene(version, artifacts_dir, output_dir):
                     Path(group.replace(".", "/")) / artifact / version / name
                 ] = source
         selected = current
-    if output_dir.exists():
-        raise ValueError("Output directory must not already exist")
-    try:
-        for relative, source in selected.items():
-            destination = output_dir / relative
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, destination)
-    except Exception:
-        shutil.rmtree(output_dir)
-        raise
+    copy_repository(selected, output_dir)
     return output_dir / group.replace(".", "/")
 
 

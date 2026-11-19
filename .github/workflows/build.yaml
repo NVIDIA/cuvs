@@ -213,7 +213,6 @@ jobs:
     with:
       artifact-name: cuvs-java_maven_repo
       source-git-sha: ${{ inputs.sha || github.sha }}
-      profile-id: ${{ vars.MAVEN_STAGING_PROFILE_ID || 'com.nvidia.cuvs' }}
   lucene-publish:
     # The Lucene release depends on the matching published Java coordinate.
     if: ${{ !cancelled() && needs.java-publish.outputs.deployment-state == 'PUBLISHED' }}
@@ -230,7 +229,6 @@ jobs:
       artifact-name: cuvs-lucene_maven_repo
       primary-artifact-id: cuvs-lucene
       source-git-sha: ${{ inputs.sha || github.sha }}
-      profile-id: ${{ vars.MAVEN_STAGING_PROFILE_ID || 'com.nvidia.cuvs' }}
   python-build:
     needs: [build-details, cpp-build]
     permissions:

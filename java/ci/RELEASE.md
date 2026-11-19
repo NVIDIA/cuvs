@@ -41,9 +41,8 @@ publication jobs run on release tags.
 Use the existing `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`, `MAVEN_DEPLOY_USERNAME`, and
 `MAVEN_DEPLOY_TOKEN` conventions. The Sonatype token must authorize the Java and
 Lucene namespaces, including every Lucene coordinate. The Central Publisher Portal
-API checks account namespace access directly. The legacy
-`MAVEN_STAGING_PROFILE_ID` setting is accepted but unused. Confirm namespace and
-account access during rollout.
+API checks account namespace access directly; no staging profile is used.
+Confirm namespace and account access during rollout.
 
 Only one system should publish these coordinates for a release; retire the
 legacy manual publishing path at cutover.
