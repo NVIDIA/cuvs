@@ -16,7 +16,7 @@ cuVS serialization formats are in experimental phase and hence backward compatib
 This codec wraps `Lucene101Codec`, the default codec of Lucene 10.2. On later Lucene
 releases it can only read existing indexes; use `CuVSCodecs#gpuSearch` to write.
 
-## Public Members
+## Public and Protected Members
 
 ### CuVS2510GPUSearchCodec
 
