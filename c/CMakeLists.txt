@@ -32,6 +32,8 @@ option(BUILD_CAGRA_HNSWLIB "Build CAGRA+hnswlib interface" ON)
 option(BUILD_MG_ALGOS "Build with multi-GPU support" ON)
 
 option(CUVSC_STATIC_CUVS_LIBRARY "Link against statical version of libcuvs" OFF)
+set(CUVS_FLOWANN_GDRCOPY_INSTALL_RPATH "$ORIGIN" CACHE STRING
+    "Install RPATH for external GDRCopy runtime libraries")
 
 # Check if cuVS is already available. If so, it is the user's responsibility to ensure that the
 # CMake package is also available at build time of the Python cuvs package.
@@ -122,6 +124,13 @@ set_target_properties(
              CXX_VISIBILITY_PRESET hidden
              VISIBILITY_INLINES_HIDDEN ON
 )
+
+if(CUVSC_STATIC_CUVS_LIBRARY)
+  # Imported cuvs_static can carry GDRCopy without exporting its build-time feature flags.
+  # Keep the runtime deployment setting available to standalone C builds too.
+  set_property(TARGET cuvs_c APPEND PROPERTY INSTALL_RPATH
+               "${CUVS_FLOWANN_GDRCOPY_INSTALL_RPATH}")
+endif()
 
 # Setup the VERSION and SOVERSION of our library
 #

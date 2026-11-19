@@ -730,6 +730,8 @@ auto iterative_build_graph(raft::resources const& res,
 {
   size_t intermediate_degree = params.intermediate_graph_degree;
   size_t graph_degree        = params.graph_degree;
+  // Other callers also pass the original parameters after checking local degree copies.
+  check_graph_degree<T, IdxT>(intermediate_degree, graph_degree, dataset.n_rows());
 
   const auto& iter_params =
     std::get<cagra::graph_build_params::iterative_search_params>(params.graph_build_params);
@@ -766,11 +768,15 @@ auto iterative_build_graph(raft::resources const& res,
     final_graph_size = static_cast<uint64_t>(dataset.n_rows());
   }
 
+  // Every initial row must have enough distinct non-self neighbors for the
+  // first search-and-optimize iteration, including very small datasets.
+  auto small_graph_degree = std::max(graph_degree / 2, std::min(graph_degree, (uint64_t)24));
   // Determine initial graph size.
   uint64_t initial_graph_size = (final_graph_size + 1) / 2;
   while (initial_graph_size > graph_degree * 64) {
     initial_graph_size = (initial_graph_size + 1) / 2;
   }
+  initial_graph_size = std::max(initial_graph_size, small_graph_degree + 1);
   RAFT_LOG_DEBUG("# initial graph size = %lu", (uint64_t)initial_graph_size);
 
   // Preallocate the kNN graph at last-iteration size (N × (intermediate_degree+1)) from the large
@@ -804,7 +810,6 @@ auto iterative_build_graph(raft::resources const& res,
 
   // Determine graph degree and number of search results while increasing
   // graph size.
-  auto small_graph_degree = std::max(graph_degree / 2, std::min(graph_degree, (uint64_t)24));
   RAFT_LOG_DEBUG("# small_graph_degree = %lu", (uint64_t)small_graph_degree);
   RAFT_LOG_DEBUG("# graph_degree = %lu", (uint64_t)graph_degree);
   RAFT_LOG_DEBUG("# topk = %lu", (uint64_t)topk);
@@ -1077,6 +1082,61 @@ auto build_cagra_host_graph_from_knn_params(raft::resources const& res,
 
   knn_graph.reset();
   return cagra_graph;
+}
+
+/** Build only the final optimized host graph from a dense dataset view. */
+template <typename T, typename IdxT = uint32_t, typename DatasetViewT>
+  requires cuvs::neighbors::is_dense_row_major_dataset_view_v<DatasetViewT>
+auto build_graph(raft::resources const& res,
+                 index_params const& params,
+                 DatasetViewT const& dataset) -> raft::host_matrix<IdxT, int64_t>
+{
+  auto const n_rows        = static_cast<size_t>(dataset.n_rows());
+  auto const dim           = static_cast<size_t>(dataset.dim());
+  auto intermediate_degree = params.intermediate_graph_degree;
+  auto graph_degree        = params.graph_degree;
+  common::nvtx::range<common::nvtx::domain::cuvs> function_scope(
+    "cagra::detail::build_graph(%zu, %zu)", intermediate_degree, graph_degree);
+  check_graph_degree<T, IdxT>(intermediate_degree, graph_degree, n_rows);
+
+  auto const dataset_extents =
+    raft::matrix_extent<int64_t>(static_cast<int64_t>(n_rows), static_cast<int64_t>(dim));
+  auto knn_build_params = resolve_cagra_default_knn_graph_build_params<IdxT>(
+    res, params, dataset_extents, intermediate_degree);
+  validate_cagra_knn_graph_build_constraints<T>(params, knn_build_params);
+
+  if (std::holds_alternative<cagra::graph_build_params::iterative_search_params>(
+        knn_build_params)) {
+    auto adjusted_params                      = params;
+    adjusted_params.intermediate_graph_degree = intermediate_degree;
+    adjusted_params.graph_degree              = graph_degree;
+    auto device_graph                         = [&]() {
+      if constexpr (cuvs::neighbors::is_host_dataset_view_v<DatasetViewT>) {
+        auto padded = cuvs::neighbors::make_device_padded_dataset(res, dataset.data_view());
+        auto graph  = iterative_build_graph<T, IdxT>(res, adjusted_params, padded->view());
+        raft::resource::sync_stream(res);
+        return graph;
+      } else {
+        return iterative_build_graph<T, IdxT>(res, adjusted_params, dataset);
+      }
+    }();
+    auto host_graph =
+      raft::make_host_matrix<IdxT, int64_t>(device_graph.extent(0), device_graph.extent(1));
+    raft::copy(host_graph.data_handle(),
+               device_graph.data_handle(),
+               host_graph.size(),
+               raft::resource::get_cuda_stream(res));
+    raft::resource::sync_stream(res);
+    return host_graph;
+  }
+  return build_cagra_host_graph_from_knn_params<T, IdxT>(
+    res,
+    params,
+    knn_build_params,
+    static_cast<int64_t>(n_rows),
+    intermediate_degree,
+    graph_degree,
+    cuvs::neighbors::dense_row_major_view(dataset));
 }
 
 /**
