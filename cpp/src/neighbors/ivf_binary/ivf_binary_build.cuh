@@ -6,6 +6,7 @@
 #pragma once
 
 #include "../../cluster/kmeans_balanced.cuh"
+#include "../../core/histogram.hpp"
 #include "../../core/nvtx.hpp"
 #include "../ivf_common.cuh"
 #include "../ivf_flat/ivf_flat_build.cuh"
@@ -22,7 +23,6 @@
 #include <raft/core/resource/device_memory_resource.hpp>
 #include <raft/linalg/add.cuh>
 #include <raft/linalg/map.cuh>
-#include <raft/stats/histogram.cuh>
 #include <raft/util/cudart_utils.hpp>
 #include <raft/util/integer_utils.hpp>
 
@@ -107,13 +107,13 @@ inline void extend(raft::resources const& handle,
              old_list_sizes_dev.view(),
              raft::make_device_vector_view<const uint32_t, int64_t>(list_sizes_ptr, n_lists));
 
-  raft::stats::histogram<uint32_t, int64_t>(raft::stats::HistTypeAuto,
-                                            reinterpret_cast<int32_t*>(list_sizes_ptr),
-                                            int64_t(n_lists),
-                                            labels.data_handle(),
-                                            n_rows,
-                                            1,
-                                            stream.get());
+  cuvs::detail::histogram<uint32_t, int64_t>(raft::stats::HistTypeAuto,
+                                             reinterpret_cast<int32_t*>(list_sizes_ptr),
+                                             int64_t(n_lists),
+                                             labels.data_handle(),
+                                             n_rows,
+                                             1,
+                                             stream.get());
   raft::linalg::add(handle,
                     raft::make_device_vector_view<const uint32_t, int64_t>(list_sizes_ptr, n_lists),
                     raft::make_device_vector_view<const uint32_t, int64_t>(
