@@ -87,23 +87,11 @@ cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerParams_t params)
 <a id="cuvsscalarquantizer"></a>
 ### cuvsScalarQuantizer
 
-Defines and stores scalar for quantisation upon training
-
-The quantization is performed by a linear mapping of an interval in the float data type to the full range of the quantized int type. Allocate with cuvsScalarQuantizerCreate and release with cuvsScalarQuantizerDestroy; do not copy the handle's contents. The implementation also owns any per-dimension bounds. In global mode, min_ and max_ are the trained bounds. In per-dimension mode, they are numeric_limits&lt;T&gt;::min() and numeric_limits&lt;T&gt;::max() for the training data type T, and are not used for transformation.
+Opaque scalar quantizer handle.
 
 ```c
-typedef struct {
-  double min_;
-  double max_;
-} cuvsScalarQuantizer;
+typedef struct cuvsScalarQuantizer cuvsScalarQuantizer;
 ```
-
-**Fields**
-
-| Name | Type | Description |
-| --- | --- | --- |
-| `min_` | `double` |  |
-| `max_` | `double` |  |
 
 <a id="cuvsscalarquantizercreate"></a>
 ### cuvsScalarQuantizerCreate
@@ -118,7 +106,7 @@ cuvsError_t cuvsScalarQuantizerCreate(cuvsScalarQuantizer_t* quantizer);
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `quantizer` | in | [`cuvsScalarQuantizer_t*`](/api-reference/c-api-preprocessing-quantize-scalar#cuvsscalarquantizer) | cuvsScalarQuantizer_t to allocate |
+| `quantizer` | in | `cuvsScalarQuantizer_t*` | cuvsScalarQuantizer_t to allocate |
 
 **Returns**
 
@@ -137,7 +125,57 @@ cuvsError_t cuvsScalarQuantizerDestroy(cuvsScalarQuantizer_t quantizer);
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `quantizer` | in | [`cuvsScalarQuantizer_t`](/api-reference/c-api-preprocessing-quantize-scalar#cuvsscalarquantizer) |  |
+| `quantizer` | in | `cuvsScalarQuantizer_t` |  |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsscalarquantizergetbounds"></a>
+### cuvsScalarQuantizerGetBounds
+
+Get the global bounds of a scalar quantizer.
+
+```c
+cuvsError_t cuvsScalarQuantizerGetBounds(cuvsScalarQuantizer_t quantizer,
+double* min,
+double* max);
+```
+
+Fails for a quantizer holding per-dimension bounds.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `quantizer` | in | `cuvsScalarQuantizer_t` | a scalar quantizer |
+| `min` | out | `double*` | lower bound shared by all dimensions |
+| `max` | out | `double*` | upper bound shared by all dimensions |
+
+**Returns**
+
+[`cuvsError_t`](/api-reference/c-api-core-c-api#cuvserror-t)
+
+<a id="cuvsscalarquantizersetbounds"></a>
+### cuvsScalarQuantizerSetBounds
+
+Set global bounds on a scalar quantizer without training.
+
+```c
+cuvsError_t cuvsScalarQuantizerSetBounds(cuvsScalarQuantizer_t quantizer,
+double min,
+double max);
+```
+
+Replaces any trained global or per-dimension bounds. Complete outstanding stream work using the quantizer before changing its bounds.
+
+**Parameters**
+
+| Name | Direction | Type | Description |
+| --- | --- | --- | --- |
+| `quantizer` | in,out | `cuvsScalarQuantizer_t` | scalar quantizer allocated by cuvsScalarQuantizerCreate |
+| `min` | in | `double` | finite lower bound shared by all dimensions |
+| `max` | in | `double` | finite upper bound shared by all dimensions, with min &lt;= max |
 
 **Returns**
 
@@ -164,7 +202,7 @@ Supports float16, float32, and float64 in global or per-dimension mode. Per-dime
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | raft resource |
 | `params` | in | [`cuvsScalarQuantizerParams_t`](/api-reference/c-api-preprocessing-quantize-scalar#cuvsscalarquantizerparams) | configure scalar quantizer, e.g. quantile |
 | `dataset` | in | `DLManagedTensor*` | a row-major host or device matrix |
-| `quantizer` | in,out | [`cuvsScalarQuantizer_t`](/api-reference/c-api-preprocessing-quantize-scalar#cuvsscalarquantizer) | scalar quantizer allocated by cuvsScalarQuantizerCreate |
+| `quantizer` | in,out | `cuvsScalarQuantizer_t` | scalar quantizer allocated by cuvsScalarQuantizerCreate |
 
 **Returns**
 
@@ -189,7 +227,7 @@ Per-dimension mode requires device matrices with the same input type and width a
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | raft resource |
-| `quantizer` | in | [`cuvsScalarQuantizer_t`](/api-reference/c-api-preprocessing-quantize-scalar#cuvsscalarquantizer) | a scalar quantizer |
+| `quantizer` | in | `cuvsScalarQuantizer_t` | a scalar quantizer |
 | `dataset` | in | `DLManagedTensor*` | a row-major host or device matrix to transform |
 | `out` | out | `DLManagedTensor*` | a row-major host or device matrix to store transformed data |
 
@@ -216,7 +254,7 @@ Note that depending on the chosen data types train dataset the conversion is not
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | [`cuvsResources_t`](/api-reference/c-api-core-c-api#cuvsresources-t) | raft resource |
-| `quantizer` | in | [`cuvsScalarQuantizer_t`](/api-reference/c-api-preprocessing-quantize-scalar#cuvsscalarquantizer) | a scalar quantizer |
+| `quantizer` | in | `cuvsScalarQuantizer_t` | a scalar quantizer |
 | `dataset` | in | `DLManagedTensor*` | a row-major host or device matrix |
 | `out` | out | `DLManagedTensor*` | a row-major host or device matrix |
 

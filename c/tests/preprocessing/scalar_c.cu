@@ -7,7 +7,6 @@
 #include <cuvs/core/cuda_fp16.hpp>
 #include <cuvs/preprocessing/quantize/scalar.h>
 
-#include <cuda/std/limits>
 #include <gtest/gtest.h>
 #include <raft/util/cudart_utils.hpp>
 #include <rmm/device_uvector.hpp>
@@ -65,6 +64,14 @@ class ScalarQuantizerC : public ::testing::Test {
     return cuvsScalarQuantizerTrain(res, params, &data, quantizer);
   }
 
+  void expect_global_bounds(double expected_min, double expected_max)
+  {
+    double min = 0, max = 0;
+    ASSERT_EQ(cuvsScalarQuantizerGetBounds(quantizer, &min, &max), CUVS_SUCCESS);
+    EXPECT_EQ(min, expected_min);
+    EXPECT_EQ(max, expected_max);
+  }
+
   void check_per_dimension_round_trip()
   {
     ASSERT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &device, &encoded), CUVS_SUCCESS);
@@ -86,8 +93,9 @@ TYPED_TEST_SUITE(ScalarQuantizerC, ScalarTypes);
 TYPED_TEST(ScalarQuantizerC, PerDimensionRoundTrip)
 {
   ASSERT_EQ(this->train(CUVS_SCALAR_PER_DIMENSION, this->device), CUVS_SUCCESS);
-  EXPECT_EQ(this->quantizer->min_, double(cuda::std::numeric_limits<TypeParam>::min()));
-  EXPECT_EQ(this->quantizer->max_, double(cuda::std::numeric_limits<TypeParam>::max()));
+  // Per-dimension bounds are not global bounds.
+  double min = 0, max = 0;
+  EXPECT_EQ(cuvsScalarQuantizerGetBounds(this->quantizer, &min, &max), CUVS_ERROR);
   this->check_per_dimension_round_trip();
 }
 
@@ -97,14 +105,14 @@ TYPED_TEST(ScalarQuantizerC, GlobalBoundsAndRoundTrip)
   std::fill_n(this->values.begin() + 3, 3, TypeParam{7});
   auto original = this->values;
   ASSERT_EQ(this->train(CUVS_SCALAR_GLOBAL, this->host), CUVS_SUCCESS);
-  EXPECT_EQ(this->quantizer->min_, -3);
-  EXPECT_EQ(this->quantizer->max_, 7);
+  this->expect_global_bounds(-3, 7);
   ASSERT_EQ(cuvsScalarQuantizerTransform(this->res, this->quantizer, &this->host, &this->host_encoded), CUVS_SUCCESS);
   EXPECT_EQ(this->host_codes, (std::vector<int8_t>{-128, -128, -128, 127, 127, 127}));
   ASSERT_EQ(cuvsScalarQuantizerInverseTransform(this->res, this->quantizer, &this->host_encoded, &this->host), CUVS_SUCCESS);
   EXPECT_EQ(this->values, original);
-  this->quantizer->min_ = 1;
-  this->quantizer->max_ = 5;
+  EXPECT_EQ(cuvsScalarQuantizerSetBounds(this->quantizer, 5, 1), CUVS_ERROR);
+  ASSERT_EQ(cuvsScalarQuantizerSetBounds(this->quantizer, 1, 5), CUVS_SUCCESS);
+  this->expect_global_bounds(1, 5);
   ASSERT_EQ(cuvsScalarQuantizerInverseTransform(this->res, this->quantizer, &this->host_encoded, &this->host), CUVS_SUCCESS);
   EXPECT_EQ(this->values, (std::vector<TypeParam>{1.f, 1.f, 1.f, 5.f, 5.f, 5.f}));
 }
@@ -123,8 +131,7 @@ TEST_F(ScalarQuantizerCFloat, RetrainingChangesMode)
   ASSERT_EQ(train(CUVS_SCALAR_PER_DIMENSION, host), CUVS_SUCCESS);
   check_per_dimension_round_trip();
   ASSERT_EQ(train(CUVS_SCALAR_GLOBAL, host), CUVS_SUCCESS);
-  EXPECT_EQ(quantizer->min_, 0);
-  EXPECT_EQ(quantizer->max_, 255);
+  expect_global_bounds(0, 255);
   EXPECT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &host, &host_encoded), CUVS_SUCCESS);
 }
 

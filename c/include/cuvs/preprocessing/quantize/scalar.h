@@ -58,20 +58,15 @@ CUVS_EXPORT cuvsError_t cuvsScalarQuantizerParamsCreate(cuvsScalarQuantizerParam
 CUVS_EXPORT cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerParams_t params);
 
 /**
- * @brief Defines and stores scalar for quantisation upon training
+ * @brief Opaque scalar quantizer handle.
  *
  * The quantization is performed by a linear mapping of an interval in the
  * float data type to the full range of the quantized int type.
- * Allocate with cuvsScalarQuantizerCreate and release with cuvsScalarQuantizerDestroy;
- * do not copy the handle's contents. The implementation also owns any per-dimension bounds.
- * In global mode, min_ and max_ are the trained bounds. In per-dimension mode, they are
- * numeric_limits<T>::min() and numeric_limits<T>::max() for the training data type T,
- * and are not used for transformation.
+ * Allocate with cuvsScalarQuantizerCreate and release with cuvsScalarQuantizerDestroy.
+ * The handle owns its global or per-dimension bounds. Read and set global bounds with
+ * cuvsScalarQuantizerGetBounds and cuvsScalarQuantizerSetBounds.
  */
-typedef struct {
-  double min_;
-  double max_;
-} cuvsScalarQuantizer;
+typedef struct cuvsScalarQuantizer cuvsScalarQuantizer;
 
 typedef cuvsScalarQuantizer* cuvsScalarQuantizer_t;
 
@@ -90,6 +85,35 @@ CUVS_EXPORT cuvsError_t cuvsScalarQuantizerCreate(cuvsScalarQuantizer_t* quantiz
  * @return cuvsError_t
  */
 CUVS_EXPORT cuvsError_t cuvsScalarQuantizerDestroy(cuvsScalarQuantizer_t quantizer);
+
+/**
+ * @brief Get the global bounds of a scalar quantizer.
+ *
+ * Fails for a quantizer holding per-dimension bounds.
+ *
+ * @param[in] quantizer a scalar quantizer
+ * @param[out] min lower bound shared by all dimensions
+ * @param[out] max upper bound shared by all dimensions
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsScalarQuantizerGetBounds(cuvsScalarQuantizer_t quantizer,
+                                                     double* min,
+                                                     double* max);
+
+/**
+ * @brief Set global bounds on a scalar quantizer without training.
+ *
+ * Replaces any trained global or per-dimension bounds.
+ * Complete outstanding stream work using the quantizer before changing its bounds.
+ *
+ * @param[in,out] quantizer scalar quantizer allocated by cuvsScalarQuantizerCreate
+ * @param[in] min finite lower bound shared by all dimensions
+ * @param[in] max finite upper bound shared by all dimensions, with min <= max
+ * @return cuvsError_t
+ */
+CUVS_EXPORT cuvsError_t cuvsScalarQuantizerSetBounds(cuvsScalarQuantizer_t quantizer,
+                                                     double min,
+                                                     double max);
 
 /**
  * @brief Trains a scalar quantizer to be used later for quantizing the dataset.

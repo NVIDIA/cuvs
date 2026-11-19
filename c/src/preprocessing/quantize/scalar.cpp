@@ -3,10 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#include <cmath>
 #include <cstdint>
-#include <cuda/std/limits>
-#include <memory>
 #include <dlpack/dlpack.h>
+#include <variant>
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/preprocessing/quantize/scalar.h>
@@ -15,15 +15,21 @@
 #include "../../core/exceptions.hpp"
 #include "../../core/interop.hpp"
 
-namespace {
-
 namespace scalar = cuvs::preprocessing::quantize::scalar;
 
-// Keep the public min/max layout while owning per-dimension bounds behind the factory handle.
-struct scalar_quantizer : cuvsScalarQuantizer {
-  uintptr_t addr = 0;
-  DLDataType dtype{};
+// The definition behind the opaque public handle. Global bounds apply to any floating-point
+// input type; per-dimension bounds are tied to the type they were trained on.
+struct cuvsScalarQuantizer {
+  double min = 0;
+  double max = 0;
+  std::variant<std::monostate,
+               scalar::quantizer<half>,
+               scalar::quantizer<float>,
+               scalar::quantizer<double>>
+    per_dim;
 };
+
+namespace {
 
 template <typename T>
 scalar::quantizer<T> _train(cuvsResources_t res,
@@ -109,30 +115,6 @@ void _inverse_transform(cuvsResources_t res,
   }
 }
 
-template <typename T>
-void _transform(cuvsResources_t res,
-                cuvsScalarQuantizer_t quantizer,
-                DLManagedTensor* dataset,
-                DLManagedTensor* out)
-{
-  _transform(res,
-             scalar::quantizer<T>{static_cast<T>(quantizer->min_), static_cast<T>(quantizer->max_)},
-             dataset,
-             out);
-}
-
-template <typename T>
-void _inverse_transform(cuvsResources_t res,
-                        cuvsScalarQuantizer_t quantizer,
-                        DLManagedTensor* dataset,
-                        DLManagedTensor* out)
-{
-  _inverse_transform(res,
-                     scalar::quantizer<T>{static_cast<T>(quantizer->min_), static_cast<T>(quantizer->max_)},
-                     dataset,
-                     out);
-}
-
 template <typename Fn>
 void dispatch_float(DLDataType dtype, Fn&& fn)
 {
@@ -145,14 +127,17 @@ void dispatch_float(DLDataType dtype, Fn&& fn)
   }
 }
 
-void destroy_per_dim(scalar_quantizer* quantizer)
+// Calls fn with the quantizer for input type T.
+template <typename T, typename Fn>
+void with_quantizer(const cuvsScalarQuantizer& quantizer, Fn&& fn)
 {
-  if (quantizer->addr) {
-    dispatch_float(quantizer->dtype, [&]<typename T>() {
-      delete reinterpret_cast<scalar::quantizer<T>*>(quantizer->addr);
-    });
-    quantizer->addr = 0;
+  if (auto const* per_dim = std::get_if<scalar::quantizer<T>>(&quantizer.per_dim)) {
+    fn(*per_dim);
+    return;
   }
+  RAFT_EXPECTS(std::holds_alternative<std::monostate>(quantizer.per_dim),
+               "The data type must match the one the per-dimension quantizer was trained on");
+  fn(scalar::quantizer<T>{static_cast<T>(quantizer.min), static_cast<T>(quantizer.max)});
 }
 
 }  // namespace
@@ -172,18 +157,39 @@ extern "C" cuvsError_t cuvsScalarQuantizerCreate(cuvsScalarQuantizer_t* quantize
 {
   return cuvs::core::translate_exceptions([=] {
     RAFT_EXPECTS(quantizer != nullptr, "quantizer must not be null");
-    *quantizer = new scalar_quantizer{};
+    *quantizer = new cuvsScalarQuantizer{};
   });
 }
 
 extern "C" cuvsError_t cuvsScalarQuantizerDestroy(cuvsScalarQuantizer_t quantizer)
 {
+  return cuvs::core::translate_exceptions([=] { delete quantizer; });
+}
+
+extern "C" cuvsError_t cuvsScalarQuantizerGetBounds(cuvsScalarQuantizer_t quantizer,
+                                                    double* min,
+                                                    double* max)
+{
   return cuvs::core::translate_exceptions([=] {
-    if (quantizer) {
-      auto q = static_cast<scalar_quantizer*>(quantizer);
-      destroy_per_dim(q);
-      delete q;
-    }
+    RAFT_EXPECTS(quantizer && min && max, "quantizer, min, and max must not be null");
+    RAFT_EXPECTS(std::holds_alternative<std::monostate>(quantizer->per_dim),
+                 "A per-dimension quantizer has no global bounds");
+    *min = quantizer->min;
+    *max = quantizer->max;
+  });
+}
+
+extern "C" cuvsError_t cuvsScalarQuantizerSetBounds(cuvsScalarQuantizer_t quantizer,
+                                                    double min,
+                                                    double max)
+{
+  return cuvs::core::translate_exceptions([=] {
+    RAFT_EXPECTS(quantizer != nullptr, "quantizer must not be null");
+    RAFT_EXPECTS(std::isfinite(min) && std::isfinite(max) && min <= max,
+                 "Bounds must be finite with min <= max");
+    quantizer->min     = min;
+    quantizer->max     = max;
+    quantizer->per_dim = std::monostate{};
   });
 }
 
@@ -204,21 +210,15 @@ extern "C" cuvsError_t cuvsScalarQuantizerTrain(cuvsResources_t res,
         break;
       default: RAFT_FAIL("Unsupported scalar quantization mode");
     }
-    auto q = static_cast<scalar_quantizer*>(quantizer);
     dispatch_float(dataset_tensor->dl_tensor.dtype, [&]<typename T>() {
       auto trained = _train<T>(res, cpp_params, dataset_tensor);
       if (auto const* bounds =
             std::get_if<typename scalar::quantizer<T>::global_type>(&trained.value)) {
-        destroy_per_dim(q);
-        q->min_ = bounds->min;
-        q->max_ = bounds->max;
+        quantizer->min     = bounds->min;
+        quantizer->max     = bounds->max;
+        quantizer->per_dim = std::monostate{};
       } else {
-        auto owned = std::make_unique<scalar::quantizer<T>>(std::move(trained));
-        destroy_per_dim(q);
-        q->addr = reinterpret_cast<uintptr_t>(owned.release());
-        q->dtype = dataset_tensor->dl_tensor.dtype;
-        q->min_ = static_cast<double>(cuda::std::numeric_limits<T>::min());
-        q->max_ = static_cast<double>(cuda::std::numeric_limits<T>::max());
+        quantizer->per_dim = std::move(trained);
       }
     });
   });
@@ -232,13 +232,10 @@ extern "C" cuvsError_t cuvsScalarQuantizerTransform(cuvsResources_t res,
   return cuvs::core::translate_exceptions([=] {
     RAFT_EXPECTS(quantizer && dataset_tensor && out_tensor,
                  "quantizer, dataset, and out must not be null");
-    auto q = static_cast<scalar_quantizer*>(quantizer);
-    dispatch_float(q->addr ? q->dtype : dataset_tensor->dl_tensor.dtype, [&]<typename T>() {
-      if (q->addr) {
-        _transform(res, *reinterpret_cast<scalar::quantizer<T>*>(q->addr), dataset_tensor, out_tensor);
-      } else {
-        _transform<T>(res, quantizer, dataset_tensor, out_tensor);
-      }
+    dispatch_float(dataset_tensor->dl_tensor.dtype, [&]<typename T>() {
+      with_quantizer<T>(*quantizer, [&](const scalar::quantizer<T>& q) {
+        _transform(res, q, dataset_tensor, out_tensor);
+      });
     });
   });
 }
@@ -250,13 +247,10 @@ cuvsError_t cuvsScalarQuantizerInverseTransform(cuvsResources_t res,
 {
   return cuvs::core::translate_exceptions([=] {
     RAFT_EXPECTS(quantizer && dataset && out, "quantizer, dataset, and out must not be null");
-    auto q = static_cast<scalar_quantizer*>(quantizer);
-    dispatch_float(q->addr ? q->dtype : out->dl_tensor.dtype, [&]<typename T>() {
-      if (q->addr) {
-        _inverse_transform(res, *reinterpret_cast<scalar::quantizer<T>*>(q->addr), dataset, out);
-      } else {
-        _inverse_transform<T>(res, quantizer, dataset, out);
-      }
+    dispatch_float(out->dl_tensor.dtype, [&]<typename T>() {
+      with_quantizer<T>(*quantizer, [&](const scalar::quantizer<T>& q) {
+        _inverse_transform(res, q, dataset, out);
+      });
     });
   });
 }
