@@ -348,7 +348,7 @@ get_dequant_factors(const bbq_encoding_view_t& encoding, int64_t row)
 
 // Converts one raw BBQ dot product into a final (post-epilogue) float distance, given both
 // operands' precomputed dequant factors. Evaluated exactly once per matrix cell
-// dim/centroid_norm_sq/row_norm both come directly from storage_document/storage_query rather
+// centroid_norm_sq/row_norm come directly from quantizer/encoding_view rather
 // than being passed separately, since every caller reads them the same id-indexed way -- row_norm
 // is only read for CosineExpanded (skipped entirely otherwise).
 template <typename DataT, typename Index_t, typename DistEpilogue_t>

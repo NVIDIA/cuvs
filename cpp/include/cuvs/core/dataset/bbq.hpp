@@ -84,27 +84,30 @@ struct bbq_encoding {
  * has to be guessed from the padded byte width of the encoded rows: the quantizer knows it.
  */
 struct bbq_spec {
+  using code_type   = uint8_t;
+  using math_type   = float;
+  using sum_type    = int32_t;
+  using codes_type  = raft::device_matrix<code_type, int64_t>;
+  using vector_type = raft::device_vector<math_type, int64_t>;
+  using sums_type   = raft::device_vector<sum_type, int64_t>;
+
+  using data_type            = bbq_encoding<codes_type, vector_type, sums_type>;
+  using data_view_type       = bbq_encoding<typename codes_type::view_type,
+                                            typename vector_type::view_type,
+                                            typename sums_type::view_type>;
+  using const_data_view_type = bbq_encoding<typename codes_type::const_view_type,
+                                            typename vector_type::const_view_type,
+                                            typename sums_type::const_view_type>;
   template <typename T, typename IdxT>
   struct apply {
-    using value_type = std::remove_const_t<T>;
-    using index_type = std::remove_const_t<IdxT>;
-    using code_type  = uint8_t;
-    using math_type  = float;
-    using sum_type   = int32_t;
-
     static constexpr bool is_device_accessible = true;
-
-    using codes_type  = raft::device_matrix<code_type, int64_t>;
-    using vector_type = raft::device_vector<math_type, int64_t>;
-    using sums_type   = raft::device_vector<sum_type, int64_t>;
-
-    using data_type            = bbq_encoding<codes_type, vector_type, sums_type>;
-    using data_view_type       = bbq_encoding<typename codes_type::view_type,
-                                              typename vector_type::view_type,
-                                              typename sums_type::view_type>;
-    using const_data_view_type = bbq_encoding<typename codes_type::const_view_type,
-                                              typename vector_type::const_view_type,
-                                              typename sums_type::const_view_type>;
+    using value_type                           = std::remove_const_t<T>;
+    using index_type                           = std::remove_const_t<IdxT>;
+    using code_type                            = bbq_spec::code_type;
+    using math_type                            = bbq_spec::math_type;
+    using data_type                            = bbq_spec::data_type;
+    using data_view_type                       = bbq_spec::data_view_type;
+    using const_data_view_type                 = bbq_spec::const_data_view_type;
 
     using manifest_type            = preprocessing::quantize::bbq::quantizer<value_type>;
     using manifest_view_type       = preprocessing::quantize::bbq::quantizer_view<value_type>;
