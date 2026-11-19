@@ -348,11 +348,14 @@ raft::host_scalar_view<int> n_iter);
 Find balanced clusters with k-means algorithm.
 
 ```cpp
-void fit(const raft::resources& handle,
+void fit(
+const raft::resources& handle,
 cuvs::cluster::kmeans::balanced_params const& params,
 raft::device_matrix_view<const float, int64_t> X,
 raft::device_matrix_view<float, int64_t> centroids,
-std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 ```
 
 **Parameters**
@@ -363,7 +366,9 @@ std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 | `params` | in | `cuvs::cluster::kmeans::balanced_params const&` | Parameters for KMeans model. |
 | `X` | in | `raft::device_matrix_view<const float, int64_t>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | out | `raft::device_matrix_view<float, int64_t>` | [out] The generated centroids from the kmeans algorithm are stored at the address pointed by 'centroids'. [dim = n_clusters x n_features] |
-| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Sum of squared distances of samples to their closest cluster center.<br />Default: `std::nullopt`. |
+| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Optional sum of squared distances of samples to their closest cluster center.<br />Default: `std::nullopt`. |
+| `parent_centroids` | out | `std::optional<raft::device_matrix_view<float, int64_t>>` | Optional coarse centroids from training hierarchy. [dim = round(sqrt(n_clusters)) x n_features]<br />Default: `std::nullopt`. |
+| `centroid_to_parent` | out | `std::optional<raft::device_vector_view<uint32_t, int64_t>>` | Optional mapping from centroids to parent cluster IDs. The returned hierarchy is constructed before refinement. [len = n_clusters]<br />Default: `std::nullopt`. |
 
 **Returns**
 
@@ -374,11 +379,14 @@ std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 Find balanced clusters with k-means algorithm.
 
 ```cpp
-void fit(const raft::resources& handle,
+void fit(
+const raft::resources& handle,
 cuvs::cluster::kmeans::balanced_params const& params,
 raft::device_matrix_view<const int8_t, int64_t> X,
 raft::device_matrix_view<float, int64_t> centroids,
-std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 ```
 
 **Parameters**
@@ -389,7 +397,9 @@ std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 | `params` | in | `cuvs::cluster::kmeans::balanced_params const&` | Parameters for KMeans model. |
 | `X` | in | `raft::device_matrix_view<const int8_t, int64_t>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | inout | `raft::device_matrix_view<float, int64_t>` | [out] The generated centroids from the kmeans algorithm are stored at the address pointed by 'centroids'. [dim = n_clusters x n_features] |
-| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Sum of squared distances of samples to their closest cluster center.<br />Default: `std::nullopt`. |
+| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Optional sum of squared distances of samples to their closest cluster center.<br />Default: `std::nullopt`. |
+| `parent_centroids` | out | `std::optional<raft::device_matrix_view<float, int64_t>>` | Optional coarse centroids from training hierarchy. [dim = round(sqrt(n_clusters)) x n_features]<br />Default: `std::nullopt`. |
+| `centroid_to_parent` | out | `std::optional<raft::device_vector_view<uint32_t, int64_t>>` | Optional mapping from centroids to parent cluster IDs. The returned hierarchy is constructed before refinement. [len = n_clusters]<br />Default: `std::nullopt`. |
 
 **Returns**
 
@@ -400,11 +410,14 @@ std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 Find balanced clusters with k-means algorithm.
 
 ```cpp
-void fit(const raft::resources& handle,
+void fit(
+const raft::resources& handle,
 cuvs::cluster::kmeans::balanced_params const& params,
 raft::device_matrix_view<const half, int64_t> X,
 raft::device_matrix_view<float, int64_t> centroids,
-std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 ```
 
 **Parameters**
@@ -415,7 +428,9 @@ std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 | `params` | in | `cuvs::cluster::kmeans::balanced_params const&` | Parameters for KMeans model. |
 | `X` | in | `raft::device_matrix_view<const half, int64_t>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | inout | `raft::device_matrix_view<float, int64_t>` | [out] The generated centroids from the kmeans algorithm are stored at the address pointed by 'centroids'. [dim = n_clusters x n_features] |
-| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Sum of squared distances of samples to their closest cluster center.<br />Default: `std::nullopt`. |
+| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Optional sum of squared distances of samples to their closest cluster center.<br />Default: `std::nullopt`. |
+| `parent_centroids` | out | `std::optional<raft::device_matrix_view<float, int64_t>>` | Optional coarse centroids from training hierarchy. [dim = round(sqrt(n_clusters)) x n_features]<br />Default: `std::nullopt`. |
+| `centroid_to_parent` | out | `std::optional<raft::device_vector_view<uint32_t, int64_t>>` | Optional mapping from centroids to parent cluster IDs. The returned hierarchy is constructed before refinement. [len = n_clusters]<br />Default: `std::nullopt`. |
 
 **Returns**
 
@@ -426,11 +441,14 @@ std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 Find balanced clusters with k-means algorithm.
 
 ```cpp
-void fit(const raft::resources& handle,
+void fit(
+const raft::resources& handle,
 cuvs::cluster::kmeans::balanced_params const& params,
 raft::device_matrix_view<const uint8_t, int64_t> X,
 raft::device_matrix_view<float, int64_t> centroids,
-std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
+std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 ```
 
 **Note:** When `params.is_packed_binary` is true, `X.extent(1)` counts packed bytes,<br />and centroids must have `8 * X.extent(1)` floating-point coordinates. Bits are<br />expanded least-significant bit first to \{-1, +1\}; the selected metric operates<br />on those expanded vectors. CosineExpanded is not supported in packed binary mode.<br />With the flag disabled, uint8_t values are numeric.
@@ -443,7 +461,9 @@ std::optional<raft::host_scalar_view<float>> inertia = std::nullopt);
 | `params` | in | `cuvs::cluster::kmeans::balanced_params const&` | Parameters for KMeans model. |
 | `X` | in | `raft::device_matrix_view<const uint8_t, int64_t>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | inout | `raft::device_matrix_view<float, int64_t>` | [out] The generated centroids from the kmeans algorithm are stored at the address pointed by 'centroids'. [dim = n_clusters x n_features] |
-| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Sum of squared distances of samples to their closest cluster center.<br />Default: `std::nullopt`. |
+| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Optional sum of squared distances of samples to their closest cluster center.<br />Default: `std::nullopt`. |
+| `parent_centroids` | out | `std::optional<raft::device_matrix_view<float, int64_t>>` | Optional coarse centroids from training hierarchy. [dim = round(sqrt(n_clusters)) x n_features]<br />Default: `std::nullopt`. |
+| `centroid_to_parent` | out | `std::optional<raft::device_vector_view<uint32_t, int64_t>>` | Optional mapping from centroids to parent cluster IDs. The returned hierarchy is constructed before refinement. [len = n_clusters]<br />Default: `std::nullopt`. |
 
 **Returns**
 
@@ -870,11 +890,15 @@ raft::host_scalar_view<int64_t> n_iter);
 Compute balanced k-means clustering and predicts cluster index for each sample in the input.
 
 ```cpp
-void fit_predict(const raft::resources& handle,
+void fit_predict(
+const raft::resources& handle,
 cuvs::cluster::kmeans::balanced_params const& params,
 raft::device_matrix_view<const float, int64_t> X,
 raft::device_matrix_view<float, int64_t> centroids,
-raft::device_vector_view<uint32_t, int64_t> labels);
+raft::device_vector_view<uint32_t, int64_t> labels,
+std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 ```
 
 **Parameters**
@@ -886,6 +910,9 @@ raft::device_vector_view<uint32_t, int64_t> labels);
 | `X` | in | `raft::device_matrix_view<const float, int64_t>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | inout | `raft::device_matrix_view<float, int64_t>` | Optional [in] When init is InitMethod::Array, use centroids  as the initial cluster centers [out] The generated centroids from the kmeans algorithm are stored at the address pointed by 'centroids'. [dim = n_clusters x n_features] |
 | `labels` | out | `raft::device_vector_view<uint32_t, int64_t>` | Index of the cluster each sample in X belongs to. [len = n_samples] |
+| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Optional sum of squared distances (float input only).<br />Default: `std::nullopt`. |
+| `parent_centroids` | out | `std::optional<raft::device_matrix_view<float, int64_t>>` | Optional coarse centroids from training hierarchy. [dim = round(sqrt(n_clusters)) x n_features]<br />Default: `std::nullopt`. |
+| `centroid_to_parent` | out | `std::optional<raft::device_vector_view<uint32_t, int64_t>>` | Optional mapping from centroids to parent cluster IDs. The returned hierarchy is constructed before refinement. [len = n_clusters]<br />Default: `std::nullopt`. |
 
 **Returns**
 
@@ -896,11 +923,15 @@ raft::device_vector_view<uint32_t, int64_t> labels);
 Compute balanced k-means clustering and predicts cluster index for each sample in the input.
 
 ```cpp
-void fit_predict(const raft::resources& handle,
+void fit_predict(
+const raft::resources& handle,
 cuvs::cluster::kmeans::balanced_params const& params,
 raft::device_matrix_view<const int8_t, int64_t> X,
 raft::device_matrix_view<float, int64_t> centroids,
-raft::device_vector_view<uint32_t, int64_t> labels);
+raft::device_vector_view<uint32_t, int64_t> labels,
+std::optional<raft::host_scalar_view<float>> inertia                          = std::nullopt,
+std::optional<raft::device_matrix_view<float, int64_t>> parent_centroids      = std::nullopt,
+std::optional<raft::device_vector_view<uint32_t, int64_t>> centroid_to_parent = std::nullopt);
 ```
 
 **Parameters**
@@ -912,6 +943,9 @@ raft::device_vector_view<uint32_t, int64_t> labels);
 | `X` | in | `raft::device_matrix_view<const int8_t, int64_t>` | Training instances to cluster. The data must be in row-major format. [dim = n_samples x n_features] |
 | `centroids` | inout | `raft::device_matrix_view<float, int64_t>` | Optional [in] When init is InitMethod::Array, use centroids  as the initial cluster centers [out] The generated centroids from the kmeans algorithm are stored at the address pointed by 'centroids'. [dim = n_clusters x n_features] |
 | `labels` | out | `raft::device_vector_view<uint32_t, int64_t>` | Index of the cluster each sample in X belongs to. [len = n_samples] |
+| `inertia` | out | `std::optional<raft::host_scalar_view<float>>` | Optional sum of squared distances (float input only).<br />Default: `std::nullopt`. |
+| `parent_centroids` | out | `std::optional<raft::device_matrix_view<float, int64_t>>` | Optional coarse centroids from training hierarchy. [dim = round(sqrt(n_clusters)) x n_features]<br />Default: `std::nullopt`. |
+| `centroid_to_parent` | out | `std::optional<raft::device_vector_view<uint32_t, int64_t>>` | Optional mapping from centroids to parent cluster IDs. The returned hierarchy is constructed before refinement. [len = n_clusters]<br />Default: `std::nullopt`. |
 
 **Returns**
 
