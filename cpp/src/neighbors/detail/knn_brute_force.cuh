@@ -90,8 +90,14 @@ void tiled_brute_force_knn(const raft::resources& handle,
   size_t tile_cols = 0;
   auto stream      = raft::resource::get_cuda_stream(handle);
 
-  cuvs::neighbors::detail::faiss_select::chooseTileSize(
-    m, std::max(n, k), d, sizeof(DistanceT), tile_rows, tile_cols);
+  // select_k keeps k distances and indices per query row in its workspace
+  cuvs::neighbors::detail::faiss_select::chooseTileSize(m,
+                                                        std::max(n, k),
+                                                        d,
+                                                        sizeof(DistanceT),
+                                                        k * (sizeof(DistanceT) + sizeof(IndexType)),
+                                                        tile_rows,
+                                                        tile_cols);
 
   // for unittesting, its convenient to be able to put a max size on the tiles
   // so we can test the tiling logic without having to use huge inputs.
@@ -306,13 +312,15 @@ void tiled_brute_force_knn(const raft::resources& handle,
       // the rest to indicate that we are missing items
       const DistanceT* in_distances = temp_out_distances.data();
       const IndexType* in_indices   = temp_out_indices.data();
+      DistanceT missing_distance    = select_min ? std::numeric_limits<DistanceT>::max()
+                                                 : std::numeric_limits<DistanceT>::lowest();
 
       raft::linalg::map_offset(
         handle,
         raft::make_device_vector_view(distances + i * k, current_query_size * k),
         [=] __device__(size_t idx) {
           size_t row = idx / k, col = idx % k;
-          return col < n ? in_distances[row * n + col] : std::numeric_limits<DistanceT>::lowest();
+          return col < n ? in_distances[row * n + col] : missing_distance;
         });
       raft::linalg::map_offset(
         handle,
@@ -461,13 +469,14 @@ void brute_force_knn_impl(
 
     auto stream = raft::resource::get_next_usable_stream(handle, i);
 
-    // fusedL2Knn has no tensor-core path, so half is faster through the tiled GEMM below.
-    if (!std::is_same_v<value_t, half> && k <= 64 && rowMajorQuery == rowMajorIndex &&
-        rowMajorQuery == true &&
+    // fusedL2Knn has no tensor-core path, so half expanded L2 is faster through the tiled GEMM
+    // below.
+    if (k <= 64 && rowMajorQuery == rowMajorIndex && rowMajorQuery == true &&
         (metric == cuvs::distance::DistanceType::L2Unexpanded ||
          metric == cuvs::distance::DistanceType::L2SqrtUnexpanded ||
-         metric == cuvs::distance::DistanceType::L2Expanded ||
-         metric == cuvs::distance::DistanceType::L2SqrtExpanded)) {
+         (!std::is_same_v<value_t, half> &&
+          (metric == cuvs::distance::DistanceType::L2Expanded ||
+           metric == cuvs::distance::DistanceType::L2SqrtExpanded)))) {
       fusedL2Knn(D,
                  out_i_ptr,
                  out_d_ptr,

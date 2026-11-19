@@ -20,6 +20,7 @@ inline void chooseTileSize(size_t numQueries,
                            size_t numCentroids,
                            size_t dim,
                            size_t elementSize,
+                           size_t rowWorkspaceSize,
                            size_t& tileRows,
                            size_t& tileCols)
 {
@@ -43,8 +44,9 @@ inline void chooseTileSize(size_t numQueries,
   if (tileRows * numCentroids * elementSize * 2 <= targetUsage) {
     tileCols = numCentroids;
     // The whole index fits in one column tile, so spend the rest of the target on query rows.
-    tileRows =
-      std::min(targetUsage / (2 * elementSize * std::max<size_t>(numCentroids, 1)), numQueries);
+    // Each row also takes rowWorkspaceSize bytes of temporary memory after the distance tile.
+    size_t rowSize = elementSize * std::max<size_t>(numCentroids, 1) + rowWorkspaceSize;
+    tileRows       = std::min(std::max(tileRows, targetUsage / (2 * rowSize)), numQueries);
   } else {
     // only query total memory in case it potentially impacts tilesize
     size_t totalMem = rmm::available_device_memory().second;
