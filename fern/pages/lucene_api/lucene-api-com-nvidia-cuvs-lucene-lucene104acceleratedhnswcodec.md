@@ -17,7 +17,7 @@ available.
 This codec wraps `Lucene104Codec`, the default codec of Lucene 10.4. Once a later Lucene
 release replaces that default, this codec can only read existing indexes; use `CuVSCodecs#acceleratedHNSW` to write.
 
-## Public Members
+## Public and Protected Members
 
 ### Lucene104AcceleratedHNSWCodec
 
