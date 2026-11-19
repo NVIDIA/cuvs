@@ -129,7 +129,7 @@ Each release that breaks ABI compatibility lists the C items it replaced.
 
 ### NVIDIA cuVS 27.02
 
-The scalar quantizer handle is opaque. Applications that use it must be updated and rebuilt.
+The scalar quantizer struct no longer exposes its `min_` and `max_` fields. Applications that use it must be updated and rebuilt.
 
 | Before 27.02 | 27.02 |
 | --- | --- |

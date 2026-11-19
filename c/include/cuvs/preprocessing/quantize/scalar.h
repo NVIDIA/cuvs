@@ -58,7 +58,7 @@ CUVS_EXPORT cuvsError_t cuvsScalarQuantizerParamsCreate(cuvsScalarQuantizerParam
 CUVS_EXPORT cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerParams_t params);
 
 /**
- * @brief Opaque scalar quantizer handle.
+ * @brief Scalar quantizer handle.
  *
  * The quantization is performed by a linear mapping of an interval in the
  * float data type to the full range of the quantized int type.

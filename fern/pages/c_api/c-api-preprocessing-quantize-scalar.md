@@ -87,7 +87,7 @@ cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerParams_t params)
 <a id="cuvsscalarquantizer"></a>
 ### cuvsScalarQuantizer
 
-Opaque scalar quantizer handle.
+Scalar quantizer handle.
 
 ```c
 typedef struct cuvsScalarQuantizer cuvsScalarQuantizer;

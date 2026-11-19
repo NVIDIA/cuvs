@@ -3,9 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#include <cmath>
 #include <cstdint>
 #include <dlpack/dlpack.h>
+#include <optional>
+#include <utility>
 #include <variant>
 
 #include <cuvs/core/c_api.h>
@@ -17,16 +18,10 @@
 
 namespace scalar = cuvs::preprocessing::quantize::scalar;
 
-// The definition behind the opaque public handle. Global bounds apply to any floating-point
-// input type; per-dimension bounds are tied to the type they were trained on.
+// The definition of the public handle: the C++ quantizer for the type it was trained on. Its
+// global bounds also apply to the other floating-point types; per-dimension bounds do not.
 struct cuvsScalarQuantizer {
-  double min = 0;
-  double max = 0;
-  std::variant<std::monostate,
-               scalar::quantizer<half>,
-               scalar::quantizer<float>,
-               scalar::quantizer<double>>
-    per_dim;
+  std::variant<scalar::quantizer<double>, scalar::quantizer<float>, scalar::quantizer<half>> value;
 };
 
 namespace {
@@ -127,17 +122,31 @@ void dispatch_float(DLDataType dtype, Fn&& fn)
   }
 }
 
+// The global bounds held by the quantizer; empty for per-dimension bounds.
+std::optional<std::pair<double, double>> global_bounds(const cuvsScalarQuantizer& quantizer)
+{
+  return std::visit(
+    []<typename T>(const scalar::quantizer<T>& q) -> std::optional<std::pair<double, double>> {
+      if (auto const* bounds = std::get_if<typename scalar::quantizer<T>::global_type>(&q.value)) {
+        return std::pair{static_cast<double>(bounds->min), static_cast<double>(bounds->max)};
+      }
+      return std::nullopt;
+    },
+    quantizer.value);
+}
+
 // Calls fn with the quantizer for input type T.
 template <typename T, typename Fn>
 void with_quantizer(const cuvsScalarQuantizer& quantizer, Fn&& fn)
 {
-  if (auto const* per_dim = std::get_if<scalar::quantizer<T>>(&quantizer.per_dim)) {
-    fn(*per_dim);
+  if (auto const* typed = std::get_if<scalar::quantizer<T>>(&quantizer.value)) {
+    fn(*typed);
     return;
   }
-  RAFT_EXPECTS(std::holds_alternative<std::monostate>(quantizer.per_dim),
+  auto const bounds = global_bounds(quantizer);
+  RAFT_EXPECTS(bounds.has_value(),
                "The data type must match the one the per-dimension quantizer was trained on");
-  fn(scalar::quantizer<T>{static_cast<T>(quantizer.min), static_cast<T>(quantizer.max)});
+  fn(scalar::quantizer<T>{static_cast<T>(bounds->first), static_cast<T>(bounds->second)});
 }
 
 }  // namespace
@@ -172,10 +181,10 @@ extern "C" cuvsError_t cuvsScalarQuantizerGetBounds(cuvsScalarQuantizer_t quanti
 {
   return cuvs::core::translate_exceptions([=] {
     RAFT_EXPECTS(quantizer && min && max, "quantizer, min, and max must not be null");
-    RAFT_EXPECTS(std::holds_alternative<std::monostate>(quantizer->per_dim),
-                 "A per-dimension quantizer has no global bounds");
-    *min = quantizer->min;
-    *max = quantizer->max;
+    auto const bounds = global_bounds(*quantizer);
+    RAFT_EXPECTS(bounds.has_value(), "A per-dimension quantizer has no global bounds");
+    *min = bounds->first;
+    *max = bounds->second;
   });
 }
 
@@ -185,11 +194,7 @@ extern "C" cuvsError_t cuvsScalarQuantizerSetBounds(cuvsScalarQuantizer_t quanti
 {
   return cuvs::core::translate_exceptions([=] {
     RAFT_EXPECTS(quantizer != nullptr, "quantizer must not be null");
-    RAFT_EXPECTS(std::isfinite(min) && std::isfinite(max) && min <= max,
-                 "Bounds must be finite with min <= max");
-    quantizer->min     = min;
-    quantizer->max     = max;
-    quantizer->per_dim = std::monostate{};
+    quantizer->value = scalar::quantizer<double>{min, max};
   });
 }
 
@@ -211,15 +216,7 @@ extern "C" cuvsError_t cuvsScalarQuantizerTrain(cuvsResources_t res,
       default: RAFT_FAIL("Unsupported scalar quantization mode");
     }
     dispatch_float(dataset_tensor->dl_tensor.dtype, [&]<typename T>() {
-      auto trained = _train<T>(res, cpp_params, dataset_tensor);
-      if (auto const* bounds =
-            std::get_if<typename scalar::quantizer<T>::global_type>(&trained.value)) {
-        quantizer->min     = bounds->min;
-        quantizer->max     = bounds->max;
-        quantizer->per_dim = std::monostate{};
-      } else {
-        quantizer->per_dim = std::move(trained);
-      }
+      quantizer->value = _train<T>(res, cpp_params, dataset_tensor);
     });
   });
 }
