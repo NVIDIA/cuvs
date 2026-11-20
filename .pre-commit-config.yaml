@@ -12,6 +12,8 @@ repos:
     hooks:
       - id: check-json
       - id: trailing-whitespace
+        # Unified diffs use a single space to represent blank context lines.
+        exclude: ^ci/solr/patches/.*[.]diff$
       - id: end-of-file-fixer
       - id: check-symlinks
       - id: check-xml
