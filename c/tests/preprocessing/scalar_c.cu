@@ -145,12 +145,9 @@ TEST_F(ScalarQuantizerCFloat, InvalidTrainingPreservesQuantizer)
   check_per_dimension_round_trip();
 }
 
-TEST_F(ScalarQuantizerCFloat, RejectsMismatchedTypes)
+TEST_F(ScalarQuantizerCFloat, RejectsUnsupportedOutputType)
 {
   ASSERT_EQ(train(CUVS_SCALAR_PER_DIMENSION, host), CUVS_SUCCESS);
-  device.dl_tensor.dtype.bits = 64;
-  EXPECT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &device, &encoded), CUVS_ERROR);
-  device.dl_tensor.dtype.bits = 32;
   encoded.dl_tensor.dtype.code = kDLUInt;
   EXPECT_EQ(cuvsScalarQuantizerTransform(res, quantizer, &device, &encoded), CUVS_ERROR);
 }

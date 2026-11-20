@@ -3041,16 +3041,13 @@ unsafe extern "C" {
 #[derive(Debug, Copy, Clone)]
 pub struct cuvsScalarQuantizer {
     pub addr: usize,
-    pub dtype: DLDataType,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of cuvsScalarQuantizer"][::std::mem::size_of::<cuvsScalarQuantizer>() - 16usize];
+    ["Size of cuvsScalarQuantizer"][::std::mem::size_of::<cuvsScalarQuantizer>() - 8usize];
     ["Alignment of cuvsScalarQuantizer"][::std::mem::align_of::<cuvsScalarQuantizer>() - 8usize];
     ["Offset of field: cuvsScalarQuantizer::addr"]
         [::std::mem::offset_of!(cuvsScalarQuantizer, addr) - 0usize];
-    ["Offset of field: cuvsScalarQuantizer::dtype"]
-        [::std::mem::offset_of!(cuvsScalarQuantizer, dtype) - 8usize];
 };
 pub type cuvsScalarQuantizer_t = *mut cuvsScalarQuantizer;
 unsafe extern "C" {

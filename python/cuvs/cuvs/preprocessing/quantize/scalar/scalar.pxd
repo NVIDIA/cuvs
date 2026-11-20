@@ -24,7 +24,6 @@ cdef extern from "cuvs/preprocessing/quantize/scalar.h" nogil:
 
     ctypedef struct cuvsScalarQuantizer:
         uintptr_t addr
-        DLDataType dtype
 
     ctypedef cuvsScalarQuantizer* cuvsScalarQuantizer_t
 

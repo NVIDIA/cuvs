@@ -36,8 +36,8 @@ struct sq_spec {
 
   using math_type = MathT;
 
-  using quantizer_type = cuvs::preprocessing::quantize::scalar::quantizer<MathT>;
-  using error_type     = typename quantizer_type::scale_type;
+  using quantizer_type = cuvs::preprocessing::quantize::scalar::quantizer;
+  using error_type     = double;
 
   /**
    * Borrowed quantizer parameters and the error bound of the dataset's codes.

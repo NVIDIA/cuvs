@@ -63,23 +63,24 @@ struct params {
 
 /**
  * Non-owning scalar quantizer bounds, with the constness semantics of an mdspan:
- * quantizer_view<T> can modify per-dimension bounds; quantizer_view<const T> cannot.
+ * quantizer_view<double> can modify per-dimension bounds; quantizer_view<const double> cannot.
+ * Bounds are stored in double precision independently of the data type they quantize.
  * Global bounds are copied. The owner must outlive stream work using the vectors.
  */
 template <typename T>
 struct quantizer_view {
-  using value_type       = std::remove_const_t<T>;
-  using scale_type       = std::conditional_t<std::is_same_v<value_type, half>, float, value_type>;
+  static_assert(std::is_same_v<std::remove_const_t<T>, double>,
+                "Quantizer bounds are stored in double precision.");
   using vector_view_type = raft::device_vector_view<T, int64_t>;
   /** Global bounds. Transforms derive an affine mapping in double precision.
    * Encode (x - shift) / scale, rounding to nearest with ties away from zero and clamping
-   * to the full quantized range. Decode shift + scale * code, saturating to finite input limits.
+   * to the full quantized range. Decode shift + scale * code, saturating to finite output limits.
    * Equal bounds represent a constant range; every code decodes to that value. */
   struct global_type {
     /** Lower bound shared by all dimensions. */
-    value_type min = value_type{0};
+    double min = 0;
     /** Upper bound shared by all dimensions. */
-    value_type max = value_type{0};
+    double max = 0;
   };
   /** Per-dimension bounds. Transforms map each dimension as global_type does, with that
    * dimension's bounds. */
@@ -109,48 +110,45 @@ struct quantizer_view {
 };
 
 /**
- * Owns global bounds or device bounds for each dimension.
+ * Owns global bounds or device bounds for each dimension, in double precision.
+ * One quantizer applies to half, float and double data.
  * Move-only; copy view() to borrow the parameters.
  */
-template <typename T>
 struct quantizer {
-  static_assert(!std::is_const_v<T>, "An owning quantizer cannot hold const elements.");
-
-  using view_type       = quantizer_view<T>;
-  using const_view_type = quantizer_view<const T>;
-  using scale_type      = typename view_type::scale_type;
-  using global_type     = typename view_type::global_type;
+  using view_type       = quantizer_view<double>;
+  using const_view_type = quantizer_view<const double>;
+  using global_type     = view_type::global_type;
   /** Owning per-dimension bounds. */
   struct per_dim_type {
-    raft::device_vector<T, int64_t> mins;
-    raft::device_vector<T, int64_t> maxs;
+    raft::device_vector<double, int64_t> mins;
+    raft::device_vector<double, int64_t> maxs;
   };
   /** Global bounds or owning per-dimension bounds. */
   std::variant<global_type, per_dim_type> value;
   /** Construct default global bounds. */
   quantizer() : value{global_type{}} {}
   /** Construct from finite global bounds with min <= max. */
-  quantizer(T min, T max);
+  quantizer(double min, double max);
   /** Copy nonempty device bounds of equal length, with finite min <= max. */
   quantizer(raft::resources const& res,
-            raft::device_vector_view<const T, int64_t> mins,
-            raft::device_vector_view<const T, int64_t> maxs);
+            raft::device_vector_view<const double, int64_t> mins,
+            raft::device_vector_view<const double, int64_t> maxs);
 
   /** Borrow mutable per-dimension bounds; the owner must outlive stream work using them. */
   [[nodiscard]] auto view() noexcept -> view_type
   {
     if (auto const* range = std::get_if<global_type>(&value)) { return {*range}; }
     auto& bounds = std::get<per_dim_type>(value);
-    return {typename view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()}};
+    return {view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()}};
   }
   /** Borrow read-only bounds; the owner must outlive stream work using per-dimension bounds. */
   [[nodiscard]] auto view() const noexcept -> const_view_type
   {
     if (auto const* range = std::get_if<global_type>(&value)) {
-      return {typename const_view_type::global_type{range->min, range->max}};
+      return {const_view_type::global_type{range->min, range->max}};
     }
     auto const& bounds = std::get<per_dim_type>(value);
-    return {typename const_view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()}};
+    return {const_view_type::per_dim_type{bounds.mins.view(), bounds.maxs.view()}};
   }
 };
 
@@ -170,9 +168,9 @@ struct quantizer {
  *
  * @return quantizer
  */
-quantizer<double> train(raft::resources const& res,
-                        const params params,
-                        raft::device_matrix_view<const double, int64_t> dataset);
+quantizer train(raft::resources const& res,
+                const params params,
+                raft::device_matrix_view<const double, int64_t> dataset);
 
 /**
  * @brief Initializes a scalar quantizer to be used later for quantizing the dataset.
@@ -190,9 +188,9 @@ quantizer<double> train(raft::resources const& res,
  *
  * @return quantizer
  */
-quantizer<double> train(raft::resources const& res,
-                        const params params,
-                        raft::host_matrix_view<const double, int64_t> dataset);
+quantizer train(raft::resources const& res,
+                const params params,
+                raft::host_matrix_view<const double, int64_t> dataset);
 
 /**
  * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
@@ -217,7 +215,7 @@ quantizer<double> train(raft::resources const& res,
  * @return upper bound on the L2 error between a row and its int8 encode/decode result
  */
 double compute_max_error(raft::resources const& res,
-                         const quantizer<double>& quantizer,
+                         const quantizer& quantizer,
                          raft::device_matrix_view<const double, int64_t> dataset);
 
 /**
@@ -245,7 +243,7 @@ double compute_max_error(raft::resources const& res,
  * @return upper bound on the L2 error between a row and its int8 encode/decode result
  */
 double compute_max_error(raft::resources const& res,
-                         const quantizer<double>& quantizer,
+                         const quantizer& quantizer,
                          raft::host_matrix_view<const double, int64_t> dataset,
                          int64_t device_buffer_samples = 1 << 16);
 
@@ -269,7 +267,7 @@ double compute_max_error(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<double>& quantizer,
+               const quantizer& quantizer,
                raft::device_matrix_view<const double, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
@@ -296,7 +294,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<double>& quantizer,
+               const quantizer& quantizer,
                raft::host_matrix_view<const double, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -323,7 +321,7 @@ void transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<double>& quantizer,
+                       const quantizer& quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<double, int64_t> out);
 
@@ -352,7 +350,7 @@ void inverse_transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<double>& quantizer,
+                       const quantizer& quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<double, int64_t> out);
 
@@ -372,9 +370,9 @@ void inverse_transform(raft::resources const& res,
  *
  * @return quantizer
  */
-quantizer<float> train(raft::resources const& res,
-                       const params params,
-                       raft::device_matrix_view<const float, int64_t> dataset);
+quantizer train(raft::resources const& res,
+                const params params,
+                raft::device_matrix_view<const float, int64_t> dataset);
 
 /**
  * @brief Initializes a scalar quantizer to be used later for quantizing the dataset.
@@ -392,9 +390,9 @@ quantizer<float> train(raft::resources const& res,
  *
  * @return quantizer
  */
-quantizer<float> train(raft::resources const& res,
-                       const params params,
-                       raft::host_matrix_view<const float, int64_t> dataset);
+quantizer train(raft::resources const& res,
+                const params params,
+                raft::host_matrix_view<const float, int64_t> dataset);
 
 /**
  * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
@@ -418,9 +416,9 @@ quantizer<float> train(raft::resources const& res,
  *
  * @return upper bound on the L2 error between a row and its int8 encode/decode result
  */
-float compute_max_error(raft::resources const& res,
-                        const quantizer<float>& quantizer,
-                        raft::device_matrix_view<const float, int64_t> dataset);
+double compute_max_error(raft::resources const& res,
+                         const quantizer& quantizer,
+                         raft::device_matrix_view<const float, int64_t> dataset);
 
 /**
  * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
@@ -446,10 +444,10 @@ float compute_max_error(raft::resources const& res,
  *
  * @return upper bound on the L2 error between a row and its int8 encode/decode result
  */
-float compute_max_error(raft::resources const& res,
-                        const quantizer<float>& quantizer,
-                        raft::host_matrix_view<const float, int64_t> dataset,
-                        int64_t device_buffer_samples = 1 << 16);
+double compute_max_error(raft::resources const& res,
+                         const quantizer& quantizer,
+                         raft::host_matrix_view<const float, int64_t> dataset,
+                         int64_t device_buffer_samples = 1 << 16);
 
 /**
  * @brief Applies quantization transform to given dataset
@@ -471,7 +469,7 @@ float compute_max_error(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<float>& quantizer,
+               const quantizer& quantizer,
                raft::device_matrix_view<const float, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
@@ -498,7 +496,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<float>& quantizer,
+               const quantizer& quantizer,
                raft::host_matrix_view<const float, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -524,7 +522,7 @@ void transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<float>& quantizer,
+                       const quantizer& quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<float, int64_t> out);
 
@@ -553,7 +551,7 @@ void inverse_transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<float>& quantizer,
+                       const quantizer& quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<float, int64_t> out);
 
@@ -573,9 +571,9 @@ void inverse_transform(raft::resources const& res,
  *
  * @return quantizer
  */
-quantizer<half> train(raft::resources const& res,
-                      const params params,
-                      raft::device_matrix_view<const half, int64_t> dataset);
+quantizer train(raft::resources const& res,
+                const params params,
+                raft::device_matrix_view<const half, int64_t> dataset);
 
 /**
  * @brief Initializes a scalar quantizer to be used later for quantizing the dataset.
@@ -593,9 +591,9 @@ quantizer<half> train(raft::resources const& res,
  *
  * @return quantizer
  */
-quantizer<half> train(raft::resources const& res,
-                      const params params,
-                      raft::host_matrix_view<const half, int64_t> dataset);
+quantizer train(raft::resources const& res,
+                const params params,
+                raft::host_matrix_view<const half, int64_t> dataset);
 
 /**
  * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
@@ -619,9 +617,9 @@ quantizer<half> train(raft::resources const& res,
  *
  * @return upper bound on the L2 error between a row and its int8 encode/decode result
  */
-float compute_max_error(raft::resources const& res,
-                        const quantizer<half>& quantizer,
-                        raft::device_matrix_view<const half, int64_t> dataset);
+double compute_max_error(raft::resources const& res,
+                         const quantizer& quantizer,
+                         raft::device_matrix_view<const half, int64_t> dataset);
 
 /**
  * @brief Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
@@ -647,10 +645,10 @@ float compute_max_error(raft::resources const& res,
  *
  * @return upper bound on the L2 error between a row and its int8 encode/decode result
  */
-float compute_max_error(raft::resources const& res,
-                        const quantizer<half>& quantizer,
-                        raft::host_matrix_view<const half, int64_t> dataset,
-                        int64_t device_buffer_samples = 1 << 16);
+double compute_max_error(raft::resources const& res,
+                         const quantizer& quantizer,
+                         raft::host_matrix_view<const half, int64_t> dataset,
+                         int64_t device_buffer_samples = 1 << 16);
 
 /**
  * @brief Applies quantization transform to given dataset
@@ -672,7 +670,7 @@ float compute_max_error(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<half>& quantizer,
+               const quantizer& quantizer,
                raft::device_matrix_view<const half, int64_t> dataset,
                raft::device_matrix_view<int8_t, int64_t> out);
 
@@ -699,7 +697,7 @@ void transform(raft::resources const& res,
  *
  */
 void transform(raft::resources const& res,
-               const quantizer<half>& quantizer,
+               const quantizer& quantizer,
                raft::host_matrix_view<const half, int64_t> dataset,
                raft::host_matrix_view<int8_t, int64_t> out);
 
@@ -725,7 +723,7 @@ void transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<half>& quantizer,
+                       const quantizer& quantizer,
                        raft::device_matrix_view<const int8_t, int64_t> dataset,
                        raft::device_matrix_view<half, int64_t> out);
 
@@ -754,7 +752,7 @@ void inverse_transform(raft::resources const& res,
  *
  */
 void inverse_transform(raft::resources const& res,
-                       const quantizer<half>& quantizer,
+                       const quantizer& quantizer,
                        raft::host_matrix_view<const int8_t, int64_t> dataset,
                        raft::host_matrix_view<half, int64_t> out);
 

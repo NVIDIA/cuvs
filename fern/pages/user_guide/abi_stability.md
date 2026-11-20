@@ -133,7 +133,7 @@ The scalar quantizer struct no longer exposes its `min_` and `max_` fields. Appl
 
 | Before 27.02 | 27.02 |
 | --- | --- |
-| `typedef struct { double min_; double max_; } cuvsScalarQuantizer;` | `typedef struct { uintptr_t addr; DLDataType dtype; } cuvsScalarQuantizer;` |
+| `typedef struct { double min_; double max_; } cuvsScalarQuantizer;` | `typedef struct { uintptr_t addr; } cuvsScalarQuantizer;` |
 | Read `quantizer->min_` and `quantizer->max_` | `cuvsError_t cuvsScalarQuantizerGetBounds(cuvsScalarQuantizer_t quantizer, double* min, double* max);` |
 | Write `quantizer->min_` and `quantizer->max_` | `cuvsError_t cuvsScalarQuantizerSetBounds(cuvsScalarQuantizer_t quantizer, double min, double max);` |
 

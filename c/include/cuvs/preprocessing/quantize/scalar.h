@@ -63,12 +63,12 @@ CUVS_EXPORT cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerPara
  * The quantization is performed by a linear mapping of an interval in the
  * float data type to the full range of the quantized int type.
  * Allocate with cuvsScalarQuantizerCreate and release with cuvsScalarQuantizerDestroy.
- * The quantizer owns its global or per-dimension bounds. Read and set global bounds with
+ * The quantizer owns its global or per-dimension bounds, stored in double precision, and applies
+ * to float16, float32 and float64 data. Read and set global bounds with
  * cuvsScalarQuantizerGetBounds and cuvsScalarQuantizerSetBounds.
  */
 typedef struct {
   uintptr_t addr;
-  DLDataType dtype;
 } cuvsScalarQuantizer;
 
 typedef cuvsScalarQuantizer* cuvsScalarQuantizer_t;
@@ -139,7 +139,7 @@ CUVS_EXPORT cuvsError_t cuvsScalarQuantizerTrain(cuvsResources_t res,
 /**
  * @brief Applies quantization transform to given dataset
  *
- * Per-dimension mode requires device matrices with the same input type and width as training.
+ * Per-dimension mode requires device matrices with the same width as training.
  * The quantizer must outlive stream work using its bounds.
  *
  * @param[in] res raft resource
@@ -156,8 +156,8 @@ CUVS_EXPORT cuvsError_t cuvsScalarQuantizerTransform(cuvsResources_t res,
  * @brief Perform inverse quantization step on previously quantized dataset
  *
  * Note that depending on the chosen data types train dataset the conversion is
- * not lossless. Per-dimension mode requires device matrices with the same output type and
- * width as training. The quantizer must outlive stream work using its bounds.
+ * not lossless. Per-dimension mode requires device matrices with the same width as training.
+ * The quantizer must outlive stream work using its bounds.
  *
  * @param[in] res raft resource
  * @param[in] quantizer a scalar quantizer

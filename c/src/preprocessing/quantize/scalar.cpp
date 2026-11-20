@@ -6,8 +6,8 @@
 #include <cstdint>
 #include <dlpack/dlpack.h>
 #include <memory>
-#include <optional>
 #include <utility>
+#include <variant>
 
 #include <cuvs/core/c_api.h>
 #include <cuvs/preprocessing/quantize/scalar.h>
@@ -20,65 +20,11 @@ namespace {
 
 namespace scalar = cuvs::preprocessing::quantize::scalar;
 
-// The handle's addr points to a scalar::quantizer<T>, where dtype selects T.
-template <typename Fn>
-void with_held_type(cuvsScalarQuantizer_t quantizer, Fn&& fn)
+// The handle's addr points to a scalar::quantizer.
+scalar::quantizer& held(cuvsScalarQuantizer_t quantizer)
 {
   RAFT_EXPECTS(quantizer->addr != 0, "quantizer must be allocated by cuvsScalarQuantizerCreate");
-  switch (quantizer->dtype.bits) {
-    case 16: fn.template operator()<half>(); break;
-    case 32: fn.template operator()<float>(); break;
-    case 64: fn.template operator()<double>(); break;
-    default: RAFT_FAIL("Unsupported quantizer dtype bits: %d", quantizer->dtype.bits);
-  }
-}
-
-void destroy(cuvsScalarQuantizer_t quantizer)
-{
-  if (quantizer->addr == 0) { return; }
-  with_held_type(quantizer, [&]<typename T>() {
-    delete reinterpret_cast<scalar::quantizer<T>*>(quantizer->addr);
-  });
-  quantizer->addr = 0;
-}
-
-// Replaces the quantizer the handle owns.
-template <typename T>
-void reset(cuvsScalarQuantizer_t quantizer, scalar::quantizer<T>&& value)
-{
-  auto owned = std::make_unique<scalar::quantizer<T>>(std::move(value));
-  destroy(quantizer);
-  quantizer->addr  = reinterpret_cast<uintptr_t>(owned.release());
-  quantizer->dtype = DLDataType{kDLFloat, sizeof(T) * 8, 1};
-}
-
-// The global bounds held by the quantizer; empty for per-dimension bounds.
-std::optional<std::pair<double, double>> global_bounds(cuvsScalarQuantizer_t quantizer)
-{
-  std::optional<std::pair<double, double>> result;
-  with_held_type(quantizer, [&]<typename T>() {
-    auto const& value = reinterpret_cast<scalar::quantizer<T>*>(quantizer->addr)->value;
-    if (auto const* bounds = std::get_if<typename scalar::quantizer<T>::global_type>(&value)) {
-      result = std::pair{static_cast<double>(bounds->min), static_cast<double>(bounds->max)};
-    }
-  });
-  return result;
-}
-
-// The quantizer for data of type T. Global bounds apply to every floating-point type and are
-// converted into `converted`; per-dimension bounds require the type they were trained on.
-template <typename T>
-const scalar::quantizer<T>& typed_quantizer(cuvsScalarQuantizer_t quantizer,
-                                            scalar::quantizer<T>& converted)
-{
-  auto const bounds = global_bounds(quantizer);
-  if (quantizer->dtype.bits == sizeof(T) * 8) {
-    return *reinterpret_cast<scalar::quantizer<T>*>(quantizer->addr);
-  }
-  RAFT_EXPECTS(bounds.has_value(),
-               "The data type must match the one the per-dimension quantizer was trained on");
-  converted = scalar::quantizer<T>{static_cast<T>(bounds->first), static_cast<T>(bounds->second)};
-  return converted;
+  return *reinterpret_cast<scalar::quantizer*>(quantizer->addr);
 }
 
 template <typename T>
@@ -101,7 +47,7 @@ void _train(cuvsResources_t res,
     default: RAFT_FAIL("Unsupported scalar quantization mode");
   }
 
-  cuvs::preprocessing::quantize::scalar::quantizer<T> ret;
+  scalar::quantizer ret;
 
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
     using mdspan_type = raft::device_matrix_view<T const, int64_t, raft::row_major>;
@@ -115,7 +61,7 @@ void _train(cuvsResources_t res,
     RAFT_FAIL("dataset must be accessible on host or device memory");
   }
 
-  reset(quantizer, std::move(ret));
+  held(quantizer) = std::move(ret);
 }
 
 template <typename T, typename OutputT = int8_t>
@@ -126,8 +72,7 @@ void _transform(cuvsResources_t res,
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
-  cuvs::preprocessing::quantize::scalar::quantizer<T> converted;
-  auto const& quantizer = typed_quantizer(quantizer_, converted);
+  auto const& quantizer = held(quantizer_);
 
   auto dataset = dataset_tensor->dl_tensor;
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
@@ -162,8 +107,7 @@ void _inverse_transform(cuvsResources_t res,
 {
   auto res_ptr = reinterpret_cast<raft::resources*>(res);
 
-  cuvs::preprocessing::quantize::scalar::quantizer<OutputT> converted;
-  auto const& quantizer = typed_quantizer(quantizer_, converted);
+  auto const& quantizer = held(quantizer_);
 
   auto dataset = dataset_tensor->dl_tensor;
   if (cuvs::core::is_dlpack_device_compatible(dataset)) {
@@ -205,9 +149,9 @@ extern "C" cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerParam
 extern "C" cuvsError_t cuvsScalarQuantizerCreate(cuvsScalarQuantizer_t* quantizer)
 {
   return cuvs::core::translate_exceptions([=] {
-    auto created = std::make_unique<cuvsScalarQuantizer>();
-    reset(created.get(), scalar::quantizer<double>{});
-    *quantizer = created.release();
+    auto created  = std::make_unique<cuvsScalarQuantizer>();
+    created->addr = reinterpret_cast<uintptr_t>(new scalar::quantizer{});
+    *quantizer    = created.release();
   });
 }
 
@@ -215,7 +159,7 @@ extern "C" cuvsError_t cuvsScalarQuantizerDestroy(cuvsScalarQuantizer_t quantize
 {
   return cuvs::core::translate_exceptions([=] {
     if (quantizer != nullptr) {
-      destroy(quantizer);
+      delete reinterpret_cast<scalar::quantizer*>(quantizer->addr);
       delete quantizer;
     }
   });
@@ -226,10 +170,10 @@ extern "C" cuvsError_t cuvsScalarQuantizerGetBounds(cuvsScalarQuantizer_t quanti
                                                     double* max)
 {
   return cuvs::core::translate_exceptions([=] {
-    auto const bounds = global_bounds(quantizer);
-    RAFT_EXPECTS(bounds.has_value(), "A per-dimension quantizer has no global bounds");
-    *min = bounds->first;
-    *max = bounds->second;
+    auto const* bounds = std::get_if<scalar::quantizer::global_type>(&held(quantizer).value);
+    RAFT_EXPECTS(bounds != nullptr, "A per-dimension quantizer has no global bounds");
+    *min = bounds->min;
+    *max = bounds->max;
   });
 }
 
@@ -238,7 +182,7 @@ extern "C" cuvsError_t cuvsScalarQuantizerSetBounds(cuvsScalarQuantizer_t quanti
                                                     double max)
 {
   return cuvs::core::translate_exceptions(
-    [=] { reset(quantizer, scalar::quantizer<double>{min, max}); });
+    [=] { held(quantizer) = scalar::quantizer{min, max}; });
 }
 
 extern "C" cuvsError_t cuvsScalarQuantizerTrain(cuvsResources_t res,

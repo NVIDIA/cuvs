@@ -53,7 +53,7 @@ struct params {
 
 Non-owning scalar quantizer bounds, with the constness semantics of an mdspan:
 
-quantizer_view&lt;T&gt; can modify per-dimension bounds; quantizer_view&lt;const T&gt; cannot. Global bounds are copied. The owner must outlive stream work using the vectors.
+quantizer_view&lt;double&gt; can modify per-dimension bounds; quantizer_view&lt;const double&gt; cannot. Bounds are stored in double precision independently of the data type they quantize. Global bounds are copied. The owner must outlive stream work using the vectors.
 
 ```cpp
 template <typename T>
@@ -73,12 +73,12 @@ struct quantizer_view {
 
 Global bounds. Transforms derive an affine mapping in double precision.
 
-Encode (x - shift) / scale, rounding to nearest with ties away from zero and clamping to the full quantized range. Decode shift + scale * code, saturating to finite input limits. Equal bounds represent a constant range; every code decodes to that value.
+Encode (x - shift) / scale, rounding to nearest with ties away from zero and clamping to the full quantized range. Decode shift + scale * code, saturating to finite output limits. Equal bounds represent a constant range; every code decodes to that value.
 
 ```cpp
 struct global_type {
-  value_type min;
-  value_type max;
+  double min;
+  double max;
 };
 ```
 
@@ -86,8 +86,8 @@ struct global_type {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `min` | `value_type` | Lower bound shared by all dimensions. |
-| `max` | `value_type` | Upper bound shared by all dimensions. |
+| `min` | `double` | Lower bound shared by all dimensions. |
+| `max` | `double` | Upper bound shared by all dimensions. |
 
 <a id="preprocessing-quantize-scalar-quantizer-view-per-dim-type"></a>
 ### preprocessing::quantize::scalar::quantizer_view::per_dim_type
@@ -130,12 +130,11 @@ The result borrows the same vectors.
 <a id="preprocessing-quantize-scalar-quantizer"></a>
 ### preprocessing::quantize::scalar::quantizer
 
-Owns global bounds or device bounds for each dimension.
+Owns global bounds or device bounds for each dimension, in double precision.
 
-Move-only; copy view() to borrow the parameters.
+One quantizer applies to half, float and double data. Move-only; copy view() to borrow the parameters.
 
 ```cpp
-template <typename T>
 struct quantizer {
   std::variant<global_type, per_dim_type> value;
 };
@@ -154,8 +153,8 @@ Owning per-dimension bounds.
 
 ```cpp
 struct per_dim_type {
-  raft::device_vector<T, int64_t> mins;
-  raft::device_vector<T, int64_t> maxs;
+  raft::device_vector<double, int64_t> mins;
+  raft::device_vector<double, int64_t> maxs;
 };
 ```
 
@@ -163,8 +162,8 @@ struct per_dim_type {
 
 | Name | Type | Description |
 | --- | --- | --- |
-| `mins` | `raft::device_vector<T, int64_t>` |  |
-| `maxs` | `raft::device_vector<T, int64_t>` |  |
+| `mins` | `raft::device_vector<double, int64_t>` |  |
+| `maxs` | `raft::device_vector<double, int64_t>` |  |
 
 <a id="preprocessing-quantize-scalar-quantizer-quantizer"></a>
 ### preprocessing::quantize::scalar::quantizer::quantizer
@@ -184,15 +183,15 @@ quantizer();
 Construct from finite global bounds with min &lt;= max.
 
 ```cpp
-quantizer(T min, T max);
+quantizer(double min, double max);
 ```
 
 **Parameters**
 
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
-| `min` |  | `T` |  |
-| `max` |  | `T` |  |
+| `min` |  | `double` |  |
+| `max` |  | `double` |  |
 
 **Returns**
 
@@ -204,8 +203,8 @@ Copy nonempty device bounds of equal length, with finite min &lt;= max.
 
 ```cpp
 quantizer(raft::resources const& res,
-raft::device_vector_view<const T, int64_t> mins,
-raft::device_vector_view<const T, int64_t> maxs);
+raft::device_vector_view<const double, int64_t> mins,
+raft::device_vector_view<const double, int64_t> maxs);
 ```
 
 **Parameters**
@@ -213,8 +212,8 @@ raft::device_vector_view<const T, int64_t> maxs);
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` |  | `raft::resources const&` |  |
-| `mins` |  | `raft::device_vector_view<const T, int64_t>` |  |
-| `maxs` |  | `raft::device_vector_view<const T, int64_t>` |  |
+| `mins` |  | `raft::device_vector_view<const double, int64_t>` |  |
+| `maxs` |  | `raft::device_vector_view<const double, int64_t>` |  |
 
 **Returns**
 
@@ -251,7 +250,7 @@ Borrow read-only bounds; the owner must outlive stream work using per-dimension 
 Initializes a scalar quantizer to be used later for quantizing the dataset.
 
 ```cpp
-quantizer<double> train(raft::resources const& res,
+quantizer train(raft::resources const& res,
 const params params,
 raft::device_matrix_view<const double, int64_t> dataset);
 ```
@@ -268,14 +267,14 @@ Usage example:
 
 **Returns**
 
-[`quantizer<double>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
+[`quantizer`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
 
 **Additional overload:** `preprocessing::quantize::scalar::train`
 
 Initializes a scalar quantizer to be used later for quantizing the dataset.
 
 ```cpp
-quantizer<double> train(raft::resources const& res,
+quantizer train(raft::resources const& res,
 const params params,
 raft::host_matrix_view<const double, int64_t> dataset);
 ```
@@ -292,7 +291,7 @@ Usage example:
 
 **Returns**
 
-[`quantizer<double>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
+[`quantizer`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
 
 <a id="preprocessing-quantize-scalar-compute-max-error"></a>
 ### preprocessing::quantize::scalar::compute_max_error
@@ -301,7 +300,7 @@ Measures the maximum L2 reconstruction error of a trained quantizer over a datas
 
 ```cpp
 double compute_max_error(raft::resources const& res,
-const quantizer<double>& quantizer,
+const quantizer& quantizer,
 raft::device_matrix_view<const double, int64_t> dataset);
 ```
 
@@ -314,7 +313,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<double>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::device_matrix_view<const double, int64_t>` | a row-major matrix view on device |
 
 **Returns**
@@ -329,7 +328,7 @@ Measures the maximum L2 reconstruction error of a trained quantizer over a datas
 
 ```cpp
 double compute_max_error(raft::resources const& res,
-const quantizer<double>& quantizer,
+const quantizer& quantizer,
 raft::host_matrix_view<const double, int64_t> dataset,
 int64_t device_buffer_samples = 1 << 16);
 ```
@@ -343,7 +342,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<double>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::host_matrix_view<const double, int64_t>` | a row-major matrix view on host |
 | `device_buffer_samples` | in | `int64_t` | maximum rows staged on device per batch; zero stages the entire input in one batch. See params::device_buffer_samples.<br /><br />Default: `1 << 16`. |
 
@@ -360,7 +359,7 @@ Applies quantization transform to given dataset
 
 ```cpp
 void transform(raft::resources const& res,
-const quantizer<double>& quantizer,
+const quantizer& quantizer,
 raft::device_matrix_view<const double, int64_t> dataset,
 raft::device_matrix_view<int8_t, int64_t> out);
 ```
@@ -372,7 +371,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<double>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::device_matrix_view<const double, int64_t>` | a row-major matrix view on device |
 | `out` | out | `raft::device_matrix_view<int8_t, int64_t>` | a row-major matrix view on device |
 
@@ -386,7 +385,7 @@ Applies global quantization to a host dataset
 
 ```cpp
 void transform(raft::resources const& res,
-const quantizer<double>& quantizer,
+const quantizer& quantizer,
 raft::host_matrix_view<const double, int64_t> dataset,
 raft::host_matrix_view<int8_t, int64_t> out);
 ```
@@ -400,7 +399,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<double>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const double, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<int8_t, int64_t>` | a row-major matrix view on host |
 
@@ -415,7 +414,7 @@ Perform inverse quantization step on previously quantized dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-const quantizer<double>& quantizer,
+const quantizer& quantizer,
 raft::device_matrix_view<const int8_t, int64_t> dataset,
 raft::device_matrix_view<double, int64_t> out);
 ```
@@ -429,7 +428,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<double>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::device_matrix_view<const int8_t, int64_t>` | a row-major matrix view on device |
 | `out` | out | `raft::device_matrix_view<double, int64_t>` | a row-major matrix view on device |
 
@@ -443,7 +442,7 @@ Applies inverse global quantization to a host dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-const quantizer<double>& quantizer,
+const quantizer& quantizer,
 raft::host_matrix_view<const int8_t, int64_t> dataset,
 raft::host_matrix_view<double, int64_t> out);
 ```
@@ -459,7 +458,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<double>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<double, int64_t>` | a row-major matrix view on host |
 
@@ -472,7 +471,7 @@ Usage example:
 Initializes a scalar quantizer to be used later for quantizing the dataset.
 
 ```cpp
-quantizer<float> train(raft::resources const& res,
+quantizer train(raft::resources const& res,
 const params params,
 raft::device_matrix_view<const float, int64_t> dataset);
 ```
@@ -489,14 +488,14 @@ Usage example:
 
 **Returns**
 
-[`quantizer<float>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
+[`quantizer`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
 
 **Additional overload:** `preprocessing::quantize::scalar::train`
 
 Initializes a scalar quantizer to be used later for quantizing the dataset.
 
 ```cpp
-quantizer<float> train(raft::resources const& res,
+quantizer train(raft::resources const& res,
 const params params,
 raft::host_matrix_view<const float, int64_t> dataset);
 ```
@@ -513,15 +512,15 @@ Usage example:
 
 **Returns**
 
-[`quantizer<float>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
+[`quantizer`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
 
 **Additional overload:** `preprocessing::quantize::scalar::compute_max_error`
 
 Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
 
 ```cpp
-float compute_max_error(raft::resources const& res,
-const quantizer<float>& quantizer,
+double compute_max_error(raft::resources const& res,
+const quantizer& quantizer,
 raft::device_matrix_view<const float, int64_t> dataset);
 ```
 
@@ -534,12 +533,12 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<float>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::device_matrix_view<const float, int64_t>` | a row-major matrix view on device |
 
 **Returns**
 
-`float`
+`double`
 
 upper bound on the L2 error between a row and its int8 encode/decode result
 
@@ -548,8 +547,8 @@ upper bound on the L2 error between a row and its int8 encode/decode result
 Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
 
 ```cpp
-float compute_max_error(raft::resources const& res,
-const quantizer<float>& quantizer,
+double compute_max_error(raft::resources const& res,
+const quantizer& quantizer,
 raft::host_matrix_view<const float, int64_t> dataset,
 int64_t device_buffer_samples = 1 << 16);
 ```
@@ -563,13 +562,13 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<float>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::host_matrix_view<const float, int64_t>` | a row-major matrix view on host |
 | `device_buffer_samples` | in | `int64_t` | maximum rows staged on device per batch; zero stages the entire input in one batch. See params::device_buffer_samples.<br /><br />Default: `1 << 16`. |
 
 **Returns**
 
-`float`
+`double`
 
 upper bound on the L2 error between a row and its int8 encode/decode result
 
@@ -579,7 +578,7 @@ Applies quantization transform to given dataset
 
 ```cpp
 void transform(raft::resources const& res,
-const quantizer<float>& quantizer,
+const quantizer& quantizer,
 raft::device_matrix_view<const float, int64_t> dataset,
 raft::device_matrix_view<int8_t, int64_t> out);
 ```
@@ -591,7 +590,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<float>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::device_matrix_view<const float, int64_t>` | a row-major matrix view on device |
 | `out` | out | `raft::device_matrix_view<int8_t, int64_t>` | a row-major matrix view on device |
 
@@ -605,7 +604,7 @@ Applies global quantization to a host dataset
 
 ```cpp
 void transform(raft::resources const& res,
-const quantizer<float>& quantizer,
+const quantizer& quantizer,
 raft::host_matrix_view<const float, int64_t> dataset,
 raft::host_matrix_view<int8_t, int64_t> out);
 ```
@@ -619,7 +618,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<float>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const float, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<int8_t, int64_t>` | a row-major matrix view on host |
 
@@ -633,7 +632,7 @@ Perform inverse quantization step on previously quantized dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-const quantizer<float>& quantizer,
+const quantizer& quantizer,
 raft::device_matrix_view<const int8_t, int64_t> dataset,
 raft::device_matrix_view<float, int64_t> out);
 ```
@@ -647,7 +646,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<float>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::device_matrix_view<const int8_t, int64_t>` | a row-major matrix view on device |
 | `out` | out | `raft::device_matrix_view<float, int64_t>` | a row-major matrix view on device |
 
@@ -661,7 +660,7 @@ Applies inverse global quantization to a host dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-const quantizer<float>& quantizer,
+const quantizer& quantizer,
 raft::host_matrix_view<const int8_t, int64_t> dataset,
 raft::host_matrix_view<float, int64_t> out);
 ```
@@ -677,7 +676,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<float>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<float, int64_t>` | a row-major matrix view on host |
 
@@ -690,7 +689,7 @@ Usage example:
 Initializes a scalar quantizer to be used later for quantizing the dataset.
 
 ```cpp
-quantizer<half> train(raft::resources const& res,
+quantizer train(raft::resources const& res,
 const params params,
 raft::device_matrix_view<const half, int64_t> dataset);
 ```
@@ -707,14 +706,14 @@ Usage example:
 
 **Returns**
 
-[`quantizer<half>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
+[`quantizer`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
 
 **Additional overload:** `preprocessing::quantize::scalar::train`
 
 Initializes a scalar quantizer to be used later for quantizing the dataset.
 
 ```cpp
-quantizer<half> train(raft::resources const& res,
+quantizer train(raft::resources const& res,
 const params params,
 raft::host_matrix_view<const half, int64_t> dataset);
 ```
@@ -731,15 +730,15 @@ Usage example:
 
 **Returns**
 
-[`quantizer<half>`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
+[`quantizer`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer)
 
 **Additional overload:** `preprocessing::quantize::scalar::compute_max_error`
 
 Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
 
 ```cpp
-float compute_max_error(raft::resources const& res,
-const quantizer<half>& quantizer,
+double compute_max_error(raft::resources const& res,
+const quantizer& quantizer,
 raft::device_matrix_view<const half, int64_t> dataset);
 ```
 
@@ -752,12 +751,12 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<half>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::device_matrix_view<const half, int64_t>` | a row-major matrix view on device |
 
 **Returns**
 
-`float`
+`double`
 
 upper bound on the L2 error between a row and its int8 encode/decode result
 
@@ -766,8 +765,8 @@ upper bound on the L2 error between a row and its int8 encode/decode result
 Measures the maximum L2 reconstruction error of a trained quantizer over a dataset.
 
 ```cpp
-float compute_max_error(raft::resources const& res,
-const quantizer<half>& quantizer,
+double compute_max_error(raft::resources const& res,
+const quantizer& quantizer,
 raft::host_matrix_view<const half, int64_t> dataset,
 int64_t device_buffer_samples = 1 << 16);
 ```
@@ -781,13 +780,13 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<half>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::host_matrix_view<const half, int64_t>` | a row-major matrix view on host |
 | `device_buffer_samples` | in | `int64_t` | maximum rows staged on device per batch; zero stages the entire input in one batch. See params::device_buffer_samples.<br /><br />Default: `1 << 16`. |
 
 **Returns**
 
-`float`
+`double`
 
 upper bound on the L2 error between a row and its int8 encode/decode result
 
@@ -797,7 +796,7 @@ Applies quantization transform to given dataset
 
 ```cpp
 void transform(raft::resources const& res,
-const quantizer<half>& quantizer,
+const quantizer& quantizer,
 raft::device_matrix_view<const half, int64_t> dataset,
 raft::device_matrix_view<int8_t, int64_t> out);
 ```
@@ -809,7 +808,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<half>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::device_matrix_view<const half, int64_t>` | a row-major matrix view on device |
 | `out` | out | `raft::device_matrix_view<int8_t, int64_t>` | a row-major matrix view on device |
 
@@ -823,7 +822,7 @@ Applies global quantization to a host dataset
 
 ```cpp
 void transform(raft::resources const& res,
-const quantizer<half>& quantizer,
+const quantizer& quantizer,
 raft::host_matrix_view<const half, int64_t> dataset,
 raft::host_matrix_view<int8_t, int64_t> out);
 ```
@@ -837,7 +836,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<half>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const half, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<int8_t, int64_t>` | a row-major matrix view on host |
 
@@ -851,7 +850,7 @@ Perform inverse quantization step on previously quantized dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-const quantizer<half>& quantizer,
+const quantizer& quantizer,
 raft::device_matrix_view<const int8_t, int64_t> dataset,
 raft::device_matrix_view<half, int64_t> out);
 ```
@@ -865,7 +864,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<half>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer |
 | `dataset` | in | `raft::device_matrix_view<const int8_t, int64_t>` | a row-major matrix view on device |
 | `out` | out | `raft::device_matrix_view<half, int64_t>` | a row-major matrix view on device |
 
@@ -879,7 +878,7 @@ Applies inverse global quantization to a host dataset
 
 ```cpp
 void inverse_transform(raft::resources const& res,
-const quantizer<half>& quantizer,
+const quantizer& quantizer,
 raft::host_matrix_view<const int8_t, int64_t> dataset,
 raft::host_matrix_view<half, int64_t> out);
 ```
@@ -895,7 +894,7 @@ Usage example:
 | Name | Direction | Type | Description |
 | --- | --- | --- | --- |
 | `res` | in | `raft::resources const&` | raft resource |
-| `quantizer` | in | [`const quantizer<half>&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
+| `quantizer` | in | [`const quantizer&`](/api-reference/cpp-api-preprocessing-quantize-scalar#preprocessing-quantize-scalar-quantizer) | a scalar quantizer with global parameters |
 | `dataset` | in | `raft::host_matrix_view<const int8_t, int64_t>` | a row-major matrix view on host |
 | `out` | out | `raft::host_matrix_view<half, int64_t>` | a row-major matrix view on host |
 

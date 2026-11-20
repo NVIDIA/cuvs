@@ -89,12 +89,11 @@ cuvsError_t cuvsScalarQuantizerParamsDestroy(cuvsScalarQuantizerParams_t params)
 
 Defines and stores scalar for quantisation upon training
 
-The quantization is performed by a linear mapping of an interval in the float data type to the full range of the quantized int type. Allocate with cuvsScalarQuantizerCreate and release with cuvsScalarQuantizerDestroy. The quantizer owns its global or per-dimension bounds. Read and set global bounds with cuvsScalarQuantizerGetBounds and cuvsScalarQuantizerSetBounds.
+The quantization is performed by a linear mapping of an interval in the float data type to the full range of the quantized int type. Allocate with cuvsScalarQuantizerCreate and release with cuvsScalarQuantizerDestroy. The quantizer owns its global or per-dimension bounds, stored in double precision, and applies to float16, float32 and float64 data. Read and set global bounds with cuvsScalarQuantizerGetBounds and cuvsScalarQuantizerSetBounds.
 
 ```c
 typedef struct {
   uintptr_t addr;
-  DLDataType dtype;
 } cuvsScalarQuantizer;
 ```
 
@@ -103,7 +102,6 @@ typedef struct {
 | Name | Type | Description |
 | --- | --- | --- |
 | `addr` | `uintptr_t` |  |
-| `dtype` | `DLDataType` |  |
 
 <a id="cuvsscalarquantizercreate"></a>
 ### cuvsScalarQuantizerCreate
@@ -232,7 +230,7 @@ DLManagedTensor* dataset,
 DLManagedTensor* out);
 ```
 
-Per-dimension mode requires device matrices with the same input type and width as training. The quantizer must outlive stream work using its bounds.
+Per-dimension mode requires device matrices with the same width as training. The quantizer must outlive stream work using its bounds.
 
 **Parameters**
 
@@ -259,7 +257,7 @@ DLManagedTensor* dataset,
 DLManagedTensor* out);
 ```
 
-Note that depending on the chosen data types train dataset the conversion is not lossless. Per-dimension mode requires device matrices with the same output type and width as training. The quantizer must outlive stream work using its bounds.
+Note that depending on the chosen data types train dataset the conversion is not lossless. Per-dimension mode requires device matrices with the same width as training. The quantizer must outlive stream work using its bounds.
 
 **Parameters**
 
