@@ -78,6 +78,10 @@ class AnnNNDescentTest : public ::testing::TestWithParam<AnnNNDescentInputs> {
         !(std::is_same_v<DataT, uint8_t> || std::is_same_v<DataT, int8_t>)) {
       GTEST_SKIP();
     }
+    if (ps.metric == cuvs::distance::DistanceType::BitwiseJaccard &&
+        !std::is_same_v<DataT, uint8_t>) {
+      GTEST_SKIP();
+    }
     size_t queries_size = ps.n_rows * ps.graph_degree;
     std::vector<IdxT> indices_NNDescent(queries_size);
     std::vector<DistanceT> distances_NNDescent(queries_size);
@@ -467,6 +471,7 @@ const std::vector<AnnNNDescentInputs> inputs =
                                                      {4, 16, 31, 64, 256, 1024},  // dim
                                                      {32, 64},                    // graph_degree
                                                      {cuvs::distance::DistanceType::BitwiseHamming,
+                                                      cuvs::distance::DistanceType::BitwiseJaccard,
                                                       cuvs::distance::DistanceType::L2Expanded,
                                                       cuvs::distance::DistanceType::L2SqrtExpanded,
                                                       cuvs::distance::DistanceType::InnerProduct,

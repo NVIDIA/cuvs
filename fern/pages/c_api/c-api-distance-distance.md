@@ -36,6 +36,7 @@ typedef enum {
   RusselRaoExpanded = 18,
   DiceExpanded = 19,
   BitwiseHamming = 20,
+  BitwiseJaccard = 21,
   Precomputed = 100
 } cuvsDistanceType;
 ```
@@ -65,4 +66,5 @@ typedef enum {
 | `RusselRaoExpanded` | `18` |
 | `DiceExpanded` | `19` |
 | `BitwiseHamming` | `20` |
+| `BitwiseJaccard` | `21` |
 | `Precomputed` | `100` |

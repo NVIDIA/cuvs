@@ -202,6 +202,10 @@ void search_main(raft::resources const& res,
                "Use cuvs::neighbors::hnsw::from_cagra() to convert the index and "
                "cuvs::neighbors::hnsw::deserialize() to load it into memory before searching.");
 
+  RAFT_EXPECTS(
+    index.metric() != cuvs::distance::DistanceType::BitwiseJaccard || (std::is_same_v<T, uint8_t>),
+    "BitwiseJaccard distance requires uint8_t data and queries.");
+
   using graph_idx_type = uint32_t;
 
   const uint32_t query_logical_dim = index.dim();
@@ -386,6 +390,9 @@ void search_multi_partition(
   // degree would be sized incorrectly. Dataset sizes may still differ (e.g. skewed splits).
   const cuvs::distance::DistanceType metric = indices[0]->metric();
   const int64_t graph_degree                = indices[0]->graph().extent(1);
+  RAFT_EXPECTS(
+    metric != cuvs::distance::DistanceType::BitwiseJaccard || (std::is_same_v<T, uint8_t>),
+    "BitwiseJaccard distance requires uint8_t data and queries.");
 
   int64_t max_dataset_size = 0;
   for (uint32_t i = 0; i < num_partitions; i++) {

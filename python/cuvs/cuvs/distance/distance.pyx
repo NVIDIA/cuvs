@@ -1,5 +1,5 @@
 #
-# SPDX-FileCopyrightText: Copyright (c) 2024, NVIDIA CORPORATION.
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 #
 # cython: language_level=3
@@ -35,7 +35,8 @@ DISTANCE_TYPES = {
     "minkowski": cuvsDistanceType.LpUnexpanded,
     "russellrao": cuvsDistanceType.RusselRaoExpanded,
     "dice": cuvsDistanceType.DiceExpanded,
-    "bitwise_hamming": cuvsDistanceType.BitwiseHamming
+    "bitwise_hamming": cuvsDistanceType.BitwiseHamming,
+    "bitwise_jaccard": cuvsDistanceType.BitwiseJaccard
 }
 
 DISTANCE_NAMES = {v: k for k, v in DISTANCE_TYPES.items()}

@@ -112,6 +112,7 @@ inline auto operator<<(std::ostream& os, const print_metric& p) -> std::ostream&
     case cuvs::distance::DistanceType::DiceExpanded: os << "distance::DiceExpanded"; break;
     case cuvs::distance::DistanceType::Precomputed: os << "distance::Precomputed"; break;
     case cuvs::distance::DistanceType::BitwiseHamming: os << "distance::BitwiseHamming"; break;
+    case cuvs::distance::DistanceType::BitwiseJaccard: os << "distance::BitwiseJaccard"; break;
     default: RAFT_FAIL("unreachable code");
   }
   return os;

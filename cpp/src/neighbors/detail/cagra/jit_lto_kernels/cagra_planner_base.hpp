@@ -97,13 +97,35 @@ struct CagraPlannerBase : rtcx::algorithm_planner {
     dispatch_cagra_smem_dtype(smem_dtype, dispatch_smem);
   }
 
-  /// Registers dist_op + normalization + `compute_distance` for standard layout.
+  /// Registers the distance fragments for standard layout; Jaccard computes both counts itself.
   template <typename CB                                                  = CodebookTag,
             std::enable_if_t<std::is_same_v<CB, tag_codebook_none>, int> = 0>
   void add_compute_distance_device_function(cuvs::distance::DistanceType metric,
                                             uint32_t team_size,
                                             uint32_t dataset_block_dim)
   {
+    if (metric == cuvs::distance::DistanceType::BitwiseJaccard) {
+      if constexpr (std::is_same_v<DataTag, cuvs::neighbors::detail::tag_u8> &&
+                    std::is_same_v<QueryTag, cuvs::neighbors::detail::tag_u8>) {
+        dispatch_cagra_standard_team_dim(
+          team_size, dataset_block_dim, [&]<uint32_t TeamSz, uint32_t Dim>() {
+            this->add_static_fragment<fragment_tag_compute_distance<DataTag,
+                                                                    IndexTag,
+                                                                    DistanceTag,
+                                                                    QueryTag,
+                                                                    CodebookTag,
+                                                                    TeamSz,
+                                                                    Dim,
+                                                                    0u,
+                                                                    0u,
+                                                                    tag_smem_f16,
+                                                                    true>>();
+          });
+      } else {
+        RAFT_FAIL("BitwiseJaccard JIT requires uint8_t data and queries");
+      }
+      return;
+    }
     add_dist_op_device_function(metric);
     add_normalization_device_function(metric, team_size, dataset_block_dim);
     auto add = [&]<uint32_t TeamSz, uint32_t Dim, uint32_t PqBitsV, uint32_t PqLenV>() {

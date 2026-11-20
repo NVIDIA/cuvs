@@ -50,6 +50,19 @@
       "distance_type": "float",
       "distance_abbrev": "f",
       "metric": "BitwiseHamming"
+    },
+    {
+      "_data": [
+        {
+          "data_type": "uint8_t",
+          "data_abbrev": "u8"
+        }
+      ],
+      "index_type": "uint32_t",
+      "index_abbrev": "u32",
+      "distance_type": "float",
+      "distance_abbrev": "f",
+      "metric": "BitwiseJaccard"
     }
   ],
   "_mxdim_team": [
