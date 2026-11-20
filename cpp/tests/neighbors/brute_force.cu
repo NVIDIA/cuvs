@@ -310,31 +310,31 @@ TEST(BruteForceSmallIndex, PadsMissingNeighbors)
          distances.view(),
          filtering::none_sample_filter{});
 
-  std::vector<int64_t> h_neighbors(n_queries * k);
-  std::vector<float> h_distances(n_queries * k);
-  raft::update_host(h_neighbors.data(), neighbors.data_handle(), h_neighbors.size(), stream);
-  raft::update_host(h_distances.data(), distances.data_handle(), h_distances.size(), stream);
-  raft::resource::sync_stream(handle, stream);
-
+  std::vector<int64_t> expected_neighbors(n_queries * k, -1);
+  std::vector<float> expected_distances(n_queries * k, std::numeric_limits<float>::max());
   for (int64_t q = 0; q < n_queries; ++q) {
-    std::vector<int64_t> expected(n_database);
-    std::iota(expected.begin(), expected.end(), int64_t{0});
-    std::ranges::sort(expected, [&](int64_t lhs, int64_t rhs) -> bool {
+    std::vector<int64_t> order(n_database);
+    std::iota(order.begin(), order.end(), int64_t{0});
+    std::ranges::sort(order, [&](int64_t lhs, int64_t rhs) -> bool {
       return std::abs(queries_x[q] - database_x[lhs]) < std::abs(queries_x[q] - database_x[rhs]);
     });
-
-    for (int64_t i = 0; i < k; ++i) {
-      if (i < n_database) {
-        float diff = queries_x[q] - database_x[expected[i]];
-        EXPECT_EQ(h_neighbors[q * k + i], expected[i]) << "query=" << q << " rank=" << i;
-        EXPECT_NEAR(h_distances[q * k + i], diff * diff, 1e-4) << "query=" << q << " rank=" << i;
-      } else {
-        EXPECT_EQ(h_neighbors[q * k + i], -1) << "query=" << q << " rank=" << i;
-        EXPECT_EQ(h_distances[q * k + i], std::numeric_limits<float>::max())
-          << "query=" << q << " rank=" << i;
-      }
+    for (int64_t i = 0; i < n_database; ++i) {
+      float diff                    = queries_x[q] - database_x[order[i]];
+      expected_neighbors[q * k + i] = order[i];
+      expected_distances[q * k + i] = diff * diff;
     }
   }
+
+  ASSERT_TRUE(devArrMatchHost(expected_neighbors.data(),
+                              neighbors.data_handle(),
+                              expected_neighbors.size(),
+                              Compare<int64_t>(),
+                              stream.get()));
+  ASSERT_TRUE(devArrMatchHost(expected_distances.data(),
+                              distances.data_handle(),
+                              expected_distances.size(),
+                              CompareApprox<float>(1e-4f),
+                              stream.get()));
 }
 
 // Also test with larger random inputs, including col-major inputs
