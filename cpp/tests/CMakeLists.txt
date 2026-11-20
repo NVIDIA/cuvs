@@ -258,8 +258,6 @@ ConfigureTest(
 ConfigureTest(
   NAME NEIGHBORS_ANN_CAGRA_JACCARD_TEST
   PATH neighbors/ann_cagra/test_jaccard.cu
-  GPUS 1
-  PERCENT 100
 )
 
 ConfigureTest(

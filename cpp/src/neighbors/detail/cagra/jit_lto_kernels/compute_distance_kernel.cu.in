@@ -32,36 +32,28 @@ __device__ distance_t compute_distance<data_t, index_t, distance_t>(const args_t
                                                                     bool valid,
                                                                     uint32_t team_size_bits)
 {
-  auto per_thread = valid ? compute_distance_impl<k_team_size,
-                                                  k_dataset_block_dim,
-                                                  k_pq_bits,
-                                                  k_pq_len,
-                                                  codebook_t,
-                                                  data_t,
-                                                  index_t,
-                                                  distance_t,
-                                                  query_t,
-                                                  k_smem_dtype,
-                                                  k_is_jaccard>(args, dataset_index)
-                          : distance_t{};
-  return device::team_sum(per_thread, team_size_bits);
-}
-
-template <>
-__device__ distance_t
-compute_distance_per_thread<data_t, index_t, distance_t>(const args_t args, index_t dataset_index)
-{
-  return compute_distance_impl<k_team_size,
-                               k_dataset_block_dim,
-                               k_pq_bits,
-                               k_pq_len,
-                               codebook_t,
-                               data_t,
-                               index_t,
-                               distance_t,
-                               query_t,
-                               k_smem_dtype,
-                               k_is_jaccard>(args, dataset_index);
+  if constexpr (k_is_jaccard) {
+    using desc_t = standard_dataset_descriptor_t<k_team_size,
+                                                 k_dataset_block_dim,
+                                                 data_t,
+                                                 index_t,
+                                                 distance_t,
+                                                 query_t>;
+    return valid ? compute_distance_jaccard_impl<desc_t>(args, dataset_index) : distance_t{};
+  } else {
+    const auto per_thread = valid ? compute_distance_impl<k_team_size,
+                                                          k_dataset_block_dim,
+                                                          k_pq_bits,
+                                                          k_pq_len,
+                                                          codebook_t,
+                                                          data_t,
+                                                          index_t,
+                                                          distance_t,
+                                                          query_t,
+                                                          k_smem_dtype>(args, dataset_index)
+                                  : distance_t{};
+    return device::team_sum(per_thread, team_size_bits);
+  }
 }
 
 }  // namespace cuvs::neighbors::cagra::detail

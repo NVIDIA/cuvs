@@ -150,9 +150,7 @@ RAFT_DEVICE_INLINE_FUNCTION auto compute_distance_jaccard_worker_impl(
     differing += raft::shfl_xor(differing, offset, kTeamSize, mask);
     set_union += raft::shfl_xor(set_union, offset, kTeamSize, mask);
   }
-  auto distance = set_union > 0 ? DistanceT(differing) / DistanceT(set_union) : DistanceT(0);
-  // The search kernels sum per-thread contributions after this call.
-  return distance / DistanceT(kTeamSize);
+  return set_union > 0 ? DistanceT(differing) / DistanceT(set_union) : DistanceT(0);
 }
 
 template <typename DescriptorT>
@@ -346,20 +344,12 @@ template <uint32_t TeamSize,
           typename IndexT,
           typename DistanceT,
           typename QueryT,
-          cuvs::neighbors::cagra::internal_dtype SmemDType,
-          bool IsJaccard = false>
+          cuvs::neighbors::cagra::internal_dtype SmemDType>
 __device__ DistanceT compute_distance_impl(
   const typename dataset_descriptor_base_t<DataT, IndexT, DistanceT>::args_t args,
   IndexT dataset_index)
 {
-  if constexpr (IsJaccard) {
-    static_assert(PQ_BITS == 0 && PQ_LEN == 0 && std::is_same_v<CodebookT, void> &&
-                    std::is_same_v<DataT, uint8_t> && std::is_same_v<QueryT, uint8_t>,
-                  "BitwiseJaccard requires a standard packed-byte descriptor");
-    using desc_t =
-      standard_dataset_descriptor_t<TeamSize, DatasetBlockDim, DataT, IndexT, DistanceT, QueryT>;
-    return compute_distance_jaccard_impl<desc_t>(args, dataset_index);
-  } else if constexpr (PQ_BITS == 0 && PQ_LEN == 0 && std::is_same_v<CodebookT, void>) {
+  if constexpr (PQ_BITS == 0 && PQ_LEN == 0 && std::is_same_v<CodebookT, void>) {
     using desc_t =
       standard_dataset_descriptor_t<TeamSize, DatasetBlockDim, DataT, IndexT, DistanceT, QueryT>;
     return compute_distance_standard_impl<desc_t>(args, dataset_index);
