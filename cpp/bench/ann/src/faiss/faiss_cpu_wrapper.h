@@ -7,6 +7,8 @@
 #include "../common/ann_types.hpp"
 #include "../common/util.hpp"
 
+#include <faiss/IndexBinaryFlat.h>
+#include <faiss/IndexBinaryIVF.h>
 #include <faiss/IndexFlat.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexIVFFlat.h>
@@ -16,11 +18,16 @@
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/index_io.h>
 
+#include <algorithm>
 #include <cassert>
+#include <cstdint>
+#include <limits>
 #include <memory>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -64,11 +71,12 @@ class faiss_cpu : public algo<T> {
 
   faiss_cpu(Metric metric, int dim, const build_param& param)
     : algo<T>(metric, dim),
-      metric_type_(parse_metric_type(metric)),
       nlist_{param.nlist},
       training_sample_fraction_{1.0 / double(param.ratio)}
   {
-    static_assert(std::is_same_v<T, float>, "faiss support only float type");
+    static_assert(std::is_same_v<T, float> || std::is_same_v<T, uint8_t>,
+                  "faiss supports only float and uint8 types");
+    if constexpr (std::is_same_v<T, float>) { metric_type_ = parse_metric_type(metric); }
   }
 
   void build(const T* dataset, size_t nrow) final;
@@ -102,24 +110,33 @@ class faiss_cpu : public algo<T> {
   }
 
  protected:
+  using faiss_index_type =
+    std::conditional_t<std::is_same_v<T, uint8_t>, faiss::IndexBinary, faiss::Index>;
+  using faiss_ivf_type =
+    std::conditional_t<std::is_same_v<T, uint8_t>, faiss::IndexBinaryIVF, faiss::IndexIVF>;
+
   template <typename Index>
   void save_(const std::string& file) const;  // NOLINT
 
   template <typename Index>
   void load_(const std::string& file);  // NOLINT
 
-  std::shared_ptr<faiss::Index> index_;
+  std::shared_ptr<faiss_index_type> index_;
   std::shared_ptr<faiss::Index> quantizer_;
   std::shared_ptr<faiss::IndexRefineFlat> index_refine_;
-  faiss::MetricType metric_type_;
+  faiss::MetricType metric_type_{};
   int nlist_;
   double training_sample_fraction_;
+
+ private:
+  faiss::SearchParametersIVF binary_search_params_;
+  mutable std::vector<int32_t> binary_distances_;
 };
 
 template <typename T>
 void faiss_cpu<T>::build(const T* dataset, size_t nrow)
 {
-  auto index_ivf = dynamic_cast<faiss::IndexIVF*>(index_.get());
+  auto index_ivf = dynamic_cast<faiss_ivf_type*>(index_.get());
   if (index_ivf != nullptr) {
     // set the min/max training size for clustering to use the whole provided training set.
     double trainset_size       = training_sample_fraction_ * static_cast<double>(nrow);
@@ -141,27 +158,34 @@ void faiss_cpu<T>::build(const T* dataset, size_t nrow)
     index_ivf->cp.max_points_per_centroid = max_ppc;
     index_ivf->cp.min_points_per_centroid = min_ppc;
   }
-  faiss::IndexHNSWFlat* hnsw_index = dynamic_cast<faiss::IndexHNSWFlat*>(index_.get());
   index_->train(nrow, dataset);  // faiss::IndexFlat::train() will do nothing
   assert(index_->is_trained);
   index_->add(nrow, dataset);
-  index_refine_ = std::make_shared<faiss::IndexRefineFlat>(this->index_.get(), dataset);
+  if constexpr (std::is_same_v<T, float>) {
+    index_refine_ = std::make_shared<faiss::IndexRefineFlat>(this->index_.get(), dataset);
+  }
 }
 
 template <typename T>
 void faiss_cpu<T>::set_search_param(const search_param_base& param, const void* filter_bitset)
 {
   if (filter_bitset != nullptr) { throw std::runtime_error("Filtering is not supported yet."); }
-  auto sp    = dynamic_cast<const search_param&>(param);
-  int nprobe = sp.nprobe;
-  assert(nprobe <= nlist_);
-  auto index_ivf = dynamic_cast<faiss::IndexIVF*>(index_.get());
-  if (index_ivf != nullptr) {
-    index_ivf->nprobe        = nprobe;
-    index_ivf->parallel_mode = sp.parallel_mode;
+  auto sp        = dynamic_cast<const search_param&>(param);
+  int nprobe     = sp.nprobe;
+  auto index_ivf = dynamic_cast<faiss_ivf_type*>(index_.get());
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (nprobe <= 0 || nprobe > index_ivf->nlist) {
+      throw std::invalid_argument("nprobe must be in [1, nlist]");
+    }
+    binary_search_params_.nprobe = nprobe;
+  } else {
+    assert(nprobe <= nlist_);
+    if (index_ivf != nullptr) {
+      index_ivf->nprobe        = nprobe;
+      index_ivf->parallel_mode = sp.parallel_mode;
+    }
+    if (sp.refine_ratio > 1.0) { this->index_refine_.get()->k_factor = sp.refine_ratio; }
   }
-
-  if (sp.refine_ratio > 1.0) { this->index_refine_.get()->k_factor = sp.refine_ratio; }
 }
 
 template <typename T>
@@ -171,21 +195,49 @@ void faiss_cpu<T>::search(
   static_assert(sizeof(size_t) == sizeof(faiss::idx_t),
                 "sizes of size_t and faiss::idx_t are different");
 
-  index_->search(batch_size, queries, k, distances, reinterpret_cast<faiss::idx_t*>(neighbors));
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    if (batch_size < 0 || k <= 0) { throw std::invalid_argument("Invalid search shape"); }
+    binary_distances_.resize(static_cast<size_t>(batch_size) * k);
+    index_->search(batch_size,
+                   queries,
+                   k,
+                   binary_distances_.data(),
+                   reinterpret_cast<faiss::idx_t*>(neighbors),
+                   &binary_search_params_);
+    std::transform(
+      binary_distances_.begin(), binary_distances_.end(), distances, [](int32_t distance) {
+        return static_cast<float>(distance);
+      });
+  } else {
+    index_->search(batch_size, queries, k, distances, reinterpret_cast<faiss::idx_t*>(neighbors));
+  }
 }
 
 template <typename T>
 template <typename Index>
 void faiss_cpu<T>::save_(const std::string& file) const
 {
-  faiss::write_index(index_.get(), file.c_str());
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    faiss::write_index_binary(index_.get(), file.c_str());
+  } else {
+    faiss::write_index(index_.get(), file.c_str());
+  }
 }
 
 template <typename T>
 template <typename Index>
 void faiss_cpu<T>::load_(const std::string& file)
 {
-  index_ = std::shared_ptr<Index>(dynamic_cast<Index*>(faiss::read_index(file.c_str())));
+  if constexpr (std::is_same_v<T, uint8_t>) {
+    std::unique_ptr<faiss::IndexBinary> loaded{faiss::read_index_binary(file.c_str())};
+    auto* index = dynamic_cast<Index*>(loaded.get());
+    if (index == nullptr || index->d != static_cast<int64_t>(this->dim_) * 8) {
+      throw std::runtime_error("Serialized Faiss binary index type or dimension does not match");
+    }
+    index_ = std::shared_ptr<Index>(static_cast<Index*>(loaded.release()));
+  } else {
+    index_ = std::shared_ptr<Index>(dynamic_cast<Index*>(faiss::read_index(file.c_str())));
+  }
 }
 
 template <typename T>
@@ -210,6 +262,38 @@ class faiss_cpu_ivf_flat : public faiss_cpu<T> {
   std::unique_ptr<algo<T>> copy()
   {
     return std::make_unique<faiss_cpu_ivf_flat<T>>(*this);  // use copy constructor
+  }
+};
+
+class faiss_cpu_binary_ivf : public faiss_cpu<uint8_t> {
+ public:
+  faiss_cpu_binary_ivf(Metric metric, int packed_dim, const build_param& param)
+    : faiss_cpu<uint8_t>(metric, packed_dim, param)
+  {
+    if (metric != Metric::kBitwiseHamming) {
+      throw std::invalid_argument("Faiss Binary IVF requires bitwise_hamming distance");
+    }
+    if (packed_dim <= 0 || packed_dim > std::numeric_limits<int>::max() / 8) {
+      throw std::invalid_argument("Invalid packed binary dimension");
+    }
+    if (param.nlist <= 0 || param.ratio <= 0) {
+      throw std::invalid_argument("nlist and ratio must be positive");
+    }
+    const auto binary_dim = static_cast<int64_t>(packed_dim) * 8;
+    auto quantizer        = std::make_unique<faiss::IndexBinaryFlat>(binary_dim);
+    auto index = std::make_shared<faiss::IndexBinaryIVF>(quantizer.get(), binary_dim, param.nlist);
+    index->own_fields = true;
+    quantizer.release();
+    this->index_ = std::move(index);
+  }
+
+  void save(const std::string& file) const override { this->save_<faiss::IndexBinaryIVF>(file); }
+
+  void load(const std::string& file) override { this->load_<faiss::IndexBinaryIVF>(file); }
+
+  auto copy() -> std::unique_ptr<algo<uint8_t>> override
+  {
+    return std::make_unique<faiss_cpu_binary_ivf>(*this);
   }
 };
 
