@@ -233,13 +233,9 @@ RAFT_KERNEL fused_topk_kernel(const float* __restrict__ dots,
 }
 
 /**
- * Whether `err` is the driver declining an L2 hint rather than a fault this guard did not cause.
- *
- * Every runtime call also surfaces errors left behind by earlier asynchronous work, so clearing
- * whatever these best-effort calls return would bury a real failure under a cache hint. Only the
- * statuses that the carve-out and access-policy entry points document for themselves are treated
- * as a refusal: an unsupported or out-of-range limit, a carve-out the device cannot reserve, and
- * an attribute the stream does not take.
+ * Determines if the error is caused by a decline of the L2 hint or an issue from another source.
+ * If earlier asynchronous work causes a real failure, it can be missed or overwritten by the
+ * error caused by a refusal of the L2 hint.
  */
 inline auto is_l2_hint_refusal(cudaError_t err) -> bool
 {
@@ -254,15 +250,7 @@ inline auto is_l2_hint_refusal(cudaError_t err) -> bool
  * while the operand slabs are streamed once each.
  *
  * Purely a hint: it changes residency, never results. Every call that sets it up is therefore
- * best-effort, and a driver that declines one leaves the window inactive and that status cleared
- * rather than failing the build. Only a declined hint is swallowed, though; any other status came
- * from work this guard did not do and is raised as usual.
- *
- * Both settings outlive a plain scope -- the carve-out is device-wide and the access policy
- * belongs to the caller's stream -- so the guard records what it found and puts both back.
- * `cudaCtxResetPersistingL2Cache` is still not called, because `segmented_topk` is asynchronous
- * and the guard dies while its kernels are still in flight; dropping the carve-out is what
- * releases the reservation.
+ * best-effort, and a driver that declines one leaves the window inactive and that status cleared.
  */
 class persisting_l2_window {
  public:
